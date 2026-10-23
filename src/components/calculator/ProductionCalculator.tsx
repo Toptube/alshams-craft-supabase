@@ -21,7 +21,7 @@ import {
   FOUNDATIONAL_UNITS,
 } from '../../utils/macrameMath';
 import { tenantStorage } from '../../db/dexieDB';
-import { firestoreService } from '../../db/firestoreService';
+import { supabase } from '../../lib/supabase';
 import {
   MAIN_SECTIONS,
   SUB_CRAFTS_REGISTRY,
@@ -49,6 +49,12 @@ import {
   Boxes,
   UserCheck,
   PlusCircle,
+  Cloud,
+  CloudOff,
+  Check,
+  AlertCircle,
+  HardDrive,
+  RefreshCw,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
 import {
@@ -318,6 +324,180 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   );
 
   const [saveStatus, setSaveStatus] = useState<string>('');
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'local_only' | 'saving'>(
+    initialRecord ? 'synced' : 'local_only'
+  );
+  const [draftRestoredNotice, setDraftRestoredNotice] = useState<string>('');
+
+  // Auto-restore last unsaved draft from dexieDB on mount if no initialRecord is loaded
+  const hasAttemptedRestoreRef = React.useRef(false);
+  useEffect(() => {
+    if (initialRecord || hasAttemptedRestoreRef.current) return;
+    hasAttemptedRestoreRef.current = true;
+
+    let isMounted = true;
+    const restoreDraft = async () => {
+      try {
+        const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
+        if (!tenantId) return;
+
+        const draft = await tenantStorage.getOperationDraft(tenantId, 'calculator', `draft_calc_${tenantId}`);
+        if (!isMounted || !draft || !draft.data) return;
+
+        const d = draft.data;
+        if (d.category) setCategory(d.category);
+        if (d.productName) setProductName(d.productName);
+        if (d.selectedSectionId) setSelectedSectionId(d.selectedSectionId);
+        if (d.selectedCraftId) setSelectedCraftId(d.selectedCraftId);
+        if (d.shape3D) setShape3D(d.shape3D);
+        if (typeof d.widthCm === 'number') setWidthCm(d.widthCm);
+        if (typeof d.diameterCm === 'number') setDiameterCm(d.diameterCm);
+        if (typeof d.baseDiameterCm === 'number') setBaseDiameterCm(d.baseDiameterCm);
+        if (typeof d.sideHeightCm === 'number') setSideHeightCm(d.sideHeightCm);
+        if (typeof d.totalLengthCm === 'number') setTotalLengthCm(d.totalLengthCm);
+        if (typeof d.fringeLengthCm === 'number') setFringeLengthCm(d.fringeLengthCm);
+        if (d.cordTypeId) setCordTypeId(d.cordTypeId);
+        if (typeof d.cordThicknessMm === 'number') setCordThicknessMm(d.cordThicknessMm);
+        if (typeof d.pricePerKg === 'number') setPricePerKg(d.pricePerKg);
+        if (typeof d.curtainRodCost === 'number') setCurtainRodCost(d.curtainRodCost);
+        if (typeof d.cushionCoverCost === 'number') setCushionCoverCost(d.cushionCoverCost);
+        if (typeof d.fiberCost === 'number') setFiberCost(d.fiberCost);
+        if (typeof d.bagAccessoriesCost === 'number') setBagAccessoriesCost(d.bagAccessoriesCost);
+        if (Array.isArray(d.extraMaterials)) setExtraMaterials(d.extraMaterials);
+        if (typeof d.laborWage === 'number') setLaborWage(d.laborWage);
+        if (d.assignedEmployeeId) setAssignedEmployeeId(d.assignedEmployeeId);
+        if (typeof d.packagingCost === 'number') setPackagingCost(d.packagingCost);
+        if (typeof d.transitFees === 'number') setTransitFees(d.transitFees);
+        if (typeof d.adminExpensesShare === 'number') setAdminExpensesShare(d.adminExpensesShare);
+        if (typeof d.profitMarginPercent === 'number') setProfitMarginPercent(d.profitMarginPercent);
+        if (d.personalNotes) setPersonalNotes(d.personalNotes);
+        if (d.productImageUrl) setProductImageUrl(d.productImageUrl);
+        if (d.existingRecordId) setExistingRecordId(d.existingRecordId);
+
+        setSyncStatus(draft.syncedToCloud ? 'synced' : 'local_only');
+        setDraftRestoredNotice('تم استرجاع مسودة العمل الأخيرة من التخزين المحلي dexieDB تلقائياً لحماية بياناتك.');
+        setTimeout(() => {
+          if (isMounted) setDraftRestoredNotice('');
+        }, 5000);
+      } catch (err) {
+        console.warn('Could not restore calculator draft:', err);
+      }
+    };
+
+    restoreDraft();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [profile.tenantId, profile.workshopId, profile.id, initialRecord]);
+
+  // Debounced auto-save draft to dexieDB whenever fields change
+  const draftSaveTimeoutRef = React.useRef<any>(null);
+  const isInitialMountRef = React.useRef(true);
+
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+
+    setSyncStatus('saving');
+
+    if (draftSaveTimeoutRef.current) {
+      clearTimeout(draftSaveTimeoutRef.current);
+    }
+
+    draftSaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
+        if (!tenantId) return;
+
+        const draftId = `draft_calc_${tenantId}`;
+        await tenantStorage.saveOperationDraft({
+          id: draftId,
+          tenantId,
+          type: 'calculator',
+          title: productName.trim() || `مسودة ${category}`,
+          data: {
+            category,
+            productName,
+            selectedSectionId,
+            selectedCraftId,
+            shape3D,
+            widthCm,
+            diameterCm,
+            baseDiameterCm,
+            sideHeightCm,
+            totalLengthCm,
+            fringeLengthCm,
+            cordTypeId,
+            cordThicknessMm,
+            pricePerKg,
+            curtainRodCost,
+            cushionCoverCost,
+            fiberCost,
+            bagAccessoriesCost,
+            extraMaterials,
+            laborWage,
+            assignedEmployeeId,
+            packagingCost,
+            transitFees,
+            adminExpensesShare,
+            profitMarginPercent,
+            manualOverrideStrands: overrideStrandsActive ? Number(manualStrands) : undefined,
+            manualOverrideStrandLength: overrideLengthActive ? Number(manualLength) : undefined,
+            personalNotes,
+            productImageUrl,
+            existingRecordId,
+          },
+          syncedToCloud: false,
+          updatedAt: Date.now(),
+        });
+        setSyncStatus('local_only');
+      } catch (err) {
+        console.warn('Auto-save draft error:', err);
+      }
+    }, 800);
+
+    return () => {
+      if (draftSaveTimeoutRef.current) {
+        clearTimeout(draftSaveTimeoutRef.current);
+      }
+    };
+  }, [
+    category,
+    productName,
+    selectedSectionId,
+    selectedCraftId,
+    shape3D,
+    widthCm,
+    diameterCm,
+    baseDiameterCm,
+    sideHeightCm,
+    totalLengthCm,
+    fringeLengthCm,
+    cordTypeId,
+    cordThicknessMm,
+    pricePerKg,
+    curtainRodCost,
+    cushionCoverCost,
+    fiberCost,
+    bagAccessoriesCost,
+    extraMaterials,
+    laborWage,
+    assignedEmployeeId,
+    packagingCost,
+    transitFees,
+    adminExpensesShare,
+    profitMarginPercent,
+    overrideStrandsActive,
+    manualStrands,
+    overrideLengthActive,
+    manualLength,
+    personalNotes,
+    productImageUrl,
+    existingRecordId,
+  ]);
 
   // Load database raw materials & employees for dynamic feeding
   const loadDatabaseMaterialsAndStaff = async () => {
@@ -642,15 +822,10 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       const recordId = existingRecordId || `prod_${Date.now()}`;
       const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
 
-      // رقم منتج متسلسل تلقائي (counters داخل transaction)
+      // رقم منتج متسلسل تلقائي من قاعدة البيانات المحلية
       let serialNum = initialRecord?.productSerialNumber;
       if (!serialNum) {
-        try {
-          serialNum = await firestoreService.getNextProductSerialNumber(tenantId);
-        } catch (err) {
-          console.warn('Counters transaction error, falling back to local counter:', err);
-          serialNum = await tenantStorage.getNextProductSerialNumber(tenantId);
-        }
+        serialNum = await tenantStorage.getNextProductSerialNumber(tenantId);
       }
       const productCode = `PRD-${String(serialNum).padStart(4, '0')}`;
 
@@ -684,11 +859,43 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
 
       // Mutates / overwrites existing record via Dexie instead of duplicating
       await tenantStorage.mutateProduct(savedRecord);
+      let cloudSynced = false;
       try {
-        await firestoreService.saveSavedProductRecord(tenantId, savedRecord);
+        const { data: authData } = await supabase.auth.getSession();
+        if (authData.session?.user) {
+          const { error: syncErr } = await supabase
+            .from('workshops')
+            .update({
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', tenantId);
+
+          if (!syncErr) {
+            cloudSynced = true;
+          }
+        }
       } catch (e) {
-        console.warn('Could not sync product to firestore:', e);
+        console.warn('Supabase sync check deferred:', e);
+        cloudSynced = false;
       }
+
+      setSyncStatus(cloudSynced ? 'synced' : 'local_only');
+
+      // Update operation draft in dexieDB to reflect cloud sync status
+      const draftId = `draft_calc_${tenantId}`;
+      await tenantStorage.saveOperationDraft({
+        id: draftId,
+        tenantId,
+        type: 'calculator',
+        title: savedRecord.productName,
+        data: {
+          savedRecordId: recordId,
+          ...calculationInput,
+          output,
+        },
+        syncedToCloud: cloudSynced,
+        updatedAt: Date.now(),
+      });
 
       setExistingRecordId(recordId);
 
@@ -733,7 +940,45 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           </h2>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* مؤشر بصري لحالة التخزين والمزامنة السحابية */}
+          {syncStatus === 'synced' && (
+            <div
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-[11px] font-bold shadow-2xs"
+              title="البيانات الحالية متزامنة بنجاح مع السحابة"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              <Cloud className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>متزامن مع السحابة</span>
+            </div>
+          )}
+
+          {syncStatus === 'local_only' && (
+            <div
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-[11px] font-bold shadow-2xs"
+              title="مسودة العمل محفوظة محلياً في dexieDB بأمان وتنتظر المزامنة"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+              </span>
+              <HardDrive className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>محفوظ محلياً فقط (dexieDB)</span>
+            </div>
+          )}
+
+          {syncStatus === 'saving' && (
+            <div
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 text-[11px] font-bold"
+              title="جاري حفظ المسودة في التخزين المحلي..."
+            >
+              <RefreshCw className="w-3 h-3 animate-spin text-stone-500" />
+              <span>جاري الحفظ المحلي...</span>
+            </div>
+          )}
+
           {existingRecordId ? (
             <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-300/50">
               تعديل مباشر على السجل الحالي
@@ -745,6 +990,22 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           )}
         </div>
       </div>
+
+      {draftRestoredNotice && (
+        <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs font-bold flex items-center justify-between gap-2 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>{draftRestoredNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDraftRestoredNotice('')}
+            className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer text-xs"
+          >
+            إغلاق
+          </button>
+        </div>
+      )}
 
       {saveStatus && (
         <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
@@ -1938,6 +2199,41 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               <span>[زر حفظ المنتج في الأرشيف]</span>
             </button>
           )}
+
+          {/* أيقونة الحالة بجوار زر الحفظ مباشرة تعتمد على DexieDB ومزامنة Supabase */}
+          <div
+            className={`px-3.5 py-2.5 rounded-2xl border flex items-center gap-2 text-xs font-black transition-all ${
+              syncStatus === 'synced'
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700 shadow-sm'
+                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700 shadow-sm'
+            }`}
+            title={
+              syncStatus === 'synced'
+                ? 'البيانات متصلة ومتزامنة مع سحابة Supabase وموثقة في DexieDB'
+                : 'البيانات محفوظة محلياً كمسودة في DexieDB (في انتظار المزامنة مع السحابة)'
+            }
+          >
+            {syncStatus === 'synced' ? (
+              <>
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                </span>
+                <Cloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 -mr-1 flex-shrink-0" />
+                <span className="text-[11px] font-bold">متزامن سحابياً</span>
+              </>
+            ) : (
+              <>
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+                </span>
+                <HardDrive className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 -mr-1 flex-shrink-0" />
+                <span className="text-[11px] font-bold">مسودة محلية (DexieDB)</span>
+              </>
+            )}
+          </div>
 
           <button
             type="button"

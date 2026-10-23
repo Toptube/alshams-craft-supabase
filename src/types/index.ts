@@ -81,6 +81,10 @@ export interface WorkshopProfile {
   familyNickname?: string;
   welcomeShown?: boolean;
   role?: 'admin' | 'superadmin' | 'artisan' | 'manager' | string;
+  enableDailySalesReminder?: boolean; // تفعيل تنبيه مراجعة مبيعات اليوم قبل الإغلاق (افتراضي: true)
+  dailySalesReminderMode?: 'closing_offset' | 'fixed_time'; // قبل الإغلاق بساعة أو وقت محدد
+  dailySalesReminderTime?: string; // وقت التنبيه الثابت (مثلاً 20:00)
+  workshopClosingHour?: string; // موعد إغلاق الورشة المعتاد (مثلاً 21:00)
   isFrozen?: boolean;
   frozenReason?: string;
   frozenAt?: number;
@@ -655,6 +659,7 @@ export interface NotificationItem {
     | 'overdue_deposit'
     | 'milestone_usage'
     | 'milestone_sales'
+    | 'daily_sales_reminder'
     | 'system'
     | string;
   title: string;
@@ -663,6 +668,16 @@ export interface NotificationItem {
   relatedItemId?: string;
   relatedOrderId?: string;
   createdAt: number;
+}
+
+export interface OperationDraft {
+  id: string; // e.g. draft_calc_<tenantId> or draft_order_<id>
+  tenantId: string;
+  type: 'calculator' | 'order' | 'work_order' | string;
+  title?: string;
+  data: any;
+  syncedToCloud: boolean;
+  updatedAt: number;
 }
 
 // 12. Macramé & Calculator Core Types

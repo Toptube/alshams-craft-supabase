@@ -1,55 +1,49 @@
 import React from 'react';
 import falconAvatarImg from '../../assets/image_hmWr-I.png';
+import alshamsFalconEmblemImg from '../../assets/alshams_falcon_emblem.png';
 
-export { falconAvatarImg };
+export { falconAvatarImg, alshamsFalconEmblemImg };
 
 /**
- * Geometric Sun SVG Icon for AlShams Craft Platform
- * Central golden circle (#F5C542 to #D4A017) with 12 symmetrical harmonious rays
+ * الأيقونة الرسمية لمنظومة الشمس كرافت - الصقر ومونوغرام SH المعتمد بخلفية شفافة
  */
-export const AlShamsSunIcon: React.FC<{ className?: string }> = ({ className = 'w-full h-full' }) => {
-  const rays = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+export const AlShamsFalconEmblem: React.FC<{
+  className?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+}> = ({ className = '', size = 'md' }) => {
+  const sizeMap = {
+    xs: 'w-6 h-6',
+    sm: 'w-8 h-8',
+    md: 'w-10 h-10',
+    lg: 'w-14 h-14',
+    xl: 'w-20 h-20',
+  };
 
   return (
-    <svg
-      viewBox="0 0 100 100"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id="alshamsSunGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#F5C542" />
-          <stop offset="100%" stopColor="#D4A017" />
-        </linearGradient>
-      </defs>
+    <img
+      src={alshamsFalconEmblemImg}
+      alt="شعار الشمس كرافت"
+      className={`${sizeMap[size]} object-contain select-none shrink-0 drop-shadow-2xs ${className}`}
+    />
+  );
+};
 
-      {/* 12 Harmonious Geometric Rays */}
-      <g fill="url(#alshamsSunGrad)">
-        {rays.map((deg) => (
-          <polygon
-            key={deg}
-            points="50,4 53.5,24 46.5,24"
-            transform={`rotate(${deg} 50 50)`}
-          />
-        ))}
-
-        {/* Central Golden Circle */}
-        <circle cx="50" cy="50" r="22" />
-      </g>
-
-      {/* Subtle Inner Concentric Glow */}
-      <circle cx="50" cy="50" r="16" fill="#B4800C" fillOpacity="0.25" />
-      <circle cx="50" cy="50" r="9" fill="#FFFFFF" fillOpacity="0.25" />
-    </svg>
+/**
+ * Geometric Sun SVG Icon for AlShams Craft Platform (Preserved for compatibility)
+ */
+export const AlShamsSunIcon: React.FC<{ className?: string }> = ({ className = 'w-full h-full' }) => {
+  return (
+    <img
+      src={alshamsFalconEmblemImg}
+      alt="أيقونة الشمس كرافت"
+      className={`${className} object-contain`}
+    />
   );
 };
 
 /**
  * OFFICIAL SYSTEM PLATFORM LOGO BANNER (الشمس كرافت / AlShams Craft)
- * Pure inline SVG geometric sun icon + Cairo 800 typography.
- * Text automatically switches between light and dark: text-stone-900 / dark:text-amber-300
- * Strict separation: Never mixed with artisan's personal shop logo.
+ * Uses the official transparent falcon emblem + Cairo typography.
  */
 export const AlShamsBrandLogo: React.FC<{
   className?: string;
@@ -57,19 +51,23 @@ export const AlShamsBrandLogo: React.FC<{
   showSubtitle?: boolean;
 }> = ({ className = '', size = 'md', showSubtitle = true }) => {
   const sizeMap = {
-    sm: { icon: 'w-7 h-7', title: 'text-sm', sub: 'text-[8px]', gap: 'gap-2' },
-    md: { icon: 'w-10 h-10', title: 'text-lg sm:text-xl', sub: 'text-[9px]', gap: 'gap-2.5' },
-    lg: { icon: 'w-14 h-14', title: 'text-2xl', sub: 'text-[11px]', gap: 'gap-3' },
-    xl: { icon: 'w-20 h-20', title: 'text-3xl sm:text-4xl', sub: 'text-[13px]', gap: 'gap-4' },
+    sm: { icon: 'w-8 h-8', title: 'text-sm', sub: 'text-[8px]', gap: 'gap-2' },
+    md: { icon: 'w-12 h-12', title: 'text-lg sm:text-xl', sub: 'text-[9px]', gap: 'gap-2.5' },
+    lg: { icon: 'w-16 h-16', title: 'text-2xl', sub: 'text-[11px]', gap: 'gap-3' },
+    xl: { icon: 'w-24 h-24', title: 'text-3xl sm:text-4xl', sub: 'text-[13px]', gap: 'gap-4' },
   };
 
   const currentSize = sizeMap[size];
 
   return (
     <div className={`flex items-center ${currentSize.gap} select-none ${className}`}>
-      {/* Elegant Geometric Sun SVG Icon */}
-      <div className={`relative ${currentSize.icon} flex-shrink-0 flex items-center justify-center drop-shadow-sm`}>
-        <AlShamsSunIcon />
+      {/* Official Transparent Falcon Emblem */}
+      <div className={`relative ${currentSize.icon} flex-shrink-0 flex items-center justify-center`}>
+        <img
+          src={alshamsFalconEmblemImg}
+          alt="شعار الشمس كرافت الرسمي"
+          className="w-full h-full object-contain filter drop-shadow-sm select-none"
+        />
       </div>
 
       {/* Brand Name Calligraphy & Typography */}
@@ -78,12 +76,12 @@ export const AlShamsBrandLogo: React.FC<{
           <span className={`font-[800] ${currentSize.title} tracking-tight text-stone-900 dark:text-amber-300 font-sans`}>
             الشمس كرافت
           </span>
-          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-mono">
+          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-mono">
             ERP
           </span>
         </div>
         {showSubtitle && (
-          <span className={`${currentSize.sub} font-mono tracking-widest uppercase text-stone-500 dark:text-stone-400 mt-0.5`}>
+          <span className={`${currentSize.sub} font-mono tracking-widest uppercase text-stone-500 dark:text-stone-400 mt-1`}>
             ALSHAMS CRAFT
           </span>
         )}
@@ -92,8 +90,7 @@ export const AlShamsBrandLogo: React.FC<{
   );
 };
 
-// EXCLUSIVE FALCON MASCOT AVATAR FOR "صقر الشمساوية AI" [image_hmWr-I.png]
-// STRICTLY RESTRICTED TO THE AI HELPER CONVERSATIONAL CHAT - NEVER PART OF ARTISAN PROFILE
+// EXCLUSIVE FALCON MASCOT AVATAR FOR "صقر الشمساوية AI"
 export const FalconMascotAvatar: React.FC<{
   className?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -127,7 +124,6 @@ export const FalconMascotAvatar: React.FC<{
 };
 
 // DEDICATED ARTISAN PROFILE PICTURE COMPONENT
-// STRICTLY SEPARATE FROM THE PLATFORM LOGO AND MASCOT
 export const ArtisanAvatar: React.FC<{
   logoUrl?: string;
   artistName: string;

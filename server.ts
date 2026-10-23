@@ -1,8 +1,18 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
-import { supabase } from './src/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
+import supabaseConfig from './supabase-config.json';
 import { aiProvider } from './server/aiProvider';
+
+// Standalone server Supabase client for JWT verification (no browser session persistence)
+const supabase = createClient(supabaseConfig.url, supabaseConfig.publishableKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  },
+});
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;

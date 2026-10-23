@@ -1,7 +1,7 @@
 /**
- * نظام الصوتيات الخفيفة لمنظومة الشمس كرافت ERP
- * مولد نغمات برمجي بالكامل باستخدام Web Audio API (بدون أي ملفات صوتية خارجية)
- * يدعم قيود المتصفحات لتشغيل الصوت فقط بعد أول تفاعل للمستخدم مع تحكم كامل بالصوت من الإعدادات.
+ * نظام الصوتيات التفاعلية لمنظومة الشمس كرافت ERP
+ * مولد نغمات برمجي متطور بالكامل باستخدام Web Audio API (بدون أي ملفات صوتية خارجية)
+ * أصوات عالية ومميزة ومحسنة مع نغمات كليك تكتيكية حية وتنبيهات رنانة وتفاعلية وجذابة.
  */
 
 // Global AudioContext singleton
@@ -17,7 +17,6 @@ const SOUND_ENABLED_KEY = 'alshams_sound_enabled';
 export function isSoundEnabled(): boolean {
   try {
     const val = localStorage.getItem(SOUND_ENABLED_KEY);
-    // المفتاح افتراضياً مفعل إذا لم يتم تعطيله صراحةً
     return val !== 'false';
   } catch {
     return true;
@@ -43,7 +42,6 @@ export function toggleSound(): boolean {
   const next = !current;
   setSoundEnabled(next);
   if (next) {
-    // تشغيل نغمة خفيفة لتأكيد التفعيل
     playSuccessSound();
   }
   return next;
@@ -60,7 +58,6 @@ function initUserInteractionListener() {
     if (audioCtx && audioCtx.state === 'suspended') {
       audioCtx.resume().catch(() => {});
     }
-    // إزالة المستمعات بعد أول لمسة أو ضغطة
     window.removeEventListener('pointerdown', handleFirstInteraction);
     window.removeEventListener('keydown', handleFirstInteraction);
     window.removeEventListener('touchstart', handleFirstInteraction);
@@ -71,7 +68,6 @@ function initUserInteractionListener() {
   window.addEventListener('touchstart', handleFirstInteraction, { once: true, passive: true });
 }
 
-// تهيئة المستمع عند تحميل الملف في بيئة المتصفح
 if (typeof window !== 'undefined') {
   initUserInteractionListener();
 }
@@ -82,7 +78,6 @@ if (typeof window !== 'undefined') {
 function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
 
-  // منع التشغيل الصوتي قبل أول تفاعل للمستخدم
   if (!hasUserInteracted) return null;
 
   try {
@@ -105,14 +100,14 @@ function getAudioContext(): AudioContext | null {
 }
 
 /**
- * دالة مساعدة لتشغيل نغمة جيبية/مثلثية دافئة بمغلف صوتي هادئ
+ * دالة مساعدة لتشغيل نغمة بمغلف صوتي دقيق
  */
 function playTone(
   ctx: AudioContext,
   freq: number,
   startTime: number,
   duration: number,
-  peakGain: number = 0.08,
+  peakGain: number = 0.12,
   type: OscillatorType = 'sine'
 ) {
   try {
@@ -122,9 +117,8 @@ function playTone(
     osc.type = type;
     osc.frequency.setValueAtTime(freq, startTime);
 
-    // هجوم ناعم وتلاشي أسي طبيعي (Attack & Exponential Decay)
     gain.gain.setValueAtTime(0.0001, startTime);
-    gain.gain.exponentialRampToValueAtTime(peakGain, startTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.001, peakGain), startTime + 0.015);
     gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
     osc.connect(gain);
@@ -132,30 +126,106 @@ function playTone(
 
     osc.start(startTime);
     osc.stop(startTime + duration);
-  } catch (err) {
-    // كتم الأخطاء لضمان عدم تعطل التطبيق
+  } catch {
+    // كتم الأخطاء لضمان استقرار التطبيق
   }
 }
 
 /**
- * 1. صوت الترحيب (Welcome Sound):
- * نغمة تصاعدية ثلاثية دافئة ومبهجة (C5 - E5 - G5) ترافق رسالتي الترحيب بالورشة والعودة
+ * 1. صوت الضغط على الأزرار (Tactile Click Tone):
+ * نغمة كليك مميزة، حيوية، نقية وسريعة تُعطي إحساساً فيزيائياً فخماً وملموساً عند الضغط
  */
-export function playWelcomeSound(): void {
+export function playButtonClickSound(): void {
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    // انزلاق ترددي مجهري مع نغمة هارمونية مميزة تعطي صوت "كليك" ميكانيكي راقي
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1450, now);
+    osc.frequency.exponentialRampToValueAtTime(520, now + 0.035);
+
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.045);
+  } catch {}
+}
+
+/**
+ * 2. صوت التنقل بين التابات (Tab Switch / Filter Tone):
+ * نقرة أنعم وأعلى نبرة للانتقال بين أقسام الإشعارات
+ */
+export function playTabSwitchSound(): void {
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, now);
+    osc.frequency.exponentialRampToValueAtTime(1100, now + 0.03);
+
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.14, now + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.05);
+  } catch {}
+}
+
+/**
+ * 3. رنين الإشعارات العالي والمميز (Vibrant Notification Chime):
+ * لحن جرس كريستالي عالي ثلاثي النبرات (A5 -> C#6 -> E6) مسموع ومبهج
+ */
+export function playNotificationChimeSound(): void {
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;
 
   const now = ctx.currentTime;
-  // النغمات المتصاعدة الثلاثية (523.25Hz -> 659.25Hz -> 783.99Hz)
-  playTone(ctx, 523.25, now + 0.00, 0.28, 0.07, 'sine');
-  playTone(ctx, 659.25, now + 0.12, 0.32, 0.08, 'sine');
-  playTone(ctx, 783.99, now + 0.25, 0.45, 0.09, 'triangle');
+  // C6 (1046.5Hz) -> E6 (1318.5Hz) -> G6 (1567.98Hz)
+  playTone(ctx, 1046.5, now + 0.00, 0.22, 0.16, 'triangle');
+  playTone(ctx, 1318.5, now + 0.10, 0.26, 0.18, 'sine');
+  playTone(ctx, 1567.98, now + 0.20, 0.40, 0.20, 'sine');
 }
 
 /**
- * 2. صوت التنبيه (Alert / Notification Sound):
- * رنين مزدوج هادئ ورشيق لتنبيهات المخزن والإشعارات
+ * 4. رنين الإشعارات العاجلة (Urgent Alert Chime):
+ * تنبيه مزدوج عاجل ونشط يوقظ الانتباه لمواعيد التسليم ونفاد الخامات
+ */
+export function playUrgentNotificationSound(): void {
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+  playTone(ctx, 987.77, now + 0.00, 0.12, 0.20, 'triangle');
+  playTone(ctx, 1318.51, now + 0.08, 0.14, 0.22, 'sine');
+  playTone(ctx, 1567.98, now + 0.16, 0.35, 0.24, 'sine');
+}
+
+/**
+ * 5. صوت التنبيه العام (Alert Sound):
+ * رنين مزدوج قوي ومميز
  */
 export function playAlertSound(): void {
   if (!isSoundEnabled()) return;
@@ -163,14 +233,28 @@ export function playAlertSound(): void {
   if (!ctx) return;
 
   const now = ctx.currentTime;
-  // نغمتين متتاليتين (880Hz -> 1046.5Hz) بنعومة
-  playTone(ctx, 880, now + 0.00, 0.15, 0.06, 'sine');
-  playTone(ctx, 1046.5, now + 0.09, 0.25, 0.08, 'sine');
+  playTone(ctx, 920, now + 0.00, 0.14, 0.16, 'triangle');
+  playTone(ctx, 1240, now + 0.08, 0.28, 0.18, 'sine');
 }
 
 /**
- * 3. صوت النجاح (Success Sound):
- * نغمة إيجابية واضحة ومريحة تُعزف عند إتمام حفظ المنتج أو الفاتورة أو الإعدادات
+ * 6. صوت الترحيب (Welcome Sound):
+ * نغمة تصاعدية ثلاثية دافئة ومبهجة
+ */
+export function playWelcomeSound(): void {
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+  playTone(ctx, 523.25, now + 0.00, 0.28, 0.12, 'sine');
+  playTone(ctx, 659.25, now + 0.12, 0.32, 0.14, 'sine');
+  playTone(ctx, 783.99, now + 0.25, 0.45, 0.16, 'triangle');
+}
+
+/**
+ * 7. صوت النجاح (Success Sound):
+ * نغمة إيجابية واضحة ومريحة تُعزف عند إتمام حفظ المنتج أو الفاتورة أو التصدير
  */
 export function playSuccessSound(): void {
   if (!isSoundEnabled()) return;
@@ -178,14 +262,13 @@ export function playSuccessSound(): void {
   if (!ctx) return;
 
   const now = ctx.currentTime;
-  // وتر نجاح مكون من نغمتين هارمونيتين متتاليتين (587.33Hz [D5] ثم 880Hz [A5])
-  playTone(ctx, 587.33, now + 0.00, 0.18, 0.07, 'triangle');
-  playTone(ctx, 880.00, now + 0.10, 0.35, 0.09, 'sine');
+  playTone(ctx, 587.33, now + 0.00, 0.18, 0.14, 'triangle');
+  playTone(ctx, 880.00, now + 0.09, 0.35, 0.16, 'sine');
 }
 
 /**
- * 4. صوت الخطأ (Error Sound):
- * نغمة مزدوجة منخفضة ولطيفة غير مزعجة عند فشل إدخال أو حقل إجباري
+ * 8. صوت الخطأ (Error Sound):
+ * نغمة مزدوجة منخفضة ولطيفة
  */
 export function playErrorSound(): void {
   if (!isSoundEnabled()) return;
@@ -193,13 +276,12 @@ export function playErrorSound(): void {
   if (!ctx) return;
 
   const now = ctx.currentTime;
-  playTone(ctx, 240, now + 0.00, 0.12, 0.08, 'sine');
-  playTone(ctx, 190, now + 0.10, 0.20, 0.07, 'sine');
+  playTone(ctx, 280, now + 0.00, 0.12, 0.14, 'sine');
+  playTone(ctx, 220, now + 0.10, 0.20, 0.13, 'sine');
 }
 
 /**
- * 5. صوت تقليب الصفحة / التنقل (Page Flip / Navigation Sound):
- * صوت نقرة ورقية ناعمة وخفيفة جداً تُمثل تقليب الصفحة وترافق التنقل بين الأقسام والشاشات
+ * 9. صوت تقليب الصفحة / التنقل (Page Flip / Navigation Sound):
  */
 export function playPageFlipSound(): void {
   if (!isSoundEnabled()) return;
@@ -211,13 +293,12 @@ export function playPageFlipSound(): void {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
-    // انزلاق ترددي سريع يحاكي ملمس تقليب الورق
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(450, now);
     osc.frequency.exponentialRampToValueAtTime(120, now + 0.06);
 
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.045, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.07, now + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
 
     osc.connect(gain);
@@ -225,7 +306,5 @@ export function playPageFlipSound(): void {
 
     osc.start(now);
     osc.stop(now + 0.07);
-  } catch (err) {
-    // كتم الأخطاء
-  }
+  } catch {}
 }

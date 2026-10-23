@@ -1,5 +1,4 @@
 import { RawMaterialItem, CordTypeOption } from '../types';
-import { firestoreService } from '../db/firestoreService';
 import { tenantStorage as localDexieStorage } from '../db/dexieDB';
 import { CORD_TYPES } from '../utils/macrameMath';
 
@@ -133,12 +132,7 @@ export async function ensureDefaultBasicYarns(workshopId: string): Promise<RawMa
   if (!workshopId) return [];
 
   try {
-    let existing: RawMaterialItem[] = [];
-    try {
-      existing = await firestoreService.getRawMaterials(workshopId);
-    } catch {
-      existing = await localDexieStorage.getRawMaterials(workshopId);
-    }
+    const existing = await localDexieStorage.getRawMaterials(workshopId);
 
     const existingNormalized = existing.map((e) => ({
       item: e,
@@ -173,12 +167,7 @@ export async function ensureDefaultBasicYarns(workshopId: string): Promise<RawMa
           updatedAt: now + i,
         };
 
-        try {
-          await firestoreService.saveRawMaterial(workshopId, newMaterial);
-        } catch (e) {
-          console.warn('Fallback to local Dexie for yarn save:', e);
-          await localDexieStorage.saveRawMaterial(newMaterial);
-        }
+        await localDexieStorage.saveRawMaterial(newMaterial);
         existing.push(newMaterial);
       }
     }

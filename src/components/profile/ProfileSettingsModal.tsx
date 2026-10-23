@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { UserProfile, Gender, getDefaultFamilyNickname } from '../../types';
 import { COUNTRIES_CONFIG, getGenderArtistTitle } from '../../utils/macrameMath';
 import { tenantStorage } from '../../db/dexieDB';
-import { firestoreService } from '../../db/firestoreService';
 import { updateWorkshopProfileInSupabase } from '../../db/supabaseService';
 import { NumberInput } from '../ui/NumberInput';
 import {
@@ -29,8 +28,13 @@ import {
   Sparkles,
   Volume2,
   VolumeX,
+  Bell,
+  Clock,
+  ShieldOff,
+  CheckCircle2,
+  Send,
 } from 'lucide-react';
-import { isSoundEnabled, toggleSound, playSuccessSound, playErrorSound } from '../../lib/sounds';
+import { isSoundEnabled, toggleSound, playSuccessSound, playErrorSound, playButtonClickSound } from '../../lib/sounds';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -49,7 +53,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'backup' | 'factory_reset'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'reminders' | 'export_data' | 'factory_reset'>('profile');
 
   // Profile fields
   const [brandName, setBrandName] = useState(profile.brandName || '');
@@ -64,10 +68,23 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [defaultWholesaleDiscountPercent, setDefaultWholesaleDiscountPercent] = useState<number>(
     profile.defaultWholesaleDiscountPercent ?? 25
   );
+  const [enableDailySalesReminder, setEnableDailySalesReminder] = useState<boolean>(
+    profile.enableDailySalesReminder ?? true
+  );
+  const [dailySalesReminderMode, setDailySalesReminderMode] = useState<'closing_offset' | 'fixed_time'>(
+    profile.dailySalesReminderMode || 'closing_offset'
+  );
+  const [dailySalesReminderTime, setDailySalesReminderTime] = useState<string>(
+    profile.dailySalesReminderTime || '20:00'
+  );
+  const [workshopClosingHour, setWorkshopClosingHour] = useState<string>(
+    profile.workshopClosingHour || '21:00'
+  );
+  const [testReminderSent, setTestReminderSent] = useState<boolean>(false);
 
-  // Backup Export state
-  const [exporting, setExporting] = useState(false);
-  const [exportSuccess, setExportSuccess] = useState(false);
+  // Data Export state
+  const [exportingTarget, setExportingTarget] = useState<'local' | 'cloud' | null>(null);
+  const [exportSuccessTarget, setExportSuccessTarget] = useState<'local' | 'cloud' | null>(null);
   const [exportError, setExportError] = useState('');
 
   // Socials
@@ -188,6 +205,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
       const settingsPayload = {
         defaultWholesaleDiscountPercent: Number(defaultWholesaleDiscountPercent) || 25,
+        enableDailySalesReminder,
+        dailySalesReminderMode,
+        dailySalesReminderTime,
+        workshopClosingHour,
         socials: {
           facebook: activeSocials.facebook ? socialUrls.facebook.trim() : undefined,
           instagram: activeSocials.instagram ? socialUrls.instagram.trim() : undefined,
@@ -221,6 +242,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       }
 
       if (updated) {
+        updated.enableDailySalesReminder = enableDailySalesReminder;
+        updated.dailySalesReminderMode = dailySalesReminderMode;
+        updated.dailySalesReminderTime = dailySalesReminderTime;
+        updated.workshopClosingHour = workshopClosingHour;
+        await tenantStorage.saveProfile(updated);
+        await tenantStorage.generateProactiveNotifications(workshopId, updated);
         playSuccessSound();
         onProfileUpdated(updated);
         setSuccessNotice(true);
@@ -237,13 +264,54 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     }
   };
 
-  const handleExportBackupJson = async () => {
+  const handleSendTestReminder = async () => {
+    try {
+      const tid = profile.tenantId || profile.workshopId || profile.id || 'default';
+      const now = Date.now();
+      const tempProfile: UserProfile = {
+        ...profile,
+        enableDailySalesReminder: true,
+        dailySalesReminderMode,
+        dailySalesReminderTime,
+        workshopClosingHour,
+      };
+      await tenantStorage.saveProfile(tempProfile);
+
+      const title =
+        dailySalesReminderMode === 'closing_offset'
+          ? `📊 [تجريبي] تذكير قبل إغلاق الورشة (${workshopClosingHour})`
+          : `📊 [تجريبي] تذكير مجدول (${dailySalesReminderTime})`;
+
+      const message =
+        dailySalesReminderMode === 'closing_offset'
+          ? `إشعار تجريبي: متبقي ساعة على موعد إغلاق الورشة المعتاد (${workshopClosingHour}). راجع مبيعات اليوم ومطابقة حركة الخزينة.`
+          : `إشعار تجريبي: حان موعد التذكير اليومي المحدد في ${dailySalesReminderTime} لمراجعة وتدقيق مبيعات الورشة وفواتير العملاء.`;
+
+      await tenantStorage.putNotification({
+        id: `notif_daily_sales_test_${now}`,
+        tenantId: tid,
+        type: 'daily_sales_reminder',
+        title,
+        message,
+        isRead: false,
+        createdAt: now,
+      });
+
+      setTestReminderSent(true);
+      playSuccessSound();
+      setTimeout(() => setTestReminderSent(false), 4000);
+    } catch (e) {
+      console.error('Error sending test reminder:', e);
+    }
+  };
+
+  const handleExportData = async (storageTarget: 'local' | 'cloud') => {
+    playButtonClickSound();
     setExportError('');
-    setExporting(true);
+    setExportingTarget(storageTarget);
     try {
       const tid = profile.tenantId || profile.workshopId || profile.id;
       const [
-        treasuries,
         treasuryTransactions,
         customers,
         suppliers,
@@ -251,63 +319,63 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         materials,
         inventoryTransactions,
         invoices,
-        workOrders,
         employees,
         payouts,
         products,
       ] = await Promise.all([
-        firestoreService.getTreasuries(tid).catch(() => []),
         tenantStorage.getSafeTransactions(tid).catch(() => []),
         tenantStorage.getCustomers(tid).catch(() => []),
         tenantStorage.getSuppliers(tid).catch(() => []),
-        firestoreService.getSupplierInvoices(tid).catch(() => []),
+        tenantStorage.getSupplierInvoices(tid).catch(() => []),
         tenantStorage.getRawMaterials(tid).catch(() => []),
         tenantStorage.getInventoryTransactions(tid).catch(() => []),
         tenantStorage.getOrders(tid).catch(() => []),
-        firestoreService.getWorkOrders(tid).catch(() => []),
         tenantStorage.getEmployees(tid).catch(() => []),
         tenantStorage.getEmployeePayouts(tid).catch(() => []),
-        firestoreService.getFinishedProducts(tid).catch(() => []),
+        tenantStorage.getProducts(tid).catch(() => []),
       ]);
 
       const backupData = {
-        exportVersion: '1.0',
+        exportTarget: storageTarget,
+        storageType: storageTarget === 'local' ? 'محلياً' : 'سحابياً',
         exportedAt: new Date().toISOString(),
         workshopId: tid,
+        brandName: profile.brandName,
         profile,
-        treasuries,
         treasuryTransactions,
         customers,
         suppliers,
         supplierInvoices,
         rawMaterials: materials,
         inventoryTransactions,
-        invoices,
-        workOrders,
+        orders: invoices,
         employees,
         payouts,
         products,
       };
 
-      const dataStr =
-        'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      const dataBlob = new Blob([JSON.stringify(backupData, null, 2)], {
+        type: 'application/octet-stream',
+      });
+      const downloadUrl = URL.createObjectURL(dataBlob);
       const downloadAnchor = document.createElement('a');
-      downloadAnchor.setAttribute('href', dataStr);
-      downloadAnchor.setAttribute(
-        'download',
-        `alshams_craft_backup_${(profile.brandName || 'workshop').replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`
-      );
+      downloadAnchor.href = downloadUrl;
+      const targetLabel = storageTarget === 'local' ? 'local' : 'cloud';
+      downloadAnchor.download = `alshams_craft_backup_${targetLabel}_${(profile.brandName || 'workshop').replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.bak`;
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
+      URL.revokeObjectURL(downloadUrl);
 
-      setExportSuccess(true);
-      setTimeout(() => setExportSuccess(false), 3500);
+      playSuccessSound();
+      setExportSuccessTarget(storageTarget);
+      setTimeout(() => setExportSuccessTarget(null), 3500);
     } catch (err: any) {
       console.error('Backup export failed:', err);
-      setExportError(err.message || 'فشل تصدير النسخة الاحتياطية');
+      playErrorSound();
+      setExportError(err.message || 'فشل تصدير البيانات، يرجى إعادة المحاولة.');
     } finally {
-      setExporting(false);
+      setExportingTarget(null);
     }
   };
 
@@ -365,11 +433,14 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="mt-4 flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-2">
+        <div className="mt-4 flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-2 overflow-x-auto">
           <button
             type="button"
-            onClick={() => setActiveTab('profile')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+            onClick={() => {
+              playButtonClickSound();
+              setActiveTab('profile');
+            }}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
               activeTab === 'profile'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
@@ -379,27 +450,51 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('backup')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'backup'
+            onClick={() => {
+              playButtonClickSound();
+              setActiveTab('reminders');
+            }}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'reminders'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+            }`}
+          >
+            <Bell className="w-3.5 h-3.5" />
+            <span>التنبيهات اليومية</span>
+            {enableDailySalesReminder && (
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              playButtonClickSound();
+              setActiveTab('export_data');
+            }}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'export_data'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
             }`}
           >
             <Download className="w-3.5 h-3.5" />
-            <span>النسخ الاحتياطي (JSON)</span>
+            <span>تصدير البيانات</span>
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('factory_reset')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            onClick={() => {
+              playButtonClickSound();
+              setActiveTab('factory_reset');
+            }}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'factory_reset'
                 ? 'bg-rose-600 text-white shadow-sm'
                 : 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40'
             }`}
           >
             <ShieldAlert className="w-3.5 h-3.5" />
-            <span>تصفير قاعدة البيانات (إعادة ضبط المصنع)</span>
+            <span>تصفير قاعدة البيانات</span>
           </button>
         </div>
 
@@ -599,6 +694,41 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   )}
                 </button>
               </div>
+
+              {/* Daily Sales Reminder Preference */}
+              <div className="sm:col-span-2 p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`p-2.5 rounded-xl transition ${
+                      enableDailySalesReminder
+                        ? 'bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-400'
+                        : 'bg-stone-200 dark:bg-stone-700 text-stone-500 dark:text-stone-400'
+                    }`}
+                  >
+                    <Bell size={20} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                      تنبيه مراجعة مبيعات اليوم
+                    </div>
+                    <div className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
+                      إشعار تذكيري يومي في شريط التنبيهات لتذكيرك بمراجعة مبيعات اليوم وتدقيق الحسابات قبل إغلاق النظام
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEnableDailySalesReminder((prev) => !prev)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                    enableDailySalesReminder
+                      ? 'bg-sky-600 hover:bg-sky-700 text-white shadow-sm shadow-sky-600/20'
+                      : 'bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 dark:hover:bg-stone-600 text-stone-700 dark:text-stone-200'
+                  }`}
+                >
+                  <Bell size={15} />
+                  <span>{enableDailySalesReminder ? 'مفعّل' : 'معطّل'}</span>
+                </button>
+              </div>
             </div>
 
             {/* Social channels */}
@@ -693,26 +823,251 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           </div>
         )}
 
-        {/* TAB 2: BACKUP EXPORT (JSON) */}
-        {activeTab === 'backup' && (
+        {/* TAB 2: DAILY SALES REMINDERS */}
+        {activeTab === 'reminders' && (
+          <div className="mt-4 space-y-5">
+            {/* Main Toggle Banner */}
+            <div
+              className={`p-5 rounded-2xl border transition-all ${
+                enableDailySalesReminder
+                  ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800'
+                  : 'bg-stone-50 dark:bg-stone-800/60 border-stone-200 dark:border-stone-700'
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
+                      enableDailySalesReminder
+                        ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                        : 'bg-stone-200 dark:bg-stone-700 text-stone-500 dark:text-stone-400'
+                    }`}
+                  >
+                    <Bell className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-black text-stone-900 dark:text-stone-100">
+                        تنبيه مراجعة مبيعات اليوم اليومي
+                      </h3>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                          enableDailySalesReminder
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                            : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
+                        }`}
+                      >
+                        {enableDailySalesReminder ? 'مفعّل بالنظام 🟢' : 'معطّل نهائياً 🔴'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                      إشعار ذكي يظهر في شريط التنبيهات (NotificationDrawer) لتذكيرك بمراجعة فواتير اليوم ومطابقة الخزينة قبل إغلاق النظام
+                    </p>
+                  </div>
+                </div>
+
+                {/* زر التعطيل أو التفعيل الفوري */}
+                {enableDailySalesReminder ? (
+                  <button
+                    type="button"
+                    onClick={() => setEnableDailySalesReminder(false)}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                  >
+                    <ShieldOff className="w-4 h-4 text-rose-500" />
+                    <span>[زر تعطيل التنبيه نهائياً من النظام]</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEnableDailySalesReminder(true)}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-600/20"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>[زر إعادة تفعيل التنبيه اليومي]</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* تفاصيل التردد والتوقيت (تظهر عند التفعيل فقط) */}
+            {enableDailySalesReminder ? (
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60 space-y-3">
+                  <h4 className="text-xs font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    <span>تحديد تردد وتوقيت إرسال التنبيه اليومي:</span>
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* الخيار الأول: قبل موعد إغلاق الورشة بساعة */}
+                    <div
+                      onClick={() => setDailySalesReminderMode('closing_offset')}
+                      className={`p-3.5 rounded-2xl border-2 transition cursor-pointer flex flex-col justify-between gap-2 ${
+                        dailySalesReminderMode === 'closing_offset'
+                          ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/30'
+                          : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 hover:border-stone-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="reminderMode"
+                            checked={dailySalesReminderMode === 'closing_offset'}
+                            onChange={() => setDailySalesReminderMode('closing_offset')}
+                            className="text-amber-600 focus:ring-amber-500"
+                          />
+                          <span>قبل إغلاق الورشة بساعة</span>
+                        </span>
+                        <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 px-2 py-0.5 rounded-full font-bold">
+                          موصى به
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
+                        يتم تنبيهك قبل موعد إغلاق الورشة المعتاد بـ 60 دقيقة لإنهاء تسجيل الفواتير والمقبوضات.
+                      </p>
+
+                      {dailySalesReminderMode === 'closing_offset' && (
+                        <div className="pt-2 border-t border-amber-200 dark:border-amber-800/60 flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300">
+                            موعد إغلاق الورشة:
+                          </label>
+                          <input
+                            type="time"
+                            value={workshopClosingHour}
+                            onChange={(e) => setWorkshopClosingHour(e.target.value)}
+                            className="px-2.5 py-1 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-mono font-bold"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* الخيار الثاني: وقت ثابت ومحدد */}
+                    <div
+                      onClick={() => setDailySalesReminderMode('fixed_time')}
+                      className={`p-3.5 rounded-2xl border-2 transition cursor-pointer flex flex-col justify-between gap-2 ${
+                        dailySalesReminderMode === 'fixed_time'
+                          ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/30'
+                          : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 hover:border-stone-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="reminderMode"
+                            checked={dailySalesReminderMode === 'fixed_time'}
+                            onChange={() => setDailySalesReminderMode('fixed_time')}
+                            className="text-amber-600 focus:ring-amber-500"
+                          />
+                          <span>وقت ثابت ومحدد يومياً</span>
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
+                        يتم إرسال التنبيه في موعد ثابت تحدده بدقة كل مساء بغض النظر عن ساعات الدوام.
+                      </p>
+
+                      {dailySalesReminderMode === 'fixed_time' && (
+                        <div className="pt-2 border-t border-amber-200 dark:border-amber-800/60 flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-stone-700 dark:text-stone-300">
+                            ساعة التنبيه الثابتة:
+                          </label>
+                          <input
+                            type="time"
+                            value={dailySalesReminderTime}
+                            onChange={(e) => setDailySalesReminderTime(e.target.value)}
+                            className="px-2.5 py-1 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-mono font-bold"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* معاينة وتجربة التنبيه فوراً */}
+                <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                      معاينة الإشعار في شريط التنبيهات
+                    </p>
+                    <p className="text-[11px] text-stone-500">
+                      اضغط لاختبار ظهور الإشعار في جرس التنبيهات والتأكد من مطابقة الصيغة
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSendTestReminder}
+                    className="w-full sm:w-auto px-4 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+                  >
+                    <Send className="w-3.5 h-3.5 text-amber-600" />
+                    <span>إرسال إشعار تجريبي الآن</span>
+                  </button>
+                </div>
+
+                {testReminderSent && (
+                  <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span>تم إرسال إشعار تجريبي بنجاح! تفقّد جرس الإشعارات في شريط الـ Navbar العلوي.</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-6 rounded-2xl bg-stone-50 dark:bg-stone-800/30 border border-dashed border-stone-300 dark:border-stone-700 text-center space-y-2">
+                <ShieldOff className="w-8 h-8 text-stone-400 mx-auto" />
+                <h4 className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                  تم تعطيل التنبيه اليومي لمراجعة المبيعات
+                </h4>
+                <p className="text-[11px] text-stone-500 max-w-md mx-auto">
+                  لن يظهر أي تنبيه يومي لمراجعة المبيعات في جرس الإشعارات. يمكنك إعادة تفعيله في أي وقت بضغطة واحدة من الزر أعلاه.
+                </p>
+              </div>
+            )}
+
+            {/* Save Button for Reminders Tab */}
+            <div className="pt-3 border-t border-stone-200 dark:border-stone-800 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-stone-500"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleSaveProfile}
+                className="px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-md shadow-amber-600/20 transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                <span>حفظ وتطبيق إعدادات التنبيهات</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: DATA EXPORT (تصدير البيانات) */}
+        {activeTab === 'export_data' && (
           <div className="mt-4 space-y-4">
             <div className="p-5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-stone-800 dark:text-stone-200 space-y-3">
               <div className="flex items-center gap-2.5 text-amber-800 dark:text-amber-300">
                 <Database className="w-5 h-5 flex-shrink-0" />
                 <h3 className="font-black text-sm">
-                  النسخ الاحتياطي اليدوي الشامل لبيانات الورشة (JSON)
+                  أداة تصدير البيانات للورشة
                 </h3>
               </div>
               <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed">
-                يمكنك في أي وقت تنزيل نسخة احتياطية كاملة من بيانات ورشتك بصيغة JSON وحفظها على حاسوبك أو هاتفك.
-                الملف يتضمن جميع سجلات ورشتك المتوافقة مع هيكلة بيانات Firebase Firestore: الملف التعريفي، الخزن، الحركات المالية، فواتير العملاء، الموردين، المخزون، أوامر التشغيل، وكشوف العمال والرواتب.
+                تتيح لصاحب الورشة تحميل وحفظ نسخة آمنة من أرشيف مبيعاته ومنتجاته وسجلاته لضمان الأمان والخصوصية وسهولة حفظ نسخة احتياطية من كافة أنشطة المنظومة.
               </p>
             </div>
 
-            {exportSuccess && (
-              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2">
-                <Check className="w-4 h-4 flex-shrink-0" />
-                <span>تم تجهيز النسخة الاحتياطية وتنزيل الملف بنجاح على جهازك!</span>
+            {exportSuccessTarget && (
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+                <Check className="w-4 h-4 flex-shrink-0 text-emerald-600" />
+                <span>
+                  {exportSuccessTarget === 'local'
+                    ? 'تم تصدير وتحميل بيانات الورشة (نوع التخزين: محلياً) بنجاح على جهازك!'
+                    : 'تم تصدير وتحميل بيانات الورشة (نوع التخزين: سحابياً) بنجاح على جهازك!'}
+                </span>
               </div>
             )}
 
@@ -723,38 +1078,92 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
             )}
 
+            {/* Storage Export Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* خيار التخزين المحلي */}
+              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/80 flex flex-col justify-between gap-3 shadow-2xs hover:border-amber-400 transition">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-black text-[10px]">
+                      نوع التخزين: محلياً
+                    </span>
+                    <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <h4 className="text-xs font-black text-stone-900 dark:text-stone-100">
+                    تصدير بيانات التخزين المحلي
+                  </h4>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed font-medium">
+                    تحميل وتصدير نسخة آمنة من أرشيف المبيعات والمنتجات والخامات المحفوظة محلياً على هذا الجهاز لضمان الخصوصية والعمل دون انقطاع.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleExportData('local')}
+                  disabled={exportingTarget !== null}
+                  className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-sm transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95"
+                >
+                  {exportingTarget === 'local' ? (
+                    <span>جاري تجهيز التصدير...</span>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>تحميل نسخة (نوع التخزين: محلياً)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* خيار التخزين السحابي */}
+              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/80 flex flex-col justify-between gap-3 shadow-2xs hover:border-amber-400 transition">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 font-black text-[10px]">
+                      نوع التخزين: سحابياً
+                    </span>
+                    <Download className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                  </div>
+                  <h4 className="text-xs font-black text-stone-900 dark:text-stone-100">
+                    تصدير بيانات التخزين السحابي
+                  </h4>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed font-medium">
+                    تحميل وتصدير نسخة متزامنة من كافة سجلات الورشة والفواتير وحسابات العملاء والموردين لضمان استمرارية العمل ومشاركة السجلات.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleExportData('cloud')}
+                  disabled={exportingTarget !== null}
+                  className="w-full py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-sm transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95"
+                >
+                  {exportingTarget === 'cloud' ? (
+                    <span>جاري تجهيز التصدير...</span>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>تحميل نسخة (نوع التخزين: سحابياً)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Package Contents Breakdown */}
             <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60 space-y-2">
-              <span className="text-xs font-bold text-stone-700 dark:text-stone-300 block">
-                محتويات حزمة النسخ الاحتياطي:
+              <span className="text-xs font-black text-stone-700 dark:text-stone-300 block">
+                محتويات حزمة تصدير البيانات:
               </span>
               <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-stone-600 dark:text-stone-400 font-medium list-disc list-inside">
                 <li>بيانات البراند وهوية المشغل واللقب العائلي</li>
                 <li>سجلات الخزن النقدية وحركاتها المالية</li>
-                <li>بيانات العملاء وأوامر البيع</li>
+                <li>أرشيف المبيعات والطلبيات وكشوف العملاء</li>
                 <li>سجلات الموردين وفواتير الشراء</li>
                 <li>أرصدة الخامات وتكاليف الـ WAC</li>
                 <li>أوامر التشغيل وتتبع الهالك</li>
                 <li>ملفات العمال والسلف وكشوف الرواتب</li>
-                <li>أرشيف المنتجات الجاهزة والمحفوظة</li>
+                <li>أرشيف المنتجات الجاهزة والمسعرة</li>
               </ul>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button
-                type="button"
-                onClick={handleExportBackupJson}
-                disabled={exporting}
-                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-md shadow-amber-600/30 transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {exporting ? (
-                  <span>جاري تجميع البيانات وتجهيز الملف...</span>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4" />
-                    <span>تحميل وتصدير نسخة احتياطية كاملة (JSON)</span>
-                  </>
-                )}
-              </button>
             </div>
           </div>
         )}

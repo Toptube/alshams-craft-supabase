@@ -1,94 +1,45 @@
 import { createClient, SupabaseClient, SupportedStorage } from '@supabase/supabase-js';
 import config from '../../supabase-config.json';
 
-// In-memory fallback map (maintains session in-memory if storage APIs are restricted/fail)
-const memoryStore = new Map<string, string>();
-
 /**
- * Storage adapter implementing localStorage -> sessionStorage -> memoryStore (Map)
- * within robust try/catch blocks so session is never lost in iframe or private browsing.
+ * Storage adapter detector:
+ * Tests localStorage once at initialization (setItem + removeItem inside try/catch).
+ * If localStorage is functional, returns undefined so supabase-js uses default localStorage.
+ * If localStorage is blocked or fails (e.g. private mode, disabled storage), returns an in-memory Map adapter.
  */
-export const customStorageAdapter: SupportedStorage = {
-  getItem: (key: string): string | null => {
-    // 1. Try localStorage
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const val = window.localStorage.getItem(key);
-        if (val !== null) return val;
-      }
-    } catch (e) {
-      // localStorage read failed or blocked
-    }
+function getStorageAdapter(): SupportedStorage | undefined {
+  if (typeof window === 'undefined') return undefined;
 
-    // 2. Try sessionStorage
-    try {
-      if (typeof window !== 'undefined' && window.sessionStorage) {
-        const val = window.sessionStorage.getItem(key);
-        if (val !== null) return val;
-      }
-    } catch (e) {
-      // sessionStorage read failed or blocked
-    }
+  try {
+    const testKey = '__sb_test__';
+    window.localStorage.setItem(testKey, '1');
+    window.localStorage.removeItem(testKey);
+    return undefined; // Use default supabase-js storage (localStorage)
+  } catch {
+    const memoryMap = new Map<string, string>();
+    return {
+      getItem: (key: string): string | null => memoryMap.get(key) || null,
+      setItem: (key: string, value: string): void => {
+        memoryMap.set(key, value);
+      },
+      removeItem: (key: string): void => {
+        memoryMap.delete(key);
+      },
+    };
+  }
+}
 
-    // 3. Fallback to memoryStore
-    return memoryStore.get(key) || null;
-  },
-
-  setItem: (key: string, value: string): void => {
-    // Always mirror to memory store as immediate guarantee
-    memoryStore.set(key, value);
-
-    let persisted = false;
-
-    // 1. Try localStorage
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(key, value);
-        persisted = true;
-      }
-    } catch (e) {
-      // localStorage failed (quota exceeded, iframe sandbox, disabled)
-    }
-
-    // 2. If localStorage failed, try sessionStorage
-    if (!persisted) {
-      try {
-        if (typeof window !== 'undefined' && window.sessionStorage) {
-          window.sessionStorage.setItem(key, value);
-          persisted = true;
-        }
-      } catch (e) {
-        // sessionStorage failed
-      }
-    }
-  },
-
-  removeItem: (key: string): void => {
-    memoryStore.delete(key);
-
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(key);
-      }
-    } catch (e) {}
-
-    try {
-      if (typeof window !== 'undefined' && window.sessionStorage) {
-        window.sessionStorage.removeItem(key);
-      }
-    } catch (e) {}
-  },
-};
+const chosenStorage = getStorageAdapter();
 
 /**
- * The single, unified Supabase client for the entire project
+ * Single, unified Supabase client for the entire frontend application.
  */
 export const supabase: SupabaseClient = createClient(config.url, config.publishableKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storage: customStorageAdapter,
+    detectSessionInUrl: false,
+    ...(chosenStorage ? { storage: chosenStorage } : {}),
   },
 });
 

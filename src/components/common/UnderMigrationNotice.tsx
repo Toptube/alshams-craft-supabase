@@ -43,10 +43,15 @@ export const UnderMigrationNotice: React.FC<UnderMigrationNoticeProps> = ({
             <button
               type="button"
               onClick={onGoBack}
-              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold shadow-sm transition flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black shadow-md transition flex items-center justify-center gap-2 cursor-pointer active:scale-95 group"
             >
+              <img
+                src="/alshams_falcon_emblem.png"
+                alt="الشاشة الرئيسية"
+                className="w-5 h-5 object-contain group-hover:scale-110 transition-transform filter brightness-0 invert"
+              />
+              <span>الشاشة الرئيسية</span>
               <ArrowRight className="w-4 h-4" />
-              <span>العودة للرئيسية</span>
             </button>
           )}
         </div>

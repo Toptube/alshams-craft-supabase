@@ -1,0 +1,104 @@
+import { useState, useEffect, useRef } from 'react';
+import { Session } from '@supabase/supabase-js';
+import { supabase } from './supabase';
+
+export interface AuthSessionState {
+  session: Session | null;
+  userId: string | null;
+  isAuthChecked: boolean;
+}
+
+/**
+ * Custom hook acting as the single source of truth for the user's authentication session.
+ * Uses native supabase-js autoRefreshToken: true and persistSession: true.
+ * Keeps the session active indefinitely without arbitrary countdowns, warnings, or forced timeouts.
+ */
+export function useAuthSession(): AuthSessionState {
+  const [session, setSession] = useState<Session | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
+
+  // Track whether initial auth resolution has completed
+  const initializedRef = useRef(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1) Query getSession() once on application startup
+    supabase.auth
+      .getSession()
+      .then(({ data: { session: initialSession }, error }) => {
+        if (!isMounted) return;
+        if (error) {
+          console.error('[AuthSession] خطأ أثناء استرجاع الجلسة الأولية:', error);
+        }
+        setSession(initialSession);
+        setIsAuthChecked(true);
+        initializedRef.current = true;
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        console.error('[AuthSession] استثناء أثناء استرجاع الجلسة:', err);
+        setIsAuthChecked(true);
+        initializedRef.current = true;
+      });
+
+    // 2) Single onAuthStateChange subscription
+    // STRICT RULE: No await or Supabase calls inside callback to avoid deadlocks.
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (!isMounted) return;
+
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
+        setSession(newSession);
+        setIsAuthChecked(true);
+      } else if (event === 'TOKEN_REFRESHED') {
+        // Silently update token credentials while preserving session state
+        setSession((prev) => {
+          if (!prev || !newSession) return newSession;
+          return {
+            ...prev,
+            access_token: newSession.access_token,
+            refresh_token: newSession.refresh_token,
+            expires_at: newSession.expires_at,
+            expires_in: newSession.expires_in,
+          };
+        });
+      } else if (event === 'SIGNED_OUT') {
+        // User explicitly signed out
+        setSession(null);
+        setIsAuthChecked(true);
+      }
+    });
+
+    // 3) Keep session healthy when tab regains focus or visibility
+    const handleVisibilityOrFocus = async () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          const { data } = await supabase.auth.getSession();
+          if (isMounted && data?.session) {
+            setSession(data.session);
+          }
+        } catch {
+          // Ignore background verification errors
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, []);
+
+  return {
+    session,
+    userId: session?.user?.id || null,
+    isAuthChecked,
+  };
+}

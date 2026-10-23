@@ -6,7 +6,6 @@ import { supabase } from '../../lib/supabase';
 import {
   getArabicSupabaseError,
   createMyWorkshopRpc,
-  getCurrentWorkshopFromSupabase,
 } from '../../db/supabaseService';
 import {
   Lock,
@@ -106,14 +105,14 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         const userId = signUpData.user?.id || activeSession?.user?.id || 'غير متوفر';
         const tokenLength = activeSession?.access_token ? activeSession.access_token.length : 0;
 
-        // Rule 5: اطبع في الكونسول بعد التسجيل: وجود الجلسة (نعم/لا) ومعرّف المستخدم وطول access_token
+        // Diagnostic log: وجود الجلسة ومعرّف المستخدم وطول access_token
         console.log(
           `[Auth Diagnostic - التسجيل] وجود الجلسة: ${hasSession ? 'نعم' : 'لا'} | معرّف المستخدم: ${userId} | طول access_token: ${tokenLength}`
         );
 
-        // 2) If session is available, invoke create_my_workshop RPC immediately
+        // 2) If session is available, invoke create_my_workshop RPC once
         if (activeSession && activeSession.access_token) {
-          console.log('[AuthGateway] Step 3: Session established, invoking create_my_workshop RPC...');
+          console.log('[AuthGateway] Step 2: Session established, invoking create_my_workshop RPC once...');
           const { workshop, error: rpcError } = await createMyWorkshopRpc({
             brand: brandName.trim(),
             artist: artistName.trim(),
@@ -129,22 +128,11 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             return;
           }
 
-          console.log('[AuthGateway] Step 4: RPC succeeded, loading workshop row...');
-          const current = await getCurrentWorkshopFromSupabase();
-          if (current.error) {
-            console.error('[AuthGateway] Error fetching workshop row after creation:', current.error);
-            setErrorMsg(current.error.arabicMessage);
-            return;
-          }
-
-          if (current.workshop) {
-            console.log('[AuthGateway] Step 5: Workshop loaded successfully:', current.workshop.brandName);
-            onAuthenticated(current.workshop);
-            return;
-          } else if (workshop) {
+          console.log('[AuthGateway] Step 3: Workshop created successfully. App will load the workshop.');
+          if (workshop) {
             onAuthenticated(workshop);
-            return;
           }
+          return;
         }
 
         // If no session immediately returned (email confirmation required)
@@ -175,33 +163,13 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         const userId = signInData.user?.id || activeSession?.user?.id || 'غير متوفر';
         const tokenLength = activeSession?.access_token ? activeSession.access_token.length : 0;
 
-        // Rule 5: اطبع في الكونسول بعد الدخول: وجود الجلسة (نعم/لا) ومعرّف المستخدم وطول access_token
+        // Diagnostic log: وجود الجلسة ومعرّف المستخدم وطول access_token
         console.log(
           `[Auth Diagnostic - الدخول] وجود الجلسة: ${hasSession ? 'نعم' : 'لا'} | معرّف المستخدم: ${userId} | طول access_token: ${tokenLength}`
         );
 
-        // After login, read workshop from `workshops` table
-        console.log('[AuthGateway] Step 3: Loading workshop from Supabase...');
-        const { workshop, error: fetchError } = await getCurrentWorkshopFromSupabase();
-
-        if (fetchError) {
-          console.error('[AuthGateway] Error loading workshop:', fetchError);
-          setErrorMsg(fetchError.arabicMessage + (fetchError.code ? ` [${fetchError.code}]` : ''));
-          return;
-        }
-
-        if (!workshop) {
-          console.log('[AuthGateway] Step 4: User exists but no workshop row found. Prompting setup.');
-          if (onNeedsWorkshopDetails) {
-            onNeedsWorkshopDetails(cleanEmail);
-          } else {
-            setErrorMsg('لم يتم العثور على ورشة مسجلة لحسابك. يرجى إكمال إعداد بيانات الورشة.');
-          }
-          return;
-        }
-
-        console.log('[AuthGateway] Step 4: Workshop loaded successfully:', workshop.brandName);
-        onAuthenticated(workshop);
+        // App.tsx observes the session change via useAuthSession and automatically loads the workshop!
+        console.log('[AuthGateway] Step 2: Login successful. Session established.');
       }
     } catch (err: any) {
       console.error('[AuthGateway] Unexpected auth exception:', err);
@@ -254,7 +222,26 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
 
         {/* Platform Identity */}
         <div className="flex flex-col items-center justify-center text-center space-y-2">
-          <AlShamsBrandLogo size="lg" />
+          <div className="w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center">
+            <img
+              src="/alshams_falcon_emblem.png"
+              alt="أيقونة الشمس كرافت الرسمية"
+              className="w-full h-full object-contain filter drop-shadow-md select-none"
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-[800] text-stone-900 dark:text-amber-300">
+                الشمس كرافت
+              </h1>
+              <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-mono">
+                ERP
+              </span>
+            </div>
+            <span className="text-[10px] font-mono tracking-widest uppercase text-stone-500 dark:text-stone-400 block mt-0.5">
+              ALSHAMS CRAFT
+            </span>
+          </div>
           <p className="text-xs text-stone-500 dark:text-stone-400 font-medium max-w-xs mt-1">
             المنظومة السحابية المتكاملة لورش الحِرف اليدوية (ERP + SaaS)
           </p>

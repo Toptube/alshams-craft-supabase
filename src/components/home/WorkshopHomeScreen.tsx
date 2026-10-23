@@ -107,9 +107,6 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   // Active sub-screen state (null = main 11-card grid)
   const [activeSubSection, setActiveSubSection] = useState<HomeCardSection | null>(null);
 
-  // Quick creation drawer / expansion state
-  const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
-
   // Summary Metrics State (رصيد الخزن، مبيعات الشهر، تنبيهات المخزون)
   const [totalTreasuryBalance, setTotalTreasuryBalance] = useState<number>(0);
   const [monthSalesTotal, setMonthSalesTotal] = useState<number>(0);
@@ -293,46 +290,6 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       color: 'text-purple-600 dark:text-purple-400',
       bgColor: 'bg-purple-50 dark:bg-purple-950/40',
       borderColor: 'border-purple-200/80 dark:border-purple-900/40',
-    },
-  ];
-
-  // Quick creation shortcuts for Requirement 4
-  const quickCreateActions = [
-    {
-      label: 'إضافة خامة',
-      icon: PackagePlus,
-      color: 'text-amber-700 dark:text-amber-300',
-      action: onOpenNewMaterialModal,
-    },
-    {
-      label: 'حاسبة منتج',
-      icon: Calculator,
-      color: 'text-orange-700 dark:text-orange-300',
-      action: onNavigateToCalculator,
-    },
-    {
-      label: 'فاتورة مورد',
-      icon: Receipt,
-      color: 'text-blue-700 dark:text-blue-300',
-      action: onOpenSupplierInvoice,
-    },
-    {
-      label: 'أمر بيع',
-      icon: ShoppingCart,
-      color: 'text-emerald-700 dark:text-emerald-300',
-      action: () => onNavigateToSales(),
-    },
-    {
-      label: 'تسجيل عميل',
-      icon: UserPlus,
-      color: 'text-teal-700 dark:text-teal-300',
-      action: onOpenNewClientModal,
-    },
-    {
-      label: 'تعيين موظف',
-      icon: Users2,
-      color: 'text-violet-700 dark:text-violet-300',
-      action: onOpenNewEmployeeModal,
     },
   ];
 
@@ -610,62 +567,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200">
-      {/* 1. Quick Creation Hub Shortcut (Requirement 4) */}
-      <div className="p-3 sm:p-4 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-300/40 dark:border-amber-800/40 shadow-2xs">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-2xl bg-amber-600 text-white flex items-center justify-center shadow-xs">
-              <PlusCircle className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-xs sm:text-sm font-black text-stone-900 dark:text-stone-100">
-                مركز الإنشاء السريع
-              </h3>
-              <p className="text-[10px] text-stone-500 font-medium hidden sm:block">
-                اختصارات سريعة لإضافة الخامات، المنتجات، الفواتير، والعملاء
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsQuickCreateOpen(!isQuickCreateOpen)}
-            className="px-3 py-1.5 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
-          >
-            <span>{isQuickCreateOpen ? 'إغلاق الاختصارات' : 'إنشاء جديد'}</span>
-            <ChevronLeft
-              className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                isQuickCreateOpen ? '-rotate-90' : ''
-              }`}
-            />
-          </button>
-        </div>
-
-        {/* Collapsible / Quick Action Buttons */}
-        {isQuickCreateOpen && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 pt-3 mt-3 border-t border-amber-200/40 dark:border-amber-900/40 animate-in slide-in-from-top-2 duration-200">
-            {quickCreateActions.map((action, idx) => {
-              const Icon = action.icon;
-              return (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => {
-                    action.action();
-                    setIsQuickCreateOpen(false);
-                  }}
-                  className="p-2.5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200/90 dark:border-stone-700/80 hover:border-amber-500 hover:bg-amber-50/50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-95 group"
-                >
-                  <Icon className={`w-3.5 h-3.5 ${action.color} group-hover:scale-110 transition-transform`} />
-                  <span className="text-xs font-black">{action.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* 2. Sub-Screen View (Requirement 3: Opens when a card is clicked) */}
+      {/* Sub-Screen View (Opens when a card is clicked) */}
       {activeSubSection && currentSubHub ? (
         <div className="p-4 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border-2 border-amber-300/60 dark:border-amber-800/60 shadow-md space-y-4 animate-in slide-in-from-right-3 duration-200">
           {/* Sub-Hub Top Bar */}
@@ -685,10 +587,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             <button
               type="button"
               onClick={() => setActiveSubSection(null)}
-              className="px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 text-stone-600 dark:text-stone-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              className="px-3.5 py-1.5 rounded-2xl border border-amber-300/80 dark:border-amber-700/80 bg-white dark:bg-stone-800 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-stone-700 dark:text-stone-300 text-xs font-black transition flex items-center gap-2 cursor-pointer shadow-xs active:scale-95 group"
+              title="العودة للشاشة الرئيسية"
             >
-              <ArrowRight className="w-3.5 h-3.5" />
-              <span>رجوع للرئيسية</span>
+              <img
+                src="/alshams_falcon_emblem.png"
+                alt="الشاشة الرئيسية"
+                className="w-4 h-4 object-contain group-hover:scale-110 transition-transform"
+              />
+              <span>الشاشة الرئيسية</span>
+              <ArrowRight className="w-3.5 h-3.5 text-amber-600" />
             </button>
           </div>
 

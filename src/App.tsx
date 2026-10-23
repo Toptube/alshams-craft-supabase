@@ -17,9 +17,14 @@ import { WhatsAppQuoteDrawer } from './components/sharing/WhatsAppQuoteDrawer';
 import { WorkshopHomeScreen } from './components/home/WorkshopHomeScreen';
 import { SupportModal } from './components/support/SupportModal';
 import { tenantStorage } from './db/dexieDB';
-import { firestoreService } from './db/firestoreService';
+import { useAuthSession } from './lib/useAuthSession';
 import { supabase } from './lib/supabase';
-import { getCurrentWorkshopFromSupabase, updateWorkshopProfileInSupabase } from './db/supabaseService';
+import {
+  getCurrentWorkshopFromSupabase,
+  updateWorkshopProfileInSupabase,
+  mapWorkshopRowToUserProfile,
+  getArabicSupabaseError,
+} from './db/supabaseService';
 import { CompleteWorkshopScreen } from './components/auth/CompleteWorkshopScreen';
 import { SuspendedWorkshopScreen } from './components/auth/SuspendedWorkshopScreen';
 import { UnderMigrationNotice } from './components/common/UnderMigrationNotice';
@@ -70,14 +75,17 @@ export type AppActiveView =
   | 'admin';
 
 export default function App() {
-  // Authentication State
+  // Authentication State from unified single-source hook
+  const { session: authSession, userId, isAuthChecked: authChecked } = useAuthSession();
   const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
-  const [authSession, setAuthSession] = useState<any>(null);
-  const [authChecked, setAuthChecked] = useState(false);
   const [isWorkshopLoading, setIsWorkshopLoading] = useState(false);
   const [workshopLoadError, setWorkshopLoadError] = useState<{ message: string; code?: string } | null>(null);
   const [needsWorkshopDetailsEmail, setNeedsWorkshopDetailsEmail] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+
+  // Guards for workshop loading: single-flight lock and loadedForUserId check
+  const loadedForUserIdRef = React.useRef<string | null>(null);
+  const isFlightInProgressRef = React.useRef<boolean>(false);
 
   // App Theme State (Dark / Light / System)
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -150,7 +158,7 @@ export default function App() {
     if (!currentProfile) return;
     try {
       const tid = currentProfile.tenantId || currentProfile.workshopId || currentProfile.id || '';
-      await tenantStorage.generateProactiveNotifications(tid);
+      await tenantStorage.generateProactiveNotifications(tid, currentProfile);
       const notifs = await tenantStorage.getNotifications(tid);
       setNotifications(notifs);
     } catch (err) {
@@ -174,45 +182,35 @@ export default function App() {
         const [
           customers,
           suppliers,
-          dexieProducts,
-          firestoreProducts,
+          products,
           materials,
           invoices,
           supplierInvoices,
-          workOrders,
           employees,
-          treasuries,
+          safeTransactions,
           expenses,
         ] = await Promise.all([
           tenantStorage.getCustomers(tenantId).catch(() => []),
           tenantStorage.getSuppliers(tenantId).catch(() => []),
           tenantStorage.getProducts(tenantId).catch(() => []),
-          firestoreService.getFinishedProducts(tenantId).catch(() => []),
           tenantStorage.getRawMaterials(tenantId).catch(() => []),
           tenantStorage.getOrders(tenantId).catch(() => []),
           tenantStorage.getSupplierInvoices(tenantId).catch(() => []),
-          firestoreService.getWorkOrders(tenantId).catch(() => []),
           tenantStorage.getEmployees(tenantId).catch(() => []),
-          firestoreService.getTreasuries(tenantId).catch(() => []),
+          tenantStorage.getSafeTransactions(tenantId).catch(() => []),
           tenantStorage.getAdminCosts(tenantId).catch(() => []),
         ]);
-
-        // دمج المنتجات بدون تكرار
-        const pMap = new Map<string, any>();
-        firestoreProducts.forEach((p) => pMap.set(p.id, p));
-        dexieProducts.forEach((p) => pMap.set(p.id, p));
-        const combinedProducts = Array.from(pMap.values()).slice(0, 500);
 
         const newCache: GlobalSearchDataCache = {
           customers: customers.slice(0, 500),
           suppliers: suppliers.slice(0, 500),
-          products: combinedProducts,
+          products: products.slice(0, 500),
           materials: materials.slice(0, 500),
           invoices: (invoices as any).slice(0, 500),
           supplierInvoices: (supplierInvoices as any).slice(0, 500),
-          workOrders: workOrders.slice(0, 500),
+          workOrders: (invoices as any).slice(0, 500),
           employees: employees.slice(0, 500),
-          treasuries: treasuries.slice(0, 500),
+          treasuries: (safeTransactions as any).slice(0, 500),
           expenses: expenses.slice(0, 500),
         };
 
@@ -303,83 +301,38 @@ export default function App() {
     }
   };
 
-  // 1) Auth State Listener: Strictly NO await or Supabase calls inside callback (Rule 1 & 4)
+  // Single useEffect for workshop loading: strictly depends on userId and user-triggered retryCount
   useEffect(() => {
-    let isMounted = true;
-
-    console.log('[Auth] Step 1: Initializing session check...');
-    supabase.auth
-      .getSession()
-      .then(({ data: { session }, error: sessionError }) => {
-        if (!isMounted) return;
-        if (sessionError) {
-          console.error('[Auth] Initial getSession error:', sessionError);
-        }
-        const hasSession = !!session?.access_token;
-        const userId = session?.user?.id || 'غير متوفر';
-        const tokenLength = session?.access_token ? session.access_token.length : 0;
-        console.log(
-          `[Auth Diagnostic - فحص الجلسة الأولي] وجود الجلسة: ${hasSession ? 'نعم' : 'لا'} | معرّف المستخدم: ${userId} | طول access_token: ${tokenLength}`
-        );
-
-        setAuthSession(session);
-        setAuthChecked(true);
-      })
-      .catch((err) => {
-        if (!isMounted) return;
-        console.error('[Auth] Initial getSession exception:', err);
-        setAuthChecked(true);
-      });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      const hasSession = !!session?.access_token;
-      const userId = session?.user?.id || 'غير متوفر';
-      const tokenLength = session?.access_token ? session.access_token.length : 0;
-      console.log(
-        `[Auth Diagnostic - تغير الجلسة (${event})] وجود الجلسة: ${hasSession ? 'نعم' : 'لا'} | معرّف المستخدم: ${userId} | طول access_token: ${tokenLength}`
-      );
-
-      // Rule 1: No Supabase queries or await inside this callback to prevent deadlocks.
-      // Simply store session in state via setTimeout(..., 0).
-      setTimeout(() => {
-        if (!isMounted) return;
-        setAuthSession(session);
-        setAuthChecked(true);
-        if (!session || !session.access_token) {
-          setCurrentProfile(null);
-          setNeedsWorkshopDetailsEmail(null);
-          setWorkshopLoadError(null);
-          setIsWorkshopLoading(false);
-        }
-      }, 0);
-    });
-
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  // 2) Separate useEffect to load workshop when session is available (Rule 1, 3 & 4)
-  useEffect(() => {
-    if (!authSession?.access_token || !authSession?.user) {
+    if (!userId) {
+      loadedForUserIdRef.current = null;
+      setCurrentProfile(null);
+      setNeedsWorkshopDetailsEmail(null);
+      setWorkshopLoadError(null);
       setIsWorkshopLoading(false);
       return;
     }
 
+    // Do not reload if already loaded for this user and not retrying
+    if (loadedForUserIdRef.current === userId && retryCount === 0) {
+      return;
+    }
+
+    // Single-flight guard: prevent concurrent requests
+    if (isFlightInProgressRef.current) {
+      return;
+    }
+
     let isMounted = true;
+    isFlightInProgressRef.current = true;
     setIsWorkshopLoading(true);
     setWorkshopLoadError(null);
 
-    const userId = authSession.user.id;
-    const userEmail = authSession.user.email || '';
-    console.log('[App] Step 2: Session active for user:', userId, `(${userEmail}). Starting loadWorkshop with 10s timeout...`);
+    const userEmail = authSession?.user?.email || '';
+    console.log('[App] Step 2: Session active for user:', userId, `(${userEmail}). Starting loadWorkshop with 10s timeout... [retry: ${retryCount}]`);
 
     // 10 second timeout promise (Rule 3)
     let timeoutId: any = null;
-    const timeoutPromise = new Promise<{ workshop: null; rawRow: null; error: any }>((_, reject) => {
+    const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) => {
       timeoutId = setTimeout(() => {
         reject(
           new Error('انتهت مهلة التحميل (10 ثوانٍ) أثناء جلب بيانات الورشة من الخادم. يرجى التحقق من اتصال الإنترنت.')
@@ -387,28 +340,37 @@ export default function App() {
       }, 10000);
     });
 
-    const loadPromise = getCurrentWorkshopFromSupabase();
+    // Directly query Supabase without calling getSession() (Rule 3 & 4)
+    const queryPromise = supabase
+      .from('workshops')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
 
-    Promise.race([loadPromise, timeoutPromise])
-      .then((res) => {
+    Promise.race([queryPromise, timeoutPromise])
+      .then((res: any) => {
         if (!isMounted) return;
         clearTimeout(timeoutId);
 
         if (res.error) {
           console.error('[App] Step 3 (Result): Error fetching workshop row:', res.error);
+          const errRes = getArabicSupabaseError(res.error);
           setWorkshopLoadError({
-            message: res.error.arabicMessage,
-            code: res.error.code,
+            message: errRes.arabicMessage,
+            code: errRes.code,
           });
           return;
         }
 
-        if (res.workshop) {
-          console.log('[App] Step 3 (Result): Workshop loaded successfully:', res.workshop.brandName);
-          setCurrentProfile(res.workshop);
+        const data = res.data;
+        if (data) {
+          console.log('[App] Step 3 (Result): Workshop loaded successfully:', data.brand_name || data.id);
+          const profile = mapWorkshopRowToUserProfile(data, userEmail);
+          loadedForUserIdRef.current = userId;
+          setCurrentProfile(profile);
           setNeedsWorkshopDetailsEmail(null);
           setWorkshopLoadError(null);
-          triggerWelcomeFlow(res.workshop);
+          triggerWelcomeFlow(profile);
           if (!localStorage.getItem('alshams_crafts_selected')) {
             setIsCraftsSelectorOpen(true);
           }
@@ -427,10 +389,10 @@ export default function App() {
         });
       })
       .finally(() => {
-        // Rule 3: استخدم finally لإنهاء حالة التحميل دائماً
         if (isMounted) {
           clearTimeout(timeoutId);
           setIsWorkshopLoading(false);
+          isFlightInProgressRef.current = false;
           console.log('[App] loadWorkshop finished (loading state cleared).');
         }
       });
@@ -438,11 +400,13 @@ export default function App() {
     return () => {
       isMounted = false;
       if (timeoutId) clearTimeout(timeoutId);
+      isFlightInProgressRef.current = false;
     };
-  }, [authSession, retryCount, triggerWelcomeFlow]);
-
+  }, [userId, retryCount, triggerWelcomeFlow]);
   const handleAuthenticated = (profile: UserProfile) => {
     console.log('[App] handleAuthenticated called for workshop:', profile.brandName);
+    const uid = profile.ownerUid || userId;
+    if (uid) loadedForUserIdRef.current = uid;
     setCurrentProfile(profile);
     setNeedsWorkshopDetailsEmail(null);
     setWorkshopLoadError(null);
@@ -455,6 +419,7 @@ export default function App() {
 
   const handleLogout = async () => {
     console.log('[App] handleLogout invoked. Signing out of Supabase...');
+    loadedForUserIdRef.current = null;
     try {
       await supabase.auth.signOut();
     } catch (e) {
@@ -465,7 +430,6 @@ export default function App() {
       sessionStorage.removeItem('alshams_welcome_shown_session');
     } catch (e) {}
     setCurrentProfile(null);
-    setAuthSession(null);
     setNeedsWorkshopDetailsEmail(null);
     setWorkshopLoadError(null);
     setIsWorkshopLoading(false);
@@ -635,12 +599,28 @@ export default function App() {
       {/* Top Navbar */}
       <Navbar
         profile={currentProfile}
+        hasActiveSession={Boolean(authSession?.access_token && userId)}
+        unreadNotificationsCount={notifications.filter((n) => !n.isRead).length}
         onToggleSidebar={() => setIsMobileMenuOpen(true)}
         onOpenGlobalSearch={() => {
           loadSearchCache();
           setIsGlobalSearchOpen(true);
         }}
         onGoHome={() => setActiveView('home')}
+        onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
+        onOpenNewMaterialModal={() => {
+          setOpenAddMaterialInView(true);
+          setActiveView('materials');
+        }}
+        onNavigateToCalculator={() => setActiveView('calculator')}
+        onOpenSupplierInvoice={() => {
+          setSupplierModalMode('record_invoice');
+          setSupplierModalLocked(true);
+          setIsNewSupplierModalOpen(true);
+        }}
+        onNavigateToSales={() => setActiveView('sales')}
+        onOpenNewClientModal={() => setIsNewClientModalOpen(true)}
+        onOpenNewEmployeeModal={() => setIsNewEmployeeModalOpen(true)}
       />
 
       {/* Mobile Lateral Hamburger Drawer */}
@@ -704,10 +684,20 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveView('home')}
-              className="px-3.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-black transition flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+              className="px-3 py-1.5 rounded-2xl border border-amber-300/80 dark:border-amber-700/80 bg-white dark:bg-stone-900 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-stone-800 dark:text-stone-200 text-xs font-black transition-all flex items-center gap-2 shadow-xs active:scale-95 cursor-pointer group"
+              title="العودة للشاشة الرئيسية"
             >
-              <ArrowRight className="w-3.5 h-3.5 text-amber-600" />
-              <span>العودة للرئيسية</span>
+              <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                <img
+                  src="/alshams_falcon_emblem.png"
+                  alt="أيقونة الشاشة الرئيسية"
+                  className="w-full h-full object-contain group-hover:scale-110 transition-transform drop-shadow-2xs select-none"
+                />
+              </div>
+              <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                الشاشة الرئيسية
+              </span>
+              <ArrowRight className="w-3.5 h-3.5 text-amber-600 group-hover:-translate-x-0.5 transition-transform" />
             </button>
             <div className="text-xs font-bold text-stone-500">
               <span>نظام الشمس كرافت • {currentProfile.brandName}</span>

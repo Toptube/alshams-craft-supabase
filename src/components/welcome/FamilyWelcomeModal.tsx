@@ -38,8 +38,12 @@ export const FamilyWelcomeModal: React.FC<FamilyWelcomeModalProps> = ({
         {/* Icon & Badge */}
         <div className="flex justify-center mb-4">
           <div className="relative">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-gradient-to-tr from-amber-500 to-amber-300 flex items-center justify-center shadow-lg shadow-amber-500/30 text-white animate-bounce-subtle">
-              <Sun className="w-9 h-9 sm:w-11 sm:h-11 text-amber-950 animate-spin-slow" />
+            <div className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center filter drop-shadow-md">
+              <img
+                src="/alshams_falcon_emblem.png"
+                alt="شعار الشمس كرافت"
+                className="w-full h-full object-contain select-none"
+              />
             </div>
             <div className="absolute -bottom-1 -right-1 bg-white dark:bg-stone-900 p-1.5 rounded-2xl shadow-md border border-amber-200 dark:border-stone-700">
               <Sparkles className="w-4 h-4 text-amber-500" />

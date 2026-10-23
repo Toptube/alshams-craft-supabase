@@ -72,12 +72,24 @@ export function getArabicSupabaseError(error: any): SupabaseErrorResult {
 
   const rawMessage: string = error.message || error.error_description || String(error);
   const code: string = String(error.code || error.status || 'ERROR');
-
   const lowerMsg = rawMessage.toLowerCase();
 
   let arabicMessage = '';
 
+  // Auth / JWT / 401 / 42501 (Permission denied / RLS failure due to expired or missing token)
   if (
+    code === '401' ||
+    code === '42501' ||
+    code === 'PGRST301' ||
+    code === 'NO_SESSION' ||
+    lowerMsg.includes('jwt') ||
+    lowerMsg.includes('token') ||
+    lowerMsg.includes('expired') ||
+    lowerMsg.includes('unauthorized') ||
+    lowerMsg.includes('permission denied')
+  ) {
+    arabicMessage = 'انتهت جلسة الدخول، سجّل الدخول من جديد';
+  } else if (
     lowerMsg.includes('already registered') ||
     lowerMsg.includes('user_already_exists') ||
     code === '23505'
@@ -117,7 +129,7 @@ export function getArabicSupabaseError(error: any): SupabaseErrorResult {
     arabicMessage = `خطأ (${code}): ${rawMessage}`;
   }
 
-  // Append error code if helpful
+  // Append error code if helpful and not already present
   if (code && code !== 'ERROR' && code !== 'UNKNOWN_ERROR' && !arabicMessage.includes(code)) {
     arabicMessage = `${arabicMessage} (كود: ${code})`;
   }
@@ -131,7 +143,7 @@ export function getArabicSupabaseError(error: any): SupabaseErrorResult {
 }
 
 // -------------------------------------------------------------
-// Generic CRUD operations with error propagation and camelCase <-> snake_case
+// Generic CRUD operations: direct queries without getActiveSession() overhead
 // -------------------------------------------------------------
 
 export interface QueryOptions {
@@ -142,41 +154,13 @@ export interface QueryOptions {
 }
 
 /**
- * Verifies active session via getSession() and ensures session.access_token exists.
- * Returns null if no active session or access_token is present.
- */
-export async function getActiveSession(): Promise<any | null> {
-  try {
-    const { data, error } = await supabase.auth.getSession();
-    if (error || !data?.session?.access_token) {
-      return null;
-    }
-    return data.session;
-  } catch (e) {
-    return null;
-  }
-}
-
-/**
- * Generic SELECT
+ * Generic SELECT executed directly via Supabase client
  */
 export async function supabaseSelect<T = any>(
   table: string,
   options: QueryOptions = {}
 ): Promise<{ data: T[]; error: SupabaseErrorResult | null }> {
   try {
-    const session = await getActiveSession();
-    if (!session) {
-      return {
-        data: [],
-        error: {
-          code: 'NO_SESSION',
-          message: 'No active session with access_token',
-          arabicMessage: 'لا توجد جلسة دخول نشطة، يرجى تسجيل الدخول أولاً.',
-        },
-      };
-    }
-
     let query = supabase.from(table).select(options.columns || '*');
 
     if (options.filters) {
@@ -210,25 +194,13 @@ export async function supabaseSelect<T = any>(
 }
 
 /**
- * Generic INSERT
+ * Generic INSERT executed directly via Supabase client
  */
 export async function supabaseInsert<T = any>(
   table: string,
   record: any
 ): Promise<{ data: T | null; error: SupabaseErrorResult | null }> {
   try {
-    const session = await getActiveSession();
-    if (!session) {
-      return {
-        data: null,
-        error: {
-          code: 'NO_SESSION',
-          message: 'No active session with access_token',
-          arabicMessage: 'لا توجد جلسة دخول نشطة، يرجى تسجيل الدخول أولاً.',
-        },
-      };
-    }
-
     const snakeRecord = keysToSnake(record);
     const { data, error } = await supabase.from(table).insert(snakeRecord).select().single();
 
@@ -243,7 +215,7 @@ export async function supabaseInsert<T = any>(
 }
 
 /**
- * Generic UPDATE
+ * Generic UPDATE executed directly via Supabase client
  */
 export async function supabaseUpdate<T = any>(
   table: string,
@@ -251,18 +223,6 @@ export async function supabaseUpdate<T = any>(
   updates: any
 ): Promise<{ data: T | null; error: SupabaseErrorResult | null }> {
   try {
-    const session = await getActiveSession();
-    if (!session) {
-      return {
-        data: null,
-        error: {
-          code: 'NO_SESSION',
-          message: 'No active session with access_token',
-          arabicMessage: 'لا توجد جلسة دخول نشطة، يرجى تسجيل الدخول أولاً.',
-        },
-      };
-    }
-
     const snakeUpdates = keysToSnake(updates);
     let query = supabase.from(table).update(snakeUpdates);
 
@@ -283,25 +243,13 @@ export async function supabaseUpdate<T = any>(
 }
 
 /**
- * Generic REMOVE
+ * Generic REMOVE executed directly via Supabase client
  */
 export async function supabaseRemove(
   table: string,
   match: Record<string, any>
 ): Promise<{ success: boolean; error: SupabaseErrorResult | null }> {
   try {
-    const session = await getActiveSession();
-    if (!session) {
-      return {
-        success: false,
-        error: {
-          code: 'NO_SESSION',
-          message: 'No active session with access_token',
-          arabicMessage: 'لا توجد جلسة دخول نشطة، يرجى تسجيل الدخول أولاً.',
-        },
-      };
-    }
-
     let query = supabase.from(table).delete();
 
     for (const [key, val] of Object.entries(match)) {
@@ -385,11 +333,15 @@ export function mapWorkshopRowToUserProfile(row: any, userEmail?: string): UserP
     createdBy: userEmail || row.email || '',
     socials: row.settings?.socials || undefined,
     defaultWholesaleDiscountPercent: row.settings?.defaultWholesaleDiscountPercent ?? 25,
+    enableDailySalesReminder: row.settings?.enableDailySalesReminder ?? true,
+    dailySalesReminderMode: row.settings?.dailySalesReminderMode ?? 'closing_offset',
+    dailySalesReminderTime: row.settings?.dailySalesReminderTime ?? '20:00',
+    workshopClosingHour: row.settings?.workshopClosingHour ?? '21:00',
   };
 }
 
 /**
- * Fetches the current user's workshop row from Supabase
+ * Fetches current user's workshop row directly from Supabase (Supabase client automatically attaches user JWT)
  */
 export async function getCurrentWorkshopFromSupabase(): Promise<{
   workshop: UserProfile | null;
@@ -397,24 +349,7 @@ export async function getCurrentWorkshopFromSupabase(): Promise<{
   error: SupabaseErrorResult | null;
 }> {
   try {
-    const session = await getActiveSession();
-    if (!session || !session.access_token) {
-      console.warn('[SupabaseService] No active session found with access_token before querying workshops');
-      return {
-        workshop: null,
-        rawRow: null,
-        error: {
-          code: 'NO_SESSION',
-          message: 'No active session with access_token',
-          arabicMessage: 'لا توجد جلسة دخول نشطة، يرجى تسجيل الدخول أولاً.',
-        },
-      };
-    }
-
-    const userEmail = session.user?.email || '';
-
-    console.log('[SupabaseService] Fetching workshop from "workshops" table for:', userEmail);
-    // With RLS, select('*') returns the user's workshop
+    console.log('[SupabaseService] Querying workshops table directly...');
     const { data, error } = await supabase
       .from('workshops')
       .select('*')
@@ -432,7 +367,7 @@ export async function getCurrentWorkshopFromSupabase(): Promise<{
     }
 
     console.log('[SupabaseService] Workshop row fetched successfully:', data.brand_name || data.id);
-    const userProfile = mapWorkshopRowToUserProfile(data, userEmail);
+    const userProfile = mapWorkshopRowToUserProfile(data, data.email);
     return { workshop: userProfile, rawRow: data, error: null };
   } catch (err: any) {
     console.error('[SupabaseService] Exception in getCurrentWorkshopFromSupabase:', err);
@@ -441,7 +376,7 @@ export async function getCurrentWorkshopFromSupabase(): Promise<{
 }
 
 /**
- * Calls supabase.rpc('create_my_workshop', { p_brand, p_artist, p_gender, p_country, p_currency, p_phone })
+ * Calls supabase.rpc('create_my_workshop', { p_brand, p_artist, p_gender, p_country, p_currency, p_phone }) directly
  */
 export async function createMyWorkshopRpc(params: {
   brand: string;
@@ -452,18 +387,6 @@ export async function createMyWorkshopRpc(params: {
   phone: string;
 }): Promise<{ workshop: UserProfile | null; error: SupabaseErrorResult | null }> {
   try {
-    const session = await getActiveSession();
-    if (!session || !session.access_token) {
-      return {
-        workshop: null,
-        error: {
-          code: 'NO_SESSION',
-          message: 'No active session with access_token',
-          arabicMessage: 'لا توجد جلسة دخول نشطة، يرجى تسجيل الدخول أولاً.',
-        },
-      };
-    }
-
     const rpcParams = {
       p_brand: params.brand.trim(),
       p_artist: params.artist.trim(),
@@ -473,9 +396,11 @@ export async function createMyWorkshopRpc(params: {
       p_phone: params.phone.trim(),
     };
 
-    const { data, error } = await supabase.rpc('create_my_workshop', rpcParams);
+    console.log('[SupabaseService] Calling create_my_workshop RPC...');
+    const { error } = await supabase.rpc('create_my_workshop', rpcParams);
 
     if (error) {
+      console.error('[SupabaseService] create_my_workshop RPC error:', error);
       return { workshop: null, error: getArabicSupabaseError(error) };
     }
 
@@ -492,10 +417,7 @@ export async function createMyWorkshopRpc(params: {
 }
 
 /**
- * Updates workshop in Supabase table `workshops`.
- * ONLY touches allowed fields according to Rule 5:
- * brand_name, artist_name, gender, family_name, country, currency, phone,
- * selected_crafts, settings, logo_data, welcome_shown.
+ * Updates workshop in Supabase table `workshops` directly.
  */
 export async function updateWorkshopProfileInSupabase(
   workshopId: string,
@@ -514,18 +436,6 @@ export async function updateWorkshopProfileInSupabase(
   }
 ): Promise<{ updated: UserProfile | null; error: SupabaseErrorResult | null }> {
   try {
-    const session = await getActiveSession();
-    if (!session || !session.access_token) {
-      return {
-        updated: null,
-        error: {
-          code: 'NO_SESSION',
-          message: 'No active session with access_token',
-          arabicMessage: 'لا توجد جلسة دخول نشطة، يرجى تسجيل الدخول أولاً.',
-        },
-      };
-    }
-
     const payload: Record<string, any> = {};
 
     if (fields.brandName !== undefined) payload.brand_name = fields.brandName.trim();
@@ -540,7 +450,6 @@ export async function updateWorkshopProfileInSupabase(
     if (fields.logoData !== undefined) payload.logo_data = fields.logoData;
     if (fields.welcomeShown !== undefined) payload.welcome_shown = fields.welcomeShown;
 
-    // Filter by workshop ID
     const { data, error } = await supabase
       .from('workshops')
       .update(payload)
@@ -552,8 +461,7 @@ export async function updateWorkshopProfileInSupabase(
       return { updated: null, error: getArabicSupabaseError(error) };
     }
 
-    const updatedProfile = mapWorkshopRowToUserProfile(data, session.user?.email);
-
+    const updatedProfile = mapWorkshopRowToUserProfile(data, data?.email);
     return { updated: updatedProfile, error: null };
   } catch (err: any) {
     return { updated: null, error: getArabicSupabaseError(err) };

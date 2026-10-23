@@ -16,6 +16,7 @@ import {
   SafeType,
   AuthUserRecord,
   NotificationItem,
+  OperationDraft,
 } from '../types';
 
 export interface AIKnowledgeItem {
@@ -54,6 +55,7 @@ export class AlShamsDatabase extends Dexie {
   adminExpenses!: Table<AdminCostRecord, string>;
   activityLogs!: Table<SystemActivityLog, string>;
   aiKnowledgeBase!: Table<AIKnowledgeItem, string>;
+  operationDrafts!: Table<OperationDraft, string>;
 
   constructor() {
     super('AlShamsCraftERP_DB_V2');
@@ -74,6 +76,10 @@ export class AlShamsDatabase extends Dexie {
       adminExpenses: 'id, tenantId, category, month',
       activityLogs: 'id, tenantId, actionType, timestamp',
       aiKnowledgeBase: 'id, tenantId, category, overrideField, timestamp',
+    });
+
+    this.version(3).stores({
+      operationDrafts: 'id, tenantId, type, syncedToCloud, updatedAt',
     });
   }
 }
@@ -791,6 +797,7 @@ export const tenantStorage = {
     await db.products.where('tenantId').equals(tenantId).delete();
     await db.notifications.where('tenantId').equals(tenantId).delete();
     await db.aiKnowledgeBase.where('tenantId').equals(tenantId).delete();
+    await db.operationDrafts.where('tenantId').equals(tenantId).delete();
   },
 
   // BROADCAST NOTIFICATION EVENT TO REACT APP INSTANTLY
@@ -823,6 +830,11 @@ export const tenantStorage = {
     this.broadcastNotificationsUpdated();
   },
 
+  async putNotification(notification: NotificationItem): Promise<void> {
+    await db.notifications.put(notification);
+    this.broadcastNotificationsUpdated();
+  },
+
   async updateOrderStatus(tenantId: string, orderId: string, newStatus: any): Promise<void> {
     const order = await db.orders.get(orderId);
     if (order && order.tenantId === tenantId) {
@@ -846,7 +858,7 @@ export const tenantStorage = {
     }
   },
 
-  async generateProactiveNotifications(tenantId: string): Promise<void> {
+  async generateProactiveNotifications(tenantId: string, profile?: UserProfile): Promise<void> {
     try {
       const now = Date.now();
       const existingNotifs = await db.notifications.where('tenantId').equals(tenantId).toArray();
@@ -989,11 +1001,104 @@ export const tenantStorage = {
         }
       }
 
+      // 5. Daily Sales Review Reminder (تنبيه تذكيري يومي لمراجعة مبيعات اليوم قبل إغلاق النظام)
+      const currentProf = profile || (await this.getProfile(tenantId));
+      const reminderEnabled = currentProf?.enableDailySalesReminder !== false;
+      const todayStr = new Date().toISOString().split('T')[0];
+      const dailyNotifId = `notif_daily_sales_${tenantId}_${todayStr}`;
+      const existingDailyNotif = existingNotifs.find(
+        (n) => n.id === dailyNotifId || (n.type === 'daily_sales_reminder' && n.id.includes(todayStr))
+      );
+
+      if (reminderEnabled) {
+        const mode = currentProf?.dailySalesReminderMode || 'closing_offset';
+        const closingHour = currentProf?.workshopClosingHour || '21:00';
+        const fixedTime = currentProf?.dailySalesReminderTime || '20:00';
+
+        let title = '📊 تذكير يومي: مراجعة مبيعات اليوم قبل الإغلاق';
+        let message =
+          'تذكير ودّي لصاحب الورشة: يُرجى مراجعة وتدقيق مبيعات وحركات اليوم وتسجيل الدفعات النقدية قبل إغلاق النظام لضمان دقة الحسابات والأرصدة.';
+
+        if (mode === 'closing_offset') {
+          title = `📊 تذكير قبل إغلاق الورشة (المحدد ${closingHour})`;
+          message = `تذكير قبل ساعة من إغلاق الورشة (${closingHour}): يُرجى تدقيق مبيعات اليوم، مراجعة فواتير العملاء، ومطابقة حركة الخزينة قبل إغلاق النظام.`;
+        } else {
+          title = `📊 تذكير مجدول (${fixedTime}): مراجعة مبيعات اليوم`;
+          message = `تذكير يومي مجدول في تمام الساعة ${fixedTime}: يُرجى مراجعة مبيعات اليوم وتسجيل المقبوضات وتحديث حركة المخزون.`;
+        }
+
+        if (!existingDailyNotif) {
+          await db.notifications.put({
+            id: dailyNotifId,
+            tenantId,
+            type: 'daily_sales_reminder',
+            title,
+            message,
+            isRead: false,
+            createdAt: now,
+          });
+        } else {
+          // Keep message in sync with any updated reminder settings
+          await db.notifications.put({
+            ...existingDailyNotif,
+            title,
+            message,
+          });
+        }
+      } else {
+        // If disabled from profile settings, clear any daily sales reminder
+        if (existingDailyNotif) {
+          await db.notifications.delete(existingDailyNotif.id);
+        }
+      }
+
       // Broadcast update to React UI in real-time
       this.broadcastNotificationsUpdated();
     } catch (err) {
       console.error('Notification generator error:', err);
     }
+  },
+
+  // OPERATION & CALCULATOR DRAFTS (حفظ مسودات العمليات والأوامر للحماية من انقطاع الاتصال)
+  async saveOperationDraft(draft: OperationDraft): Promise<void> {
+    draft.updatedAt = Date.now();
+    await db.operationDrafts.put(draft);
+  },
+
+  async getOperationDraft(tenantId: string, type: string, draftId?: string): Promise<OperationDraft | undefined> {
+    if (draftId) {
+      const item = await db.operationDrafts.get(draftId);
+      if (item && item.tenantId === tenantId) return item;
+    }
+    return db.operationDrafts
+      .where('tenantId')
+      .equals(tenantId)
+      .filter((d) => d.type === type)
+      .reverse()
+      .sortBy('updatedAt')
+      .then((items) => items[0]);
+  },
+
+  async markDraftSynced(id: string, synced: boolean = true): Promise<void> {
+    const draft = await db.operationDrafts.get(id);
+    if (draft) {
+      draft.syncedToCloud = synced;
+      draft.updatedAt = Date.now();
+      await db.operationDrafts.put(draft);
+    }
+  },
+
+  async deleteOperationDraft(id: string): Promise<void> {
+    await db.operationDrafts.delete(id);
+  },
+
+  async getRecentOperationDrafts(tenantId: string, limit = 10): Promise<OperationDraft[]> {
+    return db.operationDrafts
+      .where('tenantId')
+      .equals(tenantId)
+      .reverse()
+      .sortBy('updatedAt')
+      .then((items) => items.slice(0, limit));
   },
 
   // LOCAL AI OVERRIDES
