@@ -1,0 +1,8 @@
+{
+  "name": "Remix AlSHams Craft ERP | منصة الشمس كرافت",
+  "description": "منظومة الشمس كرافت السحابية الذكيه المتكاملة لإدارة التكايف والحسابات لورش المشغولات والحرف اليدويه",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
