@@ -604,6 +604,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5 pt-1">
             {currentSubHub.items.map((sub, idx) => {
               const SubIcon = sub.icon;
+              const isFalcon = sub.label.includes('صقر');
               return (
                 <button
                   key={idx}
@@ -611,8 +612,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                   onClick={sub.onClick}
                   className="p-3.5 sm:p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/70 border border-stone-200/80 dark:border-stone-700 hover:border-amber-500 dark:hover:border-amber-500 hover:bg-amber-500/10 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-95 group text-center min-h-[90px]"
                 >
-                  <div className="w-8 h-8 rounded-xl bg-white dark:bg-stone-700 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-2xs group-hover:scale-110 transition-transform">
-                    <SubIcon className="w-4 h-4" />
+                  <div className="w-8 h-8 rounded-xl bg-white dark:bg-stone-700 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-2xs group-hover:scale-110 transition-transform overflow-hidden p-0.5 border border-stone-200/60 dark:border-stone-600">
+                    {isFalcon ? (
+                      <img
+                        src="/falcon_mascot_ai.png"
+                        alt="صقر AI"
+                        className="w-full h-full object-cover object-top select-none rounded-lg"
+                      />
+                    ) : (
+                      <SubIcon className="w-4 h-4" />
+                    )}
                   </div>
                   <span className="text-xs font-black text-stone-800 dark:text-stone-200 group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors">
                     {sub.label}

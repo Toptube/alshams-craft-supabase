@@ -16,6 +16,8 @@ import { FamilyWelcomeModal } from './components/welcome/FamilyWelcomeModal';
 import { WhatsAppQuoteDrawer } from './components/sharing/WhatsAppQuoteDrawer';
 import { WorkshopHomeScreen } from './components/home/WorkshopHomeScreen';
 import { SupportModal } from './components/support/SupportModal';
+import { InteractiveTourModal } from './components/tour/InteractiveTourModal';
+import { checkAndTriggerProactiveBrowserNotifications } from './lib/browserNotifications';
 import { tenantStorage } from './db/dexieDB';
 import { useAuthSession } from './lib/useAuthSession';
 import { supabase } from './lib/supabase';
@@ -28,6 +30,7 @@ import {
 import { CompleteWorkshopScreen } from './components/auth/CompleteWorkshopScreen';
 import { SuspendedWorkshopScreen } from './components/auth/SuspendedWorkshopScreen';
 import { UnderMigrationNotice } from './components/common/UnderMigrationNotice';
+import { MaterialsView } from './components/materials/MaterialsView';
 import { playPageFlipSound } from './lib/sounds';
 import {
   PlusCircle,
@@ -135,6 +138,7 @@ export default function App() {
   const [isAdminCostsModalOpen, setIsAdminCostsModalOpen] = useState(false);
   const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState(false);
   const [welcomeType, setWelcomeType] = useState<'first_time' | 'session_return'>('session_return');
+  const [isInteractiveTourOpen, setIsInteractiveTourOpen] = useState(false);
 
   // WhatsApp Quote Drawer State
   const [quoteRecord, setQuoteRecord] = useState<SavedProductRecord | null>(null);
@@ -161,6 +165,9 @@ export default function App() {
       await tenantStorage.generateProactiveNotifications(tid, currentProfile);
       const notifs = await tenantStorage.getNotifications(tid);
       setNotifications(notifs);
+
+      // Trigger browser notifications for stock depletion and work orders due
+      checkAndTriggerProactiveBrowserNotifications(tid, currentProfile);
     } catch (err) {
       console.error('Failed to load notifications:', err);
     }
@@ -289,7 +296,8 @@ export default function App() {
 
   const handleCloseWelcomeModal = async () => {
     setIsWelcomeModalOpen(false);
-    if (welcomeType === 'first_time' && currentProfile && currentProfile.welcomeShown !== true) {
+    const wasFirstTime = welcomeType === 'first_time';
+    if (wasFirstTime && currentProfile && currentProfile.welcomeShown !== true) {
       const updated: UserProfile = { ...currentProfile, welcomeShown: true, updatedAt: Date.now() };
       setCurrentProfile(updated);
       try {
@@ -298,6 +306,17 @@ export default function App() {
       } catch (err) {
         console.error('Failed to save welcomeShown flag to Supabase:', err);
       }
+    }
+    // Launch interactive tour for new users or if not yet completed
+    try {
+      const tourDone = localStorage.getItem('alshams_tour_completed');
+      if (wasFirstTime || tourDone !== 'true') {
+        setTimeout(() => {
+          setIsInteractiveTourOpen(true);
+        }, 350);
+      }
+    } catch (e) {
+      setIsInteractiveTourOpen(true);
     }
   };
 
@@ -650,6 +669,10 @@ export default function App() {
         }}
         onOpenCloudMigration={() => setIsCloudMigrationOpen(true)}
         onOpenSupport={() => setIsSupportModalOpen(true)}
+        onStartTour={() => {
+          setIsMobileMenuOpen(false);
+          setIsInteractiveTourOpen(true);
+        }}
         onToggleDarkMode={toggleDarkMode}
         isDarkMode={isDarkMode}
         onLogout={handleLogout}
@@ -789,9 +812,10 @@ export default function App() {
         )}
 
         {activeView === 'materials' && (
-          <UnderMigrationNotice
-            title="الخامات ووحدات القياس قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
+          <MaterialsView
+            workshop={currentProfile}
+            initialOpenAddModal={openAddMaterialInView}
+            onResetOpenAddModal={() => setOpenAddMaterialInView(false)}
           />
         )}
 
@@ -857,12 +881,11 @@ export default function App() {
 
       {/* CREATION MODALS (From "إنشاء جديد" & Shortcuts) */}
       {/* CREATION MODALS & INVENTORY / EXPENSES - Under Migration */}
-      {(isNewMaterialModalOpen || isNewClientModalOpen || isNewSupplierModalOpen || isNewEmployeeModalOpen) && (
+      {(isNewClientModalOpen || isNewSupplierModalOpen || isNewEmployeeModalOpen) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <UnderMigrationNotice
             title="نماذج الإدخال السريع قيد النقل للنظام الجديد"
             onGoBack={() => {
-              setIsNewMaterialModalOpen(false);
               setIsNewClientModalOpen(false);
               setIsNewSupplierModalOpen(false);
               setIsNewEmployeeModalOpen(false);
@@ -1008,6 +1031,17 @@ export default function App() {
         isOpen={isSupportModalOpen}
         onClose={() => setIsSupportModalOpen(false)}
         profile={currentProfile}
+      />
+
+      {/* Interactive Tour Modal (الجولة التعريفية التفاعلية للمستخدمين الجدد) */}
+      <InteractiveTourModal
+        isOpen={isInteractiveTourOpen}
+        onClose={() => setIsInteractiveTourOpen(false)}
+        profile={currentProfile}
+        onNavigateToCalculator={() => {
+          setActiveView('calculator');
+          setIsInteractiveTourOpen(false);
+        }}
       />
 
       {/* Footer Attribution Watermark */}

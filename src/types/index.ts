@@ -813,6 +813,8 @@ export interface ChatMessage {
   timestamp: number;
   actionChip?: string;
   sources?: Array<{ title: string; url: string }>;
+  searchEntryPoint?: string;
+  searchUsed?: boolean;
   metadata?: any;
 }
 

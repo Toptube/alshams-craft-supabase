@@ -1,5 +1,5 @@
 import React from 'react';
-import falconAvatarImg from '../../assets/image_hmWr-I.png';
+import falconAvatarImg from '../../assets/falcon_mascot_ai.png';
 import alshamsFalconEmblemImg from '../../assets/alshams_falcon_emblem.png';
 
 export { falconAvatarImg, alshamsFalconEmblemImg };
@@ -93,23 +93,33 @@ export const AlShamsBrandLogo: React.FC<{
 // EXCLUSIVE FALCON MASCOT AVATAR FOR "صقر الشمساوية AI"
 export const FalconMascotAvatar: React.FC<{
   className?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   statusDot?: boolean;
-}> = ({ className = '', size = 'md', statusDot = true }) => {
+  fit?: 'contain' | 'cover' | 'top';
+}> = ({ className = '', size = 'md', statusDot = true, fit = 'top' }) => {
   const sizeMap = {
-    sm: 'w-8 h-8',
-    md: 'w-10 h-10',
-    lg: 'w-14 h-14',
-    xl: 'w-20 h-20',
+    xs: 'w-7 h-7',
+    sm: 'w-9 h-9',
+    md: 'w-11 h-11',
+    lg: 'w-16 h-16',
+    xl: 'w-24 h-24',
+    '2xl': 'w-32 h-32',
   };
+
+  const fitClass =
+    fit === 'contain'
+      ? 'object-contain scale-95'
+      : fit === 'top'
+      ? 'object-cover object-top scale-110'
+      : 'object-cover';
 
   return (
     <div className={`relative ${sizeMap[size]} flex-shrink-0 ${className}`}>
-      <div className="w-full h-full rounded-2xl bg-gradient-to-tr from-stone-900 via-amber-950 to-stone-900 p-0.5 shadow-md border border-amber-500/40 overflow-hidden flex items-center justify-center">
+      <div className="w-full h-full rounded-2xl bg-gradient-to-tr from-stone-900 via-amber-950/90 to-stone-800 p-0.5 shadow-md border border-amber-500/40 dark:border-amber-400/60 dark:shadow-[0_0_12px_rgba(245,158,11,0.25)] overflow-hidden flex items-center justify-center transition-all duration-200">
         <img
           src={falconAvatarImg}
           alt="صقر الشمساوية AI"
-          className="w-full h-full object-cover rounded-2xl"
+          className={`w-full h-full ${fitClass} rounded-2xl select-none filter drop-shadow-sm`}
         />
       </div>
 

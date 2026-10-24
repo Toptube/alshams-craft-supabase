@@ -55,6 +55,9 @@ import {
   AlertCircle,
   HardDrive,
   RefreshCw,
+  Search,
+  ChevronDown,
+  X,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
 import {
@@ -64,6 +67,10 @@ import {
   stripParentheses,
   adaptMaterialToCordOption,
 } from '../../services/materialCalculatorAdapter';
+import {
+  ensureDefaultMaterialsInSupabase,
+  getUnitsFromSupabase,
+} from '../../db/supabaseService';
 
 interface ProductionCalculatorProps {
   profile: UserProfile;
@@ -499,24 +506,82 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     existingRecordId,
   ]);
 
+  // State for searching in materials within calculator
+  const [primarySearchQuery, setPrimarySearchQuery] = useState('');
+  const [isPrimaryDropdownOpen, setIsPrimaryDropdownOpen] = useState(false);
+
   // Load database raw materials & employees for dynamic feeding
   const loadDatabaseMaterialsAndStaff = async () => {
     try {
       const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
       if (!tenantId) return;
 
-      const [allMats, emps] = await Promise.all([
+      const [supMats, untsRes, allLocalMats, emps] = await Promise.all([
+        ensureDefaultMaterialsInSupabase(tenantId),
+        getUnitsFromSupabase(tenantId),
         ensureDefaultBasicYarns(tenantId),
         tenantStorage.getEmployees(tenantId).catch(() => []),
       ]);
-      setDbMaterials(allMats);
+
+      const unitsMap = new Map<string, any>();
+      (untsRes.data || []).forEach((u) => unitsMap.set(u.id, u));
+
+      // Map Supabase materials into RawMaterialItem shape
+      const mappedSupabaseMats: RawMaterialItem[] = supMats.map((sm) => {
+        const u = unitsMap.get(sm.unit_id);
+        const unitName = u?.name || 'كيلو';
+        const costPerUnit = Number(sm.purchase_price) || 0;
+        const factor = u?.factor && u.factor > 0 ? u.factor : 1000;
+        const costPerGram = unitName === 'كيلو' ? costPerUnit / 1000 : costPerUnit / factor;
+
+        return {
+          id: sm.id,
+          workshopId: tenantId,
+          tenantId: tenantId,
+          materialName: sm.name,
+          category: sm.kind === 'extra' ? 'خامات إضافية' : 'خامات أساسية',
+          materialCategory: sm.kind === 'extra' ? 'خامة إضافية' : 'خامة أساسية',
+          unit: unitName,
+          subUnit: u?.small_unit,
+          conversionFactor: factor,
+          marketName: sm.market_name || undefined,
+          marketUnitRatio: sm.market_unit_factor,
+          currentStock: 0,
+          costPerUnit,
+          costPerGram,
+          minAlertThreshold: 5,
+          isActive: true,
+        };
+      });
+
+      // Merge avoiding duplicate names
+      const seenNames = new Set<string>();
+      const combined: RawMaterialItem[] = [];
+
+      for (const m of mappedSupabaseMats) {
+        const norm = m.materialName.trim().toLowerCase();
+        if (!seenNames.has(norm)) {
+          seenNames.add(norm);
+          combined.push(m);
+        }
+      }
+
+      for (const m of allLocalMats) {
+        const norm = m.materialName.trim().toLowerCase();
+        if (!seenNames.has(norm)) {
+          seenNames.add(norm);
+          combined.push(m);
+        }
+      }
+
+      setDbMaterials(combined);
       setDbEmployees(emps);
 
-      const basicMats = allMats.filter(isBasicMaterial);
+      const basicMats = combined.filter(isBasicMaterial);
 
       // If no initial record, sync cordTypeId and pricePerKg from basic materials
       if (!initialRecord) {
-        const matchingYarn = basicMats.find((m) => m.id === cordTypeId);
+        const matchingYarn = basicMats.find((m) => m.id === cordTypeId || m.materialName === cordTypeId);
         if (matchingYarn) {
           const price =
             matchingYarn.unit === 'جرام'
@@ -550,6 +615,12 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   const basicMaterials = useMemo(() => {
     return dbMaterials.filter(isBasicMaterial);
   }, [dbMaterials]);
+
+  const filteredPrimaryMaterials = useMemo(() => {
+    if (!primarySearchQuery.trim()) return basicMaterials;
+    const q = primarySearchQuery.toLowerCase();
+    return basicMaterials.filter((m) => m.materialName.toLowerCase().includes(q));
+  }, [basicMaterials, primarySearchQuery]);
 
   const extraMaterialsList = useMemo(() => {
     return dbMaterials.filter(isExtraMaterial);
@@ -1799,12 +1870,12 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </h3>
             </div>
 
-            {/* Cord Type & Price per KG (Dropdown text strictly hides pricing numbers) */}
+            {/* Primary Material Selection with Search */}
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
               <div className="sm:col-span-8">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-bold text-stone-700 dark:text-stone-300">
-                    نوع الخيط (الخامات الأساسية) *
+                    الخامة الأساسية (الخيوط والحبال وكافة الخامات الرئيسية) *
                   </label>
                   <button
                     type="button"
@@ -1812,28 +1883,87 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                     className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-0.5 cursor-pointer"
                   >
                     <PlusCircle className="w-3 h-3" />
-                    <span>إضافة خيط جديد بالخامات</span>
+                    <span>إضافة خامة رئيسية جديدة</span>
                   </button>
                 </div>
-                <select
-                  value={cordTypeId}
-                  onChange={(e) => handleCordTypeChange(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
-                >
-                  {basicMaterials.length > 0 ? (
-                    basicMaterials.map((mat, idx) => (
-                      <option key={mat.id} value={mat.id}>
-                        {idx + 1}. {stripParentheses(mat.materialName)}
-                      </option>
-                    ))
-                  ) : (
-                    CORD_TYPES.map((cord, idx) => (
-                      <option key={cord.id} value={cord.id}>
-                        {idx + 1}. {stripParentheses(cord.name)}
-                      </option>
-                    ))
+
+                <div className="relative">
+                  <div className="flex items-center gap-1.5">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 text-stone-400 absolute right-3 top-3 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={
+                          isPrimaryDropdownOpen
+                            ? primarySearchQuery
+                            : basicMaterials.find((m) => m.id === cordTypeId || m.materialName === cordTypeId)?.materialName ||
+                              primarySearchQuery ||
+                              'اختر أو ابحث عن خامة أساسية...'
+                        }
+                        onChange={(e) => {
+                          setPrimarySearchQuery(e.target.value);
+                          setIsPrimaryDropdownOpen(true);
+                        }}
+                        onFocus={() => {
+                          setPrimarySearchQuery('');
+                          setIsPrimaryDropdownOpen(true);
+                        }}
+                        placeholder="ابحث بين جميع الخامات الأساسية القديمة والجديدة..."
+                        className="w-full pr-9 pl-8 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIsPrimaryDropdownOpen((prev) => !prev)}
+                        className="absolute left-2 top-2.5 p-1 text-stone-400 hover:text-stone-600"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dropdown Menu */}
+                  {isPrimaryDropdownOpen && (
+                    <div className="absolute z-50 mt-1 w-full max-h-56 overflow-y-auto rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 shadow-2xl p-1.5 space-y-1">
+                      {filteredPrimaryMaterials.length === 0 ? (
+                        <div className="p-3 text-center text-xs text-stone-400">
+                          لا توجد خامات أساسية مطابقة لبحثك
+                        </div>
+                      ) : (
+                        filteredPrimaryMaterials.map((mat, idx) => {
+                          const isSelected = mat.id === cordTypeId || mat.materialName === cordTypeId;
+                          return (
+                            <button
+                              key={mat.id}
+                              type="button"
+                              onClick={() => {
+                                handleCordTypeChange(mat.id);
+                                setPrimarySearchQuery(mat.materialName);
+                                setIsPrimaryDropdownOpen(false);
+                              }}
+                              className={`w-full text-right px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                                isSelected
+                                  ? 'bg-amber-600 text-white font-bold'
+                                  : 'hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-stone-400 font-mono">#{idx + 1}</span>
+                                <span className="font-bold">{stripParentheses(mat.materialName)}</span>
+                              </div>
+                              <span
+                                className={`text-[10px] font-mono ${
+                                  isSelected ? 'text-amber-100' : 'text-stone-400'
+                                }`}
+                              >
+                                {mat.costPerUnit} {profile.currencySymbol} / {mat.unit}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
                   )}
-                </select>
+                </div>
               </div>
 
               <div className="sm:col-span-4">

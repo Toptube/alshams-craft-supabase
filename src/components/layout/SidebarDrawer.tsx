@@ -29,6 +29,7 @@ import {
   Home,
   MessageSquare,
   ShieldCheck,
+  Compass,
 } from 'lucide-react';
 
 interface SidebarDrawerProps {
@@ -44,6 +45,7 @@ interface SidebarDrawerProps {
   onOpenUserGuide: (sectionId?: string) => void;
   onOpenCloudMigration: () => void;
   onOpenSupport?: () => void;
+  onStartTour?: () => void;
   onToggleDarkMode: () => void;
   isDarkMode: boolean;
   onLogout: () => void;
@@ -62,6 +64,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onOpenUserGuide,
   onOpenCloudMigration,
   onOpenSupport,
+  onStartTour,
   onToggleDarkMode,
   isDarkMode,
   onLogout,
@@ -307,13 +310,21 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               >
                 <div className="flex items-center gap-2.5">
                   <div
-                    className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                    className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden ${
                       isActive
                         ? 'bg-white/20 text-white'
                         : 'bg-stone-100 dark:bg-stone-800 text-amber-600 dark:text-amber-400'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5" />
+                    {item.id === 'ai_agent' ? (
+                      <img
+                        src="/falcon_mascot_ai.png"
+                        alt="صقر الشمساوية AI"
+                        className="w-full h-full object-cover object-top select-none rounded-lg"
+                      />
+                    ) : (
+                      <Icon className="w-3.5 h-3.5" />
+                    )}
                   </div>
                   <div>
                     <span className="text-xs font-bold block">{item.label}</span>
@@ -339,6 +350,21 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
         {/* Utilities: Guide + Migration + Logout */}
         <div className="p-3 border-t border-stone-100 dark:border-stone-800 space-y-2 bg-stone-50 dark:bg-stone-900/60">
+          {/* Interactive Tour Button */}
+          {onStartTour && (
+            <button
+              type="button"
+              onClick={() => {
+                onStartTour();
+                onClose();
+              }}
+              className="w-full py-2 px-3 rounded-xl border border-amber-300 dark:border-amber-700/80 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 flex items-center justify-center gap-2 cursor-pointer shadow-2xs text-xs font-black transition active:scale-95"
+            >
+              <Compass className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              <span>بدء الجولة التعريفية التفاعلية</span>
+            </button>
+          )}
+
           <div className="grid grid-cols-3 gap-1.5 text-xs font-bold">
             <button
               type="button"

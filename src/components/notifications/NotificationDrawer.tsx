@@ -21,7 +21,12 @@ import {
   Flame,
   CheckCircle2,
   Sparkles,
+  Smartphone,
 } from 'lucide-react';
+import {
+  getBrowserNotificationPermission,
+  requestBrowserNotificationPermission,
+} from '../../lib/browserNotifications';
 
 interface NotificationDrawerProps {
   isOpen: boolean;
@@ -47,6 +52,9 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   const [activeTab, setActiveTab] = useState<NotificationTab>('all');
   const [selectedOrderIdForStatus, setSelectedOrderIdForStatus] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [browserNotifPermission, setBrowserNotifPermission] = useState(
+    getBrowserNotificationPermission()
+  );
 
   // Is a notification considered "urgent"?
   const isUrgentNotification = (item: NotificationItem): boolean => {
@@ -272,6 +280,39 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
             <span className="hidden sm:inline">الكل مقروء</span>
           </button>
         </div>
+
+        {/* Browser Notifications Permission Prompt Banner */}
+        {browserNotifPermission !== 'granted' && browserNotifPermission !== 'unsupported' && (
+          <div className="mx-3.5 mt-2.5 p-3 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50/60 dark:from-stone-800 dark:to-stone-800/80 border border-amber-300/80 dark:border-stone-700 flex items-center justify-between gap-2 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 flex items-center justify-center shrink-0">
+                <Smartphone className="w-4 h-4" />
+              </div>
+              <div className="text-right">
+                <span className="text-[11px] font-black text-stone-900 dark:text-stone-100 block">
+                  تفعيل إشعارات المتصفح المنبثقة
+                </span>
+                <span className="text-[10px] text-stone-500 dark:text-stone-400 block leading-tight">
+                  لتنبيهك فوراً بنقص الخامات ومواعيد أوامر التشغيل
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                playButtonClickSound();
+                const granted = await requestBrowserNotificationPermission();
+                if (granted) {
+                  setBrowserNotifPermission('granted');
+                  playSuccessSound();
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition cursor-pointer shadow-xs active:scale-95 shrink-0"
+            >
+              تفعيل الآن
+            </button>
+          </div>
+        )}
 
         {/* Notifications List */}
         <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-2.5">
