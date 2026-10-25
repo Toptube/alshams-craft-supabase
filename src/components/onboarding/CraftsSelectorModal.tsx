@@ -6,7 +6,6 @@ import {
 } from '../../registry/craftsRegistry';
 import { WorkshopProfile } from '../../types';
 import { updateWorkshopProfileInSupabase } from '../../db/supabaseService';
-import { firestoreService } from '../../db/firestoreService';
 import {
   Check,
   Sparkles,

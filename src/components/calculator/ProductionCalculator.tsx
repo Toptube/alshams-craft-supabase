@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   CalculationInput,
   CalculationOutput,
@@ -509,6 +509,26 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   // State for searching in materials within calculator
   const [primarySearchQuery, setPrimarySearchQuery] = useState('');
   const [isPrimaryDropdownOpen, setIsPrimaryDropdownOpen] = useState(false);
+  const primaryDropdownRef = useRef<HTMLDivElement>(null);
+
+  // State for searching in extra materials within calculator
+  const [openExtraDropdownRowId, setOpenExtraDropdownRowId] = useState<string | null>(null);
+  const [extraDropdownSearch, setExtraDropdownSearch] = useState<string>('');
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleGlobalClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (primaryDropdownRef.current && !primaryDropdownRef.current.contains(target)) {
+        setIsPrimaryDropdownOpen(false);
+      }
+      if (target && !target.closest?.('[data-extra-dropdown]')) {
+        setOpenExtraDropdownRowId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleGlobalClick);
+    return () => document.removeEventListener('mousedown', handleGlobalClick);
+  }, []);
 
   // Load database raw materials & employees for dynamic feeding
   const loadDatabaseMaterialsAndStaff = async () => {
@@ -619,12 +639,28 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   const filteredPrimaryMaterials = useMemo(() => {
     if (!primarySearchQuery.trim()) return basicMaterials;
     const q = primarySearchQuery.toLowerCase();
-    return basicMaterials.filter((m) => m.materialName.toLowerCase().includes(q));
+    return basicMaterials.filter(
+      (m) =>
+        m.materialName.toLowerCase().includes(q) ||
+        (m.unit && m.unit.toLowerCase().includes(q)) ||
+        (m.category && m.category.toLowerCase().includes(q))
+    );
   }, [basicMaterials, primarySearchQuery]);
 
   const extraMaterialsList = useMemo(() => {
     return dbMaterials.filter(isExtraMaterial);
   }, [dbMaterials]);
+
+  const filteredExtraMaterials = useMemo(() => {
+    if (!extraDropdownSearch.trim()) return extraMaterialsList;
+    const q = extraDropdownSearch.toLowerCase();
+    return extraMaterialsList.filter(
+      (m) =>
+        m.materialName.toLowerCase().includes(q) ||
+        (m.unit && m.unit.toLowerCase().includes(q)) ||
+        (m.category && m.category.toLowerCase().includes(q))
+    );
+  }, [extraMaterialsList, extraDropdownSearch]);
 
   // Transfer notes from Falcon AI if requested
   useEffect(() => {
@@ -1887,80 +1923,101 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   </button>
                 </div>
 
-                <div className="relative">
-                  <div className="flex items-center gap-1.5">
-                    <div className="relative flex-1">
-                      <Search className="w-4 h-4 text-stone-400 absolute right-3 top-3 pointer-events-none" />
-                      <input
-                        type="text"
-                        value={
-                          isPrimaryDropdownOpen
-                            ? primarySearchQuery
-                            : basicMaterials.find((m) => m.id === cordTypeId || m.materialName === cordTypeId)?.materialName ||
-                              primarySearchQuery ||
-                              'اختر أو ابحث عن خامة أساسية...'
-                        }
-                        onChange={(e) => {
-                          setPrimarySearchQuery(e.target.value);
-                          setIsPrimaryDropdownOpen(true);
-                        }}
-                        onFocus={() => {
-                          setPrimarySearchQuery('');
-                          setIsPrimaryDropdownOpen(true);
-                        }}
-                        placeholder="ابحث بين جميع الخامات الأساسية القديمة والجديدة..."
-                        className="w-full pr-9 pl-8 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                <div className="relative" ref={primaryDropdownRef}>
+                  {/* Trigger Button displaying current selection */}
+                  <div
+                    onClick={() => {
+                      setIsPrimaryDropdownOpen((prev) => !prev);
+                      if (!isPrimaryDropdownOpen) setPrimarySearchQuery('');
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold flex items-center justify-between cursor-pointer hover:border-amber-500 transition shadow-xs"
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <ChevronDown
+                        className={`w-4 h-4 text-stone-400 transition-transform ${
+                          isPrimaryDropdownOpen ? 'rotate-180 text-amber-600' : ''
+                        }`}
                       />
-                      <button
-                        type="button"
-                        onClick={() => setIsPrimaryDropdownOpen((prev) => !prev)}
-                        className="absolute left-2 top-2.5 p-1 text-stone-400 hover:text-stone-600"
-                      >
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      </button>
+                      <span className="truncate">
+                        {basicMaterials.find((m) => m.id === cordTypeId || m.materialName === cordTypeId)?.materialName ||
+                          'اختر الخامة الأساسية...'}
+                      </span>
                     </div>
+                    {(() => {
+                      const sel = basicMaterials.find((m) => m.id === cordTypeId || m.materialName === cordTypeId);
+                      return sel ? (
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-mono font-bold shrink-0">
+                          {sel.costPerUnit} {profile.currencySymbol} / {sel.unit}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
 
-                  {/* Dropdown Menu */}
+                  {/* Dropdown Popover with Search Box Inside */}
                   {isPrimaryDropdownOpen && (
-                    <div className="absolute z-50 mt-1 w-full max-h-56 overflow-y-auto rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 shadow-2xl p-1.5 space-y-1">
-                      {filteredPrimaryMaterials.length === 0 ? (
-                        <div className="p-3 text-center text-xs text-stone-400">
-                          لا توجد خامات أساسية مطابقة لبحثك
-                        </div>
-                      ) : (
-                        filteredPrimaryMaterials.map((mat, idx) => {
-                          const isSelected = mat.id === cordTypeId || mat.materialName === cordTypeId;
-                          return (
-                            <button
-                              key={mat.id}
-                              type="button"
-                              onClick={() => {
-                                handleCordTypeChange(mat.id);
-                                setPrimarySearchQuery(mat.materialName);
-                                setIsPrimaryDropdownOpen(false);
-                              }}
-                              className={`w-full text-right px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
-                                isSelected
-                                  ? 'bg-amber-600 text-white font-bold'
-                                  : 'hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200'
-                              }`}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] text-stone-400 font-mono">#{idx + 1}</span>
-                                <span className="font-bold">{stripParentheses(mat.materialName)}</span>
-                              </div>
-                              <span
-                                className={`text-[10px] font-mono ${
-                                  isSelected ? 'text-amber-100' : 'text-stone-400'
+                    <div className="absolute z-50 mt-1.5 w-full rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 shadow-2xl p-2 space-y-2 animate-in fade-in duration-150">
+                      {/* Search box inside the dropdown list */}
+                      <div className="relative">
+                        <Search className="w-4 h-4 text-stone-400 absolute right-3 top-2.5 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={primarySearchQuery}
+                          onChange={(e) => setPrimarySearchQuery(e.target.value)}
+                          placeholder="ابحث في الخامات الأساسية بالاسم أو التصنيف..."
+                          className="w-full pr-9 pl-8 py-2 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:border-amber-500"
+                          autoFocus
+                        />
+                        {primarySearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setPrimarySearchQuery('')}
+                            className="absolute left-2.5 top-2.5 text-stone-400 hover:text-stone-600 p-0.5"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Dynamic List */}
+                      <div className="max-h-56 overflow-y-auto space-y-1 pr-0.5">
+                        {filteredPrimaryMaterials.length === 0 ? (
+                          <div className="p-3 text-center text-xs text-stone-400">
+                            لا توجد خامات أساسية مطابقة لبحثك
+                          </div>
+                        ) : (
+                          filteredPrimaryMaterials.map((mat, idx) => {
+                            const isSelected = mat.id === cordTypeId || mat.materialName === cordTypeId;
+                            return (
+                              <button
+                                key={mat.id}
+                                type="button"
+                                onClick={() => {
+                                  handleCordTypeChange(mat.id);
+                                  setPrimarySearchQuery('');
+                                  setIsPrimaryDropdownOpen(false);
+                                }}
+                                className={`w-full text-right px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-amber-600 text-white font-bold shadow-xs'
+                                    : 'hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200'
                                 }`}
                               >
-                                {mat.costPerUnit} {profile.currencySymbol} / {mat.unit}
-                              </span>
-                            </button>
-                          );
-                        })
-                      )}
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="text-[10px] text-stone-400 font-mono">#{idx + 1}</span>
+                                  <span className="font-bold truncate">{stripParentheses(mat.materialName)}</span>
+                                </div>
+                                <span
+                                  className={`text-[10px] font-mono shrink-0 mr-2 ${
+                                    isSelected ? 'text-amber-100' : 'text-stone-400'
+                                  }`}
+                                >
+                                  {mat.costPerUnit} {profile.currencySymbol} / {mat.unit}
+                                </span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2098,41 +2155,128 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                     <Trash2 className="w-4 h-4" />
                   </button>
 
-                  {/* Dropdown to pick from Extra Materials registered in warehouse OR custom */}
-                  <select
-                    value={row.materialDbId || '__custom__'}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === '__custom__') {
-                        handleUpdateMaterialRowMulti(row.id, {
-                          materialDbId: '',
-                        });
-                      } else {
-                        const selectedMat = extraMaterialsList.find((m) => m.id === val);
-                        if (selectedMat) {
-                          handleUpdateMaterialRowMulti(row.id, {
-                            materialDbId: selectedMat.id,
-                            name: selectedMat.materialName,
-                            unit: selectedMat.unit || 'قطعة',
-                            unitPrice: selectedMat.costPerUnit || 0,
-                            quantity: row.quantity || 1,
-                          });
+                  {/* Dynamic Searchable Dropdown for Extra Materials */}
+                  <div className="relative w-full sm:w-52 shrink-0" data-extra-dropdown="true">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (openExtraDropdownRowId === row.id) {
+                          setOpenExtraDropdownRowId(null);
+                        } else {
+                          setOpenExtraDropdownRowId(row.id);
+                          setExtraDropdownSearch('');
                         }
-                      }
-                    }}
-                    className="w-full sm:w-44 px-2 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none"
-                  >
-                    <option value="__custom__">✏️ بند حر (إدخال يدوي)</option>
-                    {extraMaterialsList.length > 0 && (
-                      <optgroup label="الخامات الإضافية بالمخزن:">
-                        {extraMaterialsList.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.materialName} ({m.costPerUnit} {profile.currencySymbol})
-                          </option>
-                        ))}
-                      </optgroup>
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 text-xs font-bold flex items-center justify-between cursor-pointer hover:border-amber-500 transition shadow-xs text-right"
+                    >
+                      <div className="flex items-center gap-1.5 truncate">
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 text-stone-400 shrink-0 transition-transform ${
+                            openExtraDropdownRowId === row.id ? 'rotate-180 text-amber-600' : ''
+                          }`}
+                        />
+                        <span className="truncate">
+                          {row.materialDbId
+                            ? extraMaterialsList.find((m) => m.id === row.materialDbId)?.materialName || row.name || 'خامة مختارة'
+                            : '✏️ بند حر (إدخال يدوي)'}
+                        </span>
+                      </div>
+                      {row.materialDbId && (
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-mono font-bold shrink-0">
+                          {extraMaterialsList.find((m) => m.id === row.materialDbId)?.costPerUnit || row.unitPrice} {profile.currencySymbol}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Popover with search box inside */}
+                    {openExtraDropdownRowId === row.id && (
+                      <div className="absolute z-50 mt-1 right-0 w-64 sm:w-72 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 shadow-2xl p-2 space-y-2 animate-in fade-in duration-150">
+                        {/* Search input inside dropdown */}
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2 pointer-events-none" />
+                          <input
+                            type="text"
+                            value={extraDropdownSearch}
+                            onChange={(e) => setExtraDropdownSearch(e.target.value)}
+                            placeholder="ابحث في الخامات الإضافية..."
+                            className="w-full pr-8 pl-7 py-1.5 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:border-amber-500"
+                            autoFocus
+                          />
+                          {extraDropdownSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setExtraDropdownSearch('')}
+                              className="absolute left-2 top-2 text-stone-400 hover:text-stone-600 p-0.5"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* List items */}
+                        <div className="max-h-52 overflow-y-auto space-y-1 pr-0.5">
+                          {/* Manual Custom Option */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleUpdateMaterialRowMulti(row.id, {
+                                materialDbId: '',
+                              });
+                              setOpenExtraDropdownRowId(null);
+                            }}
+                            className={`w-full text-right px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                              !row.materialDbId
+                                ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 font-bold'
+                                : 'hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200'
+                            }`}
+                          >
+                            <span className="font-bold">✏️ بند حر (إدخال يدوي)</span>
+                            <span className="text-[10px] text-stone-400">مخصص</span>
+                          </button>
+
+                          {filteredExtraMaterials.length === 0 ? (
+                            <div className="p-2 text-center text-xs text-stone-400">
+                              لا توجد خامات إضافية مطابقة للبحث
+                            </div>
+                          ) : (
+                            filteredExtraMaterials.map((m) => {
+                              const isSelected = row.materialDbId === m.id;
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => {
+                                    handleUpdateMaterialRowMulti(row.id, {
+                                      materialDbId: m.id,
+                                      name: m.materialName,
+                                      unit: m.unit || 'قطعة',
+                                      unitPrice: m.costPerUnit || 0,
+                                      quantity: row.quantity || 1,
+                                    });
+                                    setOpenExtraDropdownRowId(null);
+                                  }}
+                                  className={`w-full text-right px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-amber-600 text-white font-bold shadow-xs'
+                                      : 'hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200'
+                                  }`}
+                                >
+                                  <span className="truncate font-medium">{stripParentheses(m.materialName)}</span>
+                                  <span
+                                    className={`text-[10px] font-mono shrink-0 mr-2 ${
+                                      isSelected ? 'text-amber-100' : 'text-stone-400'
+                                    }`}
+                                  >
+                                    {m.costPerUnit} {profile.currencySymbol} / {m.unit || 'قطعة'}
+                                  </span>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
                     )}
-                  </select>
+                  </div>
 
                   <input
                     type="text"

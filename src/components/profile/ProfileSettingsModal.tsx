@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, Gender, getDefaultFamilyNickname } from '../../types';
 import { COUNTRIES_CONFIG, getGenderArtistTitle } from '../../utils/macrameMath';
 import { tenantStorage } from '../../db/dexieDB';
 import { updateWorkshopProfileInSupabase } from '../../db/supabaseService';
 import { NumberInput } from '../ui/NumberInput';
+import {
+  SUPPORTED_LANGUAGES,
+  LanguageCode,
+  getStoredLanguage,
+  setStoredLanguage,
+  getStoredQuickLanguages,
+  setStoredQuickLanguages,
+} from '../../lib/i18n';
 import {
   X,
   Building2,
@@ -53,7 +61,18 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'reminders' | 'export_data' | 'factory_reset'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'language' | 'reminders' | 'export_data' | 'factory_reset'>('profile');
+
+  // Language settings state
+  const [selectedAppLang, setSelectedAppLang] = useState<LanguageCode>(getStoredLanguage());
+  const [quickSwitchLangs, setQuickSwitchLangs] = useState<LanguageCode[]>(getStoredQuickLanguages());
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedAppLang(getStoredLanguage());
+      setQuickSwitchLangs(getStoredQuickLanguages());
+    }
+  }, [isOpen]);
 
   // Profile fields
   const [brandName, setBrandName] = useState(profile.brandName || '');
@@ -452,6 +471,21 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             type="button"
             onClick={() => {
               playButtonClickSound();
+              setActiveTab('language');
+            }}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'language'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>اللغة وتعدد اللغات</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              playButtonClickSound();
               setActiveTab('reminders');
             }}
             className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
@@ -823,7 +857,168 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           </div>
         )}
 
-        {/* TAB 2: DAILY SALES REMINDERS */}
+        {/* TAB: LANGUAGE & MULTI-LINGUAL SETTINGS */}
+        {activeTab === 'language' && (
+          <div className="mt-4 space-y-5">
+            {/* Header Box */}
+            <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-stone-900 dark:text-stone-100">
+                    تعدد اللغات والتبديل السريع
+                  </h3>
+                  <p className="text-xs text-stone-500">
+                    اختر لغة الواجهة الأساسية واللغات المفضلة المعروضة في شريط الأدوات العلوي
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 1: Main Application Language */}
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-stone-900 dark:text-stone-100">
+                  لغة التطبيق النشطة حالياً:
+                </span>
+                <span className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                  {SUPPORTED_LANGUAGES.find((l) => l.code === selectedAppLang)?.nativeName} ({selectedAppLang.toUpperCase()})
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-black text-stone-400 dark:text-stone-500">
+                  اللغات الأساسية المعتمدة:
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  {SUPPORTED_LANGUAGES.filter((l) => l.isPrimary).map((lang) => {
+                    const isSelected = selectedAppLang === lang.code;
+                    return (
+                      <button
+                        key={lang.code}
+                        type="button"
+                        onClick={() => setSelectedAppLang(lang.code)}
+                        className={`p-3 rounded-2xl border text-right transition cursor-pointer flex items-center justify-between ${
+                          isSelected
+                            ? 'border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-100 font-black shadow-xs'
+                            : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-xl">{lang.flag}</span>
+                          <div>
+                            <span className="text-xs font-black block">{lang.nativeName}</span>
+                            <span className="text-[10px] text-stone-400 block">{lang.name}</span>
+                          </div>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-amber-600" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-1.5 pt-2 border-t border-stone-200/60 dark:border-stone-700/60">
+                <div className="text-[11px] font-black text-stone-400 dark:text-stone-500">
+                  خيارات لغات أخرى:
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {SUPPORTED_LANGUAGES.filter((l) => !l.isPrimary).map((lang) => {
+                    const isSelected = selectedAppLang === lang.code;
+                    return (
+                      <button
+                        key={lang.code}
+                        type="button"
+                        onClick={() => setSelectedAppLang(lang.code)}
+                        className={`p-2.5 rounded-2xl border text-right transition cursor-pointer flex items-center justify-between ${
+                          isSelected
+                            ? 'border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-100 font-black shadow-xs'
+                            : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 hover:bg-stone-50 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{lang.flag}</span>
+                          <div>
+                            <span className="text-xs font-bold block">{lang.nativeName}</span>
+                            <span className="text-[10px] text-stone-400 block">{lang.name}</span>
+                          </div>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-amber-600" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Quick Switch Selection */}
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-3">
+              <div>
+                <span className="text-xs font-black text-stone-900 dark:text-stone-100 block">
+                  لغات التبديل السريع في القائمة العلوية (2 أو 3 لغات):
+                </span>
+                <p className="text-[11px] text-stone-500 mt-0.5">
+                  هذه اللغات ستظهر كأزرار تبديل فوري بنقرة واحدة بجوار زر البحث الموحد في أعلى الشاشة.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {SUPPORTED_LANGUAGES.map((lang) => {
+                  const isChecked = quickSwitchLangs.includes(lang.code);
+                  return (
+                    <button
+                      key={lang.code}
+                      type="button"
+                      onClick={() => {
+                        if (isChecked) {
+                          if (quickSwitchLangs.length <= 2) return;
+                          setQuickSwitchLangs(quickSwitchLangs.filter((c) => c !== lang.code));
+                        } else {
+                          if (quickSwitchLangs.length >= 3) {
+                            setQuickSwitchLangs([...quickSwitchLangs.slice(1), lang.code]);
+                          } else {
+                            setQuickSwitchLangs([...quickSwitchLangs, lang.code]);
+                          }
+                        }
+                      }}
+                      className={`p-2 rounded-xl border text-xs font-bold transition flex items-center justify-between cursor-pointer ${
+                        isChecked
+                          ? 'border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200'
+                          : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-600'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <span>{lang.flag}</span>
+                        <span>{lang.nativeName}</span>
+                      </span>
+                      {isChecked && <Check className="w-3.5 h-3.5 text-amber-600" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Save Language Button */}
+            <div className="pt-3 border-t border-stone-200 dark:border-stone-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setStoredLanguage(selectedAppLang);
+                  setStoredQuickLanguages(quickSwitchLangs);
+                  playSuccessSound();
+                  setSuccessNotice(true);
+                  setTimeout(() => setSuccessNotice(false), 3000);
+                }}
+                className="px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-md transition cursor-pointer flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                <span>حفظ وتطبيق إعدادات اللغة</span>
+              </button>
+            </div>
+          </div>
+        )}
         {activeTab === 'reminders' && (
           <div className="mt-4 space-y-5">
             {/* Main Toggle Banner */}

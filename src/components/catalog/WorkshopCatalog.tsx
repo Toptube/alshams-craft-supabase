@@ -948,7 +948,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             }}
           >
             <span>* الأسعار شاملة لكافة نسب الأمان وتكاليف الإنتاج المعتمدة بالورشة.</span>
-            <span>صادر من نظام الشمس للبرمجيات الحرفية • AL-SHAMS CRAFT</span>
+            <span>صادر من منظومة الشمساوية للبرمجيات الحرفية • AL-SHAMSAWEYA</span>
           </div>
         </div>
       </div>

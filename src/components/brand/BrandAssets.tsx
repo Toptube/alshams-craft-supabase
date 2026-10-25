@@ -74,7 +74,7 @@ export const AlShamsBrandLogo: React.FC<{
       <div className="flex flex-col text-right">
         <div className="flex items-center gap-1.5 leading-none">
           <span className={`font-[800] ${currentSize.title} tracking-tight text-stone-900 dark:text-amber-300 font-sans`}>
-            الشمس كرافت
+            منظومة الشمساوية
           </span>
           <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-mono">
             ERP
@@ -82,7 +82,7 @@ export const AlShamsBrandLogo: React.FC<{
         </div>
         {showSubtitle && (
           <span className={`${currentSize.sub} font-mono tracking-widest uppercase text-stone-500 dark:text-stone-400 mt-1`}>
-            ALSHAMS CRAFT
+            EL-SHAMSAWEYA
           </span>
         )}
       </div>

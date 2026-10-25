@@ -31,7 +31,12 @@ import { CompleteWorkshopScreen } from './components/auth/CompleteWorkshopScreen
 import { SuspendedWorkshopScreen } from './components/auth/SuspendedWorkshopScreen';
 import { UnderMigrationNotice } from './components/common/UnderMigrationNotice';
 import { MaterialsView } from './components/materials/MaterialsView';
+import { SuppliersView } from './components/suppliers/SuppliersView';
+import { CustomersView } from './components/customers/CustomersView';
+import { TreasuriesView } from './components/treasuries/TreasuriesView';
+import { NewClientModal, NewSupplierModal } from './components/modals/CreationModals';
 import { playPageFlipSound } from './lib/sounds';
+import { useTranslation, getStoredLanguage, SUPPORTED_LANGUAGES } from './lib/i18n';
 import {
   PlusCircle,
   Calculator,
@@ -68,6 +73,7 @@ export type AppActiveView =
   | 'invoices'
   | 'work_orders'
   | 'suppliers'
+  | 'customers'
   | 'materials'
   | 'treasuries'
   | 'hr'
@@ -272,6 +278,14 @@ export default function App() {
     }
   }, [isDarkMode]);
 
+  const { lang: appLang, dir: appDir } = useTranslation();
+
+  // Sync language direction (RTL / LTR) and language tag
+  useEffect(() => {
+    document.documentElement.dir = appDir;
+    document.documentElement.lang = appLang;
+  }, [appLang, appDir]);
+
   const triggerWelcomeFlow = useCallback((profile: UserProfile) => {
     if (profile.welcomeShown !== true) {
       setWelcomeType('first_time');
@@ -347,16 +361,16 @@ export default function App() {
     setWorkshopLoadError(null);
 
     const userEmail = authSession?.user?.email || '';
-    console.log('[App] Step 2: Session active for user:', userId, `(${userEmail}). Starting loadWorkshop with 10s timeout... [retry: ${retryCount}]`);
+    console.log('[App] Step 2: Session active for user:', userId, `(${userEmail}). Starting loadWorkshop with 25s timeout... [retry: ${retryCount}]`);
 
-    // 10 second timeout promise (Rule 3)
+    // 25 second timeout promise (Rule 3)
     let timeoutId: any = null;
     const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) => {
       timeoutId = setTimeout(() => {
         reject(
-          new Error('انتهت مهلة التحميل (10 ثوانٍ) أثناء جلب بيانات الورشة من الخادم. يرجى التحقق من اتصال الإنترنت.')
+          new Error('انتهت مهلة التحميل (25 ثانية) أثناء جلب بيانات الورشة من الخادم. يرجى التحقق من اتصال الإنترنت.')
         );
-      }, 10000);
+      }, 25000);
     });
 
     // Directly query Supabase without calling getSession() (Rule 3 & 4)
@@ -723,7 +737,7 @@ export default function App() {
               <ArrowRight className="w-3.5 h-3.5 text-amber-600 group-hover:-translate-x-0.5 transition-transform" />
             </button>
             <div className="text-xs font-bold text-stone-500">
-              <span>نظام الشمس كرافت • {currentProfile.brandName}</span>
+              <span>منظومة الشمساوية • {currentProfile.brandName}</span>
             </div>
           </div>
         )}
@@ -742,7 +756,13 @@ export default function App() {
             }}
             onNavigateToSuppliers={() => setActiveView('suppliers')}
             onNavigateToSales={(mode) => setActiveView('sales')}
-            onNavigateToInvoices={(filter) => setActiveView('invoices')}
+            onNavigateToInvoices={(filter) => {
+              if (filter === 'customers') {
+                setActiveView('customers');
+              } else {
+                setActiveView('invoices');
+              }
+            }}
             onNavigateToWorkOrders={(mode) => setActiveView('work_orders')}
             onNavigateToTreasuries={() => setActiveView('treasuries')}
             onNavigateToHR={() => setActiveView('hr')}
@@ -805,9 +825,27 @@ export default function App() {
         )}
 
         {activeView === 'suppliers' && (
-          <UnderMigrationNotice
-            title="الموردون وفواتير الخامات قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
+          <SuppliersView
+            workshop={currentProfile}
+            onOpenHelp={(s) => {
+              setUserGuideSection(s);
+              setIsUserGuideOpen(true);
+            }}
+            onOpenCreateSupplier={() => {
+              setSupplierModalMode('create_supplier');
+              setSupplierModalLocked(true);
+              setIsNewSupplierModalOpen(true);
+            }}
+          />
+        )}
+
+        {activeView === 'customers' && (
+          <CustomersView
+            workshop={currentProfile}
+            onOpenHelp={(s) => {
+              setUserGuideSection(s);
+              setIsUserGuideOpen(true);
+            }}
           />
         )}
 
@@ -820,9 +858,12 @@ export default function App() {
         )}
 
         {activeView === 'treasuries' && (
-          <UnderMigrationNotice
-            title="الخزن والسيولة النقدية قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
+          <TreasuriesView
+            workshop={currentProfile}
+            onOpenHelp={(s) => {
+              setUserGuideSection(s);
+              setIsUserGuideOpen(true);
+            }}
           />
         )}
 
@@ -879,17 +920,28 @@ export default function App() {
         )}
       </main>
 
-      {/* CREATION MODALS (From "إنشاء جديد" & Shortcuts) */}
-      {/* CREATION MODALS & INVENTORY / EXPENSES - Under Migration */}
-      {(isNewClientModalOpen || isNewSupplierModalOpen || isNewEmployeeModalOpen) && (
+      {/* REAL CREATION MODALS FOR CLIENT & SUPPLIER (CONNECTED TO SUPABASE) */}
+      <NewClientModal
+        isOpen={isNewClientModalOpen}
+        onClose={() => setIsNewClientModalOpen(false)}
+        profile={currentProfile}
+        onSuccess={() => {}}
+      />
+
+      <NewSupplierModal
+        isOpen={isNewSupplierModalOpen}
+        onClose={() => setIsNewSupplierModalOpen(false)}
+        profile={currentProfile}
+        initialMode={supplierModalMode}
+        lockMode={supplierModalLocked}
+        onSuccess={() => {}}
+      />
+
+      {isNewEmployeeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <UnderMigrationNotice
-            title="نماذج الإدخال السريع قيد النقل للنظام الجديد"
-            onGoBack={() => {
-              setIsNewClientModalOpen(false);
-              setIsNewSupplierModalOpen(false);
-              setIsNewEmployeeModalOpen(false);
-            }}
+            title="نماذج إدخال الموظفين قيد النقل للنظام الجديد"
+            onGoBack={() => setIsNewEmployeeModalOpen(false)}
           />
         </div>
       )}
@@ -1048,7 +1100,7 @@ export default function App() {
       <footer className="mt-auto py-5 border-t border-stone-200 dark:border-stone-800 text-center text-xs text-stone-500 dark:text-stone-400">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p className="flex items-center gap-1 font-medium">
-            <span>منظومة الشمس كرافت الحرفية المتكاملة (SaaS Edition)</span>
+            <span>منظومة الشمساوية الحرفية المتكاملة (SaaS Edition)</span>
             <span className="text-stone-300 dark:text-stone-700">•</span>
             <span>كافة الحقوق محفوظة لبراند {currentProfile.brandName}</span>
           </p>

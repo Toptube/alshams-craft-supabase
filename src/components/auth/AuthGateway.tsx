@@ -225,14 +225,14 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           <div className="w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center">
             <img
               src="/alshams_falcon_emblem.png"
-              alt="أيقونة الشمس كرافت الرسمية"
+              alt="أيقونة منظومة الشمساوية الرسمية"
               className="w-full h-full object-contain filter drop-shadow-md select-none"
             />
           </div>
           <div>
             <div className="flex items-center justify-center gap-2">
               <h1 className="text-xl sm:text-2xl font-[800] text-stone-900 dark:text-amber-300">
-                الشمس كرافت
+                منظومة الشمساوية
               </h1>
               <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-mono">
                 ERP

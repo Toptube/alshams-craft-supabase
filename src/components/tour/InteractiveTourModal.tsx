@@ -54,7 +54,7 @@ export const InteractiveTourModal: React.FC<InteractiveTourModalProps> = ({
       content: (
         <div className="space-y-3 text-right">
           <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed font-medium">
-            أهلاً بك يا فنان في <strong className="text-amber-700 dark:text-amber-300">منظومة الشمس كرافت ERP</strong>، المنصة المصممة خصيصاً لورش المكرمية والحِرف اليدوية والفنون لحساب التكاليف بدقة علمية، وإدارة المبيعات والخامات، وتحقيق أرباح عادلة ومحمية.
+            أهلاً بك يا فنان في <strong className="text-amber-700 dark:text-amber-300">منظومة الشمساوية ERP</strong>، المنصة المصممة خصيصاً لورش المكرمية والحِرف اليدوية والفنون لحساب التكاليف بدقة علمية، وإدارة المبيعات والخامات، وتحقيق أرباح عادلة ومحمية.
           </p>
           <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 space-y-1.5 font-bold">
             <p>💡 ما الذي ستقدمه لك هذه الجولة؟</p>
@@ -216,7 +216,7 @@ export const InteractiveTourModal: React.FC<InteractiveTourModalProps> = ({
       content: (
         <div className="space-y-3 text-right">
           <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed font-medium">
-            حاسبة الشمس كرافت تضمن لك عدم إهدار أي سنتيمتر خيط أو دقيقة عمل:
+            حاسبة منظومة الشمساوية تضمن لك عدم إهدار أي سنتيمتر خيط أو دقيقة عمل:
           </p>
           <div className="space-y-2 text-xs">
             <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 flex items-start gap-2.5">

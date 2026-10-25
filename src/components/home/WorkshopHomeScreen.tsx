@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { UserProfile } from '../../types';
-import { firestoreService } from '../../db/firestoreService';
+import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { tenantStorage } from '../../db/dexieDB';
 import {
   Layers,
@@ -122,63 +122,43 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       try {
         setLoadingSummary(true);
 
-        // 1. Treasuries Balance
+        // 1. Treasuries Balance (from Supabase treasury_balances view)
         let treasuriesSum = 0;
         try {
-          const treasuries = await firestoreService.getTreasuries(workshopId);
+          const { data: treasuries } = await getTreasuryBalancesFromSupabase(workshopId);
           if (treasuries && treasuries.length > 0) {
-            treasuriesSum = treasuries.reduce((sum, t) => sum + (t.balance || 0), 0);
+            treasuriesSum = treasuries.reduce((sum, t) => sum + (Number(t.balance) || 0), 0);
           } else {
-            const safe = await tenantStorage.getSafeBalances(workshopId);
+            const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
             treasuriesSum = (safe.mainSafe || 0) + (safe.subSafe || 0);
           }
         } catch {
-          const safe = await tenantStorage.getSafeBalances(workshopId);
+          const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
           treasuriesSum = (safe.mainSafe || 0) + (safe.subSafe || 0);
         }
 
-        // 2. Current Month Sales
+        // 2. Current Month Sales (from local tenantStorage orders until Supabase invoices table is ready)
         let salesSum = 0;
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
         try {
-          const invoices = await firestoreService.getInvoices(workshopId);
-          if (invoices && invoices.length > 0) {
-            salesSum = invoices
-              .filter((inv) => (inv.createdAt || 0) >= startOfMonth && inv.status !== 'cancelled')
-              .reduce((sum, inv) => sum + (inv.finalTotal || inv.totalAmount || inv.subtotal || 0), 0);
-          } else {
-            const orders = await tenantStorage.getOrders(workshopId);
-            salesSum = orders
-              .filter((ord) => (ord.createdAt || 0) >= startOfMonth && ord.status !== 'cancelled')
-              .reduce((sum, ord) => sum + (ord.finalTotal || ord.totalAmount || ord.subtotal || 0), 0);
-          }
-        } catch {
-          const orders = await tenantStorage.getOrders(workshopId);
+          const orders = await tenantStorage.getOrders(workshopId).catch(() => []);
           salesSum = orders
             .filter((ord) => (ord.createdAt || 0) >= startOfMonth && ord.status !== 'cancelled')
             .reduce((sum, ord) => sum + (ord.finalTotal || ord.totalAmount || ord.subtotal || 0), 0);
+        } catch {
+          salesSum = 0;
         }
 
-        // 3. Stock Alerts
+        // 3. Stock Alerts (from tenantStorage rawMaterials until Supabase stock balance table is ready)
         let alerts = 0;
         try {
-          const materials = await firestoreService.getRawMaterials(workshopId);
-          if (materials && materials.length > 0) {
-            alerts = materials.filter(
-              (m) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
-            ).length;
-          } else {
-            const raw = await tenantStorage.getRawMaterials(workshopId);
-            alerts = raw.filter(
-              (m) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
-            ).length;
-          }
-        } catch {
-          const raw = await tenantStorage.getRawMaterials(workshopId);
+          const raw = await tenantStorage.getRawMaterials(workshopId).catch(() => []);
           alerts = raw.filter(
             (m) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
           ).length;
+        } catch {
+          alerts = 0;
         }
 
         if (isMounted) {

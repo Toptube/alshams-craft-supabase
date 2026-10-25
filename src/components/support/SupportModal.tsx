@@ -69,7 +69,7 @@ export const SupportModal: React.FC<SupportModalProps> = ({
    */
   const buildWhatsAppMessage = (customSubject?: string, customMessage?: string) => {
     const activeSubject = (customSubject !== undefined ? customSubject : subject).trim() || 'استفسار ودعم عام';
-    const activeDetails = (customMessage !== undefined ? customMessage : message).trim() || 'يرجى التواصل بخصوص منظومة الشمس كرافت.';
+    const activeDetails = (customMessage !== undefined ? customMessage : message).trim() || 'يرجى التواصل بخصوص منظومة الشمساوية.';
     const formattedDate = new Date().toLocaleDateString('ar-EG', {
       weekday: 'long',
       year: 'numeric',
@@ -82,7 +82,7 @@ export const SupportModal: React.FC<SupportModalProps> = ({
     });
 
     const lines = [
-      `🌟 *منظومة الشمس كرافت | تذكرة تواصل ودعم رسمية* 🌟`,
+      `🌟 *منظومة الشمساوية | تذكرة تواصل ودعم رسمية* 🌟`,
       `---------------------------------`,
       `🔖 *رقم التذكرة التسلسلي:* #${ticketSerial}`,
       `🏷️ *نوع الطلب:* ${getTypeName(type)}`,
@@ -183,7 +183,7 @@ export const SupportModal: React.FC<SupportModalProps> = ({
                 تم توجيه تذكرتك بنجاح عبر واتساب!
               </h3>
               <p className="text-xs text-stone-500 max-w-sm mx-auto leading-relaxed">
-                رقم التذكرة التسلسلي <span className="font-mono font-bold text-amber-600">#{ticketSerial}</span> متضمناً كافة بيانات براندك وهاتفك تم إرسالها للرقم الرسمي لمنظومة الشمس كرافت.
+                رقم التذكرة التسلسلي <span className="font-mono font-bold text-amber-600">#{ticketSerial}</span> متضمناً كافة بيانات براندك وهاتفك تم إرسالها للرقم الرسمي لمنظومة الشمساوية.
               </p>
             </div>
           ) : (
@@ -213,13 +213,13 @@ export const SupportModal: React.FC<SupportModalProps> = ({
                     </button>
                   </div>
                   <p className="text-[10px] text-stone-500 dark:text-stone-400 mt-0.5">
-                    الرقم الرسمي الموحد لإدارة ودعم منظومة الشمس كرافت بالكامل
+                    الرقم الرسمي الموحد لإدارة ودعم منظومة الشمساوية بالكامل
                   </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => handleOpenWhatsApp('محادثة دعم فوري', 'مرحباً، أطلب تواصلاً فورياً مع إدارة منظومة الشمس كرافت.')}
+                  onClick={() => handleOpenWhatsApp('محادثة دعم فوري', 'مرحباً، أطلب تواصلاً فورياً مع إدارة منظومة الشمساوية.')}
                   className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-black transition flex items-center justify-center gap-2 shadow-sm cursor-pointer shrink-0"
                 >
                   <MessageCircle className="w-4 h-4" />

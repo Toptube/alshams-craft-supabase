@@ -1,10 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AlShamsBrandLogo, ArtisanAvatar } from '../brand/BrandAssets';
 import { UserProfile, isUserAdmin } from '../../types';
 import { getGenderGreeting } from '../../utils/macrameMath';
 import {
   X,
-  UserCheck,
   Calculator,
   Sparkles,
   FolderArchive,
@@ -13,6 +12,7 @@ import {
   Moon,
   LogOut,
   ChevronLeft,
+  ChevronDown,
   Bell,
   Wallet,
   Boxes,
@@ -27,10 +27,17 @@ import {
   Settings,
   HelpCircle,
   Home,
-  MessageSquare,
   ShieldCheck,
   Compass,
+  LayoutGrid,
+  ShoppingCart,
+  Users2,
+  Briefcase,
+  Sliders,
+  Database,
+  Building,
 } from 'lucide-react';
+import { useTranslation } from '../../lib/i18n';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -71,92 +78,141 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const greeting = getGenderGreeting(profile.gender, profile.artistName);
+  const { lang: currentLang, dir, t: tr } = useTranslation();
 
-  const mainModules = [
+  // Collapsible sections state (default all expanded for high visibility)
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    erp: false,
+    crm: false,
+    hr: false,
+    system: false,
+  });
+
+  const toggleSection = (sec: string) => {
+    setCollapsedSections((prev) => ({
+      ...prev,
+      [sec]: !prev[sec],
+    }));
+  };
+
+  // Section 2: ERP (Resource Planning)
+  const erpModules = [
     {
-      id: 'create_center',
-      label: 'الرئيسية ومركز العمليات',
-      sublabel: 'شبكة البطاقات السريعة وملخص الورشة',
-      icon: Home,
-    },
-    {
-      id: 'calculator',
-      label: 'حاسبة تكاليف المنتج',
-      sublabel: 'تسعير الحِرف، الباترون، والربح المعزول',
-      icon: Calculator,
-    },
-    {
-      id: 'invoices',
-      label: 'فواتير المبيعات والعملاء',
-      sublabel: 'فواتير البيع، الدفعات، المرتجعات، والضريبة',
-      icon: FileText,
-    },
-    {
-      id: 'work_orders',
-      label: 'أوامر التشغيل وتتبع الهالك',
-      sublabel: 'صرف الخامات، الإنتاج، واسترجاع المتبقي',
-      icon: Hammer,
+      id: 'materials',
+      label: tr('mod_materials'),
+      sublabel: tr('sub_materials'),
+      icon: Layers,
+      badge: tr('badge_materials'),
     },
     {
       id: 'suppliers',
-      label: 'الموردون وفواتير الخامات',
-      sublabel: 'شراء الخامات، الأصول، وحسابات الموردين',
+      label: tr('mod_suppliers'),
+      sublabel: tr('sub_suppliers'),
       icon: Truck,
+      badge: tr('badge_suppliers'),
     },
     {
-      id: 'materials',
-      label: 'الخامات ووحدات القياس',
-      sublabel: 'الخامات الأساسية والإضافية، الأسعار والوحدات',
-      icon: Layers,
+      id: 'work_orders',
+      label: tr('mod_work_orders'),
+      sublabel: tr('sub_work_orders'),
+      icon: Hammer,
+      badge: tr('badge_work_orders'),
     },
     {
-      id: 'treasuries',
-      label: 'الخزن والسيولة النقدية',
-      sublabel: 'الكاش، إنستاباي، المحافظ، والتحويلات',
-      icon: Wallet,
+      id: 'calculator',
+      label: tr('mod_calculator'),
+      sublabel: tr('sub_calculator'),
+      icon: Calculator,
+      badge: tr('badge_calculator'),
     },
     {
       id: 'inventory',
-      label: 'المخازن وكارت الصنف',
-      sublabel: 'مخزن الخامات، مخزن المنتجات، والجرد',
+      label: tr('mod_inventory'),
+      sublabel: tr('sub_inventory'),
       icon: Boxes,
-    },
-    {
-      id: 'hr',
-      label: 'الموارد البشرية والرواتب',
-      sublabel: 'كشوف الرواتب، السلف، وحسابات الصناع',
-      icon: Users,
-    },
-    {
-      id: 'expenses',
-      label: 'المصروفات والإيرادات',
-      sublabel: 'التكاليف الإدارية، الانتقالات، والتسويق',
-      icon: DollarSign,
-    },
-    {
-      id: 'reports',
-      label: 'التقارير المالية وقفل الشهر',
-      sublabel: 'الأرباح والخسائر، أرصدة العملاء، والقفل',
-      icon: BarChart3,
+      badge: tr('badge_inventory'),
     },
     {
       id: 'catalog',
-      label: 'كتالوج الورشة',
-      sublabel: 'جدول المنتجات، الأسعار، وتصدير PDF',
+      label: tr('mod_catalog'),
+      sublabel: tr('sub_catalog'),
       icon: BookOpen,
+      badge: tr('badge_catalog'),
     },
     {
       id: 'archive',
-      label: 'أرشيف المنتجات المسعرة',
-      sublabel: 'سجل المنتجات السابقة وتعديل البطاقات',
+      label: tr('mod_archive'),
+      sublabel: tr('sub_archive'),
       icon: FolderArchive,
+      badge: tr('badge_archive'),
+    },
+    {
+      id: 'treasuries',
+      label: tr('mod_treasuries'),
+      sublabel: tr('sub_treasuries'),
+      icon: Wallet,
+      badge: tr('badge_treasuries'),
+    },
+  ];
+
+  // Section 3: CRM (Sales & Customer Relations)
+  const crmModules = [
+    {
+      id: 'sales',
+      label: tr('mod_sales'),
+      sublabel: tr('sub_sales'),
+      icon: ShoppingCart,
+      badge: tr('badge_sales'),
+    },
+    {
+      id: 'invoices',
+      label: tr('mod_invoices'),
+      sublabel: tr('sub_invoices'),
+      icon: FileText,
+      badge: tr('badge_invoices'),
+    },
+    {
+      id: 'customers',
+      label: tr('mod_customers'),
+      sublabel: tr('sub_customers'),
+      icon: Users,
+      badge: tr('badge_customers'),
+    },
+  ];
+
+  // Section 4: HR (Human Resources)
+  const hrModules = [
+    {
+      id: 'hr',
+      label: tr('mod_hr'),
+      sublabel: tr('sub_hr'),
+      icon: Users2,
+      badge: tr('badge_hr'),
+    },
+    {
+      id: 'expenses',
+      label: tr('mod_expenses'),
+      sublabel: tr('sub_expenses'),
+      icon: DollarSign,
+      badge: tr('badge_expenses'),
+    },
+  ];
+
+  // Section 5: System & Data Management
+  const systemModules = [
+    {
+      id: 'reports',
+      label: tr('mod_reports'),
+      sublabel: tr('sub_reports'),
+      icon: BarChart3,
+      badge: tr('badge_reports'),
     },
     {
       id: 'ai_agent',
-      label: 'صقر الشمساوية AI',
-      sublabel: 'الرؤية الذكية، دراسة السوق، والمستشار الفني',
+      label: tr('mod_ai_agent'),
+      sublabel: tr('sub_ai_agent'),
       icon: Sparkles,
+      badge: tr('badge_ai_agent'),
     },
   ];
 
@@ -188,7 +244,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 {profile.artistName}
               </h4>
               <p className="text-[10px] text-stone-500 font-medium">
-                {profile.brandName}
+                {profile.brandName || tr('workshop_hub_desc')}
               </p>
             </div>
           </div>
@@ -198,7 +254,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               onOpenProfileSettings();
               onClose();
             }}
-            title="إعدادات الورشة والملف الشخصي"
+            title={tr('workshop_profile_settings')}
             className="p-2 rounded-xl text-stone-500 hover:text-amber-600 hover:bg-stone-200 dark:hover:bg-stone-700 transition cursor-pointer"
           >
             <Settings className="w-4 h-4" />
@@ -216,7 +272,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             className="relative py-2 px-1 rounded-xl bg-white dark:bg-stone-800 border border-amber-200/80 dark:border-stone-700 font-bold text-stone-800 dark:text-stone-200 hover:bg-amber-50 transition cursor-pointer flex flex-col items-center justify-center gap-1 shadow-2xs"
           >
             <Bell className="w-4 h-4 text-amber-600" />
-            <span className="text-[10px]">الإشعارات</span>
+            <span className="text-[10px]">{tr('notifications')}</span>
             {unreadNotificationsCount > 0 && (
               <span className="absolute top-1 right-2 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[8px] font-mono font-black text-white animate-pulse">
                 {unreadNotificationsCount}
@@ -233,7 +289,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             className="py-2 px-1 rounded-xl bg-white dark:bg-stone-800 border border-amber-200/80 dark:border-stone-700 font-bold text-stone-800 dark:text-stone-200 hover:bg-amber-50 transition cursor-pointer flex flex-col items-center justify-center gap-1 shadow-2xs"
           >
             <Layers className="w-4 h-4 text-amber-600" />
-            <span className="text-[10px]">أقسام الورشة</span>
+            <span className="text-[10px]">{tr('workshop_crafts')}</span>
           </button>
 
           <button
@@ -244,108 +300,407 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             {isDarkMode ? (
               <>
                 <Sun className="w-4 h-4 text-amber-400" />
-                <span className="text-[10px]">نهاري</span>
+                <span className="text-[10px]">{tr('light_mode')}</span>
               </>
             ) : (
               <>
                 <Moon className="w-4 h-4 text-stone-600" />
-                <span className="text-[10px]">ليلي</span>
+                <span className="text-[10px]">{tr('dark_mode')}</span>
               </>
             )}
           </button>
         </div>
 
-        {/* Modules Navigation Links */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-1.5">
-          {/* Admin Dashboard (Only shown if user has admin privileges) */}
-          {isUserAdmin(profile) && (
-            <div className="mb-2 p-1 rounded-2xl bg-gradient-to-r from-purple-500/10 via-amber-500/10 to-purple-500/10 border border-purple-500/30">
-              <button
-                type="button"
-                onClick={() => {
-                  onSelectView('admin');
-                  onClose();
-                }}
-                className={`w-full p-2.5 rounded-xl flex items-center justify-between text-right transition cursor-pointer ${
-                  activeView === 'admin'
-                    ? 'bg-purple-700 text-white shadow-md shadow-purple-700/30 font-black'
-                    : 'bg-white dark:bg-stone-800 text-purple-900 dark:text-purple-200 hover:bg-purple-50 dark:hover:bg-purple-950/40'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 flex items-center justify-center">
-                    <ShieldCheck size={16} />
-                  </div>
-                  <div>
-                    <span className="text-xs font-black block">لوحة تحكم الإدارة</span>
-                    <span className="text-[9px] text-stone-400 dark:text-stone-400 block">
-                      إدارة الورش، التجميد، والحذف
-                    </span>
-                  </div>
+        {/* ========================================================= */}
+        {/* RESTRUCTURED ENTERPRISE NAVIGATION (SaaS Hierarchy) */}
+        {/* ========================================================= */}
+        <nav className="flex-1 overflow-y-auto p-3 space-y-3">
+          {/* 1. التطبيقات (الرئيسية مع كل أزرار التطبيقات) */}
+          <div className="pb-1">
+            <button
+              type="button"
+              onClick={() => {
+                onSelectView('home');
+                onClose();
+              }}
+              className={`w-full p-3 rounded-2xl flex items-center justify-between text-right transition-all cursor-pointer border ${
+                activeView === 'home' || activeView === 'create_center'
+                  ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-md border-amber-500 font-black'
+                  : 'bg-amber-50/70 dark:bg-stone-800/80 hover:bg-amber-100/70 text-stone-900 dark:text-stone-100 border-amber-200 dark:border-stone-700'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                    activeView === 'home' || activeView === 'create_center'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-amber-500 text-white shadow-xs'
+                  }`}
+                >
+                  <LayoutGrid className="w-4 h-4" />
                 </div>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 font-bold font-mono">
-                  Admin
-                </span>
-              </button>
-            </div>
-          )}
-
-          {mainModules.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeView === item.id;
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  onSelectView(item.id);
-                  onClose();
-                }}
-                className={`w-full p-2.5 rounded-2xl flex items-center justify-between text-right transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20 font-black'
-                    : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden ${
-                      isActive
-                        ? 'bg-white/20 text-white'
-                        : 'bg-stone-100 dark:bg-stone-800 text-amber-600 dark:text-amber-400'
+                <div>
+                  <span className="text-xs font-black block">{tr('sec_apps')}</span>
+                  <span
+                    className={`text-[9.5px] block leading-tight ${
+                      activeView === 'home' || activeView === 'create_center'
+                        ? 'text-amber-100'
+                        : 'text-stone-500 dark:text-stone-400'
                     }`}
                   >
-                    {item.id === 'ai_agent' ? (
-                      <img
-                        src="/falcon_mascot_ai.png"
-                        alt="صقر الشمساوية AI"
-                        className="w-full h-full object-cover object-top select-none rounded-lg"
-                      />
-                    ) : (
-                      <Icon className="w-3.5 h-3.5" />
-                    )}
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold block">{item.label}</span>
-                    <span
-                      className={`text-[9.5px] block leading-tight ${
-                        isActive ? 'text-amber-100' : 'text-stone-400 dark:text-stone-500'
+                    {tr('sec_apps_sub')}
+                  </span>
+                </div>
+              </div>
+              <ChevronLeft
+                className={`w-4 h-4 ${
+                  activeView === 'home' || activeView === 'create_center'
+                    ? 'text-white'
+                    : 'text-amber-600'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* 2. تخطيط الموارد (ERP) */}
+          <div className="rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/40 p-1.5 space-y-1">
+            <button
+              type="button"
+              onClick={() => toggleSection('erp')}
+              className="w-full px-2.5 py-1.5 flex items-center justify-between text-right cursor-pointer group"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 text-[10px] font-black font-mono">
+                  ERP
+                </span>
+                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-blue-600 transition-colors">
+                  {tr('sec_erp')}
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
+                  collapsedSections.erp ? '-rotate-90' : ''
+                }`}
+              />
+            </button>
+
+            {!collapsedSections.erp && (
+              <div className="space-y-0.5 pt-0.5">
+                {erpModules.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeView === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onSelectView(item.id);
+                        onClose();
+                      }}
+                      className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-blue-600 text-white font-black shadow-xs'
+                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
                       }`}
                     >
-                      {item.sublabel}
-                    </span>
-                  </div>
-                </div>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            isActive
+                              ? 'bg-white/20 text-white'
+                              : 'bg-stone-100 dark:bg-stone-800 text-blue-600 dark:text-blue-400'
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold block">{item.label}</span>
+                          <span
+                            className={`text-[9px] block leading-tight ${
+                              isActive ? 'text-blue-100' : 'text-stone-400'
+                            }`}
+                          >
+                            {item.sublabel}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronLeft
+                        className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-stone-300'}`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
-                <ChevronLeft
-                  className={`w-3.5 h-3.5 ${
-                    isActive ? 'text-white' : 'text-stone-400'
-                  }`}
-                />
-              </button>
-            );
-          })}
+          {/* 3. المبيعات والعلاقات (CRM) */}
+          <div className="rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/40 p-1.5 space-y-1">
+            <button
+              type="button"
+              onClick={() => toggleSection('crm')}
+              className="w-full px-2.5 py-1.5 flex items-center justify-between text-right cursor-pointer group"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 text-[10px] font-black font-mono">
+                  CRM
+                </span>
+                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-emerald-600 transition-colors">
+                  {tr('sec_crm')}
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
+                  collapsedSections.crm ? '-rotate-90' : ''
+                }`}
+              />
+            </button>
+
+            {!collapsedSections.crm && (
+              <div className="space-y-0.5 pt-0.5">
+                {crmModules.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeView === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onSelectView(item.id);
+                        onClose();
+                      }}
+                      className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-emerald-600 text-white font-black shadow-xs'
+                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            isActive
+                              ? 'bg-white/20 text-white'
+                              : 'bg-stone-100 dark:bg-stone-800 text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold block">{item.label}</span>
+                          <span
+                            className={`text-[9px] block leading-tight ${
+                              isActive ? 'text-emerald-100' : 'text-stone-400'
+                            }`}
+                          >
+                            {item.sublabel}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronLeft
+                        className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-stone-300'}`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 4. الموارد البشرية (HR) */}
+          <div className="rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/40 p-1.5 space-y-1">
+            <button
+              type="button"
+              onClick={() => toggleSection('hr')}
+              className="w-full px-2.5 py-1.5 flex items-center justify-between text-right cursor-pointer group"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="px-1.5 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 text-[10px] font-black font-mono">
+                  HR
+                </span>
+                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-purple-600 transition-colors">
+                  {tr('sec_hr')}
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
+                  collapsedSections.hr ? '-rotate-90' : ''
+                }`}
+              />
+            </button>
+
+            {!collapsedSections.hr && (
+              <div className="space-y-0.5 pt-0.5">
+                {hrModules.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeView === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onSelectView(item.id);
+                        onClose();
+                      }}
+                      className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-purple-600 text-white font-black shadow-xs'
+                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            isActive
+                              ? 'bg-white/20 text-white'
+                              : 'bg-stone-100 dark:bg-stone-800 text-purple-600 dark:text-purple-400'
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold block">{item.label}</span>
+                          <span
+                            className={`text-[9px] block leading-tight ${
+                              isActive ? 'text-purple-100' : 'text-stone-400'
+                            }`}
+                          >
+                            {item.sublabel}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronLeft
+                        className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-stone-300'}`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 5. إدارة النظام والبيانات (System & Data Management) */}
+          <div className="rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/40 p-1.5 space-y-1">
+            <button
+              type="button"
+              onClick={() => toggleSection('system')}
+              className="w-full px-2.5 py-1.5 flex items-center justify-between text-right cursor-pointer group"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="px-1.5 py-0.5 rounded-md bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-[10px] font-black font-mono">
+                  SYSTEM
+                </span>
+                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-amber-600 transition-colors">
+                  {tr('sec_system')}
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
+                  collapsedSections.system ? '-rotate-90' : ''
+                }`}
+              />
+            </button>
+
+            {!collapsedSections.system && (
+              <div className="space-y-0.5 pt-0.5">
+                {/* Admin Dashboard if authorized */}
+                {isUserAdmin(profile) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectView('admin');
+                      onClose();
+                    }}
+                    className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
+                      activeView === 'admin'
+                        ? 'bg-purple-700 text-white font-black shadow-xs'
+                        : 'text-purple-800 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 flex items-center justify-center">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-black block">{tr('mod_admin')}</span>
+                        <span className="text-[9px] text-stone-400 block">{tr('sub_admin')}</span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900 font-mono">
+                      Admin
+                    </span>
+                  </button>
+                )}
+
+                {systemModules.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeView === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onSelectView(item.id);
+                        onClose();
+                      }}
+                      className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-amber-600 text-white font-black shadow-xs'
+                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            isActive
+                              ? 'bg-white/20 text-white'
+                              : 'bg-stone-100 dark:bg-stone-800 text-amber-600 dark:text-amber-400'
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold block">{item.label}</span>
+                          <span
+                            className={`text-[9px] block leading-tight ${
+                              isActive ? 'text-amber-100' : 'text-stone-400'
+                            }`}
+                          >
+                            {item.sublabel}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronLeft
+                        className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-stone-300'}`}
+                      />
+                    </button>
+                  );
+                })}
+
+                {/* اعدادات النظام */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenProfileSettings();
+                    onClose();
+                  }}
+                  className="w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center">
+                      <Settings className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold block">{tr('mod_settings')}</span>
+                      <span className="text-[9px] text-stone-400 block">
+                        {tr('sub_settings')}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronLeft className="w-3.5 h-3.5 text-stone-300" />
+                </button>
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* Utilities: Guide + Migration + Logout */}
@@ -361,7 +716,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               className="w-full py-2 px-3 rounded-xl border border-amber-300 dark:border-amber-700/80 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 flex items-center justify-center gap-2 cursor-pointer shadow-2xs text-xs font-black transition active:scale-95"
             >
               <Compass className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-              <span>بدء الجولة التعريفية التفاعلية</span>
+              <span>{tr('mod_tour')}</span>
             </button>
           )}
 
@@ -375,7 +730,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               className="py-2 px-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-100 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-2xs text-[10px]"
             >
               <BookOpen className="w-3.5 h-3.5 text-amber-600" />
-              <span>دليل الورشة</span>
+              <span>{tr('mod_guide')}</span>
             </button>
 
             <button
@@ -387,7 +742,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               className="py-2 px-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-100 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-2xs text-[10px]"
             >
               <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
-              <span>الدعم والشكاوى</span>
+              <span>{tr('mod_support')}</span>
             </button>
 
             <button
@@ -399,7 +754,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               className="py-2 px-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-100 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-2xs text-[10px]"
             >
               <CloudUpload className="w-3.5 h-3.5 text-blue-600" />
-              <span>رفع للسحابة</span>
+              <span>{tr('mod_cloud')}</span>
             </button>
           </div>
 
@@ -409,12 +764,12 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             className="w-full py-2 px-3 rounded-xl border border-rose-200 dark:border-rose-900/60 text-xs font-bold flex items-center justify-center gap-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
-            <span>تسجيل الخروج الآمن</span>
+            <span>{tr('mod_logout')}</span>
           </button>
 
           <div className="text-center pt-1 border-t border-stone-200/50 dark:border-stone-800/50">
             <p className="text-[10px] text-stone-400 dark:text-stone-500 font-bold">
-              الشمس كرافت ERP • إصدار السحابة الحرفية
+              {tr('saas_enterprise_footer')}
             </p>
           </div>
         </div>

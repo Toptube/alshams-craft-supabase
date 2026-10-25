@@ -1780,6 +1780,37 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                 </div>
               </div>
 
+              {/* Category Group Selector */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsCategoryManagerOpen(true)}
+                    className="text-amber-600 dark:text-amber-400 hover:text-amber-700 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>إدارة / إضافة تصنيف</span>
+                  </button>
+                  <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                    مجموعة التصنيف الرئيسي (Category Group) *
+                  </label>
+                </div>
+                <select
+                  value={selectedMaterialCategory}
+                  onChange={(e) => setSelectedMaterialCategory(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none cursor-pointer"
+                >
+                  {materialCategories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name} ({cat.kind === 'primary' ? 'أساسي' : 'إضافي'})
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-stone-400 block mt-0.5">
+                  تتيح تصنيف الخامات في مجموعات كبرى لتسهيل البحث وتحليل المخزون.
+                </span>
+              </div>
+
               {/* Supplier with search and + Add Supplier button */}
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -2384,7 +2415,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
             >
               {/* Workshop Header */}
               <div className="border-b border-stone-200 pb-2 flex items-center justify-between text-[11px] font-bold text-stone-600">
-                <span className="font-black text-amber-900">{workshop.brandName || 'شمس كرافت'}</span>
+                <span className="font-black text-amber-900">{workshop.brandName || 'منظومة الشمساوية'}</span>
                 <span className="text-[9px] bg-stone-100 px-1.5 py-0.5 rounded text-stone-500 font-mono">
                   {barcodeModalItem.kind === 'extra' ? 'خامة إضافية' : 'خامة أساسية'}
                 </span>
@@ -2430,7 +2461,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
               </div>
 
               <div className="text-[9px] text-stone-400 border-t border-stone-100 pt-1">
-                منظومة شمس كرافت لإدارة مخازن الحرف اليدوية
+                منظومة الشمساوية لإدارة مخازن الحرف اليدوية
               </div>
             </div>
 
@@ -2538,6 +2569,260 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                 className="px-5 py-2 text-xs font-black text-white bg-amber-600 hover:bg-amber-700 rounded-xl cursor-pointer shadow-md active:scale-95"
               >
                 حفظ الرصيد وحد الطلب
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 8. CATEGORY MANAGER MODAL                                */}
+      {/* ======================================================== */}
+      {isCategoryManagerOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl w-full max-w-xl max-h-[90vh] overflow-y-auto border border-stone-200 dark:border-stone-800 shadow-2xl p-6 text-right space-y-5">
+            <div className="flex items-center justify-between border-b pb-4 border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCategoryManagerOpen(false);
+                  setEditingCategory(null);
+                  setNewCategoryName('');
+                }}
+                className="text-stone-400 hover:text-stone-600 p-1 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-stone-900 dark:text-stone-100">
+                    إدارة تصنيفات ومجموعات الخامات
+                  </h3>
+                  <p className="text-[11px] text-stone-500">
+                    إضافة وتعديل وحذف التصنيفات الرئيسية للورشة (كالخيوط، الأخشاب، الإكسسوارات)
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Form for adding / editing category */}
+            <form onSubmit={handleSaveCategory} className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-3">
+              <h4 className="text-xs font-extrabold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                <FolderPlus className="w-4 h-4 text-amber-600" />
+                <span>{editingCategory ? `تعديل التصنيف: ${editingCategory.name}` : 'إضافة تصنيف رئيسي جديد'}</span>
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                    اسم التصنيف *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    placeholder="مثال: خيوط قطن، أخشاب زان، خرز كريستال..."
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-bold outline-none"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                    نوع المجموعة *
+                  </label>
+                  <select
+                    value={newCategoryKind}
+                    onChange={(e) => setNewCategoryKind(e.target.value as 'primary' | 'extra')}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-bold outline-none cursor-pointer"
+                  >
+                    <option value="primary">مجموعة خامات أساسية (خيوط وحبال...)</option>
+                    <option value="extra">مجموعة خامات إضافية (أخشاب وإكسسوارات...)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                {editingCategory && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingCategory(null);
+                      setNewCategoryName('');
+                    }}
+                    className="px-3 py-1.5 text-xs font-bold text-stone-500 cursor-pointer"
+                  >
+                    إلغاء التعديل
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition cursor-pointer shadow-sm active:scale-95"
+                >
+                  {editingCategory ? 'تحديث التصنيف' : 'حفظ التصنيف الجديد'}
+                </button>
+              </div>
+            </form>
+
+            {/* List and Search of Existing Categories */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-stone-500">
+                  إجمالي التصنيفات: {materialCategories.length}
+                </span>
+                <h4 className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                  التصنيفات المسجلة حالياً:
+                </h4>
+              </div>
+
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-stone-400 absolute right-3 top-2.5" />
+                <input
+                  type="text"
+                  value={categorySearch}
+                  onChange={(e) => setCategorySearch(e.target.value)}
+                  placeholder="ابحث في التصنيفات..."
+                  className="w-full pr-9 pl-3 py-1.5 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 outline-none"
+                />
+              </div>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {materialCategories
+                  .filter((c) => !categorySearch.trim() || c.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                  .map((cat) => {
+                    const count = materials.filter((m) => {
+                      const assigned = materialCategoryMap[m.id];
+                      if (assigned) return assigned === cat.id;
+                      if (cat.id === 'cat_threads' && m.kind === 'primary') return true;
+                      return false;
+                    }).length;
+
+                    return (
+                      <div
+                        key={cat.id}
+                        className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 flex items-center justify-between"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCategory(cat);
+                              setNewCategoryName(cat.name);
+                              setNewCategoryKind(cat.kind);
+                            }}
+                            className="p-1.5 rounded-lg text-stone-400 hover:text-amber-600 hover:bg-stone-200 dark:hover:bg-stone-750 transition cursor-pointer"
+                            title="تعديل التصنيف"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCategory(cat.id)}
+                            className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                            title="حذف التصنيف"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="text-right flex items-center gap-2">
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                              cat.kind === 'primary'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                            }`}
+                          >
+                            {cat.kind === 'primary' ? 'أساسي' : 'إضافي'}
+                          </span>
+                          <div>
+                            <div className="font-extrabold text-xs text-stone-900 dark:text-stone-100 flex items-center gap-1.5 justify-end">
+                              <span>{cat.name}</span>
+                              <Folder className="w-3.5 h-3.5 text-amber-600" />
+                            </div>
+                            <div className="text-[10px] text-stone-400">
+                              يحتوي على: {count} خامة مسجلة
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-stone-200 dark:border-stone-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCategoryManagerOpen(false);
+                  setEditingCategory(null);
+                  setNewCategoryName('');
+                }}
+                className="px-5 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 text-stone-700 dark:text-stone-300 text-xs font-bold transition cursor-pointer"
+              >
+                إغلاق النافذة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 9. CAMERA BARCODE SCANNER MODAL                          */}
+      {/* ======================================================== */}
+      {isCameraScannerOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl w-full max-w-md border border-stone-200 dark:border-stone-800 shadow-2xl p-6 text-center space-y-4">
+            <div className="flex items-center justify-between border-b pb-3 border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={handleStopScanner}
+                className="text-stone-400 hover:text-stone-600 p-1 rounded-xl"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center">
+                  <Camera className="w-4 h-4" />
+                </div>
+                <h3 className="font-extrabold text-sm text-stone-900 dark:text-stone-100">
+                  قارئ الباركود عبر الكاميرا
+                </h3>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-500 leading-relaxed">
+              وجّه كاميرا الهاتف أو الجهاز نحو ملصق الباركود الخاص بالخامة للتعرف الفوري عليها وإدخال حركاتها المخزنية.
+            </p>
+
+            {/* Video Viewport Container */}
+            <div className="relative overflow-hidden rounded-2xl bg-black border-2 border-amber-500 shadow-inner">
+              <div id="camera-barcode-reader-viewport" className="w-full h-64 mx-auto" />
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div className="w-52 h-32 border-2 border-dashed border-amber-400/80 rounded-xl" />
+              </div>
+            </div>
+
+            {cameraError && (
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center gap-2 text-right">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-600" />
+                <span>{cameraError}</span>
+              </div>
+            )}
+
+            <div className="pt-2 flex items-center justify-between">
+              <span className="text-[11px] text-stone-400 font-mono">CODE128 / QR Ready</span>
+              <button
+                type="button"
+                onClick={handleStopScanner}
+                className="px-5 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 text-stone-700 dark:text-stone-300 text-xs font-bold transition cursor-pointer"
+              >
+                إلغاء وإغلاق الكاميرا
               </button>
             </div>
           </div>

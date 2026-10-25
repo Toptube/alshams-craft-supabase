@@ -24,6 +24,7 @@ import {
   deleteUnitFromSupabase,
   getSuppliersFromSupabase,
   createSupplierInSupabase,
+  createCustomerInSupabase,
 } from '../../db/supabaseService';
 import { NumberInput } from '../ui/NumberInput';
 import {
@@ -751,26 +752,53 @@ export const NewClientModal: React.FC<{
   const [phoneNumber, setPhoneNumber] = useState('');
   const [city, setCity] = useState('القاهرة');
   const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim()) return;
 
-    const newClient: CustomerProfile = {
-      id: 'cust_' + Date.now(),
-      tenantId: profile.tenantId,
-      fullName: fullName.trim(),
-      phoneNumber: phoneNumber.trim() || '01000000000',
-      city: city.trim(),
-      totalPurchases: 0,
-      outstandingBalance: 0,
-      notes: notes.trim(),
-      createdAt: Date.now(),
-    };
+    setSaving(true);
+    setErrorMsg('');
+    try {
+      const res = await createCustomerInSupabase(workshopId, {
+        name: fullName.trim(),
+        phone: phoneNumber.trim() || undefined,
+        address: city.trim() || undefined,
+        notes: notes.trim() || undefined,
+      });
 
-    await tenantStorage.saveCustomer(newClient);
-    onSuccess();
-    onClose();
+      if (res.error) {
+        setErrorMsg(res.error.arabicMessage);
+        setSaving(false);
+        return;
+      }
+
+      // Also persist to Dexie tenantStorage
+      try {
+        await tenantStorage.saveCustomer({
+          id: res.data?.id || 'cust_' + Date.now(),
+          tenantId: workshopId,
+          fullName: fullName.trim(),
+          phoneNumber: phoneNumber.trim() || '01000000000',
+          city: city.trim(),
+          totalPurchases: 0,
+          outstandingBalance: 0,
+          notes: notes.trim(),
+          createdAt: Date.now(),
+        });
+      } catch {}
+
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'فشل حفظ العميل');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -788,6 +816,12 @@ export const NewClientModal: React.FC<{
             <span>تسجيل عميل جديد بالدفتر [زر عميل]</span>
           </h3>
         </div>
+
+        {errorMsg && (
+          <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-800 dark:text-rose-200 text-xs font-bold">
+            {errorMsg}
+          </div>
+        )}
 
         <div>
           <label className="block text-xs font-bold mb-1">اسم العميل بالكامل *</label>
@@ -839,8 +873,12 @@ export const NewClientModal: React.FC<{
           <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-bold text-stone-500">
             إلغاء
           </button>
-          <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl cursor-pointer">
-            حفظ العميل
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl cursor-pointer disabled:opacity-50"
+          >
+            {saving ? 'جاري الحفظ...' : 'حفظ العميل'}
           </button>
         </div>
       </form>
@@ -898,26 +936,52 @@ export const NewSupplierModal: React.FC<{
     tenantStorage.getSupplierInvoices(tenantId).then(setInvoicesList);
   }, [tenantId]);
 
+  const [savingSupplier, setSavingSupplier] = useState(false);
+  const [supplierError, setSupplierError] = useState('');
+
   const handleCreateSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
-    const newSup: SupplierProfile = {
-      id: 'sup_' + Date.now(),
-      tenantId: profile.tenantId,
-      name: name.trim(),
-      companyName: companyName.trim() || 'مغزل / متجر خامات',
-      phoneNumber: phone.trim() || '01000000000',
-      address: address.trim(),
-      totalPurchases: 0,
-      totalPaid: 0,
-      outstandingBalance: 0,
-      createdAt: Date.now(),
-    };
+    setSavingSupplier(true);
+    setSupplierError('');
+    try {
+      const res = await createSupplierInSupabase(tenantId, {
+        name: name.trim(),
+        phone: phone.trim() || undefined,
+        address: address.trim() || undefined,
+        notes: companyName.trim() || undefined,
+      });
 
-    await tenantStorage.saveSupplier(newSup);
-    onSuccess();
-    onClose();
+      if (res.error) {
+        setSupplierError(res.error.arabicMessage);
+        setSavingSupplier(false);
+        return;
+      }
+
+      // Also persist to Dexie tenantStorage
+      try {
+        await tenantStorage.saveSupplier({
+          id: res.data?.id || 'sup_' + Date.now(),
+          tenantId: profile.tenantId,
+          name: name.trim(),
+          companyName: companyName.trim() || 'مغزل / متجر خامات',
+          phoneNumber: phone.trim() || '01000000000',
+          address: address.trim(),
+          totalPurchases: 0,
+          totalPaid: 0,
+          outstandingBalance: 0,
+          createdAt: Date.now(),
+        });
+      } catch {}
+
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setSupplierError(err.message || 'فشل حفظ المورد');
+    } finally {
+      setSavingSupplier(false);
+    }
   };
 
   const handleRecordInvoice = async (e: React.FormEvent) => {
@@ -1013,6 +1077,11 @@ export const NewSupplierModal: React.FC<{
 
         {mode === 'create_supplier' ? (
           <form onSubmit={handleCreateSupplier} className="space-y-3">
+            {supplierError && (
+              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-800 dark:text-rose-200 text-xs font-bold">
+                {supplierError}
+              </div>
+            )}
             <div>
               <label className="block text-xs font-bold mb-1">اسم المورد / التاجر *</label>
               <input
@@ -1066,214 +1135,50 @@ export const NewSupplierModal: React.FC<{
               <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-bold text-stone-500">
                 إلغاء
               </button>
-              <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl cursor-pointer">
-                حفظ المورد
+              <button
+                type="submit"
+                disabled={savingSupplier}
+                className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl cursor-pointer disabled:opacity-50"
+              >
+                {savingSupplier ? 'جاري الحفظ...' : 'حفظ المورد'}
               </button>
             </div>
           </form>
         ) : mode === 'record_invoice' ? (
-          <form onSubmit={handleRecordInvoice} className="space-y-3">
-            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-[11px] text-blue-900 dark:text-blue-200">
-              💡 إثبات فاتورة المشتريات يحدث رصيد المخزن تلقائياً، ويعيد معايرة سعر تكلفة الجرام في حاسبة التكاليف.
+          <div className="space-y-4 py-4 text-center">
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs font-bold space-y-2">
+              <Receipt className="w-8 h-8 mx-auto text-amber-600" />
+              <p>عمليات فواتير شراء وتوريد الخامات قيد النقل للنظام الجديد</p>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400 font-normal">
+                جاري تجهيز الجداول السحابية لحفظ حركات التوريد وأرصدة الموردين مع المخزن والخزينة.
+              </p>
             </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-bold mb-1">المورد *</label>
-                <select
-                  value={selectedSupplierId}
-                  onChange={(e) => setSelectedSupplierId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
-                >
-                  {suppliersList.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.companyName})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold mb-1">الخامة المشتراة *</label>
-                <select
-                  value={selectedMaterialId}
-                  onChange={(e) => setSelectedMaterialId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
-                >
-                  {rawMaterialsList.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.materialName} ({m.unit})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-bold mb-1">الكمية المشتراة *</label>
-                <NumberInput
-                  required
-                  value={quantity}
-                  onChange={setQuantity}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold mb-1">سعر شراء الوحدة الجديد ({profile.currencySymbol}) *</label>
-                <NumberInput
-                  required
-                  value={unitCost}
-                  onChange={setUnitCost}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs font-bold"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-bold mb-1">المبلغ المسدد الآن</label>
-                <NumberInput
-                  value={paidAmount}
-                  onChange={setPaidAmount}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold mb-1">الخزينة المسحوب منها السداد</label>
-                <select
-                  value={safeType}
-                  onChange={(e) => setSafeType(e.target.value as SafeType)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
-                >
-                  <option value="main">الخزينة الرئيسية</option>
-                  <option value="sub">الخزينة الفرعية</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="p-2.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-xs flex justify-between font-mono font-bold">
-              <span>إجمالي الفاتورة: {quantity * unitCost} {profile.currencySymbol}</span>
-              <span className="text-rose-600">الآجل المعلق: {Math.max(0, quantity * unitCost - paidAmount)} {profile.currencySymbol}</span>
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2 border-t">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-bold text-stone-500">
-                إلغاء
-              </button>
-              <button type="submit" className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl cursor-pointer">
-                اعتماد وتحديث المخزن والخزينة
-              </button>
-            </div>
-          </form>
-        ) : (
-          /* SUPPLIER STATEMENT & PRINTABLE SHEET */
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-xs font-bold mb-1">اختر المورد لعرض كشف الحساب والآجلة:</label>
-                <select
-                  value={selectedSupplierId}
-                  onChange={(e) => setSelectedSupplierId(e.target.value)}
-                  className="px-3 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
-                >
-                  {suppliersList.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} - {s.companyName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
+            <div className="flex justify-end pt-2">
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md flex items-center gap-1.5 cursor-pointer"
+                onClick={onClose}
+                className="px-5 py-2 text-xs font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl cursor-pointer"
               >
-                <Printer className="w-4 h-4" />
-                <span>طباعة كشف الحساب</span>
+                إغلاق
               </button>
             </div>
-
-            {(() => {
-              const currentSupplier = suppliersList.find((s) => s.id === selectedSupplierId);
-              const relatedInvoices = invoicesList.filter((inv) => inv.supplierId === selectedSupplierId);
-
-              if (!currentSupplier) {
-                return <p className="text-xs text-stone-500 text-center py-4">يرجى اختيار مورد</p>;
-              }
-
-              return (
-                <div className="space-y-3">
-                  {/* Summary Cards */}
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900">
-                      <span className="text-[10px] text-blue-700 dark:text-blue-300 block font-bold">إجمالي المشتريات</span>
-                      <span className="text-sm font-black font-mono text-blue-900 dark:text-blue-100">
-                        {currentSupplier.totalPurchases} {profile.currencySymbol}
-                      </span>
-                    </div>
-
-                    <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900">
-                      <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block font-bold">الدفعات المسددة</span>
-                      <span className="text-sm font-black font-mono text-emerald-900 dark:text-emerald-100">
-                        {currentSupplier.totalPaid} {profile.currencySymbol}
-                      </span>
-                    </div>
-
-                    <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900">
-                      <span className="text-[10px] text-rose-700 dark:text-rose-300 block font-bold">الآجلة المستحقة</span>
-                      <span className="text-sm font-black font-mono text-rose-900 dark:text-rose-100">
-                        {currentSupplier.outstandingBalance} {profile.currencySymbol}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Transaction Logs Table */}
-                  <div className="border border-stone-200 dark:border-stone-800 rounded-2xl overflow-hidden">
-                    <table className="w-full text-right text-xs">
-                      <thead className="bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 font-bold">
-                        <tr>
-                          <th className="p-2">التاريخ</th>
-                          <th className="p-2">رقم الفاتورة</th>
-                          <th className="p-2">الخامات</th>
-                          <th className="p-2">القيمة</th>
-                          <th className="p-2">المسدد</th>
-                          <th className="p-2">المتبقي الآجل</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-mono">
-                        {relatedInvoices.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="p-4 text-center text-stone-400 font-sans">
-                              لا توجد فواتير توريد مسجلة لهذا المورد حتى الآن
-                            </td>
-                          </tr>
-                        ) : (
-                          relatedInvoices.map((inv) => (
-                            <tr key={inv.id} className="hover:bg-stone-50 dark:hover:bg-stone-800/40">
-                              <td className="p-2 text-stone-500 font-sans">{inv.date}</td>
-                              <td className="p-2 font-bold">{inv.invoiceNumber}</td>
-                              <td className="p-2 font-sans">
-                                {inv.items.map((it) => `${it.materialName} (${it.quantity} ${it.unit})`).join('، ')}
-                              </td>
-                              <td className="p-2 font-bold">{inv.totalAmount}</td>
-                              <td className="p-2 text-emerald-600 font-bold">{inv.paidAmount}</td>
-                              <td className="p-2 text-rose-600 font-bold">{inv.remainingAmount}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              );
-            })()}
-
-            <div className="pt-2 flex justify-end gap-2 border-t">
-              <button type="button" onClick={onClose} className="px-5 py-2 text-xs font-bold text-stone-600 dark:text-stone-300 bg-stone-100 dark:bg-stone-800 rounded-xl cursor-pointer">
+          </div>
+        ) : (
+          /* SUPPLIER STATEMENT */
+          <div className="space-y-4 py-4 text-center">
+            <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 text-xs font-bold space-y-2">
+              <FileText className="w-8 h-8 mx-auto text-blue-600" />
+              <p>كشوف حسابات الموردين والأرصدة قيد النقل للنظام الجديد</p>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400 font-normal">
+                جاري إعداد تقارير كشف الحساب التراكمي ومطابقة المسدد والمتبقي فور اكتمال الجداول السحابية.
+              </p>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2 text-xs font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl cursor-pointer"
+              >
                 إغلاق
               </button>
             </div>

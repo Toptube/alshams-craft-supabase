@@ -94,18 +94,20 @@ export function getArabicSupabaseError(error: any): SupabaseErrorResult {
     lowerMsg.includes('foreign key') ||
     lowerMsg.includes('violates foreign key constraint')
   ) {
-    arabicMessage = 'لا يمكن الحذف لأن هذا العنصر مرتبط بسجلات أو خامات أو فواتير أخرى.';
+    arabicMessage = 'لا يمكن حذفه لأنه مرتبط ببيانات أخرى';
   } else if (
     lowerMsg.includes('already registered') ||
     lowerMsg.includes('user_already_exists')
   ) {
     arabicMessage = 'هذا البريد الإلكتروني مسجل مسبقاً. يمكنك تسجيل الدخول بدلاً من فتح ورشة جديدة.';
+  } else if (code === 'P0001') {
+    arabicMessage = rawMessage;
   } else if (
     code === '23505' ||
     lowerMsg.includes('unique constraint') ||
     lowerMsg.includes('duplicate key')
   ) {
-    arabicMessage = 'هذا الاسم مسجل بالفعل، يرجى اختيار اسم غير مكرر.';
+    arabicMessage = 'هذا الاسم مستخدم بالفعل';
   } else if (
     lowerMsg.includes('invalid login credentials') ||
     lowerMsg.includes('invalid_credentials') ||
@@ -695,6 +697,174 @@ export async function createSupplierInSupabase(
   }
 }
 
+export async function updateSupplierInSupabase(
+  id: string,
+  workshopId: string,
+  payload: { name?: string; phone?: string; address?: string; notes?: string }
+): Promise<{ data: SupabaseSupplier | null; error: SupabaseErrorResult | null }> {
+  try {
+    const updates: any = {};
+    if (payload.name !== undefined) updates.name = payload.name.trim();
+    if (payload.phone !== undefined) updates.phone = payload.phone.trim() || null;
+    if (payload.address !== undefined) updates.address = payload.address.trim() || null;
+    if (payload.notes !== undefined) updates.notes = payload.notes.trim() || null;
+
+    const { data, error } = await supabase
+      .from('suppliers')
+      .update(updates)
+      .eq('id', id)
+      .eq('workshop_id', workshopId)
+      .select('id, workshop_id, name, phone, address, notes')
+      .single();
+
+    if (error) {
+      return { data: null, error: getArabicSupabaseError(error) };
+    }
+
+    return { data: data as SupabaseSupplier, error: null };
+  } catch (err: any) {
+    return { data: null, error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function deleteSupplierInSupabase(
+  id: string,
+  workshopId: string
+): Promise<{ success: boolean; error: SupabaseErrorResult | null }> {
+  try {
+    const { error } = await supabase
+      .from('suppliers')
+      .delete()
+      .eq('id', id)
+      .eq('workshop_id', workshopId);
+
+    if (error) {
+      return { success: false, error: getArabicSupabaseError(error) };
+    }
+
+    return { success: true, error: null };
+  } catch (err: any) {
+    return { success: false, error: getArabicSupabaseError(err) };
+  }
+}
+
+// -------------------------------------------------------------
+// Customers (العملاء) Domain Operations
+// Table: customers(id, workshop_id, name, phone, address, notes)
+// -------------------------------------------------------------
+
+export interface SupabaseCustomer {
+  id: string;
+  workshop_id: string;
+  name: string;
+  phone?: string;
+  address?: string;
+  notes?: string;
+}
+
+export async function getCustomersFromSupabase(
+  workshopId: string
+): Promise<{ data: SupabaseCustomer[]; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, workshop_id, name, phone, address, notes')
+      .eq('workshop_id', workshopId)
+      .order('name', { ascending: true });
+
+    if (error) {
+      return { data: [], error: getArabicSupabaseError(error) };
+    }
+
+    return { data: (data as SupabaseCustomer[]) || [], error: null };
+  } catch (err: any) {
+    return { data: [], error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function createCustomerInSupabase(
+  workshopId: string,
+  payload: { name: string; phone?: string; address?: string; notes?: string; id?: string }
+): Promise<{ data: SupabaseCustomer | null; error: SupabaseErrorResult | null }> {
+  try {
+    const row: any = {
+      workshop_id: workshopId,
+      name: payload.name.trim(),
+      phone: payload.phone ? payload.phone.trim() : null,
+      address: payload.address ? payload.address.trim() : null,
+      notes: payload.notes ? payload.notes.trim() : null,
+    };
+    if (payload.id) {
+      row.id = payload.id;
+    }
+
+    const { data, error } = await supabase
+      .from('customers')
+      .insert(row)
+      .select('id, workshop_id, name, phone, address, notes')
+      .single();
+
+    if (error) {
+      return { data: null, error: getArabicSupabaseError(error) };
+    }
+
+    return { data: data as SupabaseCustomer, error: null };
+  } catch (err: any) {
+    return { data: null, error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function updateCustomerInSupabase(
+  id: string,
+  workshopId: string,
+  payload: { name?: string; phone?: string; address?: string; notes?: string }
+): Promise<{ data: SupabaseCustomer | null; error: SupabaseErrorResult | null }> {
+  try {
+    const updates: any = {};
+    if (payload.name !== undefined) updates.name = payload.name.trim();
+    if (payload.phone !== undefined) updates.phone = payload.phone.trim() || null;
+    if (payload.address !== undefined) updates.address = payload.address.trim() || null;
+    if (payload.notes !== undefined) updates.notes = payload.notes.trim() || null;
+
+    const { data, error } = await supabase
+      .from('customers')
+      .update(updates)
+      .eq('id', id)
+      .eq('workshop_id', workshopId)
+      .select('id, workshop_id, name, phone, address, notes')
+      .single();
+
+    if (error) {
+      return { data: null, error: getArabicSupabaseError(error) };
+    }
+
+    return { data: data as SupabaseCustomer, error: null };
+  } catch (err: any) {
+    return { data: null, error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function deleteCustomerInSupabase(
+  id: string,
+  workshopId: string
+): Promise<{ success: boolean; error: SupabaseErrorResult | null }> {
+  try {
+    const { error } = await supabase
+      .from('customers')
+      .delete()
+      .eq('id', id)
+      .eq('workshop_id', workshopId);
+
+    if (error) {
+      return { success: false, error: getArabicSupabaseError(error) };
+    }
+
+    return { success: true, error: null };
+  } catch (err: any) {
+    return { success: false, error: getArabicSupabaseError(err) };
+  }
+}
+
 // -------------------------------------------------------------
 // Materials (الخامات) Domain Operations
 // Table: materials(id, workshop_id, name, kind:'primary'|'extra', supplier_id, unit_id, purchase_price>=0, market_name, market_unit_factor>0)
@@ -905,6 +1075,411 @@ export async function ensureDefaultMaterialsInSupabase(
     console.warn('ensureDefaultMaterialsInSupabase error:', err);
     const existing = await getMaterialsFromSupabase(workshopId);
     return existing.data || [];
+  }
+}
+
+// -------------------------------------------------------------
+// Treasuries (الخزن والعهد) Domain Operations
+// -------------------------------------------------------------
+
+export type TreasuryKind = 'main' | 'sub' | 'custody';
+export type TreasuryStatus = 'open' | 'settled';
+export type PaymentChannel = 'cash' | 'wallet' | 'instapay';
+
+export interface SupabaseTreasury {
+  id: string;
+  workshop_id: string;
+  name: string;
+  kind: TreasuryKind;
+  parent_id?: string | null;
+  holder_name?: string | null;
+  status: TreasuryStatus;
+  settled_at?: string | null;
+  notes?: string | null;
+  min_balance?: number;
+}
+
+export interface SupabaseTreasuryBalance {
+  id: string;
+  workshop_id: string;
+  name: string;
+  kind: TreasuryKind;
+  parent_id?: string | null;
+  holder_name?: string | null;
+  status: TreasuryStatus;
+  is_main: boolean;
+  cash: number;
+  wallet: number;
+  instapay: number;
+  bank?: number;
+  balance: number;
+  min_balance?: number;
+}
+
+export interface SupabaseTreasuryChannelBalance {
+  workshop_id: string;
+  treasury_id: string;
+  channel: PaymentChannel | string;
+  balance: number;
+}
+
+export interface SupabaseTreasuryTransaction {
+  id: string;
+  treasury_id: string;
+  channel: PaymentChannel | string;
+  kind: 'in' | 'out' | 'transfer_in' | 'transfer_out';
+  amount: number;
+  category?: string | null;
+  category_name?: string | null;
+  ref_type?: string | null;
+  ref_id?: string | null;
+  note?: string | null;
+  occurred_at: string;
+}
+
+export interface SupabaseTreasuryCategory {
+  id: string;
+  workshop_id: string;
+  category_name: string;
+  type: 'in' | 'out';
+  notes?: string | null;
+  created_at?: string;
+}
+
+export async function getTreasuryBalancesFromSupabase(
+  workshopId: string
+): Promise<{ data: SupabaseTreasuryBalance[]; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('treasury_balances')
+      .select('*')
+      .eq('workshop_id', workshopId);
+
+    if (error) {
+      return { data: [], error: getArabicSupabaseError(error) };
+    }
+
+    const balances: SupabaseTreasuryBalance[] = (data as SupabaseTreasuryBalance[]) || [];
+
+    // Attempt to enrich with min_balance from treasuries table if column exists
+    try {
+      const { data: treasuriesData } = await supabase
+        .from('treasuries')
+        .select('id, min_balance')
+        .eq('workshop_id', workshopId);
+
+      if (treasuriesData && treasuriesData.length > 0) {
+        const minMap = new Map<string, number>();
+        treasuriesData.forEach((row: any) => {
+          if (row.id && row.min_balance !== undefined && row.min_balance !== null) {
+            minMap.set(row.id, Number(row.min_balance));
+          }
+        });
+
+        balances.forEach((b) => {
+          if (minMap.has(b.id)) {
+            b.min_balance = minMap.get(b.id);
+          }
+        });
+      }
+    } catch (e) {
+      // Column might not exist yet; gracefully ignore
+    }
+
+    return { data: balances, error: null };
+  } catch (err: any) {
+    return { data: [], error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function getTreasuryChannelBalancesFromSupabase(
+  workshopId: string
+): Promise<{ data: SupabaseTreasuryChannelBalance[]; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('treasury_channel_balances')
+      .select('*')
+      .eq('workshop_id', workshopId);
+
+    if (error) {
+      return { data: [], error: getArabicSupabaseError(error) };
+    }
+    return { data: (data as SupabaseTreasuryChannelBalance[]) || [], error: null };
+  } catch (err: any) {
+    return { data: [], error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function getTreasuryTransactionsFromSupabase(
+  treasuryId?: string,
+  limit = 200
+): Promise<{ data: SupabaseTreasuryTransaction[]; error: SupabaseErrorResult | null }> {
+  try {
+    let query = supabase
+      .from('treasury_transactions')
+      .select('*')
+      .order('occurred_at', { ascending: false })
+      .limit(limit);
+
+    if (treasuryId) {
+      query = query.eq('treasury_id', treasuryId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      return { data: [], error: getArabicSupabaseError(error) };
+    }
+    return { data: (data as SupabaseTreasuryTransaction[]) || [], error: null };
+  } catch (err: any) {
+    return { data: [], error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function updateTreasuryDetailsInSupabase(
+  id: string,
+  workshopId: string,
+  updates: { name?: string; holder_name?: string; notes?: string; min_balance?: number }
+): Promise<{ error: SupabaseErrorResult | null }> {
+  try {
+    const { error } = await supabase
+      .from('treasuries')
+      .update(updates)
+      .eq('id', id)
+      .eq('workshop_id', workshopId);
+
+    if (error) {
+      return { error: getArabicSupabaseError(error) };
+    }
+    return { error: null };
+  } catch (err: any) {
+    return { error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function updateTreasuryMinBalanceInSupabase(
+  workshopId: string,
+  treasuryId: string,
+  minBalance: number
+): Promise<{ error: SupabaseErrorResult | null }> {
+  try {
+    const { error } = await supabase
+      .from('treasuries')
+      .update({ min_balance: minBalance })
+      .eq('id', treasuryId)
+      .eq('workshop_id', workshopId);
+
+    if (error) {
+      return { error: getArabicSupabaseError(error) };
+    }
+    return { error: null };
+  } catch (err: any) {
+    return { error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function getTreasuryCategoriesFromSupabase(
+  workshopId: string
+): Promise<{ data: SupabaseTreasuryCategory[]; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('treasury_categories')
+      .select('*')
+      .eq('workshop_id', workshopId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      return { data: [], error: getArabicSupabaseError(error) };
+    }
+    return { data: (data as SupabaseTreasuryCategory[]) || [], error: null };
+  } catch (err: any) {
+    return { data: [], error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function createTreasuryCategoryInSupabase(
+  workshopId: string,
+  categoryName: string,
+  type: 'in' | 'out',
+  notes?: string
+): Promise<{ data: SupabaseTreasuryCategory | null; error: SupabaseErrorResult | null }> {
+  try {
+    const payload = {
+      workshop_id: workshopId,
+      category_name: categoryName.trim(),
+      type,
+      notes: notes?.trim() || null,
+    };
+    const { data, error } = await supabase
+      .from('treasury_categories')
+      .insert(payload)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      return { data: null, error: getArabicSupabaseError(error) };
+    }
+    return { data: data as SupabaseTreasuryCategory, error: null };
+  } catch (err: any) {
+    return { data: null, error: getArabicSupabaseError(err) };
+  }
+}
+
+export async function deleteTreasuryCategoryInSupabase(
+  workshopId: string,
+  categoryId: string
+): Promise<{ error: SupabaseErrorResult | null }> {
+  try {
+    const { error } = await supabase
+      .from('treasury_categories')
+      .delete()
+      .eq('id', categoryId)
+      .eq('workshop_id', workshopId);
+
+    if (error) {
+      return { error: getArabicSupabaseError(error) };
+    }
+    return { error: null };
+  } catch (err: any) {
+    return { error: getArabicSupabaseError(err) };
+  }
+}
+
+// RPC 1: create_treasury({ p_workshop, p_name, p_parent })
+export async function rpcCreateTreasury(
+  workshopId: string,
+  name: string,
+  parentId?: string | null
+): Promise<{ data?: any; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase.rpc('create_treasury', {
+      p_workshop: workshopId,
+      p_name: name.trim(),
+      p_parent: parentId || null,
+    });
+    if (error) return { error: getArabicSupabaseError(error) };
+    return { data, error: null };
+  } catch (err: any) {
+    return { error: getArabicSupabaseError(err) };
+  }
+}
+
+// RPC 2: treasury_deposit({ p_workshop, p_treasury, p_channel, p_amount, p_category, p_note })
+export async function rpcTreasuryDeposit(
+  workshopId: string,
+  treasuryId: string,
+  channel: PaymentChannel,
+  amount: number,
+  category: string,
+  note?: string
+): Promise<{ data?: any; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase.rpc('treasury_deposit', {
+      p_workshop: workshopId,
+      p_treasury: treasuryId,
+      p_channel: channel,
+      p_amount: amount,
+      p_category: category.trim(),
+      p_note: note?.trim() || null,
+    });
+    if (error) return { error: getArabicSupabaseError(error) };
+    return { data, error: null };
+  } catch (err: any) {
+    return { error: getArabicSupabaseError(err) };
+  }
+}
+
+// RPC 3: treasury_transfer({ p_workshop, p_from, p_from_channel, p_to, p_to_channel, p_amount, p_category, p_note })
+// where p_category is one of: 'تحويل بين الخزن' | 'عهدة' | 'رد عهدة'
+export async function rpcTreasuryTransfer(
+  workshopId: string,
+  fromId: string,
+  fromChannel: PaymentChannel,
+  toId: string,
+  toChannel: PaymentChannel,
+  amount: number,
+  category: 'تحويل بين الخزن' | 'عهدة' | 'رد عهدة',
+  note?: string
+): Promise<{ data?: any; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase.rpc('treasury_transfer', {
+      p_workshop: workshopId,
+      p_from: fromId,
+      p_from_channel: fromChannel,
+      p_to: toId,
+      p_to_channel: toChannel,
+      p_amount: amount,
+      p_category: category,
+      p_note: note?.trim() || null,
+    });
+    if (error) return { error: getArabicSupabaseError(error) };
+    return { data, error: null };
+  } catch (err: any) {
+    return { error: getArabicSupabaseError(err) };
+  }
+}
+
+// RPC 4: issue_custody({ p_workshop, p_source, p_channel, p_holder, p_name, p_amount, p_note }) -> returns custody ID
+export async function rpcIssueCustody(
+  workshopId: string,
+  sourceId: string,
+  channel: PaymentChannel,
+  holder: string,
+  name: string,
+  amount: number,
+  note?: string
+): Promise<{ data?: string; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase.rpc('issue_custody', {
+      p_workshop: workshopId,
+      p_source: sourceId,
+      p_channel: channel,
+      p_holder: holder.trim(),
+      p_name: name.trim() || `عهدة ${holder.trim()}`,
+      p_amount: amount,
+      p_note: note?.trim() || null,
+    });
+    if (error) return { error: getArabicSupabaseError(error) };
+    return { data, error: null };
+  } catch (err: any) {
+    return { error: getArabicSupabaseError(err) };
+  }
+}
+
+// RPC 5: custody_settle({ p_workshop, p_custody, p_return_to, p_note })
+export async function rpcCustodySettle(
+  workshopId: string,
+  custodyId: string,
+  returnToId: string,
+  note?: string
+): Promise<{ data?: any; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase.rpc('custody_settle', {
+      p_workshop: workshopId,
+      p_custody: custodyId,
+      p_return_to: returnToId,
+      p_note: note?.trim() || null,
+    });
+    if (error) return { error: getArabicSupabaseError(error) };
+    return { data, error: null };
+  } catch (err: any) {
+    return { error: getArabicSupabaseError(err) };
+  }
+}
+
+// RPC 6: delete_treasury({ p_workshop, p_id })
+export async function rpcDeleteTreasury(
+  workshopId: string,
+  treasuryId: string
+): Promise<{ data?: any; error: SupabaseErrorResult | null }> {
+  try {
+    const { data, error } = await supabase.rpc('delete_treasury', {
+      p_workshop: workshopId,
+      p_id: treasuryId,
+    });
+    if (error) return { error: getArabicSupabaseError(error) };
+    return { data, error: null };
+  } catch (err: any) {
+    return { error: getArabicSupabaseError(err) };
   }
 }
 

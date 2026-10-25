@@ -260,7 +260,7 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({
 
         {/* Footer */}
         <div className="p-3 border-t border-stone-200 dark:border-stone-800 text-center bg-stone-50 dark:bg-stone-900 text-xs text-stone-400">
-          منظومة الشمس كرافت الحرفية ERP • صُممت لتبسيط الحسابات للحرفيين
+          منظومة الشمساوية الحرفية ERP • صُممت لتبسيط الحسابات للحرفيين
         </div>
       </div>
     </div>
