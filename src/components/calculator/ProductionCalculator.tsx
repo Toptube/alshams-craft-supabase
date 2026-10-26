@@ -28,6 +28,7 @@ import {
   MainSectionId,
 } from '../../registry/craftsRegistry';
 import { playSuccessSound, playErrorSound } from '../../lib/sounds';
+import { useTranslation } from '../../lib/i18n';
 import {
   Calculator,
   Pencil,
@@ -91,6 +92,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   externalNotesToTransfer,
   onNotesTransferredHandled,
 }) => {
+  const { t: tr } = useTranslation();
   // Live Raw Materials & Employees from Database
   const [dbMaterials, setDbMaterials] = useState<RawMaterialItem[]>([]);
   const [dbEmployees, setDbEmployees] = useState<EmployeeProfile[]>([]);
@@ -1052,47 +1054,47 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           {syncStatus === 'synced' && (
             <div
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-[11px] font-bold shadow-2xs"
-              title="البيانات الحالية متزامنة بنجاح مع السحابة"
+              title={tr('calc_synced_cloud')}
             >
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
               </span>
               <Cloud className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>متزامن مع السحابة</span>
+              <span>{tr('calc_synced_cloud')}</span>
             </div>
           )}
 
           {syncStatus === 'local_only' && (
             <div
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-[11px] font-bold shadow-2xs"
-              title="مسودة العمل محفوظة محلياً في dexieDB بأمان وتنتظر المزامنة"
+              title={tr('calc_local_only')}
             >
               <span className="relative flex h-2 w-2">
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
               </span>
               <HardDrive className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>محفوظ محلياً فقط (dexieDB)</span>
+              <span>{tr('calc_local_only')}</span>
             </div>
           )}
 
           {syncStatus === 'saving' && (
             <div
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 text-[11px] font-bold"
-              title="جاري حفظ المسودة في التخزين المحلي..."
+              title={tr('calc_saving')}
             >
               <RefreshCw className="w-3 h-3 animate-spin text-stone-500" />
-              <span>جاري الحفظ المحلي...</span>
+              <span>{tr('calc_saving')}</span>
             </div>
           )}
 
           {existingRecordId ? (
             <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-300/50">
-              تعديل مباشر على السجل الحالي
+              {tr('calc_editing_record') || 'تعديل مباشر على السجل الحالي'}
             </span>
           ) : (
             <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300/50">
-              مسودة تسعير جديدة
+              {tr('calc_new_draft') || 'مسودة تسعير جديدة'}
             </span>
           )}
         </div>
@@ -1109,7 +1111,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             onClick={() => setDraftRestoredNotice('')}
             className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer text-xs"
           >
-            إغلاق
+            {tr('close') || 'إغلاق'}
           </button>
         </div>
       )}
@@ -1128,11 +1130,11 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             <div className="flex items-center gap-2">
               <Boxes className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               <h3 className="text-xs sm:text-sm font-extrabold text-stone-900 dark:text-stone-100">
-                تحديد مسار المنتج والتصنيف الحرفي
+                {tr('calc_craft_path')}
               </h3>
             </div>
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-stone-500">
-              <span>المسار الحرفي:</span>
+              <span>{tr('calc_craft_path')}:</span>
               <span className="text-amber-600 dark:text-amber-400">
                 {currentCraftDef?.nameAr || 'مكرمية'}
               </span>

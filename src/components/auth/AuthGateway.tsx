@@ -20,16 +20,21 @@ import {
   ShieldCheck,
   Send,
   X,
+  Clock,
 } from 'lucide-react';
 
 interface AuthGatewayProps {
   onAuthenticated: (profile: UserProfile) => void;
   onNeedsWorkshopDetails?: (email: string) => void;
+  recoveryError?: string | null;
+  onClearRecoveryError?: () => void;
 }
 
 export const AuthGateway: React.FC<AuthGatewayProps> = ({
   onAuthenticated,
   onNeedsWorkshopDetails,
+  recoveryError,
+  onClearRecoveryError,
 }) => {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
@@ -48,6 +53,33 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotNotice, setForgotNotice] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [forgotCountdown, setForgotCountdown] = useState<number>(0);
+
+  // Sync recovery error if passed
+  React.useEffect(() => {
+    if (recoveryError) {
+      setErrorMsg(recoveryError);
+    }
+  }, [recoveryError]);
+
+  // Countdown timer for reset password button
+  React.useEffect(() => {
+    let timer: any = null;
+    if (forgotCountdown > 0) {
+      timer = setInterval(() => {
+        setForgotCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [forgotCountdown]);
 
   const selectedCountry =
     COUNTRIES_CONFIG.find((c) => c.code === countryCode) || COUNTRIES_CONFIG[0];
@@ -185,6 +217,11 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   const handleSendResetLink = async (e: React.FormEvent) => {
     e.preventDefault();
     setForgotNotice(null);
+
+    if (forgotCountdown > 0) {
+      return;
+    }
+
     const clean = forgotEmail.trim();
     if (!clean || !clean.includes('@')) {
       setForgotNotice({ text: 'يرجى إدخال بريد إلكتروني صالح.', isError: true });
@@ -198,19 +235,47 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
       });
 
       if (error) {
-        const errRes = getArabicSupabaseError(error);
-        setForgotNotice({ text: errRes.arabicMessage, isError: true });
+        console.error('[AuthGateway] resetPasswordForEmail error:', error);
+        const rawMsg = (error.message || '').toLowerCase();
+        const code = String((error as any).code || error.status || '').toLowerCase();
+
+        if (
+          code === '429' ||
+          code.includes('over_email_send_rate_limit') ||
+          rawMsg.includes('over_email_send_rate_limit') ||
+          rawMsg.includes('rate limit') ||
+          rawMsg.includes('too many requests')
+        ) {
+          setForgotNotice({ text: 'حاول بعد دقيقة', isError: true });
+        } else if (rawMsg.includes('email address not authorized') || code.includes('email_address_not_authorized')) {
+          setForgotNotice({
+            text: 'خدمة الإيميل غير مفعّلة لهذا العنوان بعد، تواصل مع الدعم',
+            isError: true,
+          });
+        } else {
+          const errRes = getArabicSupabaseError(error);
+          setForgotNotice({ text: errRes.arabicMessage, isError: true });
+        }
       } else {
+        // Always show neutral message as requested in Requirement 1
         setForgotNotice({
-          text: 'إذا كان البريد مسجلاً لدينا، فستصلك رسالة تحتوي على رابط لإعادة تعيين كلمة المرور. يرجى أيضاً التحقق من مجلد الرسائل غير المرغوبة (Spam).',
+          text: 'لو الإيميل مسجل عندنا هيوصلك رابط تغيير كلمة المرور، وراجع فولدر الرسائل غير المرغوبة (Spam)',
           isError: false,
         });
       }
     } catch (err: any) {
-      const errRes = getArabicSupabaseError(err);
-      setForgotNotice({ text: errRes.arabicMessage, isError: true });
+      console.error('[AuthGateway] resetPasswordForEmail exception:', err);
+      const rawMsg = (err?.message || '').toLowerCase();
+      if (rawMsg.includes('rate limit') || rawMsg.includes('429')) {
+        setForgotNotice({ text: 'حاول بعد دقيقة', isError: true });
+      } else {
+        const errRes = getArabicSupabaseError(err);
+        setForgotNotice({ text: errRes.arabicMessage, isError: true });
+      }
     } finally {
       setForgotLoading(false);
+      // Disable button for 60 seconds after send with visible countdown
+      setForgotCountdown(60);
     }
   };
 
@@ -577,11 +642,16 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
 
               <button
                 type="submit"
-                disabled={forgotLoading}
+                disabled={forgotLoading || forgotCountdown > 0}
                 className="w-full py-2.5 px-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs transition shadow-md cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {forgotLoading ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : forgotCountdown > 0 ? (
+                  <>
+                    <Clock className="w-4 h-4 text-amber-200 animate-pulse" />
+                    <span>حاول مجدداً بعد ({forgotCountdown} ثانية)</span>
+                  </>
                 ) : (
                   <>
                     <Send className="w-4 h-4" />

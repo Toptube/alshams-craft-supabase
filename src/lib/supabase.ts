@@ -31,6 +31,8 @@ function getStorageAdapter(): SupportedStorage | undefined {
 
 const chosenStorage = getStorageAdapter();
 
+export const supabaseConfig = config;
+
 /**
  * Single, unified Supabase client for the entire frontend application.
  */
@@ -39,6 +41,7 @@ export const supabase: SupabaseClient = createClient(config.url, config.publisha
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: false,
+    flowType: 'implicit',
     ...(chosenStorage ? { storage: chosenStorage } : {}),
   },
 });

@@ -153,6 +153,20 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       icon: Wallet,
       badge: tr('badge_treasuries'),
     },
+    {
+      id: 'fixed_assets',
+      label: tr('mod_fixed_assets'),
+      sublabel: tr('sub_fixed_assets'),
+      icon: Building,
+      badge: tr('badge_fixed_assets'),
+    },
+    {
+      id: 'currency_rates',
+      label: tr('mod_currency_rates'),
+      sublabel: tr('sub_currency_rates'),
+      icon: DollarSign,
+      badge: tr('badge_currency_rates'),
+    },
   ];
 
   // Section 3: CRM (Sales & Customer Relations)

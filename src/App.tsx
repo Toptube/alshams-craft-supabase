@@ -29,11 +29,16 @@ import {
 } from './db/supabaseService';
 import { CompleteWorkshopScreen } from './components/auth/CompleteWorkshopScreen';
 import { SuspendedWorkshopScreen } from './components/auth/SuspendedWorkshopScreen';
+import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
 import { UnderMigrationNotice } from './components/common/UnderMigrationNotice';
 import { MaterialsView } from './components/materials/MaterialsView';
 import { SuppliersView } from './components/suppliers/SuppliersView';
 import { CustomersView } from './components/customers/CustomersView';
 import { TreasuriesView } from './components/treasuries/TreasuriesView';
+import { InvoicesView } from './components/invoices/InvoicesView';
+import { FixedAssetsView } from './components/assets/FixedAssetsView';
+import { ExchangeRatesModal } from './components/currency/ExchangeRatesModal';
+import { SaaSReportsAnalyticsView } from './components/reports/SaaSReportsAnalyticsView';
 import { NewClientModal, NewSupplierModal } from './components/modals/CreationModals';
 import { playPageFlipSound } from './lib/sounds';
 import { useTranslation, getStoredLanguage, SUPPORTED_LANGUAGES } from './lib/i18n';
@@ -59,6 +64,7 @@ import {
   RotateCcw,
   LogOut,
   AlertCircle,
+  Coins,
 } from 'lucide-react';
 
 // In-memory cache for session (built once per session, max 500 items per collection to protect Firestore free tier)
@@ -76,6 +82,7 @@ export type AppActiveView =
   | 'customers'
   | 'materials'
   | 'treasuries'
+  | 'fixed_assets'
   | 'hr'
   | 'ai_agent'
   | 'archive'
@@ -84,8 +91,17 @@ export type AppActiveView =
   | 'admin';
 
 export default function App() {
+  const { t: tr } = useTranslation();
   // Authentication State from unified single-source hook
-  const { session: authSession, userId, isAuthChecked: authChecked } = useAuthSession();
+  const {
+    session: authSession,
+    userId,
+    isAuthChecked: authChecked,
+    isRecoveryMode,
+    setIsRecoveryMode,
+    recoveryError,
+    clearRecoveryError,
+  } = useAuthSession();
   const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
   const [isWorkshopLoading, setIsWorkshopLoading] = useState(false);
   const [workshopLoadError, setWorkshopLoadError] = useState<{ message: string; code?: string } | null>(null);
@@ -142,6 +158,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
   const [isAdminCostsModalOpen, setIsAdminCostsModalOpen] = useState(false);
+  const [isExchangeRatesModalOpen, setIsExchangeRatesModalOpen] = useState(false);
   const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState(false);
   const [welcomeType, setWelcomeType] = useState<'first_time' | 'session_return'>('session_return');
   const [isInteractiveTourOpen, setIsInteractiveTourOpen] = useState(false);
@@ -336,6 +353,13 @@ export default function App() {
 
   // Single useEffect for workshop loading: strictly depends on userId and user-triggered retryCount
   useEffect(() => {
+    // Strict Requirement 3: لا تُحمَّل الورشة ولا تُعرض لوحة التحكم أثناء وضع استعادة كلمة المرور
+    if (isRecoveryMode) {
+      loadedForUserIdRef.current = null;
+      setIsWorkshopLoading(false);
+      return;
+    }
+
     if (!userId) {
       loadedForUserIdRef.current = null;
       setCurrentProfile(null);
@@ -435,7 +459,7 @@ export default function App() {
       if (timeoutId) clearTimeout(timeoutId);
       isFlightInProgressRef.current = false;
     };
-  }, [userId, retryCount, triggerWelcomeFlow]);
+  }, [userId, retryCount, isRecoveryMode, triggerWelcomeFlow]);
   const handleAuthenticated = (profile: UserProfile) => {
     console.log('[App] handleAuthenticated called for workshop:', profile.brandName);
     const uid = profile.ownerUid || userId;
@@ -516,9 +540,20 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center bg-stone-100 dark:bg-stone-950">
         <div className="flex flex-col items-center gap-3">
           <div className="w-9 h-9 border-3 border-amber-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs font-bold text-stone-500">جاري التحقق من جلسة الدخول...</p>
+          <p className="text-xs font-bold text-stone-500">{tr('verifying_session') || 'جاري التحقق من جلسة الدخول...'}</p>
         </div>
       </div>
+    );
+  }
+
+  // 1.5 Recovery Mode: Show ResetPasswordScreen before anything else (Requirement 3)
+  if (isRecoveryMode) {
+    return (
+      <ResetPasswordScreen
+        onSuccess={() => {
+          setIsRecoveryMode(false);
+        }}
+      />
     );
   }
 
@@ -528,6 +563,8 @@ export default function App() {
       <AuthGateway
         onAuthenticated={handleAuthenticated}
         onNeedsWorkshopDetails={(em) => setNeedsWorkshopDetailsEmail(em)}
+        recoveryError={recoveryError}
+        onClearRecoveryError={clearRecoveryError}
       />
     );
   }
@@ -573,7 +610,7 @@ export default function App() {
               className="w-full py-2.5 px-4 rounded-2xl border border-stone-300 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
-              <span>تسجيل الخروج</span>
+              <span>{tr('mod_logout') || 'تسجيل الخروج'}</span>
             </button>
           </div>
         </div>
@@ -587,7 +624,7 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center bg-stone-100 dark:bg-stone-950">
         <div className="flex flex-col items-center gap-3">
           <div className="w-9 h-9 border-3 border-amber-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs font-bold text-stone-500">جاري فتح ورشتك السحابية وتحميل البيانات...</p>
+          <p className="text-xs font-bold text-stone-500">{tr('loading_workshop_data') || 'جاري فتح ورشتك السحابية وتحميل البيانات...'}</p>
         </div>
       </div>
     );
@@ -667,6 +704,8 @@ export default function App() {
             setIsInventoryModalOpen(true);
           } else if (v === 'expenses') {
             setIsAdminCostsModalOpen(true);
+          } else if (v === 'currency_rates') {
+            setIsExchangeRatesModalOpen(true);
           } else if (v === 'create_center' || v === 'home') {
             setActiveView('home');
           } else {
@@ -767,6 +806,8 @@ export default function App() {
             onNavigateToTreasuries={() => setActiveView('treasuries')}
             onNavigateToHR={() => setActiveView('hr')}
             onNavigateToReports={() => setActiveView('reports')}
+            onNavigateToFixedAssets={() => setActiveView('fixed_assets')}
+            onOpenExchangeRatesModal={() => setIsExchangeRatesModalOpen(true)}
             onOpenInventoryModal={(tab) => setIsInventoryModalOpen(true)}
             onOpenAdminCostsModal={() => setIsAdminCostsModalOpen(true)}
             onOpenNewMaterialModal={() => {
@@ -811,9 +852,15 @@ export default function App() {
         )}
 
         {activeView === 'invoices' && (
-          <UnderMigrationNotice
-            title="فواتير المبيعات والعملاء قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
+          <InvoicesView
+            workshop={currentProfile}
+            onOpenHelp={(s) => {
+              setUserGuideSection(s);
+              setIsUserGuideOpen(true);
+            }}
+            onOpenDocumentPreview={(docType, data) => {
+              // Document preview hook
+            }}
           />
         )}
 
@@ -906,9 +953,18 @@ export default function App() {
         )}
 
         {activeView === 'reports' && (
-          <UnderMigrationNotice
-            title="التقارير المالية وقفل الشهر قيد النقل للنظام الجديد"
+          <SaaSReportsAnalyticsView profile={currentProfile} />
+        )}
+
+        {activeView === 'fixed_assets' && (
+          <FixedAssetsView
+            workshop={currentProfile}
+            profile={currentProfile}
             onGoBack={() => setActiveView('home')}
+            onOpenHelp={(s: string) => {
+              setUserGuideSection(s);
+              setIsUserGuideOpen(true);
+            }}
           />
         )}
 
@@ -1094,6 +1150,13 @@ export default function App() {
           setActiveView('calculator');
           setIsInteractiveTourOpen(false);
         }}
+      />
+
+      {/* Daily Exchange Rates Modal */}
+      <ExchangeRatesModal
+        isOpen={isExchangeRatesModalOpen}
+        onClose={() => setIsExchangeRatesModalOpen(false)}
+        profile={currentProfile}
       />
 
       {/* Footer Attribution Watermark */}

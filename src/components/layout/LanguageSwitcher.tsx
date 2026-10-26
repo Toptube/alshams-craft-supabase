@@ -138,7 +138,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({ onOpenSettin
               type="button"
               onClick={handleOpenCustomize}
               className="text-[10px] text-amber-600 dark:text-amber-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
-              title="تخصيص اللغات المفضلة"
+              title={t('customize_languages', currentLang)}
             >
               <Settings2 className="w-3 h-3" />
               <span>{t('quick_switch', currentLang)}</span>
@@ -187,7 +187,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({ onOpenSettin
                               : 'bg-stone-100 dark:bg-stone-800 text-stone-500'
                           }`}
                         >
-                          سريع
+                          {t('quick_badge', currentLang)}
                         </span>
                       )}
                       {isSelected && <Check className="w-4 h-4 text-white" />}
@@ -240,7 +240,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({ onOpenSettin
                               : 'bg-stone-100 dark:bg-stone-800 text-stone-500'
                           }`}
                         >
-                          سريع
+                          {t('quick_badge', currentLang)}
                         </span>
                       )}
                       {isSelected && <Check className="w-4 h-4 text-white" />}
@@ -311,7 +311,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({ onOpenSettin
             </div>
 
             <div className="flex items-center justify-between text-[11px] text-stone-500 pt-1 border-t border-stone-100 dark:border-stone-800">
-              <span>اللغات المختارة: {tempQuickLangs.length} من 3</span>
+              <span>{t('selected_languages_count', currentLang)} {tempQuickLangs.length} {t('of', currentLang)} 3</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"

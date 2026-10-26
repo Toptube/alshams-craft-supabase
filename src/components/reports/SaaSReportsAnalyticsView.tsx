@@ -10,6 +10,7 @@ import {
   EmployeePayoutRecord,
   AdminCostRecord,
   RawMaterialItem,
+  FixedAsset,
 } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import {
@@ -33,6 +34,8 @@ import {
   Scale,
   Layers,
   ArrowUpDown,
+  Coins,
+  Cpu,
 } from 'lucide-react';
 
 interface SaaSReportsAnalyticsViewProps {
@@ -57,6 +60,7 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
   const [employeePayouts, setEmployeePayouts] = useState<EmployeePayoutRecord[]>([]);
   const [activityLogs, setActivityLogs] = useState<SystemActivityLog[]>([]);
   const [materials, setMaterials] = useState<RawMaterialItem[]>([]);
+  const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>([]);
   const [auditFilterStatus, setAuditFilterStatus] = useState<string>('all');
 
   // Selected supplier statement view
@@ -82,6 +86,7 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
       const payouts = await tenantStorage.getEmployeePayouts(tenantId);
       const logs = await tenantStorage.getActivityLogs(tenantId);
       const mats = await tenantStorage.getRawMaterials(tenantId);
+      const assets = await tenantStorage.getFixedAssets(tenantId);
 
       setSafeBalances(balances);
       setSafeTransactions(safeTxs);
@@ -92,6 +97,7 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
       setEmployeePayouts(payouts);
       setActivityLogs(logs);
       setMaterials(mats);
+      setFixedAssets(assets);
 
       if (sups.length > 0 && !selectedSupplierForStatement) {
         setSelectedSupplierForStatement(sups[0]);
@@ -105,12 +111,18 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
     loadAllFinancials();
   }, [tenantId]);
 
+  // Fixed Assets Calculations
+  const totalFixedAssetsCost = fixedAssets.reduce((sum, a) => sum + (a.purchaseCost || 0), 0);
+  const totalAnnualDepreciation = fixedAssets.reduce((sum, a) => sum + (a.annualDepreciation || 0), 0);
+  const totalAccumulatedDepreciation = fixedAssets.reduce((sum, a) => sum + (a.accumulatedDepreciation || 0), 0);
+  const totalNetBookValue = fixedAssets.reduce((sum, a) => sum + (a.currentBookValue || 0), 0);
+
   // Aggregate calculations
   const totalSalesRevenue = orders.reduce((sum, o) => sum + (o.amountPaid || 0), 0);
   const totalMaterialPurchasesPaid = supplierInvoices.reduce((sum, inv) => sum + (inv.paidAmount || 0), 0);
   const totalPayrollOperatingExpenses = employeePayouts.reduce((sum, p) => sum + (p.amount || 0), 0);
-  const totalAdminOperatingExpenses = adminCosts.reduce((sum, a) => sum + (a.amount || 0), 0);
-  const totalOperatingCosts = totalMaterialPurchasesPaid + totalPayrollOperatingExpenses + totalAdminOperatingExpenses;
+  const totalAdminOperatingExpenses = adminCosts.reduce((sum, a) => sum + (a.baseCurrencyAmount || a.amount || 0), 0);
+  const totalOperatingCosts = totalMaterialPurchasesPaid + totalPayrollOperatingExpenses + totalAdminOperatingExpenses + (totalAnnualDepreciation / 12);
   const netEstimatedProfit = totalSalesRevenue - totalOperatingCosts;
 
   // Double-Entry Ledger Matrix:
@@ -200,6 +212,36 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
       balanceType: 'مدين',
       notes: 'إيجار الورشة، الكهرباء، الدعاية، والنقل والتغليف',
     },
+    {
+      code: '1201',
+      name: 'الأصول الثابتة للورشة (Fixed Assets - Gross)',
+      type: 'أصول غير متداولة',
+      debit: totalFixedAssetsCost,
+      credit: 0,
+      balance: totalFixedAssetsCost,
+      balanceType: 'مدين',
+      notes: 'الأنوال والمعدات وطاولات القص وأجهزة الورشة',
+    },
+    {
+      code: '1209',
+      name: 'مجمع إهلاك الأصول الثابتة (Accumulated Depreciation)',
+      type: 'أصول غير متداولة (مُخفّض)',
+      debit: 0,
+      credit: totalAccumulatedDepreciation,
+      balance: totalAccumulatedDepreciation,
+      balanceType: 'دائن',
+      notes: 'الإهلاك المتراكم المحسوب للأصول حتى اليوم',
+    },
+    {
+      code: '5301',
+      name: 'قسط إهلاك الأصول السنوي (Annual Depreciation)',
+      type: 'مصروفات تشغيلية',
+      debit: totalAnnualDepreciation,
+      credit: 0,
+      balance: totalAnnualDepreciation,
+      balanceType: 'مدين',
+      notes: 'قسط الإهلاك السنوي المحمّل على تشغيل الورشة',
+    },
   ];
 
   const grandTotalDebit = trialRows.reduce((sum, r) => sum + r.debit, 0);
@@ -217,6 +259,23 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExportFixedAssets = () => {
+    const headers = ['كود الأصل', 'اسم الأصل', 'التصنيف', 'تاريخ الشراء', 'تكلفة الشراء', 'العمر الافتراضي', 'قيمة التخريد', 'الإهلاك السنوي', 'الإهلاك المتراكم', 'صافي القيمة الدفترية'];
+    const rows = fixedAssets.map((a) => [
+      a.assetCode || a.id,
+      a.assetName || a.name || '',
+      a.category,
+      a.purchaseDate,
+      String(a.purchaseCost),
+      String(a.usefulLifeYears),
+      String(a.scrapValue),
+      String(a.annualDepreciation),
+      String(a.accumulatedDepreciation),
+      String(a.currentBookValue),
+    ]);
+    exportToExcelCSV('سجل_الأصول_الثابتة_للورشة', [headers, ...rows]);
   };
 
   const handleExportSuppliers = () => {
@@ -654,11 +713,115 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
             </div>
           </div>
 
+          {/* Fixed Assets Financial Section */}
+          <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-md space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-stone-100 dark:border-stone-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-2xl bg-amber-100/70 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400">
+                  <Cpu className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-stone-900 dark:text-stone-100">
+                    تقرير الأصول الثابتة والإهلاك السنوي (Fixed Assets & Depreciation)
+                  </h3>
+                  <p className="text-xs text-stone-500 font-medium">
+                    متابعة القيمة الدفترية لمعدات وأنوال وأدوات الورشة وتأثير إهلاكها على نتائج الأعمال
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleExportFixedAssets}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>تصدير الأصول (Excel CSV)</span>
+              </button>
+            </div>
+
+            {/* Fixed Assets 4 KPI Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-right">
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/40 border border-stone-200/80 dark:border-stone-700">
+                <span className="text-[11px] font-bold text-stone-500 block">إجمالي تكلفة الأصول</span>
+                <span className="text-lg font-black font-mono text-stone-900 dark:text-stone-100 block mt-0.5">
+                  {totalFixedAssetsCost.toLocaleString()} {profile.currencySymbol}
+                </span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/40 border border-stone-200/80 dark:border-stone-700">
+                <span className="text-[11px] font-bold text-stone-500 block">مجمع الإهلاك المتراكم</span>
+                <span className="text-lg font-black font-mono text-rose-600 block mt-0.5">
+                  -{totalAccumulatedDepreciation.toLocaleString()} {profile.currencySymbol}
+                </span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60">
+                <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 block">صافي القيمة الدفترية</span>
+                <span className="text-lg font-black font-mono text-amber-700 dark:text-amber-400 block mt-0.5">
+                  {totalNetBookValue.toLocaleString()} {profile.currencySymbol}
+                </span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/40 border border-stone-200/80 dark:border-stone-700">
+                <span className="text-[11px] font-bold text-stone-500 block">قسط الإهلاك السنوي</span>
+                <span className="text-lg font-black font-mono text-purple-600 block mt-0.5">
+                  {totalAnnualDepreciation.toLocaleString()} {profile.currencySymbol}
+                </span>
+              </div>
+            </div>
+
+            {/* Assets Table Preview */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs">
+                <thead>
+                  <tr className="border-b border-stone-200 dark:border-stone-800 text-stone-500 font-bold bg-stone-50/50 dark:bg-stone-800/30">
+                    <th className="p-2.5">الكود</th>
+                    <th className="p-2.5">اسم الأصل والمعدة</th>
+                    <th className="p-2.5">التصنيف</th>
+                    <th className="p-2.5">تاريخ الشراء</th>
+                    <th className="p-2.5 font-mono">تكلفة الشراء</th>
+                    <th className="p-2.5 font-mono">الإهلاك السنوي</th>
+                    <th className="p-2.5 font-mono">الإهلاك المتراكم</th>
+                    <th className="p-2.5 font-mono">القيمة الدفترية الحالية</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-medium">
+                  {fixedAssets.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-stone-400 font-bold">
+                        لم يتم تسجيل أصول ثابتة للورشة بعد. يمكنك إضافتها من قائمة الأصول الثابتة.
+                      </td>
+                    </tr>
+                  ) : (
+                    fixedAssets.map((asset) => (
+                      <tr key={asset.id} className="hover:bg-stone-50 dark:hover:bg-stone-800/40 transition">
+                        <td className="p-2.5 font-mono text-stone-400 text-[11px]">{asset.assetCode || asset.id}</td>
+                        <td className="p-2.5 font-bold text-stone-900 dark:text-stone-100">{asset.assetName || asset.name}</td>
+                        <td className="p-2.5 text-stone-500 text-[11px]">{asset.category}</td>
+                        <td className="p-2.5 font-mono text-stone-500">{asset.purchaseDate}</td>
+                        <td className="p-2.5 font-mono font-bold text-stone-800 dark:text-stone-200">
+                          {asset.purchaseCost.toLocaleString()} {profile.currencySymbol}
+                        </td>
+                        <td className="p-2.5 font-mono font-bold text-purple-600">
+                          {asset.annualDepreciation.toLocaleString()} {profile.currencySymbol}
+                        </td>
+                        <td className="p-2.5 font-mono font-bold text-rose-600">
+                          -{asset.accumulatedDepreciation.toLocaleString()} {profile.currencySymbol}
+                        </td>
+                        <td className="p-2.5 font-mono font-black text-amber-700 dark:text-amber-400">
+                          {asset.currentBookValue.toLocaleString()} {profile.currencySymbol}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={handleExportOrders}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border flex items-center gap-1.5"
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border flex items-center gap-1.5 cursor-pointer"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
               <span>تصدير سجل المبيعات (Excel CSV)</span>

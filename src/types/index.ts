@@ -168,6 +168,10 @@ export interface ExpenseItem {
   categoryNameAr?: string;
   title: string;
   amount: number;
+  currency?: string;
+  exchangeRate?: number;
+  baseCurrencyAmount?: number;
+  originalAmount?: number;
   treasuryId?: string;
   treasuryName?: string;
   adminDetails?: {
@@ -305,6 +309,10 @@ export interface InvoiceRecord {
   periodId?: string;
   isLocked?: boolean;
   notes?: string;
+  currency?: string;
+  exchangeRate?: number;
+  baseCurrencyAmount?: number;
+  originalAmount?: number;
   date?: string;
   createdAt?: number;
   updatedAt?: number;
@@ -835,4 +843,55 @@ export interface AIVisionAnalysis {
   productionGuide: string[];
   svgSchematic?: string;
   [key: string]: any;
+}
+
+// 12. Multi-Currency & Daily Exchange Rates
+export interface CurrencyExchangeRate {
+  id: string;
+  tenantId: string;
+  currency: string; // e.g. 'USD', 'EUR', 'SAR', 'AED', 'KWD', 'GBP', 'TRY'
+  symbol: string;
+  nameAr: string;
+  nameEn: string;
+  flag: string;
+  rateAgainstBase: number; // e.g. 1 USD = 50.5 Base Currency units
+  rateToBase?: number; // alias for rateAgainstBase
+  isBaseCurrency?: boolean;
+  date: string; // YYYY-MM-DD
+  updatedAt: number;
+}
+
+// 13. Fixed Assets & Depreciation
+export type FixedAssetCategory =
+  | 'machinery'
+  | 'equipment'
+  | 'furniture'
+  | 'electronics'
+  | 'vehicles'
+  | 'tools'
+  | 'other';
+
+export interface FixedAsset {
+  id: string;
+  tenantId: string;
+  assetCode: string; // e.g. 'AST-001'
+  assetName: string; // e.g. 'ماكينة خياطة صناعية'
+  name?: string; // alias for assetName
+  category: FixedAssetCategory | string;
+  purchaseDate: string; // YYYY-MM-DD
+  purchaseCost: number; // in base currency
+  currency?: string;
+  exchangeRate?: number;
+  scrapValue: number; // قيمة التخريد المتوقعة
+  usefulLifeYears: number; // العمر الافتراضي الإنتاجي بالسنوات
+  annualDepreciation: number; // قيمة الإهلاك السنوي
+  accumulatedDepreciation: number; // مجمع الإهلاك حتى تاريخ اليوم
+  currentBookValue: number; // صافي القيمة الدفترية = التكلفة - مجمع الإهلاك
+  depreciationMethod: 'straight_line' | 'declining_balance';
+  location?: string;
+  responsiblePerson?: string;
+  status: 'active' | 'maintenance' | 'scrapped' | 'sold';
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
 }

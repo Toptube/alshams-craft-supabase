@@ -1,5 +1,6 @@
 import React from 'react';
 import { RefreshCw, ArrowRight, ShieldAlert, Sparkles } from 'lucide-react';
+import { useTranslation } from '../../lib/i18n';
 
 interface UnderMigrationNoticeProps {
   title?: string;
@@ -8,10 +9,14 @@ interface UnderMigrationNoticeProps {
 }
 
 export const UnderMigrationNotice: React.FC<UnderMigrationNoticeProps> = ({
-  title = 'هذه الشاشة قيد النقل للنظام الجديد',
-  description = 'يجري حالياً نقل وترقية قاعدة البيانات والخدمات إلى بيئة السحابة الجديدة لضمان سرعة فائقة وحماية متطورة لبيانات ورشتك. ستتاح هذه الشاشة بالكامل قريباً جداً.',
+  title,
+  description,
   onGoBack,
 }) => {
+  const { t: tr } = useTranslation();
+  const displayTitle = title || tr('under_migration_title');
+  const displayDescription = description || tr('under_migration_desc');
+
   return (
     <div className="w-full max-w-2xl mx-auto my-8 p-6 sm:p-10 rounded-3xl bg-white dark:bg-stone-900 border border-amber-200/80 dark:border-stone-800 shadow-xl text-center relative overflow-hidden">
       {/* Decorative background glow */}
@@ -26,15 +31,15 @@ export const UnderMigrationNotice: React.FC<UnderMigrationNoticeProps> = ({
         <div className="space-y-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-xs font-bold">
             <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span>تحديث البنية السحابية</span>
+            <span>{tr('updating_cloud_infrastructure')}</span>
           </div>
 
           <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100">
-            {title}
+            {displayTitle}
           </h2>
 
           <p className="text-sm font-medium text-stone-600 dark:text-stone-400 max-w-md mx-auto leading-relaxed">
-            {description}
+            {displayDescription}
           </p>
         </div>
 
@@ -50,7 +55,7 @@ export const UnderMigrationNotice: React.FC<UnderMigrationNoticeProps> = ({
                 alt="الشاشة الرئيسية"
                 className="w-5 h-5 object-contain group-hover:scale-110 transition-transform filter brightness-0 invert"
               />
-              <span>الشاشة الرئيسية</span>
+              <span>{tr('home_screen') || 'الشاشة الرئيسية'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           )}

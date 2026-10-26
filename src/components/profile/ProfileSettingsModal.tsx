@@ -41,7 +41,15 @@ import {
   ShieldOff,
   CheckCircle2,
   Send,
+  Lock,
+  Eye,
+  EyeOff,
+  Copy,
+  ShieldCheck,
 } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+import { supabase, supabaseConfig } from '../../lib/supabase';
+import { getArabicSupabaseError } from '../../db/supabaseService';
 import { isSoundEnabled, toggleSound, playSuccessSound, playErrorSound, playButtonClickSound } from '../../lib/sounds';
 
 interface ProfileSettingsModalProps {
@@ -143,6 +151,131 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  // Auth user & password change state (Requirement 4)
+  const [authUser, setAuthUser] = useState<any>(null);
+  const [currentPass, setCurrentPass] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [passChangeLoading, setPassChangeLoading] = useState(false);
+  const [passChangeError, setPassChangeError] = useState('');
+  const [passChangeSuccess, setPassChangeSuccess] = useState('');
+  const [copiedOrigin, setCopiedOrigin] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        setAuthUser(user);
+      }).catch(() => {});
+    }
+  }, [isOpen]);
+
+  const providers: string[] = authUser?.app_metadata?.providers || (authUser?.app_metadata?.provider ? [authUser.app_metadata.provider] : ['email']);
+  const hasEmailProvider = providers.includes('email');
+  const isGoogleUser = providers.includes('google');
+  const isFacebookUser = providers.includes('facebook');
+  const isOwner = profile.role === 'owner' || profile.role === 'admin' || !profile.role;
+
+  const handleCopyOrigin = () => {
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(window.location.origin);
+      setCopiedOrigin(true);
+      setTimeout(() => setCopiedOrigin(false), 2000);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPassChangeError('');
+    setPassChangeSuccess('');
+
+    if (!currentPass) {
+      setPassChangeError('يرجى إدخال كلمة المرور الحالية.');
+      return;
+    }
+    if (!newPass || newPass.length < 8) {
+      setPassChangeError('كلمة المرور الجديدة يجب ألا تقل عن 8 أحرف أو أرقام.');
+      return;
+    }
+    if (newPass !== confirmPass) {
+      setPassChangeError('كلمتا المرور غير متطابقتين.');
+      return;
+    }
+    if (newPass === currentPass) {
+      setPassChangeError('كلمة المرور الجديدة مطابقة للقديمة، يرجى اختيار كلمة مرور مختلفة.');
+      return;
+    }
+
+    const userEmail = authUser?.email || profile.email;
+    if (!userEmail) {
+      setPassChangeError('تعذر تحديد البريد الإلكتروني للحساب.');
+      return;
+    }
+
+    setPassChangeLoading(true);
+
+    try {
+      // 1) Verify current password with temporary client (isolated storage to prevent GoTrue collision warning)
+      const tempClient = createClient(supabaseConfig.url, supabaseConfig.publishableKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+          storageKey: 'alshams_temp_pwd_verifier_' + Date.now(),
+          storage: {
+            getItem: () => null,
+            setItem: () => {},
+            removeItem: () => {},
+          },
+        },
+      });
+
+      const { error: signInErr } = await tempClient.auth.signInWithPassword({
+        email: userEmail,
+        password: currentPass,
+      });
+
+      if (signInErr) {
+        console.warn('[ProfileSettingsModal] current password check failed:', signInErr);
+        setPassChangeError('كلمة المرور الحالية غير صحيحة.');
+        setPassChangeLoading(false);
+        return;
+      }
+
+      // 2) If verified, update password on main client
+      const { error: updateErr } = await supabase.auth.updateUser({
+        password: newPass,
+      });
+
+      if (updateErr) {
+        console.error('[ProfileSettingsModal] updateUser error:', updateErr);
+        const lowerMsg = (updateErr.message || '').toLowerCase();
+        if (lowerMsg.includes('same_password') || lowerMsg.includes('different from the old password')) {
+          setPassChangeError('كلمة المرور الجديدة مطابقة للقديمة، يرجى اختيار كلمة مرور مختلفة.');
+        } else if (lowerMsg.includes('weak') || lowerMsg.includes('least 8')) {
+          setPassChangeError('كلمة المرور الجديدة ضعيفة، يرجى اختيار كلمة مرور أقوى تحتوي على حروف وأرقام.');
+        } else {
+          const errRes = getArabicSupabaseError(updateErr);
+          setPassChangeError(errRes.arabicMessage);
+        }
+        return;
+      }
+
+      setPassChangeSuccess('تم تغيير كلمة المرور بنجاح.');
+      setCurrentPass('');
+      setNewPass('');
+      setConfirmPass('');
+      playSuccessSound();
+    } catch (err: any) {
+      console.error('[ProfileSettingsModal] password change exception:', err);
+      const errRes = getArabicSupabaseError(err);
+      setPassChangeError(errRes.arabicMessage);
+    } finally {
+      setPassChangeLoading(false);
+    }
+  };
 
   const currentCountryConfig =
     COUNTRIES_CONFIG.find((c) => c.name === countryName) || COUNTRIES_CONFIG[0];
@@ -834,6 +967,210 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 )}
               </div>
             </div>
+
+            {/* Section: Change Password (Requirement 4) */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60 space-y-4">
+              <div className="flex items-center gap-2.5 border-b border-stone-200/60 dark:border-stone-700/60 pb-3">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-stone-900 dark:text-stone-100">
+                    تغيير كلمة المرور
+                  </h4>
+                  <p className="text-[11px] text-stone-500">
+                    تحديث كلمة مرور الدخول لحساب ورشتك
+                  </p>
+                </div>
+              </div>
+
+              {!hasEmailProvider ? (
+                <div className="p-3.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-amber-900 dark:text-amber-200 text-xs font-bold flex items-center gap-2.5">
+                  <Sparkles className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <span>
+                    حسابك مسجّل عبر {isGoogleUser ? 'جوجل' : isFacebookUser ? 'فيسبوك' : 'مزود خارجي'}، لا يحتاج كلمة مرور هنا.
+                  </span>
+                </div>
+              ) : (
+                <form onSubmit={handleChangePassword} className="space-y-3.5">
+                  {passChangeError && (
+                    <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>{passChangeError}</span>
+                    </div>
+                  )}
+
+                  {passChangeSuccess && (
+                    <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                      <span>{passChangeSuccess}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Current Password */}
+                    <div>
+                      <label className="block text-[11px] font-bold mb-1 text-stone-700 dark:text-stone-300">
+                        كلمة المرور الحالية *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showCurrentPass ? 'text' : 'password'}
+                          required
+                          value={currentPass}
+                          onChange={(e) => setCurrentPass(e.target.value)}
+                          placeholder="كلمة المرور الحالية"
+                          className="w-full px-3 py-2 pr-8 pl-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-mono outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <Lock className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentPass((p) => !p)}
+                          className="absolute left-2.5 top-2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer p-0.5"
+                        >
+                          {showCurrentPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* New Password */}
+                    <div>
+                      <label className="block text-[11px] font-bold mb-1 text-stone-700 dark:text-stone-300">
+                        كلمة المرور الجديدة *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showNewPass ? 'text' : 'password'}
+                          required
+                          value={newPass}
+                          onChange={(e) => setNewPass(e.target.value)}
+                          placeholder="8 أحرف على الأقل"
+                          className="w-full px-3 py-2 pr-8 pl-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-mono outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <KeyRound className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPass((p) => !p)}
+                          className="absolute left-2.5 top-2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer p-0.5"
+                        >
+                          {showNewPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Confirm New Password */}
+                    <div>
+                      <label className="block text-[11px] font-bold mb-1 text-stone-700 dark:text-stone-300">
+                        تأكيد كلمة المرور *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showConfirmPass ? 'text' : 'password'}
+                          required
+                          value={confirmPass}
+                          onChange={(e) => setConfirmPass(e.target.value)}
+                          placeholder="أعد إدخال الجديدة"
+                          className="w-full px-3 py-2 pr-8 pl-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-mono outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <ShieldCheck className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPass((p) => !p)}
+                          className="absolute left-2.5 top-2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer p-0.5"
+                        >
+                          {showConfirmPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="submit"
+                      disabled={passChangeLoading}
+                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {passChangeLoading ? (
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>تحديث كلمة المرور</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* Section: Password Recovery URL Configuration (Owner Only - Requirement 5) */}
+            {isOwner && (
+              <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-300/80 dark:border-amber-900/60 space-y-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-2xs">
+                    <KeyRound className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-stone-900 dark:text-stone-100">
+                      ربط استعادة كلمة المرور (خاص بالمالك)
+                    </h4>
+                    <p className="text-[11px] text-stone-500">
+                      إعدادات عنوان التطبيق والبريد السحابي في Supabase
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold mb-1 text-stone-700 dark:text-stone-300">
+                    عنوان المنظومة الحالي (Origin URL):
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={typeof window !== 'undefined' ? window.location.origin : ''}
+                      className="flex-1 px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-mono text-stone-800 dark:text-stone-200 select-all"
+                      dir="ltr"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyOrigin}
+                      className="px-3 py-2 rounded-xl bg-white dark:bg-stone-800 border border-amber-400 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-amber-800 dark:text-amber-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      {copiedOrigin ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>تم النسخ!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>نسخ الرابط</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-white dark:bg-stone-900 border border-amber-200/80 dark:border-amber-900/40 space-y-2 text-xs text-stone-700 dark:text-stone-300 leading-relaxed font-bold">
+                  <div className="text-[11px] font-black text-amber-700 dark:text-amber-400">
+                    خطوات التفعيل في Supabase:
+                  </div>
+                  <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-stone-600 dark:text-stone-400">
+                    <li>
+                      انسخ العنوان أعلاه وضعه في <strong>Site URL</strong> وكذلك في <strong>Redirect URLs</strong> داخل لوحة Supabase ← <strong>Authentication</strong> ← <strong>URL Configuration</strong>.
+                    </li>
+                    <li>
+                      فعّل <strong>Custom SMTP</strong> من لوحة Supabase ← <strong>Authentication</strong> ← <strong>Emails</strong> ← <strong>SMTP Settings</strong> حتى تصل رسائل الاستعادة لبريد أي مستخدم بنجاح.
+                    </li>
+                    <li className="text-amber-700 dark:text-amber-400 font-black">
+                      تنبيه أمان: رابط الاستعادة يُستخدم لمرة واحدة فقط بمجرد فتحه، لحماية حساب الورشة.
+                    </li>
+                  </ol>
+                </div>
+              </div>
+            )}
 
             {/* Save Button */}
             <div className="pt-3 border-t border-stone-200 dark:border-stone-800 flex justify-end gap-2">

@@ -13,8 +13,18 @@ import {
   Wifi,
   DollarSign,
   TrendingDown,
+  Coins,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
+import {
+  SUPPORTED_CURRENCIES,
+  getOrInitExchangeRates,
+  convertToBaseCurrency,
+  formatCurrencyAmount,
+} from '../../lib/currency';
+import { ExchangeRatesModal } from '../currency/ExchangeRatesModal';
+import { useTranslation } from '../../lib/i18n';
 
 interface AdminExpensesModalProps {
   isOpen: boolean;
@@ -29,9 +39,18 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const { t: tr, lang } = useTranslation();
+  const baseCurrency = profile.currencySymbol || 'EGP';
+
   const currentMonthStr = new Date().toISOString().slice(0, 7);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr);
   const [expenses, setExpenses] = useState<AdminCostRecord[]>([]);
+
+  // Multi-currency state
+  const [currency, setCurrency] = useState<string>(baseCurrency);
+  const [exchangeRate, setExchangeRate] = useState<number>(1.0);
+  const [dailyRates, setDailyRates] = useState<Record<string, number>>({});
+  const [isRatesModalOpen, setIsRatesModalOpen] = useState(false);
 
   // Form
   const [title, setTitle] = useState('');
@@ -43,8 +62,16 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
 
   const loadData = async () => {
     try {
-      const records = await tenantStorage.getAdminCosts(tenantId, selectedMonth);
+      const [records, rates] = await Promise.all([
+        tenantStorage.getAdminCosts(tenantId, selectedMonth),
+        getOrInitExchangeRates(tenantId),
+      ]);
       setExpenses(records);
+      const ratesMap: Record<string, number> = {};
+      rates.forEach((r) => {
+        ratesMap[r.currency] = r.rateAgainstBase || r.rateToBase || 1;
+      });
+      setDailyRates(ratesMap);
     } catch (err) {
       console.error(err);
     }
@@ -58,12 +85,20 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
     e.preventDefault();
     if (!title.trim() || amount <= 0) return;
 
+    const rate = currency === baseCurrency ? 1.0 : (Number(exchangeRate) || dailyRates[currency] || 1.0);
+    const baseCurrencyAmount = currency === baseCurrency
+      ? amount
+      : Math.round(amount * rate * 100) / 100;
+
     const newCost: AdminCostRecord = {
       id: 'adm_' + Date.now(),
       tenantId,
       title: title.trim(),
       category,
       amount,
+      currency,
+      exchangeRate: rate,
+      baseCurrencyAmount,
       safeType: 'main',
       month: selectedMonth,
       paymentDate: new Date().toISOString().split('T')[0],
@@ -74,6 +109,8 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
     setTitle('');
     setAmount(100);
     setNotes('');
+    setCurrency(baseCurrency);
+    setExchangeRate(1.0);
     loadData();
   };
 
@@ -82,8 +119,8 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
     loadData();
   };
 
-  // Grouped breakdown
-  const totalMonthExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  // Grouped breakdown (aggregated in base currency)
+  const totalMonthExpenses = expenses.reduce((sum, e) => sum + (e.baseCurrencyAmount || e.amount || 0), 0);
 
   // Suggested per-piece allocation assuming an artisan produces ~25 pieces/month
   const estimatedPiecesPerMonth = 25;
@@ -159,10 +196,20 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
 
         {/* Add cost form */}
         <form onSubmit={handleAddCost} className="mt-5 p-4 rounded-2xl bg-amber-50/50 dark:bg-stone-800/40 border border-amber-200/60 dark:border-stone-700 space-y-3">
-          <h3 className="font-bold text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-            <Plus className="w-3.5 h-3.5" />
-            <span>تسجيل مصروف إداري جديد للشهر المختار:</span>
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+              <Plus className="w-3.5 h-3.5" />
+              <span>تسجيل مصروف إداري جديد للشهر المختار:</span>
+            </h3>
+            <button
+              type="button"
+              onClick={() => setIsRatesModalOpen(true)}
+              className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <Coins className="w-3.5 h-3.5" />
+              <span>أسعار الصرف اليومية</span>
+            </button>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div className="sm:col-span-2">
@@ -190,31 +237,95 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
             </div>
           </div>
 
+          {/* Currency selection & Amount row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div>
+              <label className="block text-[10px] text-stone-500 font-bold mb-1">العملة</label>
+              <select
+                value={currency}
+                onChange={(e) => {
+                  const cur = e.target.value;
+                  setCurrency(cur);
+                  const curMetadata = SUPPORTED_CURRENCIES.find((c) => c.code === cur);
+                  const rate = cur === baseCurrency ? 1.0 : (dailyRates[cur] || curMetadata?.defaultRateAgainstEGP || curMetadata?.defaultRateToBase || 1.0);
+                  setExchangeRate(rate);
+                }}
+                className="w-full px-2.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none"
+              >
+                {SUPPORTED_CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} ({c.nameAr})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] text-stone-500 font-bold mb-1">
+                المبلغ بالـ ({currency})
+              </label>
               <NumberInput
                 required
                 min={1}
                 value={amount}
                 onChange={setAmount}
-                placeholder={`المبلغ (${profile.currencySymbol})`}
+                placeholder={`المبلغ (${currency})`}
                 className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono text-xs font-bold outline-none"
               />
             </div>
-            <div className="sm:col-span-2">
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="ملاحظات أو رقم الإيصال"
-                className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs outline-none"
-              />
+
+            <div>
+              {currency !== baseCurrency ? (
+                <div>
+                  <label className="block text-[10px] text-stone-500 font-bold mb-1">
+                    سعر الصرف (1 {currency} = كم {baseCurrency})
+                  </label>
+                  <NumberInput
+                    min={0.0001}
+                    step={0.01}
+                    value={exchangeRate}
+                    onChange={(val) => setExchangeRate(Number(val) || 1.0)}
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono text-xs font-bold outline-none text-left"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[10px] text-stone-500 font-bold mb-1">ملاحظات / إيصال</label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="ملاحظات أو رقم الإيصال"
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs outline-none"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
+          {currency !== baseCurrency && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 p-2.5 rounded-xl bg-amber-100/70 dark:bg-amber-950/50 border border-amber-300/60 dark:border-amber-800 text-xs">
+              <div className="flex-1 w-full">
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="ملاحظات أو رقم الإيصال"
+                  className="w-full px-3 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs outline-none"
+                />
+              </div>
+              <div className="text-left font-mono font-bold text-amber-900 dark:text-amber-200 shrink-0">
+                <span>المعادل بالعملة الأساسية ({baseCurrency}): </span>
+                <span className="font-black text-sm">
+                  {Math.round(amount * (Number(exchangeRate) || 1) * 100) / 100} {baseCurrency}
+                </span>
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
-            className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 transition"
+            className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 transition cursor-pointer"
           >
             إضافة المصروف للدورة المالية
           </button>
@@ -245,13 +356,20 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <span className="font-mono font-bold text-stone-800 dark:text-stone-200 text-sm">
-                    {e.amount} {profile.currencySymbol}
-                  </span>
+                  <div className="text-left font-mono">
+                    <span className="font-bold text-stone-800 dark:text-stone-200 text-sm block">
+                      {e.amount} {e.currency || baseCurrency}
+                    </span>
+                    {e.currency && e.currency !== baseCurrency && (
+                      <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold block">
+                        (~ {e.baseCurrencyAmount || e.amount} {baseCurrency})
+                      </span>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => handleDelete(e.id)}
-                    className="p-1 text-stone-400 hover:text-rose-600 transition"
+                    className="p-1 text-stone-400 hover:text-rose-600 transition cursor-pointer"
                     title="حذف"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -262,6 +380,15 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
           )}
         </div>
       </div>
+
+      <ExchangeRatesModal
+        isOpen={isRatesModalOpen}
+        onClose={() => {
+          setIsRatesModalOpen(false);
+          loadData();
+        }}
+        profile={profile}
+      />
     </div>
   );
 };

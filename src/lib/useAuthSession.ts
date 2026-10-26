@@ -2,10 +2,56 @@ import { useState, useEffect, useRef } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
+// File-level execution guard for React 18 StrictMode and one-time token consumption
+let hasHandledRecoveryHash = false;
+let initialRecoveryMode = false;
+let initialRecoveryError: string | null = null;
+
+if (typeof window !== 'undefined' && !hasHandledRecoveryHash) {
+  try {
+    const rawHash = window.location.hash ? window.location.hash.substring(1) : '';
+    if (rawHash) {
+      const hashParams = new URLSearchParams(rawHash);
+      const errorCode = hashParams.get('error_code');
+      const error = hashParams.get('error');
+      const type = hashParams.get('type');
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+
+      if (errorCode || error) {
+        hasHandledRecoveryHash = true;
+        initialRecoveryError = 'رابط استعادة كلمة المرور منتهي أو استُخدم من قبل. اطلب رابطاً جديداً.';
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+      } else if (type === 'recovery' && accessToken && refreshToken) {
+        hasHandledRecoveryHash = true;
+        initialRecoveryMode = true;
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+        // Asynchronously set the session with the recovered tokens
+        supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        }).catch((err) => {
+          console.error('[useAuthSession] Failed to set recovery session:', err);
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[useAuthSession] Error parsing recovery hash:', err);
+  }
+}
+
 export interface AuthSessionState {
   session: Session | null;
   userId: string | null;
   isAuthChecked: boolean;
+  isRecoveryMode: boolean;
+  setIsRecoveryMode: (val: boolean) => void;
+  recoveryError: string | null;
+  clearRecoveryError: () => void;
 }
 
 /**
@@ -16,6 +62,12 @@ export interface AuthSessionState {
 export function useAuthSession(): AuthSessionState {
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
+  const [isRecoveryMode, setIsRecoveryMode] = useState<boolean>(initialRecoveryMode);
+  const [recoveryError, setRecoveryError] = useState<string | null>(initialRecoveryError);
+
+  const clearRecoveryError = () => {
+    setRecoveryError(null);
+  };
 
   // Track whether initial auth resolution has completed
   const initializedRef = useRef(false);
@@ -49,7 +101,10 @@ export function useAuthSession(): AuthSessionState {
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!isMounted) return;
 
-      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecoveryMode(true);
+        if (newSession) setSession(newSession);
+      } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
         setSession(newSession);
         setIsAuthChecked(true);
       } else if (event === 'TOKEN_REFRESHED') {
@@ -68,6 +123,7 @@ export function useAuthSession(): AuthSessionState {
         // User explicitly signed out
         setSession(null);
         setIsAuthChecked(true);
+        setIsRecoveryMode(false);
       }
     });
 
@@ -100,5 +156,9 @@ export function useAuthSession(): AuthSessionState {
     session,
     userId: session?.user?.id || null,
     isAuthChecked,
+    isRecoveryMode,
+    setIsRecoveryMode,
+    recoveryError,
+    clearRecoveryError,
   };
 }

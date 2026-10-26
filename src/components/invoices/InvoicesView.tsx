@@ -9,11 +9,19 @@ import {
   InvoiceReturnRecord,
 } from '../../types';
 import { firestoreService } from '../../db/firestoreService';
+import { tenantStorage } from '../../db/dexieDB';
 import {
   calculateInvoiceTotals,
   determineInvoiceStatus,
   calculateCustomerBalance,
 } from '../../lib/accounting';
+import {
+  SUPPORTED_CURRENCIES,
+  getOrInitExchangeRates,
+  convertToBaseCurrency,
+  formatCurrencyAmount,
+} from '../../lib/currency';
+import { useTranslation } from '../../lib/i18n';
 import {
   FileText,
   Plus,
@@ -33,6 +41,7 @@ import {
   Phone,
   Trash2,
   Calendar,
+  Coins,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
 
@@ -47,6 +56,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   onOpenHelp,
   onOpenDocumentPreview,
 }) => {
+  const { t: tr, lang } = useTranslation();
+  const baseCurrency = workshop.currencySymbol || 'EGP';
+
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [products, setProducts] = useState<FinishedProductItem[]>([]);
@@ -54,6 +66,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'unpaid' | 'partially_paid' | 'paid'>('all');
+
+  // Multi-Currency Rates State
+  const [dailyRates, setDailyRates] = useState<Record<string, number>>({});
 
   // Customer Statement Modal
   const [selectedCustomerForStatement, setSelectedCustomerForStatement] = useState<CustomerRecord | null>(null);
@@ -64,6 +79,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [invoiceCurrency, setInvoiceCurrency] = useState<string>(baseCurrency);
+  const [invoiceExchangeRate, setInvoiceExchangeRate] = useState<number>(1.0);
   const [lineItems, setLineItems] = useState<
     Array<{ id: string; productId?: string; productName: string; quantity: number; unit: string; unitPrice: number; totalPrice: number }>
   >([
@@ -98,16 +115,23 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [invList, custList, prodList, trList] = await Promise.all([
+      const [invList, custList, prodList, trList, rates] = await Promise.all([
         firestoreService.getInvoices(workshop.id),
         firestoreService.getCustomers(workshop.id),
         firestoreService.getFinishedProducts(workshop.id),
         firestoreService.getTreasuries(workshop.id),
+        getOrInitExchangeRates(workshop.id),
       ]);
       setInvoices(invList);
       setCustomers(custList);
       setProducts(prodList);
       setTreasuries(trList);
+      const ratesMap: Record<string, number> = {};
+      rates.forEach((r) => {
+        ratesMap[r.currency] = r.rateAgainstBase || r.rateToBase || 1;
+      });
+      setDailyRates(ratesMap);
+
       if (trList.length > 0) {
         setPaymentTreasuryId(trList[0].id);
         setRefundTreasuryId(trList[0].id);
@@ -176,6 +200,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setSelectedCustomerId(customers[0]?.id || '');
     setCustomerName(customers[0]?.name || '');
     setCustomerPhone(customers[0]?.phone || '');
+    setInvoiceCurrency(baseCurrency);
+    setInvoiceExchangeRate(1.0);
     setLineItems([
       { id: '1', productName: 'قطعة مشغولات يدوية', quantity: 1, unit: 'قطعة', unitPrice: 500, totalPrice: 500 },
     ]);
@@ -224,6 +250,11 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         ? (invoices.find((i) => i.id === editingInvoiceId)?.invoiceNumber || 'INV-0001')
         : await firestoreService.getNextInvoiceNumber(workshop.id);
 
+      const rate = invoiceCurrency === baseCurrency ? 1.0 : (Number(invoiceExchangeRate) || dailyRates[invoiceCurrency] || 1.0);
+      const baseCurrencyAmount = invoiceCurrency === baseCurrency
+        ? invoiceTotals.totalAmount
+        : Math.round(invoiceTotals.totalAmount * rate * 100) / 100;
+
       const invoiceRecord: InvoiceRecord = {
         id: editingInvoiceId || 'inv_' + Date.now(),
         workshopId: workshop.id,
@@ -231,6 +262,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         customerId,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
+        currency: invoiceCurrency,
+        exchangeRate: rate,
+        baseCurrencyAmount,
+        originalAmount: invoiceTotals.totalAmount,
         items: lineItems,
         subtotal: invoiceTotals.subtotal,
         discount: invoiceTotals.discount,
@@ -522,13 +557,20 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         )}
                       </td>
                       <td className="py-3 px-3 font-mono font-black text-stone-900 dark:text-stone-100">
-                        {inv.totalAmount} {workshop.currencySymbol}
+                        <div>
+                          <span>{inv.totalAmount} {inv.currency || baseCurrency}</span>
+                          {inv.currency && inv.currency !== baseCurrency && (
+                            <span className="block text-[10px] text-amber-700 dark:text-amber-400 font-normal">
+                              (~ {inv.baseCurrencyAmount || inv.totalAmount} {baseCurrency})
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-3 font-mono text-emerald-600 font-bold">
-                        {inv.paidAmount} {workshop.currencySymbol}
+                        {inv.paidAmount} {inv.currency || baseCurrency}
                       </td>
                       <td className="py-3 px-3 font-mono text-rose-600 font-bold">
-                        {inv.remainingAmount} {workshop.currencySymbol}
+                        {inv.remainingAmount} {inv.currency || baseCurrency}
                       </td>
                       <td className="py-3 px-3">
                         <span
@@ -625,15 +667,22 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
                   <div className="flex items-center justify-between text-xs pt-1 border-t border-stone-200/50 dark:border-stone-700/50">
                     <span className="text-stone-500">الإجمالي:</span>
-                    <span className="font-black font-mono">
-                      {inv.totalAmount} {workshop.currencySymbol}
-                    </span>
+                    <div className="text-left">
+                      <span className="font-black font-mono">
+                        {inv.totalAmount} {inv.currency || baseCurrency}
+                      </span>
+                      {inv.currency && inv.currency !== baseCurrency && (
+                        <span className="block text-[10px] text-amber-700 dark:text-amber-400 font-normal">
+                          (~ {inv.baseCurrencyAmount || inv.totalAmount} {baseCurrency})
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-stone-500">متبقي عليه:</span>
                     <span className="font-black font-mono text-rose-600">
-                      {inv.remainingAmount} {workshop.currencySymbol}
+                      {inv.remainingAmount} {inv.currency || baseCurrency}
                     </span>
                   </div>
 
@@ -717,6 +766,58 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   placeholder="01XXXXXXXXX"
                   className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none font-mono text-left"
                 />
+              </div>
+            </div>
+
+            {/* Currency Selection & Exchange Rate */}
+            <div className="p-3.5 rounded-2xl bg-amber-50/60 dark:bg-stone-800/60 border border-amber-200/80 dark:border-stone-700 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                  <Coins className="w-4 h-4 text-amber-600" />
+                  <span>عملة الفاتورة وسعر الصرف:</span>
+                </span>
+                <span className="text-[11px] text-stone-500 font-bold">
+                  العملة الأساسية: <strong className="text-amber-700 dark:text-amber-400 font-mono">{baseCurrency}</strong>
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-600 dark:text-stone-400 mb-1">
+                    اختر عملة الفاتورة
+                  </label>
+                  <select
+                    value={invoiceCurrency}
+                    onChange={(e) => {
+                      const cur = e.target.value;
+                      setInvoiceCurrency(cur);
+                      const curMetadata = SUPPORTED_CURRENCIES.find((c) => c.code === cur);
+                      const rate = cur === baseCurrency ? 1.0 : (dailyRates[cur] || curMetadata?.defaultRateAgainstEGP || curMetadata?.defaultRateToBase || 1.0);
+                      setInvoiceExchangeRate(rate);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none"
+                  >
+                    {SUPPORTED_CURRENCIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code} - {c.nameAr} ({c.symbol})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {invoiceCurrency !== baseCurrency && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-stone-600 dark:text-stone-400 mb-1">
+                      سعر الصرف (1 {invoiceCurrency} = كم {baseCurrency})
+                    </label>
+                    <NumberInput
+                      min={0.0001}
+                      step={0.01}
+                      value={invoiceExchangeRate}
+                      onChange={(val) => setInvoiceExchangeRate(Number(val) || 1.0)}
+                      className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-mono font-bold outline-none text-left"
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -837,13 +938,23 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               </div>
 
               {/* Total Calculation Display */}
-              <div className="pt-2 border-t border-amber-200 dark:border-amber-900/60 flex items-baseline justify-between">
-                <span className="text-xs font-bold text-stone-700 dark:text-stone-300">
-                  إجمالي الفاتورة الصافي:
-                </span>
-                <span className="text-xl font-black font-mono text-amber-700 dark:text-amber-400">
-                  {invoiceTotals.totalAmount} {workshop.currencySymbol}
-                </span>
+              <div className="pt-2 border-t border-amber-200 dark:border-amber-900/60 flex flex-col gap-2">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                    إجمالي الفاتورة الصافي:
+                  </span>
+                  <span className="text-xl font-black font-mono text-amber-700 dark:text-amber-400">
+                    {invoiceTotals.totalAmount} {invoiceCurrency}
+                  </span>
+                </div>
+                {invoiceCurrency !== baseCurrency && (
+                  <div className="flex items-center justify-between text-xs text-stone-600 dark:text-stone-300 font-bold bg-amber-100/70 dark:bg-amber-950/70 px-3 py-1.5 rounded-xl border border-amber-300/50 dark:border-amber-800">
+                    <span>المعادل بالعملة الأساسية ({baseCurrency}):</span>
+                    <span className="font-mono font-black text-amber-900 dark:text-amber-200">
+                      ~ {Math.round(invoiceTotals.totalAmount * (invoiceExchangeRate || 1) * 100) / 100} {baseCurrency}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

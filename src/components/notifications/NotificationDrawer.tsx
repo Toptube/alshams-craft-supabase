@@ -27,6 +27,7 @@ import {
   getBrowserNotificationPermission,
   requestBrowserNotificationPermission,
 } from '../../lib/browserNotifications';
+import { useTranslation } from '../../lib/i18n';
 
 interface NotificationDrawerProps {
   isOpen: boolean;
@@ -49,6 +50,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   onNavigateToOrder,
   onNavigateToInventory,
 }) => {
+  const { t: tr } = useTranslation();
   const [activeTab, setActiveTab] = useState<NotificationTab>('all');
   const [selectedOrderIdForStatus, setSelectedOrderIdForStatus] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
@@ -199,10 +201,10 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
             </div>
             <div>
               <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
-                مركز التنبيهات التفاعلي
+                {tr('notif_center_title')}
               </h3>
               <span className="text-[10px] text-stone-400 block font-mono">
-                {unreadCountTotal > 0 ? `${unreadCountTotal} تنبيهات غير مقروءة` : 'كافة الإشعارات مقروءة'}
+                {unreadCountTotal > 0 ? `${unreadCountTotal} ${tr('notif_unread_count')}` : tr('notif_all_read')}
               </span>
             </div>
           </div>
@@ -221,7 +223,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                   : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
               }`}
             >
-              <span>الكل</span>
+              <span>{tr('notif_all')}</span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-stone-200 dark:bg-stone-600 text-stone-700 dark:text-stone-200">
                 {notifications.length}
               </span>
@@ -238,7 +240,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
               }`}
             >
               <Flame className="w-3.5 h-3.5" />
-              <span>عاجلة</span>
+              <span>{tr('notif_urgent')}</span>
               {unreadCountUrgent > 0 ? (
                 <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-white text-rose-700 font-black animate-pulse">
                   {unreadCountUrgent}
@@ -261,7 +263,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
               }`}
             >
               <Calendar className="w-3.5 h-3.5" />
-              <span>يومية</span>
+              <span>{tr('notif_daily')}</span>
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-stone-200 dark:bg-stone-600 text-stone-700 dark:text-stone-200">
                 {dailyNotifications.length}
               </span>
@@ -274,10 +276,10 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
             onClick={handleMarkAllRead}
             disabled={unreadCountTotal === 0}
             className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl border border-amber-300 dark:border-amber-700/80 bg-amber-50/80 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 font-black text-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs active:scale-95 shrink-0"
-            title="تعيين جميع التنبيهات كمقروءة"
+            title={tr('notif_mark_all_read')}
           >
             <CheckCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            <span className="hidden sm:inline">الكل مقروء</span>
+            <span className="hidden sm:inline">{tr('notif_mark_all_read')}</span>
           </button>
         </div>
 

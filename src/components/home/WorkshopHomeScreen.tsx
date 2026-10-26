@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { UserProfile } from '../../types';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { tenantStorage } from '../../db/dexieDB';
+import { useTranslation } from '../../lib/i18n';
 import {
   Layers,
   ShoppingBag,
@@ -40,6 +41,7 @@ import {
   CheckCircle,
   HelpCircle,
   Coins,
+  Building,
 } from 'lucide-react';
 
 export type HomeCardSection =
@@ -70,6 +72,8 @@ export interface WorkshopHomeScreenProps {
   onNavigateToTreasuries: () => void;
   onNavigateToHR: () => void;
   onNavigateToReports: () => void;
+  onNavigateToFixedAssets?: () => void;
+  onOpenExchangeRatesModal?: () => void;
   // Modals
   onOpenInventoryModal: (tab?: string) => void;
   onOpenAdminCostsModal: () => void;
@@ -83,6 +87,7 @@ export interface WorkshopHomeScreenProps {
 
 export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   profile,
+  // Navigation to full screens
   onNavigateToCalculator,
   onNavigateToArchive,
   onNavigateToCatalog,
@@ -95,6 +100,9 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onNavigateToTreasuries,
   onNavigateToHR,
   onNavigateToReports,
+  onNavigateToFixedAssets,
+  onOpenExchangeRatesModal,
+  // Modals
   onOpenInventoryModal,
   onOpenAdminCostsModal,
   onOpenNewMaterialModal,
@@ -104,6 +112,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onOpenSupplierInvoice,
   onOpenNewEmployeeModal,
 }) => {
+  const { t: tr, lang } = useTranslation();
+
   // Active sub-screen state (null = main 11-card grid)
   const [activeSubSection, setActiveSubSection] = useState<HomeCardSection | null>(null);
 
@@ -181,11 +191,11 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     };
   }, [workshopId]);
 
-  // The 11 Core Cards definition as per requirement 2
+  // The 11 Core Cards definition with translations
   const coreCards = [
     {
       id: 'materials' as HomeCardSection,
-      label: 'الخامات',
+      label: tr('card_materials'),
       icon: Layers,
       color: 'text-amber-600 dark:text-amber-400',
       bgColor: 'bg-amber-50 dark:bg-amber-950/40',
@@ -193,7 +203,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'products' as HomeCardSection,
-      label: 'المنتجات',
+      label: tr('card_products'),
       icon: ShoppingBag,
       color: 'text-orange-600 dark:text-orange-400',
       bgColor: 'bg-orange-50 dark:bg-orange-950/40',
@@ -201,7 +211,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'suppliers' as HomeCardSection,
-      label: 'الموردين',
+      label: tr('card_suppliers'),
       icon: Truck,
       color: 'text-blue-600 dark:text-blue-400',
       bgColor: 'bg-blue-50 dark:bg-blue-950/40',
@@ -209,7 +219,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'customers' as HomeCardSection,
-      label: 'العملاء',
+      label: tr('card_customers'),
       icon: Users,
       color: 'text-emerald-600 dark:text-emerald-400',
       bgColor: 'bg-emerald-50 dark:bg-emerald-950/40',
@@ -217,7 +227,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'sales' as HomeCardSection,
-      label: 'المبيعات',
+      label: tr('card_sales'),
       icon: ShoppingCart,
       color: 'text-teal-600 dark:text-teal-400',
       bgColor: 'bg-teal-50 dark:bg-teal-950/40',
@@ -225,7 +235,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'inventory' as HomeCardSection,
-      label: 'المخازن',
+      label: tr('card_inventory'),
       icon: Boxes,
       color: 'text-indigo-600 dark:text-indigo-400',
       bgColor: 'bg-indigo-50 dark:bg-indigo-950/40',
@@ -233,7 +243,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'treasuries' as HomeCardSection,
-      label: 'الخزن',
+      label: tr('card_treasuries'),
       icon: Wallet,
       color: 'text-lime-600 dark:text-lime-400',
       bgColor: 'bg-lime-50 dark:bg-lime-950/40',
@@ -241,7 +251,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'expenses' as HomeCardSection,
-      label: 'المصروفات',
+      label: tr('card_expenses'),
       icon: DollarSign,
       color: 'text-rose-600 dark:text-rose-400',
       bgColor: 'bg-rose-50 dark:bg-rose-950/40',
@@ -249,7 +259,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'employees' as HomeCardSection,
-      label: 'الموظفين',
+      label: tr('card_employees'),
       icon: Users2,
       color: 'text-violet-600 dark:text-violet-400',
       bgColor: 'bg-violet-50 dark:bg-violet-950/40',
@@ -257,7 +267,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'work_orders' as HomeCardSection,
-      label: 'أوامر التشغيل',
+      label: tr('card_work_orders'),
       icon: Hammer,
       color: 'text-cyan-600 dark:text-cyan-400',
       bgColor: 'bg-cyan-50 dark:bg-cyan-950/40',
@@ -265,7 +275,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'reports' as HomeCardSection,
-      label: 'التقارير',
+      label: tr('card_reports'),
       icon: BarChart3,
       color: 'text-purple-600 dark:text-purple-400',
       bgColor: 'bg-purple-50 dark:bg-purple-950/40',
@@ -273,31 +283,31 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
   ];
 
-  // Sub-actions definition as per requirement 3
+  // Sub-actions definition with translations
   const getSubActions = (section: HomeCardSection) => {
     switch (section) {
       case 'materials':
         return {
-          title: 'الخامات',
+          title: tr('card_materials'),
           icon: Layers,
           items: [
             {
-              label: 'إضافة خامة',
+              label: tr('action_add_material'),
               icon: PlusCircle,
               onClick: onOpenNewMaterialModal,
             },
             {
-              label: 'تعديل الخامات',
+              label: tr('action_edit_materials'),
               icon: Edit3,
               onClick: () => onNavigateToMaterials(false),
             },
             {
-              label: 'كارت الصنف',
+              label: tr('action_stock_card'),
               icon: FileSpreadsheet,
               onClick: () => onOpenInventoryModal('materials'),
             },
             {
-              label: 'الجرد',
+              label: tr('action_inventory_audit'),
               icon: ClipboardCheck,
               onClick: () => onOpenInventoryModal('audit'),
             },
@@ -306,26 +316,26 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'products':
         return {
-          title: 'المنتجات',
+          title: tr('card_products'),
           icon: ShoppingBag,
           items: [
             {
-              label: 'إضافة منتج',
+              label: tr('action_add_product'),
               icon: Calculator,
               onClick: () => onNavigateToCalculator(),
             },
             {
-              label: 'الأرشيف',
+              label: tr('action_archive'),
               icon: FolderArchive,
               onClick: () => onNavigateToArchive(),
             },
             {
-              label: 'صقر AI',
+              label: tr('action_falcon_ai'),
               icon: Sparkles,
               onClick: () => onNavigateToAIAgent(),
             },
             {
-              label: 'كتالوج الورشة',
+              label: tr('action_catalog'),
               icon: BookOpen,
               onClick: () => onNavigateToCatalog(),
             },
@@ -334,21 +344,21 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'suppliers':
         return {
-          title: 'الموردين',
+          title: tr('card_suppliers'),
           icon: Truck,
           items: [
             {
-              label: 'تسجيل مورد',
+              label: tr('action_add_supplier'),
               icon: UserPlus,
               onClick: () => onOpenCreateSupplier(),
             },
             {
-              label: 'فاتورة مورد',
+              label: tr('action_supplier_invoice'),
               icon: Receipt,
               onClick: () => onOpenSupplierInvoice(),
             },
             {
-              label: 'كشف حساب',
+              label: tr('action_supplier_statement'),
               icon: FileSpreadsheet,
               onClick: () => onNavigateToSuppliers(),
             },
@@ -357,16 +367,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'customers':
         return {
-          title: 'العملاء',
+          title: tr('card_customers'),
           icon: Users,
           items: [
             {
-              label: 'تسجيل عميل',
+              label: tr('action_add_customer'),
               icon: UserPlus,
               onClick: onOpenNewClientModal,
             },
             {
-              label: 'كشف حساب',
+              label: tr('action_customer_statement'),
               icon: FileSpreadsheet,
               onClick: () => onNavigateToInvoices('customers'),
             },
@@ -375,21 +385,21 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'sales':
         return {
-          title: 'المبيعات',
+          title: tr('card_sales'),
           icon: ShoppingCart,
           items: [
             {
-              label: 'أمر بيع',
+              label: tr('action_sales_order'),
               icon: ShoppingCart,
               onClick: () => onNavigateToSales(),
             },
             {
-              label: 'فاتورة بيع',
+              label: tr('action_sales_invoices'),
               icon: FileText,
               onClick: () => onNavigateToInvoices(),
             },
             {
-              label: 'المرتجعات',
+              label: tr('action_all_orders'),
               icon: RotateCcw,
               onClick: () => onNavigateToInvoices('returns'),
             },
@@ -398,21 +408,21 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'inventory':
         return {
-          title: 'المخازن',
+          title: tr('card_inventory'),
           icon: Boxes,
           items: [
             {
-              label: 'مخزن الخامات',
+              label: tr('action_raw_stock'),
               icon: Layers,
               onClick: () => onOpenInventoryModal('materials'),
             },
             {
-              label: 'مخزن المنتجات',
+              label: tr('action_finished_stock'),
               icon: Boxes,
               onClick: () => onOpenInventoryModal('products'),
             },
             {
-              label: 'الجرد',
+              label: tr('action_inventory_audit'),
               icon: ClipboardList,
               onClick: () => onOpenInventoryModal('audit'),
             },
@@ -421,21 +431,21 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'treasuries':
         return {
-          title: 'الخزن',
+          title: tr('card_treasuries'),
           icon: Wallet,
           items: [
             {
-              label: 'رصيد الخزن',
+              label: tr('action_all_treasuries'),
               icon: Wallet,
               onClick: () => onNavigateToTreasuries(),
             },
             {
-              label: 'تحويل نقدية',
+              label: tr('action_transfer'),
               icon: ArrowLeftRight,
               onClick: () => onNavigateToTreasuries(),
             },
             {
-              label: 'حركة الخزينة',
+              label: tr('statement'),
               icon: History,
               onClick: () => onNavigateToTreasuries(),
             },
@@ -444,21 +454,31 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'expenses':
         return {
-          title: 'المصروفات',
+          title: tr('card_expenses'),
           icon: DollarSign,
           items: [
             {
-              label: 'تسجيل مصروف',
+              label: tr('action_record_expense'),
               icon: PlusCircle,
               onClick: () => onOpenAdminCostsModal(),
             },
             {
-              label: 'التكاليف الإدارية',
+              label: tr('action_operating_costs'),
               icon: DollarSign,
               onClick: () => onOpenAdminCostsModal(),
             },
             {
-              label: 'تقرير المصروفات',
+              label: tr('action_currency_rates') || 'أسعار الصرف اليومية للعملات',
+              icon: Coins,
+              onClick: () => onOpenExchangeRatesModal && onOpenExchangeRatesModal(),
+            },
+            {
+              label: tr('action_fixed_assets') || 'الأصول الثابتة والإهلاك',
+              icon: Building,
+              onClick: () => onNavigateToFixedAssets && onNavigateToFixedAssets(),
+            },
+            {
+              label: tr('action_expense_analytics'),
               icon: BarChart3,
               onClick: () => onNavigateToReports(),
             },
@@ -467,21 +487,21 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'employees':
         return {
-          title: 'الموظفين',
+          title: tr('card_employees'),
           icon: Users2,
           items: [
             {
-              label: 'تعيين موظف',
+              label: tr('action_add_employee'),
               icon: UserPlus,
               onClick: () => onOpenNewEmployeeModal(),
             },
             {
-              label: 'الرواتب',
+              label: tr('action_payroll'),
               icon: Wallet,
               onClick: () => onNavigateToHR(),
             },
             {
-              label: 'كشف حساب موظف',
+              label: tr('action_attendance'),
               icon: FileText,
               onClick: () => onNavigateToHR(),
             },
@@ -490,21 +510,21 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'work_orders':
         return {
-          title: 'أوامر التشغيل',
+          title: tr('card_work_orders'),
           icon: Hammer,
           items: [
             {
-              label: 'أمر تشغيل',
+              label: tr('action_new_work_order'),
               icon: PlusCircle,
               onClick: () => onNavigateToWorkOrders(),
             },
             {
-              label: 'متابعة الإنتاج',
+              label: tr('action_production_lines'),
               icon: Hammer,
               onClick: () => onNavigateToWorkOrders(),
             },
             {
-              label: 'تتبع الهالك',
+              label: tr('action_scrap_tracking'),
               icon: AlertTriangle,
               onClick: () => onNavigateToWorkOrders(),
             },
@@ -513,21 +533,21 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'reports':
         return {
-          title: 'التقارير',
+          title: tr('card_reports'),
           icon: BarChart3,
           items: [
             {
-              label: 'الأرباح والخسائر',
+              label: tr('action_profit_loss'),
               icon: BarChart3,
               onClick: () => onNavigateToReports(),
             },
             {
-              label: 'المبيعات والعملاء',
+              label: tr('action_cash_flow'),
               icon: TrendingUp,
               onClick: () => onNavigateToReports(),
             },
             {
-              label: 'قفل الشهر',
+              label: tr('action_tax_reports'),
               icon: Lock,
               onClick: () => onNavigateToReports(),
             },
@@ -557,7 +577,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                 <currentSubHub.icon className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-[10px] text-stone-400 font-bold block">إدارة القسم</span>
+                <span className="text-[10px] text-stone-400 font-bold block">{tr('section_management')}</span>
                 <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100">
                   {currentSubHub.title}
                 </h2>
@@ -568,15 +588,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               type="button"
               onClick={() => setActiveSubSection(null)}
               className="px-3.5 py-1.5 rounded-2xl border border-amber-300/80 dark:border-amber-700/80 bg-white dark:bg-stone-800 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-stone-700 dark:text-stone-300 text-xs font-black transition flex items-center gap-2 cursor-pointer shadow-xs active:scale-95 group"
-              title="العودة للشاشة الرئيسية"
+              title={tr('action_back_to_overview')}
             >
               <img
                 src="/alshams_falcon_emblem.png"
-                alt="الشاشة الرئيسية"
+                alt={tr('home_screen_btn')}
                 className="w-4 h-4 object-contain group-hover:scale-110 transition-transform"
               />
-              <span>الشاشة الرئيسية</span>
-              <ArrowRight className="w-3.5 h-3.5 text-amber-600" />
+              <span>{tr('home_screen_btn')}</span>
+              <ArrowRight className={`w-3.5 h-3.5 text-amber-600 ${lang === 'ar' ? '' : 'rotate-180'}`} />
             </button>
           </div>
 
@@ -643,11 +663,11 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           <div className="flex items-center gap-2">
             <Coins className="w-4 h-4 text-amber-600 dark:text-amber-400" />
             <h3 className="text-xs sm:text-sm font-black text-stone-800 dark:text-stone-200">
-              ملخص الورشة المالي والمخزني
+              {tr('workshop_summary_title')}
             </h3>
           </div>
           <span className="text-[10px] text-stone-400 font-bold">
-            محدث لحظياً
+            {tr('updated_live')}
           </span>
         </div>
 
@@ -659,10 +679,10 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           >
             <div>
               <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-0.5">
-                رصيد الخزن
+                {tr('treasury_balance')}
               </span>
               <span className="text-sm sm:text-base font-black font-mono text-lime-700 dark:text-lime-400">
-                {loadingSummary ? '...' : totalTreasuryBalance.toLocaleString('ar-EG')}{' '}
+                {loadingSummary ? '...' : totalTreasuryBalance.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
                 <span className="text-[10px] font-sans font-bold text-stone-600 dark:text-stone-300">
                   {profile.currencySymbol}
                 </span>
@@ -680,10 +700,10 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           >
             <div>
               <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-0.5">
-                مبيعات الشهر
+                {tr('month_sales')}
               </span>
               <span className="text-sm sm:text-base font-black font-mono text-amber-700 dark:text-amber-400">
-                {loadingSummary ? '...' : monthSalesTotal.toLocaleString('ar-EG')}{' '}
+                {loadingSummary ? '...' : monthSalesTotal.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
                 <span className="text-[10px] font-sans font-bold text-stone-600 dark:text-stone-300">
                   {profile.currencySymbol}
                 </span>
@@ -701,7 +721,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           >
             <div>
               <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-0.5">
-                تنبيهات المخزون
+                {tr('stock_alerts')}
               </span>
               <span
                 className={`text-sm sm:text-base font-black ${
@@ -713,8 +733,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                 {loadingSummary
                   ? '...'
                   : stockAlertCount > 0
-                  ? `${stockAlertCount} خامات أوشكت`
-                  : 'المخزون آمن ومكتمل'}
+                  ? `${stockAlertCount} ${tr('materials_depleting')}`
+                  : tr('stock_healthy')}
               </span>
             </div>
             <div

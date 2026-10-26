@@ -1483,3 +1483,70 @@ export async function rpcDeleteTreasury(
   }
 }
 
+// -------------------------------------------------------------
+// Treasury & Categories SQL Migrations for Supabase PostgreSQL
+// Formatted to avoid parser errors (such as: Expected: end of statement, found: EXISTS)
+// -------------------------------------------------------------
+
+/**
+ * Standard PostgreSQL queries executing ALTER TABLE statements separately
+ * (Bypasses web parser bugs with 'ADD COLUMN IF NOT EXISTS')
+ */
+export const TREASURY_SETUP_SQL_SEPARATE = `-- 1. إضافة عمود الحد الأدنى للرصيد إلى جدول الخزن
+ALTER TABLE treasuries ADD COLUMN min_balance NUMERIC(14, 2) DEFAULT 0;
+
+-- 2. إضافة عمود اسم التصنيف إلى جدول حركات الخزينة
+ALTER TABLE safe_transactions ADD COLUMN category_name TEXT;
+
+-- 3. إنشاء جدول تصنيفات الخزينة
+CREATE TABLE IF NOT EXISTS treasury_categories (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workshop_id TEXT NOT NULL,
+  category_name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('in', 'out')),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 4. فهرس لتسريع استعلامات تصنيفات الورشة
+CREATE INDEX IF NOT EXISTS idx_treasury_categories_workshop ON treasury_categories(workshop_id);
+`;
+
+/**
+ * Idempotent PL/pgSQL block using information_schema checks
+ * (100% safe to run multiple times without duplicate_column errors or syntax issues)
+ */
+export const TREASURY_SETUP_SQL_IDEMPOTENT = `DO $$ 
+BEGIN 
+  -- 1. إضافة عمود min_balance في حال عدم وجوده
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'treasuries' AND column_name = 'min_balance'
+  ) THEN
+    ALTER TABLE treasuries ADD COLUMN min_balance NUMERIC(14, 2) DEFAULT 0;
+  END IF;
+
+  -- 2. إضافة عمود category_name في حال عدم وجوده
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'safe_transactions' AND column_name = 'category_name'
+  ) THEN
+    ALTER TABLE safe_transactions ADD COLUMN category_name TEXT;
+  END IF;
+END $$;
+
+-- 3. إنشاء جدول تصنيفات الخزينة
+CREATE TABLE IF NOT EXISTS treasury_categories (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  workshop_id TEXT NOT NULL,
+  category_name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('in', 'out')),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 4. فهرس لتسريع استعلامات تصنيفات الورشة
+CREATE INDEX IF NOT EXISTS idx_treasury_categories_workshop ON treasury_categories(workshop_id);
+`;
+
+

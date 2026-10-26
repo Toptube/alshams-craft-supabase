@@ -17,6 +17,8 @@ import {
   AuthUserRecord,
   NotificationItem,
   OperationDraft,
+  CurrencyExchangeRate,
+  FixedAsset,
 } from '../types';
 
 export interface AIKnowledgeItem {
@@ -56,6 +58,8 @@ export class AlShamsDatabase extends Dexie {
   activityLogs!: Table<SystemActivityLog, string>;
   aiKnowledgeBase!: Table<AIKnowledgeItem, string>;
   operationDrafts!: Table<OperationDraft, string>;
+  exchangeRates!: Table<CurrencyExchangeRate, string>;
+  fixedAssets!: Table<FixedAsset, string>;
 
   constructor() {
     super('AlShamsCraftERP_DB_V2');
@@ -80,6 +84,11 @@ export class AlShamsDatabase extends Dexie {
 
     this.version(3).stores({
       operationDrafts: 'id, tenantId, type, syncedToCloud, updatedAt',
+    });
+
+    this.version(4).stores({
+      exchangeRates: 'id, tenantId, currency, date',
+      fixedAssets: 'id, tenantId, assetCode, category, status, createdAt',
     });
   }
 }
@@ -592,13 +601,47 @@ export const tenantStorage = {
       treasuryId: cost.safeType || 'main',
       treasuryName: cost.safeType === 'sub' ? 'الخزنة الفرعية' : 'الخزنة الرئيسية',
       type: 'expense',
-      amount: -cost.amount,
+      amount: -(cost.baseCurrencyAmount || cost.amount),
       balanceAfter: 0,
-      notes: `مصروف إداري: ${cost.title}`,
+      notes: `مصروف إداري: ${cost.title}${cost.currency && cost.currency !== 'EGP' ? ` (${cost.amount} ${cost.currency})` : ''}`,
       date: cost.paymentDate || cost.date || new Date().toISOString().split('T')[0],
       createdAt: Date.now(),
       createdBy: 'system',
     });
+  },
+
+  // Currency Exchange Rates
+  async getExchangeRates(tenantId: string): Promise<CurrencyExchangeRate[]> {
+    return db.exchangeRates.where('tenantId').equals(tenantId).toArray();
+  },
+  async saveExchangeRate(rate: CurrencyExchangeRate): Promise<void> {
+    await db.exchangeRates.put(rate);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_currency_rates_changed', { detail: { tenantId: rate.tenantId } }));
+    }
+  },
+  async saveMultipleExchangeRates(rates: CurrencyExchangeRate[]): Promise<void> {
+    await db.exchangeRates.bulkPut(rates);
+    if (typeof window !== 'undefined' && rates.length > 0) {
+      window.dispatchEvent(new CustomEvent('alshams_currency_rates_changed', { detail: { tenantId: rates[0].tenantId } }));
+    }
+  },
+
+  // Fixed Assets
+  async getFixedAssets(tenantId: string): Promise<FixedAsset[]> {
+    return db.fixedAssets.where('tenantId').equals(tenantId).toArray();
+  },
+  async saveFixedAsset(asset: FixedAsset): Promise<void> {
+    await db.fixedAssets.put(asset);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_fixed_assets_changed', { detail: { tenantId: asset.tenantId } }));
+    }
+  },
+  async deleteFixedAsset(tenantId: string, id: string): Promise<void> {
+    await db.fixedAssets.delete(id);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_fixed_assets_changed', { detail: { tenantId } }));
+    }
   },
 
   // SYSTEM ACTIVITY AUDIT LOGS (تقرير حركة المنظومة)
