@@ -292,10 +292,10 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
               </div>
               <div className="text-right">
                 <span className="text-[11px] font-black text-stone-900 dark:text-stone-100 block">
-                  تفعيل إشعارات المتصفح المنبثقة
+                  {tr('notif_enable_browser')}
                 </span>
                 <span className="text-[10px] text-stone-500 dark:text-stone-400 block leading-tight">
-                  لتنبيهك فوراً بنقص الخامات ومواعيد أوامر التشغيل
+                  {tr('notif_enable_browser_sub')}
                 </span>
               </div>
             </div>
@@ -311,7 +311,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
               }}
               className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition cursor-pointer shadow-xs active:scale-95 shrink-0"
             >
-              تفعيل الآن
+              {tr('notif_enable_now')}
             </button>
           </div>
         )}
@@ -330,13 +330,13 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
               <div>
                 <p className="text-xs font-black text-stone-700 dark:text-stone-300">
                   {activeTab === 'urgent'
-                    ? 'لا توجد تنبيهات عاجلة حالياً'
+                    ? tr('notif_no_urgent')
                     : activeTab === 'daily'
-                    ? 'لا توجد تنبيهات يومية معلقة'
-                    : 'لا توجد تنبيهات جديدة في الوقت الحالي'}
+                    ? tr('notif_no_daily')
+                    : tr('notif_no_all')}
                 </p>
                 <span className="text-[11px] text-stone-400 mt-1 block">
-                  كافة حسابات المشغل والمخزون ومواعيد الفواتير في حالة مستقرة
+                  {tr('notif_all_stable')}
                 </span>
               </div>
             </div>
@@ -359,7 +359,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                       <button
                         type="button"
                         onClick={() => handleMarkAsRead(item.id)}
-                        title={item.isRead ? 'مقروء' : 'تحديد كمقروء'}
+                        title={item.isRead ? '✓' : '•'}
                         className={`w-2.5 h-2.5 rounded-full cursor-pointer transition active:scale-75 ${
                           item.isRead
                             ? 'bg-stone-300 dark:bg-stone-600'
@@ -385,7 +385,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                       <div className="flex items-center justify-between text-[11px]">
                         <span className="font-extrabold text-stone-700 dark:text-stone-300 flex items-center gap-1">
                           <Layers className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                          <span>متابعة حالة التنفيذ التشغيلي:</span>
+                          <span>{tr('notif_order_status')}</span>
                         </span>
                         <span className="text-[10px] font-mono text-stone-400">
                           {new Date(item.createdAt).toLocaleTimeString('ar-EG', {
@@ -406,11 +406,11 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                           defaultValue=""
                           className="flex-1 px-2.5 py-1.5 rounded-xl border border-amber-300 dark:border-amber-700/80 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-xs"
                         >
-                          <option value="" disabled>اختر حالة التنفيذ للطلبية...</option>
-                          <option value="in_progress">تحت التصنيع</option>
-                          <option value="shipping">جاري الشحن</option>
-                          <option value="ready">تم الشحن</option>
-                          <option value="delivered">تم التسليم</option>
+                          <option value="" disabled>{tr('notif_select_status')}</option>
+                          <option value="in_progress">{tr('notif_in_progress')}</option>
+                          <option value="shipping">{tr('notif_shipping')}</option>
+                          <option value="ready">{tr('notif_shipped')}</option>
+                          <option value="delivered">{tr('notif_delivered')}</option>
                         </select>
                         {updatingOrderId === item.relatedOrderId && (
                           <div className="w-4 h-4 border-2 border-amber-600 border-t-transparent rounded-full animate-spin flex-shrink-0" />
@@ -432,7 +432,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                         className="text-[10px] font-black text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         <Package className="w-3 h-3" />
-                        <span>فتح كارت الخامة لإصدار أمر توريد</span>
+                        <span>{tr('notif_open_material')}</span>
                       </button>
                     </div>
                   )}
@@ -446,7 +446,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         <div className="p-3 border-t border-stone-200 dark:border-stone-800 text-center bg-stone-50 dark:bg-stone-900 flex items-center justify-between px-4">
           <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold flex items-center gap-1">
             <Sparkles className="w-3 h-3 text-amber-500" />
-            <span>نظام التنبيهات الذكي • منظومة الشمساوية</span>
+            <span>{tr('notif_smart_system_footer')}</span>
           </span>
           <button
             type="button"

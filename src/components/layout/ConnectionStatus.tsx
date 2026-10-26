@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Wifi, WifiOff } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useTranslation } from '../../lib/i18n';
 
 interface ConnectionStatusProps {
   /**
@@ -15,6 +16,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   hasActiveSession: propHasActiveSession,
   className = '',
 }) => {
+  const { t: tr } = useTranslation();
   const [isOnline, setIsOnline] = useState<boolean>(() => {
     return typeof navigator !== 'undefined' ? navigator.onLine : true;
   });
@@ -72,7 +74,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
       <button
         type="button"
         onClick={() => setShowTooltip((prev) => !prev)}
-        aria-label={isConnected ? 'متصل: الجلسة نشطة' : 'غير متصل: لا توجد جلسة نشطة'}
+        aria-label={isConnected ? `${tr('status_connected')}` : `${tr('status_disconnected')}`}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-2xl border transition cursor-pointer shadow-xs active:scale-95 ${
           isConnected
             ? 'border-emerald-200/80 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/20 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/40'
@@ -112,7 +114,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
               : 'text-stone-500 dark:text-stone-400'
           }`}
         >
-          {isConnected ? 'متصل' : 'غير متصل'}
+          {isConnected ? tr('status_connected') : tr('status_disconnected')}
         </span>
       </button>
 
@@ -120,7 +122,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
       {showTooltip && (
         <div className="absolute left-0 top-full mt-2 w-56 p-3 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xl z-50 text-right animate-in fade-in zoom-in-95 duration-150">
           <p className="text-[11px] font-black text-stone-900 dark:text-stone-100 mb-2 border-b border-stone-100 dark:border-stone-800 pb-1.5 flex items-center justify-between">
-            <span>حالة الاتصال والخدمة</span>
+            <span>{tr('status_connection_service')}</span>
             <span
               className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${
                 isConnected
@@ -128,12 +130,12 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
                   : 'bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400'
               }`}
             >
-              {isConnected ? 'نشط' : 'معطل'}
+              {isConnected ? tr('status_active') : tr('status_inactive')}
             </span>
           </p>
           <div className="space-y-1.5 text-[10px] font-bold">
             <div className="flex items-center justify-between">
-              <span className="text-stone-600 dark:text-stone-300">جلسة الدخول:</span>
+              <span className="text-stone-600 dark:text-stone-300">{tr('session_login_title')}</span>
               <span className="flex items-center gap-1.5">
                 <span
                   className={`w-2 h-2 rounded-full ${
@@ -147,12 +149,12 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
                       : 'text-stone-500 dark:text-stone-400'
                   }
                 >
-                  {internalHasSession ? 'جلسة متوفرة' : 'لا توجد جلسة'}
+                  {internalHasSession ? tr('session_available') : tr('session_none')}
                 </span>
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-stone-600 dark:text-stone-300">الشبكة المحلية:</span>
+              <span className="text-stone-600 dark:text-stone-300">{tr('local_network_title')}</span>
               <span className="flex items-center gap-1.5">
                 <span
                   className={`w-2 h-2 rounded-full ${
@@ -166,7 +168,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
                       : 'text-stone-500 dark:text-stone-400'
                   }
                 >
-                  {isOnline ? 'متصل بالإنترنت' : 'منقطع عن الإنترنت'}
+                  {isOnline ? tr('online_connected') : tr('offline_disconnected')}
                 </span>
               </span>
             </div>
