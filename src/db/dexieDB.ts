@@ -19,6 +19,7 @@ import {
   OperationDraft,
   CurrencyExchangeRate,
   FixedAsset,
+  PaymentReminder,
 } from '../types';
 
 export interface AIKnowledgeItem {
@@ -60,6 +61,7 @@ export class AlShamsDatabase extends Dexie {
   operationDrafts!: Table<OperationDraft, string>;
   exchangeRates!: Table<CurrencyExchangeRate, string>;
   fixedAssets!: Table<FixedAsset, string>;
+  paymentReminders!: Table<PaymentReminder, string>;
 
   constructor() {
     super('AlShamsCraftERP_DB_V2');
@@ -89,6 +91,10 @@ export class AlShamsDatabase extends Dexie {
     this.version(4).stores({
       exchangeRates: 'id, tenantId, currency, date',
       fixedAssets: 'id, tenantId, assetCode, category, status, createdAt',
+    });
+
+    this.version(5).stores({
+      paymentReminders: 'id, tenantId, targetType, targetId, status, dueDate',
     });
   }
 }
@@ -508,6 +514,16 @@ export const tenantStorage = {
   async saveEmployee(employee: EmployeeProfile): Promise<void> {
     employee.isActive = employee.isActive !== false;
     await db.employees.put(employee);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_employees_changed', { detail: { tenantId: employee.tenantId } }));
+    }
+  },
+
+  async deleteEmployee(tenantId: string, id: string): Promise<void> {
+    await db.employees.delete(id);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_employees_changed', { detail: { tenantId } }));
+    }
   },
 
   async recordEmployeePayout(payout: EmployeePayoutRecord): Promise<void> {
@@ -551,14 +567,14 @@ export const tenantStorage = {
   // SAFES & CASH BALANCES
   async getSafeBalances(tenantId: string): Promise<{ mainSafe: number; subSafe: number }> {
     const txs = await db.safeTransactions.where('tenantId').equals(tenantId).toArray();
-    let mainSafe = 5000; // initial baseline safe balance
-    let subSafe = 1500;
+    let mainSafe = 0;
+    let subSafe = 0;
 
     for (const t of txs) {
       if (t.safeType === 'main') {
-        mainSafe += t.amount;
+        mainSafe += Number(t.amount || 0);
       } else if (t.safeType === 'sub') {
-        subSafe += t.amount;
+        subSafe += Number(t.amount || 0);
       }
     }
     return { mainSafe, subSafe };
@@ -570,6 +586,11 @@ export const tenantStorage = {
     const current = tx.safeType === 'main' ? balances.mainSafe : balances.subSafe;
     tx.balanceAfter = current + tx.amount;
     await db.safeTransactions.put(tx);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_financials_updated', { detail: { tenantId } }));
+      window.dispatchEvent(new CustomEvent('alshams_treasury_updated', { detail: { tenantId } }));
+    }
   },
 
   async getSafeTransactions(tenantId: string, safeType?: SafeType): Promise<SafeTransaction[]> {
@@ -642,6 +663,30 @@ export const tenantStorage = {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('alshams_fixed_assets_changed', { detail: { tenantId } }));
     }
+  },
+
+  // PAYMENT REMINDERS FOR CUSTODIES & PENDING FINANCIAL COMMITMENTS
+  async getPaymentReminders(tenantId: string): Promise<PaymentReminder[]> {
+    return db.paymentReminders.where('tenantId').equals(tenantId).reverse().sortBy('createdAt');
+  },
+
+  async savePaymentReminder(reminder: PaymentReminder): Promise<void> {
+    reminder.updatedAt = Date.now();
+    await db.paymentReminders.put(reminder);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_payment_reminders_changed', { detail: { tenantId: reminder.tenantId } }));
+    }
+    await this.generateProactiveNotifications(reminder.tenantId);
+  },
+
+  async deletePaymentReminder(tenantId: string, id: string): Promise<void> {
+    await db.paymentReminders.delete(id);
+    // Clean up any associated notification
+    await db.notifications.delete(`notif_rem_${id}`);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_payment_reminders_changed', { detail: { tenantId } }));
+    }
+    this.broadcastNotificationsUpdated();
   },
 
   // SYSTEM ACTIVITY AUDIT LOGS (تقرير حركة المنظومة)
@@ -1092,6 +1137,69 @@ export const tenantStorage = {
         // If disabled from profile settings, clear any daily sales reminder
         if (existingDailyNotif) {
           await db.notifications.delete(existingDailyNotif.id);
+        }
+      }
+
+      // 6. Custody & Pending Financial Commitment Payment Reminders (تذكير دفع للعهد أو الالتزامات المالية المعلقة)
+      const reminders = await this.getPaymentReminders(tenantId);
+      for (const rem of reminders) {
+        if (rem.status === 'pending' && rem.dueDate) {
+          const targetTime = new Date(rem.dueDate).getTime();
+          const diffDays = Math.ceil((targetTime - now) / 86400000);
+          const alertThresholdDays = Number(rem.reminderDaysBefore ?? 2);
+          const alertId = `notif_rem_${rem.id}`;
+          const existingRemNotif = existingNotifs.find((n) => n.id === alertId);
+
+          if (diffDays < 0) {
+            // Overdue commitment
+            const daysOverdue = Math.abs(diffDays);
+            const title = `🚨 تأخر استحقاق التزام مالي: ${rem.title}`;
+            const message = `تأخر سداد/تسوية ${rem.targetType === 'custody' ? 'العهدة' : 'الالتزام'} "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) المستحق بتاريخ ${rem.dueDate} بمقدار ${daysOverdue} يوم. يرجى المتابعة وسداد المبلغ فوراً.`;
+            await db.notifications.put({
+              id: alertId,
+              tenantId,
+              type: 'overdue_deposit',
+              title,
+              message,
+              isRead: false,
+              relatedItemId: rem.id,
+              createdAt: now,
+            });
+          } else if (diffDays <= alertThresholdDays) {
+            // Due today or approaching within alert window
+            const title = diffDays === 0
+              ? `⚠️ استحقاق اليوم: ${rem.title}`
+              : `⏰ اقتراب موعد سداد التزام: ${rem.title}`;
+            const message = diffDays === 0
+              ? `موعد سداد أو تسوية "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) مستحق اليوم! يرجى إتمام الإجراء وإثباته في الخزينة.`
+              : `متبقي ${diffDays} يوم على موعد استحقاق "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) المحدد بتاريخ ${rem.dueDate}.`;
+
+            if (!existingRemNotif) {
+              await db.notifications.put({
+                id: alertId,
+                tenantId,
+                type: 'upcoming_deposit',
+                title,
+                message,
+                isRead: false,
+                relatedItemId: rem.id,
+                createdAt: now,
+              });
+            } else {
+              // Update message if days changed
+              await db.notifications.put({
+                ...existingRemNotif,
+                title,
+                message,
+              });
+            }
+          } else if (existingRemNotif) {
+            // If date was updated and is no longer in threshold window
+            await db.notifications.delete(alertId);
+          }
+        } else if (rem.status === 'settled' || rem.status === 'cancelled') {
+          const alertId = `notif_rem_${rem.id}`;
+          await db.notifications.delete(alertId);
         }
       }
 

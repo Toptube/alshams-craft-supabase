@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserProfile, SavedProductRecord, CraftCategory, NotificationItem } from './types';
+import { UserProfile, SavedProductRecord, CraftCategory, NotificationItem, CalculationInput } from './types';
 import { AuthGateway } from './components/auth/AuthGateway';
 import { Navbar } from './components/layout/Navbar';
 import { SidebarDrawer } from './components/layout/SidebarDrawer';
@@ -26,6 +26,8 @@ import {
   updateWorkshopProfileInSupabase,
   mapWorkshopRowToUserProfile,
   getArabicSupabaseError,
+  getCustomersFromSupabase,
+  getSuppliersFromSupabase,
 } from './db/supabaseService';
 import { CompleteWorkshopScreen } from './components/auth/CompleteWorkshopScreen';
 import { SuspendedWorkshopScreen } from './components/auth/SuspendedWorkshopScreen';
@@ -39,7 +41,10 @@ import { InvoicesView } from './components/invoices/InvoicesView';
 import { FixedAssetsView } from './components/assets/FixedAssetsView';
 import { ExchangeRatesModal } from './components/currency/ExchangeRatesModal';
 import { SaaSReportsAnalyticsView } from './components/reports/SaaSReportsAnalyticsView';
-import { NewClientModal, NewSupplierModal } from './components/modals/CreationModals';
+import { WorkshopCatalog } from './components/catalog/WorkshopCatalog';
+import { ProductArchive } from './components/archive/ProductArchive';
+import { NewClientModal, NewSupplierModal, NewEmployeeModal } from './components/modals/CreationModals';
+import { HRWorkforceModule } from './components/hr/HRWorkforceModule';
 import { playPageFlipSound } from './lib/sounds';
 import { useTranslation, getStoredLanguage, SUPPORTED_LANGUAGES } from './lib/i18n';
 import {
@@ -120,8 +125,40 @@ export default function App() {
     );
   });
 
-  // Active View State:
-  const [activeView, setActiveView] = useState<AppActiveView>('home');
+  // Active View State with Navigation History:
+  const [viewHistory, setViewHistory] = useState<AppActiveView[]>([]);
+  const [activeView, _setActiveView] = useState<AppActiveView>('home');
+
+  const setActiveView = useCallback(
+    (nextViewOrUpdater: AppActiveView | ((prev: AppActiveView) => AppActiveView)) => {
+      _setActiveView((prev) => {
+        const next = typeof nextViewOrUpdater === 'function' ? nextViewOrUpdater(prev) : nextViewOrUpdater;
+        if (next !== prev) {
+          setViewHistory((history) => [...history, prev]);
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleGoBack = useCallback(() => {
+    setViewHistory((prev) => {
+      if (prev.length > 0) {
+        const copy = [...prev];
+        const last = copy.pop()!;
+        _setActiveView(last);
+        return copy;
+      }
+      _setActiveView('home');
+      return [];
+    });
+  }, []);
+
+  const handleGoHome = useCallback(() => {
+    _setActiveView('home');
+    setViewHistory([]);
+  }, []);
 
   // Mobile Drawer State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -219,6 +256,8 @@ export default function App() {
           employees,
           safeTransactions,
           expenses,
+          supaCustRes,
+          supaSuppRes,
         ] = await Promise.all([
           tenantStorage.getCustomers(tenantId).catch(() => []),
           tenantStorage.getSuppliers(tenantId).catch(() => []),
@@ -229,11 +268,37 @@ export default function App() {
           tenantStorage.getEmployees(tenantId).catch(() => []),
           tenantStorage.getSafeTransactions(tenantId).catch(() => []),
           tenantStorage.getAdminCosts(tenantId).catch(() => []),
+          getCustomersFromSupabase(tenantId).catch(() => ({ data: [] })),
+          getSuppliersFromSupabase(tenantId).catch(() => ({ data: [] })),
         ]);
 
+        const supaCustomers = ((supaCustRes as any)?.data || []).map((sc: any) => ({
+          id: sc.id,
+          name: sc.name,
+          phone: sc.phone,
+          address: sc.address,
+          currentBalance: sc.balance || 0,
+        }));
+        const supaSuppliers = ((supaSuppRes as any)?.data || []).map((ss: any) => ({
+          id: ss.id,
+          name: ss.name,
+          companyName: ss.name,
+          phone: ss.phone,
+          address: ss.address,
+        }));
+
+        const mergedCustomers = [
+          ...customers,
+          ...supaCustomers.filter((sc: any) => !customers.some((c) => c.id === sc.id)),
+        ];
+        const mergedSuppliers = [
+          ...suppliers,
+          ...supaSuppliers.filter((ss: any) => !suppliers.some((s) => s.id === ss.id)),
+        ];
+
         const newCache: GlobalSearchDataCache = {
-          customers: customers.slice(0, 500),
-          suppliers: suppliers.slice(0, 500),
+          customers: mergedCustomers.slice(0, 500),
+          suppliers: mergedSuppliers.slice(0, 500),
           products: products.slice(0, 500),
           materials: materials.slice(0, 500),
           invoices: (invoices as any).slice(0, 500),
@@ -534,6 +599,74 @@ export default function App() {
     setActiveView('calculator');
   };
 
+  const handleExportStructuredToCalculator = (data: {
+    category?: CraftCategory | string;
+    laborWage?: number;
+    hours?: number;
+    minMarketPrice?: number;
+    recommendedFairPrice?: number;
+    maxMarketPrice?: number;
+    widthCm?: number;
+    heightCm?: number;
+    weightKg?: number;
+    notes?: string;
+  }) => {
+    const computedInput: CalculationInput = {
+      ...(reloadedRecord?.input || {
+        productName: data.category ? `مشغولة ${data.category}` : 'مشغولة فنية جديدة',
+        shape3D: 'flat' as const,
+        widthCm: data.widthCm || 50,
+        diameterCm: 0,
+        baseDiameterCm: 0,
+        sideHeightCm: data.heightCm || 80,
+        totalLengthCm: data.heightCm || 80,
+        fringeLengthCm: 15,
+        cordTypeId: 'cotton_twisted_4mm',
+        cordThicknessMm: 4,
+        pricePerKg: 180,
+        curtainRodCost: 0,
+        cushionCoverCost: 0,
+        fiberCost: 0,
+        bagAccessoriesCost: 0,
+        extraMaterials: [],
+        packagingCost: 20,
+        transitFees: 0,
+        adminExpensesShare: 15,
+        profitMarginPercent: 40,
+        personalNotes: data.notes || '',
+      }),
+      category: (data.category as CraftCategory) || reloadedRecord?.input?.category || 'جدارية',
+      laborWage: data.laborWage !== undefined ? data.laborWage : (reloadedRecord?.input?.laborWage || 90),
+      widthCm: data.widthCm || reloadedRecord?.input?.widthCm || 50,
+      totalLengthCm: data.heightCm || reloadedRecord?.input?.totalLengthCm || 80,
+      sideHeightCm: data.heightCm || reloadedRecord?.input?.sideHeightCm || 80,
+    };
+
+    const newRec: SavedProductRecord = {
+      ...(reloadedRecord || {}),
+      id: reloadedRecord?.id || `prod_${Date.now()}`,
+      tenantId: currentProfile?.tenantId || currentProfile?.workshopId || currentProfile?.id || '',
+      workshopId: currentProfile?.tenantId || currentProfile?.workshopId || currentProfile?.id || '',
+      productName: reloadedRecord?.productName || (data.category ? `مشغولة ${data.category}` : 'مشغولة فنية جديدة'),
+      category: (data.category as CraftCategory) || reloadedRecord?.category || 'جدارية',
+      productType: (data.category as CraftCategory) || 'جدارية',
+      costPrice: reloadedRecord?.costPrice || 0,
+      retailPrice: data.recommendedFairPrice || reloadedRecord?.retailPrice || 0,
+      wholesalePrice: data.minMarketPrice || reloadedRecord?.wholesalePrice || 0,
+      input: computedInput,
+      output: reloadedRecord?.output || ({} as any),
+      isActive: true,
+      createdAt: reloadedRecord?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    setReloadedRecord(newRec);
+    if (data.notes) {
+      setNotesToTransfer(data.notes);
+    }
+    setActiveView('calculator');
+  };
+
   // 1. Initial auth check screen
   if (!authChecked) {
     return (
@@ -754,27 +887,38 @@ export default function App() {
 
       {/* Main View Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
-        {/* Back to Home Bar when on any module screen (No icons row left) */}
+        {/* Back to Home & Previous Page Bar when on any module screen */}
         {activeView !== 'home' && activeView !== 'create_center' && (
           <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-stone-200/80 dark:border-stone-800">
-            <button
-              type="button"
-              onClick={() => setActiveView('home')}
-              className="px-3 py-1.5 rounded-2xl border border-amber-300/80 dark:border-amber-700/80 bg-white dark:bg-stone-900 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-stone-800 dark:text-stone-200 text-xs font-black transition-all flex items-center gap-2 shadow-xs active:scale-95 cursor-pointer group"
-              title="العودة للشاشة الرئيسية"
-            >
-              <div className="w-6 h-6 flex items-center justify-center shrink-0">
-                <img
-                  src="/alshams_falcon_emblem.png"
-                  alt="أيقونة الشاشة الرئيسية"
-                  className="w-full h-full object-contain group-hover:scale-110 transition-transform drop-shadow-2xs select-none"
-                />
-              </div>
-              <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
-                الشاشة الرئيسية
-              </span>
-              <ArrowRight className="w-3.5 h-3.5 text-amber-600 group-hover:-translate-x-0.5 transition-transform" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleGoBack}
+                className="px-3 py-1.5 rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-black transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer group"
+                title="الرجوع للصفحة السابقة"
+              >
+                <ArrowRight className="w-3.5 h-3.5 text-stone-500 group-hover:translate-x-0.5 transition-transform" />
+                <span>الرجوع للصفحة السابقة</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleGoHome}
+                className="px-3 py-1.5 rounded-2xl border border-amber-300/80 dark:border-amber-700/80 bg-white dark:bg-stone-900 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-stone-800 dark:text-stone-200 text-xs font-black transition-all flex items-center gap-2 shadow-xs active:scale-95 cursor-pointer group"
+                title="العودة للشاشة الرئيسية"
+              >
+                <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                  <img
+                    src="/alshams_falcon_emblem.png"
+                    alt="أيقونة الشاشة الرئيسية"
+                    className="w-full h-full object-contain group-hover:scale-110 transition-transform drop-shadow-2xs select-none"
+                  />
+                </div>
+                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                  الشاشة الرئيسية
+                </span>
+              </button>
+            </div>
             <div className="text-xs font-bold text-stone-500">
               <span>منظومة الشمساوية • {currentProfile.brandName}</span>
             </div>
@@ -922,9 +1066,9 @@ export default function App() {
         )}
 
         {activeView === 'hr' && (
-          <UnderMigrationNotice
-            title="الموارد البشرية والرواتب قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
+          <HRWorkforceModule
+            profile={currentProfile}
+            onOpenNewEmployeeModal={() => setIsNewEmployeeModalOpen(true)}
           />
         )}
 
@@ -935,20 +1079,23 @@ export default function App() {
             onApplyCategoryFromAI={handleApplyCategoryFromAI}
             onApplyEstimatedLaborWage={handleApplyEstimatedLaborWage}
             onTransferNotesToCalculator={handleTransferNotesToCalculator}
+            onExportStructuredToCalculator={handleExportStructuredToCalculator}
           />
         )}
 
         {activeView === 'archive' && (
-          <UnderMigrationNotice
-            title="أرشيف المنتجات المسعرة قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
+          <ProductArchive
+            profile={currentProfile}
+            onSelectRecordToLoad={handleSelectRecordFromArchive}
+            onOpenWhatsAppShare={handleOpenWhatsAppShare}
           />
         )}
 
         {activeView === 'catalog' && (
-          <UnderMigrationNotice
-            title="كتالوج الورشة قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
+          <WorkshopCatalog
+            profile={currentProfile}
+            onSelectRecordToLoad={handleSelectRecordFromArchive}
+            onOpenWhatsAppShare={handleOpenWhatsAppShare}
           />
         )}
 
@@ -993,14 +1140,14 @@ export default function App() {
         onSuccess={() => {}}
       />
 
-      {isNewEmployeeModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <UnderMigrationNotice
-            title="نماذج إدخال الموظفين قيد النقل للنظام الجديد"
-            onGoBack={() => setIsNewEmployeeModalOpen(false)}
-          />
-        </div>
-      )}
+      <NewEmployeeModal
+        isOpen={isNewEmployeeModalOpen}
+        onClose={() => setIsNewEmployeeModalOpen(false)}
+        profile={currentProfile}
+        onSuccess={() => {
+          loadSearchCache(true);
+        }}
+      />
 
       {/* OTHER MODALS */}
       <ProfileSettingsModal

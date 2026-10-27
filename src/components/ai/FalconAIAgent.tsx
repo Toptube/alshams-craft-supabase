@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
-import { FalconMascotAvatar } from '../brand/BrandAssets';
+import { FalconMascotAvatar, ArtisanAvatar } from '../brand/BrandAssets';
 import { UserProfile, CraftCategory, AIVisionAnalysis, ChatMessage } from '../../types';
 import { authedFetch } from '../../lib/apiClient';
 import {
@@ -19,7 +19,21 @@ import {
   CheckCheck,
   PlusCircle,
   Zap,
+  Calculator,
 } from 'lucide-react';
+
+export interface StructuredCalculatorExport {
+  category?: CraftCategory | string;
+  laborWage?: number;
+  hours?: number;
+  minMarketPrice?: number;
+  recommendedFairPrice?: number;
+  maxMarketPrice?: number;
+  widthCm?: number;
+  heightCm?: number;
+  weightKg?: number;
+  notes?: string;
+}
 
 interface FalconAIAgentProps {
   profile: UserProfile;
@@ -27,6 +41,7 @@ interface FalconAIAgentProps {
   onApplyCategoryFromAI: (category: CraftCategory) => void;
   onApplyEstimatedLaborWage: (wage: number, hours: number) => void;
   onTransferNotesToCalculator: (notes: string) => void;
+  onExportStructuredToCalculator?: (data: StructuredCalculatorExport) => void;
 }
 
 /**
@@ -71,6 +86,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   onApplyCategoryFromAI,
   onApplyEstimatedLaborWage,
   onTransferNotesToCalculator,
+  onExportStructuredToCalculator,
 }) => {
   const workshopId = profile.tenantId || profile.workshopId || profile.id || 'default_workshop';
   const sessionKey = `alshams_falcon_chat_${workshopId}`;
@@ -484,8 +500,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     }
   };
 
-  // 16) زر "الانتقال إلى حاسبة الإنتاج مع نقل الملاحظات"
-  const handleTransferToNotes = (vData: AIVisionAnalysis) => {
+  // زر "تصدير إلى حاسبة تكاليف المنتج" ونقل الأرقام والملاحظات بدقة
+  const handleExportStructuredToCalculator = (vData: AIVisionAnalysis) => {
     if (!vData) return;
     const minP = vData.competitionPricing?.minMarketPrice || 0;
     const avgP =
@@ -500,9 +516,53 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
 • دراسة السوق${isEst}: (أدنى: ${minP} | متوسط: ${avgP} | أعلى: ${maxP} ${profile.currencySymbol})
 • التوجيه الهندسي: ${vData.notesForCalculator || ''}
 • خطوات التنفيذ المختارة:
-${(vData.productionGuide || []).join('\n')}`;
+${(vData.productionGuide || []).join('\n')}
+• الغرز والتقنيات: ${(vData.stitchPatterns || []).join('، ')}`;
 
-    onTransferNotesToCalculator(combinedNotes);
+    const wage = vData.estimatedLaborWage || (vData.estimatedHours ? vData.estimatedHours * 30 : 90);
+    const hours = vData.estimatedHours || 3;
+
+    if (onExportStructuredToCalculator) {
+      onExportStructuredToCalculator({
+        category: (vData.detectedCategory as CraftCategory) || currentCategory,
+        laborWage: wage,
+        hours: hours,
+        minMarketPrice: minP,
+        recommendedFairPrice: avgP,
+        maxMarketPrice: maxP,
+        notes: combinedNotes,
+      });
+    } else {
+      onApplyCategoryFromAI((vData.detectedCategory as CraftCategory) || currentCategory);
+      onApplyEstimatedLaborWage(wage, hours);
+      onTransferNotesToCalculator(combinedNotes);
+    }
+
+    setTransferredNotice(true);
+    setTimeout(() => setTransferredNotice(false), 3500);
+  };
+
+  const handleExportChatMessageToCalculator = (chatText: string) => {
+    if (!chatText) return;
+    const hoursMatch = chatText.match(/(\d+(?:\.\d+)?)\s*(?:ساعات|ساعة|hours?)/i);
+    const wageMatch = chatText.match(/(\d+(?:\.\d+)?)\s*(?:جنيه|ج\.م|ريال|درهم|دولار|مصنعية|أجر)/i);
+    const hours = hoursMatch ? parseFloat(hoursMatch[1]) : 3;
+    const laborWage = wageMatch ? parseFloat(wageMatch[1]) : hours * 30;
+
+    const notes = `[توجيهات صقر الشمساوية AI]:\n${chatText}`;
+
+    if (onExportStructuredToCalculator) {
+      onExportStructuredToCalculator({
+        category: currentCategory,
+        laborWage,
+        hours,
+        notes,
+      });
+    } else {
+      onApplyEstimatedLaborWage(laborWage, hours);
+      onTransferNotesToCalculator(notes);
+    }
+
     setTransferredNotice(true);
     setTimeout(() => setTransferredNotice(false), 3500);
   };
@@ -629,7 +689,7 @@ ${(vData.productionGuide || []).join('\n')}`;
       <div
         ref={chatContainerRef}
         onScroll={handleScroll}
-        className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 space-y-3.5 bg-stone-100/70 dark:bg-stone-950/70 scroll-smooth relative"
+        className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 space-y-3.5 bg-[#efeae2]/80 dark:bg-[#0b141a] scroll-smooth relative"
       >
         {messages.map((msg) => {
           const isUser = msg.sender === 'user';
@@ -641,18 +701,21 @@ ${(vData.productionGuide || []).join('\n')}`;
               className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse text-right' : 'text-right'}`}
             >
               {isUser ? (
-                <div className="w-8 h-8 rounded-full bg-amber-600 text-white font-bold flex items-center justify-center text-xs flex-shrink-0 shadow-sm border border-amber-400/40 mt-1">
-                  {profile.artistName?.charAt(0) || 'أ'}
-                </div>
+                <ArtisanAvatar
+                  logoUrl={(profile as any).brandLogo || (profile as any).avatarUrl || (profile as any).logoUrl}
+                  artistName={profile.brandName || profile.artistName || 'فنان'}
+                  size="sm"
+                  className="mt-1 flex-shrink-0 shadow-xs ring-1 ring-emerald-500/30"
+                />
               ) : (
-                <FalconMascotAvatar size="sm" fit="top" statusDot={false} className="mt-1" />
+                <FalconMascotAvatar size="sm" fit="top" statusDot={false} className="mt-1 flex-shrink-0 shadow-xs" />
               )}
 
               <div
-                className={`max-w-[88%] sm:max-w-[82%] rounded-2xl p-3 sm:p-4 text-xs sm:text-sm leading-relaxed shadow-sm transition-all duration-150 ${
+                className={`max-w-[88%] sm:max-w-[82%] rounded-2xl p-3 sm:p-4 text-xs sm:text-sm leading-relaxed shadow-xs transition-all duration-150 ${
                   isUser
-                    ? 'bg-amber-600 text-white rounded-tl-none font-medium'
-                    : 'bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200/90 dark:border-stone-700/80 rounded-tr-none'
+                    ? 'bg-[#d9fdd3] dark:bg-[#005c4b] text-stone-900 dark:text-stone-100 rounded-tr-none border border-emerald-200/70 dark:border-emerald-700/60 font-medium'
+                    : 'bg-white dark:bg-[#202c33] text-stone-900 dark:text-stone-100 border border-stone-200/90 dark:border-stone-700/80 rounded-tl-none'
                 }`}
               >
                 {/* معاينة الصورة إذا كانت رسالة صورة مرفوعة من المستخدم */}
@@ -668,10 +731,17 @@ ${(vData.productionGuide || []).join('\n')}`;
 
                 <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
 
+                {isUser && (
+                  <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-emerald-800 dark:text-emerald-300 font-mono">
+                    <span>{new Date(msg.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <CheckCheck className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 inline" />
+                  </div>
+                )}
+
                 {/* كارت نتائج الرؤية الحاسوبية المضمن مباشرة داخل رد صقر الزمني (كالواتساب تماماً) */}
                 {vData && (
                   <div className="space-y-3 mt-3 pt-3 border-t border-amber-500/20 text-stone-900 dark:text-stone-100">
-                    {/* Header مع زر النقل للحاسبة */}
+                    {/* Header مع زر التصدير لحاسبة التكاليف */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20">
                       <div className="flex items-center gap-1.5 font-extrabold text-xs text-amber-900 dark:text-amber-200">
                         <Sparkles className="w-4 h-4 text-amber-600" />
@@ -679,18 +749,18 @@ ${(vData.productionGuide || []).join('\n')}`;
                       </div>
                       <button
                         type="button"
-                        onClick={() => handleTransferToNotes(vData)}
-                        className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-sm transition cursor-pointer"
+                        onClick={() => handleExportStructuredToCalculator(vData)}
+                        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-[11px] flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer active:scale-95"
                       >
-                        <ArrowRight className="w-3 h-3" />
-                        <span>الانتقال للحاسبة مع نقل الملاحظات</span>
+                        <Calculator className="w-3.5 h-3.5 text-white" />
+                        <span>تصدير إلى حاسبة تكاليف المنتج</span>
                       </button>
                     </div>
 
                     {transferredNotice && (
                       <div className="p-2 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-1.5">
                         <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span>تم نقل الملاحظات ودراسة السوق لحاسبة الإنتاج بنجاح!</span>
+                        <span>تم تصدير الأرقام والملاحظات إلى حاسبة تكاليف المنتج بنجاح!</span>
                       </div>
                     )}
 
@@ -832,6 +902,21 @@ ${(vData.productionGuide || []).join('\n')}`;
                         )}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* زر التصدير لحاسبة التكاليف للرسائل العادية */}
+                {!isUser && msg.id !== 'msg_welcome' && !vData && (
+                  <div className="mt-2.5 pt-2 border-t border-stone-200/60 dark:border-stone-700/60 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => handleExportChatMessageToCalculator(msg.text)}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 border border-amber-500/30 font-black text-[11px] flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                    >
+                      <Calculator className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                      <span>تصدير إلى حاسبة تكاليف المنتج</span>
+                    </button>
+                    <span className="text-[10px] text-stone-400 font-mono">صقر AI</span>
                   </div>
                 )}
 

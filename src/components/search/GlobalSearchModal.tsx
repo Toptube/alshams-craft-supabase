@@ -65,29 +65,40 @@ interface GlobalSearchModalProps {
 }
 
 /**
- * 3) تطبيع النصوص العربية:
- * إزالة التشكيل تماماً، وتوحيد الألف (أ إ آ ٱ ← ا)، والتاء المربوطة (ة ← ه)، والياء/الألف المقصورة (ى ← ي)
+ * تطبيع موسّع للنصوص العربية:
+ * - إزالة التشكيل والتطويل تماماً
+ * - توحيد الألفات (أ إ آ ٱ ← ا) والهمزات (ء ئ ؤ)
+ * - توحيد التاء المربوطة (ة ← ه)
+ * - توحيد الياء والألف المقصورة (ى ← ي)
+ * - توحيد الأرقام المشرقية (٠-٩ ← 0-9)
+ * - إزالة تكرار الحروف الناتج عن أخطاء الكتابة السريعة (مثل "خيووووط" ← "خيوط")
  */
 export function normalizeArabic(text: string): string {
   if (!text) return '';
   return text
+    // تحويل الأرقام العربية المشرقية إلى لاتينية
+    .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
     // إزالة التشكيل (الفتحة، الضمة، الكسرة، السكون، الشدة، التنوين)
     .replace(/[\u064B-\u065F\u0670]/g, '')
     // إزالة التطويل / الكشيدة
     .replace(/\u0640/g, '')
-    // توحيد الألف
+    // توحيد جميع أشكال الألف
     .replace(/[أإآٱ]/g, 'ا')
-    // توحيد التاء المربوطة
+    // توحيد التاء المربوطة والهاء
     .replace(/ة/g, 'ه')
     // توحيد الألف المقصورة والياء
     .replace(/ى/g, 'ي')
+    // توحيد الهمزات المتطرفة والوسطية
+    .replace(/[ؤئ]/g, 'ء')
+    // إزالة تكرار الحرف أكثر من مرتين (مثل "محممممد" ← "محمد")
+    .replace(/(.)\1{2,}/g, '$1')
     // إزالة الفراغات الزائدة والتحويل لأحرف صغيرة
     .toLowerCase()
     .trim();
 }
 
 /**
- * خوارزمية حساب المسافة (Levenshtein Distance) لتحمل أخطاء الكتابة البسيطة
+ * خوارزمية حساب المسافة (Levenshtein Distance)
  */
 function levenshteinDistance(a: string, b: string): number {
   if (a === b) return 0;
@@ -122,7 +133,7 @@ function levenshteinDistance(a: string, b: string): number {
 }
 
 /**
- * فحص التطابق مع مراعاة التطبيع والبحث الجزئي وتحمل الأخطاء الإملائية
+ * فحص التطابق مع مراعاة التطبيع والبحث الموسع وتحمل الأخطاء الإملائية الشائعة
  */
 function matchesFuzzy(targetText: string, queryText: string): boolean {
   if (!targetText || !queryText) return false;
@@ -134,23 +145,35 @@ function matchesFuzzy(targetText: string, queryText: string): boolean {
   // 1. تطابق كامل أو جزئي مباشر
   if (normTarget.includes(normQuery)) return true;
 
-  // 2. فحص الكلمات المفتاحية
+  // استبدال الحروف المتقاربة صوتياً (ص/س، ض/ظ، ذ/ز/ظ)
+  const phoneticSwap = (str: string) =>
+    str
+      .replace(/ص/g, 'س')
+      .replace(/[ظض]/g, 'ز')
+      .replace(/ذ/g, 'ز')
+      .replace(/ء/g, '');
+
+  if (phoneticSwap(normTarget).includes(phoneticSwap(normQuery))) {
+    return true;
+  }
+
+  // 2. فحص الكلمات المفتاحية المركبة
   const queryWords = normQuery.split(/\s+/).filter(Boolean);
   const targetWords = normTarget.split(/[\s,._\-/]+/).filter(Boolean);
 
   return queryWords.every((qWord) => {
-    // هل الكلمة مطابقة أو بادئة لأي كلمة في الهدف؟
+    // تطابق جزئي أو بادئة
     const hasPrefix = targetWords.some((tWord) => tWord.includes(qWord) || qWord.includes(tWord));
     if (hasPrefix) return true;
 
-    // تحمل أخطاء الكتابة البسيطة للكلمات التي طولها 3 أحرف فأكثر
+    // فحص تقارب المسافة لأخطاء الكتابة (Levenshtein)
     if (qWord.length >= 3) {
       return targetWords.some((tWord) => {
-        if (tWord.length >= 3) {
+        if (tWord.length >= 2) {
           const maxAllowed = qWord.length <= 4 ? 1 : 2;
-          // فحص بداية الكلمة أو الكلمة كاملة
-          const segment = tWord.slice(0, qWord.length);
-          return levenshteinDistance(qWord, segment) <= maxAllowed;
+          const segment = tWord.slice(0, Math.min(tWord.length, qWord.length + 1));
+          if (levenshteinDistance(qWord, segment) <= maxAllowed) return true;
+          if (levenshteinDistance(qWord, tWord) <= maxAllowed) return true;
         }
         return false;
       });

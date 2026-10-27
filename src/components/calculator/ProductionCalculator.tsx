@@ -2463,7 +2463,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               className="flex-1 md:flex-none px-6 py-3 rounded-2xl font-black text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20 active:scale-[0.99] transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <Save className="w-4 h-4" />
-              <span>[زر حفظ التعديلات]</span>
+              <span>{tr('calc_save_changes_btn')}</span>
             </button>
           ) : (
             <button
@@ -2472,7 +2472,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               className="flex-1 md:flex-none px-6 py-3 rounded-2xl font-black text-xs text-white bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 shadow-lg shadow-amber-600/20 active:scale-[0.99] transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <Save className="w-4 h-4" />
-              <span>[زر حفظ المنتج في الأرشيف]</span>
+              <span>{tr('catalog_export_from_calc')}</span>
             </button>
           )}
 
@@ -2485,8 +2485,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             }`}
             title={
               syncStatus === 'synced'
-                ? 'البيانات متصلة ومتزامنة مع سحابة Supabase وموثقة في DexieDB'
-                : 'البيانات محفوظة محلياً كمسودة في DexieDB (في انتظار المزامنة مع السحابة)'
+                ? tr('calc_synced_cloud')
+                : tr('calc_local_only')
             }
           >
             {syncStatus === 'synced' ? (
@@ -2497,7 +2497,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                 </span>
                 <Cloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                 <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 -mr-1 flex-shrink-0" />
-                <span className="text-[11px] font-bold">متزامن سحابياً</span>
+                <span className="text-[11px] font-bold">{tr('calc_synced_cloud')}</span>
               </>
             ) : (
               <>
@@ -2506,7 +2506,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                 </span>
                 <HardDrive className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
                 <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 -mr-1 flex-shrink-0" />
-                <span className="text-[11px] font-bold">مسودة محلية (DexieDB)</span>
+                <span className="text-[11px] font-bold">{tr('calc_local_only')}</span>
               </>
             )}
           </div>
@@ -2545,7 +2545,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             className="flex-1 md:flex-none px-6 py-3 rounded-2xl font-black text-xs text-emerald-800 dark:text-emerald-200 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/60 transition flex items-center justify-center gap-2 cursor-pointer border border-emerald-300 dark:border-emerald-800"
           >
             <Share2 className="w-4 h-4 text-emerald-600" />
-            <span>[زر مشاركة عرض السعر عبر واتساب]</span>
+            <span>{tr('calc_share_quote_whatsapp')}</span>
           </button>
         </div>
       </div>

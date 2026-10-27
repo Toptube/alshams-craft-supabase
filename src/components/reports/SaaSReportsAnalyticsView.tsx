@@ -13,6 +13,9 @@ import {
   FixedAsset,
 } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
+import { getTreasuryBalancesFromSupabase, SupabaseTreasuryBalance } from '../../db/supabaseService';
+import { db } from '../../lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import {
   BarChart3,
   FileSpreadsheet,
@@ -36,7 +39,31 @@ import {
   ArrowUpDown,
   Coins,
   Cpu,
+  FileCheck,
+  Award,
+  PieChart as PieIcon,
+  LayoutGrid,
+  CalendarRange,
+  Clock,
+  Sparkles,
+  ChevronLeft,
+  X,
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  AreaChart,
+  Area,
+} from 'recharts';
 
 interface SaaSReportsAnalyticsViewProps {
   profile: UserProfile;
@@ -48,10 +75,16 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
   >('trial_balance');
 
   // Balances & Data
-  const [safeBalances, setSafeBalances] = useState<{ mainSafe: number; subSafe: number }>({
+  const [safeBalances, setSafeBalances] = useState<{
+    mainSafe: number;
+    subSafe: number;
+    unsettledCustodies: number;
+  }>({
     mainSafe: 0,
     subSafe: 0,
+    unsettledCustodies: 0,
   });
+  const [openCustodiesList, setOpenCustodiesList] = useState<SupabaseTreasuryBalance[]>([]);
   const [safeTransactions, setSafeTransactions] = useState<SafeTransaction[]>([]);
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierProfile[]>([]);
@@ -72,8 +105,31 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
   const [wipeReason, setWipeReason] = useState('');
   const [wipeError, setWipeError] = useState('');
   const [wipeSuccess, setWipeSuccess] = useState(false);
-
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
+
+  // Time Period & Date Filters
+  const [timePeriod, setTimePeriod] = useState<'all' | 'today' | 'month' | 'quarter' | 'half_year' | 'year'>('all');
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [selectedQuarter, setSelectedQuarter] = useState<'Q1' | 'Q2' | 'Q3' | 'Q4'>('Q1');
+  const [selectedHalf, setSelectedHalf] = useState<'H1' | 'H2'>('H1');
+
+  // View Mode: Tables vs Charts vs Infographics
+  const [viewMode, setViewMode] = useState<'tables' | 'charts' | 'infographics'>('tables');
+
+  // Financial Closings state
+  const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
+  const [closingType, setClosingType] = useState<'monthly' | 'quarterly' | 'semi_annual' | 'annual'>('monthly');
+  const [closingNotes, setClosingNotes] = useState('');
+  const [closingSuccessNotice, setClosingSuccessNotice] = useState('');
+  const [closingSnapshots, setClosingSnapshots] = useState<any[]>(() => {
+    try {
+      const raw = localStorage.getItem(`alshams_financial_closings_${tenantId}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const loadAllFinancials = async () => {
     try {
@@ -88,7 +144,39 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
       const mats = await tenantStorage.getRawMaterials(tenantId);
       const assets = await tenantStorage.getFixedAssets(tenantId);
 
-      setSafeBalances(balances);
+      let effectiveBalances = {
+        mainSafe: balances.mainSafe || 0,
+        subSafe: balances.subSafe || 0,
+        unsettledCustodies: (balances as any).unsettledCustodies || 0,
+      };
+
+      // Live fetch from Supabase treasuries if available
+      try {
+        const { data: supaTreasuries } = await getTreasuryBalancesFromSupabase(tenantId);
+        if (supaTreasuries && supaTreasuries.length > 0) {
+          const mainTreasury = supaTreasuries.find(
+            (t) => t.is_main || t.kind === 'main' || t.name?.includes('رئيسي') || t.id === 'main'
+          );
+          const subTreasuryList = supaTreasuries.filter(
+            (t) => t.kind === 'sub' || (!t.is_main && t.kind !== 'custody' && t.id !== mainTreasury?.id)
+          );
+          const openCustodies = supaTreasuries.filter((t) => t.kind === 'custody' && t.status === 'open');
+
+          const subTotalBalance = subTreasuryList.reduce((sum, st) => sum + Number(st.balance || 0), 0);
+          const custodyTotalBalance = openCustodies.reduce((sum, c) => sum + Number(c.balance || 0), 0);
+
+          effectiveBalances = {
+            mainSafe: mainTreasury ? Number(mainTreasury.balance || 0) : effectiveBalances.mainSafe,
+            subSafe: subTreasuryList.length > 0 ? subTotalBalance : effectiveBalances.subSafe,
+            unsettledCustodies: custodyTotalBalance,
+          };
+          setOpenCustodiesList(openCustodies);
+        }
+      } catch (e) {
+        // Local mode fallback
+      }
+
+      setSafeBalances(effectiveBalances);
       setSafeTransactions(safeTxs);
       setOrders(ords);
       setSuppliers(sups);
@@ -109,6 +197,97 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
 
   useEffect(() => {
     loadAllFinancials();
+
+    const handleDataUpdate = (event?: any) => {
+      // If event provides detail balances, update state immediately without waiting
+      if (event?.detail?.balances && Array.isArray(event.detail.balances)) {
+        const supaTreasuries: SupabaseTreasuryBalance[] = event.detail.balances;
+        const mainTreasury = supaTreasuries.find(
+          (t) => t.is_main || t.kind === 'main' || t.name?.includes('رئيسي') || t.id === 'main'
+        );
+        const subTreasuryList = supaTreasuries.filter(
+          (t) => t.kind === 'sub' || (!t.is_main && t.kind !== 'custody' && t.id !== mainTreasury?.id)
+        );
+        const openCustodies = supaTreasuries.filter((t) => t.kind === 'custody' && t.status === 'open');
+
+        const subTotalBalance = subTreasuryList.reduce((sum, st) => sum + Number(st.balance || 0), 0);
+        const custodyTotalBalance = openCustodies.reduce((sum, c) => sum + Number(c.balance || 0), 0);
+
+        setSafeBalances((prev) => ({
+          mainSafe: mainTreasury ? Number(mainTreasury.balance || 0) : prev.mainSafe,
+          subSafe: subTreasuryList.length > 0 ? subTotalBalance : prev.subSafe,
+          unsettledCustodies: custodyTotalBalance,
+        }));
+        setOpenCustodiesList(openCustodies);
+      }
+      loadAllFinancials();
+    };
+
+    window.addEventListener('alshams_financials_updated', handleDataUpdate);
+    window.addEventListener('alshams_treasury_updated', handleDataUpdate);
+    window.addEventListener('alshams_fixed_assets_changed', handleDataUpdate);
+    window.addEventListener('alshams_currency_rates_changed', handleDataUpdate);
+    window.addEventListener('storage', handleDataUpdate);
+
+    // Attach Firestore real-time onSnapshot listener for instant live updates across tabs & devices
+    let unsubscribeFirestore: (() => void) | null = null;
+    try {
+      const liveDocRef = doc(db, 'workshops', tenantId, 'treasury_state', 'live');
+      unsubscribeFirestore = onSnapshot(
+        liveDocRef,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (Array.isArray(data?.balances) && data.balances.length > 0) {
+              const supaTreasuries = data.balances;
+              const mainTreasury = supaTreasuries.find(
+                (t: any) => t.is_main || t.kind === 'main' || t.name?.includes('رئيسي') || t.id === 'main'
+              );
+              const subTreasuryList = supaTreasuries.filter(
+                (t: any) => t.kind === 'sub' || (!t.is_main && t.kind !== 'custody' && t.id !== mainTreasury?.id)
+              );
+              const openCustodies = supaTreasuries.filter(
+                (t: any) => t.kind === 'custody' && t.status === 'open'
+              );
+
+              const subTotalBalance = subTreasuryList.reduce(
+                (sum: number, st: any) => sum + Number(st.balance || 0),
+                0
+              );
+              const custodyTotalBalance = openCustodies.reduce(
+                (sum: number, c: any) => sum + Number(c.balance || 0),
+                0
+              );
+
+              setSafeBalances((prev) => ({
+                mainSafe: mainTreasury ? Number(mainTreasury.balance || 0) : prev.mainSafe,
+                subSafe: subTreasuryList.length > 0 ? subTotalBalance : prev.subSafe,
+                unsettledCustodies: custodyTotalBalance,
+              }));
+              setOpenCustodiesList(openCustodies);
+            }
+          }
+        },
+        (error) => {
+          console.warn('Firestore reports real-time listener notice:', error);
+        }
+      );
+    } catch (e) {
+      console.warn('Could not attach Firestore onSnapshot in reports:', e);
+    }
+
+    // Continuous auto-refresh every 8 seconds for live figures
+    const intervalId = setInterval(loadAllFinancials, 8000);
+
+    return () => {
+      if (unsubscribeFirestore) unsubscribeFirestore();
+      window.removeEventListener('alshams_financials_updated', handleDataUpdate);
+      window.removeEventListener('alshams_treasury_updated', handleDataUpdate);
+      window.removeEventListener('alshams_fixed_assets_changed', handleDataUpdate);
+      window.removeEventListener('alshams_currency_rates_changed', handleDataUpdate);
+      window.removeEventListener('storage', handleDataUpdate);
+      clearInterval(intervalId);
+    };
   }, [tenantId]);
 
   // Fixed Assets Calculations
@@ -117,12 +296,63 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
   const totalAccumulatedDepreciation = fixedAssets.reduce((sum, a) => sum + (a.accumulatedDepreciation || 0), 0);
   const totalNetBookValue = fixedAssets.reduce((sum, a) => sum + (a.currentBookValue || 0), 0);
 
-  // Aggregate calculations
-  const totalSalesRevenue = orders.reduce((sum, o) => sum + (o.amountPaid || 0), 0);
-  const totalMaterialPurchasesPaid = supplierInvoices.reduce((sum, inv) => sum + (inv.paidAmount || 0), 0);
-  const totalPayrollOperatingExpenses = employeePayouts.reduce((sum, p) => sum + (p.amount || 0), 0);
-  const totalAdminOperatingExpenses = adminCosts.reduce((sum, a) => sum + (a.baseCurrencyAmount || a.amount || 0), 0);
-  const totalOperatingCosts = totalMaterialPurchasesPaid + totalPayrollOperatingExpenses + totalAdminOperatingExpenses + (totalAnnualDepreciation / 12);
+  // Time Period Filtering Function
+  const isWithinPeriod = (dateStr?: string | null) => {
+    if (timePeriod === 'all' || !dateStr) return true;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return true;
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1; // 1-12
+
+    if (timePeriod === 'today') {
+      const today = new Date().toISOString().split('T')[0];
+      return dateStr.startsWith(today);
+    }
+    if (timePeriod === 'month') {
+      return y === selectedYear && m === selectedMonth;
+    }
+    if (timePeriod === 'quarter') {
+      if (y !== selectedYear) return false;
+      if (selectedQuarter === 'Q1') return m >= 1 && m <= 3;
+      if (selectedQuarter === 'Q2') return m >= 4 && m <= 6;
+      if (selectedQuarter === 'Q3') return m >= 7 && m <= 9;
+      if (selectedQuarter === 'Q4') return m >= 10 && m <= 12;
+    }
+    if (timePeriod === 'half_year') {
+      if (y !== selectedYear) return false;
+      if (selectedHalf === 'H1') return m >= 1 && m <= 6;
+      if (selectedHalf === 'H2') return m >= 7 && m <= 12;
+    }
+    if (timePeriod === 'year') {
+      return y === selectedYear;
+    }
+    return true;
+  };
+
+  const filteredOrders = orders.filter((o) => isWithinPeriod(o.date));
+  const filteredSupplierInvoices = supplierInvoices.filter((inv) => isWithinPeriod(inv.date));
+  const filteredEmployeePayouts = employeePayouts.filter((p) => isWithinPeriod(p.date));
+  const filteredAdminCosts = adminCosts.filter((a) => isWithinPeriod(a.date));
+  const filteredSafeTransactions = safeTransactions.filter((t) => isWithinPeriod(t.date));
+
+  // Pro-rated period depreciation
+  const periodDepreciation =
+    timePeriod === 'today'
+      ? totalAnnualDepreciation / 365
+      : timePeriod === 'month'
+      ? totalAnnualDepreciation / 12
+      : timePeriod === 'quarter'
+      ? totalAnnualDepreciation / 4
+      : timePeriod === 'half_year'
+      ? totalAnnualDepreciation / 2
+      : totalAnnualDepreciation;
+
+  // Aggregate calculations with period filtering
+  const totalSalesRevenue = filteredOrders.reduce((sum, o) => sum + (o.amountPaid || 0), 0);
+  const totalMaterialPurchasesPaid = filteredSupplierInvoices.reduce((sum, inv) => sum + (inv.paidAmount || 0), 0);
+  const totalPayrollOperatingExpenses = filteredEmployeePayouts.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalAdminOperatingExpenses = filteredAdminCosts.reduce((sum, a) => sum + (a.baseCurrencyAmount || a.amount || 0), 0);
+  const totalOperatingCosts = totalMaterialPurchasesPaid + totalPayrollOperatingExpenses + totalAdminOperatingExpenses + periodDepreciation;
   const netEstimatedProfit = totalSalesRevenue - totalOperatingCosts;
 
   // Double-Entry Ledger Matrix:
@@ -131,25 +361,42 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
     0
   );
   const inventoryDebit = totalMaterialPurchasesPaid + currentInventoryStockValue;
-  const estimatedConsumedMaterials = Math.round(orders.reduce((sum, o) => sum + (o.finalTotal || 0) * 0.45, 0));
+  const estimatedConsumedMaterials = Math.round(filteredOrders.reduce((sum, o) => sum + (o.finalTotal || 0) * 0.45, 0));
   const inventoryCredit = estimatedConsumedMaterials;
   const inventoryNetBalance = Math.max(0, inventoryDebit - inventoryCredit);
 
-  const mainSafeDebit =
-    safeTransactions
-      .filter((t) => t.safeType === 'main' && (t.type === 'income_sale' || t.amount > 0))
-      .reduce((s, t) => s + Math.max(0, t.amount), 0) || safeBalances.mainSafe;
-  const mainSafeCredit = safeTransactions
-    .filter((t) => t.safeType === 'main' && (t.type.startsWith('expense_') || t.amount < 0))
-    .reduce((s, t) => s + Math.abs(Math.min(0, t.amount)), 0);
+  // Dynamic Main Safe debit, credit, and balance
+  const mainSafeDebit = filteredSafeTransactions
+    .filter((t) => t.safeType === 'main' && Number(t.amount) > 0)
+    .reduce((s, t) => s + Number(t.amount), 0);
+  const mainSafeCredit = filteredSafeTransactions
+    .filter((t) => t.safeType === 'main' && Number(t.amount) < 0)
+    .reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
+  const mainSafeCalculatedNet = mainSafeDebit - mainSafeCredit;
+  const mainSafeLiveBalance = timePeriod === 'all' && safeBalances.mainSafe !== 0 ? safeBalances.mainSafe : mainSafeCalculatedNet;
 
-  const subSafeDebit =
-    safeTransactions
-      .filter((t) => t.safeType === 'sub' && (t.type === 'income_sale' || t.amount > 0))
-      .reduce((s, t) => s + Math.max(0, t.amount), 0) || safeBalances.subSafe;
-  const subSafeCredit = safeTransactions
-    .filter((t) => t.safeType === 'sub' && (t.type.startsWith('expense_') || t.amount < 0))
-    .reduce((s, t) => s + Math.abs(Math.min(0, t.amount)), 0);
+  // Dynamic Sub Safe debit, credit, and balance (includes all sub treasuries)
+  const subSafeDebit = filteredSafeTransactions
+    .filter((t) => t.safeType === 'sub' && Number(t.amount) > 0)
+    .reduce((s, t) => s + Number(t.amount), 0);
+  const subSafeCredit = filteredSafeTransactions
+    .filter((t) => t.safeType === 'sub' && Number(t.amount) < 0)
+    .reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
+  const subSafeCalculatedNet = subSafeDebit - subSafeCredit;
+  const subSafeLiveBalance = timePeriod === 'all' && safeBalances.subSafe !== 0 ? safeBalances.subSafe : subSafeCalculatedNet;
+
+  // Dynamic Unsettled Custodies (عهد العاملين والتشغيل غير المسواة)
+  const custodiesTxDebit = filteredSafeTransactions
+    .filter((t) => (t.safeType === 'custody' || (t as any).type === 'custody') && Number(t.amount) > 0)
+    .reduce((s, t) => s + Number(t.amount), 0);
+  const custodiesTxCredit = filteredSafeTransactions
+    .filter((t) => (t.safeType === 'custody' || (t as any).type === 'custody') && Number(t.amount) < 0)
+    .reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
+  const custodiesCalculatedNet = custodiesTxDebit - custodiesTxCredit;
+  const unsettledCustodiesLiveBalance =
+    (safeBalances.unsettledCustodies ?? 0) > 0
+      ? (safeBalances.unsettledCustodies ?? 0)
+      : Math.max(0, custodiesCalculatedNet);
 
   const trialRows = [
     {
@@ -168,8 +415,8 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
       type: 'أصول نقدية',
       debit: mainSafeDebit,
       credit: mainSafeCredit,
-      balance: safeBalances.mainSafe,
-      balanceType: 'مدين',
+      balance: Math.abs(mainSafeLiveBalance),
+      balanceType: mainSafeLiveBalance >= 0 ? 'مدين' : 'دائن',
       notes: 'مقبوضات المبيعات الكبرى وتسويات التوريد',
     },
     {
@@ -178,9 +425,19 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
       type: 'أصول نقدية',
       debit: subSafeDebit,
       credit: subSafeCredit,
-      balance: safeBalances.subSafe,
+      balance: Math.abs(subSafeLiveBalance),
+      balanceType: subSafeLiveBalance >= 0 ? 'مدين' : 'دائن',
+      notes: 'سلف العمالة والمصروفات اليومية والنثريات للخزن الفرعية',
+    },
+    {
+      code: '1104',
+      name: 'العهد التي لم يتم تسويتها (Unsettled Custodies Ledger)',
+      type: 'أصول متداولة (عهد مؤقتة)',
+      debit: unsettledCustodiesLiveBalance,
+      credit: 0,
+      balance: Math.abs(unsettledCustodiesLiveBalance),
       balanceType: 'مدين',
-      notes: 'سلف العمالة والمصروفات اليومية والنثريات',
+      notes: 'العهد النقدية المفتوحة المصروفة للمسؤولين لمشتريات الورشة تحت التسوية',
     },
     {
       code: '4101',
@@ -334,10 +591,63 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
     }
   };
 
+  // Financial Closing Action
+  const handleExecuteClosing = () => {
+    const periodLabel =
+      closingType === 'monthly'
+        ? `الشهر ${selectedMonth} لسنة ${selectedYear}`
+        : closingType === 'quarterly'
+        ? `الربع ${selectedQuarter} لسنة ${selectedYear}`
+        : closingType === 'semi_annual'
+        ? `النصف ${selectedHalf} لسنة ${selectedYear}`
+        : `السنة المالية ${selectedYear}`;
+
+    const closingRecord = {
+      id: `close_${Date.now()}`,
+      type: closingType,
+      periodLabel,
+      closingDate: new Date().toISOString(),
+      totalSalesRevenue,
+      totalOperatingCosts,
+      netEstimatedProfit,
+      totalFixedAssetsCost,
+      totalNetBookValue,
+      currentInventoryStockValue,
+      mainSafeLiveBalance,
+      subSafeLiveBalance,
+      unsettledCustodiesLiveBalance,
+      notes: closingNotes || 'إقفال حسابات رسمي معتمد',
+      closedBy: profile.brandName || profile.email,
+    };
+
+    const updatedSnapshots = [closingRecord, ...closingSnapshots];
+    setClosingSnapshots(updatedSnapshots);
+    try {
+      localStorage.setItem(`alshams_financial_closings_${tenantId}`, JSON.stringify(updatedSnapshots));
+    } catch (e) {
+      console.error(e);
+    }
+
+    setClosingSuccessNotice(`تم اعتماد وحفظ إقفال (${periodLabel}) بنجاح!`);
+    setTimeout(() => {
+      setClosingSuccessNotice('');
+      setIsClosingModalOpen(false);
+    }, 2500);
+  };
+
   return (
     <div className="space-y-6">
+      {/* Print-only Official Header */}
+      <div className="hidden print:block text-right mb-6 border-b-2 border-stone-800 pb-4">
+        <h1 className="text-xl font-black">منظومة الشمساوية • {profile.brandName}</h1>
+        <p className="text-xs text-stone-600">التقرير المالي والمحاسبي المعتمد • تاريخ الاستخراج: {new Date().toLocaleDateString('ar-EG')}</p>
+        <p className="text-xs text-stone-600 font-bold">
+          الفترة: {timePeriod === 'all' ? 'كامل السجلات التاريخية' : timePeriod === 'today' ? 'اليوم' : timePeriod === 'month' ? `شهر ${selectedMonth} لسنة ${selectedYear}` : timePeriod === 'quarter' ? `الربع ${selectedQuarter} لسنة ${selectedYear}` : timePeriod === 'half_year' ? `النصف ${selectedHalf} لسنة ${selectedYear}` : `السنة المالية ${selectedYear}`}
+        </p>
+      </div>
+
       {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-blue-500/15 via-blue-500/5 to-transparent border border-blue-300/40 dark:border-blue-800/40">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-blue-500/15 via-blue-500/5 to-transparent border border-blue-300/40 dark:border-blue-800/40 print:hidden">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-blue-700 dark:text-blue-400">
             <BarChart3 className="w-4 h-4" />
@@ -348,7 +658,16 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
           </h2>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsClosingModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white shadow-md flex items-center gap-1.5 cursor-pointer active:scale-95 transition"
+          >
+            <Award className="w-4 h-4" />
+            <span>إقفال الفترة والتقفيل المالي</span>
+          </button>
+
           <button
             type="button"
             onClick={handlePrint}
@@ -369,8 +688,179 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-3 overflow-x-auto text-xs font-bold">
+      {/* FILTER & VIEW MODE TOOLBAR */}
+      <div className="p-4 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-3 print:hidden shadow-xs">
+        {/* Row 1: Period Selection */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-stone-100 dark:border-stone-800">
+          <div className="flex items-center gap-1.5 flex-wrap text-xs font-bold">
+            <span className="text-stone-400 flex items-center gap-1 ml-2">
+              <CalendarRange className="w-4 h-4 text-blue-600" />
+              <span>فترة التقرير:</span>
+            </span>
+
+            {[
+              { id: 'all', label: 'كامل السجلات' },
+              { id: 'today', label: 'اليوم' },
+              { id: 'month', label: 'شهري' },
+              { id: 'quarter', label: 'ربع سنوي' },
+              { id: 'half_year', label: 'نصف سنوي' },
+              { id: 'year', label: 'العام المالي' },
+            ].map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setTimePeriod(p.id as any)}
+                className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                  timePeriod === p.id
+                    ? 'bg-blue-600 text-white font-black shadow-xs'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Sub-selectors */}
+          <div className="flex items-center gap-2 text-xs font-bold">
+            {timePeriod === 'month' && (
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                  className="px-2.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
+                >
+                  {[
+                    'يناير (1)', 'فبراير (2)', 'مارس (3)', 'أبريل (4)',
+                    'مايو (5)', 'يونيو (6)', 'يوليو (7)', 'أغسطس (8)',
+                    'سبتمبر (9)', 'أكتوبر (10)', 'نوفمبر (11)', 'ديسمبر (12)'
+                  ].map((m, idx) => (
+                    <option key={idx + 1} value={idx + 1}>{m}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  className="w-20 px-2 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs text-center font-bold"
+                />
+              </div>
+            )}
+
+            {timePeriod === 'quarter' && (
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selectedQuarter}
+                  onChange={(e) => setSelectedQuarter(e.target.value as any)}
+                  className="px-2.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
+                >
+                  <option value="Q1">الربع الأول (يناير - مارس)</option>
+                  <option value="Q2">الربع الثاني (أبريل - يونيو)</option>
+                  <option value="Q3">الربع الثالث (يوليو - سبتمبر)</option>
+                  <option value="Q4">الربع الرابع (أكتوبر - ديسمبر)</option>
+                </select>
+                <input
+                  type="number"
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  className="w-20 px-2 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs text-center font-bold"
+                />
+              </div>
+            )}
+
+            {timePeriod === 'half_year' && (
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selectedHalf}
+                  onChange={(e) => setSelectedHalf(e.target.value as any)}
+                  className="px-2.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
+                >
+                  <option value="H1">النصف الأول (يناير - يونيو)</option>
+                  <option value="H2">النصف الثاني (يوليو - ديسمبر)</option>
+                </select>
+                <input
+                  type="number"
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  className="w-20 px-2 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs text-center font-bold"
+                />
+              </div>
+            )}
+
+            {timePeriod === 'year' && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-stone-400">السنة:</span>
+                <input
+                  type="number"
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  className="w-24 px-2 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs text-center font-bold"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row 2: View Mode Switcher */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-stone-400 font-bold ml-1">طريقة العرض:</span>
+            <div className="inline-flex p-1 rounded-2xl bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
+              <button
+                type="button"
+                onClick={() => setViewMode('tables')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'tables'
+                    ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs font-black'
+                    : 'text-stone-500 hover:text-stone-900'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
+                <span>جداول تفصيلية</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewMode('charts')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'charts'
+                    ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs font-black'
+                    : 'text-stone-500 hover:text-stone-900'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>رسومات بيانية تفاعلية</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setViewMode('infographics')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'infographics'
+                    ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs font-black'
+                    : 'text-stone-500 hover:text-stone-900'
+                }`}
+              >
+                <PieIcon className="w-3.5 h-3.5 text-purple-600" />
+                <span>إنفوجرافيك ومؤشرات</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="text-xs font-mono font-bold text-stone-500">
+            <span>صافي أرباح الفترة: </span>
+            <span className={netEstimatedProfit >= 0 ? 'text-emerald-600 font-black' : 'text-rose-600 font-black'}>
+              {netEstimatedProfit.toLocaleString()} {profile.currencySymbol}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tables View Mode */}
+      {viewMode === 'tables' && (
+        <>
+          {/* Tabs */}
+          <div className="flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-3 overflow-x-auto text-xs font-bold">
         <button
           type="button"
           onClick={() => setActiveTab('trial_balance')}
@@ -833,13 +1323,15 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
       {/* TAB 2: SAFES LEDGER */}
       {activeTab === 'safes' && (
         <div className="space-y-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* 4 KPI Cards for Liquidity & Custodies */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Main Safe */}
             <div className="p-5 rounded-3xl bg-gradient-to-r from-emerald-600 to-emerald-800 text-white shadow-lg">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-emerald-100">رصيد الخزينة الرئيسية</span>
-                <Wallet className="w-6 h-6 text-emerald-200" />
+                <Wallet className="w-5 h-5 text-emerald-200" />
               </div>
-              <span className="text-3xl font-black font-mono block mt-2">
+              <span className="text-2xl sm:text-3xl font-black font-mono block mt-2">
                 {safeBalances.mainSafe} {profile.currencySymbol}
               </span>
               <span className="text-[11px] text-emerald-200 mt-1 block">
@@ -847,19 +1339,100 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
               </span>
             </div>
 
+            {/* Card 2: Sub Safes */}
             <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-600 to-amber-800 text-white shadow-lg">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-amber-100">رصيد الخزينة الفرعية</span>
-                <Wallet className="w-6 h-6 text-amber-200" />
+                <span className="text-xs font-bold text-amber-100">رصيد الخزائن الفرعية</span>
+                <Wallet className="w-5 h-5 text-amber-200" />
               </div>
-              <span className="text-3xl font-black font-mono block mt-2">
+              <span className="text-2xl sm:text-3xl font-black font-mono block mt-2">
                 {safeBalances.subSafe} {profile.currencySymbol}
               </span>
               <span className="text-[11px] text-amber-200 mt-1 block">
                 مخصصة لسلف العمالة والمصروفات اليومية الصغيرة
               </span>
             </div>
+
+            {/* Card 3: Unsettled Custodies */}
+            <div className="p-5 rounded-3xl bg-gradient-to-r from-purple-600 to-purple-800 text-white shadow-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-purple-100">العهد التي لم يتم تسويتها</span>
+                <Building className="w-5 h-5 text-purple-200" />
+              </div>
+              <span className="text-2xl sm:text-3xl font-black font-mono block mt-2">
+                {safeBalances.unsettledCustodies} {profile.currencySymbol}
+              </span>
+              <span className="text-[11px] text-purple-200 mt-1 block">
+                عهدة تشغيل ومشتريات مفتوحة تحت التسوية
+              </span>
+            </div>
+
+            {/* Card 4: Total Liquidity */}
+            <div className="p-5 rounded-3xl bg-gradient-to-r from-stone-800 to-stone-900 text-white shadow-lg border border-stone-700">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-stone-300">إجمالي السيولة النقدية الشاملة</span>
+                <Coins className="w-5 h-5 text-amber-400" />
+              </div>
+              <span className="text-2xl sm:text-3xl font-black font-mono text-amber-400 block mt-2">
+                {safeBalances.mainSafe + safeBalances.subSafe + safeBalances.unsettledCustodies} {profile.currencySymbol}
+              </span>
+              <span className="text-[11px] text-stone-400 mt-1 block">
+                مجموع الأرصدة النقدية والفرعية والعهد
+              </span>
+            </div>
           </div>
+
+          {/* Unsettled Custodies Registry Section */}
+          {openCustodiesList.length > 0 && (
+            <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-purple-200 dark:border-purple-900/50 shadow-sm space-y-3">
+              <div className="flex items-center justify-between border-b border-purple-100 dark:border-purple-950 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-600 animate-pulse" />
+                  <h3 className="text-sm font-black text-stone-900 dark:text-stone-100">
+                    كشف العهد المفتوحة تحت التسوية (Unsettled Custodies Registry)
+                  </h3>
+                </div>
+                <span className="text-xs font-bold text-purple-700 dark:text-purple-300">
+                  {openCustodiesList.length} عهدة قائمة
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead>
+                    <tr className="border-b text-stone-500 font-bold bg-purple-50/40 dark:bg-purple-950/20">
+                      <th className="p-2.5">اسم العهدة</th>
+                      <th className="p-2.5">المستلم / صاحب العهدة</th>
+                      <th className="p-2.5 font-mono text-purple-700 dark:text-purple-400">الرصيد المتبقي</th>
+                      <th className="p-2.5 font-mono">الكاش</th>
+                      <th className="p-2.5 font-mono">المحفظة</th>
+                      <th className="p-2.5 font-mono">إنستاباي</th>
+                      <th className="p-2.5">الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-medium">
+                    {openCustodiesList.map((c) => (
+                      <tr key={c.id} className="hover:bg-purple-50/30 dark:hover:bg-purple-950/10">
+                        <td className="p-2.5 font-bold text-stone-900 dark:text-stone-100">{c.name}</td>
+                        <td className="p-2.5 text-stone-700 dark:text-stone-300 font-bold">{c.holder_name || '-'}</td>
+                        <td className="p-2.5 font-mono font-black text-purple-700 dark:text-purple-300">
+                          {c.balance} {profile.currencySymbol}
+                        </td>
+                        <td className="p-2.5 font-mono text-stone-600 dark:text-stone-400">{c.cash || 0}</td>
+                        <td className="p-2.5 font-mono text-stone-600 dark:text-stone-400">{c.wallet || 0}</td>
+                        <td className="p-2.5 font-mono text-stone-600 dark:text-stone-400">{c.instapay || 0}</td>
+                        <td className="p-2.5">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-300">
+                            مفتوحة تحت التسوية
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
             <h3 className="text-sm font-extrabold text-stone-900 dark:text-stone-100">
@@ -885,10 +1458,12 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
                           className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             tx.safeType === 'main'
                               ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : tx.safeType === 'custody'
+                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
                               : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
                           }`}
                         >
-                          {tx.safeType === 'main' ? 'رئيسية' : 'فرعية'}
+                          {tx.safeType === 'main' ? 'رئيسية' : tx.safeType === 'custody' ? 'عهدة' : 'فرعية'}
                         </span>
                       </td>
                       <td className="p-2.5 font-sans font-bold text-stone-800 dark:text-stone-200">
@@ -1106,6 +1681,420 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
               ))}
             </div>
           )}
+        </div>
+      )}
+        </>
+      )}
+
+      {/* CHARTS VIEW MODE (RECHARTS INTERACTIVE VISUALIZATIONS) */}
+      {viewMode === 'charts' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Chart 1: Profit & Loss Analysis */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-black text-sm text-stone-900 dark:text-stone-100">
+                    مقارنة الإيرادات بالمصروفات وصافي الأرباح
+                  </h4>
+                  <p className="text-xs text-stone-400">تحليل الأداء المالي للفترة المحددة</p>
+                </div>
+                <span className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600">
+                  <BarChart3 className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={[
+                      { name: 'إيراد المبيعات', value: totalSalesRevenue, fill: '#2563eb' },
+                      { name: 'مشتريات خامات', value: totalMaterialPurchasesPaid, fill: '#0284c7' },
+                      { name: 'أجور العمالة', value: totalPayrollOperatingExpenses, fill: '#7c3aed' },
+                      { name: 'مصاريف إدارية', value: totalAdminOperatingExpenses, fill: '#ea580c' },
+                      { name: 'إهلاك الأصول', value: Math.round(periodDepreciation), fill: '#d97706' },
+                      { name: 'صافي الربح', value: netEstimatedProfit, fill: netEstimatedProfit >= 0 ? '#10b981' : '#f43f5e' },
+                    ]}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 25 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-15} textAnchor="end" />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip formatter={(val: any) => [`${Number(val).toLocaleString()} ${profile.currencySymbol}`, 'القيمة']} />
+                    <Bar dataKey="value" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Chart 2: Expenses Breakdown Pie */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-black text-sm text-stone-900 dark:text-stone-100">
+                    توزيع هيكل المصروفات والتشغيل
+                  </h4>
+                  <p className="text-xs text-stone-400">نسبة كل عنصر من إجمالي تكاليف الفترة</p>
+                </div>
+                <span className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600">
+                  <PieIcon className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="h-64 w-full flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: 'أجور الفنانين', value: totalPayrollOperatingExpenses || 1 },
+                        { name: 'مشتريات خامات', value: totalMaterialPurchasesPaid || 1 },
+                        { name: 'تكاليف إدارية', value: totalAdminOperatingExpenses || 1 },
+                        { name: 'إهلاك أصول', value: Math.round(periodDepreciation) || 1 },
+                      ]}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={75}
+                      paddingAngle={4}
+                      label={({ name, percent }: any) => `${name} (${((percent || 0) * 100).toFixed(0)}%)`}
+                    >
+                      <Cell fill="#7c3aed" />
+                      <Cell fill="#0284c7" />
+                      <Cell fill="#ea580c" />
+                      <Cell fill="#d97706" />
+                    </Pie>
+                    <Tooltip formatter={(val: any) => [`${Number(val).toLocaleString()} ${profile.currencySymbol}`, 'المبلغ']} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Chart 3: Safes Liquidity Balance */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-black text-sm text-stone-900 dark:text-stone-100">
+                    توزيع السيولة النقدية والعهد المفتوحة
+                  </h4>
+                  <p className="text-xs text-stone-400">الأرصدة اللحظية المسجلة بالورشة</p>
+                </div>
+                <span className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600">
+                  <Wallet className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={[
+                      { name: 'الخزينة الرئيسية', balance: mainSafeLiveBalance, fill: '#059669' },
+                      { name: 'الخزائن الفرعية', balance: subSafeLiveBalance, fill: '#3b82f6' },
+                      { name: 'عهد تحت التسوية', balance: unsettledCustodiesLiveBalance, fill: '#d97706' },
+                    ]}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip formatter={(val: any) => [`${Number(val).toLocaleString()} ${profile.currencySymbol}`, 'الرصيد']} />
+                    <Bar dataKey="balance" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Chart 4: Assets Structure */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-black text-sm text-stone-900 dark:text-stone-100">
+                    هيكل الأصول الاستثمارية للورشة
+                  </h4>
+                  <p className="text-xs text-stone-400">النقدية، تقييم مخزون الخامات، وصافي الأصول الثابتة</p>
+                </div>
+                <span className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600">
+                  <Building className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={[
+                      { name: 'سيولة نقدية (خزن)', value: mainSafeLiveBalance + subSafeLiveBalance, fill: '#10b981' },
+                      { name: 'مخزون خامات', value: currentInventoryStockValue, fill: '#f59e0b' },
+                      { name: 'أصول ثابتة (صافي)', value: totalNetBookValue, fill: '#6366f1' },
+                      { name: 'إجمالي أصول الورشة', value: mainSafeLiveBalance + subSafeLiveBalance + currentInventoryStockValue + totalNetBookValue, fill: '#0ea5e9' },
+                    ]}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 20 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-10} textAnchor="end" />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip formatter={(val: any) => [`${Number(val).toLocaleString()} ${profile.currencySymbol}`, 'القيمة']} />
+                    <Bar dataKey="value" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INFOGRAPHICS VIEW MODE */}
+      {viewMode === 'infographics' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {/* Infographic 1: Operating Margin */}
+            <div className="p-6 rounded-3xl bg-gradient-to-br from-emerald-500/10 via-white to-white dark:from-emerald-950/30 dark:via-stone-900 dark:to-stone-900 border border-emerald-200 dark:border-emerald-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">هامش الربح التشغيلي</span>
+                <span className="p-2 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600">
+                  <TrendingUp className="w-5 h-5" />
+                </span>
+              </div>
+              <div className="text-3xl font-black font-mono text-stone-900 dark:text-stone-100">
+                {totalSalesRevenue > 0 ? ((netEstimatedProfit / totalSalesRevenue) * 100).toFixed(1) : 0}%
+              </div>
+              <p className="text-xs text-stone-500">
+                نسبة صافي الربح من إجمالي المبيعات المحققة خلال الفترة.
+              </p>
+              <div className="w-full bg-stone-200 dark:bg-stone-700 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-full rounded-full transition-all"
+                  style={{ width: `${Math.min(100, Math.max(0, totalSalesRevenue > 0 ? (netEstimatedProfit / totalSalesRevenue) * 100 : 0))}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Infographic 2: Working Capital */}
+            <div className="p-6 rounded-3xl bg-gradient-to-br from-blue-500/10 via-white to-white dark:from-blue-950/30 dark:via-stone-900 dark:to-stone-900 border border-blue-200 dark:border-blue-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-blue-700 dark:text-blue-400">رأس المال العامل التشغيلي</span>
+                <span className="p-2 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600">
+                  <Scale className="w-5 h-5" />
+                </span>
+              </div>
+              <div className="text-3xl font-black font-mono text-stone-900 dark:text-stone-100">
+                {(mainSafeLiveBalance + subSafeLiveBalance + currentInventoryStockValue).toLocaleString()} {profile.currencySymbol}
+              </div>
+              <p className="text-xs text-stone-500">
+                مجموع السيولة النقدية الجاهزة وقيمة مخزون الخامات المتاح بالورشة.
+              </p>
+              <div className="flex items-center justify-between text-[11px] font-mono text-stone-400 pt-1 border-t">
+                <span>نقدية: {(mainSafeLiveBalance + subSafeLiveBalance).toLocaleString()}</span>
+                <span>مخزون: {currentInventoryStockValue.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Infographic 3: Expense to Revenue Ratio */}
+            <div className="p-6 rounded-3xl bg-gradient-to-br from-amber-500/10 via-white to-white dark:from-amber-950/30 dark:via-stone-900 dark:to-stone-900 border border-amber-200 dark:border-amber-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-700 dark:text-amber-400">معدل عبء المصروفات</span>
+                <span className="p-2 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600">
+                  <TrendingDown className="w-5 h-5" />
+                </span>
+              </div>
+              <div className="text-3xl font-black font-mono text-stone-900 dark:text-stone-100">
+                {totalSalesRevenue > 0 ? ((totalOperatingCosts / totalSalesRevenue) * 100).toFixed(1) : 0}%
+              </div>
+              <p className="text-xs text-stone-500">
+                نسبة المصاريف والتشغيل من كل 100 {profile.currencySymbol} مبيعات.
+              </p>
+              <div className="w-full bg-stone-200 dark:bg-stone-700 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-amber-500 h-full rounded-full transition-all"
+                  style={{ width: `${Math.min(100, Math.max(0, totalSalesRevenue > 0 ? (totalOperatingCosts / totalSalesRevenue) * 100 : 0))}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Infographic 4: Labor to Materials */}
+            <div className="p-6 rounded-3xl bg-gradient-to-br from-purple-500/10 via-white to-white dark:from-purple-950/30 dark:via-stone-900 dark:to-stone-900 border border-purple-200 dark:border-purple-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-purple-700 dark:text-purple-400">نسبة العمالة إلى الخامات</span>
+                <span className="p-2 rounded-2xl bg-purple-100 dark:bg-purple-950/60 text-purple-600">
+                  <Users2 className="w-5 h-5" />
+                </span>
+              </div>
+              <div className="text-3xl font-black font-mono text-stone-900 dark:text-stone-100">
+                {totalMaterialPurchasesPaid > 0 ? ((totalPayrollOperatingExpenses / totalMaterialPurchasesPaid) * 100).toFixed(0) : 0}%
+              </div>
+              <p className="text-xs text-stone-500">
+                كفاءة التشغيل اليدوي: أجور الفنانين مقابل مشتريات الخيوط والخامات.
+              </p>
+              <div className="flex items-center justify-between text-[11px] font-mono text-stone-400 pt-1 border-t">
+                <span>أجور: {totalPayrollOperatingExpenses.toLocaleString()}</span>
+                <span>خامات: {totalMaterialPurchasesPaid.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Infographic 5: Financial Health Status */}
+            <div className="p-6 rounded-3xl bg-gradient-to-br from-cyan-500/10 via-white to-white dark:from-cyan-950/30 dark:via-stone-900 dark:to-stone-900 border border-cyan-200 dark:border-cyan-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-cyan-700 dark:text-cyan-400">مؤشر الملاءة المالية</span>
+                <span className="p-2 rounded-2xl bg-cyan-100 dark:bg-cyan-950/60 text-cyan-600">
+                  <Award className="w-5 h-5" />
+                </span>
+              </div>
+              <div className="text-2xl font-black text-stone-900 dark:text-stone-100">
+                {netEstimatedProfit > 0 && mainSafeLiveBalance > 0 ? '🟢 ممتازة وقوية' : netEstimatedProfit >= 0 ? '🟡 متوازنة ومستقرة' : '🔴 تتطلب ترشيد تكاليف'}
+              </div>
+              <p className="text-xs text-stone-500">
+                تقييم فوري يعتمد على تغطية السيولة التشغيلية وصافي عوائد المشغولات.
+              </p>
+              <div className="text-[11px] text-stone-400 font-bold">
+                السيولة الحرة: {(mainSafeLiveBalance + subSafeLiveBalance).toLocaleString()} {profile.currencySymbol}
+              </div>
+            </div>
+
+            {/* Infographic 6: Fixed Assets Health */}
+            <div className="p-6 rounded-3xl bg-gradient-to-br from-indigo-500/10 via-white to-white dark:from-indigo-950/30 dark:via-stone-900 dark:to-stone-900 border border-indigo-200 dark:border-indigo-800 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400">القيمة الدفترية للأصول</span>
+                <span className="p-2 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600">
+                  <Building className="w-5 h-5" />
+                </span>
+              </div>
+              <div className="text-3xl font-black font-mono text-stone-900 dark:text-stone-100">
+                {totalNetBookValue.toLocaleString()} {profile.currencySymbol}
+              </div>
+              <p className="text-xs text-stone-500">
+                صافي قيمة معدات وماكينات الورشة بعد خصم أقساط الإهلاك المحسوبة.
+              </p>
+              <div className="flex items-center justify-between text-[11px] font-mono text-stone-400 pt-1 border-t">
+                <span>التكلفة: {totalFixedAssetsCost.toLocaleString()}</span>
+                <span>الإهلاك: {totalAccumulatedDepreciation.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FINANCIAL CLOSING MODAL */}
+      {isClosingModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-amber-300 dark:border-stone-700 w-full max-w-xl space-y-4 text-right shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <button
+                type="button"
+                onClick={() => setIsClosingModalOpen(false)}
+                className="text-stone-400 hover:text-stone-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-black text-sm">
+                <Award className="w-5 h-5 text-amber-600" />
+                <span>إقفال الفترة المالية واعتماد القوائم الرسمية</span>
+              </div>
+            </div>
+
+            {closingSuccessNotice && (
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{closingSuccessNotice}</span>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-bold mb-1.5">نوع الإقفال المالي *</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-bold">
+                {[
+                  { id: 'monthly', label: 'إغلاق شهري' },
+                  { id: 'quarterly', label: 'إغلاق ربع سنوي' },
+                  { id: 'semi_annual', label: 'إغلاق نصف سنوي' },
+                  { id: 'annual', label: 'إغلاق السنة المالية' },
+                ].map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setClosingType(c.id as any)}
+                    className={`py-2 px-2 rounded-xl border text-center transition cursor-pointer ${
+                      closingType === c.id
+                        ? 'bg-amber-600 text-white border-amber-600 font-black'
+                        : 'bg-stone-50 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Closing Verification Matrix */}
+            <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 space-y-2 text-xs">
+              <span className="font-extrabold text-amber-900 dark:text-amber-300 block mb-1">
+                ملخص أرقام التقفيل المالي المعتمدة:
+              </span>
+              <div className="grid grid-cols-2 gap-2 font-mono">
+                <div className="p-2 bg-white dark:bg-stone-900 rounded-xl border">
+                  <span className="text-[10px] text-stone-400 block">إيرادات المبيعات:</span>
+                  <span className="font-bold text-stone-900 dark:text-stone-100">{totalSalesRevenue.toLocaleString()} {profile.currencySymbol}</span>
+                </div>
+                <div className="p-2 bg-white dark:bg-stone-900 rounded-xl border">
+                  <span className="text-[10px] text-stone-400 block">تكاليف التشغيل والمصروفات:</span>
+                  <span className="font-bold text-stone-900 dark:text-stone-100">{totalOperatingCosts.toLocaleString()} {profile.currencySymbol}</span>
+                </div>
+                <div className="p-2 bg-white dark:bg-stone-900 rounded-xl border">
+                  <span className="text-[10px] text-stone-400 block">صافي الأرباح المحققة:</span>
+                  <span className={`font-black ${netEstimatedProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{netEstimatedProfit.toLocaleString()} {profile.currencySymbol}</span>
+                </div>
+                <div className="p-2 bg-white dark:bg-stone-900 rounded-xl border">
+                  <span className="text-[10px] text-stone-400 block">رصيد السيولة النقدية:</span>
+                  <span className="font-bold text-stone-900 dark:text-stone-100">{(mainSafeLiveBalance + subSafeLiveBalance).toLocaleString()} {profile.currencySymbol}</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold mb-1">ملاحظات وقرارات الإقفال المالي</label>
+              <textarea
+                rows={2}
+                value={closingNotes}
+                onChange={(e) => setClosingNotes(e.target.value)}
+                placeholder="اكتب أي ملاحظات إدارية، ترحيل أرباح، أو تسويات مالية..."
+                className="w-full p-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs"
+              />
+            </div>
+
+            {/* Previous Closings History */}
+            {closingSnapshots.length > 0 && (
+              <div className="space-y-2 border-t pt-3">
+                <span className="text-xs font-bold text-stone-500 block">سجل الإقفالات السابقة ({closingSnapshots.length}):</span>
+                <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                  {closingSnapshots.slice(0, 5).map((snap: any) => (
+                    <div key={snap.id} className="p-2 rounded-xl bg-stone-50 dark:bg-stone-800 border flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-bold">{snap.periodLabel}</span>
+                        <span className="text-[10px] text-stone-400 block font-mono">{new Date(snap.closingDate).toLocaleDateString('ar-EG')}</span>
+                      </div>
+                      <div className="font-mono text-left">
+                        <span className="text-[10px] text-stone-400 block">صافي الربح:</span>
+                        <span className={`font-black ${snap.netEstimatedProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {snap.netEstimatedProfit.toLocaleString()} {profile.currencySymbol}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-3 border-t flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsClosingModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-stone-500 cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteClosing}
+                className="px-5 py-2 text-xs font-black text-white bg-amber-600 hover:bg-amber-700 rounded-xl cursor-pointer shadow-md"
+              >
+                اعتماد التقفيل وحفظ السجل الرسمي
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

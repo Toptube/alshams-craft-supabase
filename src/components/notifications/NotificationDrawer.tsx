@@ -63,8 +63,11 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
     return (
       item.type === 'stock_depletion' ||
       item.type === 'overdue_deposit' ||
+      item.type === 'payment_reminder' ||
       item.title.includes('عاجل') ||
       item.title.includes('تنبيه نفاد') ||
+      item.title.includes('تأخر') ||
+      item.title.includes('استحقاق') ||
       item.message.includes('أوشكت على النفاد')
     );
   };

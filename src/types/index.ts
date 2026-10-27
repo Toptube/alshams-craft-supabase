@@ -156,6 +156,23 @@ export interface TreasuryTransaction {
   createdBy: string;
 }
 
+export interface PaymentReminder {
+  id: string;
+  tenantId: string;
+  workshopId?: string;
+  title: string;
+  targetType: 'custody' | 'commitment' | 'supplier' | 'other';
+  targetId?: string;
+  targetName?: string;
+  amount: number;
+  dueDate: string; // YYYY-MM-DD
+  reminderDaysBefore: number; // e.g. 0, 1, 2, 7
+  status: 'pending' | 'settled' | 'cancelled';
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // 3. Revenues & Expenses
 export interface ExpenseItem {
   id: string;

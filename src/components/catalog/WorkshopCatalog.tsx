@@ -3,10 +3,9 @@ import { SavedProductRecord, UserProfile } from '../../types';
 import {
   MAIN_SECTIONS,
   SUB_CRAFTS_REGISTRY,
-  MainSectionDefinition,
-  SubCraftDefinition,
 } from '../../registry/craftsRegistry';
 import { tenantStorage } from '../../db/dexieDB';
+import { useTranslation } from '../../lib/i18n';
 import {
   BookOpen,
   Search,
@@ -17,16 +16,24 @@ import {
   Calculator,
   Layers,
   Boxes,
-  Tag,
-  DollarSign,
   CheckCircle,
   RefreshCw,
-  FileText,
-  Sparkles,
   ArrowUpDown,
   RotateCcw,
   Check,
   AlertCircle,
+  X,
+  Edit3,
+  Image as ImageIcon,
+  CheckSquare,
+  Square,
+  Facebook,
+  ExternalLink,
+  Tag,
+  Ruler,
+  FileText,
+  Palette,
+  Sparkles,
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -42,18 +49,63 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   onSelectRecordToLoad,
   onOpenWhatsAppShare,
 }) => {
+  const { t: tr } = useTranslation();
+
   // All loaded products stored in memory
   const [allProducts, setAllProducts] = useState<SavedProductRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
-  const [exportNotice, setExportNotice] = useState<string>('');
+  const [notice, setNotice] = useState<string>('');
 
-  // Search & Filter state (Executed completely in memory - no DB query per keystroke)
+  // Multi-selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Search & Filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedMainSection, setSelectedMainSection] = useState<string>('all');
   const [selectedCraft, setSelectedCraft] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'serial' | 'name' | 'retailPrice' | 'wholesalePrice' | 'costPrice'>('serial');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Specs Editing Modal State
+  const [editingRecord, setEditingRecord] = useState<SavedProductRecord | null>(null);
+  const [editFormData, setEditFormData] = useState<{
+    productName: string;
+    productCode: string;
+    productType: string;
+    category: string;
+    retailPrice: number;
+    wholesalePrice: number;
+    costPrice: number;
+    imageUrl: string;
+    widthCm: number;
+    heightCm: number;
+    diameterCm: number;
+    fringeLengthCm: number;
+    materialsDescription: string;
+    colorVariants: string;
+    marketingDescription: string;
+    careInstructions: string;
+    tags: string;
+  }>({
+    productName: '',
+    productCode: '',
+    productType: '',
+    category: '',
+    retailPrice: 0,
+    wholesalePrice: 0,
+    costPrice: 0,
+    imageUrl: '',
+    widthCm: 0,
+    heightCm: 0,
+    diameterCm: 0,
+    fringeLengthCm: 0,
+    materialsDescription: '',
+    colorVariants: '',
+    marketingDescription: '',
+    careInstructions: '',
+    tags: '',
+  });
 
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
   const printTemplateRef = useRef<HTMLDivElement>(null);
@@ -89,7 +141,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     return MAIN_SECTIONS.filter((s) => secIds.has(s.id));
   }, [userCrafts]);
 
-  // Sub-crafts options for the dropdown, dynamically filtered by selectedMainSection
+  // Sub-crafts options for dropdown
   const subCraftOptions = useMemo(() => {
     if (selectedMainSection === 'all') {
       return userCrafts;
@@ -102,14 +154,14 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     if (selectedCraft !== 'all') {
       const exists = subCraftOptions.some((c) => c.id === selectedCraft || c.nameAr === selectedCraft);
       if (!exists) {
-        setSelectedCraft(!subCraftOptions.length ? 'all' : 'all');
+        setSelectedCraft('all');
       }
     }
   }, [selectedMainSection, subCraftOptions]);
 
   // Helper functions to get accurate numbers and labels across legacy and current records
   const getCostPrice = (p: SavedProductRecord): number => {
-    if (typeof p.costPrice === 'number') return p.costPrice;
+    if (typeof p.costPrice === 'number' && p.costPrice > 0) return p.costPrice;
     if (p.output) {
       return Math.round(
         (p.output.totalDirectMaterialsCost || 0) +
@@ -123,12 +175,12 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   };
 
   const getRetailPrice = (p: SavedProductRecord): number => {
-    if (typeof p.retailPrice === 'number') return p.retailPrice;
+    if (typeof p.retailPrice === 'number' && p.retailPrice > 0) return p.retailPrice;
     return p.output?.finalSellingPrice || 0;
   };
 
   const getWholesalePrice = (p: SavedProductRecord): number => {
-    if (typeof p.wholesalePrice === 'number') return p.wholesalePrice;
+    if (typeof p.wholesalePrice === 'number' && p.wholesalePrice > 0) return p.wholesalePrice;
     const cost = getCostPrice(p);
     const retail = getRetailPrice(p);
     const discountPercent = profile.defaultWholesaleDiscountPercent ?? 25;
@@ -149,7 +201,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       const sec = MAIN_SECTIONS.find((s) => s.id === p.mainSectionId);
       if (sec) return sec.nameAr;
     }
-    return 'الحبال والنسيج';
+    return p.productType || 'مشغولات يدوية';
   };
 
   const getCraftDisplay = (p: SavedProductRecord): string => {
@@ -158,10 +210,10 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       const c = SUB_CRAFTS_REGISTRY.find((sc) => sc.id === p.craftId);
       if (c) return c.nameAr;
     }
-    return 'مكرمية';
+    return (p.category as string) || 'مكرمية';
   };
 
-  // Purely in-memory search and filtering (zero DB calls per keystroke)
+  // Purely in-memory search and filtering
   const filteredProducts = useMemo(() => {
     let result = [...allProducts];
 
@@ -186,7 +238,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       });
     }
 
-    // 3. Search by Name or Number (case-insensitive & trimmed)
+    // 3. Search by Name or Number
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       result = result.filter((p, idx) => {
@@ -224,12 +276,21 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     return result;
   }, [allProducts, selectedMainSection, selectedCraft, searchQuery, sortBy, sortOrder]);
 
-  // Statistics calculation for the current filtered catalog
+  // Target products for exports/shares (selected products if any are selected, else all filtered)
+  const targetProductsForExport = useMemo(() => {
+    if (selectedIds.size > 0) {
+      return filteredProducts.filter((p) => selectedIds.has(p.id));
+    }
+    return filteredProducts;
+  }, [filteredProducts, selectedIds]);
+
+  // Statistics calculation
   const catalogStats = useMemo(() => {
-    const totalCount = filteredProducts.length;
-    const totalCost = filteredProducts.reduce((sum, p) => sum + getCostPrice(p), 0);
-    const totalWholesale = filteredProducts.reduce((sum, p) => sum + getWholesalePrice(p), 0);
-    const totalRetail = filteredProducts.reduce((sum, p) => sum + getRetailPrice(p), 0);
+    const list = targetProductsForExport;
+    const totalCount = list.length;
+    const totalCost = list.reduce((sum, p) => sum + getCostPrice(p), 0);
+    const totalWholesale = list.reduce((sum, p) => sum + getWholesalePrice(p), 0);
+    const totalRetail = list.reduce((sum, p) => sum + getRetailPrice(p), 0);
 
     return {
       totalCount,
@@ -238,22 +299,120 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       totalRetail,
       avgRetail: totalCount > 0 ? Math.round(totalRetail / totalCount) : 0,
     };
-  }, [filteredProducts]);
+  }, [targetProductsForExport]);
 
-  // PDF Export Function using dedicated independent template
+  // Selection toggle handlers
+  const handleToggleSelect = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === filteredProducts.length && filteredProducts.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredProducts.map((p) => p.id)));
+    }
+  };
+
+  const isAllSelected = filteredProducts.length > 0 && selectedIds.size === filteredProducts.length;
+
+  // Open Specs Modal
+  const handleOpenEditSpecs = (record: SavedProductRecord, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditingRecord(record);
+    setEditFormData({
+      productName: record.productName || '',
+      productCode: record.productCode || (record.productSerialNumber ? `PRD-${record.productSerialNumber}` : ''),
+      productType: record.productType || getMainSectionDisplay(record),
+      category: (record.category as string) || getCraftDisplay(record),
+      retailPrice: getRetailPrice(record),
+      wholesalePrice: getWholesalePrice(record),
+      costPrice: getCostPrice(record),
+      imageUrl: record.imageUrl || record.input?.productImageUrl || '',
+      widthCm: record.input?.widthCm || 0,
+      heightCm: record.input?.totalLengthCm || record.input?.sideHeightCm || 0,
+      diameterCm: record.input?.diameterCm || 0,
+      fringeLengthCm: record.input?.fringeLengthCm || 0,
+      materialsDescription: (record as any).materialsDescription || (record.input?.cordTypeId ? `خيط ${record.input.cordTypeId} سمك ${record.input.cordThicknessMm || 4} مم` : ''),
+      colorVariants: (record as any).colorVariants || '',
+      marketingDescription: (record as any).marketingDescription || record.input?.personalNotes || '',
+      careInstructions: (record as any).careInstructions || 'تنظيف جاف أو مسح بقطعة قماش ناعمة وباردة',
+      tags: Array.isArray((record as any).tags) ? (record as any).tags.join(', ') : ((record as any).tags || ''),
+    });
+  };
+
+  // Save Specs Modifications to Dexie
+  const handleSaveSpecs = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRecord) return;
+
+    try {
+      const updated: SavedProductRecord = {
+        ...editingRecord,
+        productName: editFormData.productName.trim() || editingRecord.productName,
+        productCode: editFormData.productCode.trim() || editingRecord.productCode,
+        productType: editFormData.productType.trim() || editingRecord.productType,
+        category: editFormData.category.trim() || editingRecord.category,
+        retailPrice: Number(editFormData.retailPrice) || editingRecord.retailPrice,
+        wholesalePrice: Number(editFormData.wholesalePrice) || editingRecord.wholesalePrice,
+        costPrice: Number(editFormData.costPrice) || editingRecord.costPrice,
+        imageUrl: editFormData.imageUrl.trim() || editingRecord.imageUrl,
+        updatedAt: Date.now(),
+        input: {
+          ...editingRecord.input,
+          productName: editFormData.productName.trim() || editingRecord.input?.productName,
+          widthCm: Number(editFormData.widthCm) || editingRecord.input?.widthCm,
+          totalLengthCm: Number(editFormData.heightCm) || editingRecord.input?.totalLengthCm,
+          diameterCm: Number(editFormData.diameterCm) || editingRecord.input?.diameterCm,
+          fringeLengthCm: Number(editFormData.fringeLengthCm) || editingRecord.input?.fringeLengthCm,
+          personalNotes: editFormData.marketingDescription.trim() || editingRecord.input?.personalNotes,
+          productImageUrl: editFormData.imageUrl.trim() || editingRecord.input?.productImageUrl,
+        },
+      };
+
+      // Attach custom specs fields
+      (updated as any).materialsDescription = editFormData.materialsDescription.trim();
+      (updated as any).colorVariants = editFormData.colorVariants.trim();
+      (updated as any).marketingDescription = editFormData.marketingDescription.trim();
+      (updated as any).careInstructions = editFormData.careInstructions.trim();
+      (updated as any).tags = editFormData.tags.split(',').map((t) => t.trim()).filter(Boolean);
+
+      await tenantStorage.mutateProduct(updated);
+
+      // Update in memory state immediately
+      setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+
+      setNotice(tr('catalog_save_specs') + ' - ' + updated.productName);
+      setTimeout(() => setNotice(''), 3500);
+      setEditingRecord(null);
+    } catch (err: any) {
+      console.error('Failed to update product specs:', err);
+      alert('حدث خطأ أثناء حفظ التعديل: ' + (err.message || ''));
+    }
+  };
+
+  // PDF Export Function
   const handleExportPDF = async () => {
-    if (!printTemplateRef.current || filteredProducts.length === 0) {
-      setExportNotice('لا توجد منتجات معروضة للتصدير.');
-      setTimeout(() => setExportNotice(''), 3000);
+    if (!printTemplateRef.current || targetProductsForExport.length === 0) {
+      setNotice('لا توجد منتجات معروضة للتصدير.');
+      setTimeout(() => setNotice(''), 3000);
       return;
     }
 
     setIsExportingPdf(true);
-    setExportNotice('جاري إنشاء قالب PDF المستقل بدقة عالية...');
+    setNotice('جاري إنشاء ملف PDF للكتالوج بدقة عالية...');
 
     try {
       const templateEl = printTemplateRef.current;
-      // Temporarily reveal template for capture offscreen
       templateEl.style.display = 'block';
 
       const canvas = await html2canvas(templateEl, {
@@ -285,7 +444,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
       heightLeft -= pdfHeight;
 
-      // Add remaining pages if content exceeds A4 height
+      // Add remaining pages
       while (heightLeft > 0) {
         position = heightLeft - imgHeight;
         pdf.addPage();
@@ -293,15 +452,15 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         heightLeft -= pdfHeight;
       }
 
-      const fileName = `كتالوج_ورشة_${profile.brandName || 'الشمس'}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      const fileName = `كتالوج_${profile.brandName || 'الورشة'}_${selectedIds.size > 0 ? `مختار_${selectedIds.size}` : 'كامل'}_${new Date().toISOString().slice(0, 10)}.pdf`;
       pdf.save(fileName);
 
-      setExportNotice('تم تصدير كتالوج الورشة بصيغة PDF بنجاح!');
-      setTimeout(() => setExportNotice(''), 3500);
+      setNotice('تم تصدير كتالوج الورشة بصيغة PDF بنجاح!');
+      setTimeout(() => setNotice(''), 3500);
     } catch (err: any) {
       console.error('PDF export error:', err);
-      setExportNotice('حدث خطأ أثناء تصدير ملف PDF: ' + (err.message || ''));
-      setTimeout(() => setExportNotice(''), 4000);
+      setNotice('حدث خطأ أثناء تصدير ملف PDF: ' + (err.message || ''));
+      setTimeout(() => setNotice(''), 4000);
     } finally {
       setIsExportingPdf(false);
       if (printTemplateRef.current) {
@@ -310,54 +469,73 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     }
   };
 
-  // Dedicated Print Function using clean iframe print-to-pdf
-  const handlePrintTemplate = () => {
-    if (!printTemplateRef.current || filteredProducts.length === 0) return;
-    const content = printTemplateRef.current.innerHTML;
+  // WhatsApp Multi-Item Share
+  const handleShareWhatsApp = () => {
+    const items = targetProductsForExport;
+    if (items.length === 0) return;
 
-    const printFrame = document.createElement('iframe');
-    printFrame.style.position = 'fixed';
-    printFrame.style.right = '0';
-    printFrame.style.bottom = '0';
-    printFrame.style.width = '0';
-    printFrame.style.height = '0';
-    printFrame.style.border = '0';
-    document.body.appendChild(printFrame);
+    let text = `🌟 *كتالوج منتجات ورشة ${profile.brandName || 'الحرفية'}*\n`;
+    text += `👤 *الفنان:* ${profile.artistName || ''}\n`;
+    text += `📅 *التاريخ:* ${new Date().toLocaleDateString('ar-EG')}\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-    const doc = printFrame.contentWindow?.document;
-    if (doc) {
-      doc.open();
-      doc.write(`
-        <!DOCTYPE html>
-        <html lang="ar" dir="rtl">
-          <head>
-            <meta charset="utf-8">
-            <title>كتالوج منتجات الورشة - ${profile.brandName}</title>
-            <style>
-              body { font-family: system-ui, -apple-system, sans-serif; direction: rtl; padding: 15mm; color: #1c1917; }
-              table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 11px; }
-              th, td { border: 1px solid #d6d3d1; padding: 7px 10px; text-align: right; }
-              th { background-color: #f5f5f4; font-weight: bold; }
-              @media print {
-                @page { size: A4 portrait; margin: 10mm; }
-              }
-            </style>
-          </head>
-          <body>
-            ${content}
-          </body>
-        </html>
-      `);
-      doc.close();
+    items.forEach((p, idx) => {
+      const wholesale = getWholesalePrice(p);
+      const retail = getRetailPrice(p);
+      const serial = getProductSerialDisplay(p, idx);
+      const type = getMainSectionDisplay(p);
+      const category = getCraftDisplay(p);
 
-      setTimeout(() => {
-        printFrame.contentWindow?.focus();
-        printFrame.contentWindow?.print();
-        setTimeout(() => {
-          document.body.removeChild(printFrame);
-        }, 1000);
-      }, 500);
+      text += `📦 *[${idx + 1}] ${p.productName}*\n`;
+      text += `▫️ كود الصنف: ${serial}\n`;
+      text += `▫️ النوع والتصنيف: ${type} - ${category}\n`;
+      if (p.input?.widthCm || p.input?.totalLengthCm) {
+        text += `▫️ المقاس: ${p.input.widthCm || 0}×${p.input.totalLengthCm || p.input.sideHeightCm || 0} سم\n`;
+      }
+      text += `💰 سعر القطاعي: *${retail} ${profile.currencySymbol}*\n`;
+      text += `🏷️ سعر الجملة: *${wholesale} ${profile.currencySymbol}*\n\n`;
+    });
+
+    text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    text += `📞 للتواصل والطلب: ${profile.phoneNumber || ''}\n`;
+    text += `✨ صادر عبر منظومة الشمساوية للبرمجيات الحرفية`;
+
+    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
+  // Facebook & Social Share
+  const handleShareFacebook = async () => {
+    const items = targetProductsForExport;
+    if (items.length === 0) return;
+
+    const shareTitle = `كتالوج منتجات ورشة ${profile.brandName || 'الحرفية'}`;
+    const shareText = `تفضلوا بالاطلاع على تشكيلة المشغولات اليدوية الحصرية من ورشة ${profile.brandName || ''} (${items.length} منتج)`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: window.location.href,
+        });
+        return;
+      } catch (e) {
+        // Fallback to clipboard or dialog
+      }
     }
+
+    // Fallback: Copy summary to clipboard & open FB sharer
+    try {
+      await navigator.clipboard.writeText(shareText + '\n' + window.location.href);
+      setNotice('تم نسخ تفاصيل الكتالوج إلى الحافظة وجاري فتح نافذة فيسبوك...');
+    } catch {
+      setNotice('جاري فتح نافذة المشاركة...');
+    }
+
+    const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(shareText)}`;
+    window.open(fbUrl, '_blank', 'width=600,height=500');
+    setTimeout(() => setNotice(''), 4000);
   };
 
   return (
@@ -367,18 +545,18 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-400">
             <BookOpen className="w-4 h-4" />
-            <span>الدليل التجاري والكتالوج الرسمي للورشة</span>
+            <span>{tr('catalog_title')}</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 mt-1">
-            كتالوج منتجات الورشة
+            {profile.brandName ? `كتالوج ورشة ${profile.brandName}` : tr('catalog_title')}
           </h2>
           <p className="text-xs text-stone-500 mt-1">
-            عرض جدولي متكامل للمنتجات مع التكلفة وأسعار البيع القطاعي والجملة، وإمكانية التصدير المباشر كملف PDF
+            {tr('catalog_subtitle')}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Refresh data button */}
+          {/* Refresh data */}
           <button
             type="button"
             onClick={loadCatalogData}
@@ -388,49 +566,101 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-600' : ''}`} />
           </button>
 
-          {/* Quick Print Button */}
+          {/* WhatsApp Share Button */}
           <button
             type="button"
-            onClick={handlePrintTemplate}
-            disabled={filteredProducts.length === 0}
-            className="px-3.5 py-2.5 rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            title="طباعة مباشرة للكتالوج"
+            onClick={handleShareWhatsApp}
+            disabled={targetProductsForExport.length === 0}
+            className="px-3.5 py-2.5 rounded-2xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="مشاركة الأصناف المحددة عبر واتساب"
           >
-            <Printer className="w-4 h-4" />
-            <span className="hidden sm:inline">طباعة</span>
+            <Share2 className="w-4 h-4 text-emerald-600" />
+            <span className="hidden sm:inline">{tr('catalog_share_whatsapp')}</span>
           </button>
 
-          {/* Export PDF Button - Main Requirement */}
+          {/* Facebook Share Button */}
+          <button
+            type="button"
+            onClick={handleShareFacebook}
+            disabled={targetProductsForExport.length === 0}
+            className="px-3.5 py-2.5 rounded-2xl border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 hover:bg-blue-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="مشاركة الكتالوج على فيسبوك"
+          >
+            <Facebook className="w-4 h-4 text-blue-600" />
+            <span className="hidden sm:inline">{tr('catalog_share_facebook')}</span>
+          </button>
+
+          {/* Export PDF Button */}
           <button
             type="button"
             onClick={handleExportPDF}
-            disabled={isExportingPdf || filteredProducts.length === 0}
+            disabled={isExportingPdf || targetProductsForExport.length === 0}
             className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black text-xs shadow-md shadow-amber-600/20 active:scale-[0.98] transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
             <Download className="w-4 h-4" />
-            <span>{isExportingPdf ? 'جاري تجهيز PDF...' : 'تصدير PDF للقائمة'}</span>
+            <span>{isExportingPdf ? 'جاري تجهيز PDF...' : tr('catalog_export_pdf')}</span>
           </button>
         </div>
       </div>
 
       {/* Notice Message */}
-      {exportNotice && (
+      {notice && (
         <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
           <CheckCircle className="w-4 h-4 flex-shrink-0 text-amber-600" />
-          <span>{exportNotice}</span>
+          <span>{notice}</span>
         </div>
       )}
 
-      {/* 2. Search & Filters Bar (Pure in-memory execution) */}
+      {/* Selection Control Bar if any items selected */}
+      {selectedIds.size > 0 && (
+        <div className="p-3.5 px-4 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-400 dark:border-amber-700/60 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-1 rounded-xl bg-amber-600 text-white font-black">
+              {tr('catalog_selected_badge').replace('{count}', String(selectedIds.size))}
+            </span>
+            <span className="text-stone-600 dark:text-stone-300 font-bold">
+              (من إجمالي {filteredProducts.length} معروض)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleShareWhatsApp}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1 cursor-pointer transition"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>مشاركة واتساب ({selectedIds.size})</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleExportPDF}
+              className="px-3 py-1.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-bold flex items-center gap-1 cursor-pointer transition"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>تصدير PDF ({selectedIds.size})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="px-3 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 font-bold cursor-pointer transition"
+            >
+              {tr('catalog_deselect_all')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Search & Filters Bar */}
       <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-center">
-          {/* Search Box: Name or Number */}
+          {/* Search Box */}
           <div className="lg:col-span-5 relative">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="البحث باسم المنتج، رقم المنتج (PRD-0001)، أو نوع القطعة..."
+              placeholder="البحث باسم المنتج، كود الصنف، أو النوع..."
               className="w-full px-3.5 py-2.5 pr-9 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
             />
             <Search className="w-4 h-4 text-stone-400 absolute right-3 top-3 pointer-events-none" />
@@ -464,7 +694,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             </div>
           </div>
 
-          {/* Filter 2: القسم الفرعي / الحرفة */}
+          {/* Filter 2: الحرفة الفرعية */}
           <div className="lg:col-span-3">
             <div className="relative">
               <select
@@ -491,12 +721,12 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                 setSearchQuery('');
                 setSelectedMainSection('all');
                 setSelectedCraft('all');
+                setSelectedIds(new Set());
               }}
               title="إعادة ضبط الفلاتر"
               className="p-2.5 rounded-2xl border border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 transition cursor-pointer w-full sm:w-auto flex items-center justify-center gap-1 text-xs font-bold"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span className="lg:hidden">إعادة ضبط</span>
             </button>
           </div>
         </div>
@@ -519,7 +749,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               onChange={(e) => setSortBy(e.target.value as any)}
               className="px-2.5 py-1 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-[11px] font-bold text-stone-700 dark:text-stone-300 outline-none"
             >
-              <option value="serial">رقم المنتج</option>
+              <option value="serial">رقم وكود الصنف</option>
               <option value="name">اسم المنتج</option>
               <option value="retailPrice">سعر القطاعي</option>
               <option value="wholesalePrice">سعر الجملة</option>
@@ -552,108 +782,172 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             لم يتم العثور على منتجات مطابقة للبحث أو الفلتر
           </h3>
           <p className="text-xs text-stone-400 max-w-sm mx-auto">
-            تأكد من كتابة الاسم أو الرقم بشكل صحيح، أو أضف منتجات جديدة من حاسبة الإنتاج لتظهر هنا فورياً!
+            تأكد من كتابة الاسم أو الرقم بشكل صحيح، أو صدّر منتجاتك من حاسبة التكاليف لتظهر هنا تلقائياً!
           </p>
         </div>
       ) : (
         <>
-          {/* DESKTOP TABLE VIEW (md and up) */}
+          {/* DESKTOP TABLE VIEW - Exact requested column structure */}
           <div className="hidden md:block rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-right text-xs">
                 <thead>
                   <tr className="bg-stone-50 dark:bg-stone-800/60 border-b border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-300 font-black">
-                    <th className="py-3.5 px-4 text-center">رقم المنتج</th>
-                    <th className="py-3.5 px-4">القسم الأساسي</th>
-                    <th className="py-3.5 px-4">القسم الفرعي</th>
-                    <th className="py-3.5 px-4">اسم المنتج</th>
-                    <th className="py-3.5 px-4 text-center font-mono">التكلفة</th>
+                    {/* Checkbox Select All */}
+                    <th className="py-3.5 px-3 text-center w-10">
+                      <button
+                        type="button"
+                        onClick={handleSelectAll}
+                        title={isAllSelected ? tr('catalog_deselect_all') : tr('catalog_select_all')}
+                        className="p-1 text-stone-600 dark:text-stone-300 hover:text-amber-600 transition"
+                      >
+                        {isAllSelected ? (
+                          <CheckSquare className="w-4 h-4 text-amber-600" />
+                        ) : selectedIds.size > 0 ? (
+                          <div className="w-4 h-4 rounded border-2 border-amber-600 bg-amber-600/20 flex items-center justify-center text-[10px] text-amber-700 font-bold">
+                            -
+                          </div>
+                        ) : (
+                          <Square className="w-4 h-4" />
+                        )}
+                      </button>
+                    </th>
+                    {/* 1. نوع المنتج */}
+                    <th className="py-3.5 px-4">{tr('catalog_table_type')}</th>
+                    {/* 2. تصنيف المنتج */}
+                    <th className="py-3.5 px-4">{tr('catalog_table_category')}</th>
+                    {/* 3. اسم المنتج */}
+                    <th className="py-3.5 px-4">{tr('catalog_table_name')}</th>
+                    {/* 4. كود الصنف */}
+                    <th className="py-3.5 px-4 text-center font-mono">{tr('catalog_table_code')}</th>
+                    {/* 5. صورة المنتج */}
+                    <th className="py-3.5 px-4 text-center">{tr('catalog_table_image')}</th>
+                    {/* 6. تسعيرة جملة */}
                     <th className="py-3.5 px-4 text-center font-mono text-emerald-700 dark:text-emerald-400">
-                      سعر الجملة
+                      {tr('catalog_table_wholesale')}
                     </th>
+                    {/* 7. تسعيرة قطاعي */}
                     <th className="py-3.5 px-4 text-center font-mono text-amber-700 dark:text-amber-400">
-                      سعر القطاعي
+                      {tr('catalog_table_retail')}
                     </th>
-                    <th className="py-3.5 px-4 text-center">إجراءات</th>
+                    {/* 8. الإجراءات */}
+                    <th className="py-3.5 px-4 text-center">{tr('catalog_table_actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
                   {filteredProducts.map((p, idx) => {
-                    const cost = getCostPrice(p);
                     const wholesale = getWholesalePrice(p);
                     const retail = getRetailPrice(p);
-                    const serial = getProductSerialDisplay(p, idx);
-                    const mainSec = getMainSectionDisplay(p);
-                    const subCraft = getCraftDisplay(p);
+                    const code = getProductSerialDisplay(p, idx);
+                    const mainType = getMainSectionDisplay(p);
+                    const category = getCraftDisplay(p);
+                    const isSelected = selectedIds.has(p.id);
+                    const imgUrl = p.imageUrl || p.input?.productImageUrl;
 
                     return (
                       <tr
                         key={p.id}
-                        className="hover:bg-amber-50/40 dark:hover:bg-stone-800/40 transition group"
+                        onClick={() => handleOpenEditSpecs(p)}
+                        className={`transition cursor-pointer group ${
+                          isSelected
+                            ? 'bg-amber-500/10 dark:bg-amber-950/30'
+                            : 'hover:bg-amber-50/50 dark:hover:bg-stone-800/40'
+                        }`}
                       >
-                        {/* رقم المنتج */}
-                        <td className="py-3 px-4 text-center font-mono font-bold">
-                          <span className="px-2 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-[11px]">
-                            {serial}
-                          </span>
-                        </td>
-
-                        {/* القسم الأساسي */}
-                        <td className="py-3 px-4 font-bold text-stone-700 dark:text-stone-300">
-                          <span className="inline-flex items-center gap-1">
-                            <Boxes className="w-3.5 h-3.5 text-stone-400" />
-                            <span>{mainSec}</span>
-                          </span>
-                        </td>
-
-                        {/* القسم الفرعي */}
-                        <td className="py-3 px-4 font-bold text-stone-700 dark:text-stone-300">
-                          <span className="px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200/60 text-[11px]">
-                            {subCraft}
-                          </span>
-                        </td>
-
-                        {/* اسم المنتج */}
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            {p.imageUrl && (
-                              <img
-                                src={p.imageUrl}
-                                alt={p.productName}
-                                className="w-8 h-8 rounded-lg object-cover border border-stone-200 dark:border-stone-700 flex-shrink-0"
-                              />
+                        {/* Checkbox */}
+                        <td className="py-3 px-3 text-center" onClick={(e) => handleToggleSelect(p.id, e)}>
+                          <button
+                            type="button"
+                            className="p-1 text-stone-400 hover:text-amber-600"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-amber-600" />
+                            ) : (
+                              <Square className="w-4 h-4" />
                             )}
-                            <div>
-                              <span className="font-extrabold text-stone-900 dark:text-stone-100 block group-hover:text-amber-600 dark:group-hover:text-amber-400 transition">
-                                {p.productName}
+                          </button>
+                        </td>
+
+                        {/* 1. نوع المنتج */}
+                        <td className="py-3 px-4 font-bold text-stone-700 dark:text-stone-300">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Boxes className="w-3.5 h-3.5 text-stone-400" />
+                            <span>{mainType}</span>
+                          </span>
+                        </td>
+
+                        {/* 2. تصنيف المنتج */}
+                        <td className="py-3 px-4">
+                          <span className="px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200/60 text-[11px] font-bold">
+                            {category}
+                          </span>
+                        </td>
+
+                        {/* 3. اسم المنتج */}
+                        <td className="py-3 px-4">
+                          <div>
+                            <span className="font-extrabold text-stone-900 dark:text-stone-100 block group-hover:text-amber-600 dark:group-hover:text-amber-400 transition">
+                              {p.productName}
+                            </span>
+                            {p.input?.widthCm && p.input?.totalLengthCm ? (
+                              <span className="text-[10px] text-stone-400">
+                                {p.input.widthCm}×{p.input.totalLengthCm} سم
                               </span>
-                              {p.productType && (
-                                <span className="text-[10px] text-stone-400 font-medium">
-                                  {p.productType}
-                                </span>
-                              )}
-                            </div>
+                            ) : null}
                           </div>
                         </td>
 
-                        {/* التكلفة */}
-                        <td className="py-3 px-4 text-center font-mono font-bold text-stone-600 dark:text-stone-300">
-                          {cost} {profile.currencySymbol}
+                        {/* 4. كود الصنف */}
+                        <td className="py-3 px-4 text-center font-mono font-bold">
+                          <span className="px-2 py-0.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 text-[11px]">
+                            {code}
+                          </span>
                         </td>
 
-                        {/* سعر الجملة */}
+                        {/* 5. صورة المنتج */}
+                        <td className="py-3 px-4 text-center">
+                          {imgUrl ? (
+                            <img
+                              src={imgUrl}
+                              alt={p.productName}
+                              className="w-10 h-10 rounded-xl object-cover border border-stone-200 dark:border-stone-700 mx-auto shadow-xs"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-stone-400 mx-auto border border-dashed border-stone-300 dark:border-stone-700">
+                              <ImageIcon className="w-4 h-4" />
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 6. تسعيرة جملة */}
                         <td className="py-3 px-4 text-center font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">
                           {wholesale} {profile.currencySymbol}
                         </td>
 
-                        {/* سعر القطاعي */}
+                        {/* 7. تسعيرة قطاعي */}
                         <td className="py-3 px-4 text-center font-mono font-black text-amber-700 dark:text-amber-400 text-sm">
                           {retail} {profile.currencySymbol}
                         </td>
 
-                        {/* إجراءات سريعة */}
-                        <td className="py-3 px-4 text-center">
+                        {/* 8. الإجراءات */}
+                        <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditSpecs(p)}
+                              title={tr('catalog_edit_specs')}
+                              className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onSelectRecordToLoad(p)}
+                              title="فتح في الحاسبة للتسعير"
+                              className="p-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200 transition cursor-pointer"
+                            >
+                              <Calculator className="w-3.5 h-3.5" />
+                            </button>
                             <button
                               type="button"
                               onClick={() => onOpenWhatsAppShare(p)}
@@ -661,14 +955,6 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                               className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition cursor-pointer"
                             >
                               <Share2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onSelectRecordToLoad(p)}
-                              title="فتح في الحاسبة للتعديل"
-                              className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer"
-                            >
-                              <Calculator className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -682,10 +968,15 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             {/* Desktop Table Footer Totals */}
             <div className="p-4 bg-stone-50 dark:bg-stone-800/70 border-t border-stone-200 dark:border-stone-800 flex flex-wrap items-center justify-between text-xs font-bold text-stone-600 dark:text-stone-300">
               <div>
-                <span>إجمالي الأصناف: </span>
+                <span>إجمالي الأصناف المعروضة: </span>
                 <span className="font-mono text-amber-600 dark:text-amber-400 font-black">
                   {catalogStats.totalCount}
                 </span>
+                {selectedIds.size > 0 && (
+                  <span className="text-amber-700 dark:text-amber-400 font-bold mr-2">
+                    (المحدد: {selectedIds.size})
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-6">
                 <div>
@@ -704,98 +995,124 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             </div>
           </div>
 
-          {/* MOBILE CARDS VIEW (Transforms into cards on mobile - Requirement) */}
+          {/* MOBILE CARDS VIEW */}
           <div className="md:hidden space-y-3">
             {filteredProducts.map((p, idx) => {
-              const cost = getCostPrice(p);
               const wholesale = getWholesalePrice(p);
               const retail = getRetailPrice(p);
-              const serial = getProductSerialDisplay(p, idx);
-              const mainSec = getMainSectionDisplay(p);
-              const subCraft = getCraftDisplay(p);
+              const code = getProductSerialDisplay(p, idx);
+              const mainType = getMainSectionDisplay(p);
+              const category = getCraftDisplay(p);
+              const isSelected = selectedIds.has(p.id);
+              const imgUrl = p.imageUrl || p.input?.productImageUrl;
 
               return (
                 <div
                   key={p.id}
-                  className="p-4 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-3"
+                  onClick={() => handleOpenEditSpecs(p)}
+                  className={`p-4 rounded-3xl border shadow-sm space-y-3 transition cursor-pointer ${
+                    isSelected
+                      ? 'bg-amber-500/10 border-amber-400 dark:border-amber-700'
+                      : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800'
+                  }`}
                 >
-                  {/* Top Bar: Serial & Section Badges */}
+                  {/* Top Bar: Checkbox & Badges */}
                   <div className="flex items-center justify-between gap-2">
-                    <span className="px-2.5 py-1 rounded-xl bg-stone-100 dark:bg-stone-800 font-mono font-black text-xs text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700">
-                      {serial}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => handleToggleSelect(p.id, e)}
+                      className="flex items-center gap-2 p-1 text-xs font-bold text-stone-700 dark:text-stone-300"
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="w-4 h-4 text-amber-600" />
+                      ) : (
+                        <Square className="w-4 h-4 text-stone-400" />
+                      )}
+                      <span className="font-mono text-stone-900 dark:text-stone-100">{code}</span>
+                    </button>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
-                        {mainSec}
+                        {mainType}
                       </span>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300/40">
-                        {subCraft}
+                        {category}
                       </span>
                     </div>
                   </div>
 
                   {/* Body: Image & Name */}
                   <div className="flex items-start gap-3 pt-1">
-                    {p.imageUrl && (
+                    {imgUrl ? (
                       <img
-                        src={p.imageUrl}
+                        src={imgUrl}
                         alt={p.productName}
                         className="w-14 h-14 rounded-2xl object-cover border border-stone-200 dark:border-stone-700 flex-shrink-0"
                       />
+                    ) : (
+                      <div className="w-14 h-14 rounded-2xl bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-stone-400 border border-dashed border-stone-300 dark:border-stone-700 flex-shrink-0">
+                        <ImageIcon className="w-5 h-5" />
+                      </div>
                     )}
                     <div className="flex-1">
                       <h4 className="font-black text-sm text-stone-900 dark:text-stone-100 leading-snug">
                         {p.productName}
                       </h4>
-                      {p.productType && (
-                        <p className="text-[11px] text-stone-400 mt-0.5">
-                          نوع المنتج: {p.productType}
-                        </p>
-                      )}
+                      <p className="text-[11px] text-stone-400 mt-0.5">
+                        كود: {code} • {mainType}
+                      </p>
                     </div>
                   </div>
 
-                  {/* Pricing 3-Box Grid */}
-                  <div className="grid grid-cols-3 gap-2 p-2.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-100 dark:border-stone-800 text-center font-mono">
-                    <div className="p-1">
-                      <span className="text-[9px] text-stone-400 font-sans block mb-0.5">التكلفة</span>
-                      <span className="text-xs font-bold text-stone-600 dark:text-stone-300">
-                        {cost} <span className="text-[9px]">{profile.currencySymbol}</span>
+                  {/* Pricing 2-Box Grid */}
+                  <div className="grid grid-cols-2 gap-2 p-2.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-100 dark:border-stone-800 text-center font-mono">
+                    <div className="p-1 border-l border-stone-200 dark:border-stone-700">
+                      <span className="text-[9px] text-emerald-600 font-sans block mb-0.5">
+                        {tr('catalog_table_wholesale')}
                       </span>
-                    </div>
-                    <div className="p-1 border-x border-stone-200/80 dark:border-stone-700">
-                      <span className="text-[9px] text-emerald-600 font-sans block mb-0.5">الجملة</span>
                       <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
                         {wholesale} <span className="text-[9px]">{profile.currencySymbol}</span>
                       </span>
                     </div>
                     <div className="p-1">
-                      <span className="text-[9px] text-amber-600 font-sans block mb-0.5">القطاعي</span>
+                      <span className="text-[9px] text-amber-600 font-sans block mb-0.5">
+                        {tr('catalog_table_retail')}
+                      </span>
                       <span className="text-xs font-black text-amber-700 dark:text-amber-400">
                         {retail} <span className="text-[9px]">{profile.currencySymbol}</span>
                       </span>
                     </div>
                   </div>
 
-                  {/* Card Actions */}
-                  <div className="flex items-center justify-between pt-1 text-xs">
+                  {/* Actions */}
+                  <div className="flex items-center justify-between pt-1 text-xs" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
-                      onClick={() => onSelectRecordToLoad(p)}
+                      onClick={() => handleOpenEditSpecs(p)}
                       className="text-amber-600 dark:text-amber-400 font-bold hover:underline flex items-center gap-1"
                     >
-                      <Calculator className="w-3.5 h-3.5" />
-                      <span>تعديل في الحاسبة</span>
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>{tr('catalog_edit_specs')}</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => onOpenWhatsAppShare(p)}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1 border border-emerald-300/40"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                      <span>واتساب</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onSelectRecordToLoad(p)}
+                        className="px-2.5 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center gap-1"
+                      >
+                        <Calculator className="w-3.5 h-3.5" />
+                        <span>الحاسبة</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onOpenWhatsAppShare(p)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1 border border-emerald-300/40"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>واتساب</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -804,7 +1121,305 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         </>
       )}
 
-      {/* 4. DEDICATED INDEPENDENT PRINT/PDF TEMPLATE (OFFSCREEN) */}
+      {/* 4. MODAL: EDIT MISSING PRODUCT SPECIFICATIONS */}
+      {editingRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="w-full max-w-2xl bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-stone-200 dark:border-stone-800 flex items-center justify-between bg-stone-50 dark:bg-stone-800/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-stone-900 dark:text-stone-100">
+                    {tr('catalog_specs_modal_title')}
+                  </h3>
+                  <p className="text-xs text-stone-500">
+                    كتابة وإكمال المواصفات الناقصة وحفظ التعديلات في الكتالوج
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingRecord(null)}
+                className="p-2 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSaveSpecs} className="p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs">
+              {/* Product Identity */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                    {tr('catalog_table_name')} *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.productName}
+                    onChange={(e) => setEditFormData({ ...editFormData, productName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                    {tr('catalog_table_code')} (SKU)
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.productCode}
+                    onChange={(e) => setEditFormData({ ...editFormData, productCode: e.target.value })}
+                    placeholder="مثال: PRD-0042 أو MAC-RUN-01"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-mono font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              {/* Type and Category */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                    {tr('catalog_table_type')}
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.productType}
+                    onChange={(e) => setEditFormData({ ...editFormData, productType: e.target.value })}
+                    placeholder="مثال: رانر، مرآة، كوشن، ستائر..."
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                    {tr('catalog_table_category')}
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.category}
+                    onChange={(e) => setEditFormData({ ...editFormData, category: e.target.value })}
+                    placeholder="مثال: مكرمية، كروشيه، تطريز..."
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              {/* Pricing Fields */}
+              <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-300/40 dark:border-amber-700/40 space-y-3">
+                <h4 className="font-black text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5" />
+                  <span>تعديل التسعير ({profile.currencySymbol})</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-stone-600 dark:text-stone-400 font-bold mb-1 text-[11px]">
+                      التكلفة المباشرة
+                    </label>
+                    <input
+                      type="number"
+                      value={editFormData.costPrice}
+                      onChange={(e) => setEditFormData({ ...editFormData, costPrice: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-emerald-600 font-bold mb-1 text-[11px]">
+                      {tr('catalog_table_wholesale')} *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      value={editFormData.wholesalePrice}
+                      onChange={(e) => setEditFormData({ ...editFormData, wholesalePrice: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-stone-900 text-emerald-700 dark:text-emerald-400 font-mono font-black"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-amber-600 font-bold mb-1 text-[11px]">
+                      {tr('catalog_table_retail')} *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      value={editFormData.retailPrice}
+                      onChange={(e) => setEditFormData({ ...editFormData, retailPrice: Number(e.target.value) })}
+                      className="w-full px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-800 bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 font-mono font-black"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Physical Dimensions */}
+              <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-800 space-y-3">
+                <h4 className="font-black text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+                  <Ruler className="w-3.5 h-3.5 text-stone-500" />
+                  <span>أبعاد ومقاسات القطعة (بالسنتيمتر)</span>
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-stone-500 text-[11px] mb-1">العرض (سم)</label>
+                    <input
+                      type="number"
+                      value={editFormData.widthCm || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, widthCm: Number(e.target.value) })}
+                      placeholder="0"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono text-center font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-stone-500 text-[11px] mb-1">الارتفاع / الطول</label>
+                    <input
+                      type="number"
+                      value={editFormData.heightCm || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, heightCm: Number(e.target.value) })}
+                      placeholder="0"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono text-center font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-stone-500 text-[11px] mb-1">القطر (سم)</label>
+                    <input
+                      type="number"
+                      value={editFormData.diameterCm || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, diameterCm: Number(e.target.value) })}
+                      placeholder="0"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono text-center font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-stone-500 text-[11px] mb-1">طول الشراشيب</label>
+                    <input
+                      type="number"
+                      value={editFormData.fringeLengthCm || ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, fringeLengthCm: Number(e.target.value) })}
+                      placeholder="0"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono text-center font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Materials & Colors */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                    خامات ومواد التصنيع
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.materialsDescription}
+                    onChange={(e) => setEditFormData({ ...editFormData, materialsDescription: e.target.value })}
+                    placeholder="مثال: خيط قطن محلول 4 مم، خشب زان طبيعي، حلقات معدنية"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                    الألوان وتدرجات القطعة
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.colorVariants}
+                    onChange={(e) => setEditFormData({ ...editFormData, colorVariants: e.target.value })}
+                    placeholder="مثال: أوف وايت، كافيه، مسطردة، أخضر مريمي"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              {/* Image URL & Preview */}
+              <div>
+                <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                  رابط صورة المنتج (URL)
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="url"
+                    value={editFormData.imageUrl}
+                    onChange={(e) => setEditFormData({ ...editFormData, imageUrl: e.target.value })}
+                    placeholder="https://... أو مسار الصورة المعتمدة"
+                    className="flex-1 px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  {editFormData.imageUrl && (
+                    <img
+                      src={editFormData.imageUrl}
+                      alt="معاينة"
+                      className="w-10 h-10 rounded-xl object-cover border border-stone-300 dark:border-stone-700"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Marketing Description & Care Instructions */}
+              <div>
+                <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                  وصف المنتج الترويجي (Marketing Copy)
+                </label>
+                <textarea
+                  rows={2}
+                  value={editFormData.marketingDescription}
+                  onChange={(e) => setEditFormData({ ...editFormData, marketingDescription: e.target.value })}
+                  placeholder="وصف جذاب للمنتج، مميزاته، وطريقة استخدامه في الديكور..."
+                  className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-medium outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                    تعليمات العناية والغسيل
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.careInstructions}
+                    onChange={(e) => setEditFormData({ ...editFormData, careInstructions: e.target.value })}
+                    placeholder="مثال: تنظيف جاف فقط، تجنب الغمر في الماء"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-medium outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
+                    وسوم البحث والتصنيف (Tags - مفصولة بفواصل)
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.tags}
+                    onChange={(e) => setEditFormData({ ...editFormData, tags: e.target.value })}
+                    placeholder="بوهيمي, ديكور_مودرن, هدايا, مكرمية_حائط"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-medium outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              {/* Form Action Buttons */}
+              <div className="pt-4 border-t border-stone-200 dark:border-stone-800 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingRecord(null)}
+                  className="px-5 py-2.5 rounded-2xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 font-bold cursor-pointer transition"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black shadow-md shadow-amber-600/20 active:scale-[0.98] transition cursor-pointer"
+                >
+                  {tr('catalog_save_specs')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. DEDICATED INDEPENDENT PRINT/PDF TEMPLATE (OFFSCREEN) */}
       <div style={{ display: 'none' }}>
         <div
           ref={printTemplateRef}
@@ -831,7 +1446,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
           >
             <div>
               <h1 style={{ margin: '0 0 6px 0', fontSize: '22px', fontWeight: 'bold', color: '#78350f' }}>
-                كتالوج منتجات الورشة
+                كتالوج منتجات الورشة الرسمي
               </h1>
               <p style={{ margin: '0', fontSize: '14px', fontWeight: 'bold', color: '#1c1917' }}>
                 براند: {profile.brandName} | الفنان: {profile.artistName}
@@ -842,7 +1457,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             </div>
             <div style={{ textAlign: 'left', fontSize: '11px', color: '#78716c' }}>
               <p style={{ margin: '0' }}>تاريخ الإصدار: {new Date().toLocaleDateString('ar-EG')}</p>
-              <p style={{ margin: '4px 0 0 0' }}>عدد المنتجات: {filteredProducts.length}</p>
+              <p style={{ margin: '4px 0 0 0' }}>عدد المنتجات: {targetProductsForExport.length}</p>
               <p style={{ margin: '4px 0 0 0', color: '#d97706', fontWeight: 'bold' }}>
                 العملة: {profile.currencySymbol} ({profile.currency})
               </p>
@@ -861,23 +1476,22 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             <thead>
               <tr style={{ backgroundColor: '#fef3c7', borderBottom: '2px solid #b45309' }}>
                 <th style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'center', width: '30px' }}>#</th>
-                <th style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'center', width: '75px' }}>رقم المنتج</th>
-                <th style={{ padding: '8px', border: '1px solid #e5e7eb', width: '110px' }}>القسم الأساسي</th>
-                <th style={{ padding: '8px', border: '1px solid #e5e7eb', width: '90px' }}>القسم الفرعي</th>
+                <th style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'center', width: '80px' }}>كود الصنف</th>
+                <th style={{ padding: '8px', border: '1px solid #e5e7eb', width: '100px' }}>نوع المنتج</th>
+                <th style={{ padding: '8px', border: '1px solid #e5e7eb', width: '90px' }}>التصنيف</th>
                 <th style={{ padding: '8px', border: '1px solid #e5e7eb' }}>اسم المنتج / الموديل</th>
-                <th style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'center', width: '75px' }}>التكلفة</th>
+                <th style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'center', width: '75px' }}>المقاس</th>
                 <th style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'center', width: '80px', color: '#047857' }}>سعر الجملة</th>
                 <th style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'center', width: '80px', color: '#b45309' }}>سعر القطاعي</th>
               </tr>
             </thead>
             <tbody>
-              {filteredProducts.map((p, idx) => {
-                const cost = getCostPrice(p);
+              {targetProductsForExport.map((p, idx) => {
                 const wholesale = getWholesalePrice(p);
                 const retail = getRetailPrice(p);
-                const serial = getProductSerialDisplay(p, idx);
-                const mainSec = getMainSectionDisplay(p);
-                const subCraft = getCraftDisplay(p);
+                const code = getProductSerialDisplay(p, idx);
+                const mainType = getMainSectionDisplay(p);
+                const category = getCraftDisplay(p);
                 const isEven = idx % 2 === 0;
 
                 return (
@@ -892,19 +1506,19 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                       {idx + 1}
                     </td>
                     <td style={{ padding: '7px 8px', border: '1px solid #e5e7eb', textAlign: 'center', fontWeight: 'bold' }}>
-                      {serial}
+                      {code}
                     </td>
                     <td style={{ padding: '7px 8px', border: '1px solid #e5e7eb' }}>
-                      {mainSec}
+                      {mainType}
                     </td>
                     <td style={{ padding: '7px 8px', border: '1px solid #e5e7eb', color: '#78350f', fontWeight: 'bold' }}>
-                      {subCraft}
+                      {category}
                     </td>
                     <td style={{ padding: '7px 8px', border: '1px solid #e5e7eb', fontWeight: 'bold' }}>
                       {p.productName}
                     </td>
-                    <td style={{ padding: '7px 8px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
-                      {cost}
+                    <td style={{ padding: '7px 8px', border: '1px solid #e5e7eb', textAlign: 'center', fontSize: '10px' }}>
+                      {p.input?.widthCm ? `${p.input.widthCm}×${p.input.totalLengthCm || 0} سم` : '-'}
                     </td>
                     <td style={{ padding: '7px 8px', border: '1px solid #e5e7eb', textAlign: 'center', fontWeight: 'bold', color: '#047857' }}>
                       {wholesale}
@@ -918,11 +1532,8 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             </tbody>
             <tfoot>
               <tr style={{ backgroundColor: '#fef3c7', fontWeight: 'bold', borderTop: '2px solid #b45309' }}>
-                <td colSpan={5} style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'right' }}>
-                  الإجمالي العام ({filteredProducts.length} منتج)
-                </td>
-                <td style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
-                  {catalogStats.totalCost}
+                <td colSpan={6} style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'right' }}>
+                  الإجمالي العام ({targetProductsForExport.length} منتج)
                 </td>
                 <td style={{ padding: '8px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#047857' }}>
                   {catalogStats.totalWholesale}

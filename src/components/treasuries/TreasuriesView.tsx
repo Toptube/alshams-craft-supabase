@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { WorkshopProfile } from '../../types';
+import { WorkshopProfile, PaymentReminder, SafeTransaction } from '../../types';
+import { tenantStorage } from '../../db/dexieDB';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from 'recharts';
 import {
   SupabaseTreasuryBalance,
   SupabaseTreasuryTransaction,
@@ -25,6 +35,8 @@ import {
   TreasuryCategory,
 } from '../../lib/treasuryCategories';
 import { useTranslation, t } from '../../lib/i18n';
+import { db } from '../../lib/firebase';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import {
   Wallet,
   ArrowRightLeft,
@@ -52,6 +64,11 @@ import {
   Tag,
   ShieldAlert,
   BellRing,
+  Calendar,
+  Clock,
+  Bell,
+  TrendingUp,
+  CheckCircle,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
 
@@ -175,6 +192,71 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
   // Info banner expand
   const [isHelpGuideOpen, setIsHelpGuideOpen] = useState(false);
 
+  // Payment Reminders State (تذكيرات سداد العهد والالتزامات المعلقة)
+  const [paymentReminders, setPaymentReminders] = useState<PaymentReminder[]>([]);
+  const [remindersModalOpen, setRemindersModalOpen] = useState(false);
+  const [newReminderTargetType, setNewReminderTargetType] = useState<'custody' | 'commitment'>('custody');
+  const [newReminderTargetId, setNewReminderTargetId] = useState('');
+  const [newReminderTitle, setNewReminderTitle] = useState('');
+  const [newReminderAmount, setNewReminderAmount] = useState<number>(0);
+  const [newReminderDueDate, setNewReminderDueDate] = useState('');
+  const [newReminderDaysBefore, setNewReminderDaysBefore] = useState<number>(2);
+  const [newReminderNotes, setNewReminderNotes] = useState('');
+  const [remindersFilter, setRemindersFilter] = useState<'all' | 'pending' | 'settled'>('all');
+  const [isReminderSubmitting, setIsReminderSubmitting] = useState(false);
+
+  // 30-Day Safe Transactions & Chart View State
+  const [safeTransactions, setSafeTransactions] = useState<SafeTransaction[]>([]);
+  const [chartSeriesFilter, setChartSeriesFilter] = useState<'all' | 'main' | 'sub'>('all');
+
+  // Sync treasury state to Firestore and dispatch events to update all reports immediately
+  const syncTreasuryToFirestoreAndBroadcast = async (balances: SupabaseTreasuryBalance[]) => {
+    if (!workshopId) return;
+
+    // 1. Immediately broadcast local custom events so Trial Balance and reports update in 0ms!
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('alshams_treasury_updated', {
+          detail: { workshopId, balances, timestamp: Date.now() },
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent('alshams_financials_updated', {
+          detail: { workshopId, balances, timestamp: Date.now() },
+        })
+      );
+    }
+
+    // 2. Persist real-time snapshot into Firestore for multi-tab and remote syncing
+    try {
+      const docRef = doc(db, 'workshops', workshopId, 'treasury_state', 'live');
+      await setDoc(
+        docRef,
+        {
+          workshopId,
+          balances: balances.map((b) => ({
+            id: b.id,
+            name: b.name,
+            kind: b.kind,
+            is_main: !!b.is_main,
+            parent_id: b.parent_id || null,
+            holder_name: b.holder_name || null,
+            status: b.status,
+            balance: Number(b.balance || 0),
+            cash: Number(b.cash || 0),
+            wallet: Number(b.wallet || 0),
+            instapay: Number(b.instapay || 0),
+            min_balance: Number(b.min_balance || 0),
+          })),
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn('Firestore treasury sync notice:', err);
+    }
+  };
+
   // Load balances from Supabase & local alerts/categories
   const loadTreasuryData = async (isManualRefresh = false) => {
     if (!workshopId) return;
@@ -187,17 +269,21 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
       if (error) {
         setErrorNotice(error.arabicMessage);
       } else {
-        setTreasuryBalances(data || []);
+        const balances = data || [];
+        setTreasuryBalances(balances);
         // Populate minAlerts from min_balance if present in database
-        if (data && data.length > 0) {
+        if (balances.length > 0) {
           const dbAlerts: Record<string, number> = {};
-          data.forEach((b) => {
+          balances.forEach((b) => {
             if (b.min_balance && Number(b.min_balance) > 0) {
               dbAlerts[b.id] = Number(b.min_balance);
             }
           });
           setMinAlerts((prev) => ({ ...prev, ...dbAlerts }));
         }
+
+        // Sync to Firestore & broadcast to Trial Balance and all reports
+        await syncTreasuryToFirestoreAndBroadcast(balances);
       }
     } catch (err: any) {
       setErrorNotice(err?.message || 'تعذر تحميل بيانات الخزن');
@@ -217,21 +303,84 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
         setCategories(synced);
       }
     } catch (e) {}
+
+    // Load payment reminders and safe transactions for 30-day analytics
+    try {
+      const rems = await tenantStorage.getPaymentReminders(workshopId);
+      setPaymentReminders(rems);
+      const txs = await tenantStorage.getSafeTransactions(workshopId);
+      setSafeTransactions(txs);
+    } catch (e) {}
   };
 
   useEffect(() => {
+    if (!workshopId) return;
+
     loadTreasuryData();
     loadLocalSettings();
 
+    // Attach Firestore real-time onSnapshot listener
+    let unsubscribeFirestore: (() => void) | null = null;
+    try {
+      const liveDocRef = doc(db, 'workshops', workshopId, 'treasury_state', 'live');
+      unsubscribeFirestore = onSnapshot(
+        liveDocRef,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const snapData = snapshot.data();
+            if (Array.isArray(snapData?.balances) && snapData.balances.length > 0) {
+              setTreasuryBalances(snapData.balances);
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(
+                  new CustomEvent('alshams_treasury_updated', {
+                    detail: { workshopId, balances: snapData.balances, fromFirestore: true },
+                  })
+                );
+                window.dispatchEvent(
+                  new CustomEvent('alshams_financials_updated', {
+                    detail: { workshopId, balances: snapData.balances, fromFirestore: true },
+                  })
+                );
+              }
+            }
+          }
+        },
+        (error) => {
+          console.warn('Firestore real-time treasuries listener:', error);
+        }
+      );
+    } catch (err) {
+      console.warn('Could not attach Firestore onSnapshot listener:', err);
+    }
+
     const handleCatsUpdated = () => setCategories(getTreasuryCategories(workshopId));
     const handleAlertsUpdated = () => setMinAlerts(getAllMinBalanceAlerts(workshopId));
+    const handleRemindersUpdated = async () => {
+      try {
+        const rems = await tenantStorage.getPaymentReminders(workshopId);
+        setPaymentReminders(rems);
+      } catch (e) {}
+    };
+    const handleFinancialsUpdated = async () => {
+      try {
+        const txs = await tenantStorage.getSafeTransactions(workshopId);
+        setSafeTransactions(txs);
+      } catch (e) {}
+    };
 
     window.addEventListener('alshams_treasury_categories_updated', handleCatsUpdated);
     window.addEventListener('alshams_treasury_alerts_updated', handleAlertsUpdated);
+    window.addEventListener('alshams_payment_reminders_changed', handleRemindersUpdated);
+    window.addEventListener('alshams_financials_updated', handleFinancialsUpdated);
+    window.addEventListener('alshams_treasury_updated', handleFinancialsUpdated);
 
     return () => {
+      if (unsubscribeFirestore) unsubscribeFirestore();
       window.removeEventListener('alshams_treasury_categories_updated', handleCatsUpdated);
       window.removeEventListener('alshams_treasury_alerts_updated', handleAlertsUpdated);
+      window.removeEventListener('alshams_payment_reminders_changed', handleRemindersUpdated);
+      window.removeEventListener('alshams_financials_updated', handleFinancialsUpdated);
+      window.removeEventListener('alshams_treasury_updated', handleFinancialsUpdated);
     };
   }, [workshopId]);
 
@@ -294,6 +443,169 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
       return threshold > 0 && Number(t.balance) <= threshold && t.status === 'open';
     });
   }, [treasuryBalances, minAlerts]);
+
+  // 30-Day Cash Flow & Balance Movement calculation for Recharts
+  const cashFlow30Days = useMemo(() => {
+    const mainBal = mainTreasury ? Number(mainTreasury.balance || 0) : 0;
+    const subBal = subTreasuries.reduce((sum, s) => sum + (Number(s.balance) || 0), 0);
+
+    const txByDay: Record<string, { main: number; sub: number }> = {};
+    safeTransactions.forEach((tx) => {
+      const d = tx.date || (tx.createdAt ? new Date(tx.createdAt).toISOString().split('T')[0] : '');
+      if (d) {
+        if (!txByDay[d]) txByDay[d] = { main: 0, sub: 0 };
+        const amt = Number(tx.amount || 0);
+        if (tx.safeType === 'main' || tx.treasuryId === 'main') {
+          txByDay[d].main += amt;
+        } else {
+          txByDay[d].sub += amt;
+        }
+      }
+    });
+
+    const now = new Date();
+    let runningMain = mainBal;
+    let runningSub = subBal;
+    const points: Array<{
+      date: string;
+      dayLabel: string;
+      mainSafe: number;
+      subSafe: number;
+      total: number;
+    }> = [];
+
+    for (let i = 0; i < 30; i++) {
+      const targetDate = new Date(now.getTime() - i * 86400000);
+      const dateStr = targetDate.toISOString().split('T')[0];
+      const dayLabel = `${targetDate.getDate()}/${targetDate.getMonth() + 1}`;
+
+      points.push({
+        date: dateStr,
+        dayLabel,
+        mainSafe: Math.round(Math.max(0, runningMain)),
+        subSafe: Math.round(Math.max(0, runningSub)),
+        total: Math.round(Math.max(0, runningMain + runningSub)),
+      });
+
+      const delta = txByDay[dateStr] || { main: 0, sub: 0 };
+      runningMain -= delta.main;
+      runningSub -= delta.sub;
+    }
+
+    return points.reverse();
+  }, [mainTreasury, subTreasuries, safeTransactions]);
+
+  const cashFlowStats = useMemo(() => {
+    if (cashFlow30Days.length === 0) return { start: 0, end: 0, change: 0, peak: 0 };
+    const start = cashFlow30Days[0].total;
+    const end = cashFlow30Days[cashFlow30Days.length - 1].total;
+    const change = end - start;
+    const peak = Math.max(...cashFlow30Days.map((p) => p.total));
+    return { start, end, change, peak };
+  }, [cashFlow30Days]);
+
+  // Payment Reminders Metrics & Handlers
+  const pendingRemindersCount = useMemo(() => {
+    return paymentReminders.filter((r) => r.status === 'pending').length;
+  }, [paymentReminders]);
+
+  const handleOpenRemindersModal = (prefillCustody?: SupabaseTreasuryBalance) => {
+    if (prefillCustody) {
+      setNewReminderTargetType('custody');
+      setNewReminderTargetId(prefillCustody.id);
+      setNewReminderTitle(`تسوية عهدة: ${prefillCustody.name}`);
+      setNewReminderAmount(Number(prefillCustody.balance) || 0);
+      const in7Days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+      setNewReminderDueDate(in7Days);
+      setNewReminderDaysBefore(2);
+      setNewReminderNotes(`صاحب العهدة: ${prefillCustody.holder_name || 'مسؤول الورشة'}`);
+    } else {
+      setNewReminderTargetType('commitment');
+      setNewReminderTargetId('');
+      setNewReminderTitle('');
+      setNewReminderAmount(0);
+      const in3Days = new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0];
+      setNewReminderDueDate(in3Days);
+      setNewReminderDaysBefore(2);
+      setNewReminderNotes('');
+    }
+    setRemindersModalOpen(true);
+  };
+
+  const handleCreateReminder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newReminderTitle.trim()) {
+      showNotice('يرجى إدخال عنوان للتذكير', true);
+      return;
+    }
+    if (!newReminderDueDate) {
+      showNotice('يرجى اختيار تاريخ استحقاق صحيح', true);
+      return;
+    }
+
+    setIsReminderSubmitting(true);
+    try {
+      const rem: PaymentReminder = {
+        id: 'rem_' + Date.now(),
+        tenantId: workshopId,
+        workshopId,
+        title: newReminderTitle.trim(),
+        targetType: newReminderTargetType,
+        targetId: newReminderTargetId || undefined,
+        targetName: newReminderTitle.trim(),
+        amount: Number(newReminderAmount) || 0,
+        dueDate: newReminderDueDate,
+        reminderDaysBefore: Number(newReminderDaysBefore) || 0,
+        status: 'pending',
+        notes: newReminderNotes.trim(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      await tenantStorage.savePaymentReminder(rem);
+      const updated = await tenantStorage.getPaymentReminders(workshopId);
+      setPaymentReminders(updated);
+      showNotice(`تم جدولة تذكير السداد "${rem.title}" بنجاح، وستظهر إشعارات عند اقتراب الموعد.`);
+      setNewReminderTitle('');
+      setNewReminderAmount(0);
+      setNewReminderNotes('');
+    } catch (err: any) {
+      showNotice(err?.message || 'فشل حفظ التذكير', true);
+    } finally {
+      setIsReminderSubmitting(false);
+    }
+  };
+
+  const handleToggleSettleReminder = async (rem: PaymentReminder) => {
+    try {
+      const newStatus = rem.status === 'settled' ? 'pending' : 'settled';
+      await tenantStorage.savePaymentReminder({
+        ...rem,
+        status: newStatus,
+        updatedAt: Date.now(),
+      });
+      const updated = await tenantStorage.getPaymentReminders(workshopId);
+      setPaymentReminders(updated);
+      showNotice(
+        newStatus === 'settled'
+          ? `تم تمييز التذكير "${rem.title}" كمسدد وتمت تسويته بنجاح!`
+          : `تمت إعادة تفعيل التذكير "${rem.title}" كالتزام معلق.`
+      );
+    } catch (err: any) {
+      showNotice(err?.message || 'فشل تحديث حالة التذكير', true);
+    }
+  };
+
+  const handleDeleteReminder = async (id: string, title: string) => {
+    try {
+      await tenantStorage.deletePaymentReminder(workshopId, id);
+      const updated = await tenantStorage.getPaymentReminders(workshopId);
+      setPaymentReminders(updated);
+      showNotice(`تم حذف التذكير "${title}".`);
+    } catch (err: any) {
+      showNotice(err?.message || 'فشل حذف التذكير', true);
+    }
+  };
 
   // Channels helper
   const channelLabel = (ch: string) => {
@@ -1072,6 +1384,22 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
             <Building className="w-4 h-4 text-amber-600" />
             <span>خزنة فرعية جديدة</span>
           </button>
+
+          {/* Button: Payment Reminders (تذكير دفع للعهد أو الالتزامات المالية المعلقة) */}
+          <button
+            type="button"
+            onClick={() => handleOpenRemindersModal()}
+            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black shadow-md transition cursor-pointer relative"
+            title="تعيين تذكير دفع للعهد أو الالتزامات المالية المعلقة"
+          >
+            <Bell className="w-4 h-4" />
+            <span>تذكيرات السداد والالتزامات</span>
+            {pendingRemindersCount > 0 && (
+              <span className="px-1.5 py-0.5 bg-rose-600 text-white text-[10px] rounded-full font-mono font-bold leading-none animate-pulse">
+                {pendingRemindersCount}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -1227,6 +1555,178 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* 30-DAY CASH MOVEMENT & BALANCES INTERACTIVE RECHARTS CHART */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-stone-100 dark:border-stone-800">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-stone-900 dark:text-stone-100">
+                حركة الأرصدة والسيولة النقدية (آخر 30 يوماً)
+              </h3>
+              <p className="text-[11px] text-stone-400">
+                رسم بياني تفاعلي يوضح تدرج السيولة اليومية في الخزينة الرئيسية والخزائن الفرعية
+              </p>
+            </div>
+          </div>
+
+          {/* Filter Series Buttons */}
+          <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800 p-1 rounded-xl self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setChartSeriesFilter('all')}
+              className={`px-2.5 py-1 text-xs rounded-lg font-bold transition cursor-pointer ${
+                chartSeriesFilter === 'all'
+                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-xs'
+                  : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+              }`}
+            >
+              إجمالي السيولة
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartSeriesFilter('main')}
+              className={`px-2.5 py-1 text-xs rounded-lg font-bold transition cursor-pointer ${
+                chartSeriesFilter === 'main'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+              }`}
+            >
+              الخزينة الرئيسية
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartSeriesFilter('sub')}
+              className={`px-2.5 py-1 text-xs rounded-lg font-bold transition cursor-pointer ${
+                chartSeriesFilter === 'sub'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+              }`}
+            >
+              الخزائن الفرعية
+            </button>
+          </div>
+        </div>
+
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-700/60">
+            <span className="text-[10px] text-stone-400 font-bold block mb-0.5">رصيد قبل 30 يوم</span>
+            <span className="font-mono font-black text-stone-800 dark:text-stone-200">
+              {cashFlowStats.start.toLocaleString()} {currency}
+            </span>
+          </div>
+          <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-700/60">
+            <span className="text-[10px] text-stone-400 font-bold block mb-0.5">الرصيد الحالي اليوم</span>
+            <span className="font-mono font-black text-amber-600 dark:text-amber-400">
+              {cashFlowStats.end.toLocaleString()} {currency}
+            </span>
+          </div>
+          <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-700/60">
+            <span className="text-[10px] text-stone-400 font-bold block mb-0.5">صافي التغير (30 يوم)</span>
+            <span
+              className={`font-mono font-black ${
+                cashFlowStats.change >= 0 ? 'text-emerald-600' : 'text-rose-600'
+              }`}
+            >
+              {cashFlowStats.change >= 0 ? '+' : ''}
+              {cashFlowStats.change.toLocaleString()} {currency}
+            </span>
+          </div>
+          <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-700/60">
+            <span className="text-[10px] text-stone-400 font-bold block mb-0.5">أعلى سيولة مسجلة</span>
+            <span className="font-mono font-black text-blue-600 dark:text-blue-400">
+              {cashFlowStats.peak.toLocaleString()} {currency}
+            </span>
+          </div>
+        </div>
+
+        {/* Recharts Area Chart */}
+        <div className="h-64 sm:h-72 w-full pt-2" dir="ltr">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={cashFlow30Days} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+              <defs>
+                <linearGradient id="mainSafeGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#d97706" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#d97706" stopOpacity={0.0} />
+                </linearGradient>
+                <linearGradient id="subSafeGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#059669" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
+                </linearGradient>
+                <linearGradient id="totalSafeGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+              <XAxis dataKey="dayLabel" tick={{ fontSize: 10 }} stroke="#888888" />
+              <YAxis tick={{ fontSize: 10 }} stroke="#888888" tickFormatter={(v) => Number(v).toLocaleString()} />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (active && payload && payload.length) {
+                    return (
+                      <div className="p-3 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-xl shadow-lg text-xs space-y-1 text-right" dir="rtl">
+                        <div className="font-black text-stone-700 dark:text-stone-300 border-b pb-1">
+                          التاريخ: {label}
+                        </div>
+                        {payload.map((entry, idx) => (
+                          <div key={idx} className="flex items-center justify-between gap-3">
+                            <span className="font-bold" style={{ color: entry.color }}>
+                              {entry.name}:
+                            </span>
+                            <span className="font-mono font-black">
+                              {Number(entry.value).toLocaleString()} {currency}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              {(chartSeriesFilter === 'all' || chartSeriesFilter === 'main') && (
+                <Area
+                  type="monotone"
+                  dataKey="mainSafe"
+                  name="الخزينة الرئيسية"
+                  stroke="#d97706"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#mainSafeGradient)"
+                />
+              )}
+              {(chartSeriesFilter === 'all' || chartSeriesFilter === 'sub') && (
+                <Area
+                  type="monotone"
+                  dataKey="subSafe"
+                  name="الخزائن الفرعية"
+                  stroke="#059669"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#subSafeGradient)"
+                />
+              )}
+              {chartSeriesFilter === 'all' && (
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  name="إجمالي السيولة"
+                  stroke="#2563eb"
+                  strokeWidth={2}
+                  strokeDasharray="4 2"
+                  fillOpacity={1}
+                  fill="url(#totalSafeGradient)"
+                />
+              )}
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -1481,6 +1981,7 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
                               onSettle={() => handleOpenSettle(c)}
                               onStatement={() => handleOpenStatement(c)}
                               onEdit={() => handleOpenEdit(c)}
+                              onReminder={() => handleOpenRemindersModal(c)}
                             />
                           ))}
                         </div>
@@ -1715,6 +2216,7 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
                                 onSettle={() => handleOpenSettle(c)}
                                 onStatement={() => handleOpenStatement(c)}
                                 onEdit={() => handleOpenEdit(c)}
+                                onReminder={() => handleOpenRemindersModal(c)}
                               />
                             ))}
                           </div>
@@ -3111,6 +3613,311 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* ========================================================= */}
+      {/* MODAL: تذكيرات السداد والالتزامات المالية المعلقة */}
+      {/* ========================================================= */}
+      {remindersModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-stone-900 w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl p-5 sm:p-6 shadow-2xl border border-stone-200 dark:border-stone-800 text-right space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => setRemindersModalOpen(false)}
+                className="p-1 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div>
+                <h3 className="text-base font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-amber-600" />
+                  <span>تذكيرات سداد العهد والالتزامات المالية</span>
+                </h3>
+                <p className="text-xs text-stone-500">
+                  تعيين تواريخ استحقاق للعهد المفتوحة أو الالتزامات مع إرسال إشعارات استباقية عند اقتراب الموعد
+                </p>
+              </div>
+            </div>
+
+            {/* Scrollable Container */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {/* Creation Form */}
+              <form
+                onSubmit={handleCreateReminder}
+                className="p-4 rounded-2xl bg-amber-50/50 dark:bg-stone-800/60 border border-amber-200/80 dark:border-stone-700 space-y-3"
+              >
+                <div className="text-xs font-black text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>إضافة تذكير سداد جديد</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                      نوع الالتزام *
+                    </label>
+                    <select
+                      value={newReminderTargetType}
+                      onChange={(e) => setNewReminderTargetType(e.target.value as any)}
+                      className="w-full p-2 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800"
+                    >
+                      <option value="custody">عهدة مالية مفتوحة تحت التسوية</option>
+                      <option value="commitment">التزام مالي / دفعة مؤجلة أخرى</option>
+                    </select>
+                  </div>
+
+                  {newReminderTargetType === 'custody' ? (
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                        اختر العهدة المعنية
+                      </label>
+                      <select
+                        value={newReminderTargetId}
+                        onChange={(e) => {
+                          const cId = e.target.value;
+                          setNewReminderTargetId(cId);
+                          const found = custodies.find((c) => c.id === cId);
+                          if (found) {
+                            setNewReminderTitle(`تسوية عهدة: ${found.name}`);
+                            setNewReminderAmount(Number(found.balance) || 0);
+                          }
+                        }}
+                        className="w-full p-2 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800"
+                      >
+                        <option value="">-- اختر من العهد المفتوحة --</option>
+                        {custodies
+                          .filter((c) => c.status === 'open')
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} ({Number(c.balance).toFixed(2)} {currency})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                        بيان الالتزام *
+                      </label>
+                      <input
+                        type="text"
+                        value={newReminderTitle}
+                        onChange={(e) => setNewReminderTitle(e.target.value)}
+                        placeholder="مثلاً: قسط ماكينة، فاتورة مورد مؤجلة..."
+                        className="w-full p-2 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800"
+                        required
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                      المبلغ المستحق ({currency})
+                    </label>
+                    <NumberInput
+                      value={newReminderAmount}
+                      onChange={(v) => setNewReminderAmount(v)}
+                      min={0}
+                      className="w-full p-2 text-xs font-mono font-bold"
+                      placeholder="0.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                      تاريخ الاستحقاق *
+                    </label>
+                    <input
+                      type="date"
+                      value={newReminderDueDate}
+                      onChange={(e) => setNewReminderDueDate(e.target.value)}
+                      className="w-full p-2 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                      التنبيه في الإشعارات قبل
+                    </label>
+                    <select
+                      value={newReminderDaysBefore}
+                      onChange={(e) => setNewReminderDaysBefore(Number(e.target.value))}
+                      className="w-full p-2 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800"
+                    >
+                      <option value={0}>في نفس يوم الاستحقاق</option>
+                      <option value={1}>قبل يوم واحد</option>
+                      <option value={2}>قبل يومين (موصى به)</option>
+                      <option value={3}>قبل 3 أيام</option>
+                      <option value={7}>قبل أسبوع كامل</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                    ملاحظات إضافية
+                  </label>
+                  <input
+                    type="text"
+                    value={newReminderNotes}
+                    onChange={(e) => setNewReminderNotes(e.target.value)}
+                    placeholder="تعليمات السداد أو شروط التسوية..."
+                    className="w-full p-2 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800"
+                  />
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="submit"
+                    disabled={isReminderSubmitting}
+                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <Bell className="w-3.5 h-3.5" />
+                    <span>{isReminderSubmitting ? 'جاري الحفظ...' : 'حفظ وتفعيل التذكير'}</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Reminders List Header & Filter */}
+              <div className="flex items-center justify-between pt-2">
+                <div className="text-xs font-black text-stone-800 dark:text-stone-200">
+                  قائمة التذكيرات المجدولة ({paymentReminders.length})
+                </div>
+                <div className="flex items-center gap-1">
+                  {(['all', 'pending', 'settled'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setRemindersFilter(mode)}
+                      className={`px-2.5 py-1 text-[11px] rounded-lg font-bold transition cursor-pointer ${
+                        remindersFilter === mode
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-stone-100 dark:bg-stone-800 text-stone-500 hover:text-stone-800'
+                      }`}
+                    >
+                      {mode === 'all' ? 'الكل' : mode === 'pending' ? 'المعلقة' : 'المسددة'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reminders Cards */}
+              {paymentReminders.length === 0 ? (
+                <div className="p-8 text-center text-xs text-stone-400 bg-stone-50 dark:bg-stone-800/40 rounded-2xl border border-dashed border-stone-200 dark:border-stone-700">
+                  لا توجد تذكيرات سداد مسجلة بعد. استخدم النموذج أعلاه لجدولة أول تذكير.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {paymentReminders
+                    .filter((r) => {
+                      if (remindersFilter === 'pending') return r.status === 'pending';
+                      if (remindersFilter === 'settled') return r.status === 'settled';
+                      return true;
+                    })
+                    .map((rem) => {
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      const isOverdue = rem.status === 'pending' && rem.dueDate < todayStr;
+                      const isDueToday = rem.status === 'pending' && rem.dueDate === todayStr;
+
+                      return (
+                        <div
+                          key={rem.id}
+                          className={`p-3.5 rounded-2xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                            rem.status === 'settled'
+                              ? 'bg-stone-50/60 dark:bg-stone-800/30 border-stone-200 dark:border-stone-800 opacity-75'
+                              : isOverdue
+                              ? 'bg-rose-50/70 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 ring-1 ring-rose-400/20'
+                              : isDueToday
+                              ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
+                              : 'bg-white dark:bg-stone-800/70 border-stone-200 dark:border-stone-700'
+                          }`}
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-xs text-stone-900 dark:text-stone-100">
+                                {rem.title}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300">
+                                {rem.targetType === 'custody' ? 'عهدة' : 'التزام'}
+                              </span>
+                              {rem.status === 'settled' ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                                  تم السداد
+                                </span>
+                              ) : isOverdue ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 animate-pulse">
+                                  متأخر!
+                                </span>
+                              ) : isDueToday ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                                  يستحق اليوم
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                                  ساري
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500">
+                              <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
+                                {Number(rem.amount || 0).toLocaleString()} {currency}
+                              </span>
+                              <span>•</span>
+                              <span>تاريخ الاستحقاق: {rem.dueDate}</span>
+                              {rem.notes && (
+                                <>
+                                  <span>•</span>
+                                  <span className="italic">{rem.notes}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 self-end sm:self-center">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSettleReminder(rem)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+                                rem.status === 'settled'
+                                  ? 'bg-stone-200 dark:bg-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-300'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                              }`}
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>{rem.status === 'settled' ? 'إعادة كمعلق' : 'تم السداد'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReminder(rem.id, rem.title)}
+                              className="p-1.5 rounded-xl text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition cursor-pointer"
+                              title="حذف التذكير"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-stone-200 dark:border-stone-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setRemindersModalOpen(false)}
+                className="px-5 py-2 rounded-xl bg-stone-200 dark:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold cursor-pointer hover:bg-stone-300"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -3128,6 +3935,7 @@ interface CustodyCardProps {
   onSettle: () => void;
   onStatement: () => void;
   onEdit: () => void;
+  onReminder?: () => void;
 }
 
 const CustodyCard: React.FC<CustodyCardProps> = ({
@@ -3140,6 +3948,7 @@ const CustodyCard: React.FC<CustodyCardProps> = ({
   onSettle,
   onStatement,
   onEdit,
+  onReminder,
 }) => {
   const isOpen = custody.status === 'open';
   const isLow = minAlert > 0 && Number(custody.balance) <= minAlert && isOpen;
@@ -3258,6 +4067,18 @@ const CustodyCard: React.FC<CustodyCardProps> = ({
             >
               <BellRing className="w-3 h-3" />
             </button>
+
+            {onReminder && (
+              <button
+                type="button"
+                onClick={onReminder}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-[10px] font-bold cursor-pointer hover:bg-amber-100"
+                title="تعيين تذكير سداد للعهدة"
+              >
+                <Bell className="w-3 h-3" />
+                <span>تذكير سداد</span>
+              </button>
+            )}
 
             <button
               type="button"

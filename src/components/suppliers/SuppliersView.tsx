@@ -402,24 +402,26 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                   <span>كشف حساب</span>
                 </button>
 
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => handleOpenEditModal(s)}
-                    className="p-1.5 text-stone-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-xl transition cursor-pointer"
+                    className="px-2.5 py-1 text-stone-600 dark:text-stone-300 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-xl border border-stone-200 dark:border-stone-700 transition cursor-pointer flex items-center gap-1 text-[11px] font-bold"
                     title="تعديل بيانات المورد"
                   >
-                    <Edit2 className="w-3.5 h-3.5" />
+                    <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                    <span>تعديل</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleDelete(s)}
                     disabled={deletingId === s.id}
-                    className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition cursor-pointer disabled:opacity-50"
+                    className="px-2.5 py-1 text-stone-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl border border-stone-200 dark:border-stone-700 transition cursor-pointer disabled:opacity-50 flex items-center gap-1 text-[11px] font-bold"
                     title="حذف المورد"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                    <span>حذف</span>
                   </button>
                 </div>
               </div>
