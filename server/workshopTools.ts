@@ -3,8 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 /**
  * أدوات قاعدة بيانات الورشة لمساعدة البيانات "شموسة" (Function Calling)
  * -------------------------------------------------------------
- * - استعلامات آمنة بعزل الورشة workshop_id.
- * - دعم الأرصدة الحقيقية للخزن والعهد ومجموع السيولة.
+ * - قراءة الأرقام والبيانات الحقيقية فقط من Supabase بدون أي قيم افتراضية.
+ * - عزل تام للورش عبر workshop_id.
  */
 
 const MAX_ROWS = 1000;
@@ -32,7 +32,7 @@ function matches(haystack: string, query?: string): boolean {
     .map((t) => t.replace(/^(ال|مع|في|عن|لي|هل)/, ''))
     .filter((t) => t.length > 1);
   if (tokens.length === 0) return true;
-  return tokens.some((t) => h.includes(t));
+  return tokens.every((t) => h.includes(t));
 }
 
 export interface ToolSchema {
@@ -110,11 +110,11 @@ export const workshopToolSchemas: ToolSchema[] = [
   },
   {
     name: 'search_treasuries',
-    description: 'يعرض أرصدة الخزائن الرئيسية والفرعية، والعهد النقدية المسلمة للأشخاص (مثل عهدة أدهم أو المساعدين).',
+    description: 'يعرض أرصدة الخزائن والعهد النقدية الحقيقية المسجلة في الورشة ومجموع السيولة الفعلي بدقة.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'اسم الخزنة، اسم صاحب العهدة، أو اتركها فارغة لعرض كافة الخزن والعهد' },
+        query: { type: 'string', description: 'اسم الخزنة، اسم صاحب العهدة، أو اتركها فارغة لعرض الكل' },
       },
     },
   },
@@ -131,7 +131,7 @@ export const workshopToolSchemas: ToolSchema[] = [
   },
   {
     name: 'workshop_overview',
-    description: 'ملخص مالي وتشغيلي شامل: إجمالي السيولة النقدية، أرصدة العهد، وإحصاءات الورشة.',
+    description: 'ملخص مالي وتشغيلي فعلي: إجمالي السيولة المحسوبة من الخزن، وإحصاءات الورشة الحقيقية.',
     parameters: { type: 'object', properties: {} },
   },
 ];
@@ -330,7 +330,7 @@ async function searchOrders(ctx: WorkshopToolContext, args: any): Promise<ToolRe
 }
 
 // -------------------------------------------------------------
-// جلب الأرصدة الحقيقية للخزن والعهد ومجموع السيولة
+// قراءة الأرصدة الحقيقية الفعلية 100% من جداول الورشة
 // -------------------------------------------------------------
 async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
   const { data, error } = await ctx.db
@@ -339,7 +339,7 @@ async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<To
     .eq('workshop_id', ctx.workshopId)
     .limit(MAX_ROWS);
 
-  if (error) return { error: 'تعذر قراءة الخزن والعهد' };
+  if (error) return { error: 'تعذر قراءة الخزن والعهد من قاعدة البيانات' };
 
   let list = data || [];
   if (args?.query && String(args.query).trim()) {
@@ -350,7 +350,10 @@ async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<To
 
   let totalWorkshopLiquidity = 0;
   const treasuriesMapped = list.map((row: any) => {
-    const realBalance = Number(row.current_balance ?? row.balance ?? row.initial_balance ?? 0);
+    // حساب الرصيد الفعلي الموجود في السجل: سواء موجب، صفر، أو حتى سالب
+    const rawVal = row.current_balance ?? row.balance ?? row.initial_balance;
+    const realBalance = rawVal !== null && rawVal !== undefined ? Number(rawVal) : 0;
+    
     totalWorkshopLiquidity += realBalance;
 
     return {
@@ -363,12 +366,9 @@ async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<To
     };
   });
 
-  const finalLiquidity = totalWorkshopLiquidity > 0 ? totalWorkshopLiquidity : 85000;
-
   return {
     total_found: treasuriesMapped.length,
-    total_liquidity: finalLiquidity,
-    currency: 'ج.م',
+    total_liquidity: totalWorkshopLiquidity, // القيمة الفعلية التراكمية الحقيقية فقط
     treasuries: treasuriesMapped,
   };
 }
@@ -423,8 +423,49 @@ async function workshopOverview(ctx: WorkshopToolContext): Promise<ToolResult> {
 
   let totalLiquidity = 0;
   for (const t of treasuriesRes.data || []) {
-    totalLiquidity += Number(t.current_balance ?? t.balance ?? t.initial_balance ?? 0);
+    const rawVal = t.current_balance ?? t.balance ?? t.initial_balance;
+    totalLiquidity += (rawVal !== null && rawVal !== undefined ? Number(rawVal) : 0);
   }
 
   return {
-    total_liquidity: totalLiquidity
+    total_liquidity: totalLiquidity, // السيولة الحقيقية كما هي في السجلات
+    active_products: (products.data || []).length,
+    materials_count: materials.count ?? 0,
+    customers_count: customers.count ?? 0,
+    suppliers_count: suppliers.count ?? 0,
+    employees_count: employees.count ?? 0,
+    treasuries_count: (treasuriesRes.data || []).length,
+  };
+}
+
+export async function runWorkshopTool(name: string, args: any, ctx: WorkshopToolContext): Promise<ToolResult> {
+  try {
+    switch (name) {
+      case 'search_materials':
+        return await searchMaterials(ctx, args);
+      case 'search_products':
+        return await searchProducts(ctx, args);
+      case 'get_product_details':
+        return await getProductDetails(ctx, args);
+      case 'search_customers':
+        return await searchCustomers(ctx, args);
+      case 'search_suppliers':
+        return await searchSuppliers(ctx, args);
+      case 'search_employees':
+        return await searchEmployees(ctx, args);
+      case 'search_orders':
+        return await searchOrders(ctx, args);
+      case 'search_treasuries':
+        return await searchTreasuries(ctx, args);
+      case 'search_transactions':
+        return await searchTransactions(ctx, args);
+      case 'workshop_overview':
+        return await workshopOverview(ctx);
+      default:
+        return { error: `أداة غير معروفة: ${name}` };
+    }
+  } catch (err: any) {
+    console.warn(`[workshopTools] ${name} failed:`, err?.message);
+    return { error: 'حدث خطأ أثناء قراءة بيانات الورشة' };
+  }
+}
