@@ -7,6 +7,8 @@ import { NotificationDrawer } from './components/notifications/NotificationDrawe
 import { CreateCenterDashboard } from './components/createCenter/CreateCenterDashboard';
 import { ProductionCalculator } from './components/calculator/ProductionCalculator';
 import { FalconAIAgent } from './components/ai/FalconAIAgent';
+import { ShamousaChatWidget } from './components/ai/ShamousaChatWidget';
+import { startProductSync } from './db/productsCloud';
 import { CraftsSelectorModal } from './components/onboarding/CraftsSelectorModal';
 import { GlobalSearchModal, GlobalSearchDataCache } from './components/search/GlobalSearchModal';
 import { UserGuideModal } from './components/guide/UserGuideModal';
@@ -216,6 +218,13 @@ export default function App() {
 
   // Open Add Material in MaterialsView
   const [openAddMaterialInView, setOpenAddMaterialInView] = useState(false);
+
+  // مزامنة المنتجات أوفلاين/أونلاين: كل حفظ يتسجل على الجهاز ويترفع للداتا بيز أول ما يكون فيه نت
+  useEffect(() => {
+    if (!currentProfile) return;
+    const tid = currentProfile.tenantId || currentProfile.workshopId || currentProfile.id || '';
+    return startProductSync(tid);
+  }, [currentProfile?.tenantId, currentProfile?.workshopId, currentProfile?.id]);
 
   // Notification loader
   const loadNotifications = useCallback(async () => {
@@ -1304,6 +1313,13 @@ export default function App() {
         isOpen={isExchangeRatesModalOpen}
         onClose={() => setIsExchangeRatesModalOpen(false)}
         profile={currentProfile}
+      />
+
+      {/* شموسة — مساعدة بيانات الورشة (أيقونة شات ثابتة أسفل الصفحة) */}
+      <ShamousaChatWidget
+        profile={currentProfile}
+        onOpenFalcon={() => setActiveView('ai_agent')}
+        liftUp={activeView === 'ai_agent'}
       />
 
       {/* Footer Attribution Watermark */}

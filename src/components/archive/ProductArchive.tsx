@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { ProductSyncBadge } from '../common/ProductSyncBadge';
+import { PRODUCTS_PULLED_EVENT } from '../../db/productSyncQueue';
 import { SavedProductRecord, UserProfile, CraftCategory } from '../../types';
 import { CRAFT_CATEGORIES, getGenderArtistTitle } from '../../utils/macrameMath';
 import { tenantStorage } from '../../db/dexieDB';
@@ -60,6 +62,15 @@ export const ProductArchive: React.FC<ProductArchiveProps> = ({
     }
   };
 
+  // لما منتجات تنزل من الداتا بيز (جهاز جديد أو تعديل من جهاز تاني) نحدّث القائمة
+  useEffect(() => {
+    const onPulled = (e: Event) => {
+      if ((e as CustomEvent).detail?.workshopId === tenantId) loadRecords();
+    };
+    window.addEventListener(PRODUCTS_PULLED_EVENT, onPulled);
+    return () => window.removeEventListener(PRODUCTS_PULLED_EVENT, onPulled);
+  }, [tenantId, selectedCategoryFilter, searchQuery]);
+
   useEffect(() => {
     loadRecords();
   }, [tenantId, selectedCategoryFilter, searchQuery]);
@@ -87,6 +98,9 @@ export const ProductArchive: React.FC<ProductArchiveProps> = ({
 
   return (
     <div className="space-y-5">
+      <div className="flex justify-end">
+        <ProductSyncBadge workshopId={tenantId} />
+      </div>
       {/* Search & Category & Craft Filter Bar */}
       <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-center gap-3">
         {/* 1. Craft Filter Dropdown - فلتر بالحِرف المختارة */}

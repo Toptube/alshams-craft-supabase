@@ -61,7 +61,9 @@ export const createInitialFalconMessage = (): ChatMessage => ({
  * 15) خريطة الأخطاء بالعربية الواضحة حسب رمز الحالة:
  * 401 (سجّل دخولك)، 403 (الحساب موقوف)، 429 (انتهى الحد اليومي)، 503 (الخدمة غير مفعّلة حالياً)، 502 (تعذر الرد، حاول مرة أخرى)
  */
-function getArabicAiError(status: number, defaultMessage?: string): string {
+function getArabicAiError(status: number, serverMessage?: string): string {
+  // رسالة السيرفر (عربية وواضحة) لها الأولوية دائماً
+  if (serverMessage && /[\u0600-\u06FF]/.test(serverMessage)) return serverMessage;
   if (status === 401) {
     return 'سجّل دخولك الأول للوصول إلى استشارات وتحليلات صقر الشمساوية AI.';
   }
@@ -71,13 +73,35 @@ function getArabicAiError(status: number, defaultMessage?: string): string {
   if (status === 429) {
     return 'انتهى الحد اليومي (20 استشارة في اليوم) للمساعد الذكي. يتجدد رصيدك تلقائياً غداً.';
   }
+  if (status === 504) {
+    return 'صقر اتأخر في الرد بسبب ضغط على الخدمة. جرّب تاني بعد دقيقة.';
+  }
   if (status === 503) {
-    return 'الخدمة غير مفعّلة حالياً على الخادم.';
+    return 'خدمة الذكاء الاصطناعي مضغوطة أو غير مفعّلة حالياً. جرّب بعد دقيقة.';
   }
   if (status === 502) {
     return 'تعذر الرد، حاول مرة أخرى.';
   }
-  return defaultMessage || 'تعذر معالجة الطلب، حاول مرة أخرى.';
+  return 'تعذر معالجة الطلب، حاول مرة أخرى.';
+}
+
+/** طلب للسيرفر بمهلة قصوى عشان "صقر يكتب..." ما تفضلش للأبد */
+async function falconFetch(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await authedFetch(url, { ...init, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error('صقر اتأخر أكتر من اللازم. اتأكد من الإنترنت وجرّب تاني بعد دقيقة.');
+    }
+    if (err instanceof TypeError) {
+      throw new Error('تعذر الاتصال بالخادم، اتأكد من الإنترنت وجرّب تاني.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
@@ -216,9 +240,16 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     }
 
     const timer = setTimeout(() => {
+      // نسخة السيرفر من غير الصور (base64) عشان الطلب يبقى خفيف
+      const serverCopy = sanitizedToStore.slice(-40).map((m) => {
+        if (!m.metadata) return m;
+        const { previewImage, ...restMeta } = m.metadata as any;
+        return { ...m, metadata: restMeta };
+      });
       authedFetch('/api/ai/session', {
         method: 'POST',
-        body: JSON.stringify({ messages: sanitizedToStore }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: serverCopy }),
       }).catch(() => {});
     }, 1200);
 
@@ -340,7 +371,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         },
       ]);
 
-      const res = await authedFetch('/api/analyze-vision', {
+      const res = await falconFetch('/api/analyze-vision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -349,11 +380,11 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           artistNotes: inputPrompt || '',
           activeCrafts: Array.isArray(profile.selectedCrafts) ? profile.selectedCrafts : [],
         }),
-      });
+      }, 100_000);
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        const errMsg = getArabicAiError(res.status, errData.error || errData.detail);
+        const errMsg = getArabicAiError(res.status, errData.error);
         throw new Error(errMsg);
       }
 
@@ -444,20 +475,21 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         category: currentCategory,
       };
 
-      const res = await authedFetch('/api/chat-agent', {
+      const res = await falconFetch('/api/chat-agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: textToSend,
           actionChip: chip || null,
-          chatHistory: messages.slice(-12),
+          // نبعت النص فقط (من غير الصور والـ SVG) عشان الطلب يبقى خفيف وسريع
+          chatHistory: messages.slice(-12).map((m) => ({ sender: m.sender, text: m.text })),
           currentContext: safeContext,
         }),
-      });
+      }, 75_000);
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        const errMsg = getArabicAiError(res.status, errData.error || errData.detail);
+        const errMsg = getArabicAiError(res.status, errData.error);
         throw new Error(errMsg);
       }
 
@@ -1010,7 +1042,7 @@ ${(vData.productionGuide || []).join('\n')}
               handleSendMessage();
             }
           }}
-          placeholder="اسأل صقر الشمساوية AI عن أي حرفة يدوية (مكرمية، ريزن، كروشيه، خشب، خزف، جلود)..."
+          placeholder="اسأل صقر الشمساوية AI عن أي حرفة يدوية ..."
           className="flex-1 px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500"
         />
 

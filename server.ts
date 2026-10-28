@@ -8,7 +8,9 @@ import {
   saveWorkshopSession,
   getWorkshopSession,
   clearWorkshopSession,
+  falconErrorResponse,
 } from './server/aiProvider';
+import { chatWithShamousa, isShamousaAvailable } from './server/shamousaProvider';
 
 // Standalone server Supabase client for JWT verification
 const supabase = createClient(supabaseConfig.url, supabaseConfig.publishableKey, {
@@ -94,9 +96,24 @@ async function recordAndCheckAiUsage(workshopId: string): Promise<{ allowed: boo
   return { allowed: memResult.allowed, remaining: memResult.remaining };
 }
 
-// Request size limits for craft image payloads
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+// إخفاء هوية السيرفر + ترويسات أمان أساسية
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// حجم كبير لمسارات تحليل الصور فقط، وصغير لباقي المسارات
+const bigJson = express.json({ limit: '25mb' });
+const mediumJson = express.json({ limit: '2mb' });
+const smallJson = express.json({ limit: '200kb' });
+app.use((req, res, next) => {
+  if (req.path === '/api/analyze-vision' || req.path === '/api/ai/analyze-image') return bigJson(req, res, next);
+  if (req.path === '/api/ai/session' || req.path === '/api/chat-agent' || req.path === '/api/ai/chat') return mediumJson(req, res, next);
+  return smallJson(req, res, next);
+});
+app.use(express.urlencoded({ extended: true, limit: '200kb' }));
 
 // Health Check Endpoint (Required by AI Studio runtime)
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
@@ -115,89 +132,48 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
     token = authHeader.split('Bearer ')[1].trim();
   }
 
-  // Fallback workshop & user context ensuring conversation with Falcon AI never cuts off
-  const fallbackUser = { uid: 'guest_artisan', email: 'artisan@alshams.local' };
-  const fallbackWorkshop = {
-    id: 'local_artisan_workshop',
-    status: 'active',
-    country: 'جمهورية مصر العربية',
-    currency: 'ج.م',
-    selected_crafts: ['macrame'],
-    settings: { hourlyRate: 30 },
-  };
-
+  // أي طلب للذكاء الاصطناعي لازم يكون من مستخدم مسجل وله ورشة.
+  // (قبل كده كان أي حد من غير تسجيل دخول بيستهلك مفتاح Gemini بتاعك)
   if (!token) {
-    (req as any).user = fallbackUser;
-    (req as any).workshop = fallbackWorkshop;
-    (req as any).workshopId = fallbackWorkshop.id;
-    (req as any).token = 'guest_token';
-    return next();
+    return res.status(401).json({ error: 'سجّل دخولك الأول' });
   }
 
   try {
-    // 1. تحقق من صحة الرمز وجلسة المستخدم إن وُجدت
     const { data: authData, error: authError } = await supabase.auth.getUser(token);
     if (authError || !authData?.user) {
-      // Gracefully continue so the conversation is never terminated
-      (req as any).user = fallbackUser;
-      (req as any).workshop = fallbackWorkshop;
-      (req as any).workshopId = fallbackWorkshop.id;
-      (req as any).token = token;
-      return next();
+      return res.status(401).json({ error: 'انتهت جلسة الدخول، سجّل الدخول من جديد' });
     }
-
     const user = authData.user;
 
-    // 2. عميل مؤقت يحمل رمز المستخدم نفسه لتطبيق RLS
+    // عميل مؤقت يحمل رمز المستخدم نفسه => كل الاستعلامات تخضع لـ RLS
     const userClient = createClient(supabaseConfig.url, supabaseConfig.publishableKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      },
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
     });
 
-    // 3. قراءة الورشة: id و status والدولة والعملة و selected_crafts و settings
-    let workshopRow: any = null;
-    try {
-      const { data: workshop, error: wsError } = await userClient
-        .from('workshops')
-        .select('id, status, country, currency, selected_crafts, settings')
-        .limit(1)
-        .maybeSingle();
+    // ملاحظة: يُفضّل فلترة صريحة بعمود المالك (مثلاً .eq('user_id', user.id))
+    // بدل الاعتماد على limit(1) فقط، عشان لو حساب أدمن بيشوف كل الورش.
+    const { data: workshopRow, error: wsError } = await userClient
+      .from('workshops')
+      .select('id, status, country, currency, selected_crafts, settings, brand_name')
+      .limit(1)
+      .maybeSingle();
 
-      if (!wsError && workshop) {
-        workshopRow = workshop;
-      }
-    } catch (fetchErr) {
-      console.warn('Could not query workshop via user client:', fetchErr);
+    if (wsError || !workshopRow) {
+      return res.status(403).json({ error: 'لم يتم العثور على ورشة لهذا الحساب' });
+    }
+    if (workshopRow.status === 'suspended') {
+      return res.status(403).json({ error: 'الحساب موقوف، يرجى التواصل مع الإدارة.' });
     }
 
-    // 4. إن كانت status = 'suspended' فارجع 403
-    if (workshopRow?.status === 'suspended') {
-      return res.status(403).json({
-        error: 'الحساب موقوف، يرجى التواصل مع الإدارة.',
-      });
-    }
-
-    (req as any).user = { uid: user.id, email: user.email, ...user };
-    (req as any).workshop = workshopRow || fallbackWorkshop;
-    (req as any).workshopId = workshopRow?.id || user.id;
-    (req as any).token = token;
-
+    (req as any).user = { uid: user.id, email: user.email };
+    (req as any).workshop = workshopRow;
+    (req as any).workshopId = workshopRow.id;
+    (req as any).userClient = userClient;
     next();
   } catch (err: any) {
-    console.warn(`[AUTH] Non-blocking verification exception on ${req.method} ${req.path}:`, err?.message);
-    (req as any).user = fallbackUser;
-    (req as any).workshop = fallbackWorkshop;
-    (req as any).workshopId = fallbackWorkshop.id;
-    (req as any).token = token;
-    next();
+    console.warn(`[AUTH] verification exception on ${req.method} ${req.path}:`, err?.message);
+    return res.status(503).json({ error: 'تعذر التحقق من الحساب، حاول مرة أخرى.' });
   }
 }
 
@@ -209,7 +185,7 @@ app.get('/api/ai/usage', requireAuth, (req: Request, res: Response) => {
     return res.json({ used, remaining, limit: 20 });
   } catch (err: any) {
     console.error('Error fetching AI usage:', err);
-    return res.status(500).json({ error: 'تعذر حساب الاستخدام اليومي', detail: err?.message });
+    return res.status(500).json({ error: 'تعذر حساب الاستخدام اليومي' });
   }
 });
 
@@ -266,10 +242,11 @@ const handleVisionAnalysis = async (req: Request, res: Response) => {
       dailyAiRemaining: usageCheck.remaining,
     });
   } catch (error: any) {
-    console.error('Vision analysis error:', error);
-    return res.status(502).json({
-      error: 'تعذر الرد، حاول مرة أخرى.',
-      detail: error?.message || String(error),
+    console.error('Vision analysis error:', error?.kind || '', error?.message || error);
+    const friendly = falconErrorResponse(error);
+    return res.status(friendly.status).json({
+      error: friendly.error,
+      ...(process.env.NODE_ENV !== 'production' ? { detail: error?.message || String(error) } : {}),
     });
   }
 };
@@ -328,16 +305,64 @@ const handleChatAgent = async (req: Request, res: Response) => {
       dailyAiRemaining: usageCheck.remaining,
     });
   } catch (error: any) {
-    console.error('Chat Agent error:', error);
-    return res.status(502).json({
-      error: 'تعذر الرد، حاول مرة أخرى.',
-      detail: error?.message || String(error),
+    console.error('Chat Agent error:', error?.kind || '', error?.message || error);
+    const friendly = falconErrorResponse(error);
+    return res.status(friendly.status).json({
+      error: friendly.error,
+      ...(process.env.NODE_ENV !== 'production' ? { detail: error?.message || String(error) } : {}),
     });
   }
 };
 
 app.post('/api/chat-agent', requireAuth, handleChatAgent);
 app.post('/api/ai/chat', requireAuth, handleChatAgent);
+
+// 4. "شموسة" — مساعدة البيانات (تبحث في خامات ومنتجات ورشة المستخدم فقط)
+// حد يومي مستقل عن صقر: 50 رسالة لكل ورشة
+const SHAMOUSA_DAILY_LIMIT = Number(process.env.SHAMOUSA_DAILY_LIMIT) || 50;
+const shamousaUsage = new Map<string, { date: string; count: number }>();
+function bumpShamousaUsage(workshopId: string): { allowed: boolean; remaining: number } {
+  const today = new Date().toISOString().split('T')[0];
+  const rec = shamousaUsage.get(workshopId);
+  if (!rec || rec.date !== today) {
+    shamousaUsage.set(workshopId, { date: today, count: 1 });
+    return { allowed: true, remaining: SHAMOUSA_DAILY_LIMIT - 1 };
+  }
+  if (rec.count >= SHAMOUSA_DAILY_LIMIT) return { allowed: false, remaining: 0 };
+  rec.count += 1;
+  return { allowed: true, remaining: SHAMOUSA_DAILY_LIMIT - rec.count };
+}
+
+app.post('/api/shamousa/chat', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const workshopId = (req as any).workshopId;
+    const workshop = (req as any).workshop;
+    const message = typeof req.body?.message === 'string' ? req.body.message.trim().slice(0, 1000) : '';
+    if (!message) return res.status(400).json({ error: 'اكتب سؤالك الأول' });
+    if (!isShamousaAvailable()) return res.status(503).json({ error: 'شموسة غير مفعّلة حالياً على الخادم' });
+
+    const usage = bumpShamousaUsage(workshopId);
+    if (!usage.allowed) {
+      return res.status(429).json({ error: `خلصت رسائل شموسة النهارده (${SHAMOUSA_DAILY_LIMIT} رسالة). يتجدد الرصيد بكرة.` });
+    }
+
+    const result = await chatWithShamousa({
+      message,
+      history: Array.isArray(req.body?.history) ? req.body.history : [],
+      ctx: { db: (req as any).userClient, workshopId },
+      brandName: workshop?.brand_name,
+      currency: workshop?.currency,
+    });
+
+    return res.json({ reply: result.reply, handoffToFalcon: result.handoffToFalcon, remaining: usage.remaining });
+  } catch (error: any) {
+    console.error('Shamousa error:', error?.message || error);
+    return res.status(502).json({
+      error: 'شموسة مش قادرة ترد دلوقتي، حاول تاني بعد شوية.',
+      ...(process.env.NODE_ENV !== 'production' ? { detail: error?.message || String(error) } : {}),
+    });
+  }
+});
 
 // 3. Chat Session Persistence Endpoints (حفظ واسترجاع جلسة المحادثة للورشة دون بيانات حساسة)
 app.get('/api/ai/session', requireAuth, (req: Request, res: Response) => {
@@ -351,7 +376,7 @@ app.get('/api/ai/session', requireAuth, (req: Request, res: Response) => {
 
 app.post('/api/ai/session', requireAuth, (req: Request, res: Response) => {
   const workshopId = (req as any).workshopId;
-  const { messages } = req.body;
+  const messages = req.body?.messages;
   if (!Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages must be an array' });
   }
@@ -373,7 +398,7 @@ app.delete('/api/ai/session', requireAuth, (req: Request, res: Response) => {
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[SERVER GLOBAL ERROR]:', err);
   if (!res.headersSent) {
-    res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم', detail: err?.message || String(err) });
+    res.status(500).json({ error: 'حدث خطأ غير متوقع في الخادم' });
   }
 });
 

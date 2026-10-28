@@ -21,6 +21,8 @@ import {
   FOUNDATIONAL_UNITS,
 } from '../../utils/macrameMath';
 import { tenantStorage } from '../../db/dexieDB';
+import { flushProductSync } from '../../db/productsCloud';
+import { markProductDirty, isPending } from '../../db/productSyncQueue';
 import { supabase } from '../../lib/supabase';
 import {
   MAIN_SECTIONS,
@@ -925,10 +927,20 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   };
 
   // Save or Mutate Product in Archive (Button relocated to absolute bottom)
+  // قفل ضد الضغط المتكرر على "حفظ" (أهم سبب لتكرار المنتجات لما النت يكون ضعيف)
+  const savingProductRef = useRef(false);
+  const pendingNewIdRef = useRef<string | null>(null);
+
   const handleSaveProduct = async () => {
+    if (savingProductRef.current) return;
+    savingProductRef.current = true;
     setSaveStatus('جاري الحفظ وتوليد الرقم التسلسلي في قاعدة البيانات...');
     try {
-      const recordId = existingRecordId || `prod_${Date.now()}`;
+      // معرف ثابت: لو المنتج جديد بنولّده مرة واحدة ونفضل نستخدمه، ومعاه جزء عشوائي عشان جهازين ما يطلعوش نفس الرقم
+      const recordId =
+        existingRecordId ||
+        pendingNewIdRef.current ||
+        (pendingNewIdRef.current = `prod_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
       const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
 
       // رقم منتج متسلسل تلقائي من قاعدة البيانات المحلية
@@ -968,23 +980,26 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
 
       // Mutates / overwrites existing record via Dexie instead of duplicating
       await tenantStorage.mutateProduct(savedRecord);
+      // ثبّت المعرف فوراً بعد الحفظ المحلي (قبل أي اتصال بالنت) عشان أي حفظ تاني يعدّل نفس المنتج
+      setExistingRecordId(recordId);
+      pendingNewIdRef.current = null;
+      // اتحفظ على الجهاز واتسجّل في طابور المزامنة (من mutateProduct).
+      // لو فيه نت بيترفع حالاً، ولو مفيش بيترفع لوحده أول ما النت يرجع.
       let cloudSynced = false;
       try {
-        const { data: authData } = await supabase.auth.getSession();
-        if (authData.session?.user) {
-          const { error: syncErr } = await supabase
-            .from('workshops')
-            .update({
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', tenantId);
-
-          if (!syncErr) {
-            cloudSynced = true;
-          }
+        const primaryName = basicMaterials.find((m) => m.id === cordTypeId)?.materialName;
+        if (tenantId) {
+          markProductDirty(tenantId, savedRecord.id, primaryName);
+          // ما نستناش النت أكتر من 6 ثواني — الحفظ المحلي تم، والرفع يكمل في الخلفية
+          const attempt = async () => {
+            await flushProductSync(tenantId);
+            if (isPending(tenantId, savedRecord.id) && navigator.onLine) await flushProductSync(tenantId);
+          };
+          await Promise.race([attempt().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]);
+          cloudSynced = !isPending(tenantId, savedRecord.id);
         }
       } catch (e) {
-        console.warn('Supabase sync check deferred:', e);
+        console.warn('Supabase product sync deferred:', e);
         cloudSynced = false;
       }
 
@@ -1030,6 +1045,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     } catch (err: any) {
       playErrorSound();
       setSaveStatus('تعذر الحفظ: ' + (err.message || 'خطأ غير معروف'));
+    } finally {
+      savingProductRef.current = false;
     }
   };
 

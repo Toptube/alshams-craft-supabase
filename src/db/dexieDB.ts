@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { markProductDirty } from './productSyncQueue';
 import {
   UserProfile,
   SavedProductRecord,
@@ -151,6 +152,12 @@ export const tenantStorage = {
     record.updatedAt = Date.now();
     record.isActive = record.isActive !== false;
     await db.products.put(record);
+    if (record.tenantId) markProductDirty(record.tenantId, record.id);
+  },
+
+  /** منتج وارد من المزامنة السحابية — يحفظ محلياً دون إعادته لطابور الرفع */
+  async applyRemoteProduct(record: SavedProductRecord): Promise<void> {
+    await db.products.put(record);
   },
 
   async getNextProductSerialNumber(tenantId: string): Promise<number> {
@@ -164,7 +171,9 @@ export const tenantStorage = {
     const item = await db.products.get(id);
     if (item && item.tenantId === tenantId) {
       item.isActive = false;
+      item.updatedAt = Date.now();
       await db.products.put(item);
+      markProductDirty(tenantId, id);
 
       // Log in System Activity Report
       await this.logActivity({

@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 
 export interface AIVisionPromptInput {
   imageBase64: string;
@@ -44,14 +44,46 @@ function markSearchQuotaExhausted(): void {
   searchQuotaExhaustedUntil = Date.now() + 2 * 60 * 1000;
 }
 
+export type GeminiErrorKind = 'timeout' | 'quota' | 'unavailable' | 'bad_key' | 'bad_request' | 'other';
+
+export function classifyGeminiError(err: any, aborted = false): GeminiErrorKind {
+  const msg = String(err?.message || err || '');
+  const status = Number(err?.status || err?.code || 0);
+  if (aborted || err?.name === 'AbortError' || /abort|DEADLINE_EXCEEDED|timed? ?out/i.test(msg)) return 'timeout';
+  if (status === 429 || /429|RESOURCE_EXHAUSTED|quota|rate limit/i.test(msg)) return 'quota';
+  if ([500, 502, 503, 504].includes(status) || /\b50[0234]\b|UNAVAILABLE|overloaded|INTERNAL/i.test(msg)) return 'unavailable';
+  if ([401, 403].includes(status) || /API key|PERMISSION_DENIED|API_KEY_INVALID/i.test(msg)) return 'bad_key';
+  if (status === 400 || /INVALID_ARGUMENT|400/.test(msg)) return 'bad_request';
+  return 'other';
+}
+
+/** رسالة عربية واضحة + كود HTTP مناسب لكل نوع خطأ */
+export function falconErrorResponse(err: any): { status: number; error: string } {
+  switch (err?.kind as GeminiErrorKind | undefined) {
+    case 'timeout':
+      return { status: 504, error: 'صقر اتأخر في الرد بسبب ضغط على الخدمة. جرّب تاني بعد دقيقة، أو اختصر سؤالك.' };
+    case 'quota':
+      return { status: 503, error: 'الحصة المجانية لصقر خلصت مؤقتاً (حد الدقيقة أو اليوم من جوجل). جرّب بعد دقيقة.' };
+    case 'unavailable':
+      return { status: 503, error: 'خدمة الذكاء الاصطناعي مضغوطة دلوقتي. جرّب تاني بعد شوية.' };
+    case 'bad_key':
+      return { status: 503, error: 'مفتاح Gemini على السيرفر غير صالح أو غير مفعّل. راجع Secrets في AI Studio.' };
+    default:
+      return { status: 502, error: 'تعذر الرد، حاول مرة أخرى.' };
+  }
+}
+
 export class GeminiAIProvider {
   private ai: GoogleGenAI | null = null;
   private modelName: string;
+  private fallbackModel: string;
 
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;
     // Default model from GEMINI_MODEL with a valid default fallback
     this.modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+    // موديل احتياطي بحصة مجانية منفصلة: يشتغل تلقائياً لو الأساسي اتأخر أو حصته خلصت
+    this.fallbackModel = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash';
 
     if (apiKey) {
       this.ai = new GoogleGenAI({
@@ -75,6 +107,60 @@ export class GeminiAIProvider {
    *
    * الخطوة 2 (ببحث): البحث عن أسعار منتج مشابه في دولة وعملة المستخدم، مع معالجة ذكية لحصة البحث 429.
    */
+  /**
+   * استدعاء Gemini بحماية من التعليق:
+   * - مهلة قصوى لكل محاولة (AbortSignal) بدل ما الطلب يفضل معلق دقايق.
+   * - تفكير منخفض لموديلات Gemini 3 (أسرع بكتير في الرد).
+   * - لو الموديل الأساسي اتأخر/حصته خلصت/مضغوط => تحويل فوري للموديل الاحتياطي.
+   */
+  private async generate(
+    req: { contents: any; config?: any },
+    opts: { label: string; timeoutMs: number; fallbackTimeoutMs?: number; noFallback?: boolean }
+  ): Promise<any> {
+    if (!this.ai) throw new Error('مفتاح GEMINI_API_KEY غير مضبوط على الخادم');
+    const models = opts.noFallback || this.fallbackModel === this.modelName ? [this.modelName] : [this.modelName, this.fallbackModel];
+    let lastErr: any = null;
+
+    for (let i = 0; i < models.length; i++) {
+      const model = models[i];
+      const timeoutMs = i === 0 ? opts.timeoutMs : opts.fallbackTimeoutMs || opts.timeoutMs;
+      let useLowThinking = /^gemini-3/.test(model) && !req.config?.thinkingConfig;
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const started = Date.now();
+        try {
+          const response = await this.ai.models.generateContent({
+            model,
+            contents: req.contents,
+            config: {
+              ...(req.config || {}),
+              ...(useLowThinking ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } : {}),
+              abortSignal: controller.signal,
+            },
+          });
+          clearTimeout(timer);
+          if (i > 0) console.warn(`[Falcon] ${opts.label}: answered by fallback model ${model}`);
+          return response;
+        } catch (err: any) {
+          clearTimeout(timer);
+          const kind = classifyGeminiError(err, controller.signal.aborted);
+          console.warn(`[Falcon] ${opts.label}: ${model} failed (${kind}) after ${Date.now() - started}ms: ${String(err?.message || err).slice(0, 200)}`);
+          lastErr = Object.assign(err instanceof Error ? err : new Error(String(err)), { kind });
+          // لو الموديل رفض إعداد التفكير نعيد نفس الموديل بدونه
+          if (useLowThinking && kind === 'bad_request' && /thinking/i.test(String(err?.message))) {
+            useLowThinking = false;
+            continue;
+          }
+          break;
+        }
+      }
+      if (!['timeout', 'quota', 'unavailable'].includes(lastErr?.kind)) break; // أخطاء غير مؤقتة: لا داعي للاحتياطي
+    }
+    throw lastErr;
+  }
+
   async analyzeCraftVision(input: AIVisionPromptInput): Promise<any> {
     if (!this.ai) {
       throw new Error('مفتاح GEMINI_API_KEY غير مضبوط على الخادم');
@@ -147,10 +233,10 @@ export class GeminiAIProvider {
       { text: step1Prompt + (artistNotes ? `\nملاحظات إضافية من الفنان: ${artistNotes}` : '') },
     ];
 
-    let step1Response = await this.ai.models.generateContent({
-      model: this.modelName,
-      contents: { parts: step1Parts },
-    });
+    let step1Response = await this.generate(
+      { contents: { parts: step1Parts } },
+      { label: 'vision', timeoutMs: 40_000, fallbackTimeoutMs: 30_000 }
+    );
 
     const step1Text = step1Response.text || '';
     const cleanJsonText = step1Text
@@ -216,13 +302,10 @@ export class GeminiAIProvider {
   "maxMarketPrice": number
 }`;
 
-        const step2Response = await this.ai.models.generateContent({
-          model: this.modelName,
-          contents: searchPrompt,
-          config: {
-            tools: [{ googleSearch: {} }],
-          },
-        });
+        const step2Response = await this.generate(
+          { contents: searchPrompt, config: { tools: [{ googleSearch: {} }] } },
+          { label: 'vision-search', timeoutMs: 20_000, noFallback: true }
+        );
 
         const cand = step2Response.candidates?.[0];
         const grounding = cand?.groundingMetadata;
@@ -408,14 +491,16 @@ export class GeminiAIProvider {
     // نحاول تشغيل أداة البحث فقط إذا لم تكن حصة البحث تحت التهدئة
     if (needsSearch && !isSearchQuotaCoolingDown()) {
       try {
-        response = await this.ai.models.generateContent({
-          model: this.modelName,
-          contents,
-          config: {
-            systemInstruction: { parts: [{ text: systemInstruction }] },
-            tools: [{ googleSearch: {} }],
+        response = await this.generate(
+          {
+            contents,
+            config: {
+              systemInstruction: { parts: [{ text: systemInstruction }] },
+              tools: [{ googleSearch: {} }],
+            },
           },
-        });
+          { label: 'chat-search', timeoutMs: 25_000, noFallback: true }
+        );
         searchUsed = true;
       } catch (searchErr: any) {
         const errStr = String(searchErr?.message || searchErr);
@@ -423,23 +508,17 @@ export class GeminiAIProvider {
           markSearchQuotaExhausted();
         }
         // 11) إن فشل البحث أو استنزفت الحصة فأعد الطلب بدونه بسلاسة وهدوء
-        response = await this.ai.models.generateContent({
-          model: this.modelName,
-          contents,
-          config: {
-            systemInstruction: { parts: [{ text: systemInstruction }] },
-          },
-        });
+        response = await this.generate(
+          { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
+          { label: 'chat-after-search', timeoutMs: 20_000, fallbackTimeoutMs: 15_000 }
+        );
       }
     } else {
       // استجابة مباشرة بلا بحث إضافي لحماية الحصة وضمان سرعة الرد
-      response = await this.ai.models.generateContent({
-        model: this.modelName,
-        contents,
-        config: {
-          systemInstruction: { parts: [{ text: systemInstruction }] },
-        },
-      });
+      response = await this.generate(
+        { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
+        { label: 'chat', timeoutMs: 25_000, fallbackTimeoutMs: 20_000 }
+      );
     }
 
     // استخراج بيانات التأريض إن وُجدت
