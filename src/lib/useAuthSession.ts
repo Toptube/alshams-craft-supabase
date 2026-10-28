@@ -30,7 +30,7 @@ if (typeof window !== 'undefined' && !hasHandledRecoveryHash) {
         if (window.history && window.history.replaceState) {
           window.history.replaceState(null, '', window.location.pathname + window.location.search);
         }
-        // Asynchronously set the session with the recovered tokens
+
         supabase.auth.setSession({
           access_token: accessToken,
           refresh_token: refreshToken,
@@ -69,13 +69,11 @@ export function useAuthSession(): AuthSessionState {
     setRecoveryError(null);
   };
 
-  // Track whether initial auth resolution has completed
   const initializedRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
 
-    // 1) Query getSession() once on application startup
     supabase.auth
       .getSession()
       .then(({ data: { session: initialSession }, error }) => {
@@ -94,12 +92,13 @@ export function useAuthSession(): AuthSessionState {
         initializedRef.current = true;
       });
 
-    // 2) Single onAuthStateChange subscription
-    // STRICT RULE: No await or Supabase calls inside callback to avoid deadlocks.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!isMounted) return;
+
+      // Ignore token refresh noise: it is a transport detail, not a user auth change.
+      if (event === 'TOKEN_REFRESHED') return;
 
       if (event === 'PASSWORD_RECOVERY') {
         setIsRecoveryMode(true);
@@ -107,27 +106,13 @@ export function useAuthSession(): AuthSessionState {
       } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
         setSession(newSession);
         setIsAuthChecked(true);
-      } else if (event === 'TOKEN_REFRESHED') {
-        // Silently update token credentials while preserving session state
-        setSession((prev) => {
-          if (!prev || !newSession) return newSession;
-          return {
-            ...prev,
-            access_token: newSession.access_token,
-            refresh_token: newSession.refresh_token,
-            expires_at: newSession.expires_at,
-            expires_in: newSession.expires_in,
-          };
-        });
       } else if (event === 'SIGNED_OUT') {
-        // User explicitly signed out
         setSession(null);
         setIsAuthChecked(true);
         setIsRecoveryMode(false);
       }
     });
 
-    // 3) Keep session healthy when tab regains focus or visibility
     const handleVisibilityOrFocus = async () => {
       if (document.visibilityState === 'visible') {
         try {
