@@ -155,7 +155,7 @@ async function doFlush(workshopId: string): Promise<number> {
     for (const id of chunkIds) {
       const record = await tenantStorage.getProductById(workshopId, id);
       if (!record) {
-        done[id] = snapshot[id]; // اتمسح من الجهاز (مثلاً مسح بيانات الورشة) — مفيش حاجة ترتفع
+        done[id] = snapshot[id];
         continue;
       }
       rows.push(productToCloudRow(record, workshopId, snapshot[id].primaryMaterialName));
@@ -167,7 +167,7 @@ async function doFlush(workshopId: string): Promise<number> {
         if (error) {
           console.warn('[productsCloud] sync chunk failed:', error.message);
           hadError = true;
-          continue; // تفضل في الطابور وتتعاد المحاولة بعدين
+          continue;
         }
       } catch (err) {
         console.warn('[productsCloud] sync chunk failed (network):', err);
@@ -204,9 +204,9 @@ function rowToRecord(row: any, workshopId: string): SavedProductRecord {
     productType: row.product_type ?? undefined,
     craftName: row.craft_name ?? undefined,
     mainSectionName: row.main_section ?? undefined,
-    costPrice: Number(row.cost_price) || 0,
-    retailPrice: Number(row.retail_price) || 0,
-    wholesalePrice: Number(row.wholesale_price) || 0,
+    costPrice: Number(row.cost_price ?? 0),
+    retailPrice: Number(row.retail_price ?? 0),
+    wholesalePrice: Number(row.wholesale_price ?? 0),
     input: {
       category: row.category,
       shape3D: specs.shape,
@@ -221,7 +221,7 @@ function rowToRecord(row: any, workshopId: string): SavedProductRecord {
     output: {
       totalWeightGrams: specs.totalWeightGrams,
       totalYarnLengthMeters: specs.totalYarnLengthMeters,
-      finalSellingPrice: Number(row.retail_price) || 0,
+      finalSellingPrice: Number(row.retail_price ?? 0),
     },
     imageUrl: row.image_url ?? undefined,
     isActive: row.is_active !== false,
@@ -246,7 +246,6 @@ async function applyRemoteRow(row: any, workshopId: string): Promise<boolean> {
   const pending = getPending(workshopId)[row.id];
 
   if (local && (local.updatedAt || 0) >= remoteUpdated) {
-    // الجهاز عنده نفس النسخة أو أحدث. لو أحدث ومش في الطابور، نرجّعها للطابور عشان تترفع
     if ((local.updatedAt || 0) > remoteUpdated && !pending) markManyDirty(workshopId, [row.id]);
     return false;
   }
@@ -257,9 +256,8 @@ async function applyRemoteRow(row: any, workshopId: string): Promise<boolean> {
   rec.workshopId = workshopId;
   rec.isActive = row.is_active !== false;
   rec.updatedAt = remoteUpdated;
-  if (!rec.imageUrl) rec.imageUrl = local?.imageUrl || row.image_url || undefined; // الصورة المحلية تفضل
+  if (!rec.imageUrl) rec.imageUrl = local?.imageUrl || row.image_url || undefined;
   await tenantStorage.applyRemoteProduct(rec);
-  // نسخة السيرفر أحدث من التعديل اللي كان مستني، فالتعديل القديم اتلغى
   if (pending) clearPending(workshopId, { [row.id]: pending });
   return true;
 }
@@ -288,7 +286,6 @@ async function doPull(workshopId: string): Promise<number> {
   const firstPull = !cursor;
   if (firstPull) emitSyncStatus(workshopId, 'syncing', pendingCount(workshopId));
 
-  // تداخل 5 ثواني عشان ما يفوتناش تعديل اتسجل في نفس اللحظة (التطبيق مرتين ما بيضرش)
   const since = cursor ? new Date(Date.parse(cursor) - 5000).toISOString() : null;
   const PAGE = 500;
   let from = 0;
@@ -387,10 +384,9 @@ export function startProductSync(workshopId: string): () => void {
   }, 30_000);
 
   const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
-    if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') syncSoon(500);
+    if (event === 'SIGNED_IN') syncSoon(500);
   });
 
-  // Realtime: أي تعديل من جهاز تاني بيوصل في ثواني
   let channel: any = null;
   try {
     channel = supabase
@@ -408,7 +404,6 @@ export function startProductSync(workshopId: string): () => void {
     console.warn('[productsCloud] realtime unavailable, using polling:', err);
   }
 
-  // أول تشغيل: نزّل الأول (جهاز جديد بياخد كل منتجاته) وبعدين ارفع القديم اللي على الجهاز
   pullProductsFromCloud(workshopId)
     .catch(() => 0)
     .then(() => enqueueExistingOnce(workshopId))
