@@ -2,16 +2,17 @@ import { GoogleGenAI } from '@google/genai';
 import { workshopToolSchemas, runWorkshopTool, type WorkshopToolContext } from './workshopTools';
 
 /**
- * "شموسة" — مساعدة البيانات في منظومة الشمساوية
+ * "شموسة" — مساعد بيانات ورشة الفنان فقط.
  * -------------------------------------------------------------
- * قاعدة البيانات الوحيدة في هذا المشروع هي Supabase فقط.
- * لا نسمح بإدخال أي مصدر بيانات بديل أو قاعدة متوازية (مثل Vafebiz/Fayebiz أو ما شابه).
+ * قاعدة بيانات المشروع هي Supabase فقط، ولا نسمح بإدخال مزود أو مصدر بيانات بديل.
  *
- * المزوّد:
- *  1) Groq (خطة مجانية مستقلة) لو GROQ_API_KEY موجود — حصة منفصلة تماماً عن صقر.
- *  2) Gemini (موديل Flash-Lite مختلف عن موديل صقر => حصة يومية منفصلة) كاحتياطي تلقائي.
- *  3) لا نستخدم Gemini كـ primary provider، ولا نسمح بإدخال مزود قاعدة بيانات ثانٍ.
- * كل المفاتيح على السيرفر فقط ولا تُرسل للمتصفح أبداً.
+ * ترتيب العمل:
+ *  1) Groq — primary provider لبحث بيانات الورشة.
+ *  2) Gemini — backup فقط إذا فشل Groq أو لم يتوفر.
+ *  3) إذا سأل عن شيء خارج نطاق الورشة أو خارج البيانات الداخلية، نرسل إشارة [[FALCON]]
+ *     ليفتح صقر الشمساوية، ويعمل هذا على Gemini + بحث Google حسب حالة الاستخدام.
+ *
+ * الهدف: شموسة قوية في البحث داخل بيانات الورشة فقط، وصقر هو المساعد العام.
  */
 
 export interface ShamousaChatInput {
@@ -37,17 +38,19 @@ const GEMINI_MODEL = process.env.SHAMOUSA_GEMINI_MODEL || 'gemini-flash-lite-lat
 const SHAMOUSA_PROVIDER_ORDER = ['groq', 'gemini'] as const;
 
 function buildSystemPrompt(brandName?: string, currency?: string): string {
-  return `أنتِ "شموسة"، مساعدة البيانات الذكية في منظومة الشمساوية لفناني الهاند ميد${brandName ? `، وتعملين الآن لورشة "${brandName}"` : ''}.
-تخصصك الوحيد: البحث في بيانات هذه الورشة (الخامات، المنتجات، الأكواد، أسعار البيع، الموردين، المواصفات).
+  return `أنتِ "شموسة"، مساعد بيانات ورشة الفنان في منظومة الشمساوية${brandName ? `، وتعملين الآن لورشة "${brandName}"` : ''}.
+
+اختصاصك الوحيد: البحث داخل بيانات هذه الورشة فقط (الخامات، المنتجات، الأكواد، الأسعار، الموردين، المواصفات).
 
 القواعد:
-- لأي سؤال عن بيانات الورشة استخدمي الأدوات أولاً (search_materials, search_products, get_product_details, workshop_overview) ولا تجاوبي من الذاكرة.
-- لو الأداة رجعت نتائج فاضية قولي بوضوح إنك ما لقيتيش ده في بيانات الورشة، واقترحي كلمة بحث تانية. ممنوع تخترعي منتجات أو أسعار.
-- لا تستخدم أي مصدر بيانات خارج ورشة المستخدم الحالية، ولا تذكر أي ورشة أو فنان آخر.
+- استخدمي الأدوات أولاً عند وجود سؤال عن بيانات الورشة: search_materials, search_products, get_product_details, workshop_overview.
+- لو ما لقيتيش النتيجة في بيانات الورشة، قولي بوضوح إن هذا ليس موجودًا داخل بيانات الورشة واقترحي كلمة بحث أخرى.
+- لا تختلقي منتجات أو أسعار أو أكواد.
+- لا تردي على أسئلة خارج نطاق الورشة مثل التسعير الخارجي، تحليل الصور، الاستشارات الفنية، أو تصميمات/باترونات/دراسة السوق.
+- إذا كان السؤال خارج النطاق أو يحتاج رأيًا خارجيًا أو صورة أو بحث عام، أضيفي علامة [[FALCON]] في آخر الرد، مع رسالة قصيرة جدًا تشير إلى أن هذا خارج اختصاصك.
 - العملة: ${currency || 'ج.م'}.
-- ردودك قصيرة وواضحة بالعربي الودود، واعرضي القوائم في نقاط (اسم المنتج — الكود — السعر).
-- لا تذكري أي معرّف (id) ولا اسم نموذج ذكاء اصطناعي ولا شركة تقنية.
-- أسئلة تسعير السوق والمنافسين، تحليل صور المنتجات، حساب التكاليف الهندسية، الباترونات والاستشارات الفنية تُحوّل إلى صقر الشمساوية عبر [[FALCON]].
+- الإجابة قصيرة وواضحة بالعربي، وتُعرض غالبًا في نقاط.
+- لا تذكري أي معرفات أو أسماء نماذج أو شركات.
 `;
 }
 
@@ -75,7 +78,7 @@ function getAvailableShamousaProviders(): Array<'groq' | 'gemini'> {
 }
 
 // -------------------------------------------------------------
-// Groq (OpenAI-compatible) — مجاني بدون كارت
+// Groq (OpenAI-compatible) — primary provider
 // -------------------------------------------------------------
 async function chatWithGroq(input: ShamousaChatInput): Promise<ShamousaChatResult> {
   const apiKey = process.env.GROQ_API_KEY as string;
@@ -101,12 +104,14 @@ async function chatWithGroq(input: ShamousaChatInput): Promise<ShamousaChatResul
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(body),
     });
+
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       const err: any = new Error(`Groq ${res.status}: ${errText.slice(0, 200)}`);
       err.status = res.status;
       throw err;
     }
+
     const data: any = await res.json();
     const msg = data?.choices?.[0]?.message || {};
     const calls: any[] = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
@@ -124,11 +129,12 @@ async function chatWithGroq(input: ShamousaChatInput): Promise<ShamousaChatResul
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
     }
   }
+
   return finalize('', 'groq');
 }
 
 // -------------------------------------------------------------
-// Gemini احتياطي (موديل مختلف عن صقر => حصة منفصلة)
+// Gemini — backup only
 // -------------------------------------------------------------
 let geminiClient: GoogleGenAI | null = null;
 function getGemini(): GoogleGenAI | null {
@@ -179,6 +185,7 @@ async function chatWithGemini(input: ShamousaChatInput): Promise<ShamousaChatRes
     }
     contents.push({ role: 'user', parts });
   }
+
   return finalize(response?.text || '', 'gemini');
 }
 
