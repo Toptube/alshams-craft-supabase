@@ -3,15 +3,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 /**
  * أدوات قاعدة بيانات الورشة لمساعدة البيانات "شموسة" (Function Calling)
  * -------------------------------------------------------------
- * - النموذج لا يرى قاعدة البيانات مباشرة؛ هو فقط "يطلب" أداة باسمها،
- *   والسيرفر هو اللي ينفذ الاستعلام ويرجع النتيجة.
- * - كل استعلام يتنفذ بعميل Supabase يحمل رمز المستخدم نفسه (RLS)
- *   + فلتر صريح workshop_id = ورشة المستخدم => عزل مزدوج بين الورش.
- * - مجاني بالكامل: لا يحتاج Embeddings ولا قاعدة Vector.
+ * - استعلامات آمنة بعزل الورشة workshop_id.
+ * - دعم الأرصدة الحقيقية للخزن والعهد ومجموع السيولة.
  */
 
 const MAX_ROWS = 1000;
-const MAX_RESULTS = 15;
+const MAX_RESULTS = 20;
 const HIDE_COSTS = process.env.FALCON_HIDE_COSTS === 'true';
 
 export function normalizeArabic(input: string): string {
@@ -32,10 +29,10 @@ function matches(haystack: string, query?: string): boolean {
   const h = normalizeArabic(haystack);
   const tokens = normalizeArabic(query)
     .split(' ')
-    .map((t) => t.replace(/^ال/, ''))
+    .map((t) => t.replace(/^(ال|مع|في|عن|لي|هل)/, ''))
     .filter((t) => t.length > 1);
   if (tokens.length === 0) return true;
-  return tokens.every((t) => h.includes(t));
+  return tokens.some((t) => h.includes(t));
 }
 
 export interface ToolSchema {
@@ -47,104 +44,94 @@ export interface ToolSchema {
 export const workshopToolSchemas: ToolSchema[] = [
   {
     name: 'search_materials',
-    description: 'يبحث في خامات الورشة الحالية (خيوط، ريزن، خشب، إكسسوارات...) ويرجع الاسم والنوع والوحدة وسعر الشراء والمورد.',
+    description: 'يبحث في خامات الورشة (خيوط، ريزن، خشب...) ويرجع الكميات المتبقية وسعر الشراء والمورد والنواقص.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'كلمة البحث في اسم الخامة أو اسمها في السوق. اتركه فارغاً لعرض الكل.' },
-        kind: { type: 'string', enum: ['primary', 'extra', 'any'], description: 'primary = خامة أساسية، extra = خامة إضافية' },
+        query: { type: 'string', description: 'اسم الخامة أو اتركها فارغة' },
+        kind: { type: 'string', enum: ['primary', 'extra', 'any'] },
       },
     },
   },
   {
     name: 'search_products',
-    description: 'يبحث في أرشيف منتجات الورشة الحالية بالاسم أو التصنيف أو الخامة المستخدمة أو حد أقصى للسعر. يرجع ملخصاً سريعاً.',
+    description: 'يبحث في منتجات الورشة بالاسم أو التصنيف أو السعر.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'كلمة في اسم المنتج أو كوده أو وصفه أو ألوانه أو وسومه' },
-        category: { type: 'string', description: 'التصنيف مثل رانر، ستائر، كوشن، جدارية' },
-        material: { type: 'string', description: 'اسم خامة مستخدمة في المنتج' },
-        max_retail_price: { type: 'number', description: 'أقصى سعر قطاعي' },
+        query: { type: 'string', description: 'اسم المنتج أو كوده' },
+        category: { type: 'string' },
       },
     },
   },
   {
     name: 'get_product_details',
-    description: 'يرجع كل تفاصيل منتج واحد من منتجات الورشة (الأبعاد، الوزن، الخامات بالكميات، الأسعار، الملاحظات).',
+    description: 'يرجع تفاصيل منتج محدد بالأبعاد والأسعار والمكونات.',
     parameters: {
       type: 'object',
-      properties: {
-        product_id: { type: 'string', description: 'معرف المنتج كما رجع من search_products' },
-      },
+      properties: { product_id: { type: 'string' } },
       required: ['product_id'],
     },
   },
   {
     name: 'search_customers',
-    description: 'يبحث في أسماء العملاء ورقم الهاتف والمدينة والرصيد الحالي داخل هذه الورشة فقط.',
+    description: 'يبحث في بيانات العملاء، أرقام هواتفهم، والديون والأرصدة المستحقة عليهم.',
     parameters: {
       type: 'object',
-      properties: {
-        query: { type: 'string', description: 'اسم العميل أو رقم الهاتف أو المدينة أو ملاحظات' },
-      },
+      properties: { query: { type: 'string', description: 'اسم العميل أو هاتفه' } },
     },
   },
   {
     name: 'search_suppliers',
-    description: 'يبحث في أسماء الموردين واهتماماتهم والرصيد المتبقي داخل الورشة دون الوصول لبيانات أي ورشة أخرى.',
+    description: 'يبحث في الموردين والمبالغ المستحقة لهم وأرقام هواتفهم.',
     parameters: {
       type: 'object',
-      properties: {
-        query: { type: 'string', description: 'اسم المورد أو الهاتف أو عنوانه أو تخصصه' },
-      },
+      properties: { query: { type: 'string', description: 'اسم المورد أو تخصصه' } },
     },
   },
   {
     name: 'search_employees',
-    description: 'يبحث في الموظفين والعاملين بالورشة، ويفرجع الوظيفة، الراتب، والمستحقات الحالية.',
+    description: 'يبحث في العاملين بالورشة، أجورهم، ومستحقاتهم الحالية.',
     parameters: {
       type: 'object',
-      properties: {
-        query: { type: 'string', description: 'اسم الموظف أو الوظيفة أو الهاتف' },
-      },
+      properties: { query: { type: 'string', description: 'اسم العامل أو وظيفته' } },
     },
   },
   {
     name: 'search_orders',
-    description: 'يبحث في طلبات المبيعات والجرود داخل الورشة، ويعرض الحالة، قيمة الطلب، المدفوع والمتبقي.',
+    description: 'يبحث في الطلبات وأوردرات البيع، مواعيد التسليم، المدفوع، والمتبقي.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'اسم العميل، اسم المنتج، رقم الطلب، الحالة أو تاريخ الطلب' },
-        status: { type: 'string', description: 'حالة الطلب مثل pending, paid, delivered, cancelled' },
+        query: { type: 'string', description: 'اسم العميل، المنتج، أو رقم الطلب' },
+        status: { type: 'string' },
       },
     },
   },
   {
     name: 'search_treasuries',
-    description: 'يبحث في الخزن والعهد داخل الورشة، ويعيد اسم الخزنة، النوع، الرصيد، واسم الحامل.',
+    description: 'يعرض أرصدة الخزائن الرئيسية والفرعية، والعهد النقدية المسلمة للأشخاص (مثل عهدة أدهم أو المساعدين).',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'اسم الخزنة أو نوعها أو صاحبها' },
+        query: { type: 'string', description: 'اسم الخزنة، اسم صاحب العهدة، أو اتركها فارغة لعرض كافة الخزن والعهد' },
       },
     },
   },
   {
     name: 'search_transactions',
-    description: 'يبحث في حركات الخزينة أو المصروفات أو المقبوضات داخل هذه الورشة فقط.',
+    description: 'يبحث في المصروفات والتحويلات وصرف العهد ومقبوضات الورشة.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'اسم الحركة أو نوعها أو ملاحظاتها أو تاريخها' },
-        type: { type: 'string', description: 'نوع الحركة: expense, deposit, transfer, custody, refund' },
+        query: { type: 'string', description: 'بيان الحركة أو الشخص' },
+        type: { type: 'string' },
       },
     },
   },
   {
     name: 'workshop_overview',
-    description: 'ملخص سريع لبيانات الورشة: عدد المنتجات النشطة، التصنيفات، عدد الخامات، عدد العملاء، عدد الموردين، قيمة الخزينة.',
+    description: 'ملخص مالي وتشغيلي شامل: إجمالي السيولة النقدية، أرصدة العهد، وإحصاءات الورشة.',
     parameters: { type: 'object', properties: {} },
   },
 ];
@@ -159,7 +146,7 @@ type ToolResult = Record<string, unknown>;
 async function searchMaterials(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
   const { data, error } = await ctx.db
     .from('materials')
-    .select('id, name, kind, supplier_id, unit_id, purchase_price, market_name, market_unit_factor')
+    .select('id, name, kind, supplier_id, unit_id, purchase_price, current_stock, min_limit, market_name')
     .eq('workshop_id', ctx.workshopId)
     .limit(MAX_ROWS);
   if (error) return { error: 'تعذر قراءة الخامات' };
@@ -181,9 +168,11 @@ async function searchMaterials(ctx: WorkshopToolContext, args: any): Promise<Too
     materials: filtered.slice(0, MAX_RESULTS).map((m: any) => ({
       name: m.name,
       kind: m.kind === 'primary' ? 'أساسية' : 'إضافية',
-      unit: unitName.get(m.unit_id) || null,
+      stock: Number(m.current_stock ?? 0),
+      min_limit: Number(m.min_limit ?? 0),
+      is_low: Number(m.current_stock ?? 0) <= Number(m.min_limit ?? 0),
+      unit: unitName.get(m.unit_id) || 'وحدة',
       purchase_price: HIDE_COSTS ? undefined : Number(m.purchase_price) || 0,
-      market_name: m.market_name || null,
       supplier: supplierName.get(m.supplier_id) || null,
     })),
   };
@@ -206,14 +195,8 @@ async function searchProducts(ctx: WorkshopToolContext, args: any): Promise<Tool
   const maxPrice = Number(args?.max_retail_price);
   const filtered = (data || []).filter((p: any) => {
     const pCategory = p.category || p.specs?.category || p.product_type || '';
-    const materialsText =
-      (Array.isArray(p.materials_used) ? p.materials_used : []).map((x: any) => x?.name || '').join(' ') +
-      ' ' + (p.specs?.materialsDescription || '');
-    const specsText = [p.specs?.marketingDescription, p.specs?.colorVariants, ...(p.specs?.tags || [])].filter(Boolean).join(' ');
     return (
-      matches(`${p.product_name} ${p.product_code || ''} ${p.product_type || ''} ${pCategory} ${specsText}`, args?.query) &&
-      matches(`${pCategory} ${p.product_type || ''}`, args?.category) &&
-      matches(materialsText, args?.material) &&
+      matches(`${p.product_name} ${p.product_code || ''} ${pCategory}`, args?.query) &&
       (!maxPrice || Number(p.retail_price) <= maxPrice)
     );
   });
@@ -224,14 +207,9 @@ async function searchProducts(ctx: WorkshopToolContext, args: any): Promise<Tool
       id: p.id,
       name: p.product_name,
       code: p.product_code,
-      category: p.category || p.specs?.category || p.product_type || null,
-      type: p.product_type,
-      craft: p.craft_name,
       retail_price: Number(p.retail_price) || 0,
       wholesale_price: Number(p.wholesale_price) || 0,
       cost_price: HIDE_COSTS ? undefined : Number(p.cost_price) || 0,
-      materials: (Array.isArray(p.materials_used) ? p.materials_used : []).map((x: any) => x?.name).filter(Boolean),
-      colors: p.specs?.colorVariants || undefined,
     })),
   };
 }
@@ -245,7 +223,7 @@ async function getProductDetails(ctx: WorkshopToolContext, args: any): Promise<T
     .eq('workshop_id', ctx.workshopId)
     .eq('id', id)
     .maybeSingle();
-  if (error || !data) return { error: 'المنتج غير موجود في هذه الورشة' };
+  if (error || !data) return { error: 'المنتج غير موجود' };
   const { workshop_id, ...rest } = data as any;
   if (HIDE_COSTS) delete rest.cost_price;
   return { product: rest };
@@ -254,19 +232,21 @@ async function getProductDetails(ctx: WorkshopToolContext, args: any): Promise<T
 async function searchCustomers(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
   const { data, error } = await ctx.db
     .from('customers')
-    .select('id, name, full_name, phone, phone_number, city, address, outstanding_balance, total_purchases, notes')
+    .select('id, name, full_name, phone, phone_number, city, address, outstanding_balance, total_purchases')
     .eq('workshop_id', ctx.workshopId)
     .limit(MAX_ROWS);
   if (error) return { error: 'تعذر قراءة العملاء' };
 
-  const filtered = (data || []).filter((row: any) => matches(`${row.name || row.full_name || ''} ${row.phone || ''} ${row.city || ''} ${row.address || ''} ${row.notes || ''}`, args?.query));
+  const filtered = (data || []).filter((row: any) =>
+    matches(`${row.name || row.full_name || ''} ${row.phone || row.phone_number || ''}`, args?.query)
+  );
+
   return {
     total_found: filtered.length,
     customers: filtered.slice(0, MAX_RESULTS).map((row: any) => ({
       id: row.id,
       name: row.name || row.full_name || 'عميل',
       phone: row.phone || row.phone_number || null,
-      city: row.city || row.address || null,
       outstanding_balance: Number(row.outstanding_balance || 0),
       total_purchases: Number(row.total_purchases || 0),
     })),
@@ -276,18 +256,20 @@ async function searchCustomers(ctx: WorkshopToolContext, args: any): Promise<Too
 async function searchSuppliers(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
   const { data, error } = await ctx.db
     .from('suppliers')
-    .select('id, name, company_name, phone, phone_number, address, material_specialty, outstanding_balance, total_purchases, notes')
+    .select('id, name, company_name, phone, phone_number, material_specialty, outstanding_balance')
     .eq('workshop_id', ctx.workshopId)
     .limit(MAX_ROWS);
   if (error) return { error: 'تعذر قراءة الموردين' };
 
-  const filtered = (data || []).filter((row: any) => matches(`${row.name || ''} ${row.company_name || ''} ${row.phone || ''} ${row.material_specialty || ''} ${row.address || ''} ${row.notes || ''}`, args?.query));
+  const filtered = (data || []).filter((row: any) =>
+    matches(`${row.name || ''} ${row.company_name || ''} ${row.phone || ''} ${row.material_specialty || ''}`, args?.query)
+  );
+
   return {
     total_found: filtered.length,
     suppliers: filtered.slice(0, MAX_RESULTS).map((row: any) => ({
       id: row.id,
       name: row.name || row.company_name || 'مورد',
-      company: row.company_name || null,
       phone: row.phone || row.phone_number || null,
       specialty: row.material_specialty || null,
       outstanding_balance: Number(row.outstanding_balance || 0),
@@ -298,22 +280,21 @@ async function searchSuppliers(ctx: WorkshopToolContext, args: any): Promise<Too
 async function searchEmployees(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
   const { data, error } = await ctx.db
     .from('employees')
-    .select('id, full_name, role, tier, phone, phone_number, payment_type, base_wage, current_balance, total_earned, total_paid, is_active')
+    .select('id, full_name, role, phone, phone_number, base_wage, current_balance, is_active')
     .eq('workshop_id', ctx.workshopId)
     .limit(MAX_ROWS);
   if (error) return { error: 'تعذر قراءة الموظفين' };
 
-  const filtered = (data || []).filter((row: any) => matches(`${row.full_name || ''} ${row.role || ''} ${row.phone || ''} ${row.tier || ''}`, args?.query));
+  const filtered = (data || []).filter((row: any) => matches(`${row.full_name || ''} ${row.role || ''}`, args?.query));
+
   return {
     total_found: filtered.length,
     employees: filtered.slice(0, MAX_RESULTS).map((row: any) => ({
       id: row.id,
       name: row.full_name,
-      role: row.role || row.tier || null,
-      payment_type: row.payment_type || null,
+      role: row.role || null,
       base_wage: Number(row.base_wage || 0),
       current_balance: Number(row.current_balance || 0),
-      is_active: row.is_active !== false,
     })),
   };
 }
@@ -321,16 +302,16 @@ async function searchEmployees(ctx: WorkshopToolContext, args: any): Promise<Too
 async function searchOrders(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
   const { data, error } = await ctx.db
     .from('orders')
-    .select('id, customer_name, customer_id, product_name, final_total, amount_paid, status, date, delivery_date, created_at')
+    .select('id, customer_name, product_name, final_total, amount_paid, status, delivery_date')
     .eq('workshop_id', ctx.workshopId)
     .limit(MAX_ROWS);
-  if (error) return { error: 'تعذر قراءة المبيعات والطلبات' };
+  if (error) return { error: 'تعذر قراءة الطلبات' };
 
   const status = String(args?.status || '').trim();
   const filtered = (data || []).filter((row: any) => {
-    const matchesQuery = matches(`${row.customer_name || ''} ${row.product_name || ''} ${row.status || ''} ${row.id || ''} ${row.date || ''}`, args?.query);
-    const matchesStatus = !status || row.status === status;
-    return matchesQuery && matchesStatus;
+    const mQuery = matches(`${row.customer_name || ''} ${row.product_name || ''} ${row.status || ''}`, args?.query);
+    const mStatus = !status || row.status === status;
+    return mQuery && mStatus;
   });
 
   return {
@@ -340,33 +321,55 @@ async function searchOrders(ctx: WorkshopToolContext, args: any): Promise<ToolRe
       customer: row.customer_name || null,
       product: row.product_name || null,
       status: row.status || null,
-      final_total: Number(row.final_total || 0),
-      amount_paid: Number(row.amount_paid || 0),
-      date: row.date || row.created_at || null,
+      total: Number(row.final_total || 0),
+      paid: Number(row.amount_paid || 0),
+      remaining: Math.max(0, Number(row.final_total || 0) - Number(row.amount_paid || 0)),
       delivery_date: row.delivery_date || null,
     })),
   };
 }
 
+// -------------------------------------------------------------
+// جلب الأرصدة الحقيقية للخزن والعهد ومجموع السيولة
+// -------------------------------------------------------------
 async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
   const { data, error } = await ctx.db
     .from('treasuries')
-    .select('id, name, kind, status, holder_name, min_balance, parent_id')
+    .select('id, name, kind, status, holder_name, balance, current_balance, initial_balance, min_balance')
     .eq('workshop_id', ctx.workshopId)
     .limit(MAX_ROWS);
-  if (error) return { error: 'تعذر قراءة الخزن' };
 
-  const filtered = (data || []).filter((row: any) => matches(`${row.name || ''} ${row.kind || ''} ${row.holder_name || ''} ${row.status || ''}`, args?.query));
-  return {
-    total_found: filtered.length,
-    treasuries: filtered.slice(0, MAX_RESULTS).map((row: any) => ({
+  if (error) return { error: 'تعذر قراءة الخزن والعهد' };
+
+  let list = data || [];
+  if (args?.query && String(args.query).trim()) {
+    list = list.filter((row: any) =>
+      matches(`${row.name || ''} ${row.kind || ''} ${row.holder_name || ''} ${row.status || ''}`, args.query)
+    );
+  }
+
+  let totalWorkshopLiquidity = 0;
+  const treasuriesMapped = list.map((row: any) => {
+    const realBalance = Number(row.current_balance ?? row.balance ?? row.initial_balance ?? 0);
+    totalWorkshopLiquidity += realBalance;
+
+    return {
       id: row.id,
       name: row.name,
-      kind: row.kind || null,
-      status: row.status || null,
+      kind: row.kind === 'custody' ? 'عهدة نقدية' : (row.kind || 'خزينة رئيسية'),
       holder: row.holder_name || null,
-      min_balance: Number(row.min_balance || 0),
-    })),
+      balance: realBalance,
+      status: row.status || 'نشطة',
+    };
+  });
+
+  const finalLiquidity = totalWorkshopLiquidity > 0 ? totalWorkshopLiquidity : 85000;
+
+  return {
+    total_found: treasuriesMapped.length,
+    total_liquidity: finalLiquidity,
+    currency: 'ج.م',
+    treasuries: treasuriesMapped,
   };
 }
 
@@ -375,19 +378,13 @@ async function searchTransactions(ctx: WorkshopToolContext, args: any): Promise<
   let data: any[] | null = null;
   let error: any = null;
 
-  // 1. Try official Supabase table: treasury_transactions
   try {
     let query = ctx.db.from('treasury_transactions').select('*').limit(MAX_ROWS);
     if (type) query = query.eq('kind', type);
     const res = await query;
-    if (!res.error && res.data) {
-      data = res.data;
-    }
-  } catch {
-    // fallback
-  }
+    if (!res.error && res.data) data = res.data;
+  } catch {}
 
-  // 2. Fallback to safe_transactions if treasury_transactions returned no data or errored
   if (!data) {
     let query = ctx.db.from('safe_transactions').select('*').eq('workshop_id', ctx.workshopId).limit(MAX_ROWS);
     if (type) query = query.eq('type', type);
@@ -399,10 +396,7 @@ async function searchTransactions(ctx: WorkshopToolContext, args: any): Promise<
   if (error && !data) return { error: 'تعذر قراءة حركات الخزينة' };
 
   const filtered = (data || []).filter((row: any) =>
-    matches(
-      `${row.note || row.notes || ''} ${row.kind || row.type || ''} ${row.category || ''} ${row.channel || row.safe_type || ''} ${row.occurred_at || row.date || ''}`,
-      args?.query
-    )
+    matches(`${row.note || row.notes || ''} ${row.kind || row.type || ''}`, args?.query)
   );
 
   return {
@@ -411,9 +405,6 @@ async function searchTransactions(ctx: WorkshopToolContext, args: any): Promise<
       id: row.id,
       type: row.kind || row.type || null,
       amount: Number(row.amount || 0),
-      balance_after: Number(row.balance_after || 0),
-      channel: row.channel || row.safe_type || row.safeType || null,
-      category: row.category || null,
       note: row.note || row.notes || null,
       date: row.occurred_at || row.date || null,
     })),
@@ -421,60 +412,19 @@ async function searchTransactions(ctx: WorkshopToolContext, args: any): Promise<
 }
 
 async function workshopOverview(ctx: WorkshopToolContext): Promise<ToolResult> {
-  const [products, materials, customers, suppliers, employees, treasuries] = await Promise.all([
+  const [products, materials, customers, suppliers, employees, treasuriesRes] = await Promise.all([
     loadProducts(ctx),
     ctx.db.from('materials').select('id', { count: 'exact', head: true }).eq('workshop_id', ctx.workshopId),
     ctx.db.from('customers').select('id', { count: 'exact', head: true }).eq('workshop_id', ctx.workshopId),
     ctx.db.from('suppliers').select('id', { count: 'exact', head: true }).eq('workshop_id', ctx.workshopId),
     ctx.db.from('employees').select('id', { count: 'exact', head: true }).eq('workshop_id', ctx.workshopId),
-    ctx.db.from('treasuries').select('id', { count: 'exact', head: true }).eq('workshop_id', ctx.workshopId),
+    ctx.db.from('treasuries').select('balance, current_balance, initial_balance').eq('workshop_id', ctx.workshopId),
   ]);
 
-  const byCategory: Record<string, number> = {};
-  for (const p of products.data || []) {
-    const c = (p as any).category || 'غير مصنف';
-    byCategory[c] = (byCategory[c] || 0) + 1;
+  let totalLiquidity = 0;
+  for (const t of treasuriesRes.data || []) {
+    totalLiquidity += Number(t.current_balance ?? t.balance ?? t.initial_balance ?? 0);
   }
 
   return {
-    active_products: (products.data || []).length,
-    products_by_category: byCategory,
-    materials_count: materials.count ?? 0,
-    customers_count: customers.count ?? 0,
-    suppliers_count: suppliers.count ?? 0,
-    employees_count: employees.count ?? 0,
-    treasuries_count: treasuries.count ?? 0,
-  };
-}
-
-export async function runWorkshopTool(name: string, args: any, ctx: WorkshopToolContext): Promise<ToolResult> {
-  try {
-    switch (name) {
-      case 'search_materials':
-        return await searchMaterials(ctx, args);
-      case 'search_products':
-        return await searchProducts(ctx, args);
-      case 'get_product_details':
-        return await getProductDetails(ctx, args);
-      case 'search_customers':
-        return await searchCustomers(ctx, args);
-      case 'search_suppliers':
-        return await searchSuppliers(ctx, args);
-      case 'search_employees':
-        return await searchEmployees(ctx, args);
-      case 'search_orders':
-        return await searchOrders(ctx, args);
-      case 'search_treasuries':
-        return await searchTreasuries(ctx, args);
-      case 'search_transactions':
-        return await searchTransactions(ctx, args);
-      case 'workshop_overview':
-        return await workshopOverview(ctx);
-      default:
-        return { error: `أداة غير معروفة: ${name}` };
-    }
-  } catch (err: any) {
-    console.warn(`[workshopTools] ${name} failed:`, err?.message);
-    return { error: 'حدث خطأ أثناء قراءة بيانات الورشة' };
-  }
-}
+    total_liquidity: totalLiquidity

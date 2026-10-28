@@ -1,15 +1,38 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MessageCircle, X, Send, Database, Trash2, ArrowLeftRight, Sparkles } from 'lucide-react';
+import { 
+  MessageCircle, 
+  X, 
+  Send, 
+  Database, 
+  Trash2, 
+  ArrowLeftRight, 
+  PhoneCall, 
+  ExternalLink,
+  CheckCircle2
+} from 'lucide-react';
 import { AlShamsSunIcon } from '../brand/BrandAssets';
 import { authedFetch } from '../../lib/apiClient';
 import type { UserProfile } from '../../types';
 import { DraggableShamosa } from './DraggableShamosa';
+
+export interface ShamousaActionLink {
+  label: string;
+  view: string;
+}
+
+export interface ShamousaContactAction {
+  name: string;
+  phone: string;
+  type: 'customer' | 'supplier';
+}
 
 export interface ShamousaMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   handoffToFalcon?: boolean;
+  actionLink?: ShamousaActionLink;
+  contactAction?: ShamousaContactAction;
 }
 
 export interface ShamousaChatWidgetProps {
@@ -18,18 +41,41 @@ export interface ShamousaChatWidgetProps {
   liftUp?: boolean;
 }
 
-const WELCOME =
-  'أهلاً يا فنان، أنا شموسة 🌞\nأبحث داخل بيانات ورشتك فقط: الخامات، المنتجات، العملاء، الموردين، المبيعات، الخزن، الموظفين، والتقارير.\nلو احتجت استشارة فنية أو تحليل صور أو دراسة أسواق، هحوّلك فوراً لـ "صقر الشمساوية" 🦅';
+// الكشف الذكي عن سياق صقر (دراسة سوق، تسعير، تحليل صور)
+function checkFalconRelevance(text: string): boolean {
+  const keywords = [
+    'صقر', 'تحليل صورة', 'حلل الصورة', 'دراسة سوق', 'دراسة السوق',
+    'تسعير قطاعي', 'تسعير جملة', 'سعر السوق', 'المنافسين', 'هامش ربح مقترح'
+  ];
+  return keywords.some((kw) => text.includes(kw));
+}
 
-const QUICK_ACTIONS = [
-  { label: 'المخزن والخامات', view: 'materials' },
-  { label: 'الخزائن والأرصدة', view: 'treasuries' },
-  { label: 'المبيعات والطلبات', view: 'sales' },
-  { label: 'سجل العملاء', view: 'customers' },
-  { label: 'قائمة الموردين', view: 'suppliers' },
-  { label: 'التقارير المالية', view: 'reports' },
-  { label: 'شؤون العاملين', view: 'hr' },
-];
+// الكشف الذكي عن روابط التنقل السريع عند طلب المستخدم صراحة
+function detectNavigationIntent(text: string): ShamousaActionLink | undefined {
+  const lower = text.toLowerCase();
+  if (lower.includes('الخزن') || lower.includes('الخزينة') || lower.includes('السيولة') || lower.includes('رصيد الخزنة')) {
+    return { label: 'فتح الخزائن والأرصدة', view: 'treasuries' };
+  }
+  if (lower.includes('المخزن') || lower.includes('الخامات') || lower.includes('نواقص')) {
+    return { label: 'فتح سجل الخامات والمخزون', view: 'materials' };
+  }
+  if (lower.includes('المنتجات') || lower.includes('قائمة المنتجات')) {
+    return { label: 'فتح كتالوج المنتجات', view: 'products' };
+  }
+  if (lower.includes('المبيعات') || lower.includes('الطلبات') || lower.includes('الأوردرات')) {
+    return { label: 'فتح سجل المبيعات والطلبات', view: 'sales' };
+  }
+  if (lower.includes('العملاء') || lower.includes('سجل العملاء')) {
+    return { label: 'فتح قائمة العملاء', view: 'customers' };
+  }
+  if (lower.includes('الموردين') || lower.includes('حسابات الموردين')) {
+    return { label: 'فتح قائمة الموردين', view: 'suppliers' };
+  }
+  if (lower.includes('التقارير') || lower.includes('الأرباح')) {
+    return { label: 'فتح التقارير المالية', view: 'reports' };
+  }
+  return undefined;
+}
 
 function renderText(text: string) {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
@@ -50,6 +96,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 }) => {
   const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
   const storageKey = `shamousa_chat_${workshopId}`;
+
+  // تحديد اسم الفنان واسم البراند
+  const artistName = (profile.fullName || profile.name || 'يا فنان').trim();
+  const brandTitle = profile.brandName ? `ورشة ${profile.brandName}` : 'ورشتك الشخصية';
+
+  const welcomeMessage = `أهلاً بك ${artistName} في ${brandTitle} 🌞\nأنا شموسة، مديرة أعمال ورشتك وخازنة أسرارك.\nمتابعة لحظة بلحظة: رصيد الخزينة، النواقص، أوامر الشراء، مواعيد تسليم الأوردرات، وتحصيلات العملاء والموردين.\nجاهزة لأي استفسار أو مهمة تسندها لي!`;
 
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ShamousaMessage[]>(() => {
@@ -92,6 +144,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const send = async (text: string) => {
     const message = text.trim();
     if (!message || isLoading) return;
+
     const userMsg: ShamousaMessage = { id: `u_${Date.now()}`, role: 'user', content: message };
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
     setMessages((prev) => [...prev, userMsg]);
@@ -102,18 +155,33 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       const res = await authedFetch('/api/shamousa/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, history }),
+        body: JSON.stringify({
+          message,
+          history,
+          artistName,
+          brandName: profile.brandName,
+          workshopId,
+        }),
       });
+
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || 'حصل خطأ، حاول تاني.');
+      if (!res.ok) throw new Error(data?.error || 'حصل خطأ في الاتصال، حاولي تاني.');
+
       if (typeof data.remaining === 'number') setRemaining(data.remaining);
+
+      // تحديد الإحالة لصقر وفقاً لرد السيرفر أو فحص محتوى المحادثة
+      const shouldHandoff = Boolean(data.handoffToFalcon) || checkFalconRelevance(message) || checkFalconRelevance(data.reply || '');
+      const dynamicLink = data.actionLink || detectNavigationIntent(message) || detectNavigationIntent(data.reply || '');
+
       setMessages((prev) => [
         ...prev,
         {
           id: `a_${Date.now()}`,
           role: 'assistant',
           content: data.reply,
-          handoffToFalcon: Boolean(data.handoffToFalcon),
+          handoffToFalcon: shouldHandoff,
+          actionLink: dynamicLink,
+          contactAction: data.contactAction,
         },
       ]);
     } catch (err: any) {
@@ -122,7 +190,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         {
           id: `e_${Date.now()}`,
           role: 'assistant',
-          content: `⚠️ ${err?.message || 'حصل خطأ، حاول تاني.'}`,
+          content: `⚠️ ${err?.message || 'حصل خطأ، حاولي تاني.'}`,
         },
       ]);
     } finally {
@@ -135,8 +203,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       {!isOpen && (
         <DraggableShamosa onClick={() => setIsOpen(true)}>
           <div
-            aria-label="افتح شموسة — مساعدة بيانات الورشة"
-            title="شموسة — مساعدة بيانات الورشة"
+            aria-label="افتح شموسة — مديرة أعمال الورشة"
+            title="شموسة — مديرة أعمال الورشة"
             className="group relative flex items-center justify-center rounded-full bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 text-white shadow-xl shadow-amber-900/30 hover:scale-105 active:scale-95 transition cursor-pointer w-14 h-14 sm:w-16 sm:h-16 border-2 border-white/60"
           >
             <span className="relative flex items-center justify-center w-7 h-7">
@@ -154,8 +222,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         <div
           dir="rtl"
           role="dialog"
-          aria-label="شموسة"
-          className="fixed bottom-4 left-4 z-[60] w-[min(410px,calc(100vw-2rem))] h-[min(600px,calc(100vh-5rem))] flex flex-col rounded-3xl overflow-hidden bg-white dark:bg-stone-900 border border-amber-300 dark:border-stone-700 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200"
+          aria-label="شموسة مديرة أعمال الورشة"
+          className="fixed bottom-4 left-4 z-[60] w-[min(420px,calc(100vw-2rem))] h-[min(620px,calc(100vh-5rem))] flex flex-col rounded-3xl overflow-hidden bg-white dark:bg-stone-900 border border-amber-300 dark:border-stone-700 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200"
         >
           {/* Header */}
           <div className="flex items-center justify-between gap-2 px-4 py-3 bg-gradient-to-l from-amber-500 via-orange-500 to-amber-600 text-white flex-shrink-0">
@@ -167,12 +235,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 <div className="flex items-center gap-1.5">
                   <p className="font-extrabold text-sm leading-tight">شموسة</p>
                   <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full font-medium">
-                    بيانات الورشة
+                    مديرة أعمال الورشة
                   </span>
                 </div>
                 <p className="text-[11px] text-amber-50/90 flex items-center gap-1 truncate">
                   <Database className="w-3 h-3 flex-shrink-0" />
-                  <span className="truncate">ورشة {profile.brandName || 'الفنان'}</span>
+                  <span className="truncate">{brandTitle} • {artistName}</span>
                 </p>
               </div>
             </div>
@@ -199,49 +267,57 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             </div>
           </div>
 
-          {/* Messages List */}
+          {/* Messages Container */}
           <div
             ref={listRef}
             className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3 bg-stone-50 dark:bg-stone-950"
           >
-            <Bubble role="assistant">{renderText(WELCOME)}</Bubble>
-
-            {messages.length === 0 && (
-              <div className="space-y-2 pt-2">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>انتقال سريع لقوائم الورشة:</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {QUICK_ACTIONS.map((action) => (
-                    <button
-                      key={action.label}
-                      type="button"
-                      onClick={() => openScreen(action.view)}
-                      className="text-xs font-bold px-3 py-1.5 rounded-full border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 bg-white dark:bg-stone-900 hover:bg-amber-50 dark:hover:bg-stone-800 transition shadow-2xs cursor-pointer"
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            <Bubble role="assistant">{renderText(welcomeMessage)}</Bubble>
 
             {messages.map((m) => (
-              <div key={m.id} className="space-y-1.5">
+              <div key={m.id} className="space-y-2">
                 <Bubble role={m.role}>{renderText(m.content)}</Bubble>
+
+                {/* زر التنقل المباشر يظهر فقط عند الحاجة والطلب */}
+                {m.actionLink && (
+                  <div className="flex justify-start pr-2">
+                    <button
+                      type="button"
+                      onClick={() => openScreen(m.actionLink!.view)}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 transition shadow-2xs cursor-pointer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>{m.actionLink.label}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* زر الاتصال السريع بالعميل أو المورد */}
+                {m.contactAction && (
+                  <div className="flex justify-start pr-2">
+                    <a
+                      href={`tel:${m.contactAction.phone}`}
+                      className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm cursor-pointer"
+                    >
+                      <PhoneCall className="w-3.5 h-3.5" />
+                      <span>اتصال بـ {m.contactAction.name} ({m.contactAction.phone})</span>
+                    </a>
+                  </div>
+                )}
+
+                {/* زر الإحالة لـ "صقر" في المهام الخارجية وتحليل الصور والتسعير فقط */}
                 {m.handoffToFalcon && (
-                  <div className="flex justify-start">
+                  <div className="flex justify-start pr-2 pt-1">
                     <button
                       type="button"
                       onClick={() => {
                         setIsOpen(false);
                         onOpenFalcon();
                       }}
-                      className="inline-flex items-center gap-2 text-xs font-extrabold px-3.5 py-2 rounded-xl bg-stone-900 text-amber-300 border border-amber-500/50 hover:bg-stone-800 transition shadow-md cursor-pointer animate-pulse"
+                      className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl bg-stone-900 text-amber-300 border border-amber-500/40 hover:bg-stone-800 transition shadow-sm cursor-pointer"
                     >
-                      <ArrowLeftRight className="w-4 h-4 text-amber-400" />
-                      <span>افتح صقر الشمساوية للاستشارة الفنية والتحليل 🦅</span>
+                      <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
+                      <span>استشر صقر الشمساوية 🦅</span>
                     </button>
                   </div>
                 )}
@@ -250,17 +326,17 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
             {isLoading && (
               <Bubble role="assistant">
-                <span className="inline-flex gap-1.5 items-center py-1" aria-label="شموسة تبحث">
+                <span className="inline-flex gap-1.5 items-center py-1" aria-label="شموسة تبحث وتراجع">
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" />
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:150ms]" />
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:300ms]" />
-                  <span className="text-xs text-stone-500 mr-2">جاري البحث في بيانات الورشة...</span>
+                  <span className="text-xs text-stone-500 mr-2">شموسة تراجع دفاتر وسجلات الورشة...</span>
                 </span>
               </Bubble>
             )}
           </div>
 
-          {/* Input Area */}
+          {/* Form Input */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -281,7 +357,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 }}
                 rows={1}
                 maxLength={1000}
-                placeholder="اسأل عن خامة، منتج، مورد، عميل، رصيد..."
+                placeholder="اسأل عن الخزنة، النواقص، تسليمات الأوردرات، تحصيل الدفعات..."
                 className="flex-1 resize-none max-h-28 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 px-3.5 py-2.5 text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
               />
               <button
