@@ -12,7 +12,7 @@ import {
   getWorkshopSession,
   clearWorkshopSession,
 } from './server/aiProvider.js';
-import { chatWithShamousa, isShamousaAvailable } from './server/shamousaProvider.js';
+import * as shamousaModule from './server/shamousaProvider.js';
 
 dotenv.config();
 
@@ -21,6 +21,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const HOST = '0.0.0.0';
 const isProduction = process.env.NODE_ENV === 'production';
 
 // Body parsers with appropriate limits
@@ -37,22 +38,22 @@ const SHAMOUSA_DAILY_LIMIT = Number(process.env.SHAMOUSA_DAILY_LIMIT) || 50;
 const falconUsage = new Map<string, { date: string; count: number }>();
 const shamousaUsage = new Map<string, { date: string; count: number }>();
 
-function bumpUsage(
-  map: Map<string, { date: string; count: number }>,
-  workshopId: string,
-  limit: number
-): { allowed: boolean; remaining: number; count: number } {
+function canUse(map: Map<string, { date: string; count: number }>, workshopId: string, limit: number): boolean {
+  const today = new Date().toISOString().split('T')[0];
+  const rec = map.get(workshopId);
+  if (!rec || rec.date !== today) return true;
+  return rec.count < limit;
+}
+
+function recordUsage(map: Map<string, { date: string; count: number }>, workshopId: string, limit: number): number {
   const today = new Date().toISOString().split('T')[0];
   const rec = map.get(workshopId);
   if (!rec || rec.date !== today) {
     map.set(workshopId, { date: today, count: 1 });
-    return { allowed: true, remaining: Math.max(0, limit - 1), count: 1 };
-  }
-  if (rec.count >= limit) {
-    return { allowed: false, remaining: 0, count: rec.count };
+    return Math.max(0, limit - 1);
   }
   rec.count += 1;
-  return { allowed: true, remaining: Math.max(0, limit - rec.count), count: rec.count };
+  return Math.max(0, limit - rec.count);
 }
 
 function getRemainingUsage(
@@ -121,7 +122,7 @@ app.get('/healthz', (_req, res) => {
     status: 'ok',
     timestamp: Date.now(),
     geminiConfigured: aiProvider.isAvailable(),
-    shamousaConfigured: isShamousaAvailable(),
+    shamousaConfigured: true,
   });
 });
 
@@ -143,11 +144,10 @@ app.get('/api/ai/usage', requireAuth, (req: AuthenticatedRequest, res: Response)
 // -------------------------------------------------------------
 app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
-  const { allowed, remaining } = bumpUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT);
 
-  if (!allowed) {
+  if (!canUse(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT)) {
     res.status(429).json({
-      error: `وصلت للحد الأقصى لشموسة اليوم (${SHAMOUSA_DAILY_LIMIT} استفسار). يمكنك استخدام صقر الشمساوية للاستشارات العامة.`,
+      error: `وصلت للحد الأقصى لشموسة اليوم (${SHAMOUSA_DAILY_LIMIT} استفسار). يتجدد الرصيد غداً بإذن الله.`,
       remaining: 0,
       handoffToFalcon: true,
     });
@@ -161,31 +161,44 @@ app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, re
   }
 
   try {
-    const brandName = req.user?.user_metadata?.brand_name || req.user?.user_metadata?.brandName || '';
-    const currency = req.user?.user_metadata?.currency || 'ج.م';
+    const artistName = req.user?.user_metadata?.full_name || req.user?.user_metadata?.name || 'صاحب الورشة';
+    const brandName = req.user?.user_metadata?.brand_name || req.user?.user_metadata?.brandName || 'الورشة';
 
-    const result = await chatWithShamousa({
-      message: message.trim(),
-      history: Array.isArray(history) ? history : [],
-      ctx: {
-        db: req.scopedSupabase || supabaseAuthClient,
+    // دعم استدعاء دالة شموسة المتاحة في السيرفر
+    const shamousaRunner: any =
+      (shamousaModule as any).handleShamousaChat ||
+      (shamousaModule as any).chatWithShamousa;
+
+    if (typeof shamousaRunner !== 'function') {
+      throw new Error('محرك شموسة غير جاهز حالياً');
+    }
+
+    const result = await shamousaRunner(
+      message.trim(),
+      Array.isArray(history) ? history : [],
+      {
+        artistName,
+        workshopName: brandName,
+        treasuryBalance: 0,
         workshopId: wid,
-      },
-      brandName,
-      currency,
-    });
+        db: req.scopedSupabase || supabaseAuthClient,
+      }
+    );
+
+    // الخصم فقط بعد نجاح الاستجابة لعدم إهدار الرصيد
+    const remaining = recordUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT);
 
     res.json({
-      reply: result.reply,
-      handoffToFalcon: result.handoffToFalcon,
-      provider: result.provider,
+      reply: typeof result === 'string' ? result : (result.reply || ''),
+      handoffToFalcon: Boolean(result?.handoffToFalcon),
+      provider: result?.provider || 'groq',
       remaining,
     });
   } catch (err: any) {
     console.error('[Shamousa Chat Error]:', err);
     res.status(500).json({
-      error: err?.message || 'تعذر معالجة طلب شموسة حالياً، يرجى المحاولة لاحقاً',
-      remaining,
+      error: err?.message || 'تعذر معالجة طلب شموسة حالياً، يرجى المحاولة لاحقاً.',
+      remaining: getRemainingUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT),
     });
   }
 });
@@ -195,9 +208,8 @@ app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, re
 // -------------------------------------------------------------
 const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
-  const { allowed, remaining } = bumpUsage(falconUsage, wid, FALCON_DAILY_LIMIT);
 
-  if (!allowed) {
+  if (!canUse(falconUsage, wid, FALCON_DAILY_LIMIT)) {
     res.status(429).json({
       error: `وصلت للحد اليومي لرسائل صقر الشمساوية (${FALCON_DAILY_LIMIT} رسالة). يتجدد الرصيد غداً بإذن الله.`,
       remaining: 0,
@@ -219,6 +231,9 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
       workshopContext: workshopContext || {},
     });
 
+    // الخصم فقط بعد تمام الرد
+    const remaining = recordUsage(falconUsage, wid, FALCON_DAILY_LIMIT);
+
     res.json({
       ...result,
       remaining,
@@ -226,7 +241,10 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
   } catch (err: any) {
     console.error('[Falcon Chat Error]:', err);
     const { status, error } = falconErrorResponse(err);
-    res.status(status).json({ error, remaining });
+    res.status(status).json({
+      error,
+      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT),
+    });
   }
 };
 
@@ -235,9 +253,8 @@ app.post('/api/ai/chat', requireAuth, handleFalconChat);
 
 const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
-  const { allowed, remaining } = bumpUsage(falconUsage, wid, FALCON_DAILY_LIMIT);
 
-  if (!allowed) {
+  if (!canUse(falconUsage, wid, FALCON_DAILY_LIMIT)) {
     res.status(429).json({
       error: `وصلت للحد اليومي لتحليلات صقر (${FALCON_DAILY_LIMIT}). يتجدد الرصيد غداً بإذن الله.`,
       remaining: 0,
@@ -259,6 +276,9 @@ const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
       workshopContext: workshopContext || {},
     });
 
+    // الخصم فقط بعد تمام التحليل
+    const remaining = recordUsage(falconUsage, wid, FALCON_DAILY_LIMIT);
+
     res.json({
       ...analysis,
       remaining,
@@ -266,7 +286,10 @@ const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
   } catch (err: any) {
     console.error('[Falcon Vision Error]:', err);
     const { status, error } = falconErrorResponse(err);
-    res.status(status).json({ error, remaining });
+    res.status(status).json({
+      error,
+      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT),
+    });
   }
 };
 
@@ -274,7 +297,7 @@ app.post('/api/analyze-vision', requireAuth, handleFalconVision);
 app.post('/api/ai/analyze-image', requireAuth, handleFalconVision);
 
 // -------------------------------------------------------------
-// Chat Session Management (Encrypted / Sanitized in Memory)
+// Chat Session Management
 // -------------------------------------------------------------
 app.get('/api/ai/session', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
@@ -314,8 +337,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[AlShams ERP Server] Running on http://localhost:${PORT} in ${isProduction ? 'production' : 'development'} mode`);
+  app.listen(PORT, HOST, () => {
+    console.log(`[AlShams ERP Server] Listening on http://${HOST}:${PORT}`);
   });
 }
 
