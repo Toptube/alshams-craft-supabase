@@ -1,1340 +1,282 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { UserProfile, SavedProductRecord, CraftCategory, NotificationItem, CalculationInput } from './types';
-import { AuthGateway } from './components/auth/AuthGateway';
-import { Navbar } from './components/layout/Navbar';
-import { SidebarDrawer } from './components/layout/SidebarDrawer';
-import { NotificationDrawer } from './components/notifications/NotificationDrawer';
-import { CreateCenterDashboard } from './components/createCenter/CreateCenterDashboard';
-import { ProductionCalculator } from './components/calculator/ProductionCalculator';
-import { FalconAIAgent } from './components/ai/FalconAIAgent';
-import { ShamousaChatWidget } from './components/ai/ShamousaChatWidget';
-import { startProductSync } from './db/productsCloud';
-import { CraftsSelectorModal } from './components/onboarding/CraftsSelectorModal';
-import { GlobalSearchModal, GlobalSearchDataCache } from './components/search/GlobalSearchModal';
-import { UserGuideModal } from './components/guide/UserGuideModal';
-import { CloudMigrationModal } from './components/migration/CloudMigrationModal';
-import { ProfileSettingsModal } from './components/profile/ProfileSettingsModal';
-import { FamilyWelcomeModal } from './components/welcome/FamilyWelcomeModal';
-import { WhatsAppQuoteDrawer } from './components/sharing/WhatsAppQuoteDrawer';
-import { WorkshopHomeScreen } from './components/home/WorkshopHomeScreen';
-import { SupportModal } from './components/support/SupportModal';
-import { InteractiveTourModal } from './components/tour/InteractiveTourModal';
-import { checkAndTriggerProactiveBrowserNotifications } from './lib/browserNotifications';
-import { tenantStorage } from './db/dexieDB';
-import { useAuthSession } from './lib/useAuthSession';
-import { supabase } from './lib/supabase';
-import {
-  getCurrentWorkshopFromSupabase,
-  updateWorkshopProfileInSupabase,
-  mapWorkshopRowToUserProfile,
-  getArabicSupabaseError,
-  getCustomersFromSupabase,
-  getSuppliersFromSupabase,
-} from './db/supabaseService';
-import { CompleteWorkshopScreen } from './components/auth/CompleteWorkshopScreen';
-import { SuspendedWorkshopScreen } from './components/auth/SuspendedWorkshopScreen';
-import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
-import { UnderMigrationNotice } from './components/common/UnderMigrationNotice';
-import { MaterialsView } from './components/materials/MaterialsView';
-import { SuppliersView } from './components/suppliers/SuppliersView';
-import { CustomersView } from './components/customers/CustomersView';
-import { TreasuriesView } from './components/treasuries/TreasuriesView';
-import { InvoicesView } from './components/invoices/InvoicesView';
-import { FixedAssetsView } from './components/assets/FixedAssetsView';
-import { ExchangeRatesModal } from './components/currency/ExchangeRatesModal';
-import { SaaSReportsAnalyticsView } from './components/reports/SaaSReportsAnalyticsView';
-import { WorkshopCatalog } from './components/catalog/WorkshopCatalog';
-import { ProductArchive } from './components/archive/ProductArchive';
-import { NewClientModal, NewSupplierModal, NewEmployeeModal } from './components/modals/CreationModals';
-import { HRWorkforceModule } from './components/hr/HRWorkforceModule';
-import { playPageFlipSound } from './lib/sounds';
-import { useTranslation, getStoredLanguage, SUPPORTED_LANGUAGES } from './lib/i18n';
-import {
-  PlusCircle,
-  Calculator,
-  ShoppingCart,
-  Users2,
-  Sparkles,
-  FolderArchive,
-  BarChart3,
-  Boxes,
-  Building,
-  Wallet,
-  Hammer,
-  Truck,
-  FileText,
-  BookOpen,
-  ArrowRight,
-  Home,
-  ShieldCheck,
-  Snowflake,
-  RotateCcw,
-  LogOut,
-  AlertCircle,
-  Coins,
-} from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { MessageCircle, X, Send, Database, Trash2, ArrowLeftRight, Sparkles } from 'lucide-react';
+import { AlShamsSunIcon } from '../brand/BrandAssets';
+import { authedFetch } from '../../lib/apiClient';
+import type { UserProfile } from '../../types';
+import { DraggableShamosa } from './DraggableShamosa';
 
-// In-memory cache for session (built once per session, max 500 items per collection to protect Firestore free tier)
-let sessionSearchCache: GlobalSearchDataCache | null = null;
-let sessionSearchCacheTenantId = '';
+interface ShamousaMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  handoffToFalcon?: boolean;
+}
 
-export type AppActiveView =
-  | 'home'
-  | 'create_center'
-  | 'calculator'
-  | 'sales'
-  | 'invoices'
-  | 'work_orders'
-  | 'suppliers'
-  | 'customers'
-  | 'materials'
-  | 'treasuries'
-  | 'fixed_assets'
-  | 'hr'
-  | 'ai_agent'
-  | 'archive'
-  | 'catalog'
-  | 'reports'
-  | 'admin';
+interface ShamousaChatWidgetProps {
+  profile: UserProfile;
+  onOpenFalcon: () => void;
+  liftUp?: boolean;
+}
 
-export default function App() {
-  const { t: tr } = useTranslation();
-  // Authentication State from unified single-source hook
-  const {
-    session: authSession,
-    userId,
-    isAuthChecked: authChecked,
-    isRecoveryMode,
-    setIsRecoveryMode,
-    recoveryError,
-    clearRecoveryError,
-  } = useAuthSession();
-  const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
-  const [isWorkshopLoading, setIsWorkshopLoading] = useState(false);
-  const [workshopLoadError, setWorkshopLoadError] = useState<{ message: string; code?: string } | null>(null);
-  const [needsWorkshopDetailsEmail, setNeedsWorkshopDetailsEmail] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
+const WELCOME =
+  'أهلاً يا فنان، أنا شموسة 🌞\nأبحث داخل بيانات ورشتك فقط: الخامات، المنتجات، العملاء، الموردين، المبيعات، الخزن، الموظفين، والتقارير.\nلو احتجت شيئاً من هذه القوائم، أقدر أظهر لك زرًّا مباشرًا للانتقال إلى الصفحة الصحيحة.';
 
-  // Guards for workshop loading: single-flight lock and loadedForUserId check
-  const loadedForUserIdRef = React.useRef<string | null>(null);
-  const isFlightInProgressRef = React.useRef<boolean>(false);
+const QUICK_ACTIONS = [
+  { label: 'المخزن', view: 'materials' },
+  { label: 'الخزن', view: 'treasuries' },
+  { label: 'المبيعات', view: 'sales' },
+  { label: 'العملاء', view: 'customers' },
+  { label: 'الموردين', view: 'suppliers' },
+  { label: 'التقارير', view: 'reports' },
+  { label: 'الموظفين', view: 'hr' },
+];
 
-  // App Theme State (Dark / Light / System)
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    return (
-      localStorage.getItem('alshams_theme') === 'dark' ||
-      window.matchMedia('(prefers-color-scheme: dark)').matches
-    );
-  });
-
-  // Active View State with Navigation History:
-  const [viewHistory, setViewHistory] = useState<AppActiveView[]>([]);
-  const [activeView, _setActiveView] = useState<AppActiveView>('home');
-
-  const setActiveView = useCallback(
-    (nextViewOrUpdater: AppActiveView | ((prev: AppActiveView) => AppActiveView)) => {
-      _setActiveView((prev) => {
-        const next = typeof nextViewOrUpdater === 'function' ? nextViewOrUpdater(prev) : nextViewOrUpdater;
-        if (next !== prev) {
-          setViewHistory((history) => [...history, prev]);
-        }
-        return next;
-      });
-    },
-    []
+function renderText(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : <React.Fragment key={i}>{part}</React.Fragment>
   );
+}
 
-  const handleGoBack = useCallback(() => {
-    setViewHistory((prev) => {
-      if (prev.length > 0) {
-        const copy = [...prev];
-        const last = copy.pop()!;
-        _setActiveView(last);
-        return copy;
-      }
-      _setActiveView('home');
-      return [];
-    });
-  }, []);
+export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({ profile, onOpenFalcon, liftUp = false }) => {
+  const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
+  const storageKey = `shamousa_chat_${workshopId}`;
 
-  const handleGoHome = useCallback(() => {
-    _setActiveView('home');
-    setViewHistory([]);
-  }, []);
-
-  // Mobile Drawer State
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  // Support & Complaints Modal State
-  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
-
-  // Modals for Crafts, Search, Guide, Cloud Migration
-  const [isCraftsSelectorOpen, setIsCraftsSelectorOpen] = useState(false);
-  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
-  const [isUserGuideOpen, setIsUserGuideOpen] = useState(false);
-  const [userGuideSection, setUserGuideSection] = useState<string | undefined>(undefined);
-  const [isCloudMigrationOpen, setIsCloudMigrationOpen] = useState(false);
-
-  const [searchCache, setSearchCache] = useState<GlobalSearchDataCache>({
-    customers: [],
-    suppliers: [],
-    products: [],
-    materials: [],
-    invoices: [],
-    workOrders: [],
-    employees: [],
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState<ShamousaMessage[]>(() => {
+    try {
+      const saved = sessionStorage.getItem(storageKey);
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return [];
   });
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Creation Modals States (from Create Center & shortcuts)
-  const [isNewMaterialModalOpen, setIsNewMaterialModalOpen] = useState(false);
-  const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
-  const [isNewSupplierModalOpen, setIsNewSupplierModalOpen] = useState(false);
-  const [supplierModalMode, setSupplierModalMode] = useState<'create_supplier' | 'record_invoice' | 'statement'>('create_supplier');
-  const [supplierModalLocked, setSupplierModalLocked] = useState(false);
-  const [isNewEmployeeModalOpen, setIsNewEmployeeModalOpen] = useState(false);
-
-  // Other Modals
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
-  const [isAdminCostsModalOpen, setIsAdminCostsModalOpen] = useState(false);
-  const [isExchangeRatesModalOpen, setIsExchangeRatesModalOpen] = useState(false);
-  const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState(false);
-  const [welcomeType, setWelcomeType] = useState<'first_time' | 'session_return'>('session_return');
-  const [isInteractiveTourOpen, setIsInteractiveTourOpen] = useState(false);
-
-  // WhatsApp Quote Drawer State
-  const [quoteRecord, setQuoteRecord] = useState<SavedProductRecord | null>(null);
-  const [isQuoteDrawerOpen, setIsQuoteDrawerOpen] = useState(false);
-
-  // Notifications State & Interactive Drawer
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
-
-  // Reloaded Record from Archive into Calculator for Overwrite Mutation
-  const [reloadedRecord, setReloadedRecord] = useState<SavedProductRecord | null>(null);
-
-  // Notes transferred from AI to Calculator
-  const [notesToTransfer, setNotesToTransfer] = useState<string | null>(null);
-
-  // Open Add Material in MaterialsView
-  const [openAddMaterialInView, setOpenAddMaterialInView] = useState(false);
-
-  // مزامنة المنتجات أوفلاين/أونلاين: كل حفظ يتسجل على الجهاز ويترفع للداتا بيز أول ما يكون فيه نت
   useEffect(() => {
-    if (!currentProfile) return;
-    const tid = currentProfile.tenantId || currentProfile.workshopId || currentProfile.id || '';
-    return startProductSync(tid);
-  }, [currentProfile?.tenantId, currentProfile?.workshopId, currentProfile?.id]);
-
-  // Notification loader
-  const loadNotifications = useCallback(async () => {
-    if (!currentProfile) return;
     try {
-      const tid = currentProfile.tenantId || currentProfile.workshopId || currentProfile.id || '';
-      await tenantStorage.generateProactiveNotifications(tid, currentProfile);
-      const notifs = await tenantStorage.getNotifications(tid);
-      setNotifications(notifs);
-
-      // Trigger browser notifications for stock depletion and work orders due
-      checkAndTriggerProactiveBrowserNotifications(tid, currentProfile);
-    } catch (err) {
-      console.error('Failed to load notifications:', err);
+      sessionStorage.setItem(storageKey, JSON.stringify(messages.slice(-30)));
+    } catch {
+      // ignore
     }
-  }, [currentProfile]);
-
-  const loadSearchCache = useCallback(
-    async (forceRefresh = false) => {
-      if (!currentProfile) return;
-      const tenantId =
-        currentProfile.tenantId || currentProfile.workshopId || currentProfile.id || '';
-
-      // 4) للحفاظ على الاستهلاك المجاني: استخدام الفهرس المحفوظ بالذاكرة مرة واحدة لكل جلسة ما لم يُطلب التحديث
-      if (!forceRefresh && sessionSearchCache && sessionSearchCacheTenantId === tenantId) {
-        setSearchCache(sessionSearchCache);
-        return;
-      }
-
-      try {
-        const [
-          customers,
-          suppliers,
-          products,
-          materials,
-          invoices,
-          supplierInvoices,
-          employees,
-          safeTransactions,
-          expenses,
-          supaCustRes,
-          supaSuppRes,
-        ] = await Promise.all([
-          tenantStorage.getCustomers(tenantId).catch(() => []),
-          tenantStorage.getSuppliers(tenantId).catch(() => []),
-          tenantStorage.getProducts(tenantId).catch(() => []),
-          tenantStorage.getRawMaterials(tenantId).catch(() => []),
-          tenantStorage.getOrders(tenantId).catch(() => []),
-          tenantStorage.getSupplierInvoices(tenantId).catch(() => []),
-          tenantStorage.getEmployees(tenantId).catch(() => []),
-          tenantStorage.getSafeTransactions(tenantId).catch(() => []),
-          tenantStorage.getAdminCosts(tenantId).catch(() => []),
-          getCustomersFromSupabase(tenantId).catch(() => ({ data: [] })),
-          getSuppliersFromSupabase(tenantId).catch(() => ({ data: [] })),
-        ]);
-
-        const supaCustomers = ((supaCustRes as any)?.data || []).map((sc: any) => ({
-          id: sc.id,
-          name: sc.name,
-          phone: sc.phone,
-          address: sc.address,
-          currentBalance: sc.balance || 0,
-        }));
-        const supaSuppliers = ((supaSuppRes as any)?.data || []).map((ss: any) => ({
-          id: ss.id,
-          name: ss.name,
-          companyName: ss.name,
-          phone: ss.phone,
-          address: ss.address,
-        }));
-
-        const mergedCustomers = [
-          ...customers,
-          ...supaCustomers.filter((sc: any) => !customers.some((c) => c.id === sc.id)),
-        ];
-        const mergedSuppliers = [
-          ...suppliers,
-          ...supaSuppliers.filter((ss: any) => !suppliers.some((s) => s.id === ss.id)),
-        ];
-
-        const newCache: GlobalSearchDataCache = {
-          customers: mergedCustomers.slice(0, 500),
-          suppliers: mergedSuppliers.slice(0, 500),
-          products: products.slice(0, 500),
-          materials: materials.slice(0, 500),
-          invoices: (invoices as any).slice(0, 500),
-          supplierInvoices: (supplierInvoices as any).slice(0, 500),
-          workOrders: (invoices as any).slice(0, 500),
-          employees: employees.slice(0, 500),
-          treasuries: (safeTransactions as any).slice(0, 500),
-          expenses: expenses.slice(0, 500),
-        };
-
-        sessionSearchCache = newCache;
-        sessionSearchCacheTenantId = tenantId;
-        setSearchCache(newCache);
-      } catch (err) {
-        console.error('Error loading search cache:', err);
-      }
-    },
-    [currentProfile]
-  );
-
-  // تشغيل صوت تقليب الصفحة عند التنقل بين الأقسام (لا يُشغل في التحميل الأولي قبل أي تفاعل)
-  const isFirstMountNav = React.useRef(true);
-  useEffect(() => {
-    if (isFirstMountNav.current) {
-      isFirstMountNav.current = false;
-      return;
-    }
-    playPageFlipSound();
-  }, [activeView]);
+  }, [messages, storageKey]);
 
   useEffect(() => {
-    if (currentProfile) {
-      loadNotifications();
-      // بناء فهرس البحث للجلسة في الخلفية
-      loadSearchCache();
-      const interval = setInterval(loadNotifications, 60000);
-
-      const handleRealtimeNotif = () => {
-        loadNotifications();
-        loadSearchCache(true);
-      };
-      window.addEventListener('alshams_notifications_changed', handleRealtimeNotif);
-
-      return () => {
-        clearInterval(interval);
-        window.removeEventListener('alshams_notifications_changed', handleRealtimeNotif);
-      };
+    if (isOpen) {
+      listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+      setTimeout(() => inputRef.current?.focus(), 150);
     }
-  }, [currentProfile, loadNotifications, loadSearchCache]);
+  }, [messages, isOpen, isLoading]);
 
-  // Apply dark mode class to document
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('alshams_theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('alshams_theme', 'light');
+  const openScreen = (view: string) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view } }));
     }
-  }, [isDarkMode]);
-
-  const { lang: appLang, dir: appDir } = useTranslation();
-
-  // Sync language direction (RTL / LTR) and language tag
-  useEffect(() => {
-    document.documentElement.dir = appDir;
-    document.documentElement.lang = appLang;
-  }, [appLang, appDir]);
-
-  const triggerWelcomeFlow = useCallback((profile: UserProfile) => {
-    if (profile.welcomeShown !== true) {
-      setWelcomeType('first_time');
-      setIsWelcomeModalOpen(true);
-      try {
-        sessionStorage.setItem('alshams_welcome_shown_session', 'true');
-      } catch (e) {}
-    } else {
-      let sessionWelcomed = false;
-      try {
-        sessionWelcomed = sessionStorage.getItem('alshams_welcome_shown_session') === 'true';
-      } catch (e) {}
-      if (!sessionWelcomed) {
-        setWelcomeType('session_return');
-        setIsWelcomeModalOpen(true);
-        try {
-          sessionStorage.setItem('alshams_welcome_shown_session', 'true');
-        } catch (e) {}
-      }
-    }
-  }, []);
-
-  const handleCloseWelcomeModal = async () => {
-    setIsWelcomeModalOpen(false);
-    const wasFirstTime = welcomeType === 'first_time';
-    if (wasFirstTime && currentProfile && currentProfile.welcomeShown !== true) {
-      const updated: UserProfile = { ...currentProfile, welcomeShown: true, updatedAt: Date.now() };
-      setCurrentProfile(updated);
-      try {
-        const workshopId = currentProfile.id || currentProfile.workshopId || currentProfile.tenantId || '';
-        await updateWorkshopProfileInSupabase(workshopId, { welcomeShown: true });
-      } catch (err) {
-        console.error('Failed to save welcomeShown flag to Supabase:', err);
-      }
-    }
-    // Launch interactive tour for new users or if not yet completed
-    try {
-      const tourDone = localStorage.getItem('alshams_tour_completed');
-      if (wasFirstTime || tourDone !== 'true') {
-        setTimeout(() => {
-          setIsInteractiveTourOpen(true);
-        }, 350);
-      }
-    } catch (e) {
-      setIsInteractiveTourOpen(true);
-    }
+    setIsOpen(false);
   };
 
-  // Single useEffect for workshop loading: strictly depends on userId and user-triggered retryCount
-  useEffect(() => {
-    // Strict Requirement 3: لا تُحمَّل الورشة ولا تُعرض لوحة التحكم أثناء وضع استعادة كلمة المرور
-    if (isRecoveryMode) {
-      loadedForUserIdRef.current = null;
-      setIsWorkshopLoading(false);
-      return;
-    }
+  const send = async (text: string) => {
+    const message = text.trim();
+    if (!message || isLoading) return;
+    const userMsg: ShamousaMessage = { id: `u_${Date.now()}`, role: 'user', content: message };
+    const history = messages.map((m) => ({ role: m.role, content: m.content }));
+    setMessages((prev) => [...prev, userMsg]);
+    setInput('');
+    setIsLoading(true);
 
-    if (!userId) {
-      loadedForUserIdRef.current = null;
-      setCurrentProfile(null);
-      setNeedsWorkshopDetailsEmail(null);
-      setWorkshopLoadError(null);
-      setIsWorkshopLoading(false);
-      return;
-    }
-
-    // Do not reload if already loaded for this user and not retrying
-    if (loadedForUserIdRef.current === userId && retryCount === 0) {
-      return;
-    }
-
-    // Single-flight guard: prevent concurrent requests
-    if (isFlightInProgressRef.current) {
-      return;
-    }
-
-    let isMounted = true;
-    isFlightInProgressRef.current = true;
-    setIsWorkshopLoading(true);
-    setWorkshopLoadError(null);
-
-    const userEmail = authSession?.user?.email || '';
-    console.log('[App] Step 2: Session active for user:', userId, `(${userEmail}). Starting loadWorkshop with 25s timeout... [retry: ${retryCount}]`);
-
-    // 25 second timeout promise (Rule 3)
-    let timeoutId: any = null;
-    const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(
-          new Error('انتهت مهلة التحميل (25 ثانية) أثناء جلب بيانات الورشة من الخادم. يرجى التحقق من اتصال الإنترنت.')
-        );
-      }, 25000);
-    });
-
-    // Directly query Supabase without calling getSession() (Rule 3 & 4)
-    const queryPromise = supabase
-      .from('workshops')
-      .select('*')
-      .limit(1)
-      .maybeSingle();
-
-    Promise.race([queryPromise, timeoutPromise])
-      .then((res: any) => {
-        if (!isMounted) return;
-        clearTimeout(timeoutId);
-
-        if (res.error) {
-          console.error('[App] Step 3 (Result): Error fetching workshop row:', res.error);
-          const errRes = getArabicSupabaseError(res.error);
-          setWorkshopLoadError({
-            message: errRes.arabicMessage,
-            code: errRes.code,
-          });
-          return;
-        }
-
-        const data = res.data;
-        if (data) {
-          console.log('[App] Step 3 (Result): Workshop loaded successfully:', data.brand_name || data.id);
-          const profile = mapWorkshopRowToUserProfile(data, userEmail);
-          loadedForUserIdRef.current = userId;
-          setCurrentProfile(profile);
-          setNeedsWorkshopDetailsEmail(null);
-          setWorkshopLoadError(null);
-          triggerWelcomeFlow(profile);
-          if (!localStorage.getItem('alshams_crafts_selected')) {
-            setIsCraftsSelectorOpen(true);
-          }
-        } else {
-          console.log('[App] Step 3 (Result): User authenticated but no workshop row found. Prompting details setup.');
-          setNeedsWorkshopDetailsEmail(userEmail);
-        }
-      })
-      .catch((err: any) => {
-        if (!isMounted) return;
-        clearTimeout(timeoutId);
-        console.error('[App] Step 3 (Result): Exception or timeout during loadWorkshop:', err);
-        setWorkshopLoadError({
-          message: err?.message || 'تعذر الاتصال بالخادم لتحميل بيانات الورشة.',
-          code: err?.code || 'TIMEOUT_OR_NETWORK',
-        });
-      })
-      .finally(() => {
-        if (isMounted) {
-          clearTimeout(timeoutId);
-          setIsWorkshopLoading(false);
-          isFlightInProgressRef.current = false;
-          console.log('[App] loadWorkshop finished (loading state cleared).');
-        }
+    try {
+      const res = await authedFetch('/api/shamousa/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, history }),
       });
-
-    return () => {
-      isMounted = false;
-      if (timeoutId) clearTimeout(timeoutId);
-      isFlightInProgressRef.current = false;
-    };
-  }, [userId, retryCount, isRecoveryMode, triggerWelcomeFlow]);
-  const handleAuthenticated = (profile: UserProfile) => {
-    console.log('[App] handleAuthenticated called for workshop:', profile.brandName);
-    const uid = profile.ownerUid || userId;
-    if (uid) loadedForUserIdRef.current = uid;
-    setCurrentProfile(profile);
-    setNeedsWorkshopDetailsEmail(null);
-    setWorkshopLoadError(null);
-    setIsWorkshopLoading(false);
-    triggerWelcomeFlow(profile);
-    if (!localStorage.getItem('alshams_crafts_selected')) {
-      setIsCraftsSelectorOpen(true);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'حصل خطأ، حاول تاني.');
+      if (typeof data.remaining === 'number') setRemaining(data.remaining);
+      setMessages((prev) => [
+        ...prev,
+        { id: `a_${Date.now()}`, role: 'assistant', content: data.reply, handoffToFalcon: Boolean(data.handoffToFalcon) },
+      ]);
+    } catch (err: any) {
+      setMessages((prev) => [...prev, { id: `e_${Date.now()}`, role: 'assistant', content: `⚠️ ${err?.message || 'حصل خطأ، حاول تاني.'}` }]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleLogout = async () => {
-    console.log('[App] handleLogout invoked. Signing out of Supabase...');
-    loadedForUserIdRef.current = null;
-    try {
-      await supabase.auth.signOut();
-    } catch (e) {
-      console.error('Sign out error:', e);
-    }
-    localStorage.removeItem('alshams_active_tenant_id');
-    try {
-      sessionStorage.removeItem('alshams_welcome_shown_session');
-    } catch (e) {}
-    setCurrentProfile(null);
-    setNeedsWorkshopDetailsEmail(null);
-    setWorkshopLoadError(null);
-    setIsWorkshopLoading(false);
-    setIsMobileMenuOpen(false);
-  };
+  return (
+    <>
+      {!isOpen && (
+        <DraggableShamosa onClick={() => setIsOpen(true)}>
+          <div
+            aria-label="افتح شموسة — مساعدة بيانات الورشة"
+            className={`group flex items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-xl shadow-amber-900/30 hover:scale-105 active:scale-95 transition cursor-pointer ${liftUp ? 'w-16 h-16' : 'w-16 h-16'}`}
+            style={{ width: 64, height: 64 }}
+          >
+            <span className="relative flex items-center justify-center w-7 h-7">
+              <MessageCircle className="w-7 h-7" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white" />
+            </span>
+          </div>
+        </DraggableShamosa>
+      )}
 
-  const toggleDarkMode = () => {
-    setIsDarkMode((prev) => !prev);
-  };
-
-  // Archive reload handler - loads card into calculator to mutate / overwrite
-  const handleSelectRecordFromArchive = (record: SavedProductRecord) => {
-    setReloadedRecord(record);
-    setActiveView('calculator');
-  };
-
-  // WhatsApp Quote trigger
-  const handleOpenWhatsAppShare = (record: SavedProductRecord) => {
-    setQuoteRecord(record);
-    setIsQuoteDrawerOpen(true);
-  };
-
-  // Falcon AI integration handlers
-  const handleApplyCategoryFromAI = (category: CraftCategory) => {
-    if (reloadedRecord) {
-      setReloadedRecord({
-        ...reloadedRecord,
-        category,
-        input: { ...reloadedRecord.input, category },
-      });
-    }
-  };
-
-  const handleApplyEstimatedLaborWage = (wage: number, hours: number) => {
-    if (reloadedRecord) {
-      setReloadedRecord({
-        ...reloadedRecord,
-        input: { ...reloadedRecord.input, laborWage: wage },
-      });
-    }
-  };
-
-  const handleTransferNotesToCalculator = (notes: string) => {
-    setNotesToTransfer(notes);
-    setActiveView('calculator');
-  };
-
-  const handleExportStructuredToCalculator = (data: {
-    category?: CraftCategory | string;
-    laborWage?: number;
-    hours?: number;
-    minMarketPrice?: number;
-    recommendedFairPrice?: number;
-    maxMarketPrice?: number;
-    widthCm?: number;
-    heightCm?: number;
-    weightKg?: number;
-    notes?: string;
-  }) => {
-    const computedInput: CalculationInput = {
-      ...(reloadedRecord?.input || {
-        productName: data.category ? `مشغولة ${data.category}` : 'مشغولة فنية جديدة',
-        shape3D: 'flat' as const,
-        widthCm: data.widthCm || 50,
-        diameterCm: 0,
-        baseDiameterCm: 0,
-        sideHeightCm: data.heightCm || 80,
-        totalLengthCm: data.heightCm || 80,
-        fringeLengthCm: 15,
-        cordTypeId: 'cotton_twisted_4mm',
-        cordThicknessMm: 4,
-        pricePerKg: 180,
-        curtainRodCost: 0,
-        cushionCoverCost: 0,
-        fiberCost: 0,
-        bagAccessoriesCost: 0,
-        extraMaterials: [],
-        packagingCost: 20,
-        transitFees: 0,
-        adminExpensesShare: 15,
-        profitMarginPercent: 40,
-        personalNotes: data.notes || '',
-      }),
-      category: (data.category as CraftCategory) || reloadedRecord?.input?.category || 'جدارية',
-      laborWage: data.laborWage !== undefined ? data.laborWage : (reloadedRecord?.input?.laborWage || 90),
-      widthCm: data.widthCm || reloadedRecord?.input?.widthCm || 50,
-      totalLengthCm: data.heightCm || reloadedRecord?.input?.totalLengthCm || 80,
-      sideHeightCm: data.heightCm || reloadedRecord?.input?.sideHeightCm || 80,
-    };
-
-    const newRec: SavedProductRecord = {
-      ...(reloadedRecord || {}),
-      id: reloadedRecord?.id || `prod_${Date.now()}`,
-      tenantId: currentProfile?.tenantId || currentProfile?.workshopId || currentProfile?.id || '',
-      workshopId: currentProfile?.tenantId || currentProfile?.workshopId || currentProfile?.id || '',
-      productName: reloadedRecord?.productName || (data.category ? `مشغولة ${data.category}` : 'مشغولة فنية جديدة'),
-      category: (data.category as CraftCategory) || reloadedRecord?.category || 'جدارية',
-      productType: (data.category as CraftCategory) || 'جدارية',
-      costPrice: reloadedRecord?.costPrice || 0,
-      retailPrice: data.recommendedFairPrice || reloadedRecord?.retailPrice || 0,
-      wholesalePrice: data.minMarketPrice || reloadedRecord?.wholesalePrice || 0,
-      input: computedInput,
-      output: reloadedRecord?.output || ({} as any),
-      isActive: true,
-      createdAt: reloadedRecord?.createdAt || Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    setReloadedRecord(newRec);
-    if (data.notes) {
-      setNotesToTransfer(data.notes);
-    }
-    setActiveView('calculator');
-  };
-
-  // 1. Initial auth check screen
-  if (!authChecked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-100 dark:bg-stone-950">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-9 h-9 border-3 border-amber-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs font-bold text-stone-500">{tr('verifying_session') || 'جاري التحقق من جلسة الدخول...'}</p>
-        </div>
-      </div>
-    );
-  }
-
-  // 1.5 Recovery Mode: Show ResetPasswordScreen before anything else (Requirement 3)
-  if (isRecoveryMode) {
-    return (
-      <ResetPasswordScreen
-        onSuccess={() => {
-          setIsRecoveryMode(false);
-        }}
-      />
-    );
-  }
-
-  // 2. Not authenticated (no session or access_token): show AuthGateway directly (Rule 4)
-  if (!authSession?.access_token || !authSession?.user) {
-    return (
-      <AuthGateway
-        onAuthenticated={handleAuthenticated}
-        onNeedsWorkshopDetails={(em) => setNeedsWorkshopDetailsEmail(em)}
-        recoveryError={recoveryError}
-        onClearRecoveryError={clearRecoveryError}
-      />
-    );
-  }
-
-  // 3. Error Screen with "حاول مرة أخرى" and "تسجيل الخروج" (Rule 3)
-  if (workshopLoadError) {
-    return (
-      <div className="min-h-screen bg-stone-100 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col justify-center items-center p-4 sm:p-6 transition-colors duration-200">
-        <div className="w-full max-w-md bg-white dark:bg-stone-900 rounded-3xl shadow-2xl border border-rose-300 dark:border-rose-900/60 p-6 sm:p-8 space-y-5 text-right relative overflow-hidden">
-          <div className="flex flex-col items-center justify-center text-center space-y-3">
-            <div className="w-16 h-16 rounded-3xl bg-rose-100 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 flex items-center justify-center text-rose-600 dark:text-rose-400 shadow-md">
-              <AlertCircle className="w-8 h-8" />
+      {isOpen && (
+        <div
+          dir="rtl"
+          role="dialog"
+          aria-label="شموسة"
+          className="fixed bottom-4 left-4 z-[60] w-[min(390px,calc(100vw-2rem))] h-[min(580px,calc(100vh-6rem))] flex flex-col rounded-3xl overflow-hidden bg-white dark:bg-stone-900 border border-amber-200 dark:border-stone-700 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200"
+        >
+          <div className="flex items-center justify-between gap-2 px-4 py-3 bg-gradient-to-l from-amber-500 to-orange-600 text-white flex-shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-full bg-white/20 p-1.5 flex-shrink-0">
+                <AlShamsSunIcon />
+              </div>
+              <div className="min-w-0">
+                <p className="font-extrabold text-sm leading-tight">شموسة</p>
+                <p className="text-[11px] text-amber-50/90 flex items-center gap-1 truncate">
+                  <Database className="w-3 h-3 flex-shrink-0" />
+                  <span className="truncate">مساعدة بيانات ورشة {profile.brandName}</span>
+                </p>
+              </div>
             </div>
-            <h2 className="text-lg font-black text-rose-700 dark:text-rose-400">
-              تعذر تحميل بيانات الورشة
-            </h2>
-            <p className="text-xs font-bold text-stone-600 dark:text-stone-300 leading-relaxed max-w-sm">
-              {workshopLoadError.message}
-            </p>
-            {workshopLoadError.code && (
-              <span className="inline-block px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 text-[11px] font-mono text-stone-500">
-                رمز الخطأ: {workshopLoadError.code}
-              </span>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMessages([])}
+                  aria-label="مسح المحادثة"
+                  title="مسح المحادثة"
+                  className="p-2 rounded-full hover:bg-white/15 transition cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                aria-label="إغلاق"
+                className="p-2 rounded-full hover:bg-white/15 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-3 bg-stone-50 dark:bg-stone-950">
+            <Bubble role="assistant">{renderText(WELCOME)}</Bubble>
+
+            {messages.length === 0 && (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center gap-2 text-[10px] font-extrabold text-amber-700 dark:text-amber-300">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>صفحات سريعة</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {QUICK_ACTIONS.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      onClick={() => openScreen(action.view)}
+                      className="text-xs font-bold px-3 py-1.5 rounded-full border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 bg-white dark:bg-stone-900 hover:bg-amber-50 dark:hover:bg-stone-800 transition cursor-pointer"
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.map((m) => (
+              <div key={m.id}>
+                <Bubble role={m.role}>{renderText(m.content)}</Bubble>
+                {m.handoffToFalcon && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onOpenFalcon();
+                    }}
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-stone-900 text-amber-300 border border-amber-500/40 hover:bg-stone-800 transition cursor-pointer"
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    افتح صقر الشمساوية
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {isLoading && (
+              <Bubble role="assistant">
+                <span className="inline-flex gap-1 items-center" aria-label="شموسة بتدوّر">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" />
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:300ms]" />
+                </span>
+              </Bubble>
             )}
           </div>
 
-          <div className="space-y-2.5 pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                setWorkshopLoadError(null);
-                setRetryCount((prev) => prev + 1);
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              send(input);
+            }}
+            className="flex items-end gap-2 p-3 border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 flex-shrink-0"
+          >
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  send(input);
+                }
               }}
-              className="w-full py-3 px-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs transition shadow-md hover:shadow-lg flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>حاول مرة أخرى</span>
-            </button>
-
+              rows={1}
+              maxLength={1000}
+              placeholder="اسأل عن خاماتك أو منتجاتك أو خزنك..."
+              className="flex-1 resize-none max-h-28 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 px-3 py-2.5 text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
             <button
-              type="button"
-              onClick={handleLogout}
-              className="w-full py-2.5 px-4 rounded-2xl border border-stone-300 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
+              type="submit"
+              disabled={!input.trim() || isLoading}
+              aria-label="إرسال"
+              className="w-11 h-11 flex-shrink-0 rounded-full bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition cursor-pointer"
             >
-              <LogOut className="w-4 h-4" />
-              <span>{tr('mod_logout') || 'تسجيل الخروج'}</span>
+              <Send className="w-5 h-5 -scale-x-100" />
             </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // 4. Loading screen while loading workshop (10s max via Promise.race, never hangs infinitely)
-  if (isWorkshopLoading && !currentProfile) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-100 dark:bg-stone-950">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-9 h-9 border-3 border-amber-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs font-bold text-stone-500">{tr('loading_workshop_data') || 'جاري فتح ورشتك السحابية وتحميل البيانات...'}</p>
-        </div>
-      </div>
-    );
-  }
-
-  // 5. Incomplete Workshop details
-  if (needsWorkshopDetailsEmail) {
-    return (
-      <CompleteWorkshopScreen
-        userEmail={needsWorkshopDetailsEmail}
-        onWorkshopCreated={(ws) => {
-          handleAuthenticated(ws);
-        }}
-        onLogout={handleLogout}
-      />
-    );
-  }
-
-  // 6. Not authenticated or profile missing
-  if (!currentProfile) {
-    return (
-      <AuthGateway
-        onAuthenticated={handleAuthenticated}
-        onNeedsWorkshopDetails={(em) => setNeedsWorkshopDetailsEmail(em)}
-      />
-    );
-  }
-
-  // 6. Suspended workshop account (Rule 7)
-  if (currentProfile.isFrozen || currentProfile.frozenReason || (currentProfile as any).status === 'suspended') {
-    return (
-      <SuspendedWorkshopScreen
-        onLogout={handleLogout}
-        brandName={currentProfile.brandName}
-        artistName={currentProfile.artistName}
-      />
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col font-sans transition-colors duration-200">
-      {/* Top Navbar */}
-      <Navbar
-        profile={currentProfile}
-        hasActiveSession={Boolean(authSession?.access_token && userId)}
-        unreadNotificationsCount={notifications.filter((n) => !n.isRead).length}
-        onToggleSidebar={() => setIsMobileMenuOpen(true)}
-        onOpenGlobalSearch={() => {
-          loadSearchCache();
-          setIsGlobalSearchOpen(true);
-        }}
-        onGoHome={() => setActiveView('home')}
-        onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
-        onOpenNewMaterialModal={() => {
-          setOpenAddMaterialInView(true);
-          setActiveView('materials');
-        }}
-        onNavigateToCalculator={() => setActiveView('calculator')}
-        onOpenSupplierInvoice={() => {
-          setSupplierModalMode('record_invoice');
-          setSupplierModalLocked(true);
-          setIsNewSupplierModalOpen(true);
-        }}
-        onNavigateToSales={() => setActiveView('sales')}
-        onOpenNewClientModal={() => setIsNewClientModalOpen(true)}
-        onOpenNewEmployeeModal={() => setIsNewEmployeeModalOpen(true)}
-      />
-
-      {/* Mobile Lateral Hamburger Drawer */}
-      <SidebarDrawer
-        isOpen={isMobileMenuOpen}
-        onClose={() => setIsMobileMenuOpen(false)}
-        profile={currentProfile}
-        activeView={activeView}
-        onSelectView={(v) => {
-          if (v === 'inventory') {
-            setIsInventoryModalOpen(true);
-          } else if (v === 'expenses') {
-            setIsAdminCostsModalOpen(true);
-          } else if (v === 'currency_rates') {
-            setIsExchangeRatesModalOpen(true);
-          } else if (v === 'create_center' || v === 'home') {
-            setActiveView('home');
-          } else {
-            setActiveView(v as AppActiveView);
-          }
-        }}
-        unreadNotificationsCount={notifications.filter((n) => !n.isRead).length}
-        onOpenNotifications={() => setIsNotificationDrawerOpen(true)}
-        onOpenProfileSettings={() => setIsProfileModalOpen(true)}
-        onOpenCraftsSelector={() => setIsCraftsSelectorOpen(true)}
-        onOpenUserGuide={(sectionId) => {
-          setUserGuideSection(sectionId);
-          setIsUserGuideOpen(true);
-        }}
-        onOpenCloudMigration={() => setIsCloudMigrationOpen(true)}
-        onOpenSupport={() => setIsSupportModalOpen(true)}
-        onStartTour={() => {
-          setIsMobileMenuOpen(false);
-          setIsInteractiveTourOpen(true);
-        }}
-        onToggleDarkMode={toggleDarkMode}
-        isDarkMode={isDarkMode}
-        onLogout={handleLogout}
-      />
-
-      {/* Frozen Account Notification Banner */}
-      {currentProfile.isFrozen && (
-        <div className="bg-cyan-700 text-white px-4 py-2.5 text-xs font-bold shadow-md">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Snowflake size={16} className="text-cyan-200 animate-pulse flex-shrink-0" />
-              <span>
-                تنبيه إداري: تم تجميد حساب هذه الورشة ({currentProfile.frozenReason || 'مراجعة المعايير والحساب'}). يرجى التواصل مع إدارة المنظومة.
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsSupportModalOpen(true)}
-              className="px-3 py-1 rounded-lg bg-cyan-800 hover:bg-cyan-900 text-cyan-100 text-[11px] underline transition cursor-pointer"
-            >
-              الدعم الفني والشكاوى
-            </button>
-          </div>
+          </form>
+          {remaining !== null && (
+            <p className="text-[10px] text-center text-stone-500 dark:text-stone-400 pb-2 bg-white dark:bg-stone-900">
+              باقي {remaining} رسالة النهارده
+            </p>
+          )}
         </div>
       )}
-
-      {/* Main View Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
-        {/* Back to Home & Previous Page Bar when on any module screen */}
-        {activeView !== 'home' && activeView !== 'create_center' && (
-          <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-stone-200/80 dark:border-stone-800">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleGoBack}
-                className="px-3 py-1.5 rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-black transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer group"
-                title="الرجوع للصفحة السابقة"
-              >
-                <ArrowRight className="w-3.5 h-3.5 text-stone-500 group-hover:translate-x-0.5 transition-transform" />
-                <span>الرجوع للصفحة السابقة</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleGoHome}
-                className="px-3 py-1.5 rounded-2xl border border-amber-300/80 dark:border-amber-700/80 bg-white dark:bg-stone-900 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-stone-800 dark:text-stone-200 text-xs font-black transition-all flex items-center gap-2 shadow-xs active:scale-95 cursor-pointer group"
-                title="العودة للشاشة الرئيسية"
-              >
-                <div className="w-6 h-6 flex items-center justify-center shrink-0">
-                  <img
-                    src="/alshams_falcon_emblem.png"
-                    alt="أيقونة الشاشة الرئيسية"
-                    className="w-full h-full object-contain group-hover:scale-110 transition-transform drop-shadow-2xs select-none"
-                  />
-                </div>
-                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
-                  الشاشة الرئيسية
-                </span>
-              </button>
-            </div>
-            <div className="text-xs font-bold text-stone-500">
-              <span>منظومة الشمساوية • {currentProfile.brandName}</span>
-            </div>
-          </div>
-        )}
-
-        {/* ACTIVE VIEW RENDERING */}
-        {(activeView === 'home' || activeView === 'create_center') && (
-          <WorkshopHomeScreen
-            profile={currentProfile}
-            onNavigateToCalculator={() => setActiveView('calculator')}
-            onNavigateToArchive={() => setActiveView('archive')}
-            onNavigateToCatalog={() => setActiveView('catalog')}
-            onNavigateToAIAgent={() => setActiveView('ai_agent')}
-            onNavigateToMaterials={(openAdd) => {
-              if (openAdd) setOpenAddMaterialInView(true);
-              setActiveView('materials');
-            }}
-            onNavigateToSuppliers={() => setActiveView('suppliers')}
-            onNavigateToSales={(mode) => setActiveView('sales')}
-            onNavigateToInvoices={(filter) => {
-              if (filter === 'customers') {
-                setActiveView('customers');
-              } else {
-                setActiveView('invoices');
-              }
-            }}
-            onNavigateToWorkOrders={(mode) => setActiveView('work_orders')}
-            onNavigateToTreasuries={() => setActiveView('treasuries')}
-            onNavigateToHR={() => setActiveView('hr')}
-            onNavigateToReports={() => setActiveView('reports')}
-            onNavigateToFixedAssets={() => setActiveView('fixed_assets')}
-            onOpenExchangeRatesModal={() => setIsExchangeRatesModalOpen(true)}
-            onOpenInventoryModal={(tab) => setIsInventoryModalOpen(true)}
-            onOpenAdminCostsModal={() => setIsAdminCostsModalOpen(true)}
-            onOpenNewMaterialModal={() => {
-              setOpenAddMaterialInView(true);
-              setActiveView('materials');
-            }}
-            onOpenNewClientModal={() => setIsNewClientModalOpen(true)}
-            onOpenNewSupplierModal={() => {
-              setSupplierModalMode('create_supplier');
-              setSupplierModalLocked(false);
-              setIsNewSupplierModalOpen(true);
-            }}
-            onOpenCreateSupplier={() => {
-              setSupplierModalMode('create_supplier');
-              setSupplierModalLocked(true);
-              setIsNewSupplierModalOpen(true);
-            }}
-            onOpenSupplierInvoice={() => {
-              setSupplierModalMode('record_invoice');
-              setSupplierModalLocked(true);
-              setIsNewSupplierModalOpen(true);
-            }}
-            onOpenNewEmployeeModal={() => setIsNewEmployeeModalOpen(true)}
-          />
-        )}
-
-        {activeView === 'calculator' && (
-          <ProductionCalculator
-            profile={currentProfile}
-            initialRecord={reloadedRecord}
-            onOpenWhatsAppShare={handleOpenWhatsAppShare}
-            onOpenNewMaterialModal={() => {
-              setOpenAddMaterialInView(true);
-              setActiveView('materials');
-            }}
-            onSavedSuccess={() => {
-              // Successfully saved to archive
-            }}
-            externalNotesToTransfer={notesToTransfer}
-            onNotesTransferredHandled={() => setNotesToTransfer(null)}
-          />
-        )}
-
-        {activeView === 'invoices' && (
-          <InvoicesView
-            workshop={currentProfile}
-            onOpenHelp={(s) => {
-              setUserGuideSection(s);
-              setIsUserGuideOpen(true);
-            }}
-            onOpenDocumentPreview={(docType, data) => {
-              // Document preview hook
-            }}
-          />
-        )}
-
-        {activeView === 'work_orders' && (
-          <UnderMigrationNotice
-            title="أوامر التشغيل وتتبع الهالك قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
-          />
-        )}
-
-        {activeView === 'suppliers' && (
-          <SuppliersView
-            workshop={currentProfile}
-            onOpenHelp={(s) => {
-              setUserGuideSection(s);
-              setIsUserGuideOpen(true);
-            }}
-            onOpenCreateSupplier={() => {
-              setSupplierModalMode('create_supplier');
-              setSupplierModalLocked(true);
-              setIsNewSupplierModalOpen(true);
-            }}
-          />
-        )}
-
-        {activeView === 'customers' && (
-          <CustomersView
-            workshop={currentProfile}
-            onOpenHelp={(s) => {
-              setUserGuideSection(s);
-              setIsUserGuideOpen(true);
-            }}
-          />
-        )}
-
-        {activeView === 'materials' && (
-          <MaterialsView
-            workshop={currentProfile}
-            initialOpenAddModal={openAddMaterialInView}
-            onResetOpenAddModal={() => setOpenAddMaterialInView(false)}
-          />
-        )}
-
-        {activeView === 'treasuries' && (
-          <TreasuriesView
-            workshop={currentProfile}
-            onOpenHelp={(s) => {
-              setUserGuideSection(s);
-              setIsUserGuideOpen(true);
-            }}
-          />
-        )}
-
-        {activeView === 'sales' && (
-          <UnderMigrationNotice
-            title="إدارة المبيعات والطلبيات قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
-          />
-        )}
-
-        {activeView === 'hr' && (
-          <HRWorkforceModule
-            profile={currentProfile}
-            onOpenNewEmployeeModal={() => setIsNewEmployeeModalOpen(true)}
-          />
-        )}
-
-        {activeView === 'ai_agent' && (
-          <FalconAIAgent
-            profile={currentProfile}
-            currentCategory={(reloadedRecord?.category as CraftCategory) || 'جدارية'}
-            onApplyCategoryFromAI={handleApplyCategoryFromAI}
-            onApplyEstimatedLaborWage={handleApplyEstimatedLaborWage}
-            onTransferNotesToCalculator={handleTransferNotesToCalculator}
-            onExportStructuredToCalculator={handleExportStructuredToCalculator}
-          />
-        )}
-
-        {activeView === 'archive' && (
-          <ProductArchive
-            profile={currentProfile}
-            onSelectRecordToLoad={handleSelectRecordFromArchive}
-            onOpenWhatsAppShare={handleOpenWhatsAppShare}
-          />
-        )}
-
-        {activeView === 'catalog' && (
-          <WorkshopCatalog
-            profile={currentProfile}
-            onSelectRecordToLoad={handleSelectRecordFromArchive}
-            onOpenWhatsAppShare={handleOpenWhatsAppShare}
-          />
-        )}
-
-        {activeView === 'reports' && (
-          <SaaSReportsAnalyticsView profile={currentProfile} />
-        )}
-
-        {activeView === 'fixed_assets' && (
-          <FixedAssetsView
-            workshop={currentProfile}
-            profile={currentProfile}
-            onGoBack={() => setActiveView('home')}
-            onOpenHelp={(s: string) => {
-              setUserGuideSection(s);
-              setIsUserGuideOpen(true);
-            }}
-          />
-        )}
-
-        {activeView === 'admin' && (
-          <UnderMigrationNotice
-            title="لوحة التحكم الإدارية قيد النقل للنظام الجديد"
-            onGoBack={() => setActiveView('home')}
-          />
-        )}
-      </main>
-
-      {/* REAL CREATION MODALS FOR CLIENT & SUPPLIER (CONNECTED TO SUPABASE) */}
-      <NewClientModal
-        isOpen={isNewClientModalOpen}
-        onClose={() => setIsNewClientModalOpen(false)}
-        profile={currentProfile}
-        onSuccess={() => {}}
-      />
-
-      <NewSupplierModal
-        isOpen={isNewSupplierModalOpen}
-        onClose={() => setIsNewSupplierModalOpen(false)}
-        profile={currentProfile}
-        initialMode={supplierModalMode}
-        lockMode={supplierModalLocked}
-        onSuccess={() => {}}
-      />
-
-      <NewEmployeeModal
-        isOpen={isNewEmployeeModalOpen}
-        onClose={() => setIsNewEmployeeModalOpen(false)}
-        profile={currentProfile}
-        onSuccess={() => {
-          loadSearchCache(true);
-        }}
-      />
-
-      {/* OTHER MODALS */}
-      <ProfileSettingsModal
-        isOpen={isProfileModalOpen}
-        onClose={() => setIsProfileModalOpen(false)}
-        profile={currentProfile}
-        onProfileUpdated={(updated) => setCurrentProfile(updated)}
-      />
-
-      {isInventoryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <UnderMigrationNotice
-            title="المخازن وكارت الصنف قيد النقل للنظام الجديد"
-            onGoBack={() => setIsInventoryModalOpen(false)}
-          />
-        </div>
-      )}
-
-      {isAdminCostsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <UnderMigrationNotice
-            title="المصروفات والتكاليف الإدارية قيد النقل للنظام الجديد"
-            onGoBack={() => setIsAdminCostsModalOpen(false)}
-          />
-        </div>
-      )}
-
-      <NotificationDrawer
-        isOpen={isNotificationDrawerOpen}
-        onClose={() => setIsNotificationDrawerOpen(false)}
-        notifications={notifications}
-        profile={currentProfile}
-        onRefreshNotifications={loadNotifications}
-        onNavigateToOrder={(orderId) => {
-          setActiveView('sales');
-          setIsNotificationDrawerOpen(false);
-        }}
-        onNavigateToInventory={() => {
-          setIsInventoryModalOpen(true);
-          setIsNotificationDrawerOpen(false);
-        }}
-      />
-
-      <WhatsAppQuoteDrawer
-        isOpen={isQuoteDrawerOpen}
-        onClose={() => setIsQuoteDrawerOpen(false)}
-        record={quoteRecord}
-        profile={currentProfile}
-      />
-
-      {/* Crafts Selector Modal (اختيار أقسام الورشة) */}
-      <CraftsSelectorModal
-        isOpen={isCraftsSelectorOpen}
-        onClose={() => setIsCraftsSelectorOpen(false)}
-        workshop={currentProfile}
-        onCraftsUpdated={(crafts) => {
-          localStorage.setItem('alshams_crafts_selected', JSON.stringify(crafts));
-          setCurrentProfile((prev) => (prev ? { ...prev, selectedCrafts: crafts } : prev));
-          setIsCraftsSelectorOpen(false);
-        }}
-      />
-
-      {/* Global Search Modal (البحث الموحد) */}
-      <GlobalSearchModal
-        isOpen={isGlobalSearchOpen}
-        onClose={() => setIsGlobalSearchOpen(false)}
-        cache={searchCache}
-        onSelectResult={(categoryKey, rawItem, extraAction) => {
-          setIsGlobalSearchOpen(false);
-          if (categoryKey === 'screens') {
-            if (rawItem?.targetView) {
-              setActiveView(rawItem.targetView as AppActiveView);
-            } else if (rawItem?.targetModal === 'expenses') {
-              setIsAdminCostsModalOpen(true);
-            } else if (rawItem?.targetModal === 'guide') {
-              setUserGuideSection(undefined);
-              setIsUserGuideOpen(true);
-            }
-          } else if (categoryKey === 'guide') {
-            if (extraAction?.type === 'guide_section') {
-              setUserGuideSection(extraAction.sectionId);
-            } else {
-              setUserGuideSection(undefined);
-            }
-            setIsUserGuideOpen(true);
-          } else if (categoryKey === 'customers') {
-            setActiveView('sales');
-          } else if (categoryKey === 'invoices') {
-            setActiveView('invoices');
-          } else if (categoryKey === 'suppliers' || categoryKey === 'supplierInvoices') {
-            setActiveView('suppliers');
-          } else if (categoryKey === 'workOrders') {
-            setActiveView('work_orders');
-          } else if (categoryKey === 'employees') {
-            setActiveView('hr');
-          } else if (categoryKey === 'products') {
-            setActiveView('archive');
-          } else if (categoryKey === 'materials') {
-            setIsInventoryModalOpen(true);
-          } else if (categoryKey === 'treasuries') {
-            setActiveView('treasuries');
-          } else if (categoryKey === 'expenses') {
-            setIsAdminCostsModalOpen(true);
-          }
-        }}
-      />
-
-      {/* User Guide Modal (دليل الاستخدام الشامل) */}
-      <UserGuideModal
-        isOpen={isUserGuideOpen}
-        onClose={() => setIsUserGuideOpen(false)}
-        initialSectionId={userGuideSection}
-      />
-
-      {/* Cloud Migration Modal (الترحيل السحابي) */}
-      <CloudMigrationModal
-        isOpen={isCloudMigrationOpen}
-        onClose={() => setIsCloudMigrationOpen(false)}
-        workshopId={currentProfile.ownerUid || currentProfile.workshopId || currentProfile.id}
-        userEmail={currentProfile.email}
-        onMigrationComplete={() => {
-          loadNotifications();
-        }}
-      />
-
-      {/* Family Welcome Modal (رسالة الترحيب الدافئة بعيلة الشمساوية) */}
-      <FamilyWelcomeModal
-        isOpen={isWelcomeModalOpen}
-        onClose={handleCloseWelcomeModal}
-        profile={currentProfile}
-        type={welcomeType}
-      />
-
-      {/* Support & Complaints Modal (الدعم الفني والشكاوى) */}
-      <SupportModal
-        isOpen={isSupportModalOpen}
-        onClose={() => setIsSupportModalOpen(false)}
-        profile={currentProfile}
-      />
-
-      {/* Interactive Tour Modal (الجولة التعريفية التفاعلية للمستخدمين الجدد) */}
-      <InteractiveTourModal
-        isOpen={isInteractiveTourOpen}
-        onClose={() => setIsInteractiveTourOpen(false)}
-        profile={currentProfile}
-        onNavigateToCalculator={() => {
-          setActiveView('calculator');
-          setIsInteractiveTourOpen(false);
-        }}
-      />
-
-      {/* Daily Exchange Rates Modal */}
-      <ExchangeRatesModal
-        isOpen={isExchangeRatesModalOpen}
-        onClose={() => setIsExchangeRatesModalOpen(false)}
-        profile={currentProfile}
-      />
-
-      {/* شموسة — مساعدة بيانات الورشة (أيقونة شات ثابتة أسفل الصفحة) */}
-      <ShamousaChatWidget
-        profile={currentProfile}
-        onOpenFalcon={() => setActiveView('ai_agent')}
-        liftUp={activeView === 'ai_agent'}
-      />
-
-      {/* Footer Attribution Watermark */}
-      <footer className="mt-auto py-5 border-t border-stone-200 dark:border-stone-800 text-center text-xs text-stone-500 dark:text-stone-400">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p className="flex items-center gap-1 font-medium">
-            <span>منظومة الشمساوية الحرفية المتكاملة (SaaS Edition)</span>
-            <span className="text-stone-300 dark:text-stone-700">•</span>
-            <span>كافة الحقوق محفوظة لبراند {currentProfile.brandName}</span>
-          </p>
-          <p className="font-mono text-[11px] tracking-wider text-stone-400 dark:text-stone-500 lowercase">
-            powered by AL-SHAMS CRAFT
-          </p>
-        </div>
-      </footer>
-    </div>
+    </>
   );
-}
+};
+
+const Bubble: React.FC<{ role: 'user' | 'assistant'; children: React.ReactNode }> = ({ role, children }) => (
+  <div className={`flex ${role === 'user' ? 'justify-start' : 'justify-end'}`}>
+    <div
+      className={`max-w-[85%] whitespace-pre-wrap break-words text-sm leading-relaxed px-3.5 py-2.5 rounded-2xl shadow-xs ${
+        role === 'user'
+          ? 'bg-amber-600 text-white rounded-br-md'
+          : 'bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-100 border border-stone-200 dark:border-stone-700 rounded-bl-md'
+      }`}
+    >
+      {children}
+    </div>
+  </div>
+);
+
+export default ShamousaChatWidget;
+
