@@ -45,6 +45,7 @@ export function productToCloudRow(record: SavedProductRecord, workshopId: string
     product_name: record.productName,
     product_code: record.productCode ?? null,
     serial_number: record.productSerialNumber ?? null,
+    category: String(record.category ?? ''),
     product_type: record.productType ?? null,
     craft_name: record.craftName ?? null,
     main_section: record.mainSectionName ?? null,
@@ -53,7 +54,6 @@ export function productToCloudRow(record: SavedProductRecord, workshopId: string
     wholesale_price: record.wholesalePrice ?? 0,
     materials_used: materialsUsed,
     specs: {
-      category: String(record.category ?? ''),
       shape: input.shape3D,
       widthCm: input.widthCm,
       totalLengthCm: input.totalLengthCm,
@@ -63,16 +63,14 @@ export function productToCloudRow(record: SavedProductRecord, workshopId: string
       totalWeightGrams: output.totalWeightGrams,
       totalYarnLengthMeters: output.totalYarnLengthMeters,
       notes: input.personalNotes || '',
-      // مواصفات الكتالوج (من WorkshopCatalog)
       materialsDescription: (record as any).materialsDescription || '',
       colorVariants: (record as any).colorVariants || '',
       marketingDescription: (record as any).marketingDescription || '',
       careInstructions: (record as any).careInstructions || '',
       tags: Array.isArray((record as any).tags) ? (record as any).tags : [],
     },
-    image_url: record.imageUrl && !record.imageUrl.startsWith('data:') ? record.imageUrl : null, // لا نخزن صور base64 في القاعدة
+    image_url: record.imageUrl && !record.imageUrl.startsWith('data:') ? record.imageUrl : null,
     is_active: record.isActive !== false,
-    // نسخة كاملة عشان الجهاز الجديد ينزّل المنتج بكل تفاصيله (من غير صور base64 التقيلة)
     local_record: toLocalRecordSnapshot(record),
     created_at: new Date(record.createdAt || Date.now()).toISOString(),
     updated_at: new Date(record.updatedAt || Date.now()).toISOString(),
@@ -97,7 +95,6 @@ export async function deleteProductFromCloud(productId: string, workshopId: stri
   return !error;
 }
 
-/** أول مرة على الجهاز: حط كل المنتجات القديمة في طابور المزامنة */
 async function enqueueExistingOnce(workshopId: string): Promise<void> {
   const flag = `alshams_products_backfilled_v2_${workshopId}`;
   try {
@@ -116,10 +113,6 @@ async function enqueueExistingOnce(workshopId: string): Promise<void> {
 
 const flushing = new Map<string, Promise<number>>();
 
-/**
- * فضّي طابور المزامنة: ارفع كل منتج متعلّم للداتا بيز.
- * بيرجع عدد المنتجات اللي لسه مستنية (0 = كله اترفع).
- */
 export function flushProductSync(workshopId: string): Promise<number> {
   if (!workshopId) return Promise.resolve(0);
   const running = flushing.get(workshopId);
@@ -183,14 +176,9 @@ async function doFlush(workshopId: string): Promise<number> {
   return remaining;
 }
 
-// ============================================================
-// التنزيل من الداتا بيز (جهاز جديد + تعديلات الأجهزة التانية)
-// ============================================================
-
 const cursorKey = (w: string) => `alshams_products_pull_cursor_${w}`;
 const pulling = new Map<string, Promise<number>>();
 
-/** حوّل صف قديم من غير local_record لسجل محلي (للصفوف اللي اترفعت قبل التحديث ده) */
 function rowToRecord(row: any, workshopId: string): SavedProductRecord {
   const specs = row.specs || {};
   return {
@@ -199,7 +187,8 @@ function rowToRecord(row: any, workshopId: string): SavedProductRecord {
     workshopId,
     productName: row.product_name,
     productCode: row.product_code ?? undefined,
-    category: row.category || specs.category || row.product_type || 'جدارية',
+    productSerialNumber: row.serial_number ?? undefined,
+    category: row.category,
     productType: row.product_type ?? undefined,
     craftName: row.craft_name ?? undefined,
     mainSectionName: row.main_section ?? undefined,
@@ -207,7 +196,7 @@ function rowToRecord(row: any, workshopId: string): SavedProductRecord {
     retailPrice: Number(row.retail_price ?? 0),
     wholesalePrice: Number(row.wholesale_price ?? 0),
     input: {
-      category: row.category || specs.category || row.product_type || 'جدارية',
+      category: row.category,
       shape3D: specs.shape,
       widthCm: specs.widthCm,
       totalLengthCm: specs.totalLengthCm,
@@ -234,11 +223,6 @@ function rowToRecord(row: any, workshopId: string): SavedProductRecord {
   } as any;
 }
 
-/**
- * طبّق صف جاي من الداتا بيز على الجهاز.
- * القاعدة: آخر تعديل يكسب (حسب updated_at = وقت التعديل الفعلي).
- * بيرجع true لو الجهاز اتغيّر.
- */
 async function applyRemoteRow(row: any, workshopId: string): Promise<boolean> {
   const remoteUpdated = Date.parse(row.updated_at) || 0;
   const local = await tenantStorage.getProductById(workshopId, row.id);
@@ -261,7 +245,6 @@ async function applyRemoteRow(row: any, workshopId: string): Promise<boolean> {
   return true;
 }
 
-/** نزّل المنتجات الجديدة/المعدلة من الداتا بيز. بيرجع عدد المنتجات اللي اتغيرت على الجهاز */
 export function pullProductsFromCloud(workshopId: string): Promise<number> {
   if (!workshopId) return Promise.resolve(0);
   const running = pulling.get(workshopId);
@@ -335,41 +318,37 @@ async function doPull(workshopId: string): Promise<number> {
   return changed;
 }
 
-/** دورة مزامنة كاملة: تنزيل الأول (عشان آخر تعديل يكسب) وبعدين رفع */
 export async function syncProductsNow(workshopId: string): Promise<void> {
   await pullProductsFromCloud(workshopId).catch(() => 0);
   await flushProductSync(workshopId).catch(() => 0);
 }
 
-/**
- * شغّل المزامنة التلقائية للورشة (بيتنادى مرة من App.tsx بعد تسجيل الدخول):
- * - تنزيل كل المنتجات أول مرة على جهاز جديد
- * - أول ما النت يرجع / الفنان يرجع للتاب / بعد تسجيل الدخول: تنزيل + رفع
- * - بعد أي حفظ بثانيتين: رفع
- * - تحديث لحظي من الأجهزة التانية (Realtime)، ولو مش متاح: تنزيل كل دقيقة
- * بيرجع دالة لإيقاف المزامنة.
- */
 export function startProductSync(workshopId: string): () => void {
   if (!workshopId || typeof window === 'undefined') return () => {};
   let pushTimer: ReturnType<typeof setTimeout> | undefined;
   let fullTimer: ReturnType<typeof setTimeout> | undefined;
+
   const pushSoon = (ms = 2000) => {
     clearTimeout(pushTimer);
     pushTimer = setTimeout(() => flushProductSync(workshopId).catch(() => {}), ms);
   };
+
   const syncSoon = (ms = 500) => {
     clearTimeout(fullTimer);
     fullTimer = setTimeout(() => syncProductsNow(workshopId).catch(() => {}), ms);
   };
+
   const onDirty = (e: Event) => {
     const d = (e as CustomEvent).detail;
     if (!d?.workshopId || d.workshopId === workshopId) pushSoon();
   };
+
   const onOnline = () => syncSoon(500);
   const onOffline = () => emitSyncStatus(workshopId, 'offline', pendingCount(workshopId));
   const onVisible = () => {
     if (document.visibilityState === 'visible') syncSoon(500);
   };
+
   window.addEventListener(PRODUCTS_DIRTY_EVENT, onDirty);
   window.addEventListener('online', onOnline);
   window.addEventListener('offline', onOffline);
@@ -384,6 +363,7 @@ export function startProductSync(workshopId: string): () => void {
 
   const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
     if (event === 'SIGNED_IN') syncSoon(500);
+    // Ignore TOKEN_REFRESHED entirely to avoid product sync loops on silent token renewal.
   });
 
   let channel: any = null;

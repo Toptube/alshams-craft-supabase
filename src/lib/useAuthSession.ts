@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Session } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
 // File-level execution guard for React 18 StrictMode and one-time token consumption
@@ -97,7 +97,7 @@ export function useAuthSession(): AuthSessionState {
     } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!isMounted) return;
 
-      // Ignore token refresh noise: it is a transport detail, not a user auth change.
+      // Ignore refresh-token-only events; they are transport noise and should not trigger app-level sync loops.
       if (event === 'TOKEN_REFRESHED') return;
 
       if (event === 'PASSWORD_RECOVERY') {
