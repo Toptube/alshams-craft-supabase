@@ -67,8 +67,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   onProfileUpdated,
   onFactoryResetDone,
 }) => {
-  if (!isOpen) return null;
-
   const [activeTab, setActiveTab] = useState<'profile' | 'language' | 'reminders' | 'export_data' | 'factory_reset'>('profile');
 
   // Language settings state
@@ -562,6 +560,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       setResetLoading(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -1103,74 +1103,6 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 </form>
               )}
             </div>
-
-            {/* Section: Password Recovery URL Configuration (Owner Only - Requirement 5) */}
-            {isOwner && (
-              <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-300/80 dark:border-amber-900/60 space-y-3.5">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-2xs">
-                    <KeyRound className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-black text-stone-900 dark:text-stone-100">
-                      ربط استعادة كلمة المرور (خاص بالمالك)
-                    </h4>
-                    <p className="text-[11px] text-stone-500">
-                      إعدادات عنوان التطبيق والبريد السحابي في Supabase
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold mb-1 text-stone-700 dark:text-stone-300">
-                    عنوان المنظومة الحالي (Origin URL):
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      readOnly
-                      value={typeof window !== 'undefined' ? window.location.origin : ''}
-                      className="flex-1 px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-mono text-stone-800 dark:text-stone-200 select-all"
-                      dir="ltr"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleCopyOrigin}
-                      className="px-3 py-2 rounded-xl bg-white dark:bg-stone-800 border border-amber-400 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-amber-800 dark:text-amber-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                    >
-                      {copiedOrigin ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>تم النسخ!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>نسخ الرابط</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-xl bg-white dark:bg-stone-900 border border-amber-200/80 dark:border-amber-900/40 space-y-2 text-xs text-stone-700 dark:text-stone-300 leading-relaxed font-bold">
-                  <div className="text-[11px] font-black text-amber-700 dark:text-amber-400">
-                    خطوات التفعيل في Supabase:
-                  </div>
-                  <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-stone-600 dark:text-stone-400">
-                    <li>
-                      انسخ العنوان أعلاه وضعه في <strong>Site URL</strong> وكذلك في <strong>Redirect URLs</strong> داخل لوحة Supabase ← <strong>Authentication</strong> ← <strong>URL Configuration</strong>.
-                    </li>
-                    <li>
-                      فعّل <strong>Custom SMTP</strong> من لوحة Supabase ← <strong>Authentication</strong> ← <strong>Emails</strong> ← <strong>SMTP Settings</strong> حتى تصل رسائل الاستعادة لبريد أي مستخدم بنجاح.
-                    </li>
-                    <li className="text-amber-700 dark:text-amber-400 font-black">
-                      تنبيه أمان: رابط الاستعادة يُستخدم لمرة واحدة فقط بمجرد فتحه، لحماية حساب الورشة.
-                    </li>
-                  </ol>
-                </div>
-              </div>
-            )}
 
             {/* Save Button */}
             <div className="pt-3 border-t border-stone-200 dark:border-stone-800 flex justify-end gap-2">

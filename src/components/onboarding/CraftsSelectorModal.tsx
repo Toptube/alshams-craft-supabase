@@ -32,8 +32,6 @@ export const CraftsSelectorModal: React.FC<CraftsSelectorModalProps> = ({
   onCraftsUpdated,
   isInitialOnboarding = false,
 }) => {
-  if (!isOpen) return null;
-
   const [selectedIds, setSelectedIds] = useState<string[]>(
     workshop.selectedCrafts && workshop.selectedCrafts.length > 0
       ? workshop.selectedCrafts
@@ -94,6 +92,8 @@ export const CraftsSelectorModal: React.FC<CraftsSelectorModalProps> = ({
     activeSection === 'all'
       ? SUB_CRAFTS_REGISTRY
       : SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === activeSection);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">

@@ -354,36 +354,107 @@ export function mapWorkshopRowToUserProfile(row: any, userEmail?: string): UserP
 }
 
 /**
+ * Quick check if there is an active session
+ */
+export async function hasActiveSupabaseSession(): Promise<boolean> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    return !!data?.session?.user;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Retrieves valid cached profile from localStorage if present
+ */
+export function getLocalCachedProfile(): UserProfile | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = localStorage.getItem('alshams_profile');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      parsed.id &&
+      parsed.id !== 'workshop_demo' &&
+      parsed.workshopId !== 'workshop_demo' &&
+      parsed.id !== '00000000-0000-0000-0000-000000000000'
+    ) {
+      return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
  * Fetches current user's workshop row directly from Supabase (Supabase client automatically attaches user JWT)
+ * Resilient against network drops and 42501 race conditions with automatic offline-first fallback.
  */
 export async function getCurrentWorkshopFromSupabase(): Promise<{
   workshop: UserProfile | null;
   rawRow: RawSupabaseWorkshop | null;
   error: SupabaseErrorResult | null;
+  isOfflineFallback?: boolean;
 }> {
   try {
-    console.log('[SupabaseService] Querying workshops table directly...');
-    const { data, error } = await supabase
+    const { data: sessionData } = await supabase.auth.getSession();
+    const user = sessionData?.session?.user;
+
+    if (!user) {
+      const cached = getLocalCachedProfile();
+      if (cached) {
+        return { workshop: cached, rawRow: null, error: null, isOfflineFallback: true };
+      }
+      return { workshop: null, rawRow: null, error: null };
+    }
+
+    console.log('[SupabaseService] Querying workshops table for user:', user.id);
+    let { data, error } = await supabase
       .from('workshops')
       .select('*')
       .limit(1)
       .maybeSingle();
 
+    // If initial query returned 42501 (Permission Denied) due to token settling delay, retry once after 250ms
+    if (error && (error.code === '42501' || error.message?.includes('permission denied'))) {
+      console.warn('[SupabaseService] 42501 permission notice on first try, retrying after session settling...');
+      await new Promise((res) => setTimeout(res, 250));
+      const retry = await supabase.from('workshops').select('*').limit(1).maybeSingle();
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error) {
-      console.error('[SupabaseService] Error querying workshops:', error);
+      console.warn('[SupabaseService] Error querying workshops:', error);
+      const cached = getLocalCachedProfile();
+      if (cached) {
+        console.log('[SupabaseService] Falling back to offline-first cached profile');
+        return { workshop: cached, rawRow: null, error: null, isOfflineFallback: true };
+      }
       return { workshop: null, rawRow: null, error: getArabicSupabaseError(error) };
     }
 
     if (!data) {
       console.log('[SupabaseService] No workshop row found for user');
+      const cached = getLocalCachedProfile();
+      if (cached) {
+        return { workshop: cached, rawRow: null, error: null, isOfflineFallback: true };
+      }
       return { workshop: null, rawRow: null, error: null };
     }
 
     console.log('[SupabaseService] Workshop row fetched successfully:', data.brand_name || data.id);
-    const userProfile = mapWorkshopRowToUserProfile(data, data.email);
+    const userProfile = mapWorkshopRowToUserProfile(data, data.email || user.email);
     return { workshop: userProfile, rawRow: data, error: null };
   } catch (err: any) {
-    console.error('[SupabaseService] Exception in getCurrentWorkshopFromSupabase:', err);
+    console.warn('[SupabaseService] Exception in getCurrentWorkshopFromSupabase:', err);
+    const cached = getLocalCachedProfile();
+    if (cached) {
+      return { workshop: cached, rawRow: null, error: null, isOfflineFallback: true };
+    }
     return { workshop: null, rawRow: null, error: getArabicSupabaseError(err) };
   }
 }
@@ -496,8 +567,15 @@ export interface SupabaseUnit {
 
 export async function getUnitsFromSupabase(
   workshopId: string
-): Promise<{ data: SupabaseUnit[]; error: SupabaseErrorResult | null }> {
+): Promise<{ data: SupabaseUnit[]; error: SupabaseErrorResult | null; isOfflineFallback?: boolean }> {
   try {
+    if (!workshopId || workshopId === 'workshop_demo' || workshopId === '00000000-0000-0000-0000-000000000000') {
+      return { data: [], error: null, isOfflineFallback: true };
+    }
+    const hasSession = await hasActiveSupabaseSession();
+    if (!hasSession) {
+      return { data: [], error: null, isOfflineFallback: true };
+    }
     const { data, error } = await supabase
       .from('units')
       .select('id, workshop_id, name, small_unit, factor')
@@ -505,6 +583,10 @@ export async function getUnitsFromSupabase(
       .order('name', { ascending: true });
 
     if (error) {
+      if (error.code === '42501' || error.message?.includes('permission denied')) {
+        console.warn('[SupabaseService] units query 42501 notice; offline-first active.');
+        return { data: [], error: null, isOfflineFallback: true };
+      }
       return { data: [], error: getArabicSupabaseError(error) };
     }
 
@@ -647,8 +729,15 @@ export interface SupabaseSupplier {
 
 export async function getSuppliersFromSupabase(
   workshopId: string
-): Promise<{ data: SupabaseSupplier[]; error: SupabaseErrorResult | null }> {
+): Promise<{ data: SupabaseSupplier[]; error: SupabaseErrorResult | null; isOfflineFallback?: boolean }> {
   try {
+    if (!workshopId || workshopId === 'workshop_demo' || workshopId === '00000000-0000-0000-0000-000000000000') {
+      return { data: [], error: null, isOfflineFallback: true };
+    }
+    const hasSession = await hasActiveSupabaseSession();
+    if (!hasSession) {
+      return { data: [], error: null, isOfflineFallback: true };
+    }
     const { data, error } = await supabase
       .from('suppliers')
       .select('id, workshop_id, name, phone, address, notes')
@@ -656,6 +745,10 @@ export async function getSuppliersFromSupabase(
       .order('name', { ascending: true });
 
     if (error) {
+      if (error.code === '42501' || error.message?.includes('permission denied')) {
+        console.warn('[SupabaseService] suppliers query 42501 notice; offline-first active.');
+        return { data: [], error: null, isOfflineFallback: true };
+      }
       return { data: [], error: getArabicSupabaseError(error) };
     }
 
@@ -764,8 +857,15 @@ export interface SupabaseCustomer {
 
 export async function getCustomersFromSupabase(
   workshopId: string
-): Promise<{ data: SupabaseCustomer[]; error: SupabaseErrorResult | null }> {
+): Promise<{ data: SupabaseCustomer[]; error: SupabaseErrorResult | null; isOfflineFallback?: boolean }> {
   try {
+    if (!workshopId || workshopId === 'workshop_demo' || workshopId === '00000000-0000-0000-0000-000000000000') {
+      return { data: [], error: null, isOfflineFallback: true };
+    }
+    const hasSession = await hasActiveSupabaseSession();
+    if (!hasSession) {
+      return { data: [], error: null, isOfflineFallback: true };
+    }
     const { data, error } = await supabase
       .from('customers')
       .select('id, workshop_id, name, phone, address, notes')
@@ -773,6 +873,10 @@ export async function getCustomersFromSupabase(
       .order('name', { ascending: true });
 
     if (error) {
+      if (error.code === '42501' || error.message?.includes('permission denied')) {
+        console.warn('[SupabaseService] customers query 42501 notice; offline-first active.');
+        return { data: [], error: null, isOfflineFallback: true };
+      }
       return { data: [], error: getArabicSupabaseError(error) };
     }
 

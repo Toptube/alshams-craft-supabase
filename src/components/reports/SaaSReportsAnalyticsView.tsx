@@ -14,8 +14,7 @@ import {
 } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import { getTreasuryBalancesFromSupabase, SupabaseTreasuryBalance } from '../../db/supabaseService';
-import { db } from '../../lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { supabase } from '../../lib/supabase';
 import {
   BarChart3,
   FileSpreadsheet,
@@ -229,58 +228,30 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
     window.addEventListener('alshams_currency_rates_changed', handleDataUpdate);
     window.addEventListener('storage', handleDataUpdate);
 
-    // Attach Firestore real-time onSnapshot listener for instant live updates across tabs & devices
-    let unsubscribeFirestore: (() => void) | null = null;
-    try {
-      const liveDocRef = doc(db, 'workshops', tenantId, 'treasury_state', 'live');
-      unsubscribeFirestore = onSnapshot(
-        liveDocRef,
-        (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            if (Array.isArray(data?.balances) && data.balances.length > 0) {
-              const supaTreasuries = data.balances;
-              const mainTreasury = supaTreasuries.find(
-                (t: any) => t.is_main || t.kind === 'main' || t.name?.includes('رئيسي') || t.id === 'main'
-              );
-              const subTreasuryList = supaTreasuries.filter(
-                (t: any) => t.kind === 'sub' || (!t.is_main && t.kind !== 'custody' && t.id !== mainTreasury?.id)
-              );
-              const openCustodies = supaTreasuries.filter(
-                (t: any) => t.kind === 'custody' && t.status === 'open'
-              );
-
-              const subTotalBalance = subTreasuryList.reduce(
-                (sum: number, st: any) => sum + Number(st.balance || 0),
-                0
-              );
-              const custodyTotalBalance = openCustodies.reduce(
-                (sum: number, c: any) => sum + Number(c.balance || 0),
-                0
-              );
-
-              setSafeBalances((prev) => ({
-                mainSafe: mainTreasury ? Number(mainTreasury.balance || 0) : prev.mainSafe,
-                subSafe: subTreasuryList.length > 0 ? subTotalBalance : prev.subSafe,
-                unsettledCustodies: custodyTotalBalance,
-              }));
-              setOpenCustodiesList(openCustodies);
-            }
-          }
-        },
-        (error) => {
-          console.warn('Firestore reports real-time listener notice:', error);
+    // Attach Supabase real-time listener for instant live updates across tabs & devices
+    const realtimeChannel = supabase
+      .channel(`reports_realtime_${tenantId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'treasuries', filter: `workshop_id=eq.${tenantId}` },
+        () => {
+          loadAllFinancials();
         }
-      );
-    } catch (e) {
-      console.warn('Could not attach Firestore onSnapshot in reports:', e);
-    }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'safe_transactions', filter: `workshop_id=eq.${tenantId}` },
+        () => {
+          loadAllFinancials();
+        }
+      )
+      .subscribe();
 
-    // Continuous auto-refresh every 8 seconds for live figures
-    const intervalId = setInterval(loadAllFinancials, 8000);
+    // Continuous auto-refresh every 10 seconds for live figures
+    const intervalId = setInterval(loadAllFinancials, 10000);
 
     return () => {
-      if (unsubscribeFirestore) unsubscribeFirestore();
+      supabase.removeChannel(realtimeChannel);
       window.removeEventListener('alshams_financials_updated', handleDataUpdate);
       window.removeEventListener('alshams_treasury_updated', handleDataUpdate);
       window.removeEventListener('alshams_fixed_assets_changed', handleDataUpdate);

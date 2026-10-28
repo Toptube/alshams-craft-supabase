@@ -26,7 +26,7 @@ export interface ShamousaChatInput {
 export interface ShamousaChatResult {
   reply: string;
   handoffToFalcon: boolean;
-  provider: 'groq' | 'gemini';
+  provider: 'groq' | 'fanar' | 'gemini';
 }
 
 const HANDOFF_MARK = '[[FALCON]]';
@@ -34,8 +34,10 @@ const MAX_TOOL_ROUNDS = 4;
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = process.env.SHAMOUSA_GROQ_MODEL || 'openai/gpt-oss-120b';
+const FANAR_URL = 'https://api.fanar.qa/v1/chat/completions';
+const FANAR_MODEL = process.env.FANAR_MODEL || 'Fanar';
 const GEMINI_MODEL = process.env.SHAMOUSA_GEMINI_MODEL || 'gemini-flash-lite-latest';
-const SHAMOUSA_PROVIDER_ORDER = ['groq', 'gemini'] as const;
+const SHAMOUSA_PROVIDER_ORDER = ['groq', 'fanar', 'gemini'] as const;
 
 function buildSystemPrompt(brandName?: string, currency?: string): string {
   return `أنتِ "شموسة"، مساعد بيانات ورشة الفنان في منظومة الشمساوية${brandName ? `، وتعملين الآن لورشة "${brandName}"` : ''}.
@@ -54,7 +56,7 @@ function buildSystemPrompt(brandName?: string, currency?: string): string {
 `;
 }
 
-function finalize(text: string, provider: 'groq' | 'gemini'): ShamousaChatResult {
+function finalize(text: string, provider: 'groq' | 'fanar' | 'gemini'): ShamousaChatResult {
   const raw = (text || '').trim();
   const handoffToFalcon = raw.includes(HANDOFF_MARK);
   const reply = raw.replaceAll(HANDOFF_MARK, '').trim() || 'معلش، ما قدرتش أطلع رد واضح. جرّب تسأل بطريقة تانية.';
@@ -68,10 +70,11 @@ function cleanHistory(history: ShamousaChatInput['history']) {
     .slice(-8);
 }
 
-function getAvailableShamousaProviders(): Array<'groq' | 'gemini'> {
-  const providers: Array<'groq' | 'gemini'> = [];
+function getAvailableShamousaProviders(): Array<'groq' | 'fanar' | 'gemini'> {
+  const providers: Array<'groq' | 'fanar' | 'gemini'> = [];
   for (const provider of SHAMOUSA_PROVIDER_ORDER) {
     if (provider === 'groq' && !!process.env.GROQ_API_KEY) providers.push('groq');
+    if (provider === 'fanar' && !!process.env.FANAR_API_KEY) providers.push('fanar');
     if (provider === 'gemini' && !!process.env.GEMINI_API_KEY) providers.push('gemini');
   }
   return providers;
@@ -131,6 +134,61 @@ async function chatWithGroq(input: ShamousaChatInput): Promise<ShamousaChatResul
   }
 
   return finalize('', 'groq');
+}
+
+// -------------------------------------------------------------
+// Fanar — Arabic-first LLM provider
+// -------------------------------------------------------------
+async function chatWithFanar(input: ShamousaChatInput): Promise<ShamousaChatResult> {
+  const apiKey = process.env.FANAR_API_KEY as string;
+  const messages: any[] = [
+    { role: 'system', content: buildSystemPrompt(input.brandName, input.currency) },
+    ...cleanHistory(input.history),
+    { role: 'user', content: input.message },
+  ];
+  const tools = workshopToolSchemas.map((t) => ({ type: 'function', function: t }));
+
+  for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+    const body: any = {
+      model: FANAR_MODEL,
+      messages,
+      temperature: 0.3,
+      max_tokens: 1024,
+      ...(round < MAX_TOOL_ROUNDS ? { tools, tool_choice: 'auto' } : {}),
+    };
+
+    const res = await fetch(FANAR_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      const err: any = new Error(`Fanar ${res.status}: ${errText.slice(0, 200)}`);
+      err.status = res.status;
+      throw err;
+    }
+
+    const data: any = await res.json();
+    const msg = data?.choices?.[0]?.message || {};
+    const calls: any[] = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+    if (calls.length === 0) return finalize(msg.content || '', 'fanar');
+
+    messages.push({ role: 'assistant', content: msg.content || '', tool_calls: calls });
+    for (const call of calls) {
+      let args: any = {};
+      try {
+        args = JSON.parse(call.function?.arguments || '{}');
+      } catch {
+        args = {};
+      }
+      const result = await runWorkshopTool(call.function?.name || '', args, input.ctx);
+      messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
+    }
+  }
+
+  return finalize('', 'fanar');
 }
 
 // -------------------------------------------------------------
@@ -202,6 +260,7 @@ export async function chatWithShamousa(input: ShamousaChatInput): Promise<Shamou
   for (const provider of providers) {
     try {
       if (provider === 'groq') return await chatWithGroq(input);
+      if (provider === 'fanar') return await chatWithFanar(input);
       if (provider === 'gemini') return await chatWithGemini(input);
     } catch (err: any) {
       console.warn(`[Shamousa] ${provider} failed, trying next provider:`, err?.status || '', err?.message?.slice(0, 120));

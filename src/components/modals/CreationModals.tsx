@@ -54,8 +54,6 @@ export const NewMaterialModal: React.FC<{
   profile: UserProfile;
   onSuccess: () => void;
 }> = ({ isOpen, onClose, profile, onSuccess }) => {
-  if (!isOpen) return null;
-
   const workshopId = profile.workshopId || profile.tenantId || profile.id;
 
   const [name, setName] = useState('');
@@ -278,6 +276,8 @@ export const NewMaterialModal: React.FC<{
       setErrorMessage('تعذر حذف وحدة القياس.');
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
@@ -746,8 +746,6 @@ export const NewClientModal: React.FC<{
   profile: UserProfile;
   onSuccess: () => void;
 }> = ({ isOpen, onClose, profile, onSuccess }) => {
-  if (!isOpen) return null;
-
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [city, setCity] = useState('القاهرة');
@@ -800,6 +798,8 @@ export const NewClientModal: React.FC<{
       setSaving(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -895,8 +895,6 @@ export const NewSupplierModal: React.FC<{
   initialMode?: 'create_supplier' | 'record_invoice' | 'statement';
   lockMode?: boolean;
 }> = ({ isOpen, onClose, profile, onSuccess, initialMode = 'create_supplier', lockMode = false }) => {
-  if (!isOpen) return null;
-
   const [mode, setMode] = useState<'create_supplier' | 'record_invoice' | 'statement'>(initialMode);
 
   React.useEffect(() => {
@@ -1024,6 +1022,8 @@ export const NewSupplierModal: React.FC<{
     onSuccess();
     onClose();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -1196,8 +1196,6 @@ export const NewEmployeeModal: React.FC<{
   profile: UserProfile;
   onSuccess: () => void;
 }> = ({ isOpen, onClose, profile, onSuccess }) => {
-  if (!isOpen) return null;
-
   const [fullName, setFullName] = useState('');
   const [specialty, setSpecialty] = useState('حياكة مكرمية وجداريات');
   const [tier, setTier] = useState<EmployeeTier>('خبير');
@@ -1230,6 +1228,8 @@ export const NewEmployeeModal: React.FC<{
     onSuccess();
     onClose();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">

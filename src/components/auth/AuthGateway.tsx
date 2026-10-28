@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase';
 import {
   getArabicSupabaseError,
   createMyWorkshopRpc,
+  getCurrentWorkshopFromSupabase,
 } from '../../db/supabaseService';
 import {
   Lock,
@@ -195,13 +196,38 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         const userId = signInData.user?.id || activeSession?.user?.id || 'غير متوفر';
         const tokenLength = activeSession?.access_token ? activeSession.access_token.length : 0;
 
-        // Diagnostic log: وجود الجلسة ومعرّف المستخدم وطول access_token
-        console.log(
-          `[Auth Diagnostic - الدخول] وجود الجلسة: ${hasSession ? 'نعم' : 'لا'} | معرّف المستخدم: ${userId} | طول access_token: ${tokenLength}`
-        );
+        console.log('[AuthGateway] Step 2: Login successful. Fetching artist workshop...');
+        const { workshop, error: wsError } = await getCurrentWorkshopFromSupabase();
+        if (workshop) {
+          console.log('[AuthGateway] Step 3: Workshop loaded successfully:', workshop.brandName);
+          onAuthenticated(workshop);
+          return;
+        }
 
-        // App.tsx observes the session change via useAuthSession and automatically loads the workshop!
-        console.log('[AuthGateway] Step 2: Login successful. Session established.');
+        // If no row exists yet in workshops table, construct profile from metadata
+        const userMeta = (signInData.user?.user_metadata || {}) as any;
+        const fallbackProfile: UserProfile = {
+          id: signInData.user!.id,
+          ownerUid: signInData.user!.id,
+          tenantId: userMeta.workshop_id || signInData.user!.id,
+          workshopId: userMeta.workshop_id || signInData.user!.id,
+          email: signInData.user!.email || cleanEmail,
+          artistName: userMeta.artist_name || userMeta.artistName || 'فنان الشمساوية',
+          brandName: userMeta.brand_name || userMeta.brandName || 'ورشة الشمساوية',
+          gender: userMeta.gender || 'female',
+          phoneNumber: userMeta.phone_number || userMeta.phone || '',
+          country: userMeta.country || 'مصر',
+          currency: userMeta.currency || 'EGP',
+          currencySymbol: userMeta.currency_symbol || 'ج.م',
+          selectedCrafts: userMeta.selected_crafts || ['macrame'],
+          defaultVatPercent: 14,
+          showTaxInfoOnInvoice: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          createdBy: cleanEmail,
+        };
+        onAuthenticated(fallbackProfile);
+        return;
       }
     } catch (err: any) {
       console.error('[AuthGateway] Unexpected auth exception:', err);

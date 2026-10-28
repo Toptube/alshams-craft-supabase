@@ -35,8 +35,7 @@ import {
   TreasuryCategory,
 } from '../../lib/treasuryCategories';
 import { useTranslation, t } from '../../lib/i18n';
-import { db } from '../../lib/firebase';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { supabase } from '../../lib/supabase';
 import {
   Wallet,
   ArrowRightLeft,
@@ -209,11 +208,10 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
   const [safeTransactions, setSafeTransactions] = useState<SafeTransaction[]>([]);
   const [chartSeriesFilter, setChartSeriesFilter] = useState<'all' | 'main' | 'sub'>('all');
 
-  // Sync treasury state to Firestore and dispatch events to update all reports immediately
-  const syncTreasuryToFirestoreAndBroadcast = async (balances: SupabaseTreasuryBalance[]) => {
+  // Broadcast treasury updates to Trial Balance and all reports immediately
+  const broadcastTreasuryUpdate = (balances: SupabaseTreasuryBalance[]) => {
     if (!workshopId) return;
 
-    // 1. Immediately broadcast local custom events so Trial Balance and reports update in 0ms!
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('alshams_treasury_updated', {
@@ -225,35 +223,6 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
           detail: { workshopId, balances, timestamp: Date.now() },
         })
       );
-    }
-
-    // 2. Persist real-time snapshot into Firestore for multi-tab and remote syncing
-    try {
-      const docRef = doc(db, 'workshops', workshopId, 'treasury_state', 'live');
-      await setDoc(
-        docRef,
-        {
-          workshopId,
-          balances: balances.map((b) => ({
-            id: b.id,
-            name: b.name,
-            kind: b.kind,
-            is_main: !!b.is_main,
-            parent_id: b.parent_id || null,
-            holder_name: b.holder_name || null,
-            status: b.status,
-            balance: Number(b.balance || 0),
-            cash: Number(b.cash || 0),
-            wallet: Number(b.wallet || 0),
-            instapay: Number(b.instapay || 0),
-            min_balance: Number(b.min_balance || 0),
-          })),
-          updatedAt: Date.now(),
-        },
-        { merge: true }
-      );
-    } catch (err) {
-      console.warn('Firestore treasury sync notice:', err);
     }
   };
 
@@ -282,8 +251,8 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
           setMinAlerts((prev) => ({ ...prev, ...dbAlerts }));
         }
 
-        // Sync to Firestore & broadcast to Trial Balance and all reports
-        await syncTreasuryToFirestoreAndBroadcast(balances);
+        // Broadcast to Trial Balance and all reports immediately
+        broadcastTreasuryUpdate(balances);
       }
     } catch (err: any) {
       setErrorNotice(err?.message || 'تعذر تحميل بيانات الخزن');
@@ -319,39 +288,24 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
     loadTreasuryData();
     loadLocalSettings();
 
-    // Attach Firestore real-time onSnapshot listener
-    let unsubscribeFirestore: (() => void) | null = null;
-    try {
-      const liveDocRef = doc(db, 'workshops', workshopId, 'treasury_state', 'live');
-      unsubscribeFirestore = onSnapshot(
-        liveDocRef,
-        (snapshot) => {
-          if (snapshot.exists()) {
-            const snapData = snapshot.data();
-            if (Array.isArray(snapData?.balances) && snapData.balances.length > 0) {
-              setTreasuryBalances(snapData.balances);
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(
-                  new CustomEvent('alshams_treasury_updated', {
-                    detail: { workshopId, balances: snapData.balances, fromFirestore: true },
-                  })
-                );
-                window.dispatchEvent(
-                  new CustomEvent('alshams_financials_updated', {
-                    detail: { workshopId, balances: snapData.balances, fromFirestore: true },
-                  })
-                );
-              }
-            }
-          }
-        },
-        (error) => {
-          console.warn('Firestore real-time treasuries listener:', error);
+    // Attach Supabase real-time listener for instant multi-tab & multi-device balance updates
+    const realtimeChannel = supabase
+      .channel(`treasuries_realtime_${workshopId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'treasuries', filter: `workshop_id=eq.${workshopId}` },
+        () => {
+          loadTreasuryData(true);
         }
-      );
-    } catch (err) {
-      console.warn('Could not attach Firestore onSnapshot listener:', err);
-    }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'safe_transactions', filter: `workshop_id=eq.${workshopId}` },
+        () => {
+          loadTreasuryData(true);
+        }
+      )
+      .subscribe();
 
     const handleCatsUpdated = () => setCategories(getTreasuryCategories(workshopId));
     const handleAlertsUpdated = () => setMinAlerts(getAllMinBalanceAlerts(workshopId));
@@ -375,7 +329,7 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
     window.addEventListener('alshams_treasury_updated', handleFinancialsUpdated);
 
     return () => {
-      if (unsubscribeFirestore) unsubscribeFirestore();
+      supabase.removeChannel(realtimeChannel);
       window.removeEventListener('alshams_treasury_categories_updated', handleCatsUpdated);
       window.removeEventListener('alshams_treasury_alerts_updated', handleAlertsUpdated);
       window.removeEventListener('alshams_payment_reminders_changed', handleRemindersUpdated);

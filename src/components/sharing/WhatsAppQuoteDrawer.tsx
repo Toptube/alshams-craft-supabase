@@ -17,12 +17,12 @@ export const WhatsAppQuoteDrawer: React.FC<WhatsAppQuoteDrawerProps> = ({
   record,
   profile,
 }) => {
-  if (!isOpen || !record) return null;
-
-  const [shippingCost, setShippingCost] = useState<number>(record.output.transitFees || 0);
+  const [shippingCost, setShippingCost] = useState<number>(record?.output?.transitFees || 0);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [copied, setCopied] = useState<boolean>(false);
   const [clientPhone, setClientPhone] = useState<string>('');
+
+  if (!isOpen || !record) return null;
 
   const artistTitle = getGenderArtistTitle(profile.gender);
   const baseProductPrice = record.output.finalSellingPrice;

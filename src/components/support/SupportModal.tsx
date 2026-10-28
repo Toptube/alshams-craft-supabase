@@ -35,8 +35,6 @@ export const SupportModal: React.FC<SupportModalProps> = ({
   onClose,
   profile,
 }) => {
-  if (!isOpen) return null;
-
   // توليد رقم تسلسلي فريد للشكوى أو المقترح
   const [ticketSerial] = useState(() => {
     const timestampSuffix = Date.now().toString().slice(-4);
@@ -140,6 +138,8 @@ export const SupportModal: React.FC<SupportModalProps> = ({
     setCopiedNumber(true);
     setTimeout(() => setCopiedNumber(false), 2000);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">

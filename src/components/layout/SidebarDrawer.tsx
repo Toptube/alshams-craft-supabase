@@ -76,8 +76,6 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   isDarkMode,
   onLogout,
 }) => {
-  if (!isOpen) return null;
-
   const { lang: currentLang, dir, t: tr } = useTranslation();
 
   // Collapsible sections state (default all expanded for high visibility)
@@ -229,6 +227,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       badge: tr('badge_ai_agent'),
     },
   ];
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-start bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">

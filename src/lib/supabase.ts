@@ -40,8 +40,8 @@ export const supabase: SupabaseClient = createClient(config.url, config.publisha
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: false,
-    flowType: 'implicit',
+    detectSessionInUrl: true,
+    flowType: 'pkce',
     ...(chosenStorage ? { storage: chosenStorage } : {}),
   },
 });

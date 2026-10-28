@@ -73,6 +73,46 @@ export function falconErrorResponse(err: any): { status: number; error: string }
   }
 }
 
+async function callFanarCompletion(
+  systemInstruction: string,
+  chatHistory: any[],
+  userMessage: string
+): Promise<string> {
+  const apiKey = process.env.FANAR_API_KEY;
+  if (!apiKey) throw new Error('مفتاح FANAR_API_KEY غير متوفر');
+
+  const messages: any[] = [{ role: 'system', content: systemInstruction }];
+  for (const h of chatHistory.slice(-8)) {
+    if (h && (h.content || h.parts?.[0]?.text)) {
+      const text = h.content || h.parts?.[0]?.text || '';
+      messages.push({
+        role: h.role === 'model' || h.role === 'assistant' ? 'assistant' : 'user',
+        content: String(text).slice(0, 2000),
+      });
+    }
+  }
+  messages.push({ role: 'user', content: userMessage });
+
+  const res = await fetch('https://api.fanar.qa/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: process.env.FANAR_MODEL || 'Fanar',
+      messages,
+      temperature: 0.4,
+      max_tokens: 1024,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Fanar ${res.status}: ${errText.slice(0, 150)}`);
+  }
+
+  const data: any = await res.json();
+  return data?.choices?.[0]?.message?.content?.trim() || '';
+}
+
 export class GeminiAIProvider {
   private ai: GoogleGenAI | null = null;
   private modelName: string;
@@ -489,36 +529,55 @@ export class GeminiAIProvider {
     let searchEntryPoint: string | undefined = undefined;
 
     // نحاول تشغيل أداة البحث فقط إذا لم تكن حصة البحث تحت التهدئة
-    if (needsSearch && !isSearchQuotaCoolingDown()) {
-      try {
-        response = await this.generate(
-          {
-            contents,
-            config: {
-              systemInstruction: { parts: [{ text: systemInstruction }] },
-              tools: [{ googleSearch: {} }],
+    try {
+      if (needsSearch && !isSearchQuotaCoolingDown()) {
+        try {
+          response = await this.generate(
+            {
+              contents,
+              config: {
+                systemInstruction: { parts: [{ text: systemInstruction }] },
+                tools: [{ googleSearch: {} }],
+              },
             },
-          },
-          { label: 'chat-search', timeoutMs: 25_000, noFallback: true }
-        );
-        searchUsed = true;
-      } catch (searchErr: any) {
-        const errStr = String(searchErr?.message || searchErr);
-        if (errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('quota')) {
-          markSearchQuotaExhausted();
+            { label: 'chat-search', timeoutMs: 25_000, noFallback: true }
+          );
+          searchUsed = true;
+        } catch (searchErr: any) {
+          const errStr = String(searchErr?.message || searchErr);
+          if (errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('quota')) {
+            markSearchQuotaExhausted();
+          }
+          // 11) إن فشل البحث أو استنزفت الحصة فأعد الطلب بدونه بسلاسة وهدوء
+          response = await this.generate(
+            { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
+            { label: 'chat-after-search', timeoutMs: 20_000, fallbackTimeoutMs: 15_000 }
+          );
         }
-        // 11) إن فشل البحث أو استنزفت الحصة فأعد الطلب بدونه بسلاسة وهدوء
+      } else {
+        // استجابة مباشرة بلا بحث إضافي لحماية الحصة وضمان سرعة الرد
         response = await this.generate(
           { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-          { label: 'chat-after-search', timeoutMs: 20_000, fallbackTimeoutMs: 15_000 }
+          { label: 'chat', timeoutMs: 25_000, fallbackTimeoutMs: 20_000 }
         );
       }
-    } else {
-      // استجابة مباشرة بلا بحث إضافي لحماية الحصة وضمان سرعة الرد
-      response = await this.generate(
-        { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-        { label: 'chat', timeoutMs: 25_000, fallbackTimeoutMs: 20_000 }
-      );
+    } catch (geminiChatErr: any) {
+      if (process.env.FANAR_API_KEY) {
+        console.warn('[Falcon] Gemini chat unavailable or quota exhausted, falling back to Fanar Arabic AI...', geminiChatErr?.message?.slice(0, 150));
+        try {
+          const fanarReply = await callFanarCompletion(systemInstruction, chatHistory, userPromptText);
+          if (fanarReply) {
+            return {
+              reply: fanarReply,
+              sources: [],
+              searchUsed: false,
+            };
+          }
+        } catch (fanarErr: any) {
+          console.error('[Falcon] Fanar fallback also failed:', fanarErr?.message);
+        }
+      }
+      throw geminiChatErr;
     }
 
     // استخراج بيانات التأريض إن وُجدت

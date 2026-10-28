@@ -3,6 +3,47 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- WebSocket and Error Resilience for Cloud Preview -->
+    <script>
+      (function() {
+        if (typeof window !== 'undefined') {
+          window.addEventListener('unhandledrejection', function(event) {
+            var reasonStr = String(event.reason && (event.reason.message || event.reason) || '');
+            if (reasonStr.indexOf('WebSocket') !== -1 || reasonStr.indexOf('websocket') !== -1) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          }, true);
+
+          window.addEventListener('error', function(event) {
+            var msgStr = String(event.message || '');
+            if (msgStr.indexOf('WebSocket') !== -1 || msgStr.indexOf('websocket') !== -1) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          }, true);
+
+          var OrigWebSocket = window.WebSocket;
+          if (OrigWebSocket) {
+            window.WebSocket = function(url, protocols) {
+              var ws = protocols !== undefined ? new OrigWebSocket(url, protocols) : new OrigWebSocket(url);
+              ws.addEventListener('close', function(e) {
+                try {
+                  Object.defineProperty(e, 'wasClean', { value: true, writable: false });
+                } catch (_) {}
+              });
+              return ws;
+            };
+            window.WebSocket.prototype = OrigWebSocket.prototype;
+            for (var prop in OrigWebSocket) {
+              if (Object.prototype.hasOwnProperty.call(OrigWebSocket, prop)) {
+                try { window.WebSocket[prop] = OrigWebSocket[prop]; } catch (_) {}
+              }
+            }
+          }
+        }
+      })();
+    </script>
     <title>منظومة الشمساوية | Al-Shamsaweya ERP</title>
     <meta name="description" content="منظومة الشمساوية السحابية المتكاملة لإدارة وتكاليف ورش المكرمية والمشغولات اليدوية وحسابات الحرفيين (ERP & SaaS)" />
     <meta property="og:title" content="منظومة الشمساوية | Al-Shamsaweya ERP" />
