@@ -1,10 +1,16 @@
 import { GoogleGenAI } from '@google/genai';
-import { buildGlobalMemoryPrompt } from './aiGlobalMemory.js';
+import {
+  isSuperAdmin,
+  processTrainingInteraction,
+  buildGlobalMemoryPrompt,
+} from './aiGlobalMemory.js';
 
 export interface AIVisionPromptInput {
   imageBase64: string;
   mimeType?: string;
   artistNotes?: string;
+  userEmail?: string;
+  isSuperAdmin?: boolean;
   workshopContext?: {
     activeCrafts?: string[];
     country?: string;
@@ -12,6 +18,8 @@ export interface AIVisionPromptInput {
     hourlyRate?: number;
     category?: string;
     artistName?: string;
+    userEmail?: string;
+    isSuperAdmin?: boolean;
   };
 }
 
@@ -19,6 +27,8 @@ export interface AIChatPromptInput {
   message: string;
   actionChip?: string | null;
   chatHistory: any[];
+  userEmail?: string;
+  isSuperAdmin?: boolean;
   workshopContext: {
     selectedCrafts?: string[];
     country?: string;
@@ -26,6 +36,8 @@ export interface AIChatPromptInput {
     category?: string;
     artistName?: string;
     brandName?: string;
+    userEmail?: string;
+    isSuperAdmin?: boolean;
   };
 }
 
@@ -34,6 +46,7 @@ export interface AIChatResult {
   sources: Array<{ title: string; url: string }>;
   searchUsed: boolean;
   searchEntryPoint?: string;
+  inTrainingMode?: boolean;
 }
 
 // قاطع دارة للبحث عند استنزاف الكوتة
@@ -340,11 +353,31 @@ export class GeminiAIProvider {
 
   async chatWithAgent(input: AIChatPromptInput): Promise<AIChatResult> {
     const { message, actionChip, chatHistory, workshopContext } = input;
-    const safeSelectedCrafts = Array.isArray(workshopContext.selectedCrafts) ? workshopContext.selectedCrafts : ['macrame'];
-    const safeCountry = workshopContext.country || 'جمهورية مصر العربية';
-    const safeCurrency = workshopContext.currency || 'ج.م';
-    const safeCategory = workshopContext.category || 'عام';
-    const artistName = workshopContext.artistName || '';
+    const userEmail = input.userEmail || workshopContext?.userEmail || '';
+    const superAdmin = Boolean(input.isSuperAdmin || workshopContext?.isSuperAdmin || isSuperAdmin(userEmail));
+
+    // 0. التحقق من حساب السوبر أدمن وبروتوكول التدريب والبرمجة التفاعلي (Session State)
+    if (superAdmin && message) {
+      const trainingResult = await processTrainingInteraction(
+        'falcon',
+        String(message).trim(),
+        userEmail || 'hmb.top.tupe@gmail.com'
+      );
+      if (trainingResult.handled) {
+        return {
+          reply: trainingResult.reply,
+          sources: [],
+          searchUsed: false,
+          inTrainingMode: trainingResult.inTrainingMode,
+        };
+      }
+    }
+
+    const safeSelectedCrafts = Array.isArray(workshopContext?.selectedCrafts) ? workshopContext.selectedCrafts : ['macrame'];
+    const safeCountry = workshopContext?.country || 'جمهورية مصر العربية';
+    const safeCurrency = workshopContext?.currency || 'ج.م';
+    const safeCategory = workshopContext?.category || 'عام';
+    const artistName = workshopContext?.artistName || (superAdmin ? 'الباشمهندس حسام' : '');
 
     const memoryPrompt = await buildGlobalMemoryPrompt('falcon');
     const systemInstruction = `أنت "صقر الشمساوية" 🦅 — المستشار الهندسي الخارجي الأول لمنظومة الشمساوية وخبير دراسة الأسواق والمنافسين وتكاليف المشغولات اليدوية وتحليل الموديلات.
@@ -524,3 +557,5 @@ export function getWorkshopSession(workshopId: string): WorkshopSessionState | n
 export function clearWorkshopSession(workshopId: string): void {
   workshopSessionsCache.delete(workshopId);
 }
+
+export { isSuperAdmin };

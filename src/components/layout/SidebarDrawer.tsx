@@ -36,6 +36,7 @@ import {
   Sliders,
   Database,
   Building,
+  Mail,
 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 
@@ -46,7 +47,9 @@ interface SidebarDrawerProps {
   activeView: string;
   onSelectView: (view: string) => void;
   unreadNotificationsCount?: number;
+  unreadMessagesCount?: number;
   onOpenNotifications: () => void;
+  onOpenMessagesHub?: () => void;
   onOpenProfileSettings: () => void;
   onOpenCraftsSelector: () => void;
   onOpenUserGuide: (sectionId?: string) => void;
@@ -65,7 +68,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   activeView,
   onSelectView,
   unreadNotificationsCount = 0,
+  unreadMessagesCount = 0,
   onOpenNotifications,
+  onOpenMessagesHub,
   onOpenProfileSettings,
   onOpenCraftsSelector,
   onOpenUserGuide,
@@ -689,6 +694,38 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     </button>
                   );
                 })}
+
+                {/* مركز المراسلات والإعلانات */}
+                {onOpenMessagesHub && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenMessagesHub();
+                      onClose();
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer text-stone-700 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 flex items-center justify-center">
+                        <Mail className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold block">مركز المراسلات (بوسطة)</span>
+                          {unreadMessagesCount > 0 && (
+                            <span className="px-1.5 py-0.2 bg-amber-500 text-stone-900 text-[10px] font-black rounded-full animate-bounce">
+                              {unreadMessagesCount}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[9px] text-stone-400 block">
+                          توجيهات وإعلانات إدارة المنظومة
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronLeft className="w-3.5 h-3.5 text-stone-300" />
+                  </button>
+                )}
 
                 {/* اعدادات النظام */}
                 <button

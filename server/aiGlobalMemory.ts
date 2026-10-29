@@ -95,20 +95,28 @@ export async function getActiveGlobalMemories(agentType?: 'shamousa' | 'falcon')
         .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      if (!error && Array.isArray(data)) {
-        cachedMemories = data;
+      if (!error && Array.isArray(data) && data.length > 0) {
+        cachedMemories = data.map((d: any) => ({
+          id: String(d.id),
+          agent_type: (d.agent || d.agent_type || 'both') as any,
+          title: d.title || d.category || 'توجيه وقاعدة هندسية معتمدة',
+          rules: d.content || d.rules || '',
+          metadata: d.metadata || {},
+          is_active: d.is_active !== false,
+          created_at: d.created_at || new Date().toISOString(),
+        }));
         lastCacheUpdate = now;
         saveLocalBackup();
       }
     } catch {
-      // Supabase table may not exist yet, fallback to cached
+      // Supabase table or query error, safely use cachedMemories
     }
   }
 
   return cachedMemories.filter((m) => {
     if (!m.is_active) return false;
     if (!agentType) return true;
-    return m.agent_type === agentType || m.agent_type === 'both';
+    return m.agent_type === agentType || m.agent_type === 'both' || !m.agent_type;
   });
 }
 
@@ -136,6 +144,7 @@ export async function saveGlobalMemoryRecord(record: {
   title: string;
   rules: string;
   metadata?: any;
+  scopedClient?: any;
 }): Promise<GlobalMemoryRecord> {
   const newEntry: GlobalMemoryRecord = {
     id: 'mem_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
@@ -157,23 +166,38 @@ export async function saveGlobalMemoryRecord(record: {
   lastCacheUpdate = Date.now();
   saveLocalBackup();
 
-  // 2. Try persisting to Supabase
+  // 2. Try persisting to Supabase with real table columns (agent, content, category)
+  const clientToUse = record.scopedClient || supabase;
   try {
-    const { data, error } = await supabase
+    const { data, error } = await clientToUse
       .from('ai_global_memory')
       .insert([
         {
-          agent_type: newEntry.agent_type,
-          title: newEntry.title,
-          rules: newEntry.rules,
-          metadata: newEntry.metadata,
+          agent: newEntry.agent_type,
+          content: newEntry.rules,
+          category: newEntry.title,
           is_active: true,
         },
       ])
       .select();
 
     if (!error && data?.[0]) {
-      newEntry.id = data[0].id || newEntry.id;
+      newEntry.id = String(data[0].id || newEntry.id);
+    } else if (error) {
+      // Try alternate schema with agent_type and rules
+      await clientToUse
+        .from('ai_global_memory')
+        .insert([
+          {
+            agent_type: newEntry.agent_type,
+            title: newEntry.title,
+            rules: newEntry.rules,
+            metadata: newEntry.metadata,
+            is_active: true,
+          },
+        ])
+        .select()
+        .catch(() => {});
     }
   } catch (e) {
     console.warn('[AI Global Memory] Supabase insert warning (local cache active):', e);
@@ -289,7 +313,8 @@ export async function processTrainingInteraction(
   agentType: 'shamousa' | 'falcon',
   rawMessage: string,
   userEmail: string,
-  aiSummarizer?: (text: string) => Promise<string>
+  aiSummarizer?: (text: string) => Promise<string>,
+  scopedClient?: any
 ): Promise<{ handled: boolean; reply: string; inTrainingMode: boolean }> {
   if (!isSuperAdmin(userEmail)) {
     return { handled: false, reply: '', inTrainingMode: false };
@@ -329,7 +354,9 @@ export async function processTrainingInteraction(
     normalized === 'كده تمام' ||
     normalized === 'كدا تمام' ||
     normalized.startsWith('كده تمام') ||
-    normalized.startsWith('كدا تمام')
+    normalized.startsWith('كدا تمام') ||
+    normalized.includes('كده تمام') ||
+    normalized.includes('كدا تمام')
   ) {
     session.in_training_mode = false;
     session.buffer = [];
@@ -350,9 +377,10 @@ export async function processTrainingInteraction(
   // 3. Keyword: "احفظ" (Save the current draft/buffer to ai_global_memory)
   if (
     normalized === 'احفظ' ||
+    normalized.startsWith('احفظ') ||
+    normalized.includes('احفظ') ||
     normalized === 'احفظ يا صقر' ||
-    normalized === 'احفظي يا شموسه' ||
-    normalized.startsWith('احفظ')
+    normalized === 'احفظي يا شموسه'
   ) {
     const rulesToSave =
       session.currentDraft ||
@@ -364,6 +392,7 @@ export async function processTrainingInteraction(
       agent_type: agentType,
       title: `قواعد برمجية معتمدة (${agentType === 'shamousa' ? 'شموسة' : 'صقر'})`,
       rules: rulesToSave,
+      scopedClient,
     });
 
     session.buffer = [];
@@ -383,6 +412,7 @@ export async function processTrainingInteraction(
   if (
     normalized === 'هنكمل' ||
     normalized.startsWith('هنكمل') ||
+    normalized.includes('هنكمل') ||
     normalized === 'يلا نكمل' ||
     normalized === 'نكمل'
   ) {
@@ -396,10 +426,12 @@ export async function processTrainingInteraction(
     };
   }
 
-  // 5. Keyword: "فهمت ؟!" / "فهمت؟" / "فهمت"
+  // 5. Keyword: "فهمت ؟!" / "فهمت؟!" / "فهمت؟" / "فهمت"
   if (
     normalized.startsWith('فهمت') ||
+    normalized.includes('فهمت') ||
     trimmed.includes('فهمت ؟!') ||
+    trimmed.includes('فهمت؟!') ||
     trimmed.includes('فهمت؟') ||
     trimmed.includes('فهمت!')
   ) {

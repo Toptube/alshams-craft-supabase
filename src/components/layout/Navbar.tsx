@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UserProfile } from '../../types';
+import { UserProfile, isUserAdmin } from '../../types';
 import {
   Menu,
   Search,
   Bell,
+  Mail,
   PlusCircle,
   PackagePlus,
   Calculator,
@@ -22,10 +23,12 @@ export interface NavbarProps {
   profile: UserProfile;
   hasActiveSession?: boolean;
   unreadNotificationsCount?: number;
+  unreadMessagesCount?: number;
   onToggleSidebar: () => void;
   onOpenGlobalSearch: () => void;
   onGoHome: () => void;
   onOpenNotifications: () => void;
+  onOpenMessagesHub?: () => void;
   // Quick creation actions
   onOpenNewMaterialModal?: () => void;
   onNavigateToCalculator?: () => void;
@@ -39,10 +42,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   profile,
   hasActiveSession,
   unreadNotificationsCount = 0,
+  unreadMessagesCount = 0,
   onToggleSidebar,
   onOpenGlobalSearch,
   onGoHome,
   onOpenNotifications,
+  onOpenMessagesHub,
   onOpenNewMaterialModal,
   onNavigateToCalculator,
   onOpenSupplierInvoice,
@@ -153,6 +158,22 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </button>
 
+          {/* 3.5. علامة الرسائل والمراسلات (Messages Hub) مع مؤشر الرسائل غير المقروءة */}
+          <button
+            type="button"
+            onClick={onOpenMessagesHub}
+            className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-2xl text-stone-700 dark:text-stone-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-700 dark:hover:text-amber-400 border border-stone-200 dark:border-stone-700/80 transition-all duration-150 cursor-pointer flex items-center justify-center shadow-xs active:scale-95 shrink-0"
+            title="الرسائل والمراسلات (Messages Hub)"
+            aria-label="الرسائل"
+          >
+            <Mail className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-stone-700 dark:text-stone-300" />
+            {unreadMessagesCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] sm:min-w-[18px] h-[16px] sm:h-[18px] px-1 bg-amber-600 text-white text-[9px] sm:text-[10px] font-black rounded-full flex items-center justify-center shadow-xs animate-pulse">
+                {unreadMessagesCount > 99 ? '+99' : unreadMessagesCount}
+              </span>
+            )}
+          </button>
+
           {/* 4. علامة مركز الإنشاء السريع (أيقونة فقط مع ظهور التسمية عند المرور) */}
           <div className="relative shrink-0" ref={quickCreateRef}>
             <button
@@ -213,6 +234,17 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
           </div>
+
+          {/* Golden Royal Badge for Super Admin */}
+          {isUserAdmin(profile) && (
+            <div className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-2xl bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-600/20 border border-amber-400/60 shadow-xs shadow-amber-500/20 text-amber-950 dark:text-amber-200 text-[11px] font-black select-none animate-in fade-in">
+              <span className="text-sm">👑</span>
+              <span>كبير عيلة الشمساوية</span>
+              <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-amber-600 text-white font-mono uppercase tracking-wider">
+                Super Admin
+              </span>
+            </div>
+          )}
         </div>
 
         {/* القسم الأيسر: مؤشر حالة الاتصال السحابي + البحث الموحد + محول اللغات (متباعدة تماماً وبدون أي تداخل) */}

@@ -4,11 +4,19 @@ import {
   SavedProductRecord,
   CraftCategory,
   NotificationItem,
+  isUserAdmin,
+  AdminAnnouncement,
+  WorkshopMessageReceipt,
 } from './types';
 import { supabase } from './lib/supabase';
 import { getCurrentWorkshopFromSupabase } from './db/supabaseService';
 import { flushProductSync } from './db/productsCloud';
 import { tenantStorage } from './db/dexieDB';
+import { playPostaNotificationSound } from './lib/sounds';
+
+// Access Control & Messaging
+import { AccessGate } from './components/gate/AccessGate';
+import { MessagesHubModal } from './components/messages/MessagesHubModal';
 
 // Layout Components
 import { Navbar } from './components/layout/Navbar';
@@ -201,6 +209,14 @@ export const App: React.FC = () => {
   // Notifications state
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
+  // Messaging Hub (بوسطة) & Announcements state
+  const [isMessagesHubOpen, setIsMessagesHubOpen] = useState<boolean>(false);
+  const [announcements, setAnnouncements] = useState<(AdminAnnouncement & { receipt?: WorkshopMessageReceipt })[]>([]);
+
+  // Super Admin Multi-Tenant Workshop Switcher Context
+  const [switchedWorkshopContext, setSwitchedWorkshopContext] = useState<any | null>(null);
+  const [originalSuperAdminProfile, setOriginalSuperAdminProfile] = useState<UserProfile | null>(null);
+
   // Search cache
   const [searchCache, setSearchCache] = useState<GlobalSearchDataCache>({
     customers: [],
@@ -319,6 +335,119 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // Check workshop suspension/ban status and auto-unfreeze if time expired
+  const checkWorkshopStatus = useCallback(async () => {
+    if (!profile) return;
+    const wid = profile.workshopId || profile.id;
+    if (!wid || wid === 'workshop_demo' || wid === '00000000-0000-0000-0000-000000000000') return;
+
+    try {
+      const res = await fetch('/api/workshop/my-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workshopId: wid }),
+      });
+      const data = await res.json();
+      if (data.success && data.workshop) {
+        const sw = data.workshop;
+        setProfile((prev) => {
+          if (!prev) return null;
+          const merged: UserProfile = {
+            ...prev,
+            status: sw.status || 'active',
+            suspension_reason: sw.suspension_reason,
+            suspensionReason: sw.suspension_reason,
+            suspension_duration: sw.suspension_duration,
+            suspensionDuration: sw.suspension_duration,
+            suspended_until: sw.suspended_until,
+            suspendedUntil: sw.suspended_until,
+            appeal_status: sw.appeal_status || 'none',
+            appealStatus: sw.appeal_status || 'none',
+            appeal_message: sw.appeal_message,
+            appealMessage: sw.appeal_message,
+            rejection_reason: sw.rejection_reason,
+            rejectionReason: sw.rejection_reason,
+            appeal_submitted_at: sw.appeal_submitted_at,
+            appealSubmittedAt: sw.appeal_submitted_at,
+            isFrozen: sw.status === 'suspended' || sw.status === 'banned',
+          };
+          localStorage.setItem('alshams_profile', JSON.stringify(merged));
+          return merged;
+        });
+      }
+    } catch (err) {
+      console.warn('[Status Check] Notice:', err);
+    }
+  }, [profile?.workshopId, profile?.id]);
+
+  // Load Admin Announcements & Messages
+  const loadAnnouncements = useCallback(async () => {
+    if (!profile) return;
+    const wid = profile.workshopId || profile.id;
+    if (!wid || wid === 'workshop_demo' || wid === '00000000-0000-0000-0000-000000000000') return;
+
+    try {
+      const res = await fetch(`/api/announcements?workshopId=${encodeURIComponent(wid)}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.announcements)) {
+        setAnnouncements(data.announcements);
+      }
+    } catch (err) {
+      console.warn('[Announcements] Failed to fetch:', err);
+    }
+  }, [profile?.workshopId, profile?.id]);
+
+  // Initial and periodic check on profile mount
+  useEffect(() => {
+    if (profile?.id) {
+      checkWorkshopStatus();
+      loadAnnouncements();
+    }
+  }, [profile?.id, profile?.workshopId, checkWorkshopStatus, loadAnnouncements]);
+
+  // Realtime subscription for incoming announcements and status changes
+  useEffect(() => {
+    if (!profile) return;
+    const wid = profile.workshopId || profile.id;
+    if (!wid || wid === 'workshop_demo' || wid === '00000000-0000-0000-0000-000000000000') return;
+
+    const announcementsChannel = supabase
+      .channel('public:admin_announcements_live')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'admin_announcements' },
+        (payload) => {
+          const newAnn = payload.new as any;
+          if (newAnn.recipient_type === 'all' || newAnn.recipient_workshop_id === wid) {
+            playPostaNotificationSound();
+            loadAnnouncements();
+          }
+        }
+      )
+      .subscribe();
+
+    const workshopChannel = supabase
+      .channel(`public:workshops_live_${wid}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'workshops', filter: `id=eq.${wid}` },
+        () => {
+          checkWorkshopStatus();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(announcementsChannel);
+      supabase.removeChannel(workshopChannel);
+    };
+  }, [profile?.workshopId, profile?.id, loadAnnouncements, checkWorkshopStatus]);
+
+  // Calculate unread announcements count
+  const unreadMessagesCount = announcements.filter(
+    (a) => !a.receipt || !a.receipt.read_at
+  ).length;
+
   // Listen to custom navigation events from Shamousa or other components
   useEffect(() => {
     const handleOpenView = (e: Event) => {
@@ -429,6 +558,22 @@ export const App: React.FC = () => {
     );
   }
 
+  // Gatekeeper: If workshop is suspended or banned and user is NOT a Super Admin, block access
+  const isSuspendedOrBanned =
+    profile &&
+    !isUserAdmin(profile) &&
+    (profile.status === 'suspended' || profile.status === 'banned' || profile.isFrozen);
+
+  if (isSuspendedOrBanned) {
+    return (
+      <AccessGate
+        workshop={profile}
+        onRefreshStatus={checkWorkshopStatus}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200" dir="rtl">
       {/* Top Navbar */}
@@ -436,6 +581,8 @@ export const App: React.FC = () => {
         profile={profile}
         hasActiveSession={true}
         unreadNotificationsCount={notifications.filter((n) => !n.isRead).length}
+        unreadMessagesCount={unreadMessagesCount}
+        onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
         onToggleSidebar={() => setIsSidebarOpen(true)}
         onOpenGlobalSearch={() => {
           loadSearchCacheAndNotifications();
@@ -453,6 +600,40 @@ export const App: React.FC = () => {
         onOpenNewClientModal={() => setIsNewClientOpen(true)}
         onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
       />
+
+      {/* Super Admin Executive Context Mode Banner */}
+      {switchedWorkshopContext && (
+        <aside aria-label="شريط وضع الإشراف" className="bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white px-4 py-2 text-xs font-black flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/40 shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="text-sm">👑</span>
+            <span>
+              أنت الآن في وضع الإشراف التنفيذي الشامل على ورشة: <strong className="text-amber-300">"{switchedWorkshopContext.brandName}"</strong> (الفنان: {switchedWorkshopContext.artistName})
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigateTo('admin')}
+              className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold cursor-pointer transition shadow-xs"
+            >
+              العودة للوحة الإشراف
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (originalSuperAdminProfile) {
+                  setProfile(originalSuperAdminProfile);
+                  localStorage.setItem('alshams_profile', JSON.stringify(originalSuperAdminProfile));
+                }
+                setSwitchedWorkshopContext(null);
+              }}
+              className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-750 text-stone-300 text-[11px] font-bold cursor-pointer transition"
+            >
+              إنهاء وضع الإشراف
+            </button>
+          </div>
+        </aside>
+      )}
 
       {/* Welcome Banner: يظهر فقط عند الفتح للترحيب بالفنان وورشته */}
       {showWelcomeBanner && profile && (
@@ -683,6 +864,24 @@ export const App: React.FC = () => {
           <AdminDashboard
             profile={profile}
             onNavigateHome={goHome}
+            onProfileUpdated={(updated) => {
+              setProfile(updated);
+              localStorage.setItem('alshams_profile', JSON.stringify(updated));
+            }}
+            onSelectActiveWorkshop={(workshop) => {
+              if (!originalSuperAdminProfile && profile) {
+                setOriginalSuperAdminProfile(profile);
+              }
+              setSwitchedWorkshopContext(workshop);
+              const merged: UserProfile = {
+                ...workshop,
+                role: 'superadmin',
+                email: profile?.email || workshop.email,
+              };
+              setProfile(merged);
+              localStorage.setItem('alshams_profile', JSON.stringify(merged));
+              setActiveView('home');
+            }}
           />
         )}
       </main>
@@ -705,10 +904,12 @@ export const App: React.FC = () => {
             setIsSidebarOpen(false);
           }}
           unreadNotificationsCount={notifications.filter((n) => !n.isRead).length}
+          unreadMessagesCount={unreadMessagesCount}
           onOpenNotifications={() => {
             loadSearchCacheAndNotifications();
             setIsNotificationsOpen(true);
           }}
+          onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
           onOpenProfileSettings={() => setIsProfileSettingsOpen(true)}
           onOpenCraftsSelector={() => setIsCraftsSelectorOpen(true)}
           onOpenUserGuide={(sec) => {
@@ -901,6 +1102,17 @@ export const App: React.FC = () => {
           onClose={() => setIsNewEmployeeOpen(false)}
           profile={profile}
           onSuccess={() => {}}
+        />
+      )}
+
+      {/* Messages Hub Modal (مركز المراسلات - بوسطة) */}
+      {isMessagesHubOpen && profile && (
+        <MessagesHubModal
+          isOpen={isMessagesHubOpen}
+          onClose={() => setIsMessagesHubOpen(false)}
+          workshopId={profile.workshopId || profile.id}
+          workshopName={profile.brandName || profile.artistName || 'ورشة الشمساوية'}
+          onReceiptUpdate={loadAnnouncements}
         />
       )}
     </div>

@@ -88,9 +88,51 @@ export interface WorkshopProfile {
   isFrozen?: boolean;
   frozenReason?: string;
   frozenAt?: number;
+  // Suspension & Ban & Appeals Enforcement
+  status?: 'active' | 'suspended' | 'banned';
+  suspension_reason?: string;
+  suspensionReason?: string;
+  suspension_duration?: string;
+  suspensionDuration?: string;
+  suspended_until?: string | number | null;
+  suspendedUntil?: string | number | null;
+  appeal_status?: 'none' | 'pending' | 'under_review' | 'rejected' | 'accepted';
+  appealStatus?: 'none' | 'pending' | 'under_review' | 'rejected' | 'accepted';
+  appeal_message?: string;
+  appealMessage?: string;
+  rejection_reason?: string;
+  rejectionReason?: string;
+  appeal_submitted_at?: string | number | null;
+  appealSubmittedAt?: string | number | null;
   createdAt: number;
   updatedAt: number;
   createdBy: string;
+}
+
+export interface AdminAnnouncement {
+  id: string;
+  sender_id?: string;
+  sender_name?: string;
+  recipient_type: 'all' | 'specific';
+  recipient_workshop_id?: string | null;
+  recipient_workshop_name?: string | null;
+  title: string;
+  content: string;
+  created_at: string;
+}
+
+export interface WorkshopMessageReceipt {
+  id: string;
+  message_id: string;
+  workshop_id: string;
+  read_at?: string | null;
+  acknowledged_at?: string | null;
+  reply_text?: string | null;
+  replied_at?: string | null;
+  announcement?: AdminAnnouncement;
+  workshop_name?: string;
+  artist_name?: string;
+  phone_number?: string;
 }
 
 export function getDefaultFamilyNickname(artistName?: string, gender?: Gender): string {
@@ -101,7 +143,17 @@ export function getDefaultFamilyNickname(artistName?: string, gender?: Gender): 
 export function isUserAdmin(profile: WorkshopProfile | null | undefined): boolean {
   if (!profile) return false;
   if (profile.role === 'admin' || profile.role === 'superadmin') return true;
-  if (profile.email && profile.email.toLowerCase().trim() === 'hmb.top.tube@gmail.com') return true;
+  if (profile.email) {
+    const e = profile.email.toLowerCase().trim();
+    if (
+      e === 'hmb.top.tupe@gmail.com' ||
+      e === 'hmb.top.tube@gmail.com' ||
+      e.startsWith('hmb.top.tupe') ||
+      e.startsWith('hmb.top.tube')
+    ) {
+      return true;
+    }
+  }
   if (typeof window !== 'undefined' && localStorage.getItem('alshams_admin_override') === 'true') return true;
   return false;
 }

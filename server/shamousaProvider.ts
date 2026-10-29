@@ -1,5 +1,9 @@
 import { workshopToolSchemas, runWorkshopTool, WorkshopToolContext } from './workshopTools.js';
-import { buildGlobalMemoryPrompt } from './aiGlobalMemory.js';
+import {
+  isSuperAdmin,
+  processTrainingInteraction,
+  buildGlobalMemoryPrompt,
+} from './aiGlobalMemory.js';
 
 export interface ShamousaContext {
   artistName: string;
@@ -8,6 +12,7 @@ export interface ShamousaContext {
   cashAdvances?: string;
   workshopId: string;
   db: any;
+  userEmail?: string;
   isSuperAdmin?: boolean;
   clientContext?: {
     treasuryBalance?: number;
@@ -145,11 +150,32 @@ export async function handleShamousaChat(
   userMessage: string,
   history: any[],
   ctx: ShamousaContext
-): Promise<{ reply: string; handoffToFalcon?: boolean; provider: string }> {
+): Promise<{ reply: string; handoffToFalcon?: boolean; provider: string; inTrainingMode?: boolean }> {
+  const userEmail = ctx.userEmail || '';
+  const superAdmin = Boolean(ctx.isSuperAdmin || isSuperAdmin(userEmail));
+
+  // 0. التحقق من حساب السوبر أدمن وبروتوكول التدريب والبرمجة التفاعلي (Session State)
+  if (superAdmin) {
+    const trainingResult = await processTrainingInteraction(
+      'shamousa',
+      userMessage,
+      userEmail || 'hmb.top.tupe@gmail.com'
+    );
+    if (trainingResult.handled) {
+      return {
+        reply: trainingResult.reply,
+        handoffToFalcon: false,
+        provider: 'superadmin_engine',
+        inTrainingMode: trainingResult.inTrainingMode,
+      };
+    }
+  }
+
+  const effectiveWorkshopId = superAdmin ? 'ALL_WORKSHOPS' : ctx.workshopId;
   const toolCtx: WorkshopToolContext = {
     db: ctx.db,
-    workshopId: ctx.workshopId,
-    isSuperAdmin: Boolean(ctx.isSuperAdmin),
+    workshopId: effectiveWorkshopId,
+    isSuperAdmin: superAdmin,
   };
   (toolCtx as any).clientContext = ctx.clientContext;
 
@@ -255,3 +281,4 @@ export async function handleShamousaChat(
 
 // للتوافق مع أي استدعاء قديم
 export const chatWithShamousa = handleShamousaChat;
+export { isSuperAdmin };
