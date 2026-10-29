@@ -13,6 +13,11 @@ import {
   clearWorkshopSession,
 } from './server/aiProvider.js';
 import * as shamousaModule from './server/shamousaProvider.js';
+import {
+  isSuperAdmin,
+  processTrainingInteraction,
+  getActiveGlobalMemories,
+} from './server/aiGlobalMemory.js';
 
 dotenv.config();
 
@@ -38,14 +43,26 @@ const SHAMOUSA_DAILY_LIMIT = Number(process.env.SHAMOUSA_DAILY_LIMIT) || 50;
 const falconUsage = new Map<string, { date: string; count: number }>();
 const shamousaUsage = new Map<string, { date: string; count: number }>();
 
-function canUse(map: Map<string, { date: string; count: number }>, workshopId: string, limit: number): boolean {
+function canUse(
+  map: Map<string, { date: string; count: number }>,
+  workshopId: string,
+  limit: number,
+  userEmail?: string
+): boolean {
+  if (isSuperAdmin(userEmail)) return true;
   const today = new Date().toISOString().split('T')[0];
   const rec = map.get(workshopId);
   if (!rec || rec.date !== today) return true;
   return rec.count < limit;
 }
 
-function recordUsage(map: Map<string, { date: string; count: number }>, workshopId: string, limit: number): number {
+function recordUsage(
+  map: Map<string, { date: string; count: number }>,
+  workshopId: string,
+  limit: number,
+  userEmail?: string
+): number {
+  if (isSuperAdmin(userEmail)) return 9999;
   const today = new Date().toISOString().split('T')[0];
   const rec = map.get(workshopId);
   if (!rec || rec.date !== today) {
@@ -59,8 +76,10 @@ function recordUsage(map: Map<string, { date: string; count: number }>, workshop
 function getRemainingUsage(
   map: Map<string, { date: string; count: number }>,
   workshopId: string,
-  limit: number
+  limit: number,
+  userEmail?: string
 ): number {
+  if (isSuperAdmin(userEmail)) return 9999;
   const today = new Date().toISOString().split('T')[0];
   const rec = map.get(workshopId);
   if (!rec || rec.date !== today) return limit;
@@ -70,6 +89,8 @@ function getRemainingUsage(
 // Scoped Request Interface
 export interface AuthenticatedRequest extends Request {
   user?: any;
+  userEmail?: string;
+  isSuperAdmin?: boolean;
   workshopId?: string;
   scopedSupabase?: SupabaseClient;
 }
@@ -77,6 +98,23 @@ export interface AuthenticatedRequest extends Request {
 // Authentication Middleware via Supabase JWT
 async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
+  const devEmail = (req.headers['x-user-email'] as string) || req.body?.userEmail;
+
+  // Support Super Admin direct access for dev/testing/supervisory calls
+  if ((!authHeader || !authHeader.startsWith('Bearer ')) && devEmail && isSuperAdmin(devEmail)) {
+    req.user = {
+      id: 'super_admin_hossam',
+      email: devEmail,
+      user_metadata: { full_name: 'الباشمهندس حسام', name: 'حسام' },
+    };
+    req.userEmail = devEmail;
+    req.isSuperAdmin = true;
+    req.workshopId = (req.headers['x-workshop-id'] as string) || req.body?.workshopId || 'ALL_WORKSHOPS';
+    req.scopedSupabase = supabaseAuthClient;
+    next();
+    return;
+  }
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول للوصول إلى هذه الخدمة' });
     return;
@@ -91,11 +129,17 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
     }
 
     req.user = user;
-    const workshopId =
-      user.user_metadata?.workshop_id ||
-      user.user_metadata?.workshopId ||
-      user.user_metadata?.tenant_id ||
-      user.id;
+    const userEmail = user.email || (user.user_metadata?.email as string) || (req.headers['x-user-email'] as string) || '';
+    req.userEmail = userEmail;
+    const superAdmin = isSuperAdmin(userEmail);
+    req.isSuperAdmin = superAdmin;
+
+    const workshopId = superAdmin
+      ? (req.headers['x-workshop-id'] as string) || req.body?.workshopId || 'ALL_WORKSHOPS'
+      : (user.user_metadata?.workshop_id ||
+         user.user_metadata?.workshopId ||
+         user.user_metadata?.tenant_id ||
+         user.id);
     req.workshopId = workshopId;
 
     // Create client scoped to user JWT for Row-Level Security
@@ -131,12 +175,28 @@ app.get('/healthz', (_req, res) => {
 // -------------------------------------------------------------
 app.get('/api/ai/usage', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
+  const email = req.userEmail || req.user?.email || '';
+  const superAdmin = isSuperAdmin(email);
   res.json({
-    falconRemaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT),
-    falconLimit: FALCON_DAILY_LIMIT,
-    shamousaRemaining: getRemainingUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT),
-    shamousaLimit: SHAMOUSA_DAILY_LIMIT,
+    isSuperAdmin: superAdmin,
+    falconRemaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
+    falconLimit: superAdmin ? 9999 : FALCON_DAILY_LIMIT,
+    shamousaRemaining: getRemainingUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT, email),
+    shamousaLimit: superAdmin ? 9999 : SHAMOUSA_DAILY_LIMIT,
   });
+});
+
+// -------------------------------------------------------------
+// Active Global Memory Listing (Super Admin & Audit)
+// -------------------------------------------------------------
+app.get('/api/ai/global-memory', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const agent = (req.query.agent as 'shamousa' | 'falcon') || undefined;
+    const memories = await getActiveGlobalMemories(agent);
+    res.json({ memories, count: memories.length });
+  } catch (err: any) {
+    res.status(500).json({ error: 'تعذر قراءة الذاكرة المركزية' });
+  }
 });
 
 // -------------------------------------------------------------
@@ -144,8 +204,30 @@ app.get('/api/ai/usage', requireAuth, (req: AuthenticatedRequest, res: Response)
 // -------------------------------------------------------------
 app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
+  const email = req.userEmail || req.user?.email || '';
+  const superAdmin = isSuperAdmin(email);
 
-  if (!canUse(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT)) {
+  const { message, history, clientWorkshopState } = req.body || {};
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    res.status(400).json({ error: 'الرسالة فارغة' });
+    return;
+  }
+
+  // 1. فحص وضع التدريب والبرمجة التفاعلي المباشر للسوبر أدمن
+  if (superAdmin) {
+    const trainingResult = await processTrainingInteraction('shamousa', message.trim(), email);
+    if (trainingResult.handled) {
+      res.json({
+        reply: trainingResult.reply,
+        inTrainingMode: trainingResult.inTrainingMode,
+        provider: 'superadmin_engine',
+        remaining: 9999,
+      });
+      return;
+    }
+  }
+
+  if (!canUse(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT, email)) {
     res.status(429).json({
       error: `وصلت للحد الأقصى لشموسة اليوم (${SHAMOUSA_DAILY_LIMIT} استفسار). يتجدد الرصيد غداً بإذن الله.`,
       remaining: 0,
@@ -154,17 +236,18 @@ app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, re
     return;
   }
 
-  const { message, history } = req.body || {};
-  if (!message || typeof message !== 'string' || !message.trim()) {
-    res.status(400).json({ error: 'الرسالة فارغة' });
-    return;
-  }
-
   try {
-    const artistName = req.user?.user_metadata?.full_name || req.user?.user_metadata?.name || 'صاحب الورشة';
-    const brandName = req.user?.user_metadata?.brand_name || req.user?.user_metadata?.brandName || 'الورشة';
+    const artistName =
+      req.user?.user_metadata?.full_name ||
+      req.user?.user_metadata?.name ||
+      req.body?.artistName ||
+      (superAdmin ? 'الباشمهندس حسام' : '');
+    const brandName =
+      req.user?.user_metadata?.brand_name ||
+      req.user?.user_metadata?.brandName ||
+      req.body?.brandName ||
+      'ورشة الشمس كرافت';
 
-    // دعم استدعاء دالة شموسة المتاحة في السيرفر
     const shamousaRunner: any =
       (shamousaModule as any).handleShamousaChat ||
       (shamousaModule as any).chatWithShamousa;
@@ -173,20 +256,24 @@ app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, re
       throw new Error('محرك شموسة غير جاهز حالياً');
     }
 
+    const clientTreasury = Number(clientWorkshopState?.treasuryBalance ?? req.body?.treasuryBalance ?? 0);
+
     const result = await shamousaRunner(
       message.trim(),
       Array.isArray(history) ? history : [],
       {
         artistName,
         workshopName: brandName,
-        treasuryBalance: 0,
+        treasuryBalance: clientTreasury,
         workshopId: wid,
         db: req.scopedSupabase || supabaseAuthClient,
+        clientContext: clientWorkshopState,
+        isSuperAdmin: superAdmin,
       }
     );
 
-    // الخصم فقط بعد نجاح الاستجابة لعدم إهدار الرصيد
-    const remaining = recordUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT);
+    // الخصم فقط بعد نجاح الاستجابة لعدم إهدار الرصيد (والسوبر أدمن لا يخصم)
+    const remaining = recordUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT, email);
 
     res.json({
       reply: typeof result === 'string' ? result : (result.reply || ''),
@@ -198,7 +285,7 @@ app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, re
     console.error('[Shamousa Chat Error]:', err);
     res.status(500).json({
       error: err?.message || 'تعذر معالجة طلب شموسة حالياً، يرجى المحاولة لاحقاً.',
-      remaining: getRemainingUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT),
+      remaining: getRemainingUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT, email),
     });
   }
 });
@@ -208,14 +295,8 @@ app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, re
 // -------------------------------------------------------------
 const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
-
-  if (!canUse(falconUsage, wid, FALCON_DAILY_LIMIT)) {
-    res.status(429).json({
-      error: `وصلت للحد اليومي لرسائل صقر الشمساوية (${FALCON_DAILY_LIMIT} رسالة). يتجدد الرصيد غداً بإذن الله.`,
-      remaining: 0,
-    });
-    return;
-  }
+  const email = req.userEmail || req.user?.email || '';
+  const superAdmin = isSuperAdmin(email);
 
   const { message, actionChip, chatHistory, workshopContext } = req.body || {};
   if (!message && !actionChip) {
@@ -223,16 +304,48 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
     return;
   }
 
+  // 1. فحص وضع التدريب والبرمجة التفاعلي المباشر للسوبر أدمن
+  if (superAdmin && message) {
+    const trainingResult = await processTrainingInteraction('falcon', String(message).trim(), email);
+    if (trainingResult.handled) {
+      res.json({
+        reply: trainingResult.reply,
+        inTrainingMode: trainingResult.inTrainingMode,
+        sources: [],
+        searchUsed: false,
+        remaining: 9999,
+      });
+      return;
+    }
+  }
+
+  if (!canUse(falconUsage, wid, FALCON_DAILY_LIMIT, email)) {
+    res.status(429).json({
+      error: `وصلت للحد اليومي لرسائل صقر الشمساوية (${FALCON_DAILY_LIMIT} رسالة). يتجدد الرصيد غداً بإذن الله.`,
+      remaining: 0,
+    });
+    return;
+  }
+
   try {
+    const artistName =
+      req.user?.user_metadata?.full_name ||
+      req.user?.user_metadata?.name ||
+      workshopContext?.artistName ||
+      (superAdmin ? 'الباشمهندس حسام' : '');
+
     const result = await aiProvider.chatWithAgent({
       message: message || '',
       actionChip,
       chatHistory: Array.isArray(chatHistory) ? chatHistory : [],
-      workshopContext: workshopContext || {},
+      workshopContext: {
+        ...(workshopContext || {}),
+        artistName: (workshopContext?.artistName || artistName),
+      },
     });
 
-    // الخصم فقط بعد تمام الرد
-    const remaining = recordUsage(falconUsage, wid, FALCON_DAILY_LIMIT);
+    // الخصم فقط بعد تمام الرد (والسوبر أدمن لا يخصم)
+    const remaining = recordUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email);
 
     res.json({
       ...result,
@@ -243,7 +356,7 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
     const { status, error } = falconErrorResponse(err);
     res.status(status).json({
       error,
-      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT),
+      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
     });
   }
 };
@@ -253,8 +366,10 @@ app.post('/api/ai/chat', requireAuth, handleFalconChat);
 
 const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
+  const email = req.userEmail || req.user?.email || '';
+  const superAdmin = isSuperAdmin(email);
 
-  if (!canUse(falconUsage, wid, FALCON_DAILY_LIMIT)) {
+  if (!canUse(falconUsage, wid, FALCON_DAILY_LIMIT, email)) {
     res.status(429).json({
       error: `وصلت للحد اليومي لتحليلات صقر (${FALCON_DAILY_LIMIT}). يتجدد الرصيد غداً بإذن الله.`,
       remaining: 0,
@@ -276,8 +391,8 @@ const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
       workshopContext: workshopContext || {},
     });
 
-    // الخصم فقط بعد تمام التحليل
-    const remaining = recordUsage(falconUsage, wid, FALCON_DAILY_LIMIT);
+    // الخصم فقط بعد تمام التحليل (والسوبر أدمن لا يخصم)
+    const remaining = recordUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email);
 
     res.json({
       ...analysis,
@@ -288,7 +403,7 @@ const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
     const { status, error } = falconErrorResponse(err);
     res.status(status).json({
       error,
-      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT),
+      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
     });
   }
 };

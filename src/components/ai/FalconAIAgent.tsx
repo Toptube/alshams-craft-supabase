@@ -43,13 +43,15 @@ interface FalconAIAgentProps {
   onExportStructuredToCalculator?: (data: StructuredCalculatorExport) => void;
 }
 
-export const FALCON_WELCOME_TEXT = `أهلاً بك يا فنان في الجناح الذكي لمنظومة الشمساوية! 🦅
+export const FALCON_WELCOME_TEXT = `أهلاً بك في الجناح الذكي لمنظومة الشمساوية! 🦅
 أنا "صقر الشمساوية"، مستشارك لدراسة الأسواق وحساب التكاليف وتحليل المشغولات. ارفع صورة القطعة أو اكتب استفسارك وسأجيبك فوراً.`;
 
-export const createInitialFalconMessage = (): ChatMessage => ({
+export const createInitialFalconMessage = (userName?: string): ChatMessage => ({
   id: 'msg_welcome',
   sender: 'falcon',
-  text: FALCON_WELCOME_TEXT,
+  text: userName
+    ? `أهلاً بك يا ${userName} في الجناح الذكي لمنظومة الشمساوية! 🦅\nأنا "صقر الشمساوية"، مستشارك لدراسة الأسواق وحساب التكاليف وتحليل المشغولات. ارفع صورة القطعة أو اكتب استفسارك وسأجيبك فوراً.`
+    : FALCON_WELCOME_TEXT,
   timestamp: Date.now(),
 });
 
@@ -63,14 +65,14 @@ function getArabicAiError(status: number, serverMessage?: string): string {
   return 'تعذر إتمام الطلب، حاول مرة أخرى.';
 }
 
-async function falconFetch(url: string, init: RequestInit, timeoutMs = 35000): Promise<Response> {
+async function falconFetch(url: string, init: RequestInit, timeoutMs = 18000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await authedFetch(url, { ...init, signal: controller.signal });
   } catch (err: any) {
     if (err?.name === 'AbortError') {
-      throw new Error('استغرق الرد وقتاً طويلاً. تأكد من اتصال الإنترنت وحاول مجدداً.');
+      throw new Error('استغرق صقر وقتاً أطول من المعتاد. أعد المحاولة فوراً.');
     }
     throw new Error('تعذر الاتصال بالخادم، يرجى المحاولة بعد لحظات.');
   } finally {
@@ -158,8 +160,9 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
       const res = await authedFetch('/api/ai/usage');
       if (res.ok) {
         const data = await res.json();
-        if (typeof data.remaining === 'number') {
-          setDailyRemaining(data.remaining);
+        const rem = typeof data.falconRemaining === 'number' ? data.falconRemaining : data.remaining;
+        if (typeof rem === 'number') {
+          setDailyRemaining(rem);
         }
       }
     } catch {}
@@ -169,8 +172,10 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     loadDailyUsage();
   }, [loadDailyUsage]);
 
+  const firstName = (profile.fullName || profile.name || (profile as any).artistName || '').trim().split(/\s+/)[0] || '';
+
   const handleNewChat = () => {
-    const welcome = createInitialFalconMessage();
+    const welcome = createInitialFalconMessage(firstName);
     setMessages([welcome]);
     setInputPrompt('');
     setImagePreview(null);
@@ -261,7 +266,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
             activeCrafts: Array.isArray(profile.selectedCrafts) ? profile.selectedCrafts : [],
           }),
         },
-        50000
+        20000
       );
 
       if (!res.ok) {
@@ -270,8 +275,9 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
       }
 
       const data: AIVisionAnalysis = await res.json();
-      if (typeof (data as any).dailyAiRemaining === 'number') {
-        setDailyRemaining((data as any).dailyAiRemaining);
+      const visionRem = typeof (data as any).remaining === 'number' ? (data as any).remaining : (data as any).dailyAiRemaining;
+      if (typeof visionRem === 'number') {
+        setDailyRemaining(visionRem);
       }
 
       if (data.detectedCategory) onApplyCategoryFromAI(data.detectedCategory);
@@ -354,10 +360,13 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
               country: profile.country || 'مصر',
               currency: profile.currencySymbol || 'ج.م',
               category: currentCategory,
+              artistName: firstName,
+              brandName: profile.brandName,
             },
+            userEmail: profile.email || '',
           }),
         },
-        30000
+        18000
       );
 
       if (!res.ok) {
@@ -366,8 +375,9 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
       }
 
       const data = await res.json();
-      if (typeof data.dailyAiRemaining === 'number') {
-        setDailyRemaining(data.dailyAiRemaining);
+      const chatRem = typeof data.remaining === 'number' ? data.remaining : data.dailyAiRemaining;
+      if (typeof chatRem === 'number') {
+        setDailyRemaining(chatRem);
       }
 
       setMessages((prev) => [

@@ -1,4 +1,5 @@
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
+import { buildGlobalMemoryPrompt } from './aiGlobalMemory.js';
 
 export interface AIVisionPromptInput {
   imageBase64: string;
@@ -10,6 +11,7 @@ export interface AIVisionPromptInput {
     currency?: string;
     hourlyRate?: number;
     category?: string;
+    artistName?: string;
   };
 }
 
@@ -22,6 +24,8 @@ export interface AIChatPromptInput {
     country?: string;
     currency?: string;
     category?: string;
+    artistName?: string;
+    brandName?: string;
   };
 }
 
@@ -32,7 +36,7 @@ export interface AIChatResult {
   searchEntryPoint?: string;
 }
 
-// قاطع دارة (Circuit Breaker) لكبح استدعاءات البحث عند استنزاف الحصة
+// قاطع دارة للبحث عند استنزاف الكوتة
 let searchQuotaExhaustedUntil = 0;
 
 function isSearchQuotaCoolingDown(): boolean {
@@ -59,11 +63,11 @@ export function classifyGeminiError(err: any, aborted = false): GeminiErrorKind 
 export function falconErrorResponse(err: any): { status: number; error: string } {
   switch (err?.kind as GeminiErrorKind | undefined) {
     case 'timeout':
-      return { status: 504, error: 'صقر اتأخر في الرد بسبب ضغط الشبكة، أعد المحاولة فوراً.' };
+      return { status: 504, error: 'استغرق صقر وقتاً أطول من المعتاد بسبب ضغط الشبكة، أعد المحاولة فوراً.' };
     case 'quota':
       return { status: 503, error: 'تم التبديل للمزود الاحتياطي لانتهاء الحصة اللحظية، حاول مجدداً.' };
     case 'unavailable':
-      return { status: 503, error: 'الخدمة مضغوطة حالياً، حاول مرة أخرى بعد لحظات.' };
+      return { status: 503, error: 'الخدمة تواجه ضغطاً مؤقتاً، حاول مرة أخرى بعد لحظات.' };
     case 'bad_key':
       return { status: 503, error: 'مفتاح التشغيل غير مضبوط على الخادم.' };
     default:
@@ -80,19 +84,19 @@ async function callGroqFallback(systemInstruction: string, chatHistory: any[], u
   if (!apiKey) throw new Error('مفتاح GROQ_API_KEY غير متوفر');
 
   const messages: any[] = [{ role: 'system', content: systemInstruction }];
-  for (const h of chatHistory.slice(-6)) {
+  for (const h of chatHistory.slice(-10)) {
     const text = h.content || h.parts?.[0]?.text || h.text || '';
     if (text) {
       messages.push({
         role: h.role === 'model' || h.role === 'assistant' || h.sender === 'falcon' ? 'assistant' : 'user',
-        content: String(text).slice(0, 1500),
+        content: String(text).slice(0, 2000),
       });
     }
   }
   messages.push({ role: 'user', content: userMessage });
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  const timer = setTimeout(() => controller.abort(), 16000); // 16s timeout
 
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -104,8 +108,8 @@ async function callGroqFallback(systemInstruction: string, chatHistory: any[], u
       body: JSON.stringify({
         model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
         messages,
-        temperature: 0.5,
-        max_tokens: 1000,
+        temperature: 0.6,
+        max_tokens: 1200,
       }),
       signal: controller.signal,
     });
@@ -131,19 +135,19 @@ async function callFanarCompletion(
   if (!apiKey) throw new Error('مفتاح FANAR_API_KEY غير متوفر');
 
   const messages: any[] = [{ role: 'system', content: systemInstruction }];
-  for (const h of chatHistory.slice(-6)) {
+  for (const h of chatHistory.slice(-10)) {
     const text = h.content || h.parts?.[0]?.text || h.text || '';
     if (text) {
       messages.push({
         role: h.role === 'model' || h.role === 'assistant' || h.sender === 'falcon' ? 'assistant' : 'user',
-        content: String(text).slice(0, 1500),
+        content: String(text).slice(0, 2000),
       });
     }
   }
   messages.push({ role: 'user', content: userMessage });
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  const timer = setTimeout(() => controller.abort(), 16000); // 16s timeout
 
   try {
     const res = await fetch('https://api.fanar.qa/v1/chat/completions', {
@@ -152,8 +156,8 @@ async function callFanarCompletion(
       body: JSON.stringify({
         model: process.env.FANAR_MODEL || 'Fanar',
         messages,
-        temperature: 0.5,
-        max_tokens: 1000,
+        temperature: 0.6,
+        max_tokens: 1200,
       }),
       signal: controller.signal,
     });
@@ -173,20 +177,18 @@ async function callFanarCompletion(
 export class GeminiAIProvider {
   private ai: GoogleGenAI | null = null;
   private modelName: string;
-  private fallbackModel: string;
 
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;
-    // تصحيح أسماء النماذج الرسمية وتجنب أسماء النماذج غير الموجودة
+    // النماذج الرسمية المدعومة وفق دليل gemini-api
     this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-    this.fallbackModel = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.0-flash';
 
     if (apiKey) {
       this.ai = new GoogleGenAI({
         apiKey,
         httpOptions: {
           headers: {
-            'User-Agent': 'alshams-craft-erp',
+            'User-Agent': 'aistudio-build',
           },
         },
       });
@@ -199,37 +201,28 @@ export class GeminiAIProvider {
 
   private async generate(
     req: { contents: any; config?: any },
-    opts: { label: string; timeoutMs: number; fallbackTimeoutMs?: number; noFallback?: boolean }
+    opts: { label: string; timeoutMs: number }
   ): Promise<any> {
     if (!this.ai) throw new Error('مفتاح GEMINI_API_KEY غير مضبوط على الخادم');
-    const models = opts.noFallback || this.fallbackModel === this.modelName ? [this.modelName] : [this.modelName, this.fallbackModel];
-    let lastErr: any = null;
 
-    for (let i = 0; i < models.length; i++) {
-      const model = models[i];
-      const timeoutMs = i === 0 ? opts.timeoutMs : opts.fallbackTimeoutMs || opts.timeoutMs;
-
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        const response = await this.ai.models.generateContent({
-          model,
-          contents: req.contents,
-          config: {
-            ...(req.config || {}),
-            abortSignal: controller.signal,
-          },
-        });
-        clearTimeout(timer);
-        return response;
-      } catch (err: any) {
-        clearTimeout(timer);
-        const kind = classifyGeminiError(err, controller.signal.aborted);
-        lastErr = Object.assign(err instanceof Error ? err : new Error(String(err)), { kind });
-        if (!['timeout', 'quota', 'unavailable'].includes(kind)) break;
-      }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+    try {
+      const response = await this.ai.models.generateContent({
+        model: this.modelName,
+        contents: req.contents,
+        config: {
+          ...(req.config || {}),
+          abortSignal: controller.signal,
+        },
+      });
+      clearTimeout(timer);
+      return response;
+    } catch (err: any) {
+      clearTimeout(timer);
+      const kind = classifyGeminiError(err, controller.signal.aborted);
+      throw Object.assign(err instanceof Error ? err : new Error(String(err)), { kind });
     }
-    throw lastErr;
   }
 
   async analyzeCraftVision(input: AIVisionPromptInput): Promise<any> {
@@ -252,15 +245,16 @@ export class GeminiAIProvider {
     }
     cleanBase64 = cleanBase64.replace(/\s+/g, '');
 
-    const step1Prompt = `أنت "صقر الشمساوية"، الخبير الهندسي المعتمد لمنظومة الشمساوية لكافة المشغولات اليدوية.
+    const step1Prompt = `أنت "صقر الشمساوية"، المستشار الهندسي الخبير والحكيم لمنظومة الشمساوية الحرفية.
+أنت من مواليد برج القوس 24 نوفمبر 1979، ولديك خبرة عميقة ممتدة لعقود في كافة الصناعات اليدوية والهندسة الحرفية.
 حلل صورة المشغولة بدقة هندسية عالية وتعرف على أبعادها وخاماتها:
 الحِرف المفعّلة في الورشة: [${activeCrafts.join('، ')}].
 
-القواعد الحصرية:
-1. اختر التصنيف الأنسب من القائمة: ["رانر", "ستائر", "سجاد", "كوشن", "جدارية", "بوف", "كرسي", "أرجوحة", "نجف وإضاءة", "شنطة أو كلاتش"].
-2. قدّر صافي ساعات العمل اليدوي (estimatedHours).
-3. قدّر الأبعاد المقترحة وخطوات العمل والتقنيات.
-4. أنشئ كود SVG نظيف للرسم التخطيطي.
+القواعد:
+1. اختر التصنيف الأنسب من المشغولات: ["رانر", "ستائر", "سجاد", "كوشن", "جدارية", "بوف", "كرسي", "أرجوحة", "نجف وإضاءة", "شنطة أو كلاتش"].
+2. قدّر صافي ساعات العمل اليدوي الفعلية (estimatedHours).
+3. قدّر الأبعاد المقترحة وخطوات العمل والتقنيات وغرز العمل.
+4. أنشئ كود SVG نظيف للرسم التخطيطي الهندسي.
 
 أخرج النتيجة بصيغة JSON نظيفة فقط:
 {
@@ -275,12 +269,12 @@ export class GeminiAIProvider {
 
     const step1Parts = [
       { inlineData: { mimeType: resolvedMimeType, data: cleanBase64 } },
-      { text: step1Prompt + (artistNotes ? `\nملاحظات الفنان: ${artistNotes}` : '') },
+      { text: step1Prompt + (artistNotes ? `\nملاحظات وتوجيهات الفنان: ${artistNotes}` : '') },
     ];
 
     let step1Response = await this.generate(
       { contents: { parts: step1Parts } },
-      { label: 'vision', timeoutMs: 25_000, fallbackTimeoutMs: 20_000 }
+      { label: 'vision', timeoutMs: 18_000 }
     );
 
     const step1Text = step1Response.text || '';
@@ -293,7 +287,7 @@ export class GeminiAIProvider {
     parsedData.estimatedHours = hours;
     parsedData.estimatedLaborWage = Math.round(hours * hourlyRate);
 
-    // الخطوة 2: بحث الأسعار مع حماية الكوتة
+    // الخطوة 2: بحث الأسعار عبر Google Search Tool
     let minPrice = 0;
     let avgPrice = 0;
     let maxPrice = 0;
@@ -308,7 +302,7 @@ export class GeminiAIProvider {
 
         const step2Response = await this.generate(
           { contents: searchPrompt, config: { tools: [{ googleSearch: {} }] } },
-          { label: 'vision-search', timeoutMs: 15_000, noFallback: true }
+          { label: 'vision-search', timeoutMs: 15_000 }
         );
 
         const cand = step2Response.candidates?.[0];
@@ -350,26 +344,33 @@ export class GeminiAIProvider {
     const safeCountry = workshopContext.country || 'جمهورية مصر العربية';
     const safeCurrency = workshopContext.currency || 'ج.م';
     const safeCategory = workshopContext.category || 'عام';
+    const artistName = workshopContext.artistName || '';
 
-    const systemInstruction = `أنت "صقر الشمساوية"، المستشار الهندسي والحسابي الأول لمنظومة الشمساوية.
-خبير شامل في كافة الحرف اليدوية: (المكرمية، الكروشيه، الريزن، الخزف، الجلود، الشموع، الخشب والإكسسوارات).
-- أسلوبك: مباشر، مهني، خبير بالحسابات والأسعار ومواصفات الخامات.
-- الحرف المفعّلة: [${safeSelectedCrafts.join('، ')}] | الدولة: ${safeCountry} | العملة: ${safeCurrency} | التصنيف: ${safeCategory}.
-- لا تدّعِ أنك إنسان، ولا تذكر أسماء شركات النماذج البرمجية مطلقاً.`;
+    const memoryPrompt = await buildGlobalMemoryPrompt('falcon');
+    const systemInstruction = `أنت "صقر الشمساوية" 🦅 — المستشار الهندسي الخارجي الأول لمنظومة الشمساوية وخبير دراسة الأسواق والمنافسين وتكاليف المشغولات اليدوية وتحليل الموديلات.
+شخصيتك:
+- شخصية حكيمة، قوية، ذكية جداً، ودودة ومرحة مرحاً محترماً راقياً بلا ابتذال.
+- أنت من مواليد برج القوس (24 نوفمبر 1979)، وتتمتع بخبرة حياتية وعملية طويلة تتجاوز عقوداً في كافة مجالات الصناعات اليدوية والفنون التشكيلية (المكرمية، الكروشيه، الريزن، الخزف، الجلود، الخشب، الشموع والإكسسوارات).
+- تتحدث باللهجة المصرية العامية المحببة والمهنية.
+- تفهم وتستوعب الكلمات العامية والأخطاء الإملائية وتفهم قصد الصانع بذكاء وبصيرة دون قيود مصطنعة.
+- تتذكر وتراعي كامل سياق الحوار من أوله لآخره حتى تكون إجاباتك متسلسلة ومنطقية.
+- تخصصك: دراسة الأسواق الخارجية، أسعار المنافسين، تسعير المنتجات (جملة وقطاعي)، حساب التكاليف، أوقات العمل اليدوي، تحليل أبعاد ونسب الموديلات، وابتكار الباترونات.
+- الحرف المفعّلة في الورشة: [${safeSelectedCrafts.join('، ')}] | الدولة: ${safeCountry} | العملة: ${safeCurrency} | التصنيف: ${safeCategory}.
+${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}.` : ''}${memoryPrompt ? `\n\n${memoryPrompt}` : ''}`;
 
-    const userPromptText = actionChip ? `الاستفسار حول [${actionChip}]: ${message || 'يرجى تقديم التوجيه الفني المتخصص.'}` : message;
+    const userPromptText = actionChip ? `استفسار حول [${actionChip}]: ${message || 'يرجى تقديم التوجيه الهندسي ودراسة السوق.'}` : message;
 
-    // 1. المحاولة الأساسية عبر Gemini (مع أو بدون بحث)
+    // 1. المحاولة الأساسية: Gemini API (gemini-2.5-flash) مع Google Search Tool
     if (this.ai) {
       try {
-        const contents: any[] = chatHistory.slice(-8).map((m) => ({
+        const contents: any[] = chatHistory.slice(-10).map((m) => ({
           role: m.sender === 'user' || m.role === 'user' ? 'user' : 'model',
           parts: [{ text: m.text || m.content || '' }],
         }));
         contents.push({ role: 'user', parts: [{ text: userPromptText }] });
 
         const lowerQuery = userPromptText.toLowerCase();
-        const needsSearch = ['سعر', 'أسعار', 'سوق', 'مورد', 'تريند'].some((k) => lowerQuery.includes(k));
+        const needsSearch = ['سعر', 'أسعار', 'سوق', 'مورد', 'تريند', 'منافس'].some((k) => lowerQuery.includes(k));
 
         let response: any = null;
         let searchUsed = false;
@@ -385,20 +386,20 @@ export class GeminiAIProvider {
                   tools: [{ googleSearch: {} }],
                 },
               },
-              { label: 'chat-search', timeoutMs: 16_000, noFallback: true }
+              { label: 'chat-search', timeoutMs: 16_000 }
             );
             searchUsed = true;
           } catch {
             markSearchQuotaExhausted();
             response = await this.generate(
               { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-              { label: 'chat-after-search', timeoutMs: 14_000, fallbackTimeoutMs: 10_000 }
+              { label: 'chat-fallback-no-search', timeoutMs: 14_000 }
             );
           }
         } else {
           response = await this.generate(
             { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-            { label: 'chat', timeoutMs: 15_000, fallbackTimeoutMs: 10_000 }
+            { label: 'chat', timeoutMs: 15_000 }
           );
         }
 
@@ -410,14 +411,14 @@ export class GeminiAIProvider {
           }
         }
 
-        const reply = response?.text?.trim() || 'أهلاً بك، كيف يمكنني مساعدتك اليوم؟';
+        const reply = response?.text?.trim() || 'أهلاً بك، معاك صقر الشمساوية.. جاهز أدرس لك أي خامة أو سعر أو موديل!';
         return { reply, sources: searchSources.slice(0, 4), searchUsed };
       } catch (geminiErr: any) {
-        console.warn('[Falcon] Gemini unavailable. Switching to Groq fallback...', geminiErr?.message?.slice(0, 100));
+        console.warn('[Falcon] Gemini error/quota hit. Switching to Groq fallback...', geminiErr?.message?.slice(0, 100));
       }
     }
 
-    // 2. التحويل التلقائي الأول (Fallback 1): Groq (سريع ومجاني)
+    // 2. التحويل التلقائي الأول: Groq API (llama-3.3-70b-versatile)
     if (process.env.GROQ_API_KEY) {
       try {
         const groqReply = await callGroqFallback(systemInstruction, chatHistory, userPromptText);
@@ -427,7 +428,7 @@ export class GeminiAIProvider {
       }
     }
 
-    // 3. التحويل التلقائي الثاني (Fallback 2): Fanar
+    // 3. التحويل التلقائي الثاني: Fanar API
     if (process.env.FANAR_API_KEY) {
       try {
         const fanarReply = await callFanarCompletion(systemInstruction, chatHistory, userPromptText);
@@ -437,7 +438,7 @@ export class GeminiAIProvider {
       }
     }
 
-    throw new Error('تعذر الاتصال بجميع مزودي الخدمة مؤقتاً، يرجى المحاولة بعد قليل.');
+    throw new Error('تعذر اتصال صقر بالمزودات مؤقتاً، يرجى المحاولة بعد قليل.');
   }
 }
 

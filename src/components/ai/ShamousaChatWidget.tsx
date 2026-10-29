@@ -8,12 +8,13 @@ import {
   ArrowLeftRight, 
   PhoneCall, 
   ExternalLink,
-  CheckCircle2
 } from 'lucide-react';
 import { AlShamsSunIcon } from '../brand/BrandAssets';
 import { authedFetch } from '../../lib/apiClient';
 import type { UserProfile } from '../../types';
 import { DraggableShamosa } from './DraggableShamosa';
+import { tenantStorage } from '../../db/dexieDB';
+import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 
 export interface ShamousaActionLink {
   label: string;
@@ -41,37 +42,38 @@ export interface ShamousaChatWidgetProps {
   liftUp?: boolean;
 }
 
-// الكشف الذكي عن سياق صقر (دراسة سوق، تسعير، تحليل صور)
-function checkFalconRelevance(text: string): boolean {
-  const keywords = [
-    'صقر', 'تحليل صورة', 'حلل الصورة', 'دراسة سوق', 'دراسة السوق',
-    'تسعير قطاعي', 'تسعير جملة', 'سعر السوق', 'المنافسين', 'هامش ربح مقترح'
-  ];
-  return keywords.some((kw) => text.includes(kw));
+// استخراج الاسم الأول المباشر دون ألقاب رسمية أو "صاحب الورشة" أو "يا فنان"
+export function extractUserFirstName(rawName?: string): string {
+  if (!rawName) return '';
+  const cleaned = String(rawName)
+    .trim()
+    .replace(/^(المهندس|المهندسة|الفنان|الفنانة|الأستاذ|الأستاذة|المعلم|المدير|كابتن|دكتور|دكتورة|أ|م)\s+/gi, '');
+  const first = cleaned.split(/\s+/)[0];
+  return first || cleaned;
 }
 
 // الكشف الذكي عن روابط التنقل السريع عند طلب المستخدم صراحة
 function detectNavigationIntent(text: string): ShamousaActionLink | undefined {
   const lower = text.toLowerCase();
-  if (lower.includes('الخزن') || lower.includes('الخزينة') || lower.includes('السيولة') || lower.includes('رصيد الخزنة')) {
+  if (lower.includes('فتح الخزن') || lower.includes('شاشة الخزينة') || lower.includes('صفحة الخزائن')) {
     return { label: 'فتح الخزائن والأرصدة', view: 'treasuries' };
   }
-  if (lower.includes('المخزن') || lower.includes('الخامات') || lower.includes('نواقص')) {
+  if (lower.includes('فتح المخزن') || lower.includes('شاشة الخامات')) {
     return { label: 'فتح سجل الخامات والمخزون', view: 'materials' };
   }
-  if (lower.includes('المنتجات') || lower.includes('قائمة المنتجات')) {
+  if (lower.includes('فتح المنتجات') || lower.includes('كتالوج المنتجات')) {
     return { label: 'فتح كتالوج المنتجات', view: 'products' };
   }
-  if (lower.includes('المبيعات') || lower.includes('الطلبات') || lower.includes('الأوردرات')) {
+  if (lower.includes('فتح المبيعات') || lower.includes('شاشة الطلبات')) {
     return { label: 'فتح سجل المبيعات والطلبات', view: 'sales' };
   }
-  if (lower.includes('العملاء') || lower.includes('سجل العملاء')) {
+  if (lower.includes('سجل العملاء') || lower.includes('شاشة العملاء')) {
     return { label: 'فتح قائمة العملاء', view: 'customers' };
   }
-  if (lower.includes('الموردين') || lower.includes('حسابات الموردين')) {
+  if (lower.includes('سجل الموردين') || lower.includes('شاشة الموردين')) {
     return { label: 'فتح قائمة الموردين', view: 'suppliers' };
   }
-  if (lower.includes('التقارير') || lower.includes('الأرباح')) {
+  if (lower.includes('التقارير المالية') || lower.includes('شاشة التقارير')) {
     return { label: 'فتح التقارير المالية', view: 'reports' };
   }
   return undefined;
@@ -97,11 +99,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
   const storageKey = `shamousa_chat_${workshopId}`;
 
-  // تحديد اسم الفنان واسم البراند
-  const artistName = (profile.fullName || profile.name || 'يا فنان').trim();
-  const brandTitle = profile.brandName ? `ورشة ${profile.brandName}` : 'ورشتك الشخصية';
+  // تحديد اسم الفنان الفعلي المباشر بدون ألقاب أو "صاحب الورشة"
+  const firstName = extractUserFirstName(profile.fullName || profile.name || (profile as any).artistName || (profile as any).artisanName) || 'صديقي';
+  const brandTitle = profile.brandName ? `ورشة ${profile.brandName}` : 'ورشة الشمس كرافت';
 
-  const welcomeMessage = `أهلاً بك ${artistName} في ${brandTitle} 🌞\nأنا شموسة، مديرة أعمال ورشتك وخازنة أسرارك.\nمتابعة لحظة بلحظة: رصيد الخزينة، النواقص، أوامر الشراء، مواعيد تسليم الأوردرات، وتحصيلات العملاء والموردين.\nجاهزة لأي استفسار أو مهمة تسندها لي!`;
+  // الترحيب المحدد بدقة في التعليمات:
+  const welcomeMessage = `أهلاً يا ${firstName} 🌞، أنا مديرة أعمالك.اخبارك ايه! واخبار شغلنا ايه ! يارب يكون كل حاجه تمام ... تحب نبدأ إزاي النهارده؟!`;
 
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ShamousaMessage[]>(() => {
@@ -152,15 +155,41 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     setIsLoading(true);
 
     try {
+      // جلب رصيد الخزينة الحالي الفعلي من السجلات المحلية أو Supabase لربط شموسة بحالة الشاشة الرئيسية مباشرة
+      let currentTreasury = 0;
+      let treasuriesList: any[] = [];
+      try {
+        const { data: supaTreasuries } = await getTreasuryBalancesFromSupabase(workshopId);
+        if (supaTreasuries && supaTreasuries.length > 0) {
+          treasuriesList = supaTreasuries;
+          currentTreasury = supaTreasuries.reduce((sum, t) => sum + (Number(t.balance) || 0), 0);
+        } else {
+          const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
+          currentTreasury = (safe.mainSafe || 0) + (safe.subSafe || 0);
+          treasuriesList = [
+            { name: 'الخزينة الرئيسية', balance: safe.mainSafe || 0, kind: 'خزينة' },
+            { name: 'الخزينة الفرعية/العهد', balance: safe.subSafe || 0, kind: 'عهدة' },
+          ];
+        }
+      } catch {
+        const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
+        currentTreasury = (safe.mainSafe || 0) + (safe.subSafe || 0);
+      }
+
       const res = await authedFetch('/api/shamousa/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message,
           history,
-          artistName,
-          brandName: profile.brandName,
+          artistName: firstName,
+          brandName: profile.brandName || 'ورشة الشمس كرافت',
           workshopId,
+          userEmail: profile.email || '',
+          clientWorkshopState: {
+            treasuryBalance: currentTreasury,
+            treasuriesDetail: treasuriesList,
+          },
         }),
       });
 
@@ -169,8 +198,11 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
       if (typeof data.remaining === 'number') setRemaining(data.remaining);
 
-      // تحديد الإحالة لصقر وفقاً لرد السيرفر أو فحص محتوى المحادثة
-      const shouldHandoff = Boolean(data.handoffToFalcon) || checkFalconRelevance(message) || checkFalconRelevance(data.reply || '');
+      // شيل زرار تحويل المستخدم لـ "صقر" من داخل ردود الخزينة والبيانات الداخلية تماماً
+      const isInternalData = /خزن|خزينة|خزينه|سيول|سيولة|رصيد|عهدة|عهده|فلوس|خامات|مخزن|أوردر|اوردر|طلب|مبيعات|عميل|عملاء|مورد|موردين|موظف|عمال|دفاتر|حسابات/i.test(message + ' ' + (data.reply || ''));
+      const isFalconExplicitlyRequested = /صقر|تحليل صوره|تحليل صورة|حلل الصورة|دراسة سوق|دراسة السوق|المنافسين/i.test(message);
+      const shouldHandoff = !isInternalData && (Boolean(data.handoffToFalcon) || isFalconExplicitlyRequested);
+
       const dynamicLink = data.actionLink || detectNavigationIntent(message) || detectNavigationIntent(data.reply || '');
 
       setMessages((prev) => [
@@ -240,7 +272,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 </div>
                 <p className="text-[11px] text-amber-50/90 flex items-center gap-1 truncate">
                   <Database className="w-3 h-3 flex-shrink-0" />
-                  <span className="truncate">{brandTitle} • {artistName}</span>
+                  <span className="truncate">{brandTitle} • {firstName}</span>
                 </p>
               </div>
             </div>
@@ -278,7 +310,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               <div key={m.id} className="space-y-2">
                 <Bubble role={m.role}>{renderText(m.content)}</Bubble>
 
-                {/* زر التنقل المباشر يظهر فقط عند الحاجة والطلب */}
+                {/* زر التنقل المباشر يظهر فقط عند طلب شاشة بعينها */}
                 {m.actionLink && (
                   <div className="flex justify-start pr-2">
                     <button
@@ -305,7 +337,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   </div>
                 )}
 
-                {/* زر الإحالة لـ "صقر" في المهام الخارجية وتحليل الصور والتسعير فقط */}
+                {/* زر الإحالة لـ "صقر" في المهام الخارجية وفحص الصور ودراسة السوق فقط وبشكل ثابت ومختصر */}
                 {m.handoffToFalcon && (
                   <div className="flex justify-start pr-2 pt-1">
                     <button
@@ -357,7 +389,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 }}
                 rows={1}
                 maxLength={1000}
-                placeholder="اسأل عن الخزنة، النواقص، تسليمات الأوردرات، تحصيل الدفعات..."
+                placeholder="اسألي شموسة عن الخزنة، النواقص، تسليمات الأوردرات..."
                 className="flex-1 resize-none max-h-28 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 px-3.5 py-2.5 text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
               />
               <button

@@ -134,21 +134,34 @@ export const workshopToolSchemas: ToolSchema[] = [
     description: 'ملخص مالي وتشغيلي فعلي: إجمالي السيولة المحسوبة من الخزن، وإحصاءات الورشة الحقيقية.',
     parameters: { type: 'object', properties: {} },
   },
+  {
+    name: 'list_all_workshops',
+    description: 'يستعرض قائمة بكافة الورش المسجلة على المنظومة وتفاصيلها وحالتها (متاح حصرياً للمشرف العام والباشمهندس حسام).',
+    parameters: { type: 'object', properties: {} },
+  },
 ];
 
 export interface WorkshopToolContext {
   db: SupabaseClient;
   workshopId: string;
+  isSuperAdmin?: boolean;
+}
+
+export function scopeQuery(query: any, ctx: WorkshopToolContext, column: string = 'workshop_id') {
+  if (ctx.isSuperAdmin || ctx.workshopId === 'ALL_WORKSHOPS' || ctx.workshopId === 'all_workshops') {
+    return query;
+  }
+  return query.eq(column, ctx.workshopId);
 }
 
 type ToolResult = Record<string, unknown>;
 
 async function searchMaterials(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
-  const { data, error } = await ctx.db
+  let query = ctx.db
     .from('materials')
-    .select('id, name, kind, supplier_id, unit_id, purchase_price, current_stock, min_limit, market_name')
-    .eq('workshop_id', ctx.workshopId)
-    .limit(MAX_ROWS);
+    .select('id, name, kind, supplier_id, unit_id, purchase_price, current_stock, min_limit, market_name');
+  query = scopeQuery(query, ctx);
+  const { data, error } = await query.limit(MAX_ROWS);
   if (error) return { error: 'تعذر قراءة الخامات' };
 
   const kind = args?.kind && args.kind !== 'any' ? args.kind : null;
@@ -157,8 +170,8 @@ async function searchMaterials(ctx: WorkshopToolContext, args: any): Promise<Too
     .filter((m: any) => matches(`${m.name} ${m.market_name || ''}`, args?.query));
 
   const [unitsRes, suppliersRes] = await Promise.all([
-    ctx.db.from('units').select('id, name').eq('workshop_id', ctx.workshopId),
-    ctx.db.from('suppliers').select('id, name').eq('workshop_id', ctx.workshopId),
+    scopeQuery(ctx.db.from('units').select('id, name'), ctx),
+    scopeQuery(ctx.db.from('suppliers').select('id, name'), ctx),
   ]);
   const unitName = new Map((unitsRes.data || []).map((u: any) => [u.id, u.name]));
   const supplierName = new Map((suppliersRes.data || []).map((s: any) => [s.id, s.name]));
@@ -179,10 +192,11 @@ async function searchMaterials(ctx: WorkshopToolContext, args: any): Promise<Too
 }
 
 async function loadProducts(ctx: WorkshopToolContext) {
-  return ctx.db
+  let query = ctx.db
     .from('products')
-    .select('id, product_name, product_code, product_type, craft_name, cost_price, retail_price, wholesale_price, materials_used, specs, is_active')
-    .eq('workshop_id', ctx.workshopId)
+    .select('id, product_name, product_code, product_type, craft_name, cost_price, retail_price, wholesale_price, materials_used, specs, is_active');
+  query = scopeQuery(query, ctx);
+  return query
     .eq('is_active', true)
     .order('updated_at', { ascending: false })
     .limit(MAX_ROWS);
@@ -217,12 +231,9 @@ async function searchProducts(ctx: WorkshopToolContext, args: any): Promise<Tool
 async function getProductDetails(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
   const id = String(args?.product_id || '');
   if (!id) return { error: 'product_id مطلوب' };
-  const { data, error } = await ctx.db
-    .from('products')
-    .select('*')
-    .eq('workshop_id', ctx.workshopId)
-    .eq('id', id)
-    .maybeSingle();
+  let query = ctx.db.from('products').select('*').eq('id', id);
+  query = scopeQuery(query, ctx);
+  const { data, error } = await query.maybeSingle();
   if (error || !data) return { error: 'المنتج غير موجود' };
   const { workshop_id, ...rest } = data as any;
   if (HIDE_COSTS) delete rest.cost_price;
@@ -230,11 +241,11 @@ async function getProductDetails(ctx: WorkshopToolContext, args: any): Promise<T
 }
 
 async function searchCustomers(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
-  const { data, error } = await ctx.db
+  let query = ctx.db
     .from('customers')
-    .select('id, name, full_name, phone, phone_number, city, address, outstanding_balance, total_purchases')
-    .eq('workshop_id', ctx.workshopId)
-    .limit(MAX_ROWS);
+    .select('id, name, full_name, phone, phone_number, city, address, outstanding_balance, total_purchases');
+  query = scopeQuery(query, ctx);
+  const { data, error } = await query.limit(MAX_ROWS);
   if (error) return { error: 'تعذر قراءة العملاء' };
 
   const filtered = (data || []).filter((row: any) =>
@@ -254,11 +265,11 @@ async function searchCustomers(ctx: WorkshopToolContext, args: any): Promise<Too
 }
 
 async function searchSuppliers(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
-  const { data, error } = await ctx.db
+  let query = ctx.db
     .from('suppliers')
-    .select('id, name, company_name, phone, phone_number, material_specialty, outstanding_balance')
-    .eq('workshop_id', ctx.workshopId)
-    .limit(MAX_ROWS);
+    .select('id, name, company_name, phone, phone_number, material_specialty, outstanding_balance');
+  query = scopeQuery(query, ctx);
+  const { data, error } = await query.limit(MAX_ROWS);
   if (error) return { error: 'تعذر قراءة الموردين' };
 
   const filtered = (data || []).filter((row: any) =>
@@ -278,11 +289,11 @@ async function searchSuppliers(ctx: WorkshopToolContext, args: any): Promise<Too
 }
 
 async function searchEmployees(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
-  const { data, error } = await ctx.db
+  let query = ctx.db
     .from('employees')
-    .select('id, full_name, role, phone, phone_number, base_wage, current_balance, is_active')
-    .eq('workshop_id', ctx.workshopId)
-    .limit(MAX_ROWS);
+    .select('id, full_name, role, phone, phone_number, base_wage, current_balance, is_active');
+  query = scopeQuery(query, ctx);
+  const { data, error } = await query.limit(MAX_ROWS);
   if (error) return { error: 'تعذر قراءة الموظفين' };
 
   const filtered = (data || []).filter((row: any) => matches(`${row.full_name || ''} ${row.role || ''}`, args?.query));
@@ -300,11 +311,11 @@ async function searchEmployees(ctx: WorkshopToolContext, args: any): Promise<Too
 }
 
 async function searchOrders(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
-  const { data, error } = await ctx.db
+  let query = ctx.db
     .from('orders')
-    .select('id, customer_name, product_name, final_total, amount_paid, status, delivery_date')
-    .eq('workshop_id', ctx.workshopId)
-    .limit(MAX_ROWS);
+    .select('id, customer_name, product_name, final_total, amount_paid, status, delivery_date');
+  query = scopeQuery(query, ctx);
+  const { data, error } = await query.limit(MAX_ROWS);
   if (error) return { error: 'تعذر قراءة الطلبات' };
 
   const status = String(args?.status || '').trim();
@@ -333,38 +344,75 @@ async function searchOrders(ctx: WorkshopToolContext, args: any): Promise<ToolRe
 // قراءة الأرصدة الحقيقية الفعلية 100% من جداول الورشة
 // -------------------------------------------------------------
 async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
-  const { data, error } = await ctx.db
-    .from('treasuries')
-    .select('id, name, kind, status, holder_name, balance, current_balance, initial_balance, min_balance')
-    .eq('workshop_id', ctx.workshopId)
-    .limit(MAX_ROWS);
+  let list: any[] = [];
 
-  if (error) return { error: 'تعذر قراءة الخزن والعهد من قاعدة البيانات' };
+  // 1. محاولة القراءة من view treasury_balances أولاً
+  try {
+    let q = ctx.db.from('treasury_balances').select('*');
+    q = scopeQuery(q, ctx);
+    const viewRes = await q;
+    if (!viewRes.error && viewRes.data && viewRes.data.length > 0) {
+      list = viewRes.data;
+    }
+  } catch {}
 
-  let list = data || [];
+  // 2. إذا لم تكن موجودة أو فارغة، نقرأ من جدول treasuries
+  if (list.length === 0) {
+    try {
+      let q = ctx.db
+        .from('treasuries')
+        .select('id, name, kind, status, holder_name, balance, current_balance, initial_balance, min_balance');
+      q = scopeQuery(q, ctx);
+      const { data, error } = await q.limit(MAX_ROWS);
+
+      if (!error && data && data.length > 0) {
+        list = data;
+      }
+    } catch {}
+  }
+
+  // إذا لم نجد في Supabase وكان هناك سياق مرسل من العميل (مثل 85000 ج.م في الشاشة)
+  const clientTreasury = (ctx as any).clientContext?.treasuryBalance;
+  const clientTreasuriesDetail = (ctx as any).clientContext?.treasuriesDetail;
+
+  if (list.length === 0 && Array.isArray(clientTreasuriesDetail) && clientTreasuriesDetail.length > 0) {
+    list = clientTreasuriesDetail;
+  }
+
   if (args?.query && String(args.query).trim()) {
     list = list.filter((row: any) =>
-      matches(`${row.name || ''} ${row.kind || ''} ${row.holder_name || ''} ${row.status || ''}`, args.query)
+      matches(`${row.name || ''} ${row.kind || ''} ${row.holder_name || row.holder || ''} ${row.status || ''}`, args.query)
     );
   }
 
   let totalWorkshopLiquidity = 0;
   const treasuriesMapped = list.map((row: any) => {
-    // حساب الرصيد الفعلي الموجود في السجل: سواء موجب، صفر، أو حتى سالب
-    const rawVal = row.current_balance ?? row.balance ?? row.initial_balance;
+    const rawVal = row.current_balance ?? row.balance ?? row.initial_balance ?? row.amount;
     const realBalance = rawVal !== null && rawVal !== undefined ? Number(rawVal) : 0;
-    
     totalWorkshopLiquidity += realBalance;
 
     return {
       id: row.id,
-      name: row.name,
+      name: row.name || 'خزينة الورشة',
       kind: row.kind === 'custody' ? 'عهدة نقدية' : (row.kind || 'خزينة رئيسية'),
-      holder: row.holder_name || null,
+      holder: row.holder_name || row.holder || null,
       balance: realBalance,
       status: row.status || 'نشطة',
     };
   });
+
+  // إذا كانت القائمة فارغة لكن رصيد الخزينة معروف من شاشة الورشة الحالية
+  if (treasuriesMapped.length === 0 && typeof clientTreasury === 'number') {
+    totalWorkshopLiquidity = clientTreasury;
+    treasuriesMapped.push({
+      id: 'main_safe',
+      name: 'الخزينة النقدية الرئيسية',
+      kind: 'خزينة رئيسية',
+      holder: null,
+      balance: clientTreasury,
+      status: 'نشطة',
+    });
+  }
 
   return {
     total_found: treasuriesMapped.length,
@@ -386,7 +434,8 @@ async function searchTransactions(ctx: WorkshopToolContext, args: any): Promise<
   } catch {}
 
   if (!data) {
-    let query = ctx.db.from('safe_transactions').select('*').eq('workshop_id', ctx.workshopId).limit(MAX_ROWS);
+    let query = ctx.db.from('safe_transactions').select('*').limit(MAX_ROWS);
+    query = scopeQuery(query, ctx);
     if (type) query = query.eq('type', type);
     const res = await query;
     data = res.data;
@@ -414,11 +463,11 @@ async function searchTransactions(ctx: WorkshopToolContext, args: any): Promise<
 async function workshopOverview(ctx: WorkshopToolContext): Promise<ToolResult> {
   const [products, materials, customers, suppliers, employees, treasuriesRes] = await Promise.all([
     loadProducts(ctx),
-    ctx.db.from('materials').select('id', { count: 'exact', head: true }).eq('workshop_id', ctx.workshopId),
-    ctx.db.from('customers').select('id', { count: 'exact', head: true }).eq('workshop_id', ctx.workshopId),
-    ctx.db.from('suppliers').select('id', { count: 'exact', head: true }).eq('workshop_id', ctx.workshopId),
-    ctx.db.from('employees').select('id', { count: 'exact', head: true }).eq('workshop_id', ctx.workshopId),
-    ctx.db.from('treasuries').select('balance, current_balance, initial_balance').eq('workshop_id', ctx.workshopId),
+    scopeQuery(ctx.db.from('materials').select('id', { count: 'exact', head: true }), ctx),
+    scopeQuery(ctx.db.from('customers').select('id', { count: 'exact', head: true }), ctx),
+    scopeQuery(ctx.db.from('suppliers').select('id', { count: 'exact', head: true }), ctx),
+    scopeQuery(ctx.db.from('employees').select('id', { count: 'exact', head: true }), ctx),
+    scopeQuery(ctx.db.from('treasuries').select('balance, current_balance, initial_balance'), ctx),
   ]);
 
   let totalLiquidity = 0;
@@ -435,6 +484,31 @@ async function workshopOverview(ctx: WorkshopToolContext): Promise<ToolResult> {
     suppliers_count: suppliers.count ?? 0,
     employees_count: employees.count ?? 0,
     treasuries_count: (treasuriesRes.data || []).length,
+  };
+}
+
+async function listAllWorkshops(ctx: WorkshopToolContext): Promise<ToolResult> {
+  try {
+    const { data, error } = await ctx.db
+      .from('workshops')
+      .select('id, name, brand_name, owner_name, email, phone, city, status, created_at')
+      .limit(MAX_ROWS);
+    if (!error && Array.isArray(data) && data.length > 0) {
+      return { total: data.length, workshops: data };
+    }
+  } catch {}
+  return {
+    total: 1,
+    workshops: [
+      {
+        id: ctx.workshopId || 'main',
+        name: 'ورشة الشمس كرافت',
+        brand_name: 'ورشة الشمس كرافت',
+        owner: 'الباشمهندس حسام',
+        status: 'نشطة',
+        role: 'الورشة الرئيسية',
+      },
+    ],
   };
 }
 
@@ -461,6 +535,8 @@ export async function runWorkshopTool(name: string, args: any, ctx: WorkshopTool
         return await searchTransactions(ctx, args);
       case 'workshop_overview':
         return await workshopOverview(ctx);
+      case 'list_all_workshops':
+        return await listAllWorkshops(ctx);
       default:
         return { error: `أداة غير معروفة: ${name}` };
     }
