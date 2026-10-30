@@ -172,7 +172,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     loadDailyUsage();
   }, [loadDailyUsage]);
 
-  const firstName = (profile.fullName || profile.name || (profile as any).artistName || '').trim().split(/\s+/)[0] || '';
+  const firstName = ((profile as any).fullName || (profile as any).name || profile.artistName || '').trim().split(/\s+/)[0] || '';
 
   const handleNewChat = () => {
     const welcome = createInitialFalconMessage(firstName);

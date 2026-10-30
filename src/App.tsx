@@ -709,6 +709,7 @@ export const App: React.FC = () => {
               onNavigateHome={goHome}
               onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
               onOpenUnifiedAI={() => navigateTo('ai_agent')}
+              onLogout={handleLogout}
               onProfileUpdated={(updated) => {
                 setProfile(updated);
                 localStorage.setItem('alshams_profile', JSON.stringify(updated));
@@ -920,6 +921,7 @@ export const App: React.FC = () => {
             onNavigateHome={goHome}
             onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
             onOpenUnifiedAI={() => navigateTo('ai_agent')}
+            onLogout={handleLogout}
             onProfileUpdated={(updated) => {
               setProfile(updated);
               localStorage.setItem('alshams_profile', JSON.stringify(updated));

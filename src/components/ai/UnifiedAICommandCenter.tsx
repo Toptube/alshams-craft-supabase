@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserProfile } from '../../types';
+import { UserProfile, CraftCategory } from '../../types';
 import { FalconAIAgent, StructuredCalculatorExport } from './FalconAIAgent';
 import {
   Sparkles,
@@ -19,8 +19,8 @@ import { playSuccessSound, playAlertSound, playErrorSound } from '../../lib/soun
 
 interface UnifiedAICommandCenterProps {
   profile: UserProfile;
-  currentCategory?: string;
-  onApplyCategoryFromAI?: (category: any) => void;
+  currentCategory?: CraftCategory;
+  onApplyCategoryFromAI?: (category: CraftCategory) => void;
   onApplyEstimatedLaborWage?: (wage: number, hours: number) => void;
   onTransferNotesToCalculator?: (notes: string) => void;
   onExportStructuredToCalculator?: (data: StructuredCalculatorExport) => void;
@@ -273,10 +273,10 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
         <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 p-4 sm:p-6 shadow-sm">
           <FalconAIAgent
             profile={profile}
-            currentCategory={currentCategory}
-            onApplyCategoryFromAI={onApplyCategoryFromAI}
-            onApplyEstimatedLaborWage={onApplyEstimatedLaborWage}
-            onTransferNotesToCalculator={onTransferNotesToCalculator}
+            currentCategory={currentCategory as CraftCategory}
+            onApplyCategoryFromAI={onApplyCategoryFromAI || (() => {})}
+            onApplyEstimatedLaborWage={onApplyEstimatedLaborWage || (() => {})}
+            onTransferNotesToCalculator={onTransferNotesToCalculator || (() => {})}
             onExportStructuredToCalculator={onExportStructuredToCalculator}
           />
         </div>

@@ -427,7 +427,7 @@ app.post('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, 
       currency: newWs.currency,
       role: newWs.role,
       status: 'active',
-    }).catch(() => {});
+    });
   } catch {}
 
   res.json({ success: true, workshop: newWs });
@@ -460,7 +460,7 @@ app.put('/api/admin/workshops/:id', requireAuth, async (req: AuthenticatedReques
       country: updates.country,
       currency: updates.currency,
       updated_at: new Date().toISOString(),
-    }).eq('id', targetWid).catch(() => {});
+    }).eq('id', targetWid);
   } catch {}
 
   res.json({ success: true, workshop: idx >= 0 ? localList[idx] : updates });
@@ -516,7 +516,7 @@ app.post('/api/admin/workshops/:id/credentials', requireAuth, async (req: Authen
       email: updatedRow.email,
       phone_number: updatedRow.phoneNumber,
       updated_at: new Date().toISOString(),
-    }).eq('id', targetWid).catch(() => {});
+    }).eq('id', targetWid);
   } catch {}
 
   // Update in persistent list
@@ -581,7 +581,7 @@ app.post('/api/admin/workshops/:id/award', requireAuth, async (req: Authenticate
       medal_awarded_at: ws.medal_awarded_at,
       medal_note: ws.medal_note,
       updated_at: new Date().toISOString(),
-    }).eq('id', targetWid).catch(() => {});
+    }).eq('id', targetWid);
   } catch {}
 
   // Automatically dispatch official tribute announcement to workshop's messaging box
@@ -601,7 +601,7 @@ app.post('/api/admin/workshops/:id/award', requireAuth, async (req: Authenticate
 
   try {
     const client = req.scopedSupabase || supabaseAuthClient;
-    await client.from('admin_announcements').insert(tributeAnn).catch(() => {});
+    await client.from('admin_announcements').insert(tributeAnn);
   } catch {}
   localAnnouncements.unshift(tributeAnn);
 

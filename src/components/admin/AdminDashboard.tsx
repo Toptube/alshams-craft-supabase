@@ -4,6 +4,7 @@ import { firestoreService } from '../../db/firestoreService';
 import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
 import { playSuccessSound, playErrorSound, playAlertSound, playPostaNotificationSound } from '../../lib/sounds';
+import { COUNTRIES_CONFIG } from '../../utils/macrameMath';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -52,6 +53,7 @@ import {
   Activity,
   FileSpreadsheet,
   UserCheck,
+  Volume2,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -71,7 +73,7 @@ import {
 
 export type ExecutiveTab = 'materials' | 'products' | 'contacts' | 'treasuries' | 'orders' | 'appeals' | 'messaging';
 
-interface AdminDashboardProps {
+export interface AdminDashboardProps {
   profile: UserProfile;
   onNavigateHome: () => void;
   onProfileUpdated?: (updated: UserProfile) => void;
@@ -79,9 +81,111 @@ interface AdminDashboardProps {
   initialTab?: ExecutiveTab;
   onOpenMessagesHub?: () => void;
   onOpenUnifiedAI?: () => void;
+  onLogout?: () => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({
+interface AdminErrorBoundaryProps {
+  children: React.ReactNode;
+  onLogout?: () => void;
+  onNavigateHome?: () => void;
+}
+
+interface AdminErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class AdminErrorBoundary extends React.Component<AdminErrorBoundaryProps, AdminErrorBoundaryState> {
+  constructor(props: AdminErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): AdminErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[AdminDashboard ErrorBoundary Caught]:', error, errorInfo);
+  }
+
+  handleLogout = () => {
+    try {
+      localStorage.removeItem('alshams_profile');
+      localStorage.removeItem('alshams_auth_token');
+      localStorage.removeItem('alshams_token_fallback');
+      sessionStorage.clear();
+    } catch {}
+    if (this.props.onLogout) {
+      this.props.onLogout();
+    } else {
+      window.location.reload();
+    }
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-[75vh] flex items-center justify-center p-4 sm:p-6" dir="rtl">
+          <div className="max-w-xl w-full p-6 sm:p-8 rounded-3xl bg-white dark:bg-stone-900 border-2 border-rose-300 dark:border-rose-900/60 shadow-2xl text-center space-y-5">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 flex items-center justify-center shadow-inner">
+              <ShieldAlert size={36} />
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100">
+                حدث تنبيه رقابي في مركز القيادة
+              </h2>
+              <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed max-w-md mx-auto">
+                تم استيعاب الخطأ بأمان عبر حاجز الأخطاء (Error Boundary) لمنع انهيار المنظومة. يمكنك إعادة المحاولة أو تسجيل الخروج للعودة لشاشة الدخول.
+              </p>
+            </div>
+
+            {this.state.error?.message && (
+              <div className="p-3 rounded-xl bg-stone-100 dark:bg-stone-800 text-[11px] font-mono text-rose-700 dark:text-rose-300 text-right overflow-x-auto max-h-32 border border-stone-200 dark:border-stone-700">
+                {this.state.error.message}
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => this.setState({ hasError: false, error: null })}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <RefreshCw size={15} />
+                <span>إعادة محاولة تحميل اللوحة</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={this.handleLogout}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <XCircle size={15} />
+                <span>تسجيل الخروج والعودة لشاشة الدخول</span>
+              </button>
+
+              {this.props.onNavigateHome && (
+                <button
+                  type="button"
+                  onClick={this.props.onNavigateHome}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <ArrowRight size={15} />
+                  <span>الرئيسية</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   profile,
   onNavigateHome,
   onProfileUpdated,
@@ -89,6 +193,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   initialTab = 'materials',
   onOpenMessagesHub,
   onOpenUnifiedAI,
+  onLogout,
 }) => {
   const isAdmin = isUserAdmin(profile);
 
@@ -199,14 +304,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Currently inspected workshop object
   const currentSelectedWorkshop = useMemo(() => {
-    return workshops.find((w) => w.id === selectedWorkshopId) || workshops[0] || profile;
+    const list = workshops || [];
+    const found = list.find((w) => w?.id === selectedWorkshopId) || list[0] || profile;
+    return {
+      ...found,
+      brandName: found?.brandName || 'ورشة الشمساوية',
+      artistName: found?.artistName || 'فنان الشمساوية',
+      phoneNumber: found?.phoneNumber || '',
+      country: found?.country || 'مصر',
+      currencySymbol: found?.currencySymbol || 'ج.م',
+      currency: found?.currency || 'EGP',
+      status: found?.status || (found?.isFrozen ? 'suspended' : 'active'),
+    };
   }, [workshops, selectedWorkshopId, profile]);
 
   // Live Filtered Workshops for Dropdown
   const liveFilteredWorkshops = useMemo(() => {
-    if (!dropdownSearch.trim()) return workshops;
+    const list = workshops || [];
+    if (!dropdownSearch.trim()) return list;
     const q = dropdownSearch.toLowerCase().trim();
-    return workshops.filter((w) => {
+    return list.filter((w) => {
+      if (!w) return false;
       const b = (w.brandName || '').toLowerCase();
       const a = (w.artistName || '').toLowerCase();
       const e = (w.email || '').toLowerCase();
@@ -225,7 +343,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       'أخشاب': 0,
       'أخرى': 0,
     };
-    workshops.forEach((w) => {
+    (workshops || []).forEach((w) => {
+      if (!w) return;
       const crafts = w.selectedCrafts || [];
       if (crafts.includes('macrame') || crafts.includes('tapestry')) counts['مكرمية']++;
       else if (crafts.includes('crochet') || crafts.includes('embroidery')) counts['كروشيه']++;
@@ -242,23 +361,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     let active = 0;
     let suspended = 0;
     let banned = 0;
-    workshops.forEach((w) => {
+    (workshops || []).forEach((w) => {
+      if (!w) return;
       const s = w.status || (w.isFrozen ? 'suspended' : 'active');
       if (s === 'banned') banned++;
       else if (s === 'suspended' || w.isFrozen) suspended++;
       else active++;
     });
     return [
-      { name: 'نشطة', value: active, color: '#10b981' },
-      { name: 'موقوفة', value: suspended, color: '#f59e0b' },
-      { name: 'محظورة', value: banned, color: '#ef4444' },
+      { name: 'نشطة 🟢', value: active, color: '#10b981' },
+      { name: 'موقوفة 🟡', value: suspended, color: '#f59e0b' },
+      { name: 'محظورة 🔴', value: banned, color: '#ef4444' },
     ];
   }, [workshops]);
 
   // Recharts Data 3: Platform Daily Operations (Volume & Transactions Trend)
   const dailyOperationsData = useMemo(() => {
     const days = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
-    const totalWs = Math.max(workshops.length, 5);
+    const totalWs = Math.max((workshops || []).length, 1);
     return days.map((day, idx) => {
       const ops = Math.round(totalWs * (4.5 + (idx % 3) * 1.5 + Math.sin(idx) * 1.1));
       const volume = Math.round(ops * 390 + idx * 480);
@@ -268,7 +388,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         volumeEgp: volume,
       };
     });
-  }, [workshops.length]);
+  }, [workshops]);
 
   // Export System Report CSV (Super Admin Service Role Pipeline)
   const exportSystemReportCSV = async () => {
@@ -292,7 +412,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       // Fallback if network issue or empty report
       if (reportData.length === 0) {
-        reportData = workshops.map((w) => {
+        reportData = (workshops || []).map((w) => {
           const s = w.status || (w.isFrozen ? 'suspended' : 'active');
           const statusLabel = s === 'banned' ? 'محظورة' : s === 'suspended' || w.isFrozen ? 'موقوفة مؤقتاً' : 'نشطة';
           const prodCount = (w.selectedCrafts?.length || 1) * 8 + 4;
@@ -822,7 +942,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Filtered Workshops
   const filteredWorkshops = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return workshops.filter((w) => {
+    return (workshops || []).filter((w) => {
+      if (!w) return false;
       const curStatus = w.status || (w.isFrozen ? 'suspended' : 'active');
       if (statusFilter === 'active' && curStatus !== 'active') return false;
       if (statusFilter === 'suspended' && curStatus !== 'suspended') return false;
@@ -848,11 +969,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Statistics
   const stats = useMemo(() => {
-    const total = workshops.length;
-    const banned = workshops.filter((w) => w.status === 'banned').length;
-    const suspended = workshops.filter((w) => w.status === 'suspended' || (w.isFrozen && w.status !== 'banned')).length;
-    const active = total - suspended - banned;
-    const pendingAppeals = appealsList.filter((a) => a.appeal_status === 'pending' || a.appeal_status === 'under_review').length;
+    const list = workshops || [];
+    const total = list.length;
+    const banned = list.filter((w) => w && w.status === 'banned').length;
+    const suspended = list.filter((w) => w && (w.status === 'suspended' || (w.isFrozen && w.status !== 'banned'))).length;
+    const active = Math.max(0, total - suspended - banned);
+    const pendingAppeals = (appealsList || []).filter((a) => a && (a.appeal_status === 'pending' || a.appeal_status === 'under_review')).length;
     return { total, active, suspended, banned, pendingAppeals };
   }, [workshops, appealsList]);
 
@@ -1309,6 +1431,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     );
   }
 
+  // Loading Screen (منع رندر الصفحة قبل اكتمال جلب البيانات من السيرفر)
+  if (loading) {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 space-y-4" dir="rtl">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-amber-200 dark:border-amber-900 border-t-amber-500 rounded-full animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center text-xl select-none">
+            🦅
+          </div>
+        </div>
+        <div className="text-center space-y-1.5">
+          <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100">
+            جاري تحميل مركز قيادة عيلة الشمساوية...
+          </h2>
+          <p className="text-xs text-stone-500 dark:text-stone-400 font-bold">
+            جلب سجلات الورش، الحسابات الرقابية، وبوابات المراسلات الحية
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-200">
       {/* 1. Top Header with Royal Golden Badge */}
@@ -1538,11 +1682,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="p-4 rounded-2xl bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-2xl bg-amber-600 text-white font-black flex items-center justify-center text-base shadow-md">
-                {currentSelectedWorkshop.brandName.charAt(0) || 'و'}
+                {(currentSelectedWorkshop.brandName || 'ورشة').charAt(0) || 'و'}
               </div>
               <div>
                 <div className="font-black text-sm text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                  <span>{currentSelectedWorkshop.brandName}</span>
+                  <span>{currentSelectedWorkshop.brandName || 'ورشة الشمساوية'}</span>
                   {currentSelectedWorkshop.status === 'banned' ? (
                     <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-extrabold border border-rose-300">
                       🔴 محظورة
@@ -1558,7 +1702,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   )}
                 </div>
                 <div className="text-[11px] text-stone-600 dark:text-stone-400 font-bold mt-0.5">
-                  الفنان: {currentSelectedWorkshop.artistName} | الدولة: {currentSelectedWorkshop.country} ({currentSelectedWorkshop.currencySymbol})
+                  الفنان: {currentSelectedWorkshop.artistName || 'فنان'} | الدولة: {currentSelectedWorkshop.country || 'مصر'} ({currentSelectedWorkshop.currencySymbol || 'ج.م'})
                   {currentSelectedWorkshop.suspension_reason && (
                     <span className="mr-2 text-rose-600 font-black">
                       (سبب الإجراء: {currentSelectedWorkshop.suspension_reason})
@@ -2494,32 +2638,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </h3>
             </div>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
-              {workshops.length} ورشة
+              {(workshops || []).length} ورشة
             </span>
           </div>
 
           <div className="h-56 w-full text-xs">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={craftDistributionData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fontWeight: 'bold' }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1c1917',
-                    borderColor: '#78350f',
-                    borderRadius: '12px',
-                    color: '#fef3c7',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    textAlign: 'right',
-                    direction: 'rtl',
-                  }}
-                  formatter={(val: any) => [`${val} ورشة`, 'عدد الورش']}
-                />
-                <Bar dataKey="count" fill="#d97706" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {craftDistributionData && craftDistributionData.length > 0 && craftDistributionData.some((d) => d.count > 0) ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <BarChart data={craftDistributionData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fontWeight: 'bold' }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1c1917',
+                      borderColor: '#78350f',
+                      borderRadius: '12px',
+                      color: '#fef3c7',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      textAlign: 'right',
+                      direction: 'rtl',
+                    }}
+                    formatter={(val: any) => [`${val} ورشة`, 'عدد الورش']}
+                  />
+                  <Bar dataKey="count" fill="#d97706" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-stone-400 text-xs font-bold border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl">
+                لا توجد بيانات حرف كافية لعرض الرسم البياني
+              </div>
+            )}
           </div>
         </div>
 
@@ -2538,41 +2688,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="h-56 w-full text-xs flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={statusDistributionData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={75}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {statusDistributionData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1c1917',
-                    borderColor: '#44403c',
-                    borderRadius: '12px',
-                    color: '#fef3c7',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    textAlign: 'right',
-                    direction: 'rtl',
-                  }}
-                  formatter={(val: any) => [`${val} ورشة`, 'الحالة']}
-                />
-                <Legend
-                  verticalAlign="bottom"
-                  height={36}
-                  formatter={(value) => <span className="text-[11px] font-bold text-stone-600 dark:text-stone-300">{value}</span>}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            {statusDistributionData && statusDistributionData.length > 0 && statusDistributionData.some((d) => d.value > 0) ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <PieChart>
+                  <Pie
+                    data={statusDistributionData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={75}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {statusDistributionData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1c1917',
+                      borderColor: '#44403c',
+                      borderRadius: '12px',
+                      color: '#fef3c7',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      textAlign: 'right',
+                      direction: 'rtl',
+                    }}
+                    formatter={(val: any) => [`${val} ورشة`, 'الحالة']}
+                  />
+                  <Legend
+                    verticalAlign="bottom"
+                    height={36}
+                    formatter={(value) => <span className="text-[11px] font-bold text-stone-600 dark:text-stone-300">{value}</span>}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-stone-400 text-xs font-bold border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl">
+                لا توجد ورش مسجلة لعرض الحالات الرقابية
+              </div>
+            )}
           </div>
         </div>
 
@@ -2591,36 +2747,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="h-56 w-full text-xs">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dailyOperationsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorOps" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#d97706" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#d97706" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="day" tick={{ fontSize: 11, fontWeight: 'bold' }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1c1917',
-                    borderColor: '#78350f',
-                    borderRadius: '12px',
-                    color: '#fef3c7',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    textAlign: 'right',
-                    direction: 'rtl',
-                  }}
-                  formatter={(val: any, name: any) => [
-                    name === 'operations' ? `${val} عملية` : `${val} ج.م`,
-                    name === 'operations' ? 'إجمالي العمليات' : 'قيمة المعاملات',
-                  ]}
-                />
-                <Area type="monotone" dataKey="operations" stroke="#d97706" fillOpacity={1} fill="url(#colorOps)" />
-              </AreaChart>
-            </ResponsiveContainer>
+            {dailyOperationsData && dailyOperationsData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <AreaChart data={dailyOperationsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorOps" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#d97706" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="#d97706" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                  <XAxis dataKey="day" tick={{ fontSize: 11, fontWeight: 'bold' }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#1c1917',
+                      borderColor: '#78350f',
+                      borderRadius: '12px',
+                      color: '#fef3c7',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      textAlign: 'right',
+                      direction: 'rtl',
+                    }}
+                    formatter={(val: any, name: any) => [
+                      name === 'operations' ? `${val} عملية` : `${val} ج.م`,
+                      name === 'operations' ? 'إجمالي العمليات' : 'قيمة المعاملات',
+                    ]}
+                  />
+                  <Area type="monotone" dataKey="operations" stroke="#d97706" fillOpacity={1} fill="url(#colorOps)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-stone-400 text-xs font-bold border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl">
+                لا توجد معاملات مسجلة
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2632,7 +2794,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="بحث في كافة الورش بالاسم، الفنان، الهاتف، أو الدولة..."
+            placeholder="بحث فوري في الورش بالاسم، الفنان، الإيميل، الهاتف، أو الدولة..."
             className="w-full px-3.5 py-2.5 pr-10 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 text-right"
           />
           <Search size={16} className="absolute right-3.5 top-3 text-stone-400 pointer-events-none" />
@@ -2657,7 +2819,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 : 'text-stone-600 dark:text-stone-400'
             }`}
           >
-            الكل ({workshops.length})
+            الكل ({(workshops || []).length})
           </button>
           <button
             type="button"
@@ -2738,9 +2900,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-medium">
-                {filteredWorkshops.map((ws) => {
+                {(filteredWorkshops || []).map((ws) => {
                   const isCurrent = ws.id === profile.id;
                   const currentStatus = ws.status || (ws.isFrozen ? 'suspended' : 'active');
+                  const wsBrand = ws.brandName || 'ورشة الشمساوية';
+                  const wsArtist = ws.artistName || 'غير محدد';
 
                   return (
                     <tr
@@ -2762,11 +2926,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           title="اضغط لفتح نافذة فحص التفاعل والنشاط السريع"
                         >
                           <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-black flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                            {ws.brandName.charAt(0) || 'و'}
+                            {wsBrand.charAt(0) || 'و'}
                           </div>
                           <div>
                             <div className="font-extrabold text-stone-900 dark:text-stone-100 group-hover:text-amber-600 dark:group-hover:text-amber-400 flex items-center gap-1.5 transition-colors">
-                              <span>{ws.brandName}</span>
+                              <span>{wsBrand}</span>
                               <span className="text-[11px] text-amber-600">📊</span>
                               {isCurrent && (
                                 <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold">
@@ -2783,7 +2947,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                       {/* Artist Name */}
                       <td className="py-3.5 px-4 font-bold text-stone-800 dark:text-stone-200">
-                        {ws.artistName || 'غير محدد'}
+                        {wsArtist}
                       </td>
 
                       {/* Phone & Direct WhatsApp */}
@@ -4063,3 +4227,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     </div>
   );
 };
+
+export const AdminDashboard: React.FC<AdminDashboardProps> = (props) => {
+  return (
+    <AdminErrorBoundary onLogout={props.onLogout} onNavigateHome={props.onNavigateHome}>
+      <AdminDashboardContent {...props} />
+    </AdminErrorBoundary>
+  );
+};
+

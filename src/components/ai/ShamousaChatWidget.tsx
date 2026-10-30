@@ -100,7 +100,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const storageKey = `shamousa_chat_${workshopId}`;
 
   // تحديد اسم الفنان الفعلي المباشر بدون ألقاب أو "صاحب الورشة"
-  const firstName = extractUserFirstName(profile.fullName || profile.name || (profile as any).artistName || (profile as any).artisanName) || 'صديقي';
+  const firstName = extractUserFirstName((profile as any).fullName || (profile as any).name || profile.artistName || (profile as any).artisanName) || 'صديقي';
   const brandTitle = profile.brandName ? `ورشة ${profile.brandName}` : 'ورشة الشمس كرافت';
 
   // الترحيب المحدد بدقة في التعليمات:

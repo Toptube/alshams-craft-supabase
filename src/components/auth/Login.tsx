@@ -67,8 +67,11 @@ export const Login: React.FC<LoginProps> = ({
           />
         </div>
         <div>
-          <h1 className="text-xl sm:text-2xl font-[800] text-stone-900 dark:text-amber-300">
-            منظومة الشمساوية SaaS
+          <h1 className="text-xl sm:text-2xl font-[800] text-stone-900 dark:text-amber-300 inline-flex items-center justify-center gap-2 flex-wrap">
+            <span>منظومة الشمساوية</span>
+            <span className="inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 align-top tracking-wider uppercase">
+              SaaS
+            </span>
           </h1>
           <span className="text-[10px] font-mono tracking-wider text-amber-700 dark:text-amber-400 block mt-1 font-bold" dir="ltr">
             All-in-One Craft SaaS Platform: ERP • CRM • HR • FCA • AI
