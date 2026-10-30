@@ -8,6 +8,8 @@ import {
   createMyWorkshopRpc,
   getCurrentWorkshopFromSupabase,
 } from '../../db/supabaseService';
+import { Login } from './Login';
+import { Register } from './Register';
 import {
   Lock,
   Mail,
@@ -311,34 +313,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         {/* Top Decorative Sun Beam */}
         <div className="absolute -top-16 -right-16 w-36 h-36 bg-amber-400/20 rounded-full blur-2xl pointer-events-none" />
 
-        {/* Platform Identity */}
-        <div className="flex flex-col items-center justify-center text-center space-y-2">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 flex items-center justify-center">
-            <img
-              src="/alshams_falcon_emblem.png"
-              alt="أيقونة منظومة الشمساوية الرسمية"
-              className="w-full h-full object-contain filter drop-shadow-md select-none"
-            />
-          </div>
-          <div>
-            <div className="flex items-center justify-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-[800] text-stone-900 dark:text-amber-300">
-                منظومة الشمساوية
-              </h1>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-mono">
-                ERP
-              </span>
-            </div>
-            <span className="text-[10px] font-mono tracking-widest uppercase text-stone-500 dark:text-stone-400 block mt-0.5">
-              ALSHAMS CRAFT
-            </span>
-          </div>
-          <p className="text-xs text-stone-500 dark:text-stone-400 font-medium max-w-xs mt-1">
-            المنظومة السحابية المتكاملة لورش الحِرف اليدوية (ERP + SaaS)
-          </p>
-        </div>
-
-        {/* Tabs: Login / Signup Only */}
+        {/* Tabs: Login / Signup Switcher */}
         <div className="flex items-center rounded-2xl bg-stone-100 dark:bg-stone-800 p-1 text-xs font-bold">
           <button
             type="button"
@@ -372,16 +347,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           </button>
         </div>
 
-        {/* Google Authentication is temporarily hidden as instructed by Rule 2 */}
-
-        {/* Notices */}
-        {errorMsg && (
-          <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
+        {/* Success Notice if any */}
         {successMsg && (
           <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
@@ -389,216 +355,43 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           </div>
         )}
 
-        {/* Form */}
-        <form onSubmit={handleEmailAuth} className="space-y-3.5">
-          {/* Email */}
-          <div>
-            <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-              البريد الإلكتروني <span className="text-rose-500">*</span>
-            </label>
-            <div className="relative">
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
-                className="w-full px-3.5 py-2.5 pr-9 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/60 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-              />
-              <Mail className="w-4 h-4 text-stone-400 absolute right-3 top-3 pointer-events-none" />
-            </div>
-          </div>
-
-          {/* Password */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-bold text-stone-700 dark:text-stone-300">
-                كلمة المرور <span className="text-rose-500">*</span>
-              </label>
-              {mode === 'login' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setForgotEmail(email);
-                    setForgotNotice(null);
-                    setShowForgotModal(true);
-                  }}
-                  className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
-                >
-                  نسيت كلمة المرور؟
-                </button>
-              )}
-            </div>
-            <div className="relative">
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-3.5 py-2.5 pr-9 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/60 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-              />
-              <Lock className="w-4 h-4 text-stone-400 absolute right-3 top-3 pointer-events-none" />
-            </div>
-          </div>
-
-          {/* Additional Signup Fields */}
-          {mode === 'signup' && (
-            <div className="space-y-3 pt-1 border-t border-stone-200 dark:border-stone-800">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-                    اسم البراند أو الورشة <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      required
-                      value={brandName}
-                      onChange={(e) => setBrandName(e.target.value)}
-                      placeholder="مثال: شمس مكرامي"
-                      className="w-full px-3 py-2 pr-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                    <Building2 className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-                    اسم الفنان أو الصانع <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      required
-                      value={artistName}
-                      onChange={(e) => setArtistName(e.target.value)}
-                      placeholder="مثال: ياسمين أحمد"
-                      className="w-full px-3 py-2 pr-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                    <User className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Gender & Phone */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-                    صفة المخاطبة
-                  </label>
-                  <div className="flex gap-2">
-                    <label
-                      className={`flex-1 py-1.5 text-center text-xs font-bold rounded-xl border cursor-pointer ${
-                        gender === 'female'
-                          ? 'bg-amber-100 dark:bg-amber-950/60 border-amber-500 text-amber-900 dark:text-amber-300'
-                          : 'border-stone-300 dark:border-stone-700 text-stone-500'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="gender"
-                        className="hidden"
-                        checked={gender === 'female'}
-                        onChange={() => setGender('female')}
-                      />
-                      فنانة (مبدعة)
-                    </label>
-                    <label
-                      className={`flex-1 py-1.5 text-center text-xs font-bold rounded-xl border cursor-pointer ${
-                        gender === 'male'
-                          ? 'bg-amber-100 dark:bg-amber-950/60 border-amber-500 text-amber-900 dark:text-amber-300'
-                          : 'border-stone-300 dark:border-stone-700 text-stone-500'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="gender"
-                        className="hidden"
-                        checked={gender === 'male'}
-                        onChange={() => setGender('male')}
-                      />
-                      فنان (مبدع)
-                    </label>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-                    رقم الهاتف / واتساب
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="tel"
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      placeholder="010XXXXXXXX"
-                      className="w-full px-3 py-2 pr-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none font-mono text-left"
-                    />
-                    <Phone className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Country & Currency */}
-              <div>
-                <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-                  الدولة والعملة الافتراضية
-                </label>
-                <select
-                  value={countryCode}
-                  onChange={(e) => setCountryCode(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none"
-                >
-                  {COUNTRIES_CONFIG.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.flag} {c.name} ({c.currencySymbol} - {c.currency})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 px-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs transition shadow-md hover:shadow-lg cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {loading ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : mode === 'login' ? (
-              <>
-                <ShieldCheck className="w-4 h-4" />
-                <span>دخول الورشة السحابية</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>إنشاء ورشة سحابية جديدة</span>
-              </>
-            )}
-          </button>
-
-          {/* Forgot Password Link under the form */}
-          {mode === 'login' && (
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setForgotEmail(email);
-                  setForgotNotice(null);
-                  setShowForgotModal(true);
-                }}
-                className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer inline-flex items-center gap-1.5"
-              >
-                <KeyRound className="w-3.5 h-3.5" />
-                <span>نسيت كلمة المرور؟</span>
-              </button>
-            </div>
-          )}
-        </form>
+        {/* Active Auth Flow */}
+        {mode === 'login' ? (
+          <Login
+            email={email}
+            setEmail={setEmail}
+            password={password}
+            setPassword={setPassword}
+            loading={loading}
+            errorMsg={errorMsg}
+            onSubmit={handleEmailAuth}
+            onForgotPassword={() => {
+              setForgotEmail(email);
+              setForgotNotice(null);
+              setShowForgotModal(true);
+            }}
+          />
+        ) : (
+          <Register
+            email={email}
+            setEmail={setEmail}
+            password={password}
+            setPassword={setPassword}
+            brandName={brandName}
+            setBrandName={setBrandName}
+            artistName={artistName}
+            setArtistName={setArtistName}
+            gender={gender}
+            setGender={setGender}
+            phoneNumber={phoneNumber}
+            setPhoneNumber={setPhoneNumber}
+            countryCode={countryCode}
+            setCountryCode={setCountryCode}
+            loading={loading}
+            errorMsg={errorMsg}
+            onSubmit={handleEmailAuth}
+          />
+        )}
 
         {/* Footer Guarantee */}
         <div className="pt-3 border-t border-stone-200 dark:border-stone-800 flex items-center justify-center gap-1.5 text-[10px] text-stone-400">

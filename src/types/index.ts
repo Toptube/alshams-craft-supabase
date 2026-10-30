@@ -104,6 +104,14 @@ export interface WorkshopProfile {
   rejectionReason?: string;
   appeal_submitted_at?: string | number | null;
   appealSubmittedAt?: string | number | null;
+  // Gamification & Recognition (التقييم والقلائد التكريمية)
+  rating_stars?: number; // 1 to 5
+  ratingStars?: number;
+  medal?: 'bronze' | 'silver' | 'gold' | 'diamond' | null;
+  medal_awarded_at?: string | number | null;
+  medalAwardedAt?: string | number | null;
+  medal_note?: string;
+  medalNote?: string;
   createdAt: number;
   updatedAt: number;
   createdBy: string;

@@ -18,24 +18,76 @@ import { playPostaNotificationSound, playSuccessSound, playAlertSound } from '..
 interface MessagesHubModalProps {
   isOpen: boolean;
   onClose: () => void;
-  profile: UserProfile;
-  announcements: any[];
-  onRefreshAnnouncements: () => Promise<void>;
+  profile?: UserProfile | null;
+  workshopId?: string;
+  workshopName?: string;
+  announcements?: any[];
+  onRefreshAnnouncements?: () => Promise<void> | void;
+  onReceiptUpdate?: () => Promise<void> | void;
 }
 
 export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
   isOpen,
   onClose,
   profile,
-  announcements,
+  workshopId,
+  workshopName,
+  announcements: initialAnnouncements,
   onRefreshAnnouncements,
+  onReceiptUpdate,
 }) => {
+  const [announcements, setAnnouncements] = useState<any[]>(() => initialAnnouncements || []);
+  const [loading, setLoading] = useState<boolean>(false);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [submittingReply, setSubmittingReply] = useState(false);
   const [actionNotice, setActionNotice] = useState('');
 
+  const effectiveWorkshopId = profile?.workshopId || profile?.id || workshopId || '';
+  const effectiveEmail = profile?.email || '';
+
+  const fetchAnnouncements = async () => {
+    if (!effectiveWorkshopId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/announcements?workshopId=${encodeURIComponent(effectiveWorkshopId)}`, {
+        headers: {
+          'x-workshop-id': effectiveWorkshopId,
+          ...(effectiveEmail ? { 'x-user-email': effectiveEmail } : {}),
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.announcements)) {
+          setAnnouncements(data.announcements);
+        }
+      }
+    } catch (err) {
+      console.warn('[MessagesHub] Fetch error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (initialAnnouncements && Array.isArray(initialAnnouncements)) {
+      setAnnouncements(initialAnnouncements);
+    } else if (isOpen) {
+      fetchAnnouncements();
+    }
+  }, [initialAnnouncements, isOpen, effectiveWorkshopId]);
+
   if (!isOpen) return null;
+
+  const refreshAll = async () => {
+    await fetchAnnouncements();
+    if (onRefreshAnnouncements) {
+      try { await onRefreshAnnouncements(); } catch (_) {}
+    }
+    if (onReceiptUpdate) {
+      try { await onReceiptUpdate(); } catch (_) {}
+    }
+  };
 
   const handleAcknowledge = async (messageId: string) => {
     try {
@@ -43,16 +95,16 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-workshop-id': profile.id,
-          'x-user-email': profile.email,
+          'x-workshop-id': effectiveWorkshopId,
+          'x-user-email': effectiveEmail,
         },
-        body: JSON.stringify({ action: 'acknowledge' }),
+        body: JSON.stringify({ action: 'acknowledge', workshopId: effectiveWorkshopId }),
       });
       if (res.ok) {
         playSuccessSound();
         setActionNotice('تم تأكيد القراءة والموافقة بنجاح.');
         setTimeout(() => setActionNotice(''), 3000);
-        await onRefreshAnnouncements();
+        await refreshAll();
       }
     } catch (err: any) {
       alert('تعذر تأكيد القراءة: ' + err.message);
@@ -67,10 +119,14 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-workshop-id': profile.id,
-          'x-user-email': profile.email,
+          'x-workshop-id': effectiveWorkshopId,
+          'x-user-email': effectiveEmail,
         },
-        body: JSON.stringify({ action: 'reply', reply_text: replyText.trim() }),
+        body: JSON.stringify({
+          action: 'reply',
+          reply_text: replyText.trim(),
+          workshopId: effectiveWorkshopId,
+        }),
       });
       if (res.ok) {
         playSuccessSound();
@@ -78,7 +134,7 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
         setReplyingToId(null);
         setReplyText('');
         setTimeout(() => setActionNotice(''), 3500);
-        await onRefreshAnnouncements();
+        await refreshAll();
       }
     } catch (err: any) {
       alert('تعذر إرسال الرد: ' + err.message);
@@ -86,6 +142,8 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
       setSubmittingReply(false);
     }
   };
+
+  const safeAnnouncements = Array.isArray(announcements) ? announcements : [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
@@ -102,7 +160,7 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
                   مركز المراسلات والرسائل الحية (Messages Hub)
                 </h2>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-200 font-mono font-bold">
-                  {announcements.length} رسالة
+                  {safeAnnouncements.length} رسالة
                 </span>
               </div>
               <p className="text-xs text-stone-300 mt-0.5">
@@ -112,17 +170,6 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Test Posta Sound Button */}
-            <button
-              type="button"
-              onClick={() => playPostaNotificationSound()}
-              className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer border border-amber-500/30"
-              title="تجربة نغمة بوسطة! المميزة"
-            >
-              <Volume2 size={14} />
-              <span className="hidden sm:inline">نغمة بوسطة!</span>
-            </button>
-
             <button
               type="button"
               onClick={onClose}
@@ -143,7 +190,7 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
 
         {/* Body List */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
-          {announcements.length === 0 ? (
+          {safeAnnouncements.length === 0 ? (
             <div className="p-12 text-center text-stone-400 space-y-3">
               <Mail className="w-12 h-12 mx-auto text-stone-300 dark:text-stone-700" />
               <h3 className="text-sm font-bold text-stone-700 dark:text-stone-300">
@@ -154,7 +201,7 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
               </p>
             </div>
           ) : (
-            announcements.map((item) => {
+            safeAnnouncements.map((item) => {
               const receipt = item.receipt;
               const isAcknowledged = Boolean(receipt?.acknowledged_at);
               const hasReplied = Boolean(receipt?.reply_text);

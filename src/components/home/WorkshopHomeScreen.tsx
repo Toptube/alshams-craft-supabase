@@ -644,6 +644,41 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200">
+      {/* Honor & Recognition Banner from Super Admin */}
+      {Boolean(profile.medal || (profile.rating_stars && profile.rating_stars > 0)) && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-500/20 via-yellow-500/30 to-amber-600/20 border-2 border-amber-400 dark:border-amber-500/60 shadow-lg flex flex-wrap items-center justify-between gap-3 text-amber-950 dark:text-amber-100 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-600 text-white flex items-center justify-center text-2xl shadow-md border-2 border-white/60 dark:border-stone-800">
+              {profile.medal === 'diamond' ? '💎' : profile.medal === 'gold' ? '🥇' : profile.medal === 'silver' ? '🥈' : '🥉'}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-black text-amber-950 dark:text-amber-100">
+                  {profile.medal === 'diamond' ? 'قلادة الشمساوية الماسية الفاخرة 💎' :
+                   profile.medal === 'gold' ? 'قلادة الشمساوية الذهبية الرفيعة 🥇' :
+                   profile.medal === 'silver' ? 'قلادة الشمساوية الفضية الممتازة 🥈' :
+                   'قلادة الشمساوية البرونزية المعتمدة 🥉'}
+                </span>
+                <span className="flex text-amber-500 text-sm tracking-wider">
+                  {'⭐'.repeat(profile.rating_stars || 5)}
+                </span>
+              </div>
+              <p className="text-xs text-stone-700 dark:text-stone-300 mt-0.5 font-bold">
+                وسام التميز والتكريم الممنوح لورشتكم من كبير عيلة الشمساوية م. حسام بسيوني ✨
+                {profile.medal_note && (
+                  <span className="mr-2 italic text-amber-900 dark:text-amber-200 font-extrabold">
+                    "{profile.medal_note}"
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="text-[11px] font-mono text-stone-600 dark:text-stone-400 font-bold bg-white/50 dark:bg-stone-900/50 px-3 py-1 rounded-xl border border-amber-300/50">
+            {profile.medal_awarded_at ? new Date(profile.medal_awarded_at).toLocaleDateString('ar-EG', { dateStyle: 'medium' }) : 'معتمد رسمياً'}
+          </div>
+        </div>
+      )}
+
       {/* Sub-Screen View (Opens when a card is clicked) */}
       {activeSubSection && currentSubHub ? (
         <div className="p-4 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border-2 border-amber-300/60 dark:border-amber-800/60 shadow-md space-y-4 animate-in slide-in-from-right-3 duration-200">

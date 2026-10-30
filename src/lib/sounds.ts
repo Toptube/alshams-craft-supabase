@@ -310,107 +310,48 @@ export function playPageFlipSound(): void {
 }
 
 /**
- * 10. نغمة إشعار وصول الرسائل والمراسلات (بوسطة! + رنة هاتف عتيق + بوسطة!):
- * تجمع بين Web Speech API لنطق "بوسطة!" بصوت عربي نسائي متقن
- * مع Web Audio API Synthesizer لتوليد رنة الهاتف الكلاسيكية (Dual-Tone 440Hz + 480Hz pulses).
+ * 10. نغمة إشعار وصول الرسائل والمراسلات (رنة هاتف عتيق كلاسيكية):
+ * صوت مميز لرنة جرس هاتف قديم متقن (Dual-Tone Vintage Phone Bell 440Hz + 480Hz)
+ * باستخدام Web Audio API بدون أي نطق صوتي وبدون ملفات خارجية، متكاملة مع نظام إشعارات المنظومة.
  */
 export function playPostaNotificationSound(): void {
   if (!isSoundEnabled()) return;
 
-  const speakPosta = (onEnd?: () => void) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance('بوسطة!');
-        utterance.lang = 'ar-EG';
-        utterance.rate = 1.05;
-        utterance.pitch = 1.35; // نبرة نسائية واضحة ومشرقة
-        
-        // البحث عن أفضل صوت عربي أنثوي متاح بالنظام
-        const voices = window.speechSynthesis.getVoices();
-        const arabicFemale = voices.find(
-          (v) =>
-            v.lang.startsWith('ar') &&
-            (v.name.toLowerCase().includes('female') ||
-              v.name.includes('Laila') ||
-              v.name.includes('Salma') ||
-              v.name.includes('Hoda') ||
-              v.name.includes('Zeina') ||
-              v.name.includes('Mariam'))
-        );
+  const ctx = getAudioContext();
+  if (!ctx) return;
 
-        if (arabicFemale) {
-          utterance.voice = arabicFemale;
-        } else {
-          const anyAr = voices.find((v) => v.lang.startsWith('ar'));
-          if (anyAr) utterance.voice = anyAr;
-        }
+  try {
+    const now = ctx.currentTime;
+    const f1 = 440; // تردد جرس الهاتف الكلاسيكي الأول
+    const f2 = 480; // تردد جرس الهاتف الكلاسيكي الثاني
+    const pulseDuration = 0.045;
+    const pulseGap = 0.025;
+    const pulsesPerRing = 12; // نبضات مطرقة الجرس الميكانيكي
 
-        if (onEnd) {
-          utterance.onend = () => onEnd();
-          utterance.onerror = () => onEnd();
-        }
-        window.speechSynthesis.speak(utterance);
-      } catch {
-        if (onEnd) onEnd();
+    // رنتين متتاليتين تحاكي رنين الهاتف الأرضي الكلاسيكي
+    for (let ring = 0; ring < 2; ring++) {
+      const ringStart = now + ring * 0.58;
+      for (let i = 0; i < pulsesPerRing; i++) {
+        const t = ringStart + i * (pulseDuration + pulseGap);
+        [f1, f2].forEach((freq) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq + (i % 2 === 0 ? 12 : -12), t);
+
+          gain.gain.setValueAtTime(0.0001, t);
+          gain.gain.exponentialRampToValueAtTime(0.14, t + 0.004);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + pulseDuration);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + pulseDuration);
+        });
       }
-    } else {
-      if (onEnd) onEnd();
     }
-  };
-
-  const playVintagePhoneBell = (onComplete?: () => void) => {
-    const ctx = getAudioContext();
-    if (!ctx) {
-      if (onComplete) onComplete();
-      return;
-    }
-
-    try {
-      const now = ctx.currentTime;
-      const f1 = 440; // Dual-tone vintage bell frequency 1
-      const f2 = 480; // Dual-tone vintage bell frequency 2
-      const pulseDuration = 0.04;
-      const pulseGap = 0.03;
-      const pulsesPerRing = 10; // نبضات ميكانيكية لجرس التليفون الكلاسيكي
-
-      for (let ring = 0; ring < 2; ring++) {
-        const ringStart = now + ring * 0.55;
-        for (let i = 0; i < pulsesPerRing; i++) {
-          const t = ringStart + i * (pulseDuration + pulseGap);
-          [f1, f2].forEach((freq) => {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq + (i % 2 === 0 ? 15 : -15), t);
-
-            gain.gain.setValueAtTime(0.0001, t);
-            gain.gain.exponentialRampToValueAtTime(0.12, t + 0.005);
-            gain.gain.exponentialRampToValueAtTime(0.0001, t + pulseDuration);
-
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(t);
-            osc.stop(t + pulseDuration);
-          });
-        }
-      }
-
-      if (onComplete) {
-        setTimeout(onComplete, 1250);
-      }
-    } catch {
-      if (onComplete) onComplete();
-    }
-  };
-
-  // التسلسل الصوتي:
-  // 1. نطق "بوسطة!"
-  // 2. رنة تليفون عتيق
-  // 3. نطق "بوسطة!" ثانية في الختام
-  speakPosta(() => {
-    playVintagePhoneBell(() => {
-      speakPosta();
-    });
-  });
+  } catch (err) {
+    console.warn('[Posta Sound] AudioContext error:', err);
+  }
 }
+

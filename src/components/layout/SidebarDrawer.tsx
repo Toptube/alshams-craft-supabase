@@ -37,6 +37,9 @@ import {
   Database,
   Building,
   Mail,
+  Award,
+  Scale,
+  Star,
 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 
@@ -250,35 +253,65 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           <AlShamsBrandLogo size="sm" showSubtitle={false} />
         </div>
 
-        {/* Artisan Profile Card */}
-        <div className="p-4 bg-stone-50 dark:bg-stone-800/40 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <ArtisanAvatar
-              logoUrl={profile.logoBase64}
-              artistName={profile.artistName}
-              size="md"
-            />
-            <div className="text-right">
-              <h4 className="font-black text-xs text-stone-900 dark:text-stone-100">
-                {profile.artistName}
-              </h4>
-              <p className="text-[10px] text-stone-500 font-medium">
-                {profile.brandName || tr('workshop_hub_desc')}
-              </p>
+        {/* Artisan / Super Admin Profile Card */}
+        {isUserAdmin(profile) ? (
+          <div className="p-4 bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white border-b border-amber-500/40 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-400 text-amber-300 flex items-center justify-center text-xl shadow-md">
+                👑
+              </div>
+              <div className="text-right">
+                <div className="flex items-center gap-1.5">
+                  <h4 className="font-black text-xs text-amber-200">كبير عيلة الشمساوية</h4>
+                  <span className="text-[8px] px-1.5 py-0.2 rounded bg-amber-500 text-stone-950 font-mono font-black">SUPER</span>
+                </div>
+                <p className="text-[10px] text-stone-300 font-bold font-mono truncate max-w-[170px]" dir="ltr">
+                  {profile.email || 'hmb.top.tupe@gmail.com'}
+                </p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                onOpenProfileSettings();
+                onClose();
+              }}
+              title={tr('workshop_profile_settings')}
+              className="p-2 rounded-xl text-stone-400 hover:text-amber-300 hover:bg-white/10 transition cursor-pointer"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              onOpenProfileSettings();
-              onClose();
-            }}
-            title={tr('workshop_profile_settings')}
-            className="p-2 rounded-xl text-stone-500 hover:text-amber-600 hover:bg-stone-200 dark:hover:bg-stone-700 transition cursor-pointer"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
+        ) : (
+          <div className="p-4 bg-stone-50 dark:bg-stone-800/40 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <ArtisanAvatar
+                logoUrl={profile.logoBase64}
+                artistName={profile.artistName}
+                size="md"
+              />
+              <div className="text-right">
+                <h4 className="font-black text-xs text-stone-900 dark:text-stone-100">
+                  {profile.artistName}
+                </h4>
+                <p className="text-[10px] text-stone-500 font-medium">
+                  {profile.brandName || tr('workshop_hub_desc')}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onOpenProfileSettings();
+                onClose();
+              }}
+              title={tr('workshop_profile_settings')}
+              className="p-2 rounded-xl text-stone-500 hover:text-amber-600 hover:bg-stone-200 dark:hover:bg-stone-700 transition cursor-pointer"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Quick Actions Bar (الإشعارات، الدارك مود، حِرف الورشة) */}
         <div className="p-2.5 bg-amber-500/10 dark:bg-amber-950/20 border-b border-amber-200/40 dark:border-amber-900/40 grid grid-cols-3 gap-1.5 text-center text-xs">
@@ -334,8 +367,138 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         {/* RESTRUCTURED ENTERPRISE NAVIGATION (SaaS Hierarchy) */}
         {/* ========================================================= */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-3">
-          {/* 1. التطبيقات (الرئيسية مع كل أزرار التطبيقات) */}
-          <div className="pb-1">
+          {isUserAdmin(profile) ? (
+            <div className="space-y-2">
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 border border-amber-500/40 text-white space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black text-amber-300 flex items-center gap-1.5">
+                    <span>👑</span>
+                    <span>منظومة الحوكمة والتحكم المركزي</span>
+                  </span>
+                  <span className="text-[8.5px] px-1.5 py-0.5 rounded-full bg-amber-500 text-stone-950 font-black font-mono">
+                    MASTER ERP
+                  </span>
+                </div>
+                <p className="text-[10px] text-stone-300 leading-tight">
+                  كبير عيلة الشمساوية • إشراف كامل وتجاوز عزل الورش
+                </p>
+              </div>
+
+              {/* Master Super Admin Navigation Links */}
+              {[
+                {
+                  id: 'admin',
+                  label: 'لوحة التحكم وإدارة الورش',
+                  sublabel: 'إشراف، إيقاف، حظر، وتكريم الورش',
+                  icon: ShieldCheck,
+                  color: 'text-amber-500',
+                  bg: 'bg-amber-500/10',
+                },
+                {
+                  id: 'ai_agent',
+                  label: 'المساعد الذكي (صقر & شموسة)',
+                  sublabel: 'الرؤية الهندسية وبروتوكول التدريب المباشر',
+                  icon: Sparkles,
+                  color: 'text-yellow-500',
+                  bg: 'bg-yellow-500/10',
+                },
+                {
+                  id: 'materials',
+                  label: 'مستودع الخامات المركزي',
+                  sublabel: 'جرد وتحديث أسعار تكلفة خامات المنظومة',
+                  icon: Layers,
+                  color: 'text-blue-500',
+                  bg: 'bg-blue-500/10',
+                },
+                {
+                  id: 'catalog',
+                  label: 'كتالوج ومنتجات الورش',
+                  sublabel: 'استعراض كافة المنتجات والتسعير الحرفي',
+                  icon: BookOpen,
+                  color: 'text-emerald-500',
+                  bg: 'bg-emerald-500/10',
+                },
+                {
+                  id: 'hr',
+                  label: 'جهات الاتصال وفرق العمل',
+                  sublabel: 'العملاء، الموردين، والحرفيين والصناع',
+                  icon: Users,
+                  color: 'text-purple-500',
+                  bg: 'bg-purple-500/10',
+                },
+                {
+                  id: 'treasuries',
+                  label: 'الخزائن والأرشيف المالي',
+                  sublabel: 'أرصدة الخزائن وحركات التحويل والطلبيات',
+                  icon: Wallet,
+                  color: 'text-teal-500',
+                  bg: 'bg-teal-500/10',
+                },
+                {
+                  id: 'appeals',
+                  label: 'مركز الطعون والشكاوى',
+                  sublabel: 'مراجعة طعون الورش الموقوفة وفك التجميد',
+                  icon: Scale,
+                  color: 'text-rose-500',
+                  bg: 'bg-rose-500/10',
+                },
+                {
+                  id: 'messaging',
+                  label: 'مركز المراسلات (بوسطة)',
+                  sublabel: 'إرسال التعميمات واستقبال ردود الفنانين',
+                  icon: Mail,
+                  color: 'text-sky-500',
+                  bg: 'bg-sky-500/10',
+                },
+              ].map((item) => {
+                const Icon = item.icon;
+                const isActive = activeView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      if (item.id === 'messaging' && onOpenMessagesHub) {
+                        onOpenMessagesHub();
+                      } else {
+                        onSelectView(item.id);
+                      }
+                      onClose();
+                    }}
+                    className={`w-full p-2.5 rounded-2xl flex items-center justify-between text-right transition-all cursor-pointer border ${
+                      isActive
+                        ? 'bg-amber-600 text-white font-black shadow-md border-amber-500'
+                        : 'bg-stone-50/80 dark:bg-stone-850/60 hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200 border-stone-200 dark:border-stone-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                          isActive ? 'bg-white/20 text-white' : `${item.bg} ${item.color}`
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-black block">{item.label}</span>
+                        <span
+                          className={`text-[9.5px] block leading-tight ${
+                            isActive ? 'text-amber-100' : 'text-stone-400'
+                          }`}
+                        >
+                          {item.sublabel}
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronLeft className={`w-4 h-4 ${isActive ? 'text-white' : 'text-stone-300'}`} />
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+              {/* 1. التطبيقات (الرئيسية مع كل أزرار التطبيقات) */}
+              <div className="pb-1">
             <button
               type="button"
               onClick={() => {
@@ -752,6 +915,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               </div>
             )}
           </div>
+            </>
+          )}
         </nav>
 
         {/* Utilities: Guide + Migration + Logout */}

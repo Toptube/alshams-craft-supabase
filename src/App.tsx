@@ -63,8 +63,10 @@ import {
   NewEmployeeModal,
 } from './components/modals/CreationModals';
 
-// Shamousa Chat Widget
+// Shamousa Chat Widget & Unified AI
 import { ShamousaChatWidget } from './components/ai/ShamousaChatWidget';
+import { UnifiedAICommandCenter } from './components/ai/UnifiedAICommandCenter';
+import { ExecutiveTab } from './components/admin/AdminDashboard';
 
 // Icons for the sub-page navigation bar
 import { ArrowRight, Home, Sparkles, X } from 'lucide-react';
@@ -85,7 +87,9 @@ export type ActiveView =
   | 'hr'
   | 'reports'
   | 'ai_agent'
-  | 'admin';
+  | 'admin'
+  | 'appeals'
+  | 'messaging';
 
 const VIEW_TITLES: Record<ActiveView, string> = {
   home: 'لوحة تحكم الورشة',
@@ -102,8 +106,10 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   fixed_assets: 'إدارة الأصول الثابتة',
   hr: 'شؤون العاملين والحرفيين',
   reports: 'التقارير المالية والتحليلية',
-  ai_agent: 'صقر الشمساوية AI — خبير الحرف اليدوية',
-  admin: 'لوحة الإدارة العامة',
+  ai_agent: 'المساعد الذكي (صقر & شموسة)',
+  admin: 'لوحة الإدارة والتحكم الشاملة',
+  appeals: 'مركز الطعون والشكاوى الرقابي',
+  messaging: 'مركز المراسلات الحية (بوسطة)',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -175,6 +181,7 @@ export const App: React.FC = () => {
   // Navigation & View state
   const [activeView, setActiveView] = useState<ActiveView>('home');
   const [historyStack, setHistoryStack] = useState<ActiveView[]>([]);
+  const [adminInitialTab, setAdminInitialTab] = useState<ExecutiveTab>('materials');
 
   // Modals state
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
@@ -695,31 +702,59 @@ export const App: React.FC = () => {
       {/* Main Content View Switcher */}
       <main className="flex-1 pb-16">
         {activeView === 'home' && (
-          <WorkshopHomeScreen
-            profile={profile}
-            onNavigateToCalculator={() => navigateTo('calculator')}
-            onNavigateToArchive={() => navigateTo('archive')}
-            onNavigateToCatalog={() => navigateTo('catalog')}
-            onNavigateToAIAgent={() => navigateTo('ai_agent')}
-            onNavigateToMaterials={() => navigateTo('materials')}
-            onNavigateToSuppliers={() => navigateTo('suppliers')}
-            onNavigateToSales={() => navigateTo('sales')}
-            onNavigateToInvoices={() => navigateTo('invoices')}
-            onNavigateToWorkOrders={() => navigateTo('work_orders')}
-            onNavigateToTreasuries={() => navigateTo('treasuries')}
-            onNavigateToHR={() => navigateTo('hr')}
-            onNavigateToReports={() => navigateTo('reports')}
-            onNavigateToFixedAssets={() => navigateTo('fixed_assets')}
-            onOpenExchangeRatesModal={() => setIsExchangeRatesOpen(true)}
-            onOpenInventoryModal={() => setIsInventoryLedgerOpen(true)}
-            onOpenAdminCostsModal={() => setIsAdminExpensesOpen(true)}
-            onOpenNewMaterialModal={() => setIsNewMaterialOpen(true)}
-            onOpenNewClientModal={() => setIsNewClientOpen(true)}
-            onOpenNewSupplierModal={() => setIsNewSupplierOpen(true)}
-            onOpenCreateSupplier={() => setIsNewSupplierOpen(true)}
-            onOpenSupplierInvoice={() => setIsNewSupplierOpen(true)}
-            onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
-          />
+          isUserAdmin(profile) && !switchedWorkshopContext ? (
+            <AdminDashboard
+              profile={profile}
+              initialTab={adminInitialTab}
+              onNavigateHome={goHome}
+              onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
+              onOpenUnifiedAI={() => navigateTo('ai_agent')}
+              onProfileUpdated={(updated) => {
+                setProfile(updated);
+                localStorage.setItem('alshams_profile', JSON.stringify(updated));
+              }}
+              onSelectActiveWorkshop={(workshop) => {
+                if (!originalSuperAdminProfile && profile) {
+                  setOriginalSuperAdminProfile(profile);
+                }
+                setSwitchedWorkshopContext(workshop);
+                const merged: UserProfile = {
+                  ...workshop,
+                  role: 'superadmin',
+                  email: profile?.email || workshop.email,
+                };
+                setProfile(merged);
+                localStorage.setItem('alshams_profile', JSON.stringify(merged));
+                setActiveView('home');
+              }}
+            />
+          ) : (
+            <WorkshopHomeScreen
+              profile={profile}
+              onNavigateToCalculator={() => navigateTo('calculator')}
+              onNavigateToArchive={() => navigateTo('archive')}
+              onNavigateToCatalog={() => navigateTo('catalog')}
+              onNavigateToAIAgent={() => navigateTo('ai_agent')}
+              onNavigateToMaterials={() => navigateTo('materials')}
+              onNavigateToSuppliers={() => navigateTo('suppliers')}
+              onNavigateToSales={() => navigateTo('sales')}
+              onNavigateToInvoices={() => navigateTo('invoices')}
+              onNavigateToWorkOrders={() => navigateTo('work_orders')}
+              onNavigateToTreasuries={() => navigateTo('treasuries')}
+              onNavigateToHR={() => navigateTo('hr')}
+              onNavigateToReports={() => navigateTo('reports')}
+              onNavigateToFixedAssets={() => navigateTo('fixed_assets')}
+              onOpenExchangeRatesModal={() => setIsExchangeRatesOpen(true)}
+              onOpenInventoryModal={() => setIsInventoryLedgerOpen(true)}
+              onOpenAdminCostsModal={() => setIsAdminExpensesOpen(true)}
+              onOpenNewMaterialModal={() => setIsNewMaterialOpen(true)}
+              onOpenNewClientModal={() => setIsNewClientOpen(true)}
+              onOpenNewSupplierModal={() => setIsNewSupplierOpen(true)}
+              onOpenCreateSupplier={() => setIsNewSupplierOpen(true)}
+              onOpenSupplierInvoice={() => setIsNewSupplierOpen(true)}
+              onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
+            />
+          )
         )}
 
         {activeView === 'calculator' && (
@@ -850,20 +885,41 @@ export const App: React.FC = () => {
         )}
 
         {activeView === 'ai_agent' && (
-          <FalconAIAgent
-            profile={profile}
-            currentCategory={currentCategory}
-            onApplyCategoryFromAI={handleApplyCategoryFromAI}
-            onApplyEstimatedLaborWage={handleApplyEstimatedLaborWage}
-            onTransferNotesToCalculator={handleTransferNotesToCalculator}
-            onExportStructuredToCalculator={handleExportStructuredToCalculator}
-          />
+          isUserAdmin(profile) ? (
+            <UnifiedAICommandCenter
+              profile={profile}
+              currentCategory={currentCategory}
+              onApplyCategoryFromAI={handleApplyCategoryFromAI}
+              onApplyEstimatedLaborWage={handleApplyEstimatedLaborWage}
+              onTransferNotesToCalculator={handleTransferNotesToCalculator}
+              onExportStructuredToCalculator={handleExportStructuredToCalculator}
+              onNavigateHome={goHome}
+            />
+          ) : (
+            <FalconAIAgent
+              profile={profile}
+              currentCategory={currentCategory}
+              onApplyCategoryFromAI={handleApplyCategoryFromAI}
+              onApplyEstimatedLaborWage={handleApplyEstimatedLaborWage}
+              onTransferNotesToCalculator={handleTransferNotesToCalculator}
+              onExportStructuredToCalculator={handleExportStructuredToCalculator}
+            />
+          )
         )}
 
-        {activeView === 'admin' && (
+        {(activeView === 'admin' || activeView === 'appeals' || activeView === 'messaging') && (
           <AdminDashboard
             profile={profile}
+            initialTab={
+              activeView === 'appeals'
+                ? 'appeals'
+                : activeView === 'messaging'
+                ? 'messaging'
+                : adminInitialTab
+            }
             onNavigateHome={goHome}
+            onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
+            onOpenUnifiedAI={() => navigateTo('ai_agent')}
             onProfileUpdated={(updated) => {
               setProfile(updated);
               localStorage.setItem('alshams_profile', JSON.stringify(updated));
@@ -886,11 +942,13 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* Floating Shamousa Chat Assistant (Workshop Data Only) with Falcon Handoff */}
-      <ShamousaChatWidget
-        profile={profile}
-        onOpenFalcon={() => navigateTo('ai_agent')}
-      />
+      {/* Floating Shamousa Chat Assistant: Restricted to regular artisan accounts only */}
+      {!isUserAdmin(profile) && (
+        <ShamousaChatWidget
+          profile={profile}
+          onOpenFalcon={() => navigateTo('ai_agent')}
+        />
+      )}
 
       {/* Sidebar Drawer Navigation */}
       {isSidebarOpen && (
@@ -900,7 +958,27 @@ export const App: React.FC = () => {
           profile={profile}
           activeView={activeView}
           onSelectView={(v) => {
-            navigateTo(v as ActiveView);
+            if (v === 'appeals') {
+              setAdminInitialTab('appeals');
+              navigateTo('appeals');
+            } else if (v === 'messaging') {
+              setAdminInitialTab('messaging');
+              navigateTo('messaging');
+            } else if (v === 'materials' && isUserAdmin(profile) && !switchedWorkshopContext) {
+              setAdminInitialTab('materials');
+              navigateTo('admin');
+            } else if (v === 'catalog' && isUserAdmin(profile) && !switchedWorkshopContext) {
+              setAdminInitialTab('products');
+              navigateTo('admin');
+            } else if (v === 'hr' && isUserAdmin(profile) && !switchedWorkshopContext) {
+              setAdminInitialTab('contacts');
+              navigateTo('admin');
+            } else if (v === 'treasuries' && isUserAdmin(profile) && !switchedWorkshopContext) {
+              setAdminInitialTab('treasuries');
+              navigateTo('admin');
+            } else {
+              navigateTo(v as ActiveView);
+            }
             setIsSidebarOpen(false);
           }}
           unreadNotificationsCount={notifications.filter((n) => !n.isRead).length}
@@ -1110,8 +1188,11 @@ export const App: React.FC = () => {
         <MessagesHubModal
           isOpen={isMessagesHubOpen}
           onClose={() => setIsMessagesHubOpen(false)}
+          profile={profile}
           workshopId={profile.workshopId || profile.id}
           workshopName={profile.brandName || profile.artistName || 'ورشة الشمساوية'}
+          announcements={announcements}
+          onRefreshAnnouncements={loadAnnouncements}
           onReceiptUpdate={loadAnnouncements}
         />
       )}
