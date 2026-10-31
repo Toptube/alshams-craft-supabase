@@ -120,6 +120,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         employees,
         employeePayouts,
         products,
+        adminCosts,
+        fixedAssets,
       ] = await Promise.all([
         tenantStorage.getSafeTransactions(tid).catch(() => []),
         tenantStorage.getCustomers(tid).catch(() => []),
@@ -131,7 +133,16 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         tenantStorage.getEmployees(tid).catch(() => []),
         tenantStorage.getEmployeePayouts(tid).catch(() => []),
         tenantStorage.getProducts(tid).catch(() => []),
+        tenantStorage.getAdminCosts(tid).catch(() => []),
+        tenantStorage.getFixedAssets(tid).catch(() => []),
       ]);
+
+      // Agenda appointments from local store
+      let agendaAppointments = [];
+      try {
+        const rawAgenda = localStorage.getItem(`alshams_agenda_${tid}`);
+        if (rawAgenda) agendaAppointments = JSON.parse(rawAgenda);
+      } catch {}
 
       const workshopArchive = {
         منظومة_الشمساوية: 'نسخة_كاملة_2026',
@@ -149,18 +160,21 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         فواتير_الموردين: supplierInvoices,
         فريق_العمل: employees,
         سجل_المصروفات_والأجور: employeePayouts,
+        المصاريف_الإدارية: adminCosts,
+        الأصول_الثابتة: fixedAssets,
+        أجندة_المواعيد_والتسليم: agendaAppointments,
         حركات_المخزن: inventoryTransactions,
       };
 
       const dataBlob = new Blob([JSON.stringify(workshopArchive, null, 2)], {
-        type: 'application/octet-stream;charset=utf-8',
+        type: 'application/json;charset=utf-8',
       });
       const downloadUrl = URL.createObjectURL(dataBlob);
       const downloadAnchor = document.createElement('a');
       downloadAnchor.href = downloadUrl;
       const todayStr = new Date().toISOString().slice(0, 10);
       const cleanBrand = (profile.brandName || 'ورشتي').replace(/\s+/g, '_');
-      downloadAnchor.download = `نسخة_بيانات_${cleanBrand}_${todayStr}.dat`;
+      downloadAnchor.download = `نسخة_بيانات_${cleanBrand}_${todayStr}.json`;
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       setTimeout(() => {

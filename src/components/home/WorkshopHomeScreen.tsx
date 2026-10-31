@@ -72,6 +72,8 @@ import {
   YAxis,
   CartesianGrid,
 } from 'recharts';
+import { DailyProgressStrip } from './DailyProgressStrip';
+import { WorkshopAgendaSection } from './WorkshopAgendaSection';
 
 export type HomeCardSection =
   | 'materials'
@@ -157,9 +159,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   // حالة النوافذ المفتوحة لإخفاء الزر العائم تلقائياً
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState<boolean>(false);
   const [isFavoritesModalOpen, setIsFavoritesModalOpen] = useState<boolean>(false);
+  const [isAgendaModalOpen, setIsAgendaModalOpen] = useState<boolean>(false);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState<boolean>(false);
 
-  const isModalActive = Boolean(isAnyModalOpen || isAnalyticsModalOpen || isFavoritesModalOpen);
+  const isModalActive = Boolean(
+    isAnyModalOpen || isAnalyticsModalOpen || isFavoritesModalOpen || isAgendaModalOpen
+  );
 
   useEffect(() => {
     if (isModalActive && isQuickActionsOpen) {
@@ -389,6 +394,43 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       isMounted = false;
     };
   }, [workshopId]);
+
+  // Calculations for DailyProgressStrip (مبيعات اليوم، الإنتاج المكتمل، نواقص الخامات)
+  const todayStartTs = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }, []);
+
+  const todayOrders = useMemo(() => {
+    return ordersList.filter((ord) => {
+      const ts = ord.createdAt || (ord.date ? new Date(ord.date).getTime() : 0);
+      return ts >= todayStartTs && ord.status !== 'cancelled';
+    });
+  }, [ordersList, todayStartTs]);
+
+  const todaySalesTotal = useMemo(() => {
+    return todayOrders.reduce(
+      (sum, ord) => sum + (ord.finalTotal || ord.totalAmount || ord.subtotal || 0),
+      0
+    );
+  }, [todayOrders]);
+
+  const todaySalesCount = useMemo(() => todayOrders.length, [todayOrders]);
+
+  const todayCompletedProductionCount = useMemo(() => {
+    return workOrdersList.filter((wo) => {
+      const isCompleted = wo.status === 'completed' || wo.status === 'delivered';
+      const updatedTs = wo.updatedAt || wo.completedAt || wo.createdAt || 0;
+      return isCompleted && updatedTs >= todayStartTs;
+    }).length;
+  }, [workOrdersList, todayStartTs]);
+
+  const lowStockMaterialsCount = useMemo(() => {
+    return rawMaterialsList.filter(
+      (m) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
+    ).length;
+  }, [rawMaterialsList]);
 
   // Smart Daily Tasks generated from real workshop data
   const dailyTasks = useMemo(() => {
@@ -972,6 +1014,18 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         </div>
       ) : (
         <>
+          {/* شريط "إنجاز ورشتنا اليوم" */}
+          <DailyProgressStrip
+            todaySalesTotal={todaySalesTotal}
+            todaySalesCount={todaySalesCount}
+            todayCompletedProductionCount={todayCompletedProductionCount}
+            lowStockMaterialsCount={lowStockMaterialsCount}
+            currencySymbol={profile.currencySymbol}
+            onOpenSupplierInvoice={onOpenSupplierInvoice}
+            onNavigateToSales={() => onNavigateToSales()}
+            onNavigateToWorkOrders={() => onNavigateToWorkOrders()}
+          />
+
           {/* 1. شريط مهام اليوم الذكي بتوجيه "شموسة" 🌞 */}
           <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-amber-50/80 via-white to-amber-50/40 dark:from-stone-900 dark:via-stone-850 dark:to-stone-900 border border-amber-200/90 dark:border-amber-900/40 shadow-xs space-y-3.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-amber-200/60 dark:border-stone-800 pb-3">
@@ -1299,6 +1353,13 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               </div>
             )}
           </div>
+
+          {/* 3. أجندة مواعيد ورشتنا وتسليم الطلبيات ومزامنة التقويم */}
+          <WorkshopAgendaSection
+            workshopId={workshopId}
+            brandName={profile.brandName || 'ورشتنا'}
+            onOpenModalStateChange={(isOpen) => setIsAgendaModalOpen(isOpen)}
+          />
         </>
       )}
 

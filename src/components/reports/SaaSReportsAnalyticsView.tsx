@@ -63,6 +63,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
+import { MonthlyFinancialTrendsChart } from './MonthlyFinancialTrendsChart';
 
 interface SaaSReportsAnalyticsViewProps {
   profile: UserProfile;
@@ -1174,6 +1175,15 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
             </div>
           </div>
 
+          {/* Monthly Financial Trends Chart (مقارنة الإنفاق على الخامات بالأرباح شهرياً) */}
+          <MonthlyFinancialTrendsChart
+            supplierInvoices={supplierInvoices}
+            orders={orders}
+            employeePayouts={employeePayouts}
+            adminCosts={adminCosts}
+            currencySymbol={profile.currencySymbol}
+          />
+
           {/* Fixed Assets Financial Section */}
           <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-md space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-stone-100 dark:border-stone-800 pb-3">
@@ -1660,6 +1670,15 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
       {/* CHARTS VIEW MODE (RECHARTS INTERACTIVE VISUALIZATIONS) */}
       {viewMode === 'charts' && (
         <div className="space-y-6">
+          {/* Primary Trend: Monthly Spending vs Net Profit */}
+          <MonthlyFinancialTrendsChart
+            supplierInvoices={supplierInvoices}
+            orders={orders}
+            employeePayouts={employeePayouts}
+            adminCosts={adminCosts}
+            currencySymbol={profile.currencySymbol}
+          />
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Chart 1: Profit & Loss Analysis */}
             <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">

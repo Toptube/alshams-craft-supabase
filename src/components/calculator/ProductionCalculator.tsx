@@ -62,6 +62,7 @@ import {
   ChevronDown,
   X,
 } from 'lucide-react';
+import { CostBreakdownDonutChart } from './CostBreakdownDonutChart';
 import { NumberInput } from '../ui/NumberInput';
 import {
   ensureDefaultBasicYarns,
@@ -1448,11 +1449,21 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             </div>
           </div>
 
+          {/* Interactive Cost Breakdown Donut Chart */}
+          <CostBreakdownDonutChart
+            directMaterialsCost={output.totalDirectMaterialsCost || 0}
+            laborWage={output.laborWage || 0}
+            profitAmount={output.insulatedProfitAmount || 0}
+            indirectCosts={(output.packagingCost || 0) + (output.transitFees || 0) + (output.adminExpensesShare || 0)}
+            totalSellingPrice={retailPrice || 0}
+            currencySymbol={profile.currencySymbol}
+          />
+
           {/* Insulated Selling Price Breakdown Card */}
           <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-600 via-amber-700 to-amber-900 text-white shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-white/15 pb-3">
-              <span className="text-xs font-mono text-amber-200">
-                INSULATED MARKUP ENGINE
+              <span className="text-xs font-bold text-amber-200">
+                منظومة التسعير العادل المعزول
               </span>
               <h3 className="text-sm font-extrabold flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-amber-300" />
