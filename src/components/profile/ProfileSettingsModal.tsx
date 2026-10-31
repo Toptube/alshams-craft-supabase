@@ -111,6 +111,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [exportingTarget, setExportingTarget] = useState<'local' | 'cloud' | null>(null);
   const [exportSuccessTarget, setExportSuccessTarget] = useState<'local' | 'cloud' | null>(null);
   const [exportError, setExportError] = useState('');
+  const [showCelebrationModal, setShowCelebrationModal] = useState<boolean>(false);
 
   // Socials
   const [activeSocials, setActiveSocials] = useState({
@@ -519,6 +520,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
       playSuccessSound();
       setExportSuccessTarget(storageTarget);
+      setShowCelebrationModal(true);
       setTimeout(() => setExportSuccessTarget(null), 3500);
     } catch (err: any) {
       console.error('Backup export failed:', err);
@@ -1471,7 +1473,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 {testReminderSent && (
                   <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span>تم إرسال إشعار تجريبي بنجاح! تفقّد جرس الإشعارات في شريط الـ Navbar العلوي.</span>
+                    <span>تم إرسال إشعار تجريبي بنجاح! تفقّد جرس الإشعارات في شريط الأدوات العلوي.</span>
                   </div>
                 )}
               </div>
@@ -1623,7 +1625,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 <li>سجلات الخزن النقدية وحركاتها المالية</li>
                 <li>أرشيف المبيعات والطلبيات وكشوف العملاء</li>
                 <li>سجلات الموردين وفواتير الشراء</li>
-                <li>أرصدة الخامات وتكاليف الـ WAC</li>
+                <li>أرصدة الخامات ومتوسط التكلفة المرجح</li>
                 <li>أوامر التشغيل وتتبع الهالك</li>
                 <li>ملفات العمال والسلف وكشوف الرواتب</li>
                 <li>أرشيف المنتجات الجاهزة والمسعرة</li>
@@ -1720,6 +1722,49 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           </form>
         )}
       </div>
+
+      {/* نافذة تأكيد نجاح حفظ نسخة البيانات */}
+      {showCelebrationModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
+          <div className="w-full max-w-md p-6 rounded-3xl bg-white dark:bg-stone-900 border-2 border-emerald-500/80 dark:border-emerald-500 shadow-2xl space-y-4 text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 text-white flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/30">
+              <Check className="w-9 h-9 stroke-[3]" />
+            </div>
+
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-black border border-emerald-200 dark:border-emerald-800">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>حفظ آمن ومكتمل</span>
+              </span>
+              <h3 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100 leading-snug">
+                تم حفظ كامل بيانات ورشتك بنجاح في جهازك، بياناتك في أمان تام
+              </h3>
+              <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed font-medium">
+                تم تنزيل ملف النسخة في جهازك بنجاح، ويتضمن كامل أرشيف الخامات والمنتجات والمبيعات والفواتير وسجلات الخزن.
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/80 text-right space-y-1.5 text-xs">
+              <div className="flex justify-between items-center text-stone-700 dark:text-stone-300">
+                <span className="text-stone-500">اسم الورشة:</span>
+                <span className="font-black text-amber-800 dark:text-amber-300">{profile.brandName || 'ورشة الشمساوية'}</span>
+              </div>
+              <div className="flex justify-between items-center text-stone-700 dark:text-stone-300">
+                <span className="text-stone-500">حالة النسخة:</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">مكتملة ومحفوظة في جهازك</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowCelebrationModal(false)}
+              className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-sm shadow-md shadow-emerald-600/20 transition cursor-pointer active:scale-95"
+            >
+              استمرار العمل في الورشة
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

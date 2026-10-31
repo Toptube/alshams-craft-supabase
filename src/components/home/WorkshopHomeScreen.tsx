@@ -45,6 +45,9 @@ import {
   PieChart as PieChartIcon,
   Info,
   X,
+  Scale,
+  ArrowUpRight,
+  ArrowDownRight,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -932,6 +935,162 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               }`}
             >
               <AlertTriangle className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
+
+        {/* بطاقة: ملخص حركة الورشة هذا الشهر */}
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-amber-50/70 via-stone-50 to-emerald-50/50 dark:from-stone-900 dark:via-stone-850 dark:to-stone-900 border border-amber-200/90 dark:border-amber-900/40 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/50 dark:border-stone-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 dark:bg-amber-400/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                <TrendingUp className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <h4 className="text-sm sm:text-base font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
+                  <span>ملخص حركة الورشة هذا الشهر</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 font-bold">
+                    مقارنة شهرية مباشرة
+                  </span>
+                </h4>
+                <p className="text-xs text-stone-500 dark:text-stone-400">
+                  مقارنة فورية بين دخل المبيعات وتكاليف التشغيل لاحتساب صافي حركة الورشة
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-bold text-stone-600 dark:text-stone-300">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#10b981] inline-block shadow-2xs"></span>
+                <span>إجمالي المبيعات</span>
+              </span>
+              <span className="text-stone-300 dark:text-stone-700">•</span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b] inline-block shadow-2xs"></span>
+                <span>تكاليف الإنتاج والمصروفات</span>
+              </span>
+            </div>
+          </div>
+
+          {/* 3 بطاقات مؤشرات: المبيعات، التكاليف والمصروفات، صافي الحركة */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* 1. إجمالي المبيعات */}
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-900 border border-emerald-200 dark:border-emerald-800/60 shadow-2xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 block mb-0.5">
+                  إجمالي المبيعات
+                </span>
+                <div className="text-lg sm:text-xl font-black font-mono text-emerald-700 dark:text-emerald-300">
+                  {loadingSummary ? '...' : monthSalesTotal.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
+                  <span className="text-xs font-bold font-sans text-stone-600 dark:text-stone-400">{profile.currencySymbol}</span>
+                </div>
+                <span className="text-[10px] text-emerald-600/80 font-bold block mt-0.5">
+                  عائد مبيعات المنتجات والطلبيات
+                </span>
+              </div>
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <ArrowUpRight className="w-5 h-5" />
+              </div>
+            </div>
+
+            {/* 2. تكاليف الإنتاج والمصروفات */}
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-800/60 shadow-2xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 block mb-0.5">
+                  تكاليف الإنتاج والمصروفات
+                </span>
+                <div className="text-lg sm:text-xl font-black font-mono text-amber-700 dark:text-amber-300">
+                  {loadingSummary ? '...' : totalExpenses.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
+                  <span className="text-xs font-bold font-sans text-stone-600 dark:text-stone-400">{profile.currencySymbol}</span>
+                </div>
+                <span className="text-[10px] text-amber-600/80 font-bold block mt-0.5">
+                  أجور، خامات، ومصروفات تشغيل
+                </span>
+              </div>
+              <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <ArrowDownRight className="w-5 h-5" />
+              </div>
+            </div>
+
+            {/* 3. صافي حركة الورشة */}
+            <div className={`p-3.5 rounded-2xl bg-white dark:bg-stone-900 border shadow-2xs flex items-center justify-between ${
+              (monthSalesTotal - totalExpenses) >= 0
+                ? 'border-emerald-300 dark:border-emerald-700'
+                : 'border-rose-300 dark:border-rose-700'
+            }`}>
+              <div>
+                <span className={`text-[11px] font-bold block mb-0.5 ${
+                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
+                }`}>
+                  صافي حركة الورشة
+                </span>
+                <div className={`text-lg sm:text-xl font-black font-mono ${
+                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'
+                }`}>
+                  {loadingSummary
+                    ? '...'
+                    : `${(monthSalesTotal - totalExpenses) >= 0 ? '+' : ''}${(monthSalesTotal - totalExpenses).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}`}{' '}
+                  <span className="text-xs font-bold font-sans text-stone-600 dark:text-stone-400">{profile.currencySymbol}</span>
+                </div>
+                <span className={`text-[10px] font-bold block mt-0.5 ${
+                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                }`}>
+                  {(monthSalesTotal - totalExpenses) >= 0 ? 'فائض تشغيلي مريح لورشتك' : 'التكاليف تفوق المبيعات هذا الشهر'}
+                </span>
+              </div>
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                (monthSalesTotal - totalExpenses) >= 0
+                  ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400'
+              }`}>
+                <Scale className="w-5 h-5" />
+              </div>
+            </div>
+          </div>
+
+          {/* رسم بياني سلس ومبسط لمقارنة المبيعات والتكاليف */}
+          <div className="p-3 sm:p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-stone-800 dark:text-stone-200">
+                مقارنة بيانية واضحة بين المبيعات وتكاليف الإنتاج
+              </span>
+              <span className="text-[11px] text-stone-500 font-bold">
+                حركة الشهر الحالي ({profile.currencySymbol})
+              </span>
+            </div>
+            <div className="h-44 w-full" dir="ltr">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={[
+                    { name: 'إجمالي المبيعات', value: monthSalesTotal, color: '#10b981' },
+                    { name: 'تكاليف الإنتاج والمصروفات', value: totalExpenses, color: '#f59e0b' },
+                  ]}
+                  margin={{ top: 12, right: 16, left: 16, bottom: 4 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.12} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fontWeight: 'bold' }} stroke="#888" />
+                  <YAxis tick={{ fontSize: 10 }} stroke="#888" tickFormatter={(v) => Number(v).toLocaleString()} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const item = payload[0];
+                        return (
+                          <div className="p-2.5 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl shadow-lg text-xs font-bold" dir="rtl">
+                            <div className="text-stone-700 dark:text-stone-300">{item.payload.name}</div>
+                            <div className="text-sm font-black font-mono mt-0.5" style={{ color: item.payload.color }}>
+                              {Number(item.value).toLocaleString()} {profile.currencySymbol}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                    <Cell fill="#10b981" />
+                    <Cell fill="#f59e0b" />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
         </div>

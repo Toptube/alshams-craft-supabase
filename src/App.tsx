@@ -13,6 +13,7 @@ import { getCurrentWorkshopFromSupabase } from './db/supabaseService';
 import { flushProductSync } from './db/productsCloud';
 import { tenantStorage } from './db/dexieDB';
 import { playPostaNotificationSound } from './lib/sounds';
+import { startQuietBackgroundSync } from './services/periodicQuietSync';
 
 // Access Control & Messaging
 import { AccessGate } from './components/gate/AccessGate';
@@ -289,6 +290,13 @@ export const App: React.FC = () => {
   useEffect(() => {
     loadSearchCacheAndNotifications();
   }, [loadSearchCacheAndNotifications]);
+
+  // آلية المزامنة الدورية الهادئة في الخلفية كل 30 دقيقة لمطابقة الخامات والمنتجات والمبيعات
+  useEffect(() => {
+    if (!profile) return;
+    const cleanup = startQuietBackgroundSync(profile);
+    return cleanup;
+  }, [profile?.workshopId, profile?.id]);
 
   // Check Supabase session on boot and keep persistent login
   useEffect(() => {

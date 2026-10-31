@@ -98,6 +98,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
   const [isSavingBackup, setIsSavingBackup] = useState(false);
   const [backupSuccessMessage, setBackupSuccessMessage] = useState('');
+  const [showCelebrationModal, setShowCelebrationModal] = useState(false);
 
   const handleSaveWorkshopDataToDevice = async () => {
     setIsSavingBackup(true);
@@ -129,10 +130,11 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       ]);
 
       const workshopArchive = {
-        منظومة_الشمساوية: '2026',
+        منظومة_الشمساوية: 'نسخة_كاملة_2026',
         اسم_الورشة: profile.brandName || 'ورشة الشمساوية',
         اسم_الفنان: profile.artistName || 'فنان الشمساوية',
-        تاريخ_الحفظ: new Date().toISOString(),
+        تاريخ_الحفظ: new Date().toLocaleDateString('ar-EG', { dateStyle: 'full' }),
+        وقت_الحفظ_الدقيق: new Date().toISOString(),
         بيانات_الورشة_والإعدادات: profile,
         الخامات_والمخزون: rawMaterials,
         المنتجات: products,
@@ -147,24 +149,27 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       };
 
       const dataBlob = new Blob([JSON.stringify(workshopArchive, null, 2)], {
-        type: 'application/octet-stream',
+        type: 'application/octet-stream;charset=utf-8',
       });
       const downloadUrl = URL.createObjectURL(dataBlob);
       const downloadAnchor = document.createElement('a');
       downloadAnchor.href = downloadUrl;
       const todayStr = new Date().toISOString().slice(0, 10);
-      const cleanBrand = (profile.brandName || 'ورشة_الشمساوية').replace(/\s+/g, '_');
+      const cleanBrand = (profile.brandName || 'ورشتي').replace(/\s+/g, '_');
       downloadAnchor.download = `نسخة_بيانات_${cleanBrand}_${todayStr}.dat`;
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
-      downloadAnchor.remove();
-      URL.revokeObjectURL(downloadUrl);
+      setTimeout(() => {
+        downloadAnchor.remove();
+        URL.revokeObjectURL(downloadUrl);
+      }, 500);
 
       playSuccessSound();
-      setBackupSuccessMessage('تم حفظ نسخة بيانات ورشتك بنجاح على جهازك');
+      setShowCelebrationModal(true);
+      setBackupSuccessMessage('تم حفظ كامل بيانات ورشتك بنجاح في جهازك، بياناتك في أمان تام');
       setTimeout(() => {
         setBackupSuccessMessage('');
-      }, 4500);
+      }, 6000);
     } catch (err) {
       console.error('Save copy error:', err);
       playErrorSound();
@@ -1103,6 +1108,49 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* نافذة تأكيد نجاح حفظ النسخة مميزة ومبهجة */}
+      {showCelebrationModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-950/75 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
+          <div className="w-full max-w-md p-6 rounded-3xl bg-white dark:bg-stone-900 border-2 border-emerald-500/80 dark:border-emerald-500 shadow-2xl space-y-4 text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 text-white flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/30">
+              <Check className="w-9 h-9 stroke-[3]" />
+            </div>
+
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-black border border-emerald-200 dark:border-emerald-800">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>حفظ آمن ومكتمل</span>
+              </span>
+              <h3 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100 leading-snug">
+                تم حفظ كامل بيانات ورشتك بنجاح في جهازك، بياناتك في أمان تام
+              </h3>
+              <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed font-medium">
+                تم تنزيل ملف النسخة في مجلد التنزيلات على جهازك، ويتضمن كامل أرشيف الخامات، المنتجات، المبيعات، الفواتير، وحركات الخزينة.
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/80 text-right space-y-1.5 text-xs">
+              <div className="flex justify-between items-center text-stone-700 dark:text-stone-300">
+                <span className="text-stone-500">اسم الورشة:</span>
+                <span className="font-black text-amber-800 dark:text-amber-300">{profile.brandName || 'ورشة الشمساوية'}</span>
+              </div>
+              <div className="flex justify-between items-center text-stone-700 dark:text-stone-300">
+                <span className="text-stone-500">حالة النسخة:</span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">مكتملة ومحفوظة محلياً بالكامل</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowCelebrationModal(false)}
+              className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-sm shadow-md shadow-emerald-600/20 transition cursor-pointer active:scale-95"
+            >
+              استمرار العمل في الورشة
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
