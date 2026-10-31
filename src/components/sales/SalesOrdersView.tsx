@@ -31,6 +31,7 @@ import {
   Gift,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
+import { playAlertSound, playSuccessSound } from '../../lib/sounds';
 
 interface SalesOrdersViewProps {
   profile: UserProfile;
@@ -207,7 +208,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   // Save Order
   const handleSaveOrder = async (mode: 'save_only' | 'save_and_add' | 'save_and_share') => {
     if (!selectedCustomerId) {
-      alert('يرجى اختيار العميل');
+      setStatusNotice('يرجى اختيار العميل أولاً لحفظ الطلبية');
+      playAlertSound();
+      setTimeout(() => setStatusNotice(''), 4000);
       return;
     }
 
@@ -230,7 +233,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     }
 
     if (finalItems.length === 0) {
-      alert('يرجى إضافة منتج واحد على الأقل للطلبية');
+      setStatusNotice('يرجى إضافة منتج واحد على الأقل للطلبية');
+      playAlertSound();
+      setTimeout(() => setStatusNotice(''), 4000);
       return;
     }
 
@@ -295,7 +300,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       if (matchingProduct) {
         onOpenWhatsAppQuote(matchingProduct);
       } else {
-        alert('تم حفظ الطلبية بنجاح! جاري تحويلك لعرض السعر.');
+        setStatusNotice('تم حفظ الطلبية بنجاح! يتم تجهيز عرض السعر.');
+        setTimeout(() => setStatusNotice(''), 3000);
       }
     } else if (mode === 'save_and_add') {
       setOrderLineItems([]);

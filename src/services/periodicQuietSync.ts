@@ -98,7 +98,7 @@ export async function performQuietSync(profile: UserProfile): Promise<void> {
 }
 
 /**
- * بدء دورة المزامنة الدورية كل 30 دقيقة
+ * بدء دورة المزامنة الدورية كل 30 دقيقة مع مستمع فوري لعودة الإنترنت
  */
 export function startQuietBackgroundSync(profile: UserProfile): () => void {
   stopQuietBackgroundSync();
@@ -113,10 +113,38 @@ export function startQuietBackgroundSync(profile: UserProfile): () => void {
     performQuietSync(profile);
   }, QUIET_SYNC_INTERVAL_MS);
 
+  // مستمع فوري لعودة الإنترنت: تشغيل مزامنة تلقائية لحظية دون انتظار الدورة
+  let onlineTimeout: any = null;
+  const handleOnline = () => {
+    // مهلة قصيرة (1.5 ثانية) لضمان استقرار قنوات الاتصال بالشبكة
+    if (onlineTimeout) clearTimeout(onlineTimeout);
+    onlineTimeout = setTimeout(() => {
+      performQuietSync(profile).catch(() => {});
+    }, 1500);
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', handleOnline);
+  }
+
   return () => {
     clearTimeout(initialTimeout);
+    if (onlineTimeout) {
+      clearTimeout(onlineTimeout);
+      onlineTimeout = null;
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', handleOnline);
+    }
     stopQuietBackgroundSync();
   };
+}
+
+/**
+ * إطلاق مزامنة فورية مباشرة عند الطلب
+ */
+export async function triggerInstantSync(profile: UserProfile): Promise<void> {
+  return performQuietSync(profile);
 }
 
 /**
@@ -128,3 +156,4 @@ export function stopQuietBackgroundSync(): void {
     syncTimer = null;
   }
 }
+

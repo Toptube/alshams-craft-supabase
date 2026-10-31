@@ -13,7 +13,7 @@ import {
   Globe,
   Bell,
 } from 'lucide-react';
-import { playPostaNotificationSound, playSuccessSound, playAlertSound } from '../../lib/sounds';
+import { playPostaNotificationSound, playSuccessSound, playAlertSound, playErrorSound } from '../../lib/sounds';
 
 interface MessagesHubModalProps {
   isOpen: boolean;
@@ -107,7 +107,9 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
         await refreshAll();
       }
     } catch (err: any) {
-      alert('تعذر تأكيد القراءة: ' + err.message);
+      playErrorSound();
+      setActionNotice('تعذر تأكيد القراءة: ' + (err.message || 'خطأ في الاتصال'));
+      setTimeout(() => setActionNotice(''), 4000);
     }
   };
 
@@ -137,7 +139,9 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
         await refreshAll();
       }
     } catch (err: any) {
-      alert('تعذر إرسال الرد: ' + err.message);
+      playErrorSound();
+      setActionNotice('تعذر إرسال الرد: ' + (err.message || 'خطأ في الاتصال'));
+      setTimeout(() => setActionNotice(''), 4000);
     } finally {
       setSubmittingReply(false);
     }

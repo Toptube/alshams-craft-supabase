@@ -930,10 +930,12 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   // قفل ضد الضغط المتكرر على "حفظ" (أهم سبب لتكرار المنتجات لما النت يكون ضعيف)
   const savingProductRef = useRef(false);
   const pendingNewIdRef = useRef<string | null>(null);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
 
   const handleSaveProduct = async () => {
     if (savingProductRef.current) return;
     savingProductRef.current = true;
+    setIsSavingProduct(true);
     setSaveStatus('جاري الحفظ وتوليد الرقم التسلسلي في قاعدة البيانات...');
     try {
       // معرف ثابت: لو المنتج جديد بنولّده مرة واحدة ونفضل نستخدمه، ومعاه جزء عشوائي عشان جهازين ما يطلعوش نفس الرقم
@@ -1047,6 +1049,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       setSaveStatus('تعذر الحفظ: ' + (err.message || 'خطأ غير معروف'));
     } finally {
       savingProductRef.current = false;
+      setIsSavingProduct(false);
     }
   };
 
@@ -1292,35 +1295,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             حدد الاختيارات من القوائم أعلاه لبدء تشغيل حاسبة التكاليف وعرض كافة مدخلات الأبعاد ومواصفات التشغيل.
           </p>
         </div>
-      ) : selectedCraftId !== 'macrame' ? (
-        /* 4. لأي حرفة أخرى تظهر الرسالة بدل الحاسبة */
-        <div className="p-8 sm:p-14 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm text-center space-y-4">
-          <div className="w-16 h-16 mx-auto rounded-3xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-            <Sparkles className="w-8 h-8 text-amber-600 animate-pulse" />
-          </div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-xs font-black border border-amber-300/40">
-            <span>حرفة {currentCraftDef?.nameAr || 'المشغولات اليدوية'}</span>
-            <span>•</span>
-            <span>{currentCraftDef?.badge || 'معادلات الحرفة المخصصة قريباً'}</span>
-          </div>
-          <h3 className="text-lg sm:text-xl font-black text-stone-900 dark:text-stone-100">
-            هذه الصفحة لا تزال تحت الإنشاء والتطوير وقريباً جداً ستكون متاحة لك {profile.gender === 'female' ? 'يا فنانة' : 'يا فنان'}
-          </h3>
-          <p className="text-xs text-stone-500 max-w-lg mx-auto leading-relaxed">
-            يقوم فريق العمل حالياً ببرمجة وضبط المعادلات الرياضية والميكانيكية الخاصة بحرفة {currentCraftDef?.nameAr} لحساب استهلاك الخيوط وأوزان الغرز وأبعاد القطع بأقصى دقة.
-          </p>
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={() => setSelectedCraftId('macrame')}
-              className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md shadow-amber-600/20 transition cursor-pointer"
-            >
-              العودة لحاسبة المكرمية
-            </button>
-          </div>
-        </div>
       ) : (
-        /* 3. للمكرمية: تظهر الحاسبة الحالية كما هي دون أي تغيير في النتائج */
+        /* 3. الحاسبة الهندسية والمالية الشاملة لكافة الحِرف والمشغولات اليدوية */
         <>
           {/* Grid: 2 Columns on desktop */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -2476,20 +2452,30 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           {existingRecordId ? (
             <button
               type="button"
+              disabled={isSavingProduct}
               onClick={handleSaveProduct}
-              className="flex-1 md:flex-none px-6 py-3 rounded-2xl font-black text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20 active:scale-[0.99] transition flex items-center justify-center gap-2 cursor-pointer"
+              className="flex-1 md:flex-none px-6 py-3 rounded-2xl font-black text-xs text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20 active:scale-[0.99] transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75"
             >
-              <Save className="w-4 h-4" />
-              <span>{tr('calc_save_changes_btn')}</span>
+              {isSavingProduct ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              <span>{isSavingProduct ? 'جاري الحفظ...' : tr('calc_save_changes_btn')}</span>
             </button>
           ) : (
             <button
               type="button"
+              disabled={isSavingProduct}
               onClick={handleSaveProduct}
-              className="flex-1 md:flex-none px-6 py-3 rounded-2xl font-black text-xs text-white bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 shadow-lg shadow-amber-600/20 active:scale-[0.99] transition flex items-center justify-center gap-2 cursor-pointer"
+              className="flex-1 md:flex-none px-6 py-3 rounded-2xl font-black text-xs text-white bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 shadow-lg shadow-amber-600/20 active:scale-[0.99] transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75"
             >
-              <Save className="w-4 h-4" />
-              <span>{tr('catalog_export_from_calc')}</span>
+              {isSavingProduct ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              <span>{isSavingProduct ? 'جاري الحفظ...' : tr('catalog_export_from_calc')}</span>
             </button>
           )}
 

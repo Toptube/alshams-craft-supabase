@@ -55,7 +55,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({
   const handleSendAppeal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!appealMessage.trim()) {
-      alert('يرجى كتابة تفاصيل الطعن أو الاستفسار');
+      setErrorNotice('يرجى كتابة تفاصيل الطعن أو الاستفسار');
       return;
     }
 

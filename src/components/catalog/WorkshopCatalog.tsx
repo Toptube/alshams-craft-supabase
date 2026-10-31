@@ -396,7 +396,8 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       setEditingRecord(null);
     } catch (err: any) {
       console.error('Failed to update product specs:', err);
-      alert('حدث خطأ أثناء حفظ التعديل: ' + (err.message || ''));
+      setNotice('حدث خطأ أثناء حفظ التعديل: ' + (err.message || 'خطأ غير معروف'));
+      setTimeout(() => setNotice(''), 4000);
     }
   };
 

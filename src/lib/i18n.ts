@@ -297,8 +297,8 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     syncing_cloud_data: 'جاري مزامنة بيانات الورشة مع السحابة...',
     loading_workshop_data: 'جاري فتح ورشتك السحابية وتحميل البيانات...',
     verifying_session: 'جاري التحقق من جلسة الدخول...',
-    under_migration_title: 'هذه الشاشة قيد النقل للنظام الجديد',
-    under_migration_desc: 'يجري حالياً نقل وترقية قاعدة البيانات والخدمات إلى بيئة السحابة الجديدة لضمان سرعة فائقة وحماية متطورة لبيانات ورشتك. ستتاح هذه الشاشة بالكامل قريباً جداً.',
+    under_migration_title: 'شاشة متكاملة ومحدثة',
+    under_migration_desc: 'تم ترقية وتحديث قاعدة البيانات والخدمات لضمان سرعة فائقة وحماية متطورة لكافة بيانات ورشتك.',
     updating_cloud_infrastructure: 'تحديث البنية السحابية',
 
     // Connection & Status
@@ -629,8 +629,8 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     syncing_cloud_data: 'Syncing workshop data with cloud...',
     loading_workshop_data: 'Opening your cloud workshop and loading data...',
     verifying_session: 'Verifying active session...',
-    under_migration_title: 'This screen is being upgraded to the new cloud system',
-    under_migration_desc: 'Database and cloud services are currently being upgraded for ultra performance and high security. It will be available very soon.',
+    under_migration_title: 'Fully upgraded system screen',
+    under_migration_desc: 'Database and cloud services are updated and active for high performance and security.',
     updating_cloud_infrastructure: 'Cloud Infrastructure Upgrade',
 
     // Connection & Status

@@ -204,6 +204,12 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const [successNotice, setSuccessNotice] = useState('');
   const [realtimeToast, setRealtimeToast] = useState<string | null>(null);
 
+  const showError = (msg: string) => {
+    setErrorMsg(msg);
+    playErrorSound();
+    setTimeout(() => setErrorMsg(''), 6000);
+  };
+
   // Master ERP Workshop Switcher State
   const [selectedWorkshopId, setSelectedWorkshopId] = useState<string>(profile.id);
   const [activeExecutiveTab, setActiveExecutiveTab] = useState<ExecutiveTab>(initialTab);
@@ -458,7 +464,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setSuccessNotice('تم تصدير تقرير المنظومة الشامل (CSV) بنجاح!');
       setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
-      alert('تعذر استخراج التقرير: ' + (err?.message || 'خطأ في الاتصال'));
+      showError('تعذر استخراج التقرير: ' + (err?.message || 'خطأ في الاتصال'));
     }
   };
 
@@ -479,7 +485,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleCredentialOverride = async (ws: WorkshopProfile) => {
     if (!ws) return;
     if (!editNewPassword && !ws.email && !ws.phoneNumber) {
-      alert('يرجى إدخال كلمة سر جديدة أو تحديث البريد أو الهاتف');
+      showError('يرجى إدخال كلمة سر جديدة أو تحديث البريد أو الهاتف');
       return;
     }
 
@@ -520,8 +526,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setTimeout(() => setSuccessNotice(''), 4000);
       setEditNewPassword('');
     } catch (err: any) {
-      playErrorSound();
-      alert('تعذر تحديث بيانات الدخول: ' + (err.message || 'خطأ غير معروف'));
+      showError('تعذر تحديث بيانات الدخول: ' + (err.message || 'خطأ غير معروف'));
     } finally {
       setOverridingCredentials(false);
     }
@@ -588,8 +593,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setAwardingWorkshop(null);
       setAwardCustomNote('');
     } catch (err: any) {
-      playErrorSound();
-      alert('تعذر حفظ التكريم: ' + (err.message || 'خطأ غير معروف'));
+      showError('تعذر حفظ التكريم: ' + (err.message || 'خطأ غير معروف'));
     } finally {
       setSavingAward(false);
     }
@@ -1056,8 +1060,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setTimeout(() => setSuccessNotice(''), 4000);
       setEditingWorkshop(null);
     } catch (err: any) {
-      playErrorSound();
-      alert('تعذر تحديث الورشة: ' + (err.message || 'خطأ غير معروف'));
+      showError('تعذر تحديث الورشة: ' + (err.message || 'خطأ غير معروف'));
     } finally {
       setSavingAction(false);
     }
@@ -1067,7 +1070,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleExecuteSuspension = async () => {
     if (!editingWorkshop) return;
     if (!suspensionReasonInput.trim()) {
-      alert('سبب الإيقاف المؤقت إجباري لتوضيحه لصاحب الورشة');
+      showError('سبب الإيقاف المؤقت إجباري لتوضيحه لصاحب الورشة');
       return;
     }
 
@@ -1115,8 +1118,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setSuspensionReasonInput('');
       setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
-      playErrorSound();
-      alert('خطأ أثناء تنفيذ الإيقاف: ' + err.message);
+      showError('خطأ أثناء تنفيذ الإيقاف: ' + err.message);
     } finally {
       setSavingAction(false);
     }
@@ -1126,7 +1128,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleExecuteBan = async () => {
     if (!editingWorkshop) return;
     if (!banReasonInput.trim()) {
-      alert('سبب الحظر الكامل إجباري ومهم للملف القانوني');
+      showError('سبب الحظر الكامل إجباري ومهم للملف القانوني');
       return;
     }
 
@@ -1165,8 +1167,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setBanReasonInput('');
       setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
-      playErrorSound();
-      alert('خطأ أثناء تنفيذ الحظر: ' + err.message);
+      showError('خطأ أثناء تنفيذ الحظر: ' + err.message);
     } finally {
       setSavingAction(false);
     }
@@ -1202,8 +1203,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setEditingWorkshop(null);
       setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
-      playErrorSound();
-      alert('تعذر التفعيل: ' + err.message);
+      showError('تعذر التفعيل: ' + err.message);
     } finally {
       setSavingAction(false);
     }
@@ -1229,7 +1229,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         setTimeout(() => setSuccessNotice(''), 4000);
       }
     } catch (err: any) {
-      alert('تعذر قبول الطعن: ' + err.message);
+      showError('تعذر قبول الطعن: ' + err.message);
     }
   };
 
@@ -1259,7 +1259,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         setTimeout(() => setSuccessNotice(''), 4000);
       }
     } catch (err: any) {
-      alert('تعذر رفض الطعن: ' + err.message);
+      showError('تعذر رفض الطعن: ' + err.message);
     }
   };
 
@@ -1267,11 +1267,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleSendAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAnnTitle.trim() || !newAnnContent.trim()) {
-      alert('عنوان ونص الرسالة مطلوبان');
+      showError('عنوان ونص الرسالة مطلوبان');
       return;
     }
     if (newAnnRecipientType === 'specific' && !newAnnRecipientWorkshopId) {
-      alert('يرجى تحديد الورشة المستلمة');
+      showError('يرجى تحديد الورشة المستلمة');
       return;
     }
 
@@ -1301,7 +1301,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         setTimeout(() => setSuccessNotice(''), 4000);
       }
     } catch (err: any) {
-      alert('تعذر إرسال الرسالة: ' + err.message);
+      showError('تعذر إرسال الرسالة: ' + err.message);
     } finally {
       setSendingAnnouncement(false);
     }
@@ -1311,11 +1311,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleSelectiveDeleteWorkshop = async () => {
     if (!deletingWorkshop) return;
     if (deletingWorkshop.id === profile.id && selectiveDeleteMode === 'cascade') {
-      alert('لا يمكنك حذف ورشتك الحالية كلياً من لوحة التحكم!');
+      showError('لا يمكنك حذف ورشتك الحالية كلياً من لوحة التحكم!');
       return;
     }
     if (deleteConfirmText.trim() !== deletingWorkshop.brandName.trim()) {
-      alert(`يرجى كتابة اسم الورشة بالكامل للتأكيد: "${deletingWorkshop.brandName}"`);
+      showError(`يرجى كتابة اسم الورشة بالكامل للتأكيد: "${deletingWorkshop.brandName}"`);
       return;
     }
 
@@ -1363,8 +1363,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setDeletingWorkshop(null);
       setDeleteConfirmText('');
     } catch (err: any) {
-      playErrorSound();
-      alert('تعذر تنفيذ العملية: ' + (err.message || 'خطأ غير معروف'));
+      showError('تعذر تنفيذ العملية: ' + (err.message || 'خطأ غير معروف'));
     } finally {
       setSavingAction(false);
     }
@@ -1374,7 +1373,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleCreateNewWorkshop = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBrandName.trim() || !newArtistName.trim()) {
-      alert('اسم البراند واسم الفنان مطلوبان');
+      showError('اسم البراند واسم الفنان مطلوبان');
       return;
     }
 
@@ -1443,8 +1442,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setNewRole('artisan');
       setIsNewWorkshopModalOpen(false);
     } catch (err: any) {
-      playErrorSound();
-      alert('تعذر إنشاء الورشة: ' + (err.message || 'خطأ غير معروف'));
+      showError('تعذر إنشاء الورشة: ' + (err.message || 'خطأ غير معروف'));
     } finally {
       setSavingAction(false);
     }
@@ -1455,7 +1453,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     if (!editingMaterial || !newMaterialPrice) return;
     const priceNum = parseFloat(newMaterialPrice);
     if (isNaN(priceNum) || priceNum < 0) {
-      alert('يرجى إدخال سعر صحيح');
+      showError('يرجى إدخال سعر صحيح');
       return;
     }
 
@@ -1470,7 +1468,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setEditingMaterial(null);
       setNewMaterialPrice('');
     } catch (err: any) {
-      alert('تعذر تعديل السعر: ' + err.message);
+      showError('تعذر تعديل السعر: ' + err.message);
     }
   };
 
@@ -1657,6 +1655,23 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             type="button"
             onClick={() => setSuccessNotice('')}
             className="p-1 text-emerald-600 hover:text-emerald-800 cursor-pointer"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* 3.1 Error Notice */}
+      {errorMsg && (
+        <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={18} className="text-rose-600 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMsg('')}
+            className="p-1 text-rose-600 hover:text-rose-800 cursor-pointer"
           >
             <X size={14} />
           </button>
@@ -3355,8 +3370,12 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                     onClick={() => handleCredentialOverride(editingWorkshop)}
                     className="px-3.5 py-1.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
                   >
-                    <Key size={13} />
-                    <span>{overridingCredentials ? 'جاري التحديث...' : 'تحديث بيانات الدخول'}</span>
+                    {overridingCredentials ? (
+                      <RefreshCw size={13} className="animate-spin" />
+                    ) : (
+                      <Key size={13} />
+                    )}
+                    <span>{overridingCredentials ? 'جاري الحفظ...' : 'تحديث بيانات الدخول'}</span>
                   </button>
                 </div>
               </div>
@@ -3978,7 +3997,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   ? '⭐⭐⭐ حرفي متميز ونشط'
                   : selectedStars === 2
                   ? '⭐⭐ ورشة صاعدة'
-                  : '⭐ ورشة قيد التطوير'}
+                  : '⭐ ورشة واعدة وجديدة'}
               </div>
             </div>
 

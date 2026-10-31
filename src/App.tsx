@@ -627,6 +627,30 @@ export const App: React.FC = () => {
     );
   }
 
+  // Track if any modal, drawer, or dialog is currently open across the entire application
+  const isAnyModalOpen = Boolean(
+    isSidebarOpen ||
+    isSearchOpen ||
+    isNotificationsOpen ||
+    isProfileSettingsOpen ||
+    isCraftsSelectorOpen ||
+    isUserGuideOpen ||
+    isCloudMigrationOpen ||
+    isSupportOpen ||
+    isTourOpen ||
+    isExchangeRatesOpen ||
+    isInventoryLedgerOpen ||
+    isMaterialsModalOpen ||
+    isProductsModalOpen ||
+    isAdminExpensesOpen ||
+    isNewMaterialOpen ||
+    isNewClientOpen ||
+    isNewSupplierOpen ||
+    isNewEmployeeOpen ||
+    isQuoteDrawerOpen ||
+    isMessagesHubOpen
+  );
+
   return (
     <div className="min-h-screen flex flex-col bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200" dir="rtl">
       {/* Top Navbar */}
@@ -808,6 +832,7 @@ export const App: React.FC = () => {
               onOpenCreateSupplier={() => setIsNewSupplierOpen(true)}
               onOpenSupplierInvoice={() => setIsNewSupplierOpen(true)}
               onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
+              isAnyModalOpen={isAnyModalOpen}
             />
           )
         )}
@@ -1032,6 +1057,10 @@ export const App: React.FC = () => {
             } else if (v === 'treasuries' && isUserAdmin(profile) && !switchedWorkshopContext) {
               setAdminInitialTab('treasuries');
               navigateTo('admin');
+            } else if (v === 'currency_rates') {
+              setIsExchangeRatesOpen(true);
+            } else if (v === 'expenses') {
+              setIsAdminExpensesOpen(true);
             } else if (v === 'inventory') {
               setIsMaterialsModalOpen(true);
             } else {

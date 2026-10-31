@@ -46,6 +46,7 @@ export const Register: React.FC<RegisterProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [termsError, setTermsError] = useState('');
 
   const selectedCountry =
     COUNTRIES_CONFIG.find((c) => c.code === countryCode) || COUNTRIES_CONFIG[0];
@@ -53,9 +54,10 @@ export const Register: React.FC<RegisterProps> = ({
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!agreeTerms) {
-      alert('يجب الموافقة على سياسات وشروط وأحكام منظومة الشمساوية أولاً للمتابعة.');
+      setTermsError('يجب الموافقة على سياسات وشروط وأحكام منظومة الشمساوية أولاً للمتابعة.');
       return;
     }
+    setTermsError('');
     onSubmit(e);
   };
 
@@ -72,10 +74,10 @@ export const Register: React.FC<RegisterProps> = ({
       </div>
 
       {/* Error alert */}
-      {errorMsg && (
+      {(errorMsg || termsError) && (
         <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span>{errorMsg}</span>
+          <span>{termsError || errorMsg}</span>
         </div>
       )}
 
