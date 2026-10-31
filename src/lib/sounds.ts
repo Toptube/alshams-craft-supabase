@@ -267,6 +267,22 @@ export function playSuccessSound(): void {
 }
 
 /**
+ * نغمة إنجاز مهمة هادئة (Peaceful Task Completion Chime):
+ * نغمة إنجاز هادئة ومبهجة تشجع الفنان عند إتمام مهمة يومية بتأثير شطب سلس
+ */
+export function playTaskDoneSound(): void {
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+  // لحن رقيق مهدئ (F5 -> A5 -> C6)
+  playTone(ctx, 698.46, now + 0.00, 0.16, 0.12, 'sine');
+  playTone(ctx, 880.00, now + 0.08, 0.20, 0.14, 'sine');
+  playTone(ctx, 1046.50, now + 0.16, 0.38, 0.16, 'triangle');
+}
+
+/**
  * 8. صوت الخطأ (Error Sound):
  * نغمة مزدوجة منخفضة ولطيفة
  */

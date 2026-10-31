@@ -44,3 +44,38 @@
 .animate-pulse-subtle {
   animation: pulse-subtle 3s infinite ease-in-out;
 }
+
+/* وضع السهر الحرفي المريح للعين (Night Focus Mode) - كهرمان وعنبر داكن مريح لعين الفنان */
+html.night-focus.dark body {
+  background-color: #16120e !important;
+  color: #f5f2eb !important;
+}
+
+html.night-focus.dark header {
+  background-color: rgba(26, 21, 16, 0.96) !important;
+  border-bottom-color: rgba(180, 83, 9, 0.28) !important;
+}
+
+html.night-focus.dark .dark\:bg-stone-900 {
+  background-color: #1d1712 !important;
+}
+
+html.night-focus.dark .dark\:bg-stone-950 {
+  background-color: #140f0c !important;
+}
+
+html.night-focus.dark .dark\:bg-stone-850 {
+  background-color: #241c15 !important;
+}
+
+html.night-focus.dark .dark\:bg-stone-800 {
+  background-color: #2b221a !important;
+}
+
+html.night-focus.dark .dark\:border-stone-800 {
+  border-color: rgba(180, 83, 9, 0.25) !important;
+}
+
+html.night-focus.dark .dark\:border-stone-700 {
+  border-color: rgba(180, 83, 9, 0.35) !important;
+}

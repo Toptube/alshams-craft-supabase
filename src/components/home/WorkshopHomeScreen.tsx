@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserProfile } from '../../types';
+import { UserProfile, ThemeMode } from '../../types';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { tenantStorage } from '../../db/dexieDB';
+import { firestoreService } from '../../db/firestoreService';
+import { playTaskDoneSound, playButtonClickSound } from '../../lib/sounds';
 import { useTranslation } from '../../lib/i18n';
 import {
   Layers,
@@ -39,6 +41,8 @@ import {
   Tag,
   Warehouse,
   CheckCircle,
+  CheckCircle2,
+  Check,
   HelpCircle,
   Coins,
   Building,
@@ -48,6 +52,13 @@ import {
   Scale,
   ArrowUpRight,
   ArrowDownRight,
+  Star,
+  Search,
+  Sun,
+  Moon,
+  Calendar,
+  Pin,
+  ExternalLink,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -102,6 +113,8 @@ export interface WorkshopHomeScreenProps {
   onOpenSupplierInvoice: () => void;
   onOpenNewEmployeeModal: () => void;
   isAnyModalOpen?: boolean;
+  themeMode?: ThemeMode;
+  onSelectThemeMode?: (mode: ThemeMode) => void;
 }
 
 export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
@@ -131,17 +144,22 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onOpenSupplierInvoice,
   onOpenNewEmployeeModal,
   isAnyModalOpen = false,
+  themeMode = 'light',
+  onSelectThemeMode,
 }) => {
   const { t: tr, lang } = useTranslation();
 
   // Active sub-screen state (null = main 11-card grid)
   const [activeSubSection, setActiveSubSection] = useState<HomeCardSection | null>(null);
 
+  const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
+
   // حالة النوافذ المفتوحة لإخفاء الزر العائم تلقائياً
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState<boolean>(false);
+  const [isFavoritesModalOpen, setIsFavoritesModalOpen] = useState<boolean>(false);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState<boolean>(false);
 
-  const isModalActive = Boolean(isAnyModalOpen || isAnalyticsModalOpen);
+  const isModalActive = Boolean(isAnyModalOpen || isAnalyticsModalOpen || isFavoritesModalOpen);
 
   useEffect(() => {
     if (isModalActive && isQuickActionsOpen) {
@@ -166,7 +184,81 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const [materialsCount, setMaterialsCount] = useState<number>(0);
   const [loadingSummary, setLoadingSummary] = useState(true);
 
-  const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
+  // Data lists for Smart Daily Tasks and Artisan Favorites
+  const [rawMaterialsList, setRawMaterialsList] = useState<any[]>([]);
+  const [productsList, setProductsList] = useState<any[]>([]);
+  const [ordersList, setOrdersList] = useState<any[]>([]);
+  const [workOrdersList, setWorkOrdersList] = useState<any[]>([]);
+
+  // Daily Tasks Completion State (persisted per day)
+  const todayDateStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const dailyTasksStorageKey = `alshams_daily_tasks_${workshopId}_${todayDateStr}`;
+
+  const [completedDailyTaskIds, setCompletedDailyTaskIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(dailyTasksStorageKey);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleToggleDailyTask = (taskId: string) => {
+    setCompletedDailyTaskIds((prev) => {
+      const isDone = prev.includes(taskId);
+      let next: string[];
+      if (isDone) {
+        next = prev.filter((id) => id !== taskId);
+      } else {
+        next = [...prev, taskId];
+        playTaskDoneSound();
+      }
+      try {
+        localStorage.setItem(dailyTasksStorageKey, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Artisan Favorites State (starred products and materials)
+  const favStorageKey = `alshams_favorites_${workshopId}`;
+  const [favorites, setFavorites] = useState<{ products: string[]; materials: string[] }>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(favStorageKey);
+        if (raw) return JSON.parse(raw);
+      } catch {}
+    }
+    return { products: [], materials: [] };
+  });
+
+  const [favModalTab, setFavModalTab] = useState<'products' | 'materials'>('products');
+  const [favModalSearch, setFavModalSearch] = useState('');
+
+  const handleToggleFavorite = (type: 'product' | 'material', id: string) => {
+    playButtonClickSound();
+    setFavorites((prev) => {
+      let next: { products: string[]; materials: string[] };
+      if (type === 'product') {
+        const exists = prev.products.includes(id);
+        next = {
+          ...prev,
+          products: exists ? prev.products.filter((x) => x !== id) : [...prev.products, id],
+        };
+      } else {
+        const exists = prev.materials.includes(id);
+        next = {
+          ...prev,
+          materials: exists ? prev.materials.filter((x) => x !== id) : [...prev.materials, id],
+        };
+      }
+      try {
+        localStorage.setItem(favStorageKey, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Load summary metrics once on mount
   useEffect(() => {
@@ -190,13 +282,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           treasuriesSum = (safe.mainSafe || 0) + (safe.subSafe || 0);
         }
 
-        // 2. Current Month Sales
+        // 2. Current Month Sales & Orders
         let salesSum = 0;
+        let ordersData: any[] = [];
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
         try {
-          const orders = await tenantStorage.getOrders(workshopId).catch(() => []);
-          salesSum = orders
+          ordersData = await tenantStorage.getOrders(workshopId).catch(() => []);
+          salesSum = ordersData
             .filter((ord) => (ord.createdAt || 0) >= startOfMonth && ord.status !== 'cancelled')
             .reduce((sum, ord) => sum + (ord.finalTotal || ord.totalAmount || ord.subtotal || 0), 0);
         } catch {
@@ -207,13 +300,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         let alerts = 0;
         let invTotal = 0;
         let matsCount = 0;
+        let rawData: any[] = [];
         try {
-          const raw = await tenantStorage.getRawMaterials(workshopId).catch(() => []);
-          matsCount = raw.length;
-          alerts = raw.filter(
+          rawData = await tenantStorage.getRawMaterials(workshopId).catch(() => []);
+          matsCount = rawData.length;
+          alerts = rawData.filter(
             (m) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
           ).length;
-          invTotal = raw.reduce((sum, m) => sum + ((Number(m.currentStock) || 0) * (Number(m.costPerUnit) || 0)), 0);
+          invTotal = rawData.reduce((sum, m) => sum + ((Number(m.currentStock) || 0) * (Number(m.costPerUnit) || 0)), 0);
         } catch {
           alerts = 0;
         }
@@ -222,22 +316,29 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         let prodCostSum = 0;
         let prodRetailSum = 0;
         let prodsCount = 0;
+        let prodsData: any[] = [];
         try {
-          const prods = await tenantStorage.getProducts(workshopId).catch(() => []);
-          prodsCount = prods.length;
-          prodCostSum = prods.reduce((sum: number, p: any) => {
+          prodsData = await tenantStorage.getProducts(workshopId).catch(() => []);
+          prodsCount = prodsData.length;
+          prodCostSum = prodsData.reduce((sum: number, p: any) => {
             const qty = Number(p.currentStock ?? 1);
             const cost = Number(p.costPrice || p.costPerUnit || 0);
             return sum + (cost * qty);
           }, 0);
-          prodRetailSum = prods.reduce((sum: number, p: any) => {
+          prodRetailSum = prodsData.reduce((sum: number, p: any) => {
             const qty = Number(p.currentStock ?? 1);
             const price = Number(p.sellingPrice || p.retailPrice || 0);
             return sum + (price * qty);
           }, 0);
         } catch {}
 
-        // 5. Expenses Breakdown (Admin Costs, Wages, Supplier Purchases)
+        // 5. Work Orders
+        let workOrdersData: any[] = [];
+        try {
+          workOrdersData = await firestoreService.getWorkOrders(workshopId).catch(() => []);
+        } catch {}
+
+        // 6. Expenses Breakdown (Admin Costs, Wages, Supplier Purchases)
         let adminSum = 0;
         let wagesSum = 0;
         let purchasesSum = 0;
@@ -253,6 +354,11 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         } catch {}
 
         if (isMounted) {
+          setRawMaterialsList(rawData || []);
+          setProductsList(prodsData || []);
+          setOrdersList(ordersData || []);
+          setWorkOrdersList(workOrdersData || []);
+
           setTotalTreasuryBalance(Math.round(treasuriesSum));
           setMonthSalesTotal(Math.round(salesSum));
           setStockAlertCount(alerts);
@@ -283,6 +389,111 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       isMounted = false;
     };
   }, [workshopId]);
+
+  // Smart Daily Tasks generated from real workshop data
+  const dailyTasks = useMemo(() => {
+    const list: Array<{
+      id: string;
+      type: 'stock' | 'work_order' | 'invoice' | 'routine';
+      title: string;
+      detail: string;
+      urgency: 'high' | 'medium' | 'normal';
+      actionLabel: string;
+      onAction?: () => void;
+    }> = [];
+
+    // 1. تنبيه بنواقص الخامات التي وصلت لحد الطلب الأدنى أو تحته
+    const depleting = rawMaterialsList.filter(
+      (m) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
+    );
+    depleting.slice(0, 3).forEach((m) => {
+      list.push({
+        id: `task_mat_${m.id}`,
+        type: 'stock',
+        title: `الخامة "${m.materialName}" قربت تخلص.. محتاجين نطلب منها`,
+        detail: `الرصيد المتبقي: ${m.currentStock} ${m.unit || 'وحدة'} (حد الأمان: ${m.minAlertThreshold || 5})`,
+        urgency: 'high',
+        actionLabel: 'طلب توريد خامة',
+        onAction: () => onOpenSupplierInvoice(),
+      });
+    });
+
+    // 2. تنبيه بأوامر التشغيل المفتوحة قيد التنفيذ
+    const openWo = workOrdersList.filter(
+      (wo) => wo.status === 'open' || wo.status === 'in_progress'
+    );
+    openWo.slice(0, 2).forEach((wo) => {
+      list.push({
+        id: `task_wo_${wo.id}`,
+        type: 'work_order',
+        title: `أمر التشغيل لمنتج "${wo.productName}" قيد التنفيذ بالورشة`,
+        detail: `الكمية المستهدفة: ${wo.targetQuantity || 1} قطعة · يرجى متابعة نسب الإنجاز والتسليم`,
+        urgency: 'medium',
+        actionLabel: 'متابعة أمر التشغيل',
+        onAction: () => onNavigateToWorkOrders(),
+      });
+    });
+
+    // 3. تنبيه بالفواتير المستحقة أو الدفعات المتبقية
+    const pendingOrders = ordersList.filter(
+      (o) => (o.remainingAmount || 0) > 0 && o.status !== 'cancelled'
+    );
+    pendingOrders.slice(0, 2).forEach((ord) => {
+      list.push({
+        id: `task_ord_${ord.id}`,
+        type: 'invoice',
+        title: `تحصيل دفعة متبقية لطلبية "${ord.customerName || 'عميل الورشة'}"`,
+        detail: `متبقي تحصيل ${Number(ord.remainingAmount).toLocaleString()} ${profile.currencySymbol} من إجمالي الفاتورة`,
+        urgency: 'medium',
+        actionLabel: 'متابعة التحصيل',
+        onAction: () => onNavigateToSales(),
+      });
+    });
+
+    // 4. مهام تشغيلية دورية لتأكيد استقرار وانضباط الورشة
+    list.push({
+      id: 'task_routine_treasury',
+      type: 'routine',
+      title: 'مطابقة الخزينة وحساب نقدية الورشة اليومية',
+      detail: 'تسجيل المقبوضات وتأكيد رصيد الخزينة بنهاية يوم العمل',
+      urgency: 'normal',
+      actionLabel: 'فحص الخزائن',
+      onAction: () => onNavigateToTreasuries(),
+    });
+
+    list.push({
+      id: 'task_routine_calc',
+      type: 'routine',
+      title: 'احتساب تكاليف صنف جديد وفحص هوامش الربح',
+      detail: 'استخدام حاسبة الإنتاج لحساب استهلاك الخامات وأجر المصنعية',
+      urgency: 'normal',
+      actionLabel: 'فتح الحاسبة',
+      onAction: () => onNavigateToCalculator(),
+    });
+
+    return list;
+  }, [
+    rawMaterialsList,
+    workOrdersList,
+    ordersList,
+    profile.currencySymbol,
+    onOpenSupplierInvoice,
+    onNavigateToWorkOrders,
+    onNavigateToSales,
+    onNavigateToTreasuries,
+    onNavigateToCalculator,
+  ]);
+
+  // Favorite Items Derivation
+  const starredProducts = useMemo(() => {
+    return productsList.filter((p) => favorites.products.includes(p.id));
+  }, [productsList, favorites.products]);
+
+  const starredMaterials = useMemo(() => {
+    return rawMaterialsList.filter((m) => favorites.materials.includes(m.id));
+  }, [rawMaterialsList, favorites.materials]);
+
+  const hasAnyFavorites = starredProducts.length > 0 || starredMaterials.length > 0;
 
   // The 11 Core Cards definition with translations
   const coreCards = [
@@ -760,29 +971,335 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           </div>
         </div>
       ) : (
-        /* 3. The 11 Core Cards Grid (Requirement 2: 3 in a row on mobile, Icon + One Word Only) */
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
-          {coreCards.map((card) => {
-            const Icon = card.icon;
-            return (
-              <button
-                key={card.id}
-                type="button"
-                onClick={() => setActiveSubSection(card.id)}
-                className="p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-amber-500 dark:hover:border-amber-500 hover:shadow-md transition-all duration-200 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 cursor-pointer shadow-xs active:scale-95 group min-h-[82px] sm:min-h-[100px]"
-              >
-                <div
-                  className={`w-9 h-9 sm:w-11 sm:h-11 rounded-2xl ${card.bgColor} ${card.color} flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform`}
-                >
-                  <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+        <>
+          {/* 1. شريط مهام اليوم الذكي بتوجيه "شموسة" 🌞 */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-amber-50/80 via-white to-amber-50/40 dark:from-stone-900 dark:via-stone-850 dark:to-stone-900 border border-amber-200/90 dark:border-amber-900/40 shadow-xs space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-amber-200/60 dark:border-stone-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-500 text-white flex items-center justify-center font-bold shadow-md shadow-amber-500/20 text-lg shrink-0">
+                  🌞
                 </div>
-                <span className="text-xs sm:text-sm font-black text-stone-800 dark:text-stone-200 tracking-tight block leading-tight">
-                  {card.label}
-                </span>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm sm:text-base font-black text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                      <span>توجيهات ومهام اليوم من شموسة</span>
+                    </h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-300 font-bold border border-amber-300/60 dark:border-amber-800">
+                      ذكاء تشغيلي مباشر
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                    مهام تشغيلية مقترحة آلياً بناءً على حركة الخامات والطلبيات في ورشتك
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+                {/* زر تفعيل وضع السهر الهادئ المريح لعين الفنان */}
+                {onSelectThemeMode && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectThemeMode(themeMode === 'night_focus' ? 'light' : 'night_focus')}
+                    className={`px-3 py-1.5 rounded-xl border text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                      themeMode === 'night_focus'
+                        ? 'bg-amber-950/80 text-amber-200 border-amber-600/80 ring-1 ring-amber-500/40'
+                        : 'bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                    }`}
+                    title="وضع السهر الهادئ - درجات الكهرمان المريحة للعين ليلاً"
+                  >
+                    <Sparkles className={`w-3.5 h-3.5 ${themeMode === 'night_focus' ? 'text-amber-400' : 'text-stone-400'}`} />
+                    <span>{themeMode === 'night_focus' ? 'وضع السهر (نشط) 🌙' : 'وضع السهر 🌙'}</span>
+                  </button>
+                )}
+
+                {/* مؤشر إنجاز المهام */}
+                <div className="px-3 py-1.5 rounded-xl bg-amber-100/70 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 text-xs font-black border border-amber-300/60 dark:border-amber-800/60">
+                  <span>{completedDailyTaskIds.filter((id) => dailyTasks.some((t) => t.id === id)).length} من {dailyTasks.length} منجز</span>
+                </div>
+              </div>
+            </div>
+
+            {/* قائمة المهام الذكية */}
+            <div className="space-y-2">
+              {dailyTasks.map((task) => {
+                const isDone = completedDailyTaskIds.includes(task.id);
+                return (
+                  <div
+                    key={task.id}
+                    className={`p-3 rounded-2xl border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                      isDone
+                        ? 'bg-emerald-50/40 dark:bg-emerald-950/15 border-emerald-200 dark:border-emerald-900/40 opacity-70'
+                        : task.urgency === 'high'
+                        ? 'bg-white dark:bg-stone-900 border-amber-300/90 dark:border-amber-800/80 shadow-2xs'
+                        : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3 min-w-0">
+                      {/* زر الإنجاز التفاعلي الناعم بنغمة هادئة وتأثير شطب سلس */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleDailyTask(task.id)}
+                        className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 border transition-all cursor-pointer mt-0.5 active:scale-90 ${
+                          isDone
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs ring-2 ring-emerald-500/30'
+                            : 'bg-stone-50 dark:bg-stone-800 text-stone-300 hover:text-emerald-600 border-stone-300 dark:border-stone-700 hover:border-emerald-500'
+                        }`}
+                        title={isDone ? 'إلغاء التأشير' : 'تحديد كمهمة منجزة'}
+                        aria-label="تحديد المهمة كمنجزة"
+                      >
+                        <Check className={`w-4 h-4 stroke-[2.5] ${isDone ? 'scale-100' : 'scale-90'}`} />
+                      </button>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`text-xs sm:text-sm font-black transition-all duration-300 ${
+                              isDone
+                                ? 'line-through text-stone-400 dark:text-stone-500'
+                                : 'text-stone-900 dark:text-stone-100'
+                            }`}
+                          >
+                            {task.title}
+                          </span>
+                          {task.urgency === 'high' && !isDone && (
+                            <span className="text-[10px] px-2 py-0.2 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-bold">
+                              عاجل
+                            </span>
+                          )}
+                        </div>
+                        <p
+                          className={`text-[11px] mt-0.5 transition-all duration-300 ${
+                            isDone
+                              ? 'line-through text-stone-400 dark:text-stone-600'
+                              : 'text-stone-500 dark:text-stone-400'
+                          }`}
+                        >
+                          {task.detail}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* زر الإجراء السريع للمهمة */}
+                    {task.onAction && (
+                      <button
+                        type="button"
+                        onClick={task.onAction}
+                        disabled={isDone}
+                        className={`self-end sm:self-center px-3 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                          isDone
+                            ? 'bg-stone-100 text-stone-400 dark:bg-stone-800 dark:text-stone-600 cursor-not-allowed opacity-50'
+                            : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60 shadow-2xs active:scale-95'
+                        }`}
+                      >
+                        <span>{task.actionLabel}</span>
+                        <ArrowLeftRight className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* رسالة تشجيعية عند إنجاز جميع المهام */}
+            {dailyTasks.length > 0 &&
+              completedDailyTaskIds.filter((id) => dailyTasks.some((t) => t.id === id)).length ===
+                dailyTasks.length && (
+                <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-teal-500/20 to-emerald-500/15 border border-emerald-300 dark:border-emerald-700 text-emerald-950 dark:text-emerald-100 text-xs font-black flex items-center justify-between gap-2 animate-in fade-in duration-300">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🌟</span>
+                    <span>عاش يا فنان! تم إنجاز جميع توجيهات ومهام ورشتك لليوم بنجاح وإتقان.</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-300 font-bold bg-white/60 dark:bg-stone-900/60 px-2.5 py-1 rounded-xl">
+                    100% مكتمل
+                  </span>
+                </div>
+              )}
+          </div>
+
+          {/* 2. شبكة البطاقات الإدارية الرئيسية (11 بطاقة) */}
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
+            {coreCards.map((card) => {
+              const Icon = card.icon;
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => setActiveSubSection(card.id)}
+                  className="p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-amber-500 dark:hover:border-amber-500 hover:shadow-md transition-all duration-200 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 cursor-pointer shadow-xs active:scale-95 group min-h-[82px] sm:min-h-[100px]"
+                >
+                  <div
+                    className={`w-9 h-9 sm:w-11 sm:h-11 rounded-2xl ${card.bgColor} ${card.color} flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform`}
+                  >
+                    <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </div>
+                  <span className="text-xs sm:text-sm font-black text-stone-800 dark:text-stone-200 tracking-tight block leading-tight">
+                    {card.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 3. ركن الوصول السريع (المفضلة الحرفية) */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-100 dark:border-stone-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black shadow-2xs">
+                  <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                </div>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
+                    <span>أصنافي وخاماتي الأكثر استخداماً</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 font-bold">
+                      المفضلة الحرفية
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                    وصول فوري لأصنافك وخاماتك اليومية لإدراجها في الفواتير وأوامر التشغيل بنقرة واحدة
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsFavoritesModalOpen(true)}
+                className="self-start sm:self-center px-3 py-1.5 rounded-xl border border-amber-300/80 dark:border-amber-700/80 bg-amber-50/70 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-2xs hover:bg-amber-100 active:scale-95"
+              >
+                <Star className="w-3.5 h-3.5 text-amber-600" />
+                <span>تخصيص المفضلة</span>
               </button>
-            );
-          })}
-        </div>
+            </div>
+
+            {/* عرض العناصر المفضلة */}
+            {hasAnyFavorites ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                {/* المنتجات المفضلة */}
+                {starredProducts.map((prod) => (
+                  <div
+                    key={`fav_p_${prod.id}`}
+                    className="p-3 rounded-2xl bg-stone-50/80 dark:bg-stone-850/60 border border-stone-200/80 dark:border-stone-800 hover:border-amber-400 transition-all space-y-2 group shadow-2xs"
+                  >
+                    <div className="flex items-start justify-between gap-1.5">
+                      <div className="min-w-0">
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold block mb-0.5">
+                          منتج حرفي · {prod.category || 'عام'}
+                        </span>
+                        <h4 className="text-xs font-black text-stone-900 dark:text-stone-100 truncate" title={prod.productName}>
+                          {prod.productName}
+                        </h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFavorite('product', prod.id)}
+                        className="p-1 rounded-lg text-amber-500 hover:text-stone-400 transition cursor-pointer"
+                        title="إزالة من المفضلة"
+                      >
+                        <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs font-bold pt-1 border-t border-stone-200/50 dark:border-stone-800">
+                      <span className="font-mono text-emerald-700 dark:text-emerald-400 font-black">
+                        {Number(prod.sellingPrice || prod.retailPrice || 0).toLocaleString()} {profile.currencySymbol}
+                      </span>
+                      <span className="text-[10px] text-stone-500">
+                        المخزون: {prod.currentStock ?? 1}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => onNavigateToSales('new')}
+                        className="py-1 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black text-center transition cursor-pointer shadow-xs active:scale-95"
+                      >
+                        إدراج في بيع
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onNavigateToCatalog}
+                        className="py-1 px-2 rounded-lg bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:bg-stone-100 text-stone-700 dark:text-stone-300 text-[11px] font-bold text-center transition cursor-pointer active:scale-95"
+                      >
+                        كارت الصنف
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* الخامات المفضلة */}
+                {starredMaterials.map((mat) => (
+                  <div
+                    key={`fav_m_${mat.id}`}
+                    className="p-3 rounded-2xl bg-stone-50/80 dark:bg-stone-850/60 border border-stone-200/80 dark:border-stone-800 hover:border-amber-400 transition-all space-y-2 group shadow-2xs"
+                  >
+                    <div className="flex items-start justify-between gap-1.5">
+                      <div className="min-w-0">
+                        <span className="text-[10px] text-blue-700 dark:text-blue-400 font-bold block mb-0.5">
+                          خامة أساسية · {mat.unit || 'وحدة'}
+                        </span>
+                        <h4 className="text-xs font-black text-stone-900 dark:text-stone-100 truncate" title={mat.materialName}>
+                          {mat.materialName}
+                        </h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFavorite('material', mat.id)}
+                        className="p-1 rounded-lg text-amber-500 hover:text-stone-400 transition cursor-pointer"
+                        title="إزالة من المفضلة"
+                      >
+                        <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs font-bold pt-1 border-t border-stone-200/50 dark:border-stone-800">
+                      <span className="font-mono text-stone-800 dark:text-stone-200">
+                        {Number(mat.costPerUnit || 0).toLocaleString()} {profile.currencySymbol}
+                      </span>
+                      <span className={`text-[10px] font-bold ${
+                        (mat.currentStock || 0) <= (mat.minAlertThreshold || 5)
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-stone-500'
+                      }`}>
+                        المتبقي: {mat.currentStock || 0} {mat.unit}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1 pt-1">
+                      <button
+                        type="button"
+                        onClick={onOpenSupplierInvoice}
+                        className="py-1 px-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-black text-center transition cursor-pointer shadow-xs active:scale-95"
+                      >
+                        طلب توريد
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenInventoryModal('materials')}
+                        className="py-1 px-2 rounded-lg bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:bg-stone-100 text-stone-700 dark:text-stone-300 text-[11px] font-bold text-center transition cursor-pointer active:scale-95"
+                      >
+                        كارت الجرد
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/50 dark:bg-stone-850/50 border border-dashed border-amber-300 dark:border-amber-800/80 text-center space-y-2">
+                <p className="text-xs text-stone-600 dark:text-stone-400 font-bold">
+                  لم تقم بتثبيت أي صنف أو خامة في المفضلة بعد. اضغط على الزر أدناه لتحديد أصنافك وخاماتك اليومية وتثبيتها للوصول السريع:
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsFavoritesModalOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition cursor-pointer shadow-xs active:scale-95 inline-flex items-center gap-1.5"
+                >
+                  <Star className="w-3.5 h-3.5" />
+                  <span>اختيار أصناف وخامات المفضلة الآن</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* 4. Enhanced Workshop Financial & Inventory Summary Widget with Visual Charts */}
@@ -1560,6 +2077,178 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           <PlusCircle className={`w-7 h-7 transition-transform duration-300 ${isQuickActionsOpen ? 'rotate-45' : ''}`} />
         </button>
       </div>
+
+      {/* نافذة تخصيص واختيار المفضلة الحرفية */}
+      {isFavoritesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-xs animate-in fade-in duration-200" dir="rtl">
+          <div className="w-full max-w-xl p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-amber-300/80 dark:border-amber-800/80 shadow-2xl space-y-4 max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
+            {/* رأس النافذة */}
+            <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold shadow-xs">
+                  <Star className="w-5 h-5 fill-amber-500 text-amber-500" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-stone-900 dark:text-stone-100">
+                    تخصيص المفضلة الحرفية
+                  </h3>
+                  <p className="text-xs text-stone-500 dark:text-stone-400">
+                    اضغط على النجمة ⭐ بجانب أي صنف أو خامة لتثبيتها في الواجهة الرئيسية
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFavoritesModalOpen(false)}
+                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 transition cursor-pointer"
+                title="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* أزرار التبديل والبحث */}
+            <div className="space-y-2.5">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFavModalTab('products')}
+                  className={`py-2 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    favModalTab === 'products'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
+                  }`}
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>المنتجات الحرفية ({productsList.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFavModalTab('materials')}
+                  className={`py-2 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    favModalTab === 'materials'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
+                  }`}
+                >
+                  <Boxes className="w-4 h-4" />
+                  <span>الخامات ومستلزمات الإنتاج ({rawMaterialsList.length})</span>
+                </button>
+              </div>
+
+              {/* حقل البحث السريع */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                <input
+                  type="text"
+                  value={favModalSearch}
+                  onChange={(e) => setFavModalSearch(e.target.value)}
+                  placeholder={favModalTab === 'products' ? 'بحث عن منتج...' : 'بحث عن خامة...'}
+                  className="w-full pr-9 pl-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            {/* قائمة العناصر للاختيار */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
+              {favModalTab === 'products' ? (
+                productsList
+                  .filter((p) => !favModalSearch.trim() || p.productName?.toLowerCase().includes(favModalSearch.toLowerCase().trim()))
+                  .map((p) => {
+                    const isStarred = favorites.products.includes(p.id);
+                    return (
+                      <div
+                        key={p.id}
+                        className={`p-3 rounded-2xl border transition flex items-center justify-between gap-3 ${
+                          isStarred
+                            ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800'
+                            : 'bg-white dark:bg-stone-850 border-stone-200 dark:border-stone-800 hover:border-stone-300'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold block">
+                            {p.category || 'عام'}
+                          </span>
+                          <span className="text-xs font-black text-stone-900 dark:text-stone-100 block truncate">
+                            {p.productName}
+                          </span>
+                          <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold font-mono">
+                            {Number(p.sellingPrice || p.retailPrice || 0).toLocaleString()} {profile.currencySymbol}
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleFavorite('product', p.id)}
+                          className={`p-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 text-xs font-black active:scale-95 ${
+                            isStarred
+                              ? 'bg-amber-500 text-white shadow-xs'
+                              : 'bg-stone-100 dark:bg-stone-800 text-stone-500 hover:text-amber-600'
+                          }`}
+                        >
+                          <Star className={`w-4 h-4 ${isStarred ? 'fill-white text-white' : ''}`} />
+                          <span>{isStarred ? 'في المفضلة' : 'تثبيت'}</span>
+                        </button>
+                      </div>
+                    );
+                  })
+              ) : (
+                rawMaterialsList
+                  .filter((m) => !favModalSearch.trim() || m.materialName?.toLowerCase().includes(favModalSearch.toLowerCase().trim()))
+                  .map((m) => {
+                    const isStarred = favorites.materials.includes(m.id);
+                    return (
+                      <div
+                        key={m.id}
+                        className={`p-3 rounded-2xl border transition flex items-center justify-between gap-3 ${
+                          isStarred
+                            ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800'
+                            : 'bg-white dark:bg-stone-850 border-stone-200 dark:border-stone-800 hover:border-stone-300'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <span className="text-[10px] text-blue-700 dark:text-blue-400 font-bold block">
+                            خامة ({m.unit || 'وحدة'})
+                          </span>
+                          <span className="text-xs font-black text-stone-900 dark:text-stone-100 block truncate">
+                            {m.materialName}
+                          </span>
+                          <span className="text-[11px] text-stone-500 font-bold">
+                            الرصيد: {m.currentStock || 0} {m.unit} · {Number(m.costPerUnit || 0).toLocaleString()} {profile.currencySymbol}
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleFavorite('material', m.id)}
+                          className={`p-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 text-xs font-black active:scale-95 ${
+                            isStarred
+                              ? 'bg-amber-500 text-white shadow-xs'
+                              : 'bg-stone-100 dark:bg-stone-800 text-stone-500 hover:text-amber-600'
+                          }`}
+                        >
+                          <Star className={`w-4 h-4 ${isStarred ? 'fill-white text-white' : ''}`} />
+                          <span>{isStarred ? 'في المفضلة' : 'تثبيت'}</span>
+                        </button>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            {/* ذيل النافذة */}
+            <div className="pt-3 border-t border-stone-100 dark:border-stone-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsFavoritesModalOpen(false)}
+                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition cursor-pointer shadow-xs active:scale-95"
+              >
+                تأكيد واعتماد المفضلة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

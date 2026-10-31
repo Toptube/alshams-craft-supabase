@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AlShamsBrandLogo, ArtisanAvatar } from '../brand/BrandAssets';
-import { UserProfile, isUserAdmin } from '../../types';
+import { UserProfile, isUserAdmin, ThemeMode } from '../../types';
 import { getGenderGreeting } from '../../utils/macrameMath';
 import {
   X,
@@ -64,6 +64,8 @@ interface SidebarDrawerProps {
   onStartTour?: () => void;
   onToggleDarkMode: () => void;
   isDarkMode: boolean;
+  themeMode?: ThemeMode;
+  onSelectThemeMode?: (mode: ThemeMode) => void;
   onLogout: () => void;
 }
 
@@ -85,6 +87,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onStartTour,
   onToggleDarkMode,
   isDarkMode,
+  themeMode = 'light',
+  onSelectThemeMode,
   onLogout,
 }) => {
   const { lang: currentLang, dir, t: tr } = useTranslation();
@@ -996,6 +1000,59 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   </div>
                   <ChevronLeft className="w-3.5 h-3.5 text-stone-300" />
                 </button>
+
+                {/* وضع السهر الحرفي المريح للعين ومظهر الورشة */}
+                {onSelectThemeMode && (
+                  <div className="p-2.5 rounded-xl bg-stone-100/80 dark:bg-stone-850/60 border border-stone-200/80 dark:border-stone-800 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-black text-stone-700 dark:text-stone-300">
+                      <span>مظهر الورشة وإضاءة العمل</span>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
+                        {themeMode === 'night_focus' ? 'سهر هادئ' : themeMode === 'dark' ? 'داكن' : 'نهاري'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onSelectThemeMode('light')}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                          themeMode === 'light'
+                            ? 'bg-white text-amber-900 shadow-xs font-black border border-amber-300'
+                            : 'text-stone-600 dark:text-stone-400 hover:bg-white/50 dark:hover:bg-stone-800'
+                        }`}
+                        title="الوضع النهاري"
+                      >
+                        <Sun className="w-3.5 h-3.5 text-amber-600" />
+                        <span>نهاري</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSelectThemeMode('night_focus')}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                          themeMode === 'night_focus'
+                            ? 'bg-amber-900/60 text-amber-200 shadow-xs font-black border border-amber-500/80 ring-1 ring-amber-500/30'
+                            : 'text-stone-600 dark:text-stone-400 hover:bg-amber-950/30 hover:text-amber-300'
+                        }`}
+                        title="وضع السهر الهادئ - درجات الكهرمان المريحة للعين"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <span>سهر هادئ</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSelectThemeMode('dark')}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                          themeMode === 'dark'
+                            ? 'bg-stone-800 text-stone-100 shadow-xs font-black border border-stone-700'
+                            : 'text-stone-600 dark:text-stone-400 hover:bg-stone-800'
+                        }`}
+                        title="الوضع الليلي"
+                      >
+                        <Moon className="w-3.5 h-3.5 text-stone-400" />
+                        <span>داكن</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* حفظ نسخة من بيانات الورشة في جهازك */}
                 <button

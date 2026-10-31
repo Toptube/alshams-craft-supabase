@@ -46,6 +46,8 @@ export interface CountryConfig {
   phoneLength: number;
 }
 
+export type ThemeMode = 'light' | 'night_focus' | 'dark';
+
 // 1. Workshop & User Profile
 export interface WorkshopProfile {
   id: string; // workshopId == uid

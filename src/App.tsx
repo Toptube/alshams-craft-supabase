@@ -7,6 +7,7 @@ import {
   isUserAdmin,
   AdminAnnouncement,
   WorkshopMessageReceipt,
+  ThemeMode,
 } from './types';
 import { supabase } from './lib/supabase';
 import { getCurrentWorkshopFromSupabase } from './db/supabaseService';
@@ -241,23 +242,34 @@ export const App: React.FC = () => {
     employees: [],
   });
 
-  // Dark Mode state
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+  // Theme Mode state: 'light' (نهار مشرق) | 'night_focus' (وضع السهر الهادئ) | 'dark' (ليل داكن)
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('alshams_theme') === 'dark';
+      const saved = localStorage.getItem('alshams_theme');
+      if (saved === 'night_focus' || saved === 'dark' || saved === 'light') {
+        return saved as ThemeMode;
+      }
+      if (saved === 'true') return 'dark';
     }
-    return false;
+    return 'light';
   });
 
+  const isDarkMode = themeMode === 'dark' || themeMode === 'night_focus';
+
   useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
+    const root = document.documentElement;
+    if (themeMode === 'night_focus') {
+      root.classList.add('dark', 'night-focus');
+      localStorage.setItem('alshams_theme', 'night_focus');
+    } else if (themeMode === 'dark') {
+      root.classList.add('dark');
+      root.classList.remove('night-focus');
       localStorage.setItem('alshams_theme', 'dark');
     } else {
-      document.documentElement.classList.remove('dark');
+      root.classList.remove('dark', 'night-focus');
       localStorage.setItem('alshams_theme', 'light');
     }
-  }, [isDarkMode]);
+  }, [themeMode]);
 
   // Load search cache & notifications from local Dexie storage
   const loadSearchCacheAndNotifications = useCallback(async () => {
@@ -676,6 +688,8 @@ export const App: React.FC = () => {
         onNavigateToSales={() => navigateTo('sales')}
         onOpenNewClientModal={() => setIsNewClientOpen(true)}
         onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
+        themeMode={themeMode}
+        onSelectThemeMode={setThemeMode}
       />
 
       {/* Super Admin Executive Context Mode Banner */}
@@ -833,6 +847,8 @@ export const App: React.FC = () => {
               onOpenSupplierInvoice={() => setIsNewSupplierOpen(true)}
               onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
               isAnyModalOpen={isAnyModalOpen}
+              themeMode={themeMode}
+              onSelectThemeMode={setThemeMode}
             />
           )
         )}
@@ -1084,8 +1100,10 @@ export const App: React.FC = () => {
           onOpenCloudMigration={() => setIsCloudMigrationOpen(true)}
           onOpenSupport={() => setIsSupportOpen(true)}
           onStartTour={() => setIsTourOpen(true)}
-          onToggleDarkMode={() => setIsDarkMode((prev) => !prev)}
+          onToggleDarkMode={() => setThemeMode((prev: ThemeMode) => prev === 'dark' || prev === 'night_focus' ? 'light' : 'dark')}
           isDarkMode={isDarkMode}
+          themeMode={themeMode}
+          onSelectThemeMode={setThemeMode}
           onLogout={handleLogout}
         />
       )}
