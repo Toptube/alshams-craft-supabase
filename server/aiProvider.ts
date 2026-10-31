@@ -89,11 +89,33 @@ export function falconErrorResponse(err: any): { status: number; error: string }
 }
 
 // -------------------------------------------------------------
-// محركات الطوارئ الاحتياطية (Groq ثم Fanar)
+// محركات الطوارئ الاحتياطية (Groq أساسي -> Groq بديل -> Gemini -> Fanar)
 // -------------------------------------------------------------
 
-async function callGroqFallback(systemInstruction: string, chatHistory: any[], userMessage: string): Promise<string> {
-  const apiKey = process.env.GROQ_API_KEY;
+function getGroqKeys(): { primary?: string; secondary?: string } {
+  const primary = (process.env.GROQ_API_KEY || '').trim();
+  const secondary = (
+    process.env.GROQ_API_KEY_SECONDARY ||
+    process.env.GROQ_API_KEY_BACKUP ||
+    process.env.GROQ_SECONDARY_API_KEY ||
+    process.env.GROQ_API_KEY_2 ||
+    process.env.GROQ_BACKUP_KEY ||
+    ''
+  ).trim();
+
+  return {
+    primary: primary || undefined,
+    secondary: secondary && secondary !== primary ? secondary : undefined,
+  };
+}
+
+async function callGroqFallback(
+  systemInstruction: string,
+  chatHistory: any[],
+  userMessage: string,
+  customApiKey?: string
+): Promise<string> {
+  const apiKey = customApiKey || process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('مفتاح GROQ_API_KEY غير متوفر');
 
   const messages: any[] = [{ role: 'system', content: systemInstruction }];
@@ -392,9 +414,30 @@ export class GeminiAIProvider {
 ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}.` : ''}${memoryPrompt ? `\n\n${memoryPrompt}` : ''}`;
 
     const userPromptText = actionChip ? `استفسار حول [${actionChip}]: ${message || 'يرجى تقديم التوجيه الهندسي ودراسة السوق.'}` : message;
+    const { primary: groqPrimary, secondary: groqSecondary } = getGroqKeys();
 
-    // 1. المحاولة الأساسية: Gemini API (gemini-2.5-flash) مع Google Search Tool
-    if (this.ai) {
+    // 1. مزود Groq (المفتاح الأساسي)
+    if (groqPrimary) {
+      try {
+        const groq1Reply = await callGroqFallback(systemInstruction, chatHistory, userPromptText, groqPrimary);
+        if (groq1Reply) return { reply: groq1Reply, sources: [], searchUsed: false };
+      } catch (groq1Err: any) {
+        console.warn('[Falcon] Groq primary notice. Switching to secondary key...', groq1Err?.message?.slice(0, 100));
+      }
+    }
+
+    // 2. مزود Groq (المفتاح الثانوي البديل)
+    if (groqSecondary) {
+      try {
+        const groq2Reply = await callGroqFallback(systemInstruction, chatHistory, userPromptText, groqSecondary);
+        if (groq2Reply) return { reply: groq2Reply, sources: [], searchUsed: false };
+      } catch (groq2Err: any) {
+        console.warn('[Falcon] Groq secondary notice. Switching to Gemini Flash...', groq2Err?.message?.slice(0, 100));
+      }
+    }
+
+    // 3. مزود Gemini Flash (المفتاح النشط)
+    if (this.ai && process.env.GEMINI_API_KEY) {
       try {
         const contents: any[] = chatHistory.slice(-10).map((m) => ({
           role: m.sender === 'user' || m.role === 'user' ? 'user' : 'model',
@@ -447,31 +490,26 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
         const reply = response?.text?.trim() || 'أهلاً بك، معاك صقر الشمساوية.. جاهز أدرس لك أي خامة أو سعر أو موديل!';
         return { reply, sources: searchSources.slice(0, 4), searchUsed };
       } catch (geminiErr: any) {
-        console.warn('[Falcon] Gemini error/quota hit. Switching to Groq fallback...', geminiErr?.message?.slice(0, 100));
+        console.warn('[Falcon] Gemini Flash notice. Switching to Fanar...', geminiErr?.message?.slice(0, 100));
       }
     }
 
-    // 2. التحويل التلقائي الأول: Groq API (llama-3.3-70b-versatile)
-    if (process.env.GROQ_API_KEY) {
-      try {
-        const groqReply = await callGroqFallback(systemInstruction, chatHistory, userPromptText);
-        if (groqReply) return { reply: groqReply, sources: [], searchUsed: false };
-      } catch (groqErr: any) {
-        console.warn('[Falcon] Groq fallback failed. Switching to Fanar...', groqErr?.message?.slice(0, 100));
-      }
-    }
-
-    // 3. التحويل التلقائي الثاني: Fanar API
+    // 4. مزود فنار (Fanar) - الاحتياطي النهائي في كافة الأحوال
     if (process.env.FANAR_API_KEY) {
       try {
         const fanarReply = await callFanarCompletion(systemInstruction, chatHistory, userPromptText);
         if (fanarReply) return { reply: fanarReply, sources: [], searchUsed: false };
       } catch (fanarErr: any) {
-        console.error('[Falcon] Fanar fallback failed too:', fanarErr?.message?.slice(0, 100));
+        console.warn('[Falcon] Fanar fallback notice:', fanarErr?.message?.slice(0, 100));
       }
     }
 
-    throw new Error('تعذر اتصال صقر بالمزودات مؤقتاً، يرجى المحاولة بعد قليل.');
+    // 5. المحرك المحلي الذكي الاحتياطي لصقر
+    return {
+      reply: `أهلاً بك يا ${artistName || 'فنان الشمساوية'} 🦅، صقر معاك وسامعك كويس. أنا جاهز أساعدك في دراسة أي خامة أو تسعير جملة وقطاعي أو تحليل فني لموديلاتك في الورشة، تحب نبدأ بإيه؟`,
+      sources: [],
+      searchUsed: false,
+    };
   }
 }
 

@@ -52,6 +52,8 @@ import { SupportModal } from './components/support/SupportModal';
 import { InteractiveTourModal } from './components/tour/InteractiveTourModal';
 import { ExchangeRatesModal } from './components/currency/ExchangeRatesModal';
 import { InventoryLedgerModal } from './components/inventory/InventoryLedgerModal';
+import { MaterialsInventoryModal } from './components/inventory/MaterialsInventoryModal';
+import { ProductsInventoryModal } from './components/inventory/ProductsInventoryModal';
 import { AdminExpensesModal } from './components/adminCosts/AdminExpensesModal';
 import { WhatsAppQuoteDrawer } from './components/sharing/WhatsAppQuoteDrawer';
 
@@ -159,6 +161,7 @@ export const App: React.FC = () => {
   });
 
   const [authChecking, setAuthChecking] = useState<boolean>(true);
+  const [suspensionNotice, setSuspensionNotice] = useState<string | null>(null);
 
   // Welcome message shown only once upon opening the app
   const [showWelcomeBanner, setShowWelcomeBanner] = useState<boolean>(() => {
@@ -196,6 +199,8 @@ export const App: React.FC = () => {
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
   const [isExchangeRatesOpen, setIsExchangeRatesOpen] = useState<boolean>(false);
   const [isInventoryLedgerOpen, setIsInventoryLedgerOpen] = useState<boolean>(false);
+  const [isMaterialsModalOpen, setIsMaterialsModalOpen] = useState<boolean>(false);
+  const [isProductsModalOpen, setIsProductsModalOpen] = useState<boolean>(false);
   const [isAdminExpensesOpen, setIsAdminExpensesOpen] = useState<boolean>(false);
 
   // Quick creation modals
@@ -296,9 +301,39 @@ export const App: React.FC = () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user && mounted) {
+          // فحص حالة الحساب في profiles و workshops
+          try {
+            const [pCheck, wCheck] = await Promise.all([
+              supabase.from('profiles').select('status').eq('id', session.user.id).maybeSingle(),
+              supabase.from('workshops').select('status, is_frozen').eq('id', (session.user.user_metadata as any)?.workshop_id || session.user.id).maybeSingle(),
+            ]);
+            const profStatus = pCheck.data?.status;
+            const wsStatus = wCheck.data?.status;
+            const isFrozen = wCheck.data?.is_frozen;
+
+            if (profStatus === 'suspended' || wsStatus === 'suspended' || isFrozen) {
+              await supabase.auth.signOut().catch(() => {});
+              localStorage.removeItem('alshams_profile');
+              if (mounted) {
+                setProfile(null);
+                setSuspensionNotice('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
+                setAuthChecking(false);
+              }
+              return;
+            }
+          } catch {}
+
           // Fetch the real workshop profile from Supabase
           const { workshop } = await getCurrentWorkshopFromSupabase();
           if (workshop && mounted) {
+            if (workshop.status === 'suspended' || (workshop as any).isFrozen) {
+              await supabase.auth.signOut().catch(() => {});
+              localStorage.removeItem('alshams_profile');
+              setProfile(null);
+              setSuspensionNotice('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
+              setAuthChecking(false);
+              return;
+            }
             setProfile(workshop);
             localStorage.setItem('alshams_profile', JSON.stringify(workshop));
             flushProductSync(workshop.workshopId || workshop.id).catch(() => {});
@@ -557,7 +592,10 @@ export const App: React.FC = () => {
   if (!profile) {
     return (
       <AuthGateway
+        recoveryError={suspensionNotice}
+        onClearRecoveryError={() => setSuspensionNotice(null)}
         onAuthenticated={(p) => {
+          setSuspensionNotice(null);
           setProfile(p);
           localStorage.setItem('alshams_profile', JSON.stringify(p));
         }}
@@ -746,7 +784,15 @@ export const App: React.FC = () => {
               onNavigateToReports={() => navigateTo('reports')}
               onNavigateToFixedAssets={() => navigateTo('fixed_assets')}
               onOpenExchangeRatesModal={() => setIsExchangeRatesOpen(true)}
-              onOpenInventoryModal={() => setIsInventoryLedgerOpen(true)}
+              onOpenInventoryModal={(tab?: string) => {
+                if (tab === 'products') {
+                  setIsProductsModalOpen(true);
+                } else if (tab === 'audit') {
+                  setIsInventoryLedgerOpen(true);
+                } else {
+                  setIsMaterialsModalOpen(true);
+                }
+              }}
               onOpenAdminCostsModal={() => setIsAdminExpensesOpen(true)}
               onOpenNewMaterialModal={() => setIsNewMaterialOpen(true)}
               onOpenNewClientModal={() => setIsNewClientOpen(true)}
@@ -978,6 +1024,8 @@ export const App: React.FC = () => {
             } else if (v === 'treasuries' && isUserAdmin(profile) && !switchedWorkshopContext) {
               setAdminInitialTab('treasuries');
               navigateTo('admin');
+            } else if (v === 'inventory') {
+              setIsMaterialsModalOpen(true);
             } else {
               navigateTo(v as ActiveView);
             }
@@ -1113,6 +1161,24 @@ export const App: React.FC = () => {
         <ExchangeRatesModal
           isOpen={isExchangeRatesOpen}
           onClose={() => setIsExchangeRatesOpen(false)}
+          profile={profile}
+        />
+      )}
+
+      {/* Dedicated Materials Inventory Modal (جدول materials) */}
+      {isMaterialsModalOpen && profile && (
+        <MaterialsInventoryModal
+          isOpen={isMaterialsModalOpen}
+          onClose={() => setIsMaterialsModalOpen(false)}
+          profile={profile}
+        />
+      )}
+
+      {/* Dedicated Products Inventory Modal (جدول products) */}
+      {isProductsModalOpen && profile && (
+        <ProductsInventoryModal
+          isOpen={isProductsModalOpen}
+          onClose={() => setIsProductsModalOpen(false)}
           profile={profile}
         />
       )}

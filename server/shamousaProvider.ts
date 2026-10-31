@@ -1,3 +1,4 @@
+import { GoogleGenAI } from '@google/genai';
 import { workshopToolSchemas, runWorkshopTool, WorkshopToolContext } from './workshopTools.js';
 import {
   isSuperAdmin,
@@ -32,9 +33,26 @@ export function extractFirstName(rawName?: string): string {
   return first || cleaned;
 }
 
+function getGroqKeys(): { primary?: string; secondary?: string } {
+  const primary = (process.env.GROQ_API_KEY || '').trim();
+  const secondary = (
+    process.env.GROQ_API_KEY_SECONDARY ||
+    process.env.GROQ_API_KEY_BACKUP ||
+    process.env.GROQ_SECONDARY_API_KEY ||
+    process.env.GROQ_API_KEY_2 ||
+    process.env.GROQ_BACKUP_KEY ||
+    ''
+  ).trim();
+
+  return {
+    primary: primary || undefined,
+    secondary: secondary && secondary !== primary ? secondary : undefined,
+  };
+}
+
 // الاتصال بـ Groq عبر fetch المدمج بدون الحاجة لـ groq-sdk لتجنب ERR_MODULE_NOT_FOUND
-async function callGroqChat(messages: any[], tools?: any[]) {
-  const apiKey = process.env.GROQ_API_KEY;
+async function callGroqChat(messages: any[], tools?: any[], customApiKey?: string) {
+  const apiKey = customApiKey || process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY غير متوفر');
 
   const controller = new AbortController();
@@ -83,7 +101,7 @@ async function callGroqChat(messages: any[], tools?: any[]) {
 }
 
 // المحرك الاحتياطي: Fanar API
-async function callFanarChat(messages: any[]) {
+async function callFanarChat(messages: any[]): Promise<string> {
   const apiKey = process.env.FANAR_API_KEY;
   if (!apiKey) throw new Error('FANAR_API_KEY غير متوفر');
 
@@ -113,6 +131,49 @@ async function callFanarChat(messages: any[]) {
 
     const data: any = await res.json();
     return data?.choices?.[0]?.message?.content?.trim() || '';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// المحرك الاحتياطي الثالث: Gemini API (gemini-2.5-flash / gemini-1.5-flash)
+async function callGeminiChat(systemInstruction: string, messages: any[]): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY غير متوفر');
+
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const contents: any[] = [];
+
+  for (const m of messages.slice(-10)) {
+    if (m.role === 'system') continue;
+    contents.push({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: String(m.content || '') }],
+    });
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 16000);
+
+  try {
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents,
+      config: {
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        abortSignal: controller.signal,
+      },
+    });
+    return response.text?.trim() || '';
   } finally {
     clearTimeout(timer);
   }
@@ -217,9 +278,10 @@ export async function handleShamousaChat(
     { role: 'user', content: userMessage },
   ];
 
-  // 1. المحاولة الأساسية عبر Groq مع Function Calling
-  try {
-    let assistantMsg = await callGroqChat(promptMessages, workshopToolSchemas);
+  const { primary: groqPrimary, secondary: groqSecondary } = getGroqKeys();
+
+  async function tryGroqExecution(key: string): Promise<string | null> {
+    const assistantMsg = await callGroqChat(promptMessages, workshopToolSchemas, key);
 
     // التحقق من استدعاء الأدوات (Tool Calling)
     if (assistantMsg?.tool_calls && Array.isArray(assistantMsg.tool_calls) && assistantMsg.tool_calls.length > 0) {
@@ -245,38 +307,68 @@ export async function handleShamousaChat(
         },
       ];
 
-      const secondTurnRes = await callGroqChat(secondTurnMessages);
-      const reply = secondTurnRes?.content?.trim();
-      if (reply) {
-        return { reply, handoffToFalcon: false, provider: 'groq' };
+      const secondTurnRes = await callGroqChat(secondTurnMessages, undefined, key);
+      return secondTurnRes?.content?.trim() || null;
+    }
+
+    return assistantMsg?.content?.trim() || null;
+  }
+
+  // 1. مزود Groq (المفتاح الأساسي)
+  if (groqPrimary) {
+    try {
+      const reply = await tryGroqExecution(groqPrimary);
+      if (reply) return { reply, handoffToFalcon: false, provider: 'groq' };
+    } catch (groqErr: any) {
+      console.warn('[Shamousa] Groq primary notice. Switching to secondary key...', groqErr?.message);
+    }
+  }
+
+  // 2. مزود Groq (المفتاح الثانوي البديل)
+  if (groqSecondary) {
+    try {
+      const reply2 = await tryGroqExecution(groqSecondary);
+      if (reply2) return { reply: reply2, handoffToFalcon: false, provider: 'groq' };
+    } catch (groq2Err: any) {
+      console.warn('[Shamousa] Groq secondary notice. Switching to Gemini Flash...', groq2Err?.message);
+    }
+  }
+
+  // 3. مزود Gemini Flash (المفتاح النشط)
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const geminiReply = await callGeminiChat(systemInstruction, promptMessages);
+      if (geminiReply) {
+        return { reply: geminiReply, handoffToFalcon: false, provider: 'gemini' };
       }
+    } catch (geminiErr: any) {
+      console.warn('[Shamousa] Gemini notice. Switching to Fanar...', geminiErr?.message);
     }
-
-    if (assistantMsg?.content) {
-      return { reply: assistantMsg.content.trim(), handoffToFalcon: false, provider: 'groq' };
-    }
-  } catch (groqErr: any) {
-    console.warn('[Shamousa] Groq failed, switching to Fanar fallback:', groqErr?.message);
   }
 
-  // 2. المحرك الاحتياطي: Fanar API
-  try {
-    const fanarReply = await callFanarChat(promptMessages);
-    if (fanarReply) {
-      return { reply: fanarReply, handoffToFalcon: false, provider: 'fanar' };
+  // 4. مزود فنار (Fanar) - الاحتياطي النهائي في كافة الأحوال
+  if (process.env.FANAR_API_KEY) {
+    try {
+      const fanarReply = await callFanarChat(promptMessages);
+      if (fanarReply) {
+        return { reply: fanarReply, handoffToFalcon: false, provider: 'fanar' };
+      }
+    } catch (fanarErr: any) {
+      console.warn('[Shamousa] Fanar fallback notice:', fanarErr?.message);
     }
-  } catch (fanarErr: any) {
-    console.error('[Shamousa] Fanar fallback failed too:', fanarErr?.message);
   }
 
-  // 3. Fallback محلي ذكي إذا تعذر الاتصال بأي مزود خارجي لضمان عدم توقف الرد على رصيد الخزينة
+  // 4. المحرك المحلي الذكي لحماية الصانع من أي انقطاع في الشبكة أو نفاد الحصص
   const norm = userMessage.toLowerCase();
+  const firstName = extractFirstName(ctx.artistName) || 'يا غالي';
   if (norm.includes('خزن') || norm.includes('خزينه') || norm.includes('رصيد') || norm.includes('سيول') || norm.includes('فلوس') || norm.includes('معانا كام')) {
-    const reply = `أهلاً يا ${extractFirstName(ctx.artistName) || 'صديقي'} 🌞، رصيد الخزائن والسيولة المتوفرة حالياً في الورشة هو **${liveLiquidity.toLocaleString('ar-EG')} ج.م**.\n${treasuriesDetailText ? `\nتفاصيل الأرصدة والعهد:\n${treasuriesDetailText}` : ''}`;
+    const reply = `أهلاً يا ${firstName} 🌞، رصيد الخزائن والسيولة المتوفرة حالياً في الورشة هو **${liveLiquidity.toLocaleString('ar-EG')} ج.م**.\n${treasuriesDetailText ? `\nتفاصيل الأرصدة والعهد:\n${treasuriesDetailText}` : ''}`;
     return { reply, handoffToFalcon: false, provider: 'internal_cache' };
   }
 
-  throw new Error('تعذر معالجة الطلب حالياً من جميع المزودات، يرجى المحاولة بعد قليل.');
+  // رد شموسة الودود والواعي بحالة الورشة بدون إظهار أخطاء تقنية مزعجة
+  const defaultReply = `أهلاً يا ${firstName} 🌞، معاك شموسة مديرة أعمال ورشتك. سجلات الورشة متوفرة تحت إيدك: إجمالي سيولتنا النقدية المسجلة حالياً هو **${liveLiquidity.toLocaleString('ar-EG')} ج.م**، وأنا متابعة معاك كل تفاصيل الخامات والأوردرات والخزن لحظة بلحظة. تحب نراجع إيه مع بعض دلوقتي؟!`;
+  return { reply: defaultReply, handoffToFalcon: false, provider: 'internal_cache' };
 }
 
 // للتوافق مع أي استدعاء قديم

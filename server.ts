@@ -244,18 +244,30 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
   try {
     const client = req.scopedSupabase || supabaseAuthClient;
     let dbWorkshops: any[] = [];
-    try {
-      const { data, error } = await client
-        .from('workshops')
-        .select('*')
-        .order('created_at', { ascending: false });
+    let dbProfiles: any[] = [];
 
-      if (!error && Array.isArray(data) && data.length > 0) {
-        dbWorkshops = data;
+    try {
+      const [wsRes, profRes] = await Promise.all([
+        client.from('workshops').select('*').order('created_at', { ascending: false }),
+        client.from('profiles').select('*'),
+      ]);
+
+      if (!wsRes.error && Array.isArray(wsRes.data) && wsRes.data.length > 0) {
+        dbWorkshops = wsRes.data;
+      }
+      if (!profRes.error && Array.isArray(profRes.data) && profRes.data.length > 0) {
+        dbProfiles = profRes.data;
       }
     } catch {
-      // Supabase RLS or table catch
+      // Supabase query catch
     }
+
+    const profilesMap = new Map<string, any>();
+    dbProfiles.forEach((p) => {
+      if (p.id) profilesMap.set(p.id, p);
+      if (p.email) profilesMap.set(p.email.toLowerCase(), p);
+      if (p.workshop_id) profilesMap.set(p.workshop_id, p);
+    });
 
     const localList = loadPersistentWorkshops();
     const map = new Map<string, any>();
@@ -265,23 +277,56 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
       if (w.id) map.set(w.id, w);
     });
 
-    // 2. Merge database workshops if any
+    // 2. Merge database workshops with real profile data
     dbWorkshops.forEach((row) => {
       if (row.id) {
         const existing = map.get(row.id) || {};
+        const prof = profilesMap.get(row.id) || profilesMap.get((row.email || '').toLowerCase()) || profilesMap.get(row.user_id) || {};
+
+        const artistName = prof.artist_name || prof.full_name || prof.name || row.artist_name || row.artistName || existing.artistName;
+        const phoneNumber = prof.phone_number || prof.phone || row.phone_number || row.phoneNumber || existing.phoneNumber;
+        const email = prof.email || row.email || existing.email;
+        const status = prof.status || row.status || existing.status || (row.is_frozen || row.isFrozen ? 'suspended' : 'active');
+
         map.set(row.id, {
           ...existing,
           ...row,
-          brandName: row.brand_name || row.brandName || existing.brandName,
-          artistName: row.artist_name || row.artistName || existing.artistName,
-          phoneNumber: row.phone_number || row.phoneNumber || existing.phoneNumber,
-          status: row.status || existing.status || (row.is_frozen || row.isFrozen ? 'suspended' : 'active'),
-          isFrozen: Boolean(row.is_frozen || row.isFrozen || row.status === 'suspended' || row.status === 'banned'),
+          brandName: row.brand_name || row.brandName || prof.brand_name || existing.brandName,
+          artistName: artistName || 'فنان',
+          phoneNumber: phoneNumber || '',
+          email: email || '',
+          status,
+          isFrozen: Boolean(row.is_frozen || row.isFrozen || status === 'suspended' || status === 'banned'),
           suspension_reason: row.suspension_reason || row.frozen_reason || existing.suspension_reason,
           suspension_duration: row.suspension_duration || existing.suspension_duration,
           suspended_until: row.suspended_until || existing.suspended_until,
           appeal_status: row.appeal_status || existing.appeal_status || 'none',
           appeal_message: row.appeal_message || existing.appeal_message,
+        });
+      }
+    });
+
+    // 3. Add profiles that don't have a separate workshop row yet
+    dbProfiles.forEach((p) => {
+      const pid = p.workshop_id || p.id;
+      if (pid && !map.has(pid)) {
+        map.set(pid, {
+          id: pid,
+          workshopId: pid,
+          ownerUid: p.id,
+          brandName: p.brand_name || p.brandName || 'ورشة ' + (p.artist_name || p.full_name || 'الشمساوية'),
+          artistName: p.artist_name || p.full_name || p.name || 'فنان',
+          email: p.email || '',
+          phoneNumber: p.phone_number || p.phone || '',
+          country: p.country || 'مصر',
+          currency: p.currency || 'EGP',
+          currencySymbol: p.currency_symbol || 'ج.م',
+          status: p.status || 'active',
+          isFrozen: p.status === 'suspended' || p.status === 'banned',
+          selectedCrafts: p.selected_crafts || ['macrame'],
+          role: p.role || 'artisan',
+          createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
+          updatedAt: p.updated_at ? new Date(p.updated_at).getTime() : Date.now(),
         });
       }
     });

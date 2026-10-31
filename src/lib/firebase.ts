@@ -17,9 +17,8 @@ import {
   getFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  memoryLocalCache,
   Firestore,
-  doc,
-  getDocFromServer,
 } from 'firebase/firestore';
 
 // Import the auto-provisioned Firebase config
@@ -53,37 +52,39 @@ ensureLocalPersistence();
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// Firestore with offline persistence (persistentLocalCache) across multiple tabs
+// Firestore with offline persistence (persistentLocalCache)
+// Uses experimentalForceLongPolling to reliably connect in iframe/preview environments
 let dbInstance: Firestore;
+const configuredDbId = (config as any).firestoreDatabaseId || '(default)';
+const targetDbId = configuredDbId === '(default)' ? undefined : configuredDbId;
+
 try {
-  // Use custom database ID if provisioned, else default
-  const databaseId = (config as any).firestoreDatabaseId || '(default)';
   dbInstance = initializeFirestore(
     app,
     {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager(),
       }),
-      experimentalAutoDetectLongPolling: true,
+      experimentalForceLongPolling: true,
     },
-    databaseId === '(default)' ? undefined : databaseId
+    targetDbId
   );
-} catch (e) {
-  // Fallback to getFirestore if already initialized
-  dbInstance = getFirestore(app);
+} catch (err) {
+  try {
+    dbInstance = initializeFirestore(
+      app,
+      {
+        localCache: memoryLocalCache(),
+        experimentalForceLongPolling: true,
+      },
+      targetDbId
+    );
+  } catch {
+    dbInstance = getFirestore(app, targetDbId);
+  }
 }
 
 export const db = dbInstance;
-
-// Validate Firestore connection on boot gracefully without crashing or alarming
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(dbInstance, 'test', 'connection'));
-  } catch (error) {
-    // Client smoothly operates in offline cache mode until backend is reached
-  }
-}
-testConnection();
 
 /**
  * خريطة رسائل أخطاء المصادقة باللغة العربية البسيطة

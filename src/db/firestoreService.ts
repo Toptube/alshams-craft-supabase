@@ -67,16 +67,26 @@ export const firestoreService = {
   // 1. WORKSHOP & ONBOARDING
   // ==========================================
   async getWorkshop(workshopId: string): Promise<WorkshopProfile | null> {
-    const docRef = doc(db, 'workshops', workshopId);
-    const snap = await getDoc(docRef);
-    if (!snap.exists()) return null;
-    return snap.data() as WorkshopProfile;
+    try {
+      const docRef = doc(db, 'workshops', workshopId);
+      const snap = await getDoc(docRef);
+      if (!snap.exists()) return null;
+      return snap.data() as WorkshopProfile;
+    } catch (err) {
+      console.warn('getWorkshop notice (operating offline):', err);
+      return null;
+    }
   },
 
   async getAllWorkshops(): Promise<WorkshopProfile[]> {
-    const colRef = collection(db, 'workshops');
-    const snap = await getDocs(colRef);
-    return snap.docs.map((d) => d.data() as WorkshopProfile);
+    try {
+      const colRef = collection(db, 'workshops');
+      const snap = await getDocs(colRef);
+      return snap.docs.map((d) => d.data() as WorkshopProfile);
+    } catch (err) {
+      console.warn('getAllWorkshops notice (operating offline):', err);
+      return [];
+    }
   },
 
   async updateWorkshop(workshopId: string, updates: Partial<WorkshopProfile>): Promise<void> {

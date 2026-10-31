@@ -148,6 +148,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const [inventoryValue, setInventoryValue] = useState<number>(0);
   const [materialsCount, setMaterialsCount] = useState<number>(0);
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
+  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(true);
 
   const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
@@ -860,7 +861,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
           {/* Card 4: إجمالي قيمة المنتجات */}
           <div
-            onClick={onNavigateToCatalog}
+            onClick={() => onOpenInventoryModal('products')}
             className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-blue-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-blue-500 transition group shadow-2xs"
           >
             <div>
@@ -1208,7 +1209,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-stone-800 dark:text-stone-200">
-                        التكاليف الإدارية والعمومية (Admin Costs)
+                        التكاليف الإدارية والتشغيلية العامة
                       </td>
                       <td className="p-3 font-mono font-black text-rose-600 dark:text-rose-400">
                         {expensesBreakdown.admin.toLocaleString()} {profile.currencySymbol}
@@ -1246,6 +1247,102 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* زر إجراءات عائم في الزاوية السفلية (قائمة الوصول السريع) */}
+      <div className="fixed bottom-6 left-6 z-40 flex flex-col items-start gap-2.5 select-none" dir="rtl">
+        {isQuickActionsOpen && (
+          <div className="w-64 p-2.5 rounded-2xl bg-white/95 dark:bg-stone-900/95 backdrop-blur-md border border-amber-300/80 dark:border-amber-700/80 shadow-2xl space-y-1.5 animate-in fade-in slide-in-from-bottom-4 duration-200">
+            <div className="px-2 py-1.5 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
+              <span className="text-[11px] font-black text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>إجراءات سريعة</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsQuickActionsOpen(false)}
+                className="p-1 rounded-lg text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 transition cursor-pointer"
+                title="إغلاق القائمة"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* 1. تسجيل بيع جديد */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsQuickActionsOpen(false);
+                onNavigateToSales('new');
+              }}
+              className="w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-right bg-emerald-50/80 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 transition cursor-pointer group shadow-2xs"
+            >
+              <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                <ShoppingCart className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-black block">تسجيل بيع جديد</span>
+                <span className="text-[10px] text-emerald-700/80 dark:text-emerald-300/80 block">
+                  إصدار فاتورة نقدية أو آجل
+                </span>
+              </div>
+            </button>
+
+            {/* 2. إضافة خامة جديدة */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsQuickActionsOpen(false);
+                onOpenNewMaterialModal();
+              }}
+              className="w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-right bg-amber-50/80 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 transition cursor-pointer group shadow-2xs"
+            >
+              <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                <Layers className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-black block">إضافة خامة جديدة</span>
+                <span className="text-[10px] text-amber-700/80 dark:text-amber-300/80 block">
+                  إدخال صنف خام للمخزن
+                </span>
+              </div>
+            </button>
+
+            {/* 3. حاسبة التكاليف والتسعير */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsQuickActionsOpen(false);
+                onNavigateToCalculator();
+              }}
+              className="w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-right bg-purple-50/80 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-900 dark:text-purple-200 transition cursor-pointer group shadow-2xs"
+            >
+              <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                <Calculator className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-black block">حاسبة التكاليف والتسعير</span>
+                <span className="text-[10px] text-purple-700/80 dark:text-purple-300/80 block">
+                  حساب تكلفة ومصنعية القطعة
+                </span>
+              </div>
+            </button>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setIsQuickActionsOpen(!isQuickActionsOpen)}
+          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 active:scale-90 cursor-pointer ${
+            isQuickActionsOpen
+              ? 'bg-stone-800 text-white rotate-45 ring-4 ring-amber-500/30'
+              : 'bg-gradient-to-tr from-amber-600 via-amber-500 to-amber-600 text-white hover:shadow-amber-500/40 hover:scale-105 ring-4 ring-amber-400/20'
+          }`}
+          title="إجراءات سريعة"
+          aria-label="قائمة إجراءات الوصول السريع"
+        >
+          <PlusCircle className={`w-7 h-7 transition-transform duration-300 ${isQuickActionsOpen ? 'rotate-45' : ''}`} />
+        </button>
+      </div>
     </div>
   );
 };

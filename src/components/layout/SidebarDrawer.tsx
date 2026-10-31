@@ -37,11 +37,14 @@ import {
   Database,
   Building,
   Mail,
-  Award,
   Scale,
-  Star,
+  Download,
+  Check,
+  RefreshCw,
 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
+import { tenantStorage } from '../../db/dexieDB';
+import { playSuccessSound, playErrorSound } from '../../lib/sounds';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -86,13 +89,89 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 }) => {
   const { lang: currentLang, dir, t: tr } = useTranslation();
 
-  // Collapsible sections state (default all expanded for high visibility)
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     erp: false,
     crm: false,
     hr: false,
     system: false,
   });
+
+  const [isSavingBackup, setIsSavingBackup] = useState(false);
+  const [backupSuccessMessage, setBackupSuccessMessage] = useState('');
+
+  const handleSaveWorkshopDataToDevice = async () => {
+    setIsSavingBackup(true);
+    setBackupSuccessMessage('');
+    try {
+      const tid = profile.tenantId || profile.workshopId || profile.id || 'default';
+      const [
+        treasuryTransactions,
+        customers,
+        suppliers,
+        supplierInvoices,
+        rawMaterials,
+        inventoryTransactions,
+        orders,
+        employees,
+        employeePayouts,
+        products,
+      ] = await Promise.all([
+        tenantStorage.getSafeTransactions(tid).catch(() => []),
+        tenantStorage.getCustomers(tid).catch(() => []),
+        tenantStorage.getSuppliers(tid).catch(() => []),
+        tenantStorage.getSupplierInvoices(tid).catch(() => []),
+        tenantStorage.getRawMaterials(tid).catch(() => []),
+        tenantStorage.getInventoryTransactions(tid).catch(() => []),
+        tenantStorage.getOrders(tid).catch(() => []),
+        tenantStorage.getEmployees(tid).catch(() => []),
+        tenantStorage.getEmployeePayouts(tid).catch(() => []),
+        tenantStorage.getProducts(tid).catch(() => []),
+      ]);
+
+      const workshopArchive = {
+        منظومة_الشمساوية: '2026',
+        اسم_الورشة: profile.brandName || 'ورشة الشمساوية',
+        اسم_الفنان: profile.artistName || 'فنان الشمساوية',
+        تاريخ_الحفظ: new Date().toISOString(),
+        بيانات_الورشة_والإعدادات: profile,
+        الخامات_والمخزون: rawMaterials,
+        المنتجات: products,
+        المبيعات_والفواتير: orders,
+        الخزائن_والمعاملات: treasuryTransactions,
+        سجل_العملاء: customers,
+        سجل_الموردين: suppliers,
+        فواتير_الموردين: supplierInvoices,
+        فريق_العمل: employees,
+        سجل_المصروفات_والأجور: employeePayouts,
+        حركات_المخزن: inventoryTransactions,
+      };
+
+      const dataBlob = new Blob([JSON.stringify(workshopArchive, null, 2)], {
+        type: 'application/octet-stream',
+      });
+      const downloadUrl = URL.createObjectURL(dataBlob);
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.href = downloadUrl;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const cleanBrand = (profile.brandName || 'ورشة_الشمساوية').replace(/\s+/g, '_');
+      downloadAnchor.download = `نسخة_بيانات_${cleanBrand}_${todayStr}.dat`;
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      URL.revokeObjectURL(downloadUrl);
+
+      playSuccessSound();
+      setBackupSuccessMessage('تم حفظ نسخة بيانات ورشتك بنجاح على جهازك');
+      setTimeout(() => {
+        setBackupSuccessMessage('');
+      }, 4500);
+    } catch (err) {
+      console.error('Save copy error:', err);
+      playErrorSound();
+    } finally {
+      setIsSavingBackup(false);
+    }
+  };
 
   const toggleSection = (sec: string) => {
     setCollapsedSections((prev) => ({
@@ -890,7 +969,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   </button>
                 )}
 
-                {/* اعدادات النظام */}
+                {/* اعدادات الورشة */}
                 <button
                   type="button"
                   onClick={() => {
@@ -912,6 +991,40 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   </div>
                   <ChevronLeft className="w-3.5 h-3.5 text-stone-300" />
                 </button>
+
+                {/* حفظ نسخة من بيانات الورشة في جهازك */}
+                <button
+                  type="button"
+                  onClick={handleSaveWorkshopDataToDevice}
+                  disabled={isSavingBackup}
+                  className="w-full px-2.5 py-2.5 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer bg-emerald-50/80 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800/60 shadow-2xs group"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs">
+                      {isSavingBackup ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-xs font-black block">
+                        {isSavingBackup ? 'جاري تجهيز النسخة...' : 'حفظ نسخة من بيانات الورشة في جهازك'}
+                      </span>
+                      <span className="text-[9px] text-emerald-700/80 dark:text-emerald-300/80 block">
+                        الخامات، المنتجات، المبيعات، والإعدادات
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronLeft className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 group-hover:-translate-x-0.5 transition-transform" />
+                </button>
+
+                {backupSuccessMessage && (
+                  <div className="p-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 text-xs font-black flex items-center gap-2 animate-in fade-in">
+                    <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-300 shrink-0" />
+                    <span>{backupSuccessMessage}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>

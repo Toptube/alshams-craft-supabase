@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { UserProfile, WorkshopProfile, isUserAdmin } from '../../types';
-import { firestoreService } from '../../db/firestoreService';
 import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
 import { playSuccessSound, playErrorSound, playAlertSound, playPostaNotificationSound } from '../../lib/sounds';
@@ -660,9 +659,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
     try {
       let serverWorkshops: WorkshopProfile[] = [];
-      let remoteWorkshops: WorkshopProfile[] = [];
+      let directSupaWorkshops: WorkshopProfile[] = [];
       let localProfiles: UserProfile[] = [];
 
+      // 1. جلب ورش العمل عبر مسار الخادم المتصل بجدول profiles في Supabase بصلاحيات السوبر أدمن
       try {
         const token = (await supabase.auth.getSession()).data.session?.access_token;
         const res = await fetch('/api/admin/workshops', {
@@ -717,12 +717,47 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         console.warn('[Admin Dashboard] Server workshops fetch notice:', err?.message);
       }
 
+      // 2. مزامنة مباشرة من جدول profiles في Supabase لضمان التحديث اللحظي
       try {
-        remoteWorkshops = await firestoreService.getAllWorkshops();
-      } catch (err: any) {
-        console.warn('Firestore getAllWorkshops warning:', err?.message);
+        const { data: supaProfiles, error: supaErr } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!supaErr && Array.isArray(supaProfiles)) {
+          directSupaWorkshops = supaProfiles.map((p: any) => {
+            const wid = p.workshop_id || p.id;
+            return {
+              id: wid,
+              workshopId: wid,
+              ownerUid: p.id,
+              brandName: p.brand_name || p.brandName || 'ورشة ' + (p.artist_name || p.full_name || 'الشمساوية'),
+              artistName: p.artist_name || p.full_name || p.name || 'فنان',
+              gender: p.gender || 'female',
+              email: p.email || '',
+              phoneNumber: p.phone_number || p.phone || '',
+              country: p.country || 'مصر',
+              currency: p.currency || 'EGP',
+              currencySymbol: p.currency_symbol || 'ج.م',
+              callingCode: p.calling_code || '+20',
+              selectedCrafts: p.selected_crafts || ['macrame'],
+              defaultVatPercent: p.default_vat_percent ?? 14,
+              showTaxInfoOnInvoice: false,
+              role: p.role || 'artisan',
+              status: p.status || 'active',
+              isFrozen: Boolean(p.status === 'suspended' || p.status === 'banned'),
+              welcomeShown: Boolean(p.welcome_shown),
+              createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
+              updatedAt: p.updated_at ? new Date(p.updated_at).getTime() : Date.now(),
+              createdBy: 'supabase',
+            };
+          });
+        }
+      } catch (supaErr: any) {
+        console.warn('[Admin Dashboard] Direct Supabase profiles notice:', supaErr?.message);
       }
 
+      // 3. قراءة البيانات المحلية كطبقة أمان واحتياط دون الاتصال بأي خوادم خارجية
       try {
         localProfiles = await tenantStorage.getAllProfiles();
       } catch (err: any) {
@@ -736,7 +771,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         if (p.id) map.set(p.id, p);
       });
 
-      remoteWorkshops.forEach((w) => {
+      directSupaWorkshops.forEach((w) => {
         if (w.id) {
           const existing = map.get(w.id);
           map.set(w.id, { ...existing, ...w });
@@ -996,7 +1031,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         updatedAt: Date.now(),
       };
 
-      await firestoreService.setWorkshop(updated);
+      try {
+        await supabase.from('profiles').update({
+          brand_name: updated.brandName,
+          artist_name: updated.artistName,
+          phone_number: updated.phoneNumber,
+          status: updated.status,
+          role: updated.role,
+          updated_at: new Date().toISOString(),
+        }).eq('id', updated.id);
+      } catch (supaErr) {
+        console.warn('Supabase profile update notice:', supaErr);
+      }
+
       await tenantStorage.saveProfile(updated);
 
       setWorkshops((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
@@ -1291,7 +1338,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       }
 
       if (selectiveDeleteMode === 'cascade') {
-        await firestoreService.deleteWorkshop(deletingWorkshop.id);
+        try {
+          await supabase.from('profiles').delete().eq('id', deletingWorkshop.id);
+        } catch (supaErr) {
+          console.warn('Supabase profile delete notice:', supaErr);
+        }
         await tenantStorage.deleteProfile(deletingWorkshop.id);
         setWorkshops((prev) => prev.filter((w) => w.id !== deletingWorkshop.id));
         setSuccessNotice(`تم حذف ورشة "${deletingWorkshop.brandName}" نهائياً من المنظومة.`);
@@ -1358,7 +1409,26 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         createdBy: profile.email || 'admin',
       };
 
-      await firestoreService.setWorkshop(newWs);
+      try {
+        await supabase.from('profiles').upsert({
+          id: newWs.id,
+          brand_name: newWs.brandName,
+          artist_name: newWs.artistName,
+          email: newWs.email,
+          phone_number: newWs.phoneNumber,
+          country: newWs.country,
+          currency: newWs.currency,
+          currency_symbol: newWs.currencySymbol,
+          calling_code: newWs.callingCode,
+          role: newWs.role,
+          status: 'active',
+          created_at: new Date(newWs.createdAt).toISOString(),
+          updated_at: new Date(newWs.updatedAt).toISOString(),
+        });
+      } catch (supaErr) {
+        console.warn('Supabase profile upsert notice:', supaErr);
+      }
+
       await tenantStorage.saveProfile(newWs);
 
       setWorkshops((prev) => [newWs, ...prev]);

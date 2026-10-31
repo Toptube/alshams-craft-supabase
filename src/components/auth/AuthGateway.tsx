@@ -198,9 +198,39 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         const userId = signInData.user?.id || activeSession?.user?.id || 'غير متوفر';
         const tokenLength = activeSession?.access_token ? activeSession.access_token.length : 0;
 
-        console.log('[AuthGateway] Step 2: Login successful. Fetching artist workshop...');
+        console.log('[AuthGateway] Step 2: Login successful. Checking account status and fetching workshop...');
+
+        // فحص حالة الحساب في جدول profiles و workshops للتحقق من التعليق
+        try {
+          const [profileStatusRes, wsStatusRes] = await Promise.all([
+            supabase.from('profiles').select('status').eq('id', signInData.user!.id).maybeSingle(),
+            supabase.from('workshops').select('status, is_frozen').eq('id', (signInData.user?.user_metadata as any)?.workshop_id || signInData.user!.id).maybeSingle(),
+          ]);
+
+          const profStatus = profileStatusRes.data?.status;
+          const wsStatus = wsStatusRes.data?.status;
+          const isFrozen = wsStatusRes.data?.is_frozen;
+
+          if (profStatus === 'suspended' || wsStatus === 'suspended' || isFrozen || profStatus === 'banned' || wsStatus === 'banned') {
+            await supabase.auth.signOut().catch(() => {});
+            localStorage.removeItem('alshams_profile');
+            setErrorMsg('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
+            setLoading(false);
+            return;
+          }
+        } catch (statusErr) {
+          console.warn('[AuthGateway] Status verification notice:', statusErr);
+        }
+
         const { workshop, error: wsError } = await getCurrentWorkshopFromSupabase();
         if (workshop) {
+          if (workshop.status === 'suspended' || (workshop as any).isFrozen) {
+            await supabase.auth.signOut().catch(() => {});
+            localStorage.removeItem('alshams_profile');
+            setErrorMsg('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
+            setLoading(false);
+            return;
+          }
           console.log('[AuthGateway] Step 3: Workshop loaded successfully:', workshop.brandName);
           onAuthenticated(workshop);
           return;
