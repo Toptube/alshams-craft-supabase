@@ -216,7 +216,7 @@ export class GeminiAIProvider {
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;
     // النماذج الرسمية المدعومة وفق دليل gemini-api
-    this.modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    this.modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
     if (apiKey) {
       this.ai = new GoogleGenAI({
@@ -422,7 +422,7 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
         const groq1Reply = await callGroqFallback(systemInstruction, chatHistory, userPromptText, groqPrimary);
         if (groq1Reply) return { reply: groq1Reply, sources: [], searchUsed: false };
       } catch (groq1Err: any) {
-        console.warn('[Falcon] Groq primary notice. Switching to secondary key...', groq1Err?.message?.slice(0, 100));
+        console.error('[Falcon] Groq primary error:', groq1Err?.message);
       }
     }
 
@@ -432,11 +432,11 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
         const groq2Reply = await callGroqFallback(systemInstruction, chatHistory, userPromptText, groqSecondary);
         if (groq2Reply) return { reply: groq2Reply, sources: [], searchUsed: false };
       } catch (groq2Err: any) {
-        console.warn('[Falcon] Groq secondary notice. Switching to Gemini Flash...', groq2Err?.message?.slice(0, 100));
+        console.error('[Falcon] Groq secondary error:', groq2Err?.message);
       }
     }
 
-    // 3. مزود Gemini Flash (المفتاح النشط)
+    // 3. مزود Gemini Flash (المفتاح الحي الفعلي المعتمد)
     if (this.ai && process.env.GEMINI_API_KEY) {
       try {
         const contents: any[] = chatHistory.slice(-10).map((m) => ({
@@ -465,7 +465,8 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
               { label: 'chat-search', timeoutMs: 16_000 }
             );
             searchUsed = true;
-          } catch {
+          } catch (searchErr: any) {
+            console.warn('[Falcon] Gemini search tools notice, falling back to pure text:', searchErr?.message);
             markSearchQuotaExhausted();
             response = await this.generate(
               { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
@@ -487,26 +488,28 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
           }
         }
 
-        const reply = response?.text?.trim() || 'أهلاً بك، معاك صقر الشمساوية.. جاهز أدرس لك أي خامة أو سعر أو موديل!';
-        return { reply, sources: searchSources.slice(0, 4), searchUsed };
+        const reply = response?.text?.trim();
+        if (reply) {
+          return { reply, sources: searchSources.slice(0, 4), searchUsed };
+        }
       } catch (geminiErr: any) {
-        console.warn('[Falcon] Gemini Flash notice. Switching to Fanar...', geminiErr?.message?.slice(0, 100));
+        console.error('[Falcon] Gemini Flash error:', geminiErr?.message);
       }
     }
 
-    // 4. مزود فنار (Fanar) - الاحتياطي النهائي في كافة الأحوال
+    // 4. مزود فنار (Fanar) - الاحتياطي النهائي
     if (process.env.FANAR_API_KEY) {
       try {
         const fanarReply = await callFanarCompletion(systemInstruction, chatHistory, userPromptText);
         if (fanarReply) return { reply: fanarReply, sources: [], searchUsed: false };
       } catch (fanarErr: any) {
-        console.warn('[Falcon] Fanar fallback notice:', fanarErr?.message?.slice(0, 100));
+        console.error('[Falcon] Fanar fallback error:', fanarErr?.message);
       }
     }
 
-    // 5. المحرك المحلي الذكي الاحتياطي لصقر
+    // 5. إشعار الحرفي بالسبب الفعلي في حال تعذر كافة المزودين
     return {
-      reply: `أهلاً بك يا ${artistName || 'فنان الشمساوية'} 🦅، صقر معاك وسامعك كويس. أنا جاهز أساعدك في دراسة أي خامة أو تسعير جملة وقطاعي أو تحليل فني لموديلاتك في الورشة، تحب نبدأ بإيه؟`,
+      reply: `يا ${artistName || 'فنان الشمساوية'} 🦅، صقر معاك.. حصل تعذر مؤقت في الاتصال بمحركات الذكاء الاصطناعي (Groq / Gemini) بسبب انقطاع لحظي في الشبكة أو نفاد حصة الاستعلام. يرجى إعادة إرسال سؤالك بعد لحظات وسأوافيك بالدراسة الهندسية والتسعير فوراً.`,
       sources: [],
       searchUsed: false,
     };

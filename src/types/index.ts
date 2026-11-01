@@ -859,6 +859,7 @@ export interface SavedProductRecord {
   wholesaleMarginDiscountPercent?: number; // نسبة الخصم المعتمدة من هامش الربح
   input: CalculationInput;
   output: CalculationOutput;
+  currentStock?: number; // رصيد المخزون الفعلي
   imageUrl?: string;
   isActive: boolean;
   createdAt: number;

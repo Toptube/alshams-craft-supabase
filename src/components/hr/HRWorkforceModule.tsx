@@ -620,10 +620,11 @@ export const HRWorkforceModule: React.FC<HRWorkforceModuleProps> = ({
                   onChange={(e) => setPayoutType(e.target.value as any)}
                   className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
                 >
-                  <option value="wage_payout">صرف مصنعية إنتاج</option>
+                  <option value="wage_payout">أجر ومصنعية بالقطعة</option>
+                  <option value="daily">يومية عمل</option>
+                  <option value="salary">راتب شهري</option>
                   <option value="advance">سلفة موظف (تخصم لاحقاً)</option>
                   <option value="bonus">مكافأة تميز وإتقان</option>
-                  <option value="salary">راتب شهري</option>
                 </select>
               </div>
 
@@ -647,8 +648,10 @@ export const HRWorkforceModule: React.FC<HRWorkforceModuleProps> = ({
                   onChange={(e) => setSafeType(e.target.value as SafeType)}
                   className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
                 >
-                  <option value="main">الخزينة الرئيسية</option>
-                  <option value="sub">الخزينة الفرعية</option>
+                  <option value="main">الخزينة الرئيسية (النقدية)</option>
+                  <option value="wallet">المحفظة الإلكترونية (فودافون كاش / إنستاباي)</option>
+                  <option value="bank">الحساب البنكي</option>
+                  <option value="sub">الخزينة الفرعية (المصروفات اليومية)</option>
                 </select>
               </div>
 

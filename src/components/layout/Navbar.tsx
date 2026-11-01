@@ -16,10 +16,13 @@ import {
   Sun,
   Moon,
   Sparkles,
+  Wallet,
 } from 'lucide-react';
 import { ConnectionStatus } from './ConnectionStatus';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useTranslation } from '../../lib/i18n';
+import { tenantStorage } from '../../db/dexieDB';
+import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import alshamsFalconEmblem from '../../assets/alshams_falcon_emblem.png';
 
 export interface NavbarProps {
@@ -83,6 +86,40 @@ export const Navbar: React.FC<NavbarProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Live available liquidity balance (تحديث لحظي بدون إعادة تحميل الصفحة)
+  const [liveTreasuryBalance, setLiveTreasuryBalance] = useState<number>(0);
+  const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLiveBalance = async () => {
+      if (!workshopId) return;
+      try {
+        const { data: supaTreasuries } = await getTreasuryBalancesFromSupabase(workshopId).catch(() => ({ data: null }));
+        if (supaTreasuries && supaTreasuries.length > 0) {
+          const sum = supaTreasuries.reduce((acc, t) => acc + (Number(t.balance) || 0), 0);
+          if (isMounted) setLiveTreasuryBalance(Math.round(sum));
+        } else {
+          const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
+          if (isMounted) setLiveTreasuryBalance(Math.round((safe.mainSafe || 0) + (safe.subSafe || 0)));
+        }
+      } catch {
+        const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
+        if (isMounted) setLiveTreasuryBalance(Math.round((safe.mainSafe || 0) + (safe.subSafe || 0)));
+      }
+    };
+
+    fetchLiveBalance();
+
+    window.addEventListener('alshams_treasury_updated', fetchLiveBalance);
+    window.addEventListener('alshams_financials_updated', fetchLiveBalance);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('alshams_treasury_updated', fetchLiveBalance);
+      window.removeEventListener('alshams_financials_updated', fetchLiveBalance);
+    };
+  }, [workshopId]);
 
   const quickActions = [
     {
@@ -259,6 +296,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
           )}
+
+          {/* مؤشر صافي السيولة الحية لورشتنا (تحديث فوري بدون إعادة تحميل) */}
+          <div
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300/80 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 text-xs font-bold shadow-2xs select-none"
+            title="صافي السيولة النقدية الحية المتاحة بالخزائن والمحافظ الآن"
+          >
+            <Wallet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="text-[10px] text-stone-500 dark:text-stone-400">السيولة الحية:</span>
+            <span className="font-mono font-black text-emerald-700 dark:text-emerald-300">
+              {liveTreasuryBalance.toLocaleString()} {profile.currencySymbol || 'ج.م'}
+            </span>
+          </div>
         </div>
 
         {/* القسم الأيسر: مؤشر حالة الاتصال السحابي + البحث الموحد + محول اللغات (متباعدة تماماً وبدون أي تداخل) */}

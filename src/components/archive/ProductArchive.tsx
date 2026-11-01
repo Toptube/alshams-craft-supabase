@@ -17,18 +17,25 @@ import {
   Scale,
   Sparkles,
   ArrowRight,
+  BookOpen,
+  Hammer,
+  Check,
 } from 'lucide-react';
 
 interface ProductArchiveProps {
   profile: UserProfile;
   onSelectRecordToLoad: (record: SavedProductRecord) => void;
   onOpenWhatsAppShare: (record: SavedProductRecord) => void;
+  onNavigateToCatalog?: () => void;
+  onNavigateToWorkOrders?: (rec?: SavedProductRecord) => void;
 }
 
 export const ProductArchive: React.FC<ProductArchiveProps> = ({
   profile,
   onSelectRecordToLoad,
   onOpenWhatsAppShare,
+  onNavigateToCatalog,
+  onNavigateToWorkOrders,
 }) => {
   const [records, setRecords] = useState<SavedProductRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -245,19 +252,53 @@ export const ProductArchive: React.FC<ProductArchiveProps> = ({
               </div>
 
               {/* Card Footer Actions */}
-              <div className="mt-4 pt-3 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenWhatsAppShare(rec);
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-300/50 text-xs font-bold flex items-center gap-1 transition"
-                  title="مشاركة عرض السعر"
-                >
-                  <Share2 className="w-3.5 h-3.5" />
-                  <span>واتساب</span>
-                </button>
+              <div className="mt-4 pt-3 border-t border-stone-100 dark:border-stone-800 flex flex-wrap items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenWhatsAppShare(rec);
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-300/50 text-[11px] font-bold flex items-center gap-1 transition"
+                    title="مشاركة عرض السعر"
+                  >
+                    <Share2 className="w-3 h-3" />
+                    <span>واتساب</span>
+                  </button>
+
+                  {onNavigateToCatalog && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        (rec as any).isCatalogVisible = true;
+                        await tenantStorage.mutateProduct(rec);
+                        onNavigateToCatalog();
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-sky-50 dark:bg-sky-950/40 hover:bg-sky-100 text-sky-700 dark:text-sky-300 border border-sky-300/50 text-[11px] font-bold flex items-center gap-1 transition"
+                      title="عرض في الكتالوج المرجعي"
+                    >
+                      <BookOpen className="w-3 h-3" />
+                      <span>الكتالوج</span>
+                    </button>
+                  )}
+
+                  {onNavigateToWorkOrders && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onNavigateToWorkOrders(rec);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-orange-50 dark:bg-orange-950/40 hover:bg-orange-100 text-orange-700 dark:text-orange-300 border border-orange-300/50 text-[11px] font-bold flex items-center gap-1 transition"
+                      title="فتح أمر تشغيل للمشغولة"
+                    >
+                      <Hammer className="w-3 h-3" />
+                      <span>أمر تشغيل</span>
+                    </button>
+                  )}
+                </div>
 
                 <div className="flex items-center gap-2">
                   <button

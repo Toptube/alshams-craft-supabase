@@ -779,15 +779,21 @@ app.post('/api/admin/workshops/:id/selective-delete', requireAuth, async (req: A
     }
 
     if (mode === 'cascade') {
-      await Promise.all([
+      await Promise.allSettled([
         client.from('materials').delete().eq('workshop_id', targetWid),
         client.from('products').delete().eq('workshop_id', targetWid),
         client.from('treasuries').delete().eq('workshop_id', targetWid),
+        client.from('safe_transactions').delete().eq('workshop_id', targetWid),
         client.from('orders').delete().eq('workshop_id', targetWid),
+        client.from('work_orders').delete().eq('workshop_id', targetWid),
         client.from('customers').delete().eq('workshop_id', targetWid),
         client.from('suppliers').delete().eq('workshop_id', targetWid),
         client.from('employees').delete().eq('workshop_id', targetWid),
+        client.from('expenses').delete().eq('workshop_id', targetWid),
+        client.from('custodies').delete().eq('workshop_id', targetWid),
+        client.from('invoices').delete().eq('workshop_id', targetWid),
         client.from('workshops').delete().eq('id', targetWid),
+        client.from('profiles').delete().or(`id.eq.${targetWid},workshop_id.eq.${targetWid}`),
       ]);
 
       const localList = loadPersistentWorkshops();
@@ -1048,9 +1054,10 @@ app.post('/api/admin/workshops/:id/appeal', requireAuth, async (req: Authenticat
 
   try {
     await client.from('workshops').update(updateData).eq('id', targetWid);
-  } catch {
-    // ignore
-  }
+  } catch {}
+  try {
+    await client.from('profiles').update(updateData).eq('id', targetWid);
+  } catch {}
 
   const existing = localWorkshopStatusMap.get(targetWid) || { status: 'suspended' };
   localWorkshopStatusMap.set(targetWid, {

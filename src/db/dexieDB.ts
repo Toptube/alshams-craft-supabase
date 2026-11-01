@@ -21,6 +21,7 @@ import {
   CurrencyExchangeRate,
   FixedAsset,
   PaymentReminder,
+  WorkOrderRecord,
 } from '../types';
 
 export interface AIKnowledgeItem {
@@ -63,6 +64,7 @@ export class AlShamsDatabase extends Dexie {
   exchangeRates!: Table<CurrencyExchangeRate, string>;
   fixedAssets!: Table<FixedAsset, string>;
   paymentReminders!: Table<PaymentReminder, string>;
+  workOrders!: Table<WorkOrderRecord, string>;
 
   constructor() {
     super('AlShamsCraftERP_DB_V2');
@@ -96,6 +98,10 @@ export class AlShamsDatabase extends Dexie {
 
     this.version(5).stores({
       paymentReminders: 'id, tenantId, targetType, targetId, status, dueDate',
+    });
+
+    this.version(6).stores({
+      workOrders: 'id, tenantId, workshopId, status, orderNumber, createdAt',
     });
   }
 }
@@ -504,13 +510,37 @@ export const tenantStorage = {
       });
     }
 
+    // Deduct sold products quantity from inventory warehouse
+    if (order.items && Array.isArray(order.items)) {
+      for (const line of order.items) {
+        const pId = line.productId || (line as any).id;
+        if (pId) {
+          try {
+            const p = await db.products.get(pId);
+            if (p) {
+              const qty = Number(line.quantity) || 1;
+              p.currentStock = Math.max(0, (Number(p.currentStock) || 0) - qty);
+              p.updatedAt = Date.now();
+              await db.products.put(p);
+            }
+          } catch {}
+        }
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('alshams_products_changed', { detail: { tenantId: order.tenantId } }));
+      }
+    }
+
     // If employee was assigned with piece-rate wage, credit their balance
     if (order.assignedEmployeeId && order.assignedEmployeeWage && order.assignedEmployeeWage > 0) {
       const employee = await db.employees.get(order.assignedEmployeeId);
       if (employee && (employee.tenantId === order.tenantId || employee.workshopId === order.workshopId)) {
         employee.totalEarned = (employee.totalEarned || 0) + order.assignedEmployeeWage;
-        employee.currentBalance = (employee.currentBalance || 0) + order.assignedEmployeeWage;
+        employee.currentBalance = (employee.totalEarned || 0) - (employee.totalPaid || 0);
         await db.employees.put(employee);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('alshams_employees_changed', { detail: { tenantId: order.tenantId } }));
+        }
       }
     }
   },
@@ -518,6 +548,10 @@ export const tenantStorage = {
   // HR WORKFORCE & PAYROLL
   async getEmployees(tenantId: string): Promise<EmployeeProfile[]> {
     return db.employees.where('tenantId').equals(tenantId).toArray();
+  },
+
+  async getEmployee(id: string): Promise<EmployeeProfile | undefined> {
+    return db.employees.get(id);
   },
 
   async saveEmployee(employee: EmployeeProfile): Promise<void> {
@@ -547,6 +581,16 @@ export const tenantStorage = {
       await db.employees.put(employee);
     }
 
+    const safeNameMap: Record<string, string> = {
+      main: 'الخزينة الرئيسية',
+      sub: 'الخزينة الفرعية',
+      wallet: 'المحفظة الإلكترونية',
+      bank: 'الحساب البنكي',
+      instapay: 'إنستاباي',
+    };
+    const tName = safeNameMap[payout.safeType || 'main'] || 'الخزينة الرئيسية';
+    const payoutAmount = Number(payout.amount || payout.paidAmount || 0);
+
     // Record as operating expense in designated Safe
     await this.recordSafeTransaction({
       id: 'stx_' + Date.now(),
@@ -554,15 +598,57 @@ export const tenantStorage = {
       tenantId: payout.tenantId || payout.workshopId || 'default',
       safeType: payout.safeType || 'main',
       treasuryId: payout.safeType || 'main',
-      treasuryName: payout.safeType === 'sub' ? 'الخزنة الفرعية' : 'الخزنة الرئيسية',
+      treasuryName: tName,
       type: 'expense',
-      amount: -Number(payout.amount || payout.paidAmount || 0),
+      amount: -payoutAmount,
       balanceAfter: 0,
-      notes: `صرف ${payout.type === 'advance' ? 'سلفة' : 'أجر/مصنعية'} للموظف: ${payout.employeeName}`,
+      notes: `أجور ومصنعيات عمالة - صرف ${
+        payout.type === 'advance'
+          ? 'سلفة'
+          : payout.type === 'salary'
+          ? 'راتب شهري'
+          : payout.type === 'bonus'
+          ? 'مكافأة تميز'
+          : 'أجر ومصنعية إنتاج'
+      } للموظف: ${payout.employeeName}${payout.notes ? ` (${payout.notes})` : ''}`,
       date: payout.date || new Date().toISOString().split('T')[0],
       createdAt: Date.now(),
       createdBy: 'system',
     });
+
+    // Record in adminExpenses under 'أجور ومصنعيات عمالة' to reflect in P&L and charts
+    try {
+      await db.adminExpenses.put({
+        id: 'exp_' + payout.id,
+        tenantId: payout.tenantId || payout.workshopId || 'default',
+        workshopId: payout.workshopId || payout.tenantId,
+        category: 'أجور ومصنعيات عمالة',
+        categoryNameAr: 'أجور ومصنعيات عمالة',
+        title: `أجور ومصنعيات عمالة - ${payout.employeeName}`,
+        amount: payoutAmount,
+        baseCurrencyAmount: payoutAmount,
+        notes: `أجور ومصنعيات عمالة للموظف: ${payout.employeeName}`,
+        date: payout.date || new Date().toISOString().split('T')[0],
+        paymentDate: payout.date || new Date().toISOString().split('T')[0],
+        month: (payout.date || new Date().toISOString()).slice(0, 7),
+        safeType: payout.safeType || 'main',
+        treasuryId: payout.safeType || 'main',
+        treasuryName: tName,
+        createdAt: Date.now(),
+      });
+    } catch {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('alshams_employees_changed', { detail: { tenantId: payout.tenantId } })
+      );
+      window.dispatchEvent(
+        new CustomEvent('alshams_treasury_updated', { detail: { tenantId: payout.tenantId } })
+      );
+      window.dispatchEvent(
+        new CustomEvent('alshams_financials_updated', { detail: { tenantId: payout.tenantId } })
+      );
+    }
   },
 
   async getEmployeePayouts(tenantId: string, employeeId?: string): Promise<EmployeePayoutRecord[]> {
@@ -1446,5 +1532,42 @@ export const tenantStorage = {
       updatedAt: Date.now() - 86400000 * 20,
       createdBy: 'system',
     });
+  },
+
+  // Work Orders (أوامر التشغيل وتتبع الهالك محلياً وسحابياً)
+  async getWorkOrders(tenantId: string): Promise<WorkOrderRecord[]> {
+    try {
+      const items = await db.workOrders
+        .where('tenantId')
+        .equals(tenantId)
+        .reverse()
+        .sortBy('createdAt');
+      return items;
+    } catch {
+      return [];
+    }
+  },
+
+  async saveWorkOrder(order: WorkOrderRecord): Promise<void> {
+    const tenantId = (order as any).tenantId || order.workshopId;
+    await db.workOrders.put({
+      ...order,
+      tenantId,
+      workshopId: tenantId,
+      updatedAt: Date.now(),
+    } as any);
+  },
+
+  async deleteWorkOrder(id: string): Promise<void> {
+    await db.workOrders.delete(id);
+  },
+
+  async getNextWorkOrderNumber(tenantId: string): Promise<string> {
+    try {
+      const count = await db.workOrders.where('tenantId').equals(tenantId).count();
+      return `WO-${String(count + 1).padStart(4, '0')}`;
+    } catch {
+      return `WO-${Date.now().toString().slice(-4)}`;
+    }
   },
 };

@@ -57,6 +57,8 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
   const [category, setCategory] = useState<'rent' | 'electricity' | 'water' | 'internet_office' | 'other'>('rent');
   const [amount, setAmount] = useState<number>(500);
   const [notes, setNotes] = useState('');
+  const [treasurySource, setTreasurySource] = useState<'main' | 'sub' | 'bank' | 'custody'>('main');
+  const [custodyRecipient, setCustodyRecipient] = useState<string>('');
 
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
 
@@ -90,6 +92,15 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
       ? amount
       : Math.round(amount * rate * 100) / 100;
 
+    const sourceTag =
+      treasurySource === 'custody'
+        ? `[صرف من عهدة: ${custodyRecipient || 'مفتوحة'}]`
+        : treasurySource === 'bank'
+        ? '[صرف من: الحساب البنكي]'
+        : treasurySource === 'sub'
+        ? '[صرف من: إنستاباي / المحفظة]'
+        : '[صرف من: الخزينة الرئيسية كاش]';
+
     const newCost: AdminCostRecord = {
       id: 'adm_' + Date.now(),
       tenantId,
@@ -99,16 +110,37 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
       currency,
       exchangeRate: rate,
       baseCurrencyAmount,
-      safeType: 'main',
+      safeType: treasurySource === 'sub' || treasurySource === 'bank' ? 'sub' : 'main',
       month: selectedMonth,
       paymentDate: new Date().toISOString().split('T')[0],
-      notes: notes.trim(),
+      notes: `${notes.trim()} ${sourceTag}`.trim(),
     };
 
     await tenantStorage.addAdminCost(newCost);
+
+    // تسجيل حركة الخزينة الفعلية لخصم المبلغ من رصيد الخزينة الحية
+    try {
+      await tenantStorage.recordSafeTransaction({
+        id: 'tx_exp_' + Date.now(),
+        tenantId,
+        safeType: treasurySource === 'sub' || treasurySource === 'bank' ? 'sub' : 'main',
+        type: 'expense_admin',
+        amount: -baseCurrencyAmount,
+        balanceAfter: 0,
+        description: `صرف مصروف: ${title.trim()} (${category})`,
+        notes: `صرف مصروف: ${title.trim()} (${category}) ${sourceTag}`,
+        date: new Date().toISOString().split('T')[0],
+        createdAt: Date.now(),
+        createdBy: profile.email || 'system',
+      });
+    } catch (safeErr) {
+      console.warn('Safe transaction record notice:', safeErr);
+    }
+
     setTitle('');
     setAmount(100);
     setNotes('');
+    setCustodyRecipient('');
     setCurrency(baseCurrency);
     setExchangeRate(1.0);
     loadData();
@@ -322,6 +354,72 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* اختيار مصدر الصرف (إلزامي) */}
+          <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-2">
+            <label className="block text-xs font-bold text-stone-800 dark:text-stone-200">
+              من أي خزينة أو عهدة تم الصرف؟ *
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => setTreasurySource('main')}
+                className={`p-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                  treasurySource === 'main'
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                    : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                }`}
+              >
+                <span>الخزينة كاش 💵</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTreasurySource('sub')}
+                className={`p-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                  treasurySource === 'sub'
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                    : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                }`}
+              >
+                <span>إنستاباي / محفظة 📱</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTreasurySource('bank')}
+                className={`p-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                  treasurySource === 'bank'
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                    : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                }`}
+              >
+                <span>حساب بنكي 🏛️</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTreasurySource('custody')}
+                className={`p-2 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                  treasurySource === 'custody'
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                    : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300'
+                }`}
+              >
+                <span>عهدة مالية 💼</span>
+              </button>
+            </div>
+
+            {treasurySource === 'custody' && (
+              <div className="pt-1">
+                <input
+                  type="text"
+                  required
+                  value={custodyRecipient}
+                  onChange={(e) => setCustodyRecipient(e.target.value)}
+                  placeholder="اسم مستلم العهدة أو رقم العهدة المفتوحة *"
+                  className="w-full px-3 py-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none"
+                />
+              </div>
+            )}
+          </div>
 
           <button
             type="submit"

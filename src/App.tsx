@@ -540,14 +540,22 @@ export const App: React.FC = () => {
       const previous = historyStack[historyStack.length - 1];
       setHistoryStack((prev) => prev.slice(0, -1));
       setActiveView(previous);
+      window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
     } else {
-      setActiveView('home');
+      window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
+      if (activeView !== 'home') {
+        setActiveView('home');
+      }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [historyStack]);
+  }, [historyStack, activeView]);
 
   const goHome = useCallback(() => {
-    if (activeView === 'home') return;
+    window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
+    if (activeView === 'home') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     setHistoryStack((prev) => [...prev, activeView]);
     setActiveView('home');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -872,6 +880,8 @@ export const App: React.FC = () => {
             profile={profile}
             onSelectRecordToLoad={handleSelectRecordToLoad}
             onOpenWhatsAppShare={handleOpenWhatsAppShare}
+            onNavigateToCatalog={() => navigateTo('catalog')}
+            onNavigateToWorkOrders={() => navigateTo('work_orders')}
           />
         )}
 
@@ -1044,6 +1054,7 @@ export const App: React.FC = () => {
         <ShamousaChatWidget
           profile={profile}
           onOpenFalcon={() => navigateTo('ai_agent')}
+          isAnyModalOpen={isAnyModalOpen}
         />
       )}
 

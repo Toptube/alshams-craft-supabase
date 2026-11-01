@@ -769,7 +769,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       }
 
       const map = new Map<string, WorkshopProfile>();
-      map.set(profile.id, profile);
+      if (profile.role !== 'superadmin' && profile.role !== 'admin' && profile.brandName) {
+        map.set(profile.id, profile);
+      }
 
       localProfiles.forEach((p) => {
         if (p.id) map.set(p.id, p);

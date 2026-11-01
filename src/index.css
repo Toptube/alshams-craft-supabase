@@ -45,15 +45,66 @@
   animation: pulse-subtle 3s infinite ease-in-out;
 }
 
-/* وضع السهر الحرفي المريح للعين (Night Focus Mode) - كهرمان وعنبر داكن مريح لعين الفنان */
+/* معالجة التباين اللوني التام للوضع الداكن ووضع السهر الحرفي */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  color: #f5f5f4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* رفع تباين النصوص الرمادية الخافتة على الأسطح الداكنة لتكون ناصعة ومقروءة بوضوح */
+html.dark .text-stone-400,
+html.dark .dark\:text-stone-400 {
+  color: #d6d3d1 !important; /* Stone-300 بدلاً من 400 الباهت */
+}
+
+html.dark .text-stone-500,
+html.dark .dark\:text-stone-500 {
+  color: #a8a29e !important; /* Stone-400 بدلاً من 500 الخافت */
+}
+
+html.dark .text-stone-600 {
+  color: #d6d3d1 !important;
+}
+
+html.dark .text-stone-700,
+html.dark .dark\:text-stone-300 {
+  color: #e7e5e4 !important; /* Stone-200 */
+}
+
+html.dark .text-stone-800,
+html.dark .text-stone-900,
+html.dark .dark\:text-stone-100,
+html.dark .dark\:text-stone-200 {
+  color: #fafaf9 !important; /* Stone-50 أبيض عاجي ناصع */
+}
+
+/* حقول الإدخال والنصوص البديلة في الوضع الداكن */
+html.dark input,
+html.dark textarea,
+html.dark select {
+  color: #fafaf9 !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #a8a29e !important;
+  opacity: 0.9 !important;
+}
+
+/* وضع السهر الحرفي المريح للعين (Night Focus Mode) - كهرمان وعنبر داكن دافئ ومريح لعين الفنان */
 html.night-focus.dark body {
   background-color: #16120e !important;
-  color: #f5f2eb !important;
+  color: #fbf9f5 !important;
 }
 
 html.night-focus.dark header {
-  background-color: rgba(26, 21, 16, 0.96) !important;
-  border-bottom-color: rgba(180, 83, 9, 0.28) !important;
+  background-color: rgba(26, 21, 16, 0.98) !important;
+  border-bottom-color: rgba(217, 119, 6, 0.35) !important;
 }
 
 html.night-focus.dark .dark\:bg-stone-900 {
@@ -73,9 +124,23 @@ html.night-focus.dark .dark\:bg-stone-800 {
 }
 
 html.night-focus.dark .dark\:border-stone-800 {
-  border-color: rgba(180, 83, 9, 0.25) !important;
+  border-color: rgba(217, 119, 6, 0.28) !important;
 }
 
 html.night-focus.dark .dark\:border-stone-700 {
-  border-color: rgba(180, 83, 9, 0.35) !important;
+  border-color: rgba(217, 119, 6, 0.38) !important;
+}
+
+html.night-focus.dark input,
+html.night-focus.dark textarea,
+html.night-focus.dark select {
+  background-color: #1d1712 !important;
+  color: #fffbeb !important;
+  border-color: rgba(217, 119, 6, 0.35) !important;
+}
+
+html.night-focus.dark input::placeholder,
+html.night-focus.dark textarea::placeholder {
+  color: #d97706 !important;
+  opacity: 0.75 !important;
 }

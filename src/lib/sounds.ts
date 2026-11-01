@@ -326,9 +326,10 @@ export function playPageFlipSound(): void {
 }
 
 /**
- * 10. نغمة إشعار وصول الرسائل والمراسلات (رنة هاتف عتيق كلاسيكية):
- * صوت مميز لرنة جرس هاتف قديم متقن (Dual-Tone Vintage Phone Bell 440Hz + 480Hz)
- * باستخدام Web Audio API بدون أي نطق صوتي وبدون ملفات خارجية، متكاملة مع نظام إشعارات المنظومة.
+ * 10. نغمة إشعار وصول الرسائل والمراسلات (رنة هاتف أرضي تناظرية كلاسيكية):
+ * صوت جرس هاتف أرضي تناظري عتيق نقي (Dual-Tone Bell 440Hz + 480Hz)
+ * نمط النغمة المزدوجة المتكررة (تررررررررن... تررررررررن) بمطرقة ميكانيكية متناوبة.
+ * باستخدام Web Audio API فقط وبدون نطق أي كلمات أو مؤثرات صوتية خارجية نهائياً.
  */
 export function playPostaNotificationSound(): void {
   if (!isSoundEnabled()) return;
@@ -338,36 +339,58 @@ export function playPostaNotificationSound(): void {
 
   try {
     const now = ctx.currentTime;
-    const f1 = 440; // تردد جرس الهاتف الكلاسيكي الأول
-    const f2 = 480; // تردد جرس الهاتف الكلاسيكي الثاني
-    const pulseDuration = 0.045;
-    const pulseGap = 0.025;
-    const pulsesPerRing = 12; // نبضات مطرقة الجرس الميكانيكي
+    const f1 = 440; // نغمة الجرس الأولى (440Hz)
+    const f2 = 480; // نغمة الجرس الثانية (480Hz)
+    const pulseDuration = 0.038;
+    const pulseGap = 0.022;
+    const pulsesPerRing = 16; // عدد نبضات المطرقة في كل رنة
 
-    // رنتين متتاليتين تحاكي رنين الهاتف الأرضي الكلاسيكي
+    // رنتين متتاليتين تحاكي جرس الهاتف الأرضي الكلاسيكي النقي
     for (let ring = 0; ring < 2; ring++) {
-      const ringStart = now + ring * 0.58;
+      const ringStart = now + ring * 0.75;
       for (let i = 0; i < pulsesPerRing; i++) {
         const t = ringStart + i * (pulseDuration + pulseGap);
-        [f1, f2].forEach((freq) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq + (i % 2 === 0 ? 12 : -12), t);
+        // التردد الأساسي يتناوب بين جرس الـ 440 وجرس الـ 480 لمحاكاة ضربات المطرقة
+        const baseFreq = i % 2 === 0 ? f1 : f2;
 
-          gain.gain.setValueAtTime(0.0001, t);
-          gain.gain.exponentialRampToValueAtTime(0.14, t + 0.004);
-          gain.gain.exponentialRampToValueAtTime(0.0001, t + pulseDuration);
+        // مذبذب النغمة الأساسية
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(baseFreq, t);
 
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(t);
-          osc.stop(t + pulseDuration);
-        });
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.18, t + 0.003);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + pulseDuration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + pulseDuration);
+
+        // لمسة رنين ميكانيكي نحاسي خفيف متوافق (Harmonic Overtones)
+        const harmOsc = ctx.createOscillator();
+        const harmGain = ctx.createGain();
+        harmOsc.type = 'triangle';
+        harmOsc.frequency.setValueAtTime(baseFreq * 2.2, t);
+
+        harmGain.gain.setValueAtTime(0.0001, t);
+        harmGain.gain.exponentialRampToValueAtTime(0.04, t + 0.002);
+        harmGain.gain.exponentialRampToValueAtTime(0.0001, t + pulseDuration * 0.7);
+
+        harmOsc.connect(harmGain);
+        harmGain.connect(ctx.destination);
+        harmOsc.start(t);
+        harmOsc.stop(t + pulseDuration * 0.7);
       }
     }
   } catch (err) {
     console.warn('[Posta Sound] AudioContext error:', err);
   }
 }
+
+// Aliases for clear semantic usage
+export const playClassicPhoneRingSound = playPostaNotificationSound;
+export const playMessageNotificationSound = playPostaNotificationSound;
+
 

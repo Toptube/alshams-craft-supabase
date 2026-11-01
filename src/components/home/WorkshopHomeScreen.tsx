@@ -56,9 +56,11 @@ import {
   Search,
   Sun,
   Moon,
-  Calendar,
-  Pin,
-  ExternalLink,
+  Store,
+  Palette,
+  Award,
+  Globe,
+  PackageCheck,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -72,21 +74,23 @@ import {
   YAxis,
   CartesianGrid,
 } from 'recharts';
-import { DailyProgressStrip } from './DailyProgressStrip';
-import { WorkshopAgendaSection } from './WorkshopAgendaSection';
 
 export type HomeCardSection =
   | 'materials'
   | 'products'
+  | 'purchases'
   | 'suppliers'
-  | 'customers'
-  | 'sales'
   | 'inventory'
-  | 'treasuries'
-  | 'expenses'
-  | 'employees'
   | 'work_orders'
-  | 'reports';
+  | 'sales'
+  | 'customers'
+  | 'artisans'
+  | 'employees'
+  | 'expenses'
+  | 'treasuries'
+  | 'accounts'
+  | 'reports'
+  | 'my_platform';
 
 export interface WorkshopHomeScreenProps {
   profile: UserProfile;
@@ -171,6 +175,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       setIsQuickActionsOpen(false);
     }
   }, [isModalActive, isQuickActionsOpen]);
+
+  useEffect(() => {
+    const handleReset = () => setActiveSubSection(null);
+    window.addEventListener('alshams_reset_subview', handleReset);
+    return () => window.removeEventListener('alshams_reset_subview', handleReset);
+  }, []);
 
   // Summary Metrics State (رصيد الخزن، مبيعات الشهر، المصروفات، قيمة المنتجات والمخزون)
   const [totalTreasuryBalance, setTotalTreasuryBalance] = useState<number>(0);
@@ -537,11 +547,11 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
   const hasAnyFavorites = starredProducts.length > 0 || starredMaterials.length > 0;
 
-  // The 11 Core Cards definition with translations
+  // The 15 Unified Operational Cards definition
   const coreCards = [
     {
       id: 'materials' as HomeCardSection,
-      label: tr('card_materials'),
+      label: 'الخامات',
       icon: Layers,
       color: 'text-amber-600 dark:text-amber-400',
       bgColor: 'bg-amber-50 dark:bg-amber-950/40',
@@ -549,83 +559,115 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     },
     {
       id: 'products' as HomeCardSection,
-      label: tr('card_products'),
+      label: 'المنتجات',
       icon: ShoppingBag,
       color: 'text-orange-600 dark:text-orange-400',
       bgColor: 'bg-orange-50 dark:bg-orange-950/40',
       borderColor: 'border-orange-200/80 dark:border-orange-900/40',
     },
     {
+      id: 'purchases' as HomeCardSection,
+      label: 'المشتريات',
+      icon: PackagePlus,
+      color: 'text-rose-600 dark:text-rose-400',
+      bgColor: 'bg-rose-50 dark:bg-rose-950/40',
+      borderColor: 'border-rose-200/80 dark:border-rose-900/40',
+    },
+    {
       id: 'suppliers' as HomeCardSection,
-      label: tr('card_suppliers'),
+      label: 'الموردين',
       icon: Truck,
       color: 'text-blue-600 dark:text-blue-400',
       bgColor: 'bg-blue-50 dark:bg-blue-950/40',
       borderColor: 'border-blue-200/80 dark:border-blue-900/40',
     },
     {
-      id: 'customers' as HomeCardSection,
-      label: tr('card_customers'),
-      icon: Users,
-      color: 'text-emerald-600 dark:text-emerald-400',
-      bgColor: 'bg-emerald-50 dark:bg-emerald-950/40',
-      borderColor: 'border-emerald-200/80 dark:border-emerald-900/40',
-    },
-    {
-      id: 'sales' as HomeCardSection,
-      label: tr('card_sales'),
-      icon: ShoppingCart,
-      color: 'text-teal-600 dark:text-teal-400',
-      bgColor: 'bg-teal-50 dark:bg-teal-950/40',
-      borderColor: 'border-teal-200/80 dark:border-teal-900/40',
-    },
-    {
       id: 'inventory' as HomeCardSection,
-      label: tr('card_inventory'),
+      label: 'المخازن',
       icon: Boxes,
       color: 'text-indigo-600 dark:text-indigo-400',
       bgColor: 'bg-indigo-50 dark:bg-indigo-950/40',
       borderColor: 'border-indigo-200/80 dark:border-indigo-900/40',
     },
     {
-      id: 'treasuries' as HomeCardSection,
-      label: tr('card_treasuries'),
-      icon: Wallet,
-      color: 'text-lime-600 dark:text-lime-400',
-      bgColor: 'bg-lime-50 dark:bg-lime-950/40',
-      borderColor: 'border-lime-200/80 dark:border-lime-900/40',
-    },
-    {
-      id: 'expenses' as HomeCardSection,
-      label: tr('card_expenses'),
-      icon: DollarSign,
-      color: 'text-rose-600 dark:text-rose-400',
-      bgColor: 'bg-rose-50 dark:bg-rose-950/40',
-      borderColor: 'border-rose-200/80 dark:border-rose-900/40',
-    },
-    {
-      id: 'employees' as HomeCardSection,
-      label: tr('card_employees'),
-      icon: Users2,
-      color: 'text-violet-600 dark:text-violet-400',
-      bgColor: 'bg-violet-50 dark:bg-violet-950/40',
-      borderColor: 'border-violet-200/80 dark:border-violet-900/40',
-    },
-    {
       id: 'work_orders' as HomeCardSection,
-      label: tr('card_work_orders'),
+      label: 'أوامر التشغيل',
       icon: Hammer,
       color: 'text-cyan-600 dark:text-cyan-400',
       bgColor: 'bg-cyan-50 dark:bg-cyan-950/40',
       borderColor: 'border-cyan-200/80 dark:border-cyan-900/40',
     },
     {
+      id: 'sales' as HomeCardSection,
+      label: 'المبيعات',
+      icon: ShoppingCart,
+      color: 'text-teal-600 dark:text-teal-400',
+      bgColor: 'bg-teal-50 dark:bg-teal-950/40',
+      borderColor: 'border-teal-200/80 dark:border-teal-900/40',
+    },
+    {
+      id: 'customers' as HomeCardSection,
+      label: 'العملاء',
+      icon: Users,
+      color: 'text-emerald-600 dark:text-emerald-400',
+      bgColor: 'bg-emerald-50 dark:bg-emerald-950/40',
+      borderColor: 'border-emerald-200/80 dark:border-emerald-900/40',
+    },
+    {
+      id: 'artisans' as HomeCardSection,
+      label: 'الفنانون والحرفيون',
+      icon: Palette,
+      color: 'text-amber-700 dark:text-amber-300',
+      bgColor: 'bg-amber-100/70 dark:bg-amber-950/50',
+      borderColor: 'border-amber-300 dark:border-amber-800',
+    },
+    {
+      id: 'employees' as HomeCardSection,
+      label: 'الموظفون',
+      icon: Users2,
+      color: 'text-violet-600 dark:text-violet-400',
+      bgColor: 'bg-violet-50 dark:bg-violet-950/40',
+      borderColor: 'border-violet-200/80 dark:border-violet-900/40',
+    },
+    {
+      id: 'expenses' as HomeCardSection,
+      label: 'المصروفات',
+      icon: DollarSign,
+      color: 'text-red-600 dark:text-red-400',
+      bgColor: 'bg-red-50 dark:bg-red-950/40',
+      borderColor: 'border-red-200/80 dark:border-red-900/40',
+    },
+    {
+      id: 'treasuries' as HomeCardSection,
+      label: 'الخزائن والعهد',
+      icon: Wallet,
+      color: 'text-lime-600 dark:text-lime-400',
+      bgColor: 'bg-lime-50 dark:bg-lime-950/40',
+      borderColor: 'border-lime-200/80 dark:border-lime-900/40',
+    },
+    {
+      id: 'accounts' as HomeCardSection,
+      label: 'الحسابات',
+      icon: Scale,
+      color: 'text-sky-600 dark:text-sky-400',
+      bgColor: 'bg-sky-50 dark:bg-sky-950/40',
+      borderColor: 'border-sky-200/80 dark:border-sky-900/40',
+    },
+    {
       id: 'reports' as HomeCardSection,
-      label: tr('card_reports'),
+      label: 'التقارير',
       icon: BarChart3,
       color: 'text-purple-600 dark:text-purple-400',
       bgColor: 'bg-purple-50 dark:bg-purple-950/40',
       borderColor: 'border-purple-200/80 dark:border-purple-900/40',
+    },
+    {
+      id: 'my_platform' as HomeCardSection,
+      label: 'منصتي',
+      icon: Store,
+      color: 'text-pink-600 dark:text-pink-400',
+      bgColor: 'bg-pink-50 dark:bg-pink-950/40',
+      borderColor: 'border-pink-200/80 dark:border-pink-900/40',
     },
   ];
 
@@ -634,268 +676,395 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     switch (section) {
       case 'materials':
         return {
-          title: tr('card_materials'),
+          title: 'الخامات ومستلزمات الإنتاج',
           icon: Layers,
           items: [
             {
-              label: tr('action_add_material'),
+              label: 'إضافة خامة جديدة',
               icon: PlusCircle,
               onClick: onOpenNewMaterialModal,
             },
             {
-              label: tr('action_edit_materials'),
-              icon: Edit3,
+              label: 'أرصدة وبطاقات الخامات',
+              icon: Layers,
               onClick: () => onNavigateToMaterials(false),
             },
             {
-              label: tr('action_stock_card'),
-              icon: FileSpreadsheet,
-              onClick: () => onOpenInventoryModal('materials'),
+              label: 'أسعار الشراء ووحدات القياس',
+              icon: Tag,
+              onClick: () => onNavigateToMaterials(false),
             },
             {
-              label: tr('action_inventory_audit'),
-              icon: ClipboardCheck,
-              onClick: () => onOpenInventoryModal('audit'),
+              label: 'حدود إعادة الطلب والتنبيهات',
+              icon: AlertTriangle,
+              onClick: () => onNavigateToMaterials(false),
             },
           ],
         };
 
       case 'products':
         return {
-          title: tr('card_products'),
+          title: 'المنتجات وحاسبة التكاليف',
           icon: ShoppingBag,
           items: [
             {
-              label: tr('action_add_product'),
+              label: 'حاسبة تكاليف المنتج الشاملة',
               icon: Calculator,
-              onClick: () => onNavigateToCalculator(),
+              onClick: onNavigateToCalculator,
             },
             {
-              label: tr('action_archive'),
+              label: 'المنتجات الجاهزة بالمخزن',
+              icon: PackagePlus,
+              onClick: () => onOpenInventoryModal('products'),
+            },
+            {
+              label: 'أرشيف المشغولات والتصاميم',
               icon: FolderArchive,
-              onClick: () => onNavigateToArchive(),
+              onClick: onNavigateToArchive,
             },
             {
-              label: tr('action_falcon_ai'),
-              icon: Sparkles,
-              onClick: () => onNavigateToAIAgent(),
-            },
-            {
-              label: tr('action_catalog'),
+              label: 'كتالوج الورشة المرجعي',
               icon: BookOpen,
-              onClick: () => onNavigateToCatalog(),
+              onClick: onNavigateToCatalog,
+            },
+          ],
+        };
+
+      case 'purchases':
+        return {
+          title: 'المشتريات وفواتير الخامات',
+          icon: PackagePlus,
+          items: [
+            {
+              label: 'تسجيل فاتورة شراء خامات',
+              icon: PlusCircle,
+              onClick: onOpenSupplierInvoice,
+            },
+            {
+              label: 'أمر شراء جديد للمورد',
+              icon: Receipt,
+              onClick: onOpenSupplierInvoice,
+            },
+            {
+              label: 'إذن استلام وفحص الخامات',
+              icon: ClipboardCheck,
+              onClick: () => onOpenInventoryModal('audit'),
+            },
+            {
+              label: 'سجل فواتير المشتريات',
+              icon: Truck,
+              onClick: () => onNavigateToSuppliers(),
             },
           ],
         };
 
       case 'suppliers':
         return {
-          title: tr('card_suppliers'),
+          title: 'الموردين وجهات التوريد',
           icon: Truck,
           items: [
             {
-              label: tr('action_add_supplier'),
+              label: 'إضافة مورد جديد',
               icon: UserPlus,
-              onClick: () => onOpenCreateSupplier(),
+              onClick: onOpenCreateSupplier,
             },
             {
-              label: tr('action_supplier_invoice'),
-              icon: Receipt,
-              onClick: () => onOpenSupplierInvoice(),
+              label: 'دليل وبيانات الموردين',
+              icon: Truck,
+              onClick: onNavigateToSuppliers,
             },
             {
-              label: tr('action_supplier_statement'),
-              icon: FileSpreadsheet,
-              onClick: () => onNavigateToSuppliers(),
-            },
-          ],
-        };
-
-      case 'customers':
-        return {
-          title: tr('card_customers'),
-          icon: Users,
-          items: [
-            {
-              label: tr('action_add_customer'),
-              icon: UserPlus,
-              onClick: onOpenNewClientModal,
-            },
-            {
-              label: tr('action_customer_statement'),
-              icon: FileSpreadsheet,
-              onClick: () => onNavigateToInvoices('customers'),
-            },
-          ],
-        };
-
-      case 'sales':
-        return {
-          title: tr('card_sales'),
-          icon: ShoppingCart,
-          items: [
-            {
-              label: tr('action_sales_order'),
-              icon: ShoppingCart,
-              onClick: () => onNavigateToSales(),
-            },
-            {
-              label: tr('action_sales_invoices'),
+              label: 'كشف حساب ومدفوعات الموردين',
               icon: FileText,
-              onClick: () => onNavigateToInvoices(),
-            },
-            {
-              label: tr('action_all_orders'),
-              icon: RotateCcw,
-              onClick: () => onNavigateToInvoices('returns'),
+              onClick: onNavigateToSuppliers,
             },
           ],
         };
 
       case 'inventory':
         return {
-          title: tr('card_inventory'),
+          title: 'المخازن وحركة الأصناف',
           icon: Boxes,
           items: [
             {
-              label: tr('action_raw_stock'),
+              label: 'أرصدة خامات الورشة',
               icon: Layers,
               onClick: () => onOpenInventoryModal('materials'),
             },
             {
-              label: tr('action_finished_stock'),
-              icon: Boxes,
+              label: 'مخزن المنتج التام',
+              icon: ShoppingBag,
               onClick: () => onOpenInventoryModal('products'),
             },
             {
-              label: tr('action_inventory_audit'),
-              icon: ClipboardList,
+              label: 'إذن الصرف والاستلام والتحويل',
+              icon: ArrowLeftRight,
               onClick: () => onOpenInventoryModal('audit'),
             },
-          ],
-        };
-
-      case 'treasuries':
-        return {
-          title: tr('card_treasuries'),
-          icon: Wallet,
-          items: [
             {
-              label: tr('action_all_treasuries'),
-              icon: Wallet,
-              onClick: () => onNavigateToTreasuries(),
-            },
-            {
-              label: tr('action_transfer'),
-              icon: ArrowLeftRight,
-              onClick: () => onNavigateToTreasuries(),
-            },
-            {
-              label: tr('statement'),
+              label: 'دفتر حركة المخزن والتسويات',
               icon: History,
-              onClick: () => onNavigateToTreasuries(),
-            },
-          ],
-        };
-
-      case 'expenses':
-        return {
-          title: tr('card_expenses'),
-          icon: DollarSign,
-          items: [
-            {
-              label: tr('action_record_expense'),
-              icon: PlusCircle,
-              onClick: () => onOpenAdminCostsModal(),
-            },
-            {
-              label: tr('action_operating_costs'),
-              icon: DollarSign,
-              onClick: () => onOpenAdminCostsModal(),
-            },
-            {
-              label: tr('action_currency_rates') || 'أسعار الصرف اليومية للعملات',
-              icon: Coins,
-              onClick: () => onOpenExchangeRatesModal && onOpenExchangeRatesModal(),
-            },
-            {
-              label: tr('action_fixed_assets') || 'الأصول الثابتة والإهلاك',
-              icon: Building,
-              onClick: () => onNavigateToFixedAssets && onNavigateToFixedAssets(),
-            },
-            {
-              label: tr('action_expense_analytics'),
-              icon: BarChart3,
-              onClick: () => onNavigateToReports(),
-            },
-          ],
-        };
-
-      case 'employees':
-        return {
-          title: tr('card_employees'),
-          icon: Users2,
-          items: [
-            {
-              label: tr('action_add_employee'),
-              icon: UserPlus,
-              onClick: () => onOpenNewEmployeeModal(),
-            },
-            {
-              label: tr('action_payroll'),
-              icon: Wallet,
-              onClick: () => onNavigateToHR(),
-            },
-            {
-              label: tr('action_attendance'),
-              icon: FileText,
-              onClick: () => onNavigateToHR(),
+              onClick: () => onOpenInventoryModal('audit'),
             },
           ],
         };
 
       case 'work_orders':
         return {
-          title: tr('card_work_orders'),
+          title: 'أوامر التشغيل وبوابة الإنتاج',
           icon: Hammer,
           items: [
             {
-              label: tr('action_new_work_order'),
+              label: 'فتح أمر تشغيل جديد',
               icon: PlusCircle,
-              onClick: () => onNavigateToWorkOrders(),
+              onClick: () => onNavigateToWorkOrders('create'),
             },
             {
-              label: tr('action_production_lines'),
+              label: 'أوامر التشغيل ومتابعة التنفيذ',
               icon: Hammer,
               onClick: () => onNavigateToWorkOrders(),
             },
             {
-              label: tr('action_scrap_tracking'),
+              label: 'إذن صرف الخامات ونسب الهالك',
               icon: AlertTriangle,
               onClick: () => onNavigateToWorkOrders(),
+            },
+            {
+              label: 'استلام المنتج التام وحساب المصنعية',
+              icon: PackageCheck,
+              onClick: () => onNavigateToWorkOrders(),
+            },
+          ],
+        };
+
+      case 'sales':
+        return {
+          title: 'المبيعات والفواتير',
+          icon: ShoppingCart,
+          items: [
+            {
+              label: 'تسجيل بيع / فاتورة جديدة',
+              icon: PlusCircle,
+              onClick: () => onNavigateToSales('new'),
+            },
+            {
+              label: 'سجل فواتير المبيعات',
+              icon: Receipt,
+              onClick: () => onNavigateToInvoices(),
+            },
+            {
+              label: 'المدفوعات (كاش / إنستاباي / آجل)',
+              icon: Wallet,
+              onClick: () => onNavigateToSales(),
+            },
+            {
+              label: 'مرتجعات المبيعات',
+              icon: RotateCcw,
+              onClick: () => onNavigateToInvoices('returns'),
+            },
+          ],
+        };
+
+      case 'customers':
+        return {
+          title: 'العملاء وكشف الحساب',
+          icon: Users,
+          items: [
+            {
+              label: 'إضافة عميل جديد',
+              icon: UserPlus,
+              onClick: onOpenNewClientModal,
+            },
+            {
+              label: 'سجل ودليل العملاء',
+              icon: Users,
+              onClick: () => onNavigateToSales(),
+            },
+            {
+              label: 'كشف حساب العملاء والمستحقات',
+              icon: FileText,
+              onClick: () => onNavigateToSales(),
+            },
+          ],
+        };
+
+      case 'artisans':
+        return {
+          title: 'الفنانون والحرفيون (صناع الشمساوية)',
+          icon: Palette,
+          items: [
+            {
+              label: 'سجل صناع الورشة والتخصصات',
+              icon: Users,
+              onClick: () => onNavigateToHR(),
+            },
+            {
+              label: 'حساب أجر القطعة ومستحقات الإنتاج',
+              icon: Award,
+              onClick: () => onNavigateToHR(),
+            },
+            {
+              label: 'تسوية وصرف مستحقات حرفي',
+              icon: Wallet,
+              onClick: () => onNavigateToHR(),
+            },
+            {
+              label: 'كتالوج مشغولات الفنانين',
+              icon: BookOpen,
+              onClick: () => onNavigateToCatalog(),
+            },
+          ],
+        };
+
+      case 'employees':
+        return {
+          title: 'الموظفون وفريق العمل',
+          icon: Users2,
+          items: [
+            {
+              label: 'إضافة موظف / صانع جديد',
+              icon: UserPlus,
+              onClick: () => onOpenNewEmployeeModal(),
+            },
+            {
+              label: 'مسير الرواتب والأجور الشهرية',
+              icon: Wallet,
+              onClick: () => onNavigateToHR(),
+            },
+            {
+              label: 'السلف والدفعات النقدية المقدمة',
+              icon: DollarSign,
+              onClick: () => onNavigateToHR(),
+            },
+          ],
+        };
+
+      case 'expenses':
+        return {
+          title: 'المصروفات والمصروفات الإدارية',
+          icon: DollarSign,
+          items: [
+            {
+              label: 'تسجيل مصروف مع تحديد مصدر الصرف',
+              icon: PlusCircle,
+              onClick: () => onOpenAdminCostsModal(),
+            },
+            {
+              label: 'بنود المصروفات والإيجار والفواتير',
+              icon: DollarSign,
+              onClick: () => onOpenAdminCostsModal(),
+            },
+            {
+              label: 'أسعار الصرف اليومية للعملات',
+              icon: Coins,
+              onClick: () => onOpenExchangeRatesModal && onOpenExchangeRatesModal(),
+            },
+            {
+              label: 'الأصول الثابتة وإهلاك المعدات',
+              icon: Building,
+              onClick: () => onNavigateToFixedAssets && onNavigateToFixedAssets(),
+            },
+            {
+              label: 'تحليل وتوزيع المصروفات',
+              icon: BarChart3,
+              onClick: () => onNavigateToReports(),
+            },
+          ],
+        };
+
+      case 'treasuries':
+        return {
+          title: 'الخزائن والعهد المالية',
+          icon: Wallet,
+          items: [
+            {
+              label: 'الخزينة النقدية الرئيسية (الكاش)',
+              icon: Wallet,
+              onClick: () => onNavigateToTreasuries(),
+            },
+            {
+              label: 'إنستاباي والبنك والمحافظ الإلكترونية',
+              icon: Coins,
+              onClick: () => onNavigateToTreasuries(),
+            },
+            {
+              label: 'إدارة العهد المالية المغلقة ومتابعة تسويتها',
+              icon: Lock,
+              onClick: () => onNavigateToTreasuries(),
+            },
+            {
+              label: 'تحويل نقدي بين الخزائن والعهد',
+              icon: ArrowLeftRight,
+              onClick: () => onNavigateToTreasuries(),
+            },
+          ],
+        };
+
+      case 'accounts':
+        return {
+          title: 'الحسابات والدفاتر المالية',
+          icon: Scale,
+          items: [
+            {
+              label: 'ميزان الحركة اليومية للورشة',
+              icon: Scale,
+              onClick: () => onNavigateToReports(),
+            },
+            {
+              label: 'الأرباح والخسائر للورشة',
+              icon: TrendingUp,
+              onClick: () => onNavigateToReports(),
+            },
+            {
+              label: 'شجرة الحسابات والدفتر المالي',
+              icon: BookOpen,
+              onClick: () => onNavigateToReports(),
             },
           ],
         };
 
       case 'reports':
         return {
-          title: tr('card_reports'),
+          title: 'التقارير ولوحة المؤشرات',
           icon: BarChart3,
           items: [
             {
-              label: tr('action_profit_loss'),
+              label: 'تقارير المبيعات والأرباح',
               icon: BarChart3,
               onClick: () => onNavigateToReports(),
             },
             {
-              label: tr('action_cash_flow'),
+              label: 'تقرير المخزون وحركة الخامات',
               icon: TrendingUp,
               onClick: () => onNavigateToReports(),
             },
             {
-              label: tr('action_tax_reports'),
+              label: 'تقرير السيولة الحية والتدفقات النقدية',
               icon: Lock,
               onClick: () => onNavigateToReports(),
+            },
+          ],
+        };
+
+      case 'my_platform':
+        return {
+          title: 'منصتي (الكتالوج ومتجري)',
+          icon: Store,
+          items: [
+            {
+              label: 'الكتالوج المرجعي للمشغولات',
+              icon: BookOpen,
+              onClick: () => onNavigateToCatalog(),
+            },
+            {
+              label: 'متجري الخاص لعرض ونشر المنتجات',
+              icon: Store,
+              onClick: () => onNavigateToCatalog(),
+            },
+            {
+              label: 'أرشيف التصاميم وتصدير المشغولات',
+              icon: FolderArchive,
+              onClick: () => onNavigateToArchive(),
             },
           ],
         };
@@ -969,15 +1138,10 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               type="button"
               onClick={() => setActiveSubSection(null)}
               className="px-3.5 py-1.5 rounded-2xl border border-amber-300/80 dark:border-amber-700/80 bg-white dark:bg-stone-800 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-stone-700 dark:text-stone-300 text-xs font-black transition flex items-center gap-2 cursor-pointer shadow-xs active:scale-95 group"
-              title={tr('action_back_to_overview')}
+              title="الرجوع للبطاقات الرئيسية"
             >
-              <img
-                src="/alshams_falcon_emblem.png"
-                alt={tr('home_screen_btn')}
-                className="w-4 h-4 object-contain group-hover:scale-110 transition-transform"
-              />
-              <span>{tr('home_screen_btn')}</span>
               <ArrowRight className={`w-3.5 h-3.5 text-amber-600 ${lang === 'ar' ? '' : 'rotate-180'}`} />
+              <span>الرجوع للبطاقات</span>
             </button>
           </div>
 
@@ -1014,164 +1178,11 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         </div>
       ) : (
         <>
-          {/* شريط "إنجاز ورشتنا اليوم" */}
-          <DailyProgressStrip
-            todaySalesTotal={todaySalesTotal}
-            todaySalesCount={todaySalesCount}
-            todayCompletedProductionCount={todayCompletedProductionCount}
-            lowStockMaterialsCount={lowStockMaterialsCount}
-            currencySymbol={profile.currencySymbol}
-            onOpenSupplierInvoice={onOpenSupplierInvoice}
-            onNavigateToSales={() => onNavigateToSales()}
-            onNavigateToWorkOrders={() => onNavigateToWorkOrders()}
-          />
 
-          {/* 1. شريط مهام اليوم الذكي بتوجيه "شموسة" 🌞 */}
-          <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-amber-50/80 via-white to-amber-50/40 dark:from-stone-900 dark:via-stone-850 dark:to-stone-900 border border-amber-200/90 dark:border-amber-900/40 shadow-xs space-y-3.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-amber-200/60 dark:border-stone-800 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-500 text-white flex items-center justify-center font-bold shadow-md shadow-amber-500/20 text-lg shrink-0">
-                  🌞
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm sm:text-base font-black text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
-                      <span>توجيهات ومهام اليوم من شموسة</span>
-                    </h3>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-300 font-bold border border-amber-300/60 dark:border-amber-800">
-                      ذكاء تشغيلي مباشر
-                    </span>
-                  </div>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-                    مهام تشغيلية مقترحة آلياً بناءً على حركة الخامات والطلبيات في ورشتك
-                  </p>
-                </div>
-              </div>
 
-              <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
-                {/* زر تفعيل وضع السهر الهادئ المريح لعين الفنان */}
-                {onSelectThemeMode && (
-                  <button
-                    type="button"
-                    onClick={() => onSelectThemeMode(themeMode === 'night_focus' ? 'light' : 'night_focus')}
-                    className={`px-3 py-1.5 rounded-xl border text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-                      themeMode === 'night_focus'
-                        ? 'bg-amber-950/80 text-amber-200 border-amber-600/80 ring-1 ring-amber-500/40'
-                        : 'bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-amber-400'
-                    }`}
-                    title="وضع السهر الهادئ - درجات الكهرمان المريحة للعين ليلاً"
-                  >
-                    <Sparkles className={`w-3.5 h-3.5 ${themeMode === 'night_focus' ? 'text-amber-400' : 'text-stone-400'}`} />
-                    <span>{themeMode === 'night_focus' ? 'وضع السهر (نشط) 🌙' : 'وضع السهر 🌙'}</span>
-                  </button>
-                )}
 
-                {/* مؤشر إنجاز المهام */}
-                <div className="px-3 py-1.5 rounded-xl bg-amber-100/70 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 text-xs font-black border border-amber-300/60 dark:border-amber-800/60">
-                  <span>{completedDailyTaskIds.filter((id) => dailyTasks.some((t) => t.id === id)).length} من {dailyTasks.length} منجز</span>
-                </div>
-              </div>
-            </div>
-
-            {/* قائمة المهام الذكية */}
-            <div className="space-y-2">
-              {dailyTasks.map((task) => {
-                const isDone = completedDailyTaskIds.includes(task.id);
-                return (
-                  <div
-                    key={task.id}
-                    className={`p-3 rounded-2xl border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
-                      isDone
-                        ? 'bg-emerald-50/40 dark:bg-emerald-950/15 border-emerald-200 dark:border-emerald-900/40 opacity-70'
-                        : task.urgency === 'high'
-                        ? 'bg-white dark:bg-stone-900 border-amber-300/90 dark:border-amber-800/80 shadow-2xs'
-                        : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3 min-w-0">
-                      {/* زر الإنجاز التفاعلي الناعم بنغمة هادئة وتأثير شطب سلس */}
-                      <button
-                        type="button"
-                        onClick={() => handleToggleDailyTask(task.id)}
-                        className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 border transition-all cursor-pointer mt-0.5 active:scale-90 ${
-                          isDone
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs ring-2 ring-emerald-500/30'
-                            : 'bg-stone-50 dark:bg-stone-800 text-stone-300 hover:text-emerald-600 border-stone-300 dark:border-stone-700 hover:border-emerald-500'
-                        }`}
-                        title={isDone ? 'إلغاء التأشير' : 'تحديد كمهمة منجزة'}
-                        aria-label="تحديد المهمة كمنجزة"
-                      >
-                        <Check className={`w-4 h-4 stroke-[2.5] ${isDone ? 'scale-100' : 'scale-90'}`} />
-                      </button>
-
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span
-                            className={`text-xs sm:text-sm font-black transition-all duration-300 ${
-                              isDone
-                                ? 'line-through text-stone-400 dark:text-stone-500'
-                                : 'text-stone-900 dark:text-stone-100'
-                            }`}
-                          >
-                            {task.title}
-                          </span>
-                          {task.urgency === 'high' && !isDone && (
-                            <span className="text-[10px] px-2 py-0.2 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-bold">
-                              عاجل
-                            </span>
-                          )}
-                        </div>
-                        <p
-                          className={`text-[11px] mt-0.5 transition-all duration-300 ${
-                            isDone
-                              ? 'line-through text-stone-400 dark:text-stone-600'
-                              : 'text-stone-500 dark:text-stone-400'
-                          }`}
-                        >
-                          {task.detail}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* زر الإجراء السريع للمهمة */}
-                    {task.onAction && (
-                      <button
-                        type="button"
-                        onClick={task.onAction}
-                        disabled={isDone}
-                        className={`self-end sm:self-center px-3 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                          isDone
-                            ? 'bg-stone-100 text-stone-400 dark:bg-stone-800 dark:text-stone-600 cursor-not-allowed opacity-50'
-                            : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60 shadow-2xs active:scale-95'
-                        }`}
-                      >
-                        <span>{task.actionLabel}</span>
-                        <ArrowLeftRight className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* رسالة تشجيعية عند إنجاز جميع المهام */}
-            {dailyTasks.length > 0 &&
-              completedDailyTaskIds.filter((id) => dailyTasks.some((t) => t.id === id)).length ===
-                dailyTasks.length && (
-                <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-teal-500/20 to-emerald-500/15 border border-emerald-300 dark:border-emerald-700 text-emerald-950 dark:text-emerald-100 text-xs font-black flex items-center justify-between gap-2 animate-in fade-in duration-300">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">🌟</span>
-                    <span>عاش يا فنان! تم إنجاز جميع توجيهات ومهام ورشتك لليوم بنجاح وإتقان.</span>
-                  </div>
-                  <span className="text-[10px] text-emerald-700 dark:text-emerald-300 font-bold bg-white/60 dark:bg-stone-900/60 px-2.5 py-1 rounded-xl">
-                    100% مكتمل
-                  </span>
-                </div>
-              )}
-          </div>
-
-          {/* 2. شبكة البطاقات الإدارية الرئيسية (11 بطاقة) */}
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 sm:gap-3">
+          {/* 2. شبكة البطاقات التشغيلية الموحدة للورشة (15 بطاقة) */}
+          <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-5 gap-2 sm:gap-3">
             {coreCards.map((card) => {
               const Icon = card.icon;
               return (
@@ -1194,172 +1205,6 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             })}
           </div>
 
-          {/* 3. ركن الوصول السريع (المفضلة الحرفية) */}
-          <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-3.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-100 dark:border-stone-800 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black shadow-2xs">
-                  <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                </div>
-                <div>
-                  <h3 className="text-xs sm:text-sm font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                    <span>أصنافي وخاماتي الأكثر استخداماً</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 font-bold">
-                      المفضلة الحرفية
-                    </span>
-                  </h3>
-                  <p className="text-[11px] text-stone-500 dark:text-stone-400">
-                    وصول فوري لأصنافك وخاماتك اليومية لإدراجها في الفواتير وأوامر التشغيل بنقرة واحدة
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsFavoritesModalOpen(true)}
-                className="self-start sm:self-center px-3 py-1.5 rounded-xl border border-amber-300/80 dark:border-amber-700/80 bg-amber-50/70 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-2xs hover:bg-amber-100 active:scale-95"
-              >
-                <Star className="w-3.5 h-3.5 text-amber-600" />
-                <span>تخصيص المفضلة</span>
-              </button>
-            </div>
-
-            {/* عرض العناصر المفضلة */}
-            {hasAnyFavorites ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                {/* المنتجات المفضلة */}
-                {starredProducts.map((prod) => (
-                  <div
-                    key={`fav_p_${prod.id}`}
-                    className="p-3 rounded-2xl bg-stone-50/80 dark:bg-stone-850/60 border border-stone-200/80 dark:border-stone-800 hover:border-amber-400 transition-all space-y-2 group shadow-2xs"
-                  >
-                    <div className="flex items-start justify-between gap-1.5">
-                      <div className="min-w-0">
-                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold block mb-0.5">
-                          منتج حرفي · {prod.category || 'عام'}
-                        </span>
-                        <h4 className="text-xs font-black text-stone-900 dark:text-stone-100 truncate" title={prod.productName}>
-                          {prod.productName}
-                        </h4>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleFavorite('product', prod.id)}
-                        className="p-1 rounded-lg text-amber-500 hover:text-stone-400 transition cursor-pointer"
-                        title="إزالة من المفضلة"
-                      >
-                        <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs font-bold pt-1 border-t border-stone-200/50 dark:border-stone-800">
-                      <span className="font-mono text-emerald-700 dark:text-emerald-400 font-black">
-                        {Number(prod.sellingPrice || prod.retailPrice || 0).toLocaleString()} {profile.currencySymbol}
-                      </span>
-                      <span className="text-[10px] text-stone-500">
-                        المخزون: {prod.currentStock ?? 1}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => onNavigateToSales('new')}
-                        className="py-1 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black text-center transition cursor-pointer shadow-xs active:scale-95"
-                      >
-                        إدراج في بيع
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onNavigateToCatalog}
-                        className="py-1 px-2 rounded-lg bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:bg-stone-100 text-stone-700 dark:text-stone-300 text-[11px] font-bold text-center transition cursor-pointer active:scale-95"
-                      >
-                        كارت الصنف
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                {/* الخامات المفضلة */}
-                {starredMaterials.map((mat) => (
-                  <div
-                    key={`fav_m_${mat.id}`}
-                    className="p-3 rounded-2xl bg-stone-50/80 dark:bg-stone-850/60 border border-stone-200/80 dark:border-stone-800 hover:border-amber-400 transition-all space-y-2 group shadow-2xs"
-                  >
-                    <div className="flex items-start justify-between gap-1.5">
-                      <div className="min-w-0">
-                        <span className="text-[10px] text-blue-700 dark:text-blue-400 font-bold block mb-0.5">
-                          خامة أساسية · {mat.unit || 'وحدة'}
-                        </span>
-                        <h4 className="text-xs font-black text-stone-900 dark:text-stone-100 truncate" title={mat.materialName}>
-                          {mat.materialName}
-                        </h4>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleFavorite('material', mat.id)}
-                        className="p-1 rounded-lg text-amber-500 hover:text-stone-400 transition cursor-pointer"
-                        title="إزالة من المفضلة"
-                      >
-                        <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs font-bold pt-1 border-t border-stone-200/50 dark:border-stone-800">
-                      <span className="font-mono text-stone-800 dark:text-stone-200">
-                        {Number(mat.costPerUnit || 0).toLocaleString()} {profile.currencySymbol}
-                      </span>
-                      <span className={`text-[10px] font-bold ${
-                        (mat.currentStock || 0) <= (mat.minAlertThreshold || 5)
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : 'text-stone-500'
-                      }`}>
-                        المتبقي: {mat.currentStock || 0} {mat.unit}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1 pt-1">
-                      <button
-                        type="button"
-                        onClick={onOpenSupplierInvoice}
-                        className="py-1 px-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-black text-center transition cursor-pointer shadow-xs active:scale-95"
-                      >
-                        طلب توريد
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onOpenInventoryModal('materials')}
-                        className="py-1 px-2 rounded-lg bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:bg-stone-100 text-stone-700 dark:text-stone-300 text-[11px] font-bold text-center transition cursor-pointer active:scale-95"
-                      >
-                        كارت الجرد
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/50 dark:bg-stone-850/50 border border-dashed border-amber-300 dark:border-amber-800/80 text-center space-y-2">
-                <p className="text-xs text-stone-600 dark:text-stone-400 font-bold">
-                  لم تقم بتثبيت أي صنف أو خامة في المفضلة بعد. اضغط على الزر أدناه لتحديد أصنافك وخاماتك اليومية وتثبيتها للوصول السريع:
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setIsFavoritesModalOpen(true)}
-                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition cursor-pointer shadow-xs active:scale-95 inline-flex items-center gap-1.5"
-                >
-                  <Star className="w-3.5 h-3.5" />
-                  <span>اختيار أصناف وخامات المفضلة الآن</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* 3. أجندة مواعيد ورشتنا وتسليم الطلبيات ومزامنة التقويم */}
-          <WorkshopAgendaSection
-            workshopId={workshopId}
-            brandName={profile.brandName || 'ورشتنا'}
-            onOpenModalStateChange={(isOpen) => setIsAgendaModalOpen(isOpen)}
-          />
         </>
       )}
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
   MessageCircle, 
   X, 
@@ -8,13 +8,28 @@ import {
   ArrowLeftRight, 
   PhoneCall, 
   ExternalLink,
+  Calendar,
+  Clock,
+  Check,
+  CheckCircle2,
+  Download,
+  Plus,
+  AlertCircle,
+  FileText,
+  User,
+  Phone,
+  Sparkles,
+  ChevronLeft,
+  ChevronDown,
 } from 'lucide-react';
 import { AlShamsSunIcon } from '../brand/BrandAssets';
 import { authedFetch } from '../../lib/apiClient';
 import type { UserProfile } from '../../types';
 import { DraggableShamosa } from './DraggableShamosa';
 import { tenantStorage } from '../../db/dexieDB';
+import { firestoreService } from '../../db/firestoreService';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
+import { playTaskDoneSound, playButtonClickSound, playSuccessSound } from '../../lib/sounds';
 
 export interface ShamousaActionLink {
   label: string;
@@ -27,6 +42,13 @@ export interface ShamousaContactAction {
   type: 'customer' | 'supplier';
 }
 
+export interface SmartActionChip {
+  id: string;
+  label: string;
+  view?: string;
+  action?: 'open_agenda' | 'new_appointment' | 'open_expenses' | 'open_sales' | 'open_materials';
+}
+
 export interface ShamousaMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -34,15 +56,40 @@ export interface ShamousaMessage {
   handoffToFalcon?: boolean;
   actionLink?: ShamousaActionLink;
   contactAction?: ShamousaContactAction;
+  actionChips?: SmartActionChip[];
+}
+
+export interface WorkshopAppointment {
+  id: string;
+  title: string;
+  type: 'delivery' | 'meeting' | 'supplies';
+  clientName?: string;
+  clientPhone?: string;
+  orderNumber?: string;
+  date: string; // YYYY-MM-DD
+  time?: string; // HH:mm
+  notes?: string;
+  status: 'upcoming' | 'completed';
+  createdAt: number;
+}
+
+export interface ShamousaDailyTask {
+  id: string;
+  title: string;
+  detail: string;
+  urgency: 'high' | 'normal';
+  actionLabel: string;
+  view?: string;
 }
 
 export interface ShamousaChatWidgetProps {
   profile: UserProfile;
   onOpenFalcon: () => void;
   liftUp?: boolean;
+  isAnyModalOpen?: boolean;
 }
 
-// استخراج الاسم الأول المباشر دون ألقاب رسمية أو "صاحب الورشة" أو "يا فنان"
+// استخراج الاسم الأول المباشر دون ألقاب رسمية
 export function extractUserFirstName(rawName?: string): string {
   if (!rawName) return '';
   const cleaned = String(rawName)
@@ -79,6 +126,132 @@ function detectNavigationIntent(text: string): ShamousaActionLink | undefined {
   return undefined;
 }
 
+// الكشف الذكي بالكلمات الدلالية وتوليد أزرار إجراء فورية بدون نصوص مكررة
+export function detectKeywordActionChips(text: string): SmartActionChip[] {
+  const chips: SmartActionChip[] = [];
+  const lower = text.toLowerCase();
+
+  // 1. الخزينة / الفلوس / السيولة / الكاش / المصروف
+  if (/خزن|خزنة|خزينة|سيول|سيولة|فلوس|كاش|نقدية|مصروف/i.test(lower)) {
+    chips.push({ id: 'chip_treasuries', label: 'فتح الخزائن والأرصدة 💰', view: 'treasuries' });
+    chips.push({ id: 'chip_expenses', label: 'تسجيل مصروف وحركة نقدية 💵', action: 'open_expenses', view: 'treasuries' });
+  }
+
+  // 2. الخامات / النواقص / المخزن / التوريد
+  if (/خام|خامات|نواقص|مخزن|مستلزمات|توريد|شراء/i.test(lower)) {
+    chips.push({ id: 'chip_mats', label: 'جرد الخامات والمخزون 📦', view: 'materials' });
+    chips.push({ id: 'chip_sups', label: 'سجل الموردين والتوريدات 🚚', view: 'suppliers' });
+  }
+
+  // 3. المبيعات / الفواتير / العملاء / الطلبيات
+  if (/بيع|مبيعات|فاتورة|فواتير|عميل|عملاء|طلب|طلبية|أوردر/i.test(lower)) {
+    chips.push({ id: 'chip_sales', label: 'تسجيل بيع جديد 🧾', view: 'sales' });
+    chips.push({ id: 'chip_custs', label: 'سجل العملاء والحسابات 👥', view: 'customers' });
+  }
+
+  // 4. المواعيد / الأجندة / التقويم / التسليم
+  if (/موعد|مواعيد|أجندة|اجندة|تقويم|تسليم|ميعاد/i.test(lower)) {
+    chips.push({ id: 'chip_agenda', label: 'عرض مواعيد وأجندة الورشة 📅', action: 'open_agenda' });
+    chips.push({ id: 'chip_new_appt', label: 'تسجيل موعد جديد ➕', action: 'new_appointment' });
+  }
+
+  // 5. أوامر التشغيل / التصنيع / الصنايعية
+  if (/تشغيل|أمر تشغيل|تصنيع|صنايعي|حرفي|عمال|أجور/i.test(lower)) {
+    chips.push({ id: 'chip_wo', label: 'سجل أوامر التشغيل 🔨', view: 'work_orders' });
+    chips.push({ id: 'chip_hr', label: 'إدارة الحرفيين والعمالة 👷', view: 'hr' });
+  }
+
+  return chips;
+}
+
+// دالة إنشاء رابط تقويم جوجل بنقرة واحدة
+export function createGoogleCalendarUrl(appointment: {
+  title: string;
+  date: string;
+  time?: string;
+  notes?: string;
+  clientName?: string;
+  clientPhone?: string;
+  brandName?: string;
+}): string {
+  const [year, month, day] = appointment.date.split('-').map(Number);
+  let startHour = 10;
+  let startMinute = 0;
+  if (appointment.time) {
+    const [h, m] = appointment.time.split(':').map(Number);
+    if (!isNaN(h)) startHour = h;
+    if (!isNaN(m)) startMinute = m;
+  }
+  const startDate = new Date(year, (month || 1) - 1, day || 1, startHour, startMinute);
+  const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+
+  const formatGCalDate = (d: Date) =>
+    d.toISOString().replace(/-|:|\.\d\d\d/g, '');
+
+  const text = encodeURIComponent(appointment.title || 'موعد تسليم ورشة الشمساوية');
+  const dates = `${formatGCalDate(startDate)}/${formatGCalDate(endDate)}`;
+  const details = encodeURIComponent(
+    `موعد في ${appointment.brandName || 'ورشة الشمساوية'}\n` +
+    (appointment.clientName ? `العميل: ${appointment.clientName}\n` : '') +
+    (appointment.clientPhone ? `الهاتف: ${appointment.clientPhone}\n` : '') +
+    (appointment.notes ? `ملاحظات: ${appointment.notes}\n` : '')
+  );
+
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}`;
+}
+
+// دالة تنزيل ملف التقويم .ics
+export function downloadIcsFile(appointment: {
+  id: string;
+  title: string;
+  date: string;
+  time?: string;
+  notes?: string;
+  clientName?: string;
+  brandName?: string;
+}) {
+  const [year, month, day] = appointment.date.split('-').map(Number);
+  let startHour = 10;
+  let startMinute = 0;
+  if (appointment.time) {
+    const [h, m] = appointment.time.split(':').map(Number);
+    if (!isNaN(h)) startHour = h;
+    if (!isNaN(m)) startMinute = m;
+  }
+  const startDate = new Date(year, (month || 1) - 1, day || 1, startHour, startMinute);
+  const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+
+  const formatIcsDate = (d: Date) =>
+    d.toISOString().replace(/-|:|\.\d\d\d/g, '');
+
+  const icsContent = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//AlShams Handmade Workshop//AR',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:${appointment.id || Date.now()}@alshams.app`,
+    `DTSTAMP:${formatIcsDate(new Date())}`,
+    `DTSTART:${formatIcsDate(startDate)}`,
+    `DTEND:${formatIcsDate(endDate)}`,
+    `SUMMARY:${appointment.title}`,
+    `DESCRIPTION:${(appointment.notes || '') + (appointment.clientName ? ' - العميل: ' + appointment.clientName : '')}`,
+    'STATUS:CONFIRMED',
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+
+  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `${appointment.title || 'موعد_الشمساوية'}.ics`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 function renderText(text: string) {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
     part.startsWith('**') && part.endsWith('**') ? (
@@ -95,25 +268,28 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   profile,
   onOpenFalcon,
   liftUp = false,
+  isAnyModalOpen = false,
 }) => {
   const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
   const storageKey = `shamousa_chat_${workshopId}`;
+  const agendaStorageKey = `alshams_agenda_${workshopId || 'default'}`;
+  const todayDateStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const tasksDoneStorageKey = `alshams_shamousa_tasks_done_${workshopId}_${todayDateStr}`;
 
-  // تحديد اسم الفنان الفعلي المباشر بدون ألقاب أو "صاحب الورشة"
   const firstName = extractUserFirstName((profile as any).fullName || (profile as any).name || profile.artistName || (profile as any).artisanName) || 'صديقي';
   const brandTitle = profile.brandName ? `ورشة ${profile.brandName}` : 'ورشة الشمس كرافت';
 
-  // الترحيب المحدد بدقة في التعليمات:
-  const welcomeMessage = `أهلاً يا ${firstName} 🌞، أنا مديرة أعمالك.اخبارك ايه! واخبار شغلنا ايه ! يارب يكون كل حاجه تمام ... تحب نبدأ إزاي النهارده؟!`;
+  const welcomeMessage = `أهلاً يا ${firstName} 🌞، أنا مديرة أعمالك. اخبارك ايه! واخبار شغلنا ايه ! يارب يكون كل حاجه تمام ... تحب نبدأ إزاي النهارده؟!`;
 
   const [isOpen, setIsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'chat' | 'tasks_agenda'>('chat');
+  
+  // Chat messages
   const [messages, setMessages] = useState<ShamousaMessage[]>(() => {
     try {
       const saved = sessionStorage.getItem(storageKey);
       if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
+    } catch {}
     return [];
   });
   const [input, setInput] = useState('');
@@ -122,12 +298,208 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Daily Tasks state
+  const [dailyTasks, setDailyTasks] = useState<ShamousaDailyTask[]>([]);
+  const [completedTaskIds, setCompletedTaskIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(tasksDoneStorageKey);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Agenda Appointments state
+  const [appointments, setAppointments] = useState<WorkshopAppointment[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(agendaStorageKey);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    return [
+      {
+        id: 'appt_1',
+        title: 'تسليم طقم معلقات مكرمية بوهيمي',
+        type: 'delivery',
+        clientName: 'أ. سارة عبد الرحمن',
+        clientPhone: '01012345678',
+        orderNumber: 'ORD-2026-14',
+        date: tomorrow.toISOString().slice(0, 10),
+        time: '17:00',
+        notes: 'تغليف هدايا فاخر مع كارت إهداء خاص بالورشة',
+        status: 'upcoming',
+        createdAt: Date.now() - 86400000,
+      },
+    ];
+  });
+
+  // New appointment quick modal form state
+  const [isNewApptFormOpen, setIsNewApptFormOpen] = useState(false);
+  const [apptFormTitle, setApptFormTitle] = useState('');
+  const [apptFormClient, setApptFormClient] = useState('');
+  const [apptFormPhone, setApptFormPhone] = useState('');
+  const [apptFormDate, setApptFormDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [apptFormTime, setApptFormTime] = useState('16:00');
+  const [apptFormNotes, setApptFormNotes] = useState('');
+
+  // Save appointments to storage
+  const saveAppointments = (list: WorkshopAppointment[]) => {
+    setAppointments(list);
+    try {
+      localStorage.setItem(agendaStorageKey, JSON.stringify(list));
+      window.dispatchEvent(new CustomEvent('alshams_agenda_updated', { detail: list }));
+    } catch {}
+  };
+
+  // Load real workshop data to generate smart daily tasks
+  const loadDailyTasks = async () => {
+    if (!workshopId) return;
+    try {
+      const tasks: ShamousaDailyTask[] = [];
+
+      // 1. Raw materials low stock
+      const rawMaterials = await tenantStorage.getRawMaterials(workshopId).catch(() => []);
+      const depleting = rawMaterials.filter(
+        (m: any) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
+      );
+      depleting.slice(0, 2).forEach((mat: any) => {
+        tasks.push({
+          id: `task_mat_${mat.id}`,
+          title: `الخامة "${mat.materialName}" قربت تخلص`,
+          detail: `المتبقي في المخزن ${mat.currentStock || 0} ${mat.unit || 'وحدة'} فقط (حد الأمان: ${mat.minAlertThreshold || 5}). محتاجين نطلب منها توريد.`,
+          urgency: 'high',
+          actionLabel: 'طلب توريد خامات 🚚',
+          view: 'suppliers',
+        });
+      });
+
+      // 2. Open work orders
+      const workOrders = await firestoreService.getWorkOrders(workshopId).catch(() => []);
+      const openOrders = workOrders.filter(
+        (wo: any) => wo.status !== 'completed' && wo.status !== 'delivered' && wo.status !== 'cancelled'
+      );
+      openOrders.slice(0, 2).forEach((wo: any) => {
+        tasks.push({
+          id: `task_wo_${wo.id || wo.orderNumber}`,
+          title: `أمر تشغيل مفتوح: ${wo.productName || wo.orderNumber || 'مشغولة حرفية'}`,
+          detail: `الكمية: ${wo.quantity || 1} · الحرفي المسؤول: ${wo.assignedArtisanName || 'قيد التعيين'} · متابعة الإنجاز والتشطيب.`,
+          urgency: 'normal',
+          actionLabel: 'سجل أوامر التشغيل 🔨',
+          view: 'work_orders',
+        });
+      });
+
+      // Routine task
+      if (tasks.length === 0) {
+        tasks.push({
+          id: 'task_routine_check',
+          title: 'مطابقة حركة الخزائن وجرد اليوم',
+          detail: 'تأكد من تسجيل فواتير اليوم ومطابقة رصيد النقدية في الخزينة الرئيسية لضمان دقة الأرباح.',
+          urgency: 'normal',
+          actionLabel: 'فتح الخزائن 💰',
+          view: 'treasuries',
+        });
+      }
+
+      setDailyTasks(tasks);
+    } catch (err) {
+      console.warn('Failed to generate Shamousa daily tasks:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadDailyTasks();
+    const handleAgendaSync = () => {
+      try {
+        const raw = localStorage.getItem(agendaStorageKey);
+        if (raw) setAppointments(JSON.parse(raw));
+      } catch {}
+    };
+    window.addEventListener('alshams_agenda_updated', handleAgendaSync);
+    return () => window.removeEventListener('alshams_agenda_updated', handleAgendaSync);
+  }, [workshopId, agendaStorageKey]);
+
+  // Count of pending tasks & upcoming appointments
+  const pendingTasksCount = useMemo(() => {
+    return dailyTasks.filter((t) => !completedTaskIds.includes(t.id)).length;
+  }, [dailyTasks, completedTaskIds]);
+
+  const upcomingApptsCount = useMemo(() => {
+    return appointments.filter((a) => a.status === 'upcoming').length;
+  }, [appointments]);
+
+  const totalPendingBadge = pendingTasksCount + upcomingApptsCount;
+
+  // Toggle task completion
+  const handleToggleTask = (taskId: string) => {
+    setCompletedTaskIds((prev) => {
+      const isDone = prev.includes(taskId);
+      let next: string[];
+      if (isDone) {
+        next = prev.filter((id) => id !== taskId);
+      } else {
+        next = [...prev, taskId];
+        playTaskDoneSound();
+      }
+      try {
+        localStorage.setItem(tasksDoneStorageKey, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Toggle appointment status
+  const handleToggleAppointment = (id: string) => {
+    const updated = appointments.map((a) => {
+      if (a.id === id) {
+        const nextStatus = a.status === 'upcoming' ? 'completed' : 'upcoming';
+        if (nextStatus === 'completed') playSuccessSound();
+        return { ...a, status: nextStatus as 'upcoming' | 'completed' };
+      }
+      return a;
+    });
+    saveAppointments(updated);
+  };
+
+  // Handle new appointment submission
+  const handleCreateAppointment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!apptFormTitle.trim()) return;
+
+    const newAppt: WorkshopAppointment = {
+      id: `appt_${Date.now()}`,
+      title: apptFormTitle.trim(),
+      type: 'delivery',
+      clientName: apptFormClient.trim() || undefined,
+      clientPhone: apptFormPhone.trim() || undefined,
+      date: apptFormDate || todayDateStr,
+      time: apptFormTime || '16:00',
+      notes: apptFormNotes.trim() || undefined,
+      status: 'upcoming',
+      createdAt: Date.now(),
+    };
+
+    saveAppointments([newAppt, ...appointments]);
+    playSuccessSound();
+
+    // Reset form
+    setApptFormTitle('');
+    setApptFormClient('');
+    setApptFormPhone('');
+    setApptFormNotes('');
+    setIsNewApptFormOpen(false);
+  };
+
   useEffect(() => {
     try {
       sessionStorage.setItem(storageKey, JSON.stringify(messages.slice(-30)));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [messages, storageKey]);
 
   useEffect(() => {
@@ -135,7 +507,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
       setTimeout(() => inputRef.current?.focus(), 150);
     }
-  }, [messages, isOpen, isLoading]);
+  }, [messages, isOpen, isLoading, activeTab]);
 
   const openScreen = (view: string) => {
     if (typeof window !== 'undefined') {
@@ -144,18 +516,38 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     setIsOpen(false);
   };
 
+  const handleActionChipClick = (chip: SmartActionChip) => {
+    if (chip.action === 'open_agenda') {
+      setActiveTab('tasks_agenda');
+      return;
+    }
+    if (chip.action === 'new_appointment') {
+      setActiveTab('tasks_agenda');
+      setIsNewApptFormOpen(true);
+      return;
+    }
+    if (chip.view) {
+      openScreen(chip.view);
+    }
+  };
+
   const send = async (text: string) => {
     const message = text.trim();
     if (!message || isLoading) return;
 
-    const userMsg: ShamousaMessage = { id: `u_${Date.now()}`, role: 'user', content: message };
+    const detectedChips = detectKeywordActionChips(message);
+    const userMsg: ShamousaMessage = { 
+      id: `u_${Date.now()}`, 
+      role: 'user', 
+      content: message,
+      actionChips: detectedChips.length > 0 ? detectedChips : undefined,
+    };
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
 
     try {
-      // جلب رصيد الخزينة الحالي الفعلي من السجلات المحلية أو Supabase لربط شموسة بحالة الشاشة الرئيسية مباشرة
       let currentTreasury = 0;
       let treasuriesList: any[] = [];
       try {
@@ -198,12 +590,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
       if (typeof data.remaining === 'number') setRemaining(data.remaining);
 
-      // شيل زرار تحويل المستخدم لـ "صقر" من داخل ردود الخزينة والبيانات الداخلية تماماً
       const isInternalData = /خزن|خزينة|خزينه|سيول|سيولة|رصيد|عهدة|عهده|فلوس|خامات|مخزن|أوردر|اوردر|طلب|مبيعات|عميل|عملاء|مورد|موردين|موظف|عمال|دفاتر|حسابات/i.test(message + ' ' + (data.reply || ''));
       const isFalconExplicitlyRequested = /صقر|تحليل صوره|تحليل صورة|حلل الصورة|دراسة سوق|دراسة السوق|المنافسين/i.test(message);
       const shouldHandoff = !isInternalData && (Boolean(data.handoffToFalcon) || isFalconExplicitlyRequested);
 
       const dynamicLink = data.actionLink || detectNavigationIntent(message) || detectNavigationIntent(data.reply || '');
+      const replyChips = detectKeywordActionChips(data.reply || message);
 
       setMessages((prev) => [
         ...prev,
@@ -214,6 +606,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           handoffToFalcon: shouldHandoff,
           actionLink: dynamicLink,
           contactAction: data.contactAction,
+          actionChips: replyChips.length > 0 ? replyChips : undefined,
         },
       ]);
     } catch (err: any) {
@@ -232,17 +625,28 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
   return (
     <>
+      {/* Floating launcher icon with badge */}
       {!isOpen && (
         <DraggableShamosa onClick={() => setIsOpen(true)}>
           <div
             aria-label="افتح شموسة — مديرة أعمال الورشة"
             title="شموسة — مديرة أعمال الورشة"
-            className="group relative flex items-center justify-center rounded-full bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 text-white shadow-xl shadow-amber-900/30 hover:scale-105 active:scale-95 transition cursor-pointer w-14 h-14 sm:w-16 sm:h-16 border-2 border-white/60"
+            className={`group relative flex items-center justify-center rounded-full bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 text-white shadow-xl shadow-amber-900/30 hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer w-14 h-14 sm:w-16 sm:h-16 border-2 border-white/60 ${
+              isAnyModalOpen ? 'opacity-0 pointer-events-none scale-0' : 'opacity-100 scale-100'
+            }`}
           >
             <span className="relative flex items-center justify-center w-7 h-7">
               <MessageCircle className="w-7 h-7 text-white drop-shadow-xs" />
               <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white ring-1 ring-emerald-600/30" />
             </span>
+
+            {/* شارة رقمية (Badge) توضح عدد التوجيهات أو المواعيد المستحقة */}
+            {totalPendingBadge > 0 && (
+              <span className="absolute -top-1.5 -left-1.5 min-w-[22px] h-[22px] px-1 rounded-full bg-rose-600 border-2 border-white text-white font-mono text-[11px] font-black flex items-center justify-center shadow-md animate-pulse">
+                {totalPendingBadge}
+              </span>
+            )}
+
             <span className="absolute -bottom-1 text-[10px] font-extrabold bg-stone-900/80 px-1.5 py-0.2 rounded-full border border-amber-400/50 text-amber-200">
               شموسة
             </span>
@@ -250,15 +654,16 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         </DraggableShamosa>
       )}
 
+      {/* Main Shamousa Popup Window */}
       {isOpen && (
         <div
           dir="rtl"
           role="dialog"
           aria-label="شموسة مديرة أعمال الورشة"
-          className="fixed bottom-4 left-4 z-[60] w-[min(420px,calc(100vw-2rem))] h-[min(620px,calc(100vh-5rem))] flex flex-col rounded-3xl overflow-hidden bg-white dark:bg-stone-900 border border-amber-300 dark:border-stone-700 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200"
+          className="fixed bottom-4 left-4 z-[60] w-[min(440px,calc(100vw-2rem))] h-[min(650px,calc(100vh-5rem))] flex flex-col rounded-3xl overflow-hidden bg-white dark:bg-stone-900 border border-amber-300 dark:border-stone-700 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200"
         >
           {/* Header */}
-          <div className="flex items-center justify-between gap-2 px-4 py-3 bg-gradient-to-l from-amber-500 via-orange-500 to-amber-600 text-white flex-shrink-0">
+          <div className="flex items-center justify-between gap-2 px-4 py-3 bg-gradient-to-l from-amber-500 via-orange-500 to-amber-600 text-white flex-shrink-0 shadow-xs">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-9 h-9 rounded-full bg-white/20 p-1.5 flex-shrink-0 flex items-center justify-center">
                 <AlShamsSunIcon />
@@ -276,8 +681,9 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 </p>
               </div>
             </div>
+
             <div className="flex items-center gap-1 flex-shrink-0">
-              {messages.length > 0 && (
+              {messages.length > 0 && activeTab === 'chat' && (
                 <button
                   type="button"
                   onClick={() => setMessages([])}
@@ -299,114 +705,511 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             </div>
           </div>
 
-          {/* Messages Container */}
-          <div
-            ref={listRef}
-            className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3 bg-stone-50 dark:bg-stone-950"
-          >
-            <Bubble role="assistant">{renderText(welcomeMessage)}</Bubble>
+          {/* Navigation Tabs Header: شات شموسة + المهام والأجندة */}
+          <div className="flex items-center border-b border-stone-200 dark:border-stone-800 bg-amber-50/50 dark:bg-stone-850 px-3 py-1.5 gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                playButtonClickSound();
+                setActiveTab('chat');
+              }}
+              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeTab === 'chat'
+                  ? 'bg-white dark:bg-stone-800 text-amber-700 dark:text-amber-300 shadow-2xs border border-amber-300/80 dark:border-amber-800'
+                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+              }`}
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>المحادثة الذكية</span>
+            </button>
 
-            {messages.map((m) => (
-              <div key={m.id} className="space-y-2">
-                <Bubble role={m.role}>{renderText(m.content)}</Bubble>
-
-                {/* زر التنقل المباشر يظهر فقط عند طلب شاشة بعينها */}
-                {m.actionLink && (
-                  <div className="flex justify-start pr-2">
-                    <button
-                      type="button"
-                      onClick={() => openScreen(m.actionLink!.view)}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 transition shadow-2xs cursor-pointer"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>{m.actionLink.label}</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* زر الاتصال السريع بالعميل أو المورد */}
-                {m.contactAction && (
-                  <div className="flex justify-start pr-2">
-                    <a
-                      href={`tel:${m.contactAction.phone}`}
-                      className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm cursor-pointer"
-                    >
-                      <PhoneCall className="w-3.5 h-3.5" />
-                      <span>اتصال بـ {m.contactAction.name} ({m.contactAction.phone})</span>
-                    </a>
-                  </div>
-                )}
-
-                {/* زر الإحالة لـ "صقر" في المهام الخارجية وفحص الصور ودراسة السوق فقط وبشكل ثابت ومختصر */}
-                {m.handoffToFalcon && (
-                  <div className="flex justify-start pr-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsOpen(false);
-                        onOpenFalcon();
-                      }}
-                      className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl bg-stone-900 text-amber-300 border border-amber-500/40 hover:bg-stone-800 transition shadow-sm cursor-pointer"
-                    >
-                      <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
-                      <span>استشر صقر الشمساوية 🦅</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {isLoading && (
-              <Bubble role="assistant">
-                <span className="inline-flex gap-1.5 items-center py-1" aria-label="شموسة تبحث وتراجع">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" />
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:150ms]" />
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:300ms]" />
-                  <span className="text-xs text-stone-500 mr-2">شموسة تراجع دفاتر وسجلات الورشة...</span>
+            <button
+              type="button"
+              onClick={() => {
+                playButtonClickSound();
+                setActiveTab('tasks_agenda');
+              }}
+              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 relative ${
+                activeTab === 'tasks_agenda'
+                  ? 'bg-white dark:bg-stone-800 text-amber-700 dark:text-amber-300 shadow-2xs border border-amber-300/80 dark:border-amber-800'
+                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>المهام والأجندة</span>
+              {totalPendingBadge > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-mono font-bold leading-none">
+                  {totalPendingBadge}
                 </span>
-              </Bubble>
-            )}
+              )}
+            </button>
           </div>
 
-          {/* Form Input */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              send(input);
-            }}
-            className="p-3 border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 flex-shrink-0"
-          >
-            <div className="flex items-end gap-2">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    send(input);
-                  }
-                }}
-                rows={1}
-                maxLength={1000}
-                placeholder="اسألي شموسة عن الخزنة، النواقص، تسليمات الأوردرات..."
-                className="flex-1 resize-none max-h-28 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 px-3.5 py-2.5 text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-              />
-              <button
-                type="submit"
-                disabled={!input.trim() || isLoading}
-                aria-label="إرسال"
-                className="w-11 h-11 flex-shrink-0 rounded-full bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-md cursor-pointer"
+          {/* Tab 1: Chat View */}
+          {activeTab === 'chat' && (
+            <>
+              {/* Messages Container */}
+              <div
+                ref={listRef}
+                className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5 bg-stone-50 dark:bg-stone-950"
               >
-                <Send className="w-5 h-5 -scale-x-100" />
-              </button>
+                <Bubble role="assistant">{renderText(welcomeMessage)}</Bubble>
+
+                {messages.map((m) => (
+                  <div key={m.id} className="space-y-2">
+                    <Bubble role={m.role}>{renderText(m.content)}</Bubble>
+
+                    {/* أزرار الإجراءات السريعة بالكلمات الدلالية */}
+                    {m.actionChips && m.actionChips.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
+                        {m.actionChips.map((chip) => (
+                          <button
+                            key={chip.id}
+                            type="button"
+                            onClick={() => handleActionChipClick(chip)}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-xl bg-amber-100/80 hover:bg-amber-200 text-amber-950 dark:bg-amber-950/70 dark:text-amber-200 border border-amber-300/80 dark:border-amber-800 transition shadow-2xs cursor-pointer active:scale-95"
+                          >
+                            <span>{chip.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* زر التنقل المباشر يظهر فقط عند طلب شاشة بعينها */}
+                    {m.actionLink && (
+                      <div className="flex justify-start pr-2">
+                        <button
+                          type="button"
+                          onClick={() => openScreen(m.actionLink!.view)}
+                          className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 transition shadow-2xs cursor-pointer active:scale-95"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>{m.actionLink.label}</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* زر الاتصال السريع بالعميل أو المورد */}
+                    {m.contactAction && (
+                      <div className="flex justify-start pr-2">
+                        <a
+                          href={`tel:${m.contactAction.phone}`}
+                          className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm cursor-pointer"
+                        >
+                          <PhoneCall className="w-3.5 h-3.5" />
+                          <span>اتصال بـ {m.contactAction.name} ({m.contactAction.phone})</span>
+                        </a>
+                      </div>
+                    )}
+
+                    {/* زر الإحالة لـ "صقر" في المهام الخارجية وفحص الصور ودراسة السوق فقط */}
+                    {m.handoffToFalcon && (
+                      <div className="flex justify-start pr-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsOpen(false);
+                            onOpenFalcon();
+                          }}
+                          className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl bg-stone-900 text-amber-300 border border-amber-500/40 hover:bg-stone-800 transition shadow-sm cursor-pointer active:scale-95"
+                        >
+                          <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
+                          <span>استشر صقر الشمساوية 🦅</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {isLoading && (
+                  <Bubble role="assistant">
+                    <span className="inline-flex gap-1.5 items-center py-1" aria-label="شموسة تبحث وتراجع">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" />
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:150ms]" />
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:300ms]" />
+                      <span className="text-xs text-stone-500 mr-2 font-bold">شموسة تراجع دفاتر وسجلات الورشة...</span>
+                    </span>
+                  </Bubble>
+                )}
+              </div>
+
+              {/* Chat Input Form */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  send(input);
+                }}
+                className="p-3 border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 flex-shrink-0"
+              >
+                <div className="flex items-end gap-2">
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        send(input);
+                      }
+                    }}
+                    rows={1}
+                    maxLength={1000}
+                    placeholder="اسألي شموسة عن الخزنة، النواقص، تسليمات الأوردرات..."
+                    className="flex-1 resize-none max-h-28 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 px-3.5 py-2.5 text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!input.trim() || isLoading}
+                    aria-label="إرسال"
+                    className="w-11 h-11 flex-shrink-0 rounded-full bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-md cursor-pointer"
+                  >
+                    <Send className="w-5 h-5 -scale-x-100" />
+                  </button>
+                </div>
+                {remaining !== null && (
+                  <p className="text-[10px] text-center text-stone-500 dark:text-stone-400 pt-2 font-bold">
+                    باقي {remaining} استفسار اليوم
+                  </p>
+                )}
+              </form>
+            </>
+          )}
+
+          {/* Tab 2: Daily Tasks & Delivery Agenda View */}
+          {activeTab === 'tasks_agenda' && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-stone-50 dark:bg-stone-950">
+              {/* قسم 1: توجيهات ومهام اليوم من شموسة 🌞 */}
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-900 border border-amber-200/90 dark:border-stone-800 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🌞</span>
+                    <h3 className="text-xs sm:text-sm font-black text-stone-900 dark:text-stone-100">
+                      توجيهات ومهام اليوم من شموسة
+                    </h3>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold">
+                    {completedTaskIds.filter((id) => dailyTasks.some((t) => t.id === id)).length} / {dailyTasks.length} منجز
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {dailyTasks.map((task) => {
+                    const isDone = completedTaskIds.includes(task.id);
+                    return (
+                      <div
+                        key={task.id}
+                        className={`p-2.5 rounded-xl border transition-all flex flex-col gap-2 ${
+                          isDone
+                            ? 'bg-emerald-50/40 dark:bg-emerald-950/15 border-emerald-200 dark:border-emerald-900/40 opacity-70'
+                            : task.urgency === 'high'
+                            ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800'
+                            : 'bg-stone-50/80 dark:bg-stone-850 border-stone-200 dark:border-stone-800'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTask(task.id)}
+                            className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border transition-all cursor-pointer mt-0.5 active:scale-90 ${
+                              isDone
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs ring-1 ring-emerald-500/30'
+                                : 'bg-white dark:bg-stone-800 text-stone-300 hover:text-emerald-600 border-stone-300 dark:border-stone-700 hover:border-emerald-500'
+                            }`}
+                            title={isDone ? 'إلغاء الإنجاز' : 'تم الإنجاز بنجاح (✔️)'}
+                          >
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          </button>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span
+                                className={`text-xs font-black transition-all ${
+                                  isDone
+                                    ? 'line-through text-stone-400 dark:text-stone-500'
+                                    : 'text-stone-900 dark:text-stone-100'
+                                }`}
+                              >
+                                {task.title}
+                              </span>
+                              {task.urgency === 'high' && !isDone && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-bold">
+                                  عاجل
+                                </span>
+                              )}
+                            </div>
+                            <p
+                              className={`text-[11px] mt-0.5 transition-all ${
+                                isDone
+                                  ? 'line-through text-stone-400 dark:text-stone-600'
+                                  : 'text-stone-600 dark:text-stone-400'
+                              }`}
+                            >
+                              {task.detail}
+                            </p>
+                          </div>
+                        </div>
+
+                        {task.view && !isDone && (
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => openScreen(task.view!)}
+                              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-300/60 dark:border-amber-800 text-[11px] font-black transition cursor-pointer flex items-center gap-1 active:scale-95"
+                            >
+                              <span>{task.actionLabel}</span>
+                              <ChevronLeft className="w-3 h-3 text-amber-600" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* قسم 2: مواعيد وأجندة تسليم الطلبيات والربط مع تقويم جوجل 📅 */}
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    <h3 className="text-xs sm:text-sm font-black text-stone-900 dark:text-stone-100">
+                      مواعيد وأجندة الورشة
+                    </h3>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playButtonClickSound();
+                      setIsNewApptFormOpen(!isNewApptFormOpen);
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition cursor-pointer flex items-center gap-1 active:scale-95 shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>موعد جديد</span>
+                  </button>
+                </div>
+
+                {/* New Appointment inline form */}
+                {isNewApptFormOpen && (
+                  <form
+                    onSubmit={handleCreateAppointment}
+                    className="p-3 rounded-xl bg-amber-50/60 dark:bg-stone-850 border border-amber-300/80 dark:border-amber-800/80 space-y-2.5 animate-in fade-in duration-200"
+                  >
+                    <div className="flex items-center justify-between pb-1 border-b border-amber-200/50 dark:border-stone-800">
+                      <span className="text-xs font-black text-amber-900 dark:text-amber-200">
+                        تسجيل موعد أو تسليم جديد 📅
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsNewApptFormOpen(false)}
+                        className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <input
+                        type="text"
+                        value={apptFormTitle}
+                        onChange={(e) => setApptFormTitle(e.target.value)}
+                        placeholder="عنوان الموعد أو المشغولة (مثلاً: تسليم طقم صواني رخام)"
+                        required
+                        className="w-full text-xs p-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-bold"
+                      />
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={apptFormClient}
+                          onChange={(e) => setApptFormClient(e.target.value)}
+                          placeholder="اسم العميل (اختياري)"
+                          className="w-full text-xs p-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-bold"
+                        />
+                        <input
+                          type="tel"
+                          value={apptFormPhone}
+                          onChange={(e) => setApptFormPhone(e.target.value)}
+                          placeholder="هاتف العميل"
+                          className="w-full text-xs p-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-bold font-mono"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-bold text-stone-500 block mb-0.5">التاريخ</label>
+                          <input
+                            type="date"
+                            value={apptFormDate}
+                            onChange={(e) => setApptFormDate(e.target.value)}
+                            required
+                            className="w-full text-xs p-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-stone-500 block mb-0.5">الساعة</label>
+                          <input
+                            type="time"
+                            value={apptFormTime}
+                            onChange={(e) => setApptFormTime(e.target.value)}
+                            className="w-full text-xs p-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <input
+                        type="text"
+                        value={apptFormNotes}
+                        onChange={(e) => setApptFormNotes(e.target.value)}
+                        placeholder="ملاحظات التسليم (مثال: تغليف هدايا)"
+                        className="w-full text-xs p-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsNewApptFormOpen(false)}
+                        className="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 dark:text-stone-400 text-xs font-bold"
+                      >
+                        إلغاء
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-black shadow-xs cursor-pointer active:scale-95"
+                      >
+                        حفظ الموعد
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Appointments List */}
+                <div className="space-y-2.5">
+                  {appointments.length === 0 ? (
+                    <div className="text-center py-4 text-xs text-stone-500 dark:text-stone-400">
+                      لا توجد مواعيد تسليم مسجلة حالياً. اضغط "موعد جديد" لتسجيل موعد تسليم للعميل.
+                    </div>
+                  ) : (
+                    appointments.map((appt) => {
+                      const isDone = appt.status === 'completed';
+                      const gcalUrl = createGoogleCalendarUrl({
+                        title: appt.title,
+                        date: appt.date,
+                        time: appt.time,
+                        notes: appt.notes,
+                        clientName: appt.clientName,
+                        clientPhone: appt.clientPhone,
+                        brandName: profile.brandName,
+                      });
+
+                      return (
+                        <div
+                          key={appt.id}
+                          className={`p-3 rounded-2xl border transition-all space-y-2 ${
+                            isDone
+                              ? 'bg-stone-100/50 dark:bg-stone-900/40 border-stone-200 dark:border-stone-800 opacity-70'
+                              : 'bg-white dark:bg-stone-850 border-stone-200 dark:border-stone-800 shadow-2xs'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <h4
+                                className={`text-xs font-black ${
+                                  isDone
+                                    ? 'line-through text-stone-400 dark:text-stone-500'
+                                    : 'text-stone-900 dark:text-stone-100'
+                                }`}
+                              >
+                                {appt.title}
+                              </h4>
+                              {appt.clientName && (
+                                <p className="text-[11px] text-stone-600 dark:text-stone-400 flex items-center gap-1 mt-0.5">
+                                  <User className="w-3 h-3 text-stone-400" />
+                                  <span>{appt.clientName}</span>
+                                  {appt.clientPhone && (
+                                    <span className="font-mono text-stone-500 mr-1">({appt.clientPhone})</span>
+                                  )}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="text-left shrink-0">
+                              <span className="text-[11px] font-mono font-black text-amber-700 dark:text-amber-400 block">
+                                {appt.date}
+                              </span>
+                              {appt.time && (
+                                <span className="text-[10px] font-mono text-stone-500 block">
+                                  {appt.time}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {appt.notes && (
+                            <p className="text-[11px] text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-900/60 p-1.5 rounded-lg border border-stone-200/50 dark:border-stone-800">
+                              {appt.notes}
+                            </p>
+                          )}
+
+                          {/* أزرار تقويم جوجل وتنزيل .ics والإنجاز */}
+                          <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-stone-100 dark:border-stone-800">
+                            <div className="flex items-center gap-1.5">
+                              {/* حفظ في تقويم جوجل 📅 */}
+                              <a
+                                href={gcalUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 transition cursor-pointer"
+                                title="حفظ الموعد في تقويم جوجل"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                <span>تقويم جوجل 📅</span>
+                              </a>
+
+                              {/* تحميل ملف التقويم .ics */}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadIcsFile({
+                                    id: appt.id,
+                                    title: appt.title,
+                                    date: appt.date,
+                                    time: appt.time,
+                                    notes: appt.notes,
+                                    clientName: appt.clientName,
+                                    brandName: profile.brandName,
+                                  })
+                                }
+                                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:bg-stone-200 transition cursor-pointer"
+                                title="تحميل ملف التقويم للأجهزة والهواتف (.ics)"
+                              >
+                                <Download className="w-3 h-3 text-stone-500" />
+                                <span>ملف .ics</span>
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleAppointment(appt.id)}
+                              className={`text-[10px] font-black px-2.5 py-1 rounded-lg transition cursor-pointer active:scale-95 ${
+                                isDone
+                                  ? 'bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-400'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                              }`}
+                            >
+                              {isDone ? 'تم التسليم ✔️' : 'تأكيد التسليم'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             </div>
-            {remaining !== null && (
-              <p className="text-[10px] text-center text-stone-500 dark:text-stone-400 pt-2">
-                باقي {remaining} استفسار اليوم
-              </p>
-            )}
-          </form>
+          )}
         </div>
       )}
     </>
