@@ -861,6 +861,10 @@ export interface SavedProductRecord {
   output: CalculationOutput;
   currentStock?: number; // رصيد المخزون الفعلي
   imageUrl?: string;
+  inStore?: boolean; // هل تم تصدير المشغولة إلى متجري
+  isPublishedInStore?: boolean; // مفتاح "نشر في المتجر"
+  storePrice?: number; // السعر التسويقي في المتجر
+  storeDescription?: string; // وصف العرض في المتجر
   isActive: boolean;
   createdAt: number;
   updatedAt: number;

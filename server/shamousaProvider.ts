@@ -362,8 +362,57 @@ export async function handleShamousaChat(
   // 4. المحرك المحلي الذكي لحماية الصانع من أي انقطاع في الشبكة أو نفاد الحصص
   const norm = userMessage.toLowerCase();
   const firstName = extractFirstName(ctx.artistName) || 'يا غالي';
-  if (norm.includes('خزن') || norm.includes('خزينه') || norm.includes('رصيد') || norm.includes('سيول') || norm.includes('فلوس') || norm.includes('معانا كام')) {
-    const reply = `أهلاً يا ${firstName} 🌞، رصيد الخزائن والسيولة المتوفرة حالياً في الورشة هو **${liveLiquidity.toLocaleString('ar-EG')} ج.م**.\n${treasuriesDetailText ? `\nتفاصيل الأرصدة والعهد:\n${treasuriesDetailText}` : ''}`;
+
+  // 1. استفسارات السيولة والخزن
+  if (norm.includes('خزن') || norm.includes('خزينه') || norm.includes('رصيد') || norm.includes('سيول') || norm.includes('فلوس') || norm.includes('معانا كام') || norm.includes('عهدة')) {
+    const reply = `أهلاً يا ${firstName} 🌞، رصيد الخزائن والسيولة المتوفرة حالياً في الورشة هو **${liveLiquidity.toLocaleString('ar-EG')} ج.م**.\n${treasuriesDetailText ? `\nتفاصيل الأرصدة والعهد المسجلة:\n${treasuriesDetailText}` : ''}`;
+    return { reply, handoffToFalcon: false, provider: 'internal_cache' };
+  }
+
+  // 2. استفسارات النواقص والخامات ومخزون الورشة
+  if (norm.includes('نواقص') || norm.includes('خامات') || norm.includes('خيط') || norm.includes('مخزن') || norm.includes('رصيد الخام')) {
+    const mats = Array.isArray(ctx.clientContext?.materialsSummary) ? ctx.clientContext.materialsSummary : [];
+    const lowMats = mats.filter((m: any) => (Number(m.currentStock) || 0) <= (Number(m.minAlertThreshold) || 5));
+    let matsText = '';
+    if (lowMats.length > 0) {
+      matsText = `⚠️ **تنبيه بالنواقص:** يوجد ${lowMats.length} أصناف أوشكت على النفاد وتتطلب إعادة طلب:\n` +
+        lowMats.map((m: any) => `• ${m.materialName}: رصيده المتبقي ${m.currentStock} ${m.unit || 'وحدة'} (حد الأمان: ${m.minAlertThreshold || 5})`).join('\n');
+    } else if (mats.length > 0) {
+      matsText = `✅ مخزون الخامات بحالة ممتازة ومستقرة، ولديك ${mats.length} صنف مسجل بكروت الصنف دون أي عجز.`;
+    } else {
+      matsText = `سجلات المخزن جاهزة ومتاحة تحت يدك، ويمكنك إضافة خاماتك ومتابعة كروت الصنف من شاشة "المخزن وإدارة الخامات".`;
+    }
+    const reply = `يا ${firstName} 🌞، إليك تقرير حالة مخزون الخامات في ورشتك:\n\n${matsText}`;
+    return { reply, handoffToFalcon: false, provider: 'internal_cache' };
+  }
+
+  // 3. استفسارات المنتجات والتسعير والكتالوج
+  if (norm.includes('منتجات') || norm.includes('كتالوج') || norm.includes('تسعير') || norm.includes('أسعار') || norm.includes('مشغولات')) {
+    const prods = Array.isArray(ctx.clientContext?.productsSummary) ? ctx.clientContext.productsSummary : [];
+    let prodsText = '';
+    if (prods.length > 0) {
+      prodsText = `📦 لديك حالياً **${prods.length} منتج مسعر ومعتمد** في أرشيف وكتالوج الورشة:\n` +
+        prods.slice(0, 5).map((p: any) => `• ${p.productName || p.name}: قطاعي ${Number(p.retailPrice || p.price || 0).toLocaleString('ar-EG')} ج.م | جملة ${Number(p.wholesalePrice || 0).toLocaleString('ar-EG')} ج.م`).join('\n') +
+        (prods.length > 5 ? `\n... وغيرهم ${prods.length - 5} أصناف أخرى مسجلة.` : '');
+    } else {
+      prodsText = `كتالوج منتجاتك جاهز، وبمجرد اعتماد أي قطعة من حاسبة التكاليف ستظهر هنا مع أسعار الجملة والقطاعي تلقائياً!`;
+    }
+    const reply = `يا ${firstName} 🌞، تقرير المنتجات والكتالوج لورشتك:\n\n${prodsText}`;
+    return { reply, handoffToFalcon: false, provider: 'internal_cache' };
+  }
+
+  // 4. استفسارات المبيعات والطلبيات والأوردرات
+  if (norm.includes('أوردر') || norm.includes('اوردر') || norm.includes('طلب') || norm.includes('مبيعات') || norm.includes('فواتير')) {
+    const orders = Array.isArray(ctx.clientContext?.ordersSummary) ? ctx.clientContext.ordersSummary : [];
+    const pendingOrders = orders.filter((o: any) => o.status !== 'delivered' && o.status !== 'completed');
+    let ordText = '';
+    if (orders.length > 0) {
+      ordText = `📑 مسجل بالورشة **${orders.length} طلبية ومبيعة**، منها ${pendingOrders.length} طلبية جاري تجهيزها وتسليمها.\n` +
+        `• يمكنك مراجعة كشوف العملاء ومتابعة تحصيل المتبقي من شاشة "طلبيات ومبيعات الورشة".`;
+    } else {
+      ordText = `سجل المبيعات جاهز لإصدار فواتيرك الجديدة ومتابعة دفعات العملاء النقدية والآجلة.`;
+    }
+    const reply = `يا ${firstName} 🌞، حركة المبيعات والأوردرات في ورشتك:\n\n${ordText}`;
     return { reply, handoffToFalcon: false, provider: 'internal_cache' };
   }
 

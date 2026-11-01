@@ -187,6 +187,7 @@ export const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ActiveView>('home');
   const [historyStack, setHistoryStack] = useState<ActiveView[]>([]);
   const [adminInitialTab, setAdminInitialTab] = useState<ExecutiveTab>('materials');
+  const [catalogInitialTab, setCatalogInitialTab] = useState<'catalog' | 'store'>('catalog');
 
   // Modals state
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
@@ -535,6 +536,14 @@ export const App: React.FC = () => {
     [activeView]
   );
 
+  const handleNavigateToCatalog = useCallback(
+    (tab?: 'catalog' | 'store') => {
+      setCatalogInitialTab(tab || 'catalog');
+      navigateTo('catalog');
+    },
+    [navigateTo]
+  );
+
   const navigateBack = useCallback(() => {
     if (historyStack.length > 0) {
       const previous = historyStack[historyStack.length - 1];
@@ -826,7 +835,7 @@ export const App: React.FC = () => {
               profile={profile}
               onNavigateToCalculator={() => navigateTo('calculator')}
               onNavigateToArchive={() => navigateTo('archive')}
-              onNavigateToCatalog={() => navigateTo('catalog')}
+              onNavigateToCatalog={handleNavigateToCatalog}
               onNavigateToAIAgent={() => navigateTo('ai_agent')}
               onNavigateToMaterials={() => navigateTo('materials')}
               onNavigateToSuppliers={() => navigateTo('suppliers')}
@@ -888,6 +897,7 @@ export const App: React.FC = () => {
         {activeView === 'catalog' && (
           <WorkshopCatalog
             profile={profile}
+            initialTab={catalogInitialTab}
             onSelectRecordToLoad={handleSelectRecordToLoad}
             onOpenWhatsAppShare={handleOpenWhatsAppShare}
           />

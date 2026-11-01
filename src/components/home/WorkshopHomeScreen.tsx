@@ -97,7 +97,7 @@ export interface WorkshopHomeScreenProps {
   // Navigation to full screens
   onNavigateToCalculator: () => void;
   onNavigateToArchive: () => void;
-  onNavigateToCatalog: () => void;
+  onNavigateToCatalog: (tab?: 'catalog' | 'store') => void;
   onNavigateToAIAgent: () => void;
   onNavigateToMaterials: (openAdd?: boolean) => void;
   onNavigateToSuppliers: () => void;
@@ -725,7 +725,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             {
               label: 'كتالوج الورشة المرجعي',
               icon: BookOpen,
-              onClick: onNavigateToCatalog,
+              onClick: () => onNavigateToCatalog(),
             },
           ],
         };
@@ -1054,12 +1054,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             {
               label: 'الكتالوج المرجعي للمشغولات',
               icon: BookOpen,
-              onClick: () => onNavigateToCatalog(),
+              onClick: () => onNavigateToCatalog('catalog'),
             },
             {
               label: 'متجري الخاص لعرض ونشر المنتجات',
               icon: Store,
-              onClick: () => onNavigateToCatalog(),
+              onClick: () => onNavigateToCatalog('store'),
             },
             {
               label: 'أرشيف التصاميم وتصدير المشغولات',
@@ -1694,8 +1694,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       {/* MODAL: شاشة تعريفية وتحليلية موسعة بالمصروفات والمنتجات والمخزون */}
       {/* ========================================================= */}
       {isAnalyticsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-3xl max-h-[90vh] flex flex-col rounded-3xl p-5 sm:p-6 shadow-2xl border border-stone-200 dark:border-stone-800 text-right space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setIsAnalyticsModalOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-stone-900 w-full max-w-3xl max-h-[90vh] flex flex-col rounded-3xl p-5 sm:p-6 shadow-2xl border border-stone-200 dark:border-stone-800 text-right space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
               <button
                 type="button"
@@ -1986,8 +1992,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       {/* نافذة تخصيص واختيار المفضلة الحرفية */}
       {isFavoritesModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-xs animate-in fade-in duration-200" dir="rtl">
-          <div className="w-full max-w-xl p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-amber-300/80 dark:border-amber-800/80 shadow-2xl space-y-4 max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-xs animate-in fade-in duration-200"
+          dir="rtl"
+          onClick={() => setIsFavoritesModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-xl p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-amber-300/80 dark:border-amber-800/80 shadow-2xl space-y-4 max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* رأس النافذة */}
             <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-3">
               <div className="flex items-center gap-2.5">

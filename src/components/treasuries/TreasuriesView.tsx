@@ -159,8 +159,20 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
   const [settleModalOpen, setSettleModalOpen] = useState(false);
   const [settleCustody, setSettleCustody] = useState<SupabaseTreasuryBalance | null>(null);
   const [settleReturnToId, setSettleReturnToId] = useState('');
+  const [settleReturnChannel, setSettleReturnChannel] = useState<PaymentChannel>('cash');
   const [settleNote, setSettleNote] = useState('');
   const [settleSubmitting, setSettleSubmitting] = useState(false);
+  const [settleSummary, setSettleSummary] = useState<{
+    deliveredAmount: number;
+    spentAmount: number;
+    remainingAmount: number;
+    loading: boolean;
+  }>({
+    deliveredAmount: 0,
+    spentAmount: 0,
+    remainingAmount: 0,
+    loading: false,
+  });
 
   // Create Sub-Treasury Modal
   const [createSubModalOpen, setCreateSubModalOpen] = useState(false);
@@ -913,12 +925,54 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
     }
   };
 
-  // 6. Settle Custody
-  const handleOpenSettle = (c: SupabaseTreasuryBalance) => {
+  // 6. Settle Custody (تسوية وإغلاق العهدة مع ملخص المبالغ وتوريد المتبقي)
+  const handleOpenSettle = async (c: SupabaseTreasuryBalance) => {
     setSettleCustody(c);
     setSettleReturnToId(c.parent_id || mainTreasury?.id || '');
+    setSettleReturnChannel('cash');
     setSettleNote('');
     setSettleModalOpen(true);
+    const rem = Number(c.balance) || 0;
+    setSettleSummary({
+      deliveredAmount: rem,
+      spentAmount: 0,
+      remainingAmount: rem,
+      loading: true,
+    });
+
+    try {
+      const { data: txs } = await getTreasuryTransactionsFromSupabase(c.id, 100);
+      let delivered = 0;
+      let spent = 0;
+      if (Array.isArray(txs) && txs.length > 0) {
+        for (const t of txs) {
+          const amt = Number(t.amount) || 0;
+          if (t.kind === 'in' || t.kind === 'transfer_in' || amt > 0) {
+            delivered += Math.abs(amt);
+          } else if (t.kind === 'out' || t.kind === 'transfer_out') {
+            spent += Math.abs(amt);
+          }
+        }
+      }
+      if (delivered <= 0) {
+        delivered = rem > 0 ? rem : 0;
+      }
+      spent = Math.max(0, delivered - rem);
+
+      setSettleSummary({
+        deliveredAmount: delivered,
+        spentAmount: spent,
+        remainingAmount: rem,
+        loading: false,
+      });
+    } catch {
+      setSettleSummary({
+        deliveredAmount: rem,
+        spentAmount: 0,
+        remainingAmount: rem,
+        loading: false,
+      });
+    }
   };
 
   const handleSubmitSettle = async (e: React.FormEvent) => {
@@ -927,22 +981,47 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
 
     setSettleSubmitting(true);
     try {
+      const remAmt = Number(settleCustody.balance) || 0;
+      const targetTreasury = treasuryBalances.find((t) => t.id === settleReturnToId);
+      const targetName = targetTreasury ? targetTreasury.name : 'الخزينة الرئيسية';
+
       const { error } = await rpcCustodySettle(
         workshopId,
         settleCustody.id,
         settleReturnToId,
-        settleNote || 'تسوية وإقفال العهدة'
+        settleNote || `تسوية وإغلاق عهدة ${settleCustody.name} وتوريد المتبقي إلى ${targetName}`
       );
 
       if (error) {
         showNotice(error.arabicMessage, true);
       } else {
-        showNotice(`تمت تسوية وإقفال العهدة "${settleCustody.name}" وإرجاع الرصيد المتبقي بنجاح.`);
+        // قيد مالي في السجل المحلي لتوثيق الحركة واسترداد المتبقي
+        if (remAmt > 0) {
+          try {
+            await tenantStorage.recordSafeTransaction({
+              id: 'tx_settle_' + Date.now(),
+              workshopId,
+              tenantId: workshopId,
+              treasuryId: settleReturnToId,
+              treasuryName: targetName,
+              safeType: targetTreasury?.kind === 'main' ? 'main' : 'sub',
+              type: 'deposit',
+              amount: remAmt,
+              balanceAfter: (Number(targetTreasury?.balance) || 0) + remAmt,
+              notes: `استرداد متبقي عهدة "${settleCustody.name}" (${settleCustody.holder_name || ''}) وإغلاقها`,
+              date: new Date().toISOString().split('T')[0],
+              createdAt: Date.now(),
+              createdBy: 'artisan',
+            });
+          } catch {}
+        }
+
+        showNotice(`تمت تسوية وإغلاق العهدة "${settleCustody.name}" بنجاح، وتم توريد المتبقي (${remAmt.toFixed(2)} ${currency}) إلى "${targetName}".`);
         setSettleModalOpen(false);
-        await loadTreasuryData();
+        await loadTreasuryData(true);
       }
     } catch (err: any) {
-      showNotice(err?.message || 'فشلت تسوية العهدة', true);
+      showNotice(err?.message || 'فشلت تسوية وإغلاق العهدة', true);
     } finally {
       setSettleSubmitting(false);
     }
@@ -3073,53 +3152,78 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
       {/* MODAL 6: تسوية وإقفال العهدة */}
       {/* ========================================================= */}
       {settleModalOpen && settleCustody && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-stone-200 dark:border-stone-800 text-right space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setSettleModalOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-stone-900 w-full max-w-lg rounded-3xl p-6 shadow-2xl border border-stone-200 dark:border-stone-800 text-right space-y-4 max-h-[92vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
               <button
                 type="button"
                 onClick={() => setSettleModalOpen(false)}
-                className="p-1 rounded-xl text-stone-400 hover:text-stone-700 cursor-pointer"
+                className="p-1 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 cursor-pointer transition"
               >
                 <X className="w-5 h-5" />
               </button>
               <div>
                 <h3 className="text-base font-black text-stone-900 dark:text-stone-100">
-                  تسوية وإقفال العهدة نهائياً
+                  تسوية وإغلاق العهدة المالية
                 </h3>
                 <p className="text-xs text-stone-500">
-                  العهدة: {settleCustody.name} ({settleCustody.holder_name})
+                  العهدة: {settleCustody.name} — المسؤول: {settleCustody.holder_name}
                 </p>
               </div>
             </div>
 
-            <form onSubmit={handleSubmitSettle} className="space-y-4">
-              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900 text-xs text-amber-900 dark:text-amber-200 space-y-2">
-                <div className="flex items-center justify-between font-bold">
-                  <span>الرصيد المتبقي بذمة العهدة:</span>
-                  <span className="text-base font-black text-amber-700 dark:text-amber-400">
-                    {Number(settleCustody.balance).toFixed(2)} {currency}
-                  </span>
-                </div>
-                <p className="text-[11px] leading-relaxed text-stone-600 dark:text-stone-300">
-                  عند تأكيد التسوية، سيتم تحويل أي رصيد متبقي تلقائياً إلى الخزنة المختارة أدناه، وستتحول حالة العهدة إلى "مسوّاة" نهائياً.
+            {/* بطاقات ملخص العهدة الثلاث */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/70 border border-stone-200 dark:border-stone-700 text-center">
+                <span className="text-[11px] font-bold text-stone-500 block mb-1">المبلغ المسلم</span>
+                <span className="text-sm font-black text-stone-800 dark:text-stone-200">
+                  {settleSummary.deliveredAmount.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-stone-400 block">{currency}</span>
+              </div>
+              <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/70 border border-stone-200 dark:border-stone-700 text-center">
+                <span className="text-[11px] font-bold text-stone-500 block mb-1">ما تم صرفه بمستندات</span>
+                <span className="text-sm font-black text-rose-600 dark:text-rose-400">
+                  {settleSummary.spentAmount.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-stone-400 block">{currency}</span>
+              </div>
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-center">
+                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 block mb-1">المتبقي للاسترداد</span>
+                <span className="text-sm font-black text-emerald-700 dark:text-emerald-300">
+                  {settleSummary.remainingAmount.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-emerald-600/70 block">{currency}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmitSettle} className="space-y-4 pt-1">
+              <div className="p-3 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 text-xs text-amber-900 dark:text-amber-200 space-y-1">
+                <p className="text-[11px] leading-relaxed">
+                  عند تأكيد الإغلاق، يتم إرجاع المبلغ المتبقي آلياً وتوريده إلى الخزينة المحددة، وتحويل حالة العهدة إلى "مغلقة ومسواة" وتوثيق القيد في السجل المالي.
                 </p>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
-                  إرجاع المتبقي إلى الخزنة *
+                  توريد المتبقي إلى الخزينة / الحساب *
                 </label>
                 <select
                   value={settleReturnToId}
                   onChange={(e) => setSettleReturnToId(e.target.value)}
-                  className="w-full p-2.5 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800"
+                  className="w-full p-2.5 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-bold"
                 >
                   {treasuryBalances
                     .filter((t) => (t.kind === 'main' || t.kind === 'sub') && t.status === 'open')
                     .map((t) => (
                       <option key={t.id} value={t.id}>
-                        {t.name} ({t.kind === 'main' ? 'رئيسية' : 'فرعية'})
+                        {t.name} ({t.kind === 'main' ? 'الخزينة الرئيسية النقدية' : 'حساب بنكي / فرعي'})
                       </option>
                     ))}
                 </select>
@@ -3127,13 +3231,36 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
-                  ملاحظات أو بيان التسوية
+                  طريقة التوريد والاسترداد *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['cash', 'instapay', 'wallet'] as PaymentChannel[]).map((ch) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => setSettleReturnChannel(ch)}
+                      className={`flex items-center justify-center gap-1.5 py-2 rounded-xl border text-xs font-bold cursor-pointer transition ${
+                        settleReturnChannel === ch
+                          ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
+                          : 'border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400'
+                      }`}
+                    >
+                      {channelIcon(ch)}
+                      <span>{channelLabel(ch)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                  بيان وتفاصيل التسوية
                 </label>
                 <textarea
                   value={settleNote}
                   onChange={(e) => setSettleNote(e.target.value)}
                   rows={2}
-                  placeholder="تم فحص الفواتير وإرجاع المتبقي نقداً..."
+                  placeholder="تسوية ختامية للعهدة واسترداد المتبقي نقداً..."
                   className="w-full p-2.5 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800"
                 />
               </div>
@@ -3144,7 +3271,7 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
                   disabled={settleSubmitting}
                   className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
                 >
-                  {settleSubmitting ? 'جاري إقفال وتسوية العهدة...' : 'تأكيد التسوية والإقفال'}
+                  {settleSubmitting ? 'جاري إقفال وتسوية العهدة...' : 'تأكيد تسوية وإغلاق العهدة واسترداد المتبقي'}
                 </button>
                 <button
                   type="button"
@@ -4002,11 +4129,11 @@ const CustodyCard: React.FC<CustodyCardProps> = ({
             <button
               type="button"
               onClick={onSettle}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] font-bold cursor-pointer"
-              title="تسوية وإقفال العهدة نهائياً"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] font-bold cursor-pointer shadow-sm transition"
+              title="تسوية وإغلاق العهدة واسترداد المتبقي"
             >
               <CheckCircle2 className="w-3 h-3" />
-              <span>تسوية</span>
+              <span>تسوية وإغلاق العهدة</span>
             </button>
 
             <button

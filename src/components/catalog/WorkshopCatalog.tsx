@@ -34,28 +34,51 @@ import {
   FileText,
   Palette,
   Sparkles,
+  Store,
+  ShoppingBag,
+  Lock,
+  Globe,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
 interface WorkshopCatalogProps {
   profile: UserProfile;
+  initialTab?: 'catalog' | 'store';
   onSelectRecordToLoad: (record: SavedProductRecord) => void;
   onOpenWhatsAppShare: (record: SavedProductRecord) => void;
 }
 
 export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   profile,
+  initialTab,
   onSelectRecordToLoad,
   onOpenWhatsAppShare,
 }) => {
   const { t: tr } = useTranslation();
+
+  // Tab switching: 'catalog' (الكتالوج المرجعي) vs 'store' (متجري)
+  const [activeTab, setActiveTab] = useState<'catalog' | 'store'>(initialTab || 'catalog');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // All loaded products stored in memory
   const [allProducts, setAllProducts] = useState<SavedProductRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [notice, setNotice] = useState<string>('');
+
+  // Store tab state
+  const [storeSearchQuery, setStoreSearchQuery] = useState<string>('');
+  const [storeStatusFilter, setStoreStatusFilter] = useState<'all' | 'published' | 'draft'>('all');
+  const [storePrices, setStorePrices] = useState<Record<string, number>>({});
+  const [storeDescriptions, setStoreDescriptions] = useState<Record<string, string>>({});
 
   // Multi-selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -401,6 +424,142 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     }
   };
 
+  // =========================================================================
+  // STORE MANAGEMENT LOGIC (قسم متجري ونشر المشغولات)
+  // =========================================================================
+
+  // Export product to My Store
+  const handleExportToStore = async (p: SavedProductRecord) => {
+    try {
+      const defaultPrice = p.storePrice || getRetailPrice(p);
+      const defaultDesc =
+        p.storeDescription ||
+        (p as any).marketingDescription ||
+        p.input?.personalNotes ||
+        `مشغولة يدوية أصلية - ${p.productName}`;
+
+      const updated: SavedProductRecord = {
+        ...p,
+        inStore: true,
+        isPublishedInStore: p.isPublishedInStore !== undefined ? p.isPublishedInStore : true,
+        storePrice: defaultPrice,
+        storeDescription: defaultDesc,
+        updatedAt: Date.now(),
+      };
+
+      await tenantStorage.mutateProduct(updated);
+      setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setNotice(`تم تصدير "${p.productName}" إلى متجرك بنجاح! يمكنك الآن مراجعة سعر النشر ووصف العرض.`);
+      setTimeout(() => setNotice(''), 4000);
+    } catch (err: any) {
+      console.error('Failed to export product to store:', err);
+      setNotice('تعذر تصدير المشغولة إلى متجري: ' + (err.message || 'خطأ غير معروف'));
+      setTimeout(() => setNotice(''), 4000);
+    }
+  };
+
+  // Toggle publish status in store
+  const handleTogglePublishInStore = async (p: SavedProductRecord) => {
+    try {
+      const current = p.isPublishedInStore !== false;
+      const updated: SavedProductRecord = {
+        ...p,
+        isPublishedInStore: !current,
+        updatedAt: Date.now(),
+      };
+      await tenantStorage.mutateProduct(updated);
+      setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setNotice(
+        !current
+          ? `تم تفعيل نشر "${p.productName}" في المتجر للعملاء`
+          : `تم إيقاف نشر "${p.productName}" (محفوظ كمسودة في المتجر)`
+      );
+      setTimeout(() => setNotice(''), 3000);
+    } catch (err: any) {
+      console.error('Failed to toggle publish status in store:', err);
+    }
+  };
+
+  // Save Store marketing price and description (keeping costPrice strictly unchanged!)
+  const handleSaveStoreProductDetails = async (
+    p: SavedProductRecord,
+    newPrice: number,
+    newDesc: string
+  ) => {
+    try {
+      const updated: SavedProductRecord = {
+        ...p,
+        storePrice: Number(newPrice) > 0 ? Number(newPrice) : getRetailPrice(p),
+        storeDescription: newDesc.trim(),
+        updatedAt: Date.now(),
+      };
+      // Original p.costPrice remains completely intact and protected!
+      await tenantStorage.mutateProduct(updated);
+      setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setNotice(`تم حفظ تعديلات العرض في المتجر لمشغولة "${p.productName}" بنجاح!`);
+      setTimeout(() => setNotice(''), 3500);
+    } catch (err: any) {
+      console.error('Failed to update store details:', err);
+      setNotice('حدث خطأ أثناء حفظ بيانات المتجر.');
+      setTimeout(() => setNotice(''), 3000);
+    }
+  };
+
+  // Remove from store
+  const handleRemoveFromStore = async (p: SavedProductRecord) => {
+    try {
+      const updated: SavedProductRecord = {
+        ...p,
+        inStore: false,
+        isPublishedInStore: false,
+        updatedAt: Date.now(),
+      };
+      await tenantStorage.mutateProduct(updated);
+      setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setNotice(`تم إزالة "${p.productName}" من متجرك.`);
+      setTimeout(() => setNotice(''), 3000);
+    } catch (err: any) {
+      console.error('Failed to remove from store:', err);
+    }
+  };
+
+  // Share store product via WhatsApp
+  const handleShareStoreProduct = (p: SavedProductRecord) => {
+    const price = p.storePrice || getRetailPrice(p);
+    const desc = p.storeDescription || (p as any).marketingDescription || p.productName;
+    const craft = getCraftDisplay(p);
+    const brand = profile.brandName ? `ورشة ${profile.brandName}` : 'شمس كرافت';
+
+    let text = `✨ *معروض في متجر ${brand}* ✨\n\n`;
+    text += `🏷️ *اسم المشغولة:* ${p.productName}\n`;
+    text += `🧶 *الحرفة والتصنيف:* ${craft}\n`;
+    text += `💰 *السعر:* ${price} ${profile.currencySymbol}\n`;
+    if (desc) {
+      text += `📝 *الوصف والمواصفات:* ${desc}\n`;
+    }
+    text += `\n📞 للطلب والتواصل مع الورشة يسعدنا خدمتكم دائماً!`;
+
+    const encoded = encodeURIComponent(text);
+    window.open(`https://wa.me/?text=${encoded}`, '_blank');
+  };
+
+  // Store products filtered list
+  const storeProducts = useMemo(() => {
+    return allProducts.filter((p) => {
+      if (!p.inStore) return false;
+      if (storeStatusFilter === 'published' && p.isPublishedInStore === false) return false;
+      if (storeStatusFilter === 'draft' && p.isPublishedInStore !== false) return false;
+      if (storeSearchQuery.trim()) {
+        const q = storeSearchQuery.trim().toLowerCase();
+        const name = (p.productName || '').toLowerCase();
+        const code = (p.productCode || '').toLowerCase();
+        const desc = (p.storeDescription || '').toLowerCase();
+        return name.includes(q) || code.includes(q) || desc.includes(q);
+      }
+      return true;
+    });
+  }, [allProducts, storeStatusFilter, storeSearchQuery]);
+
   // PDF Export Function
   const handleExportPDF = async () => {
     if (!printTemplateRef.current || targetProductsForExport.length === 0) {
@@ -541,18 +700,61 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* 0. Tab Switcher between Reference Catalog and My Store */}
+      <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700/80 max-w-xl">
+        <button
+          type="button"
+          onClick={() => setActiveTab('catalog')}
+          className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition cursor-pointer ${
+            activeTab === 'catalog'
+              ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100'
+          }`}
+        >
+          <BookOpen className="w-4 h-4" />
+          <span>الكتالوج المرجعي للمشغولات</span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
+            {allProducts.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('store')}
+          className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition cursor-pointer ${
+            activeTab === 'store'
+              ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
+              : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100'
+          }`}
+        >
+          <Store className="w-4 h-4" />
+          <span>متجري لعرض ونشر المنتجات</span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-500 text-white">
+            {allProducts.filter((p) => p.inStore).length}
+          </span>
+        </button>
+      </div>
+
       {/* 1. Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-300/40 dark:border-amber-800/40 shadow-xs">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-400">
-            <BookOpen className="w-4 h-4" />
-            <span>{tr('catalog_title')}</span>
+            {activeTab === 'catalog' ? <BookOpen className="w-4 h-4" /> : <Store className="w-4 h-4" />}
+            <span>{activeTab === 'catalog' ? tr('catalog_title') : 'متجري الخاص لعرض ونشر المنتجات'}</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 mt-1">
-            {profile.brandName ? `كتالوج ورشة ${profile.brandName}` : tr('catalog_title')}
+            {activeTab === 'catalog'
+              ? profile.brandName
+                ? `كتالوج ورشة ${profile.brandName}`
+                : tr('catalog_title')
+              : profile.brandName
+              ? `متجر ورشة ${profile.brandName} للعرض والتسويق`
+              : 'متجري لعرض وتسويق المشغولات الحرفية'}
           </h2>
           <p className="text-xs text-stone-500 mt-1">
-            {tr('catalog_subtitle')}
+            {activeTab === 'catalog'
+              ? tr('catalog_subtitle')
+              : 'إدارة عرض وتسويق المشغولات الحرفية للعملاء، ضبط أسعار النشر ووصف العرض مع حماية التكلفة المرجعية الأصلية في الأرشيف'}
           </p>
         </div>
 
@@ -567,40 +769,50 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-600' : ''}`} />
           </button>
 
-          {/* WhatsApp Share Button */}
-          <button
-            type="button"
-            onClick={handleShareWhatsApp}
-            disabled={targetProductsForExport.length === 0}
-            className="px-3.5 py-2.5 rounded-2xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            title="مشاركة الأصناف المحددة عبر واتساب"
-          >
-            <Share2 className="w-4 h-4 text-emerald-600" />
-            <span className="hidden sm:inline">{tr('catalog_share_whatsapp')}</span>
-          </button>
+          {activeTab === 'catalog' ? (
+            <>
+              {/* WhatsApp Share Button */}
+              <button
+                type="button"
+                onClick={handleShareWhatsApp}
+                disabled={targetProductsForExport.length === 0}
+                className="px-3.5 py-2.5 rounded-2xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                title="مشاركة الأصناف المحددة عبر واتساب"
+              >
+                <Share2 className="w-4 h-4 text-emerald-600" />
+                <span className="hidden sm:inline">{tr('catalog_share_whatsapp')}</span>
+              </button>
 
-          {/* Facebook Share Button */}
-          <button
-            type="button"
-            onClick={handleShareFacebook}
-            disabled={targetProductsForExport.length === 0}
-            className="px-3.5 py-2.5 rounded-2xl border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 hover:bg-blue-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            title="مشاركة الكتالوج على فيسبوك"
-          >
-            <Facebook className="w-4 h-4 text-blue-600" />
-            <span className="hidden sm:inline">{tr('catalog_share_facebook')}</span>
-          </button>
+              {/* Facebook Share Button */}
+              <button
+                type="button"
+                onClick={handleShareFacebook}
+                disabled={targetProductsForExport.length === 0}
+                className="px-3.5 py-2.5 rounded-2xl border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 hover:bg-blue-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                title="مشاركة الكتالوج على فيسبوك"
+              >
+                <Facebook className="w-4 h-4 text-blue-600" />
+                <span className="hidden sm:inline">{tr('catalog_share_facebook')}</span>
+              </button>
 
-          {/* Export PDF Button */}
-          <button
-            type="button"
-            onClick={handleExportPDF}
-            disabled={isExportingPdf || targetProductsForExport.length === 0}
-            className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black text-xs shadow-md shadow-amber-600/20 active:scale-[0.98] transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
-          >
-            <Download className="w-4 h-4" />
-            <span>{isExportingPdf ? 'جاري تجهيز PDF...' : tr('catalog_export_pdf')}</span>
-          </button>
+              {/* Export PDF Button */}
+              <button
+                type="button"
+                onClick={handleExportPDF}
+                disabled={isExportingPdf || targetProductsForExport.length === 0}
+                className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black text-xs shadow-md shadow-amber-600/20 active:scale-[0.98] transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                <span>{isExportingPdf ? 'جاري تجهيز PDF...' : tr('catalog_export_pdf')}</span>
+              </button>
+            </>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
+                المعروض في المتجر: {allProducts.filter((p) => p.inStore).length} مشغولة
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -612,7 +824,12 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         </div>
       )}
 
-      {/* Selection Control Bar if any items selected */}
+      {/* ================================================================= */}
+      {/* 1. REFERENCE CATALOG VIEW (الكتالوج المرجعي للمشغولات) */}
+      {/* ================================================================= */}
+      {activeTab === 'catalog' && (
+        <>
+          {/* Selection Control Bar if any items selected */}
       {selectedIds.size > 0 && (
         <div className="p-3.5 px-4 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-400 dark:border-amber-700/60 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
@@ -935,6 +1152,21 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                           <div className="flex items-center justify-center gap-1.5">
                             <button
                               type="button"
+                              onClick={() => handleExportToStore(p)}
+                              title={p.inStore ? 'المشغولة معروضة في متجري' : 'تصدير إلى متجري'}
+                              className={`p-1.5 rounded-lg transition cursor-pointer flex items-center gap-1 ${
+                                p.inStore
+                                  ? 'bg-amber-600 text-white font-bold shadow-xs'
+                                  : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-amber-100 hover:text-amber-800 dark:hover:bg-amber-950/40'
+                              }`}
+                            >
+                              <Store className="w-3.5 h-3.5" />
+                              <span className="text-[10px] hidden xl:inline">
+                                {p.inStore ? 'في متجري' : 'تصدير إلى متجري'}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleOpenEditSpecs(p)}
                               title={tr('catalog_edit_specs')}
                               className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer"
@@ -1095,11 +1327,25 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                       <span>{tr('catalog_edit_specs')}</span>
                     </button>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleExportToStore(p)}
+                        className={`px-2 py-1.5 rounded-xl font-bold flex items-center gap-1 text-xs transition cursor-pointer ${
+                          p.inStore
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-amber-100 dark:hover:bg-amber-950/40'
+                        }`}
+                        title={p.inStore ? 'المشغولة معروضة في متجري' : 'تصدير إلى متجري'}
+                      >
+                        <Store className="w-3.5 h-3.5" />
+                        <span>{p.inStore ? 'بمتجري' : 'تصدير'}</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => onSelectRecordToLoad(p)}
-                        className="px-2.5 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center gap-1"
+                        className="px-2 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center gap-1 text-xs"
                       >
                         <Calculator className="w-3.5 h-3.5" />
                         <span>الحاسبة</span>
@@ -1108,7 +1354,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                       <button
                         type="button"
                         onClick={() => onOpenWhatsAppShare(p)}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1 border border-emerald-300/40"
+                        className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1 border border-emerald-300/40 text-xs"
                       >
                         <Share2 className="w-3.5 h-3.5" />
                         <span>واتساب</span>
@@ -1121,11 +1367,323 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
           </div>
         </>
       )}
+    </>
+  )}
+
+      {/* ================================================================= */}
+      {/* 2. MY STORE VIEW (متجري الخاص لعرض ونشر المشغولات) */}
+      {/* ================================================================= */}
+      {activeTab === 'store' && (
+        <div className="space-y-5 animate-in fade-in">
+          {/* شريط الإحصائيات السريعة لمتجري */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-4 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold text-stone-500 block">إجمالي مشغولات المتجر</span>
+                <span className="text-xl font-black text-stone-900 dark:text-stone-100">
+                  {allProducts.filter((p) => p.inStore).length}
+                </span>
+                <span className="text-[10px] text-stone-400 block">مشغولة معتمدة ومصدرة</span>
+              </div>
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <Store className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold text-stone-500 block">منشورة ومعروضة للعملاء</span>
+                <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+                  {allProducts.filter((p) => p.inStore && p.isPublishedInStore !== false).length}
+                </span>
+                <span className="text-[10px] text-emerald-600/70 block">جاهزة للطلب والبيع</span>
+              </div>
+              <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <Eye className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold text-stone-500 block">مسودات غير منشورة</span>
+                <span className="text-xl font-black text-stone-600 dark:text-stone-300">
+                  {allProducts.filter((p) => p.inStore && p.isPublishedInStore === false).length}
+                </span>
+                <span className="text-[10px] text-stone-400 block">قيد التجهيز والمراجعة</span>
+              </div>
+              <div className="w-10 h-10 rounded-2xl bg-stone-100 dark:bg-stone-800 text-stone-500 flex items-center justify-center">
+                <EyeOff className="w-5 h-5" />
+              </div>
+            </div>
+          </div>
+
+          {/* شريط البحث وتصفية المتجر */}
+          <div className="p-4 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-80">
+              <input
+                type="text"
+                value={storeSearchQuery}
+                onChange={(e) => setStoreSearchQuery(e.target.value)}
+                placeholder="البحث في متجري..."
+                className="w-full px-3.5 py-2.5 pr-9 rounded-2xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+              />
+              <Search className="w-4 h-4 text-stone-400 absolute right-3 top-3 pointer-events-none" />
+              {storeSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setStoreSearchQuery('')}
+                  className="absolute left-3 top-2.5 text-xs text-stone-400 hover:text-stone-600 font-bold cursor-pointer"
+                >
+                  مسح
+                </button>
+              )}
+            </div>
+
+            {/* أزرار الفلترة */}
+            <div className="flex items-center gap-1.5 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setStoreStatusFilter('all')}
+                className={`flex-1 sm:flex-none px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  storeStatusFilter === 'all'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                }`}
+              >
+                الكل ({allProducts.filter((p) => p.inStore).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStoreStatusFilter('published')}
+                className={`flex-1 sm:flex-none px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  storeStatusFilter === 'published'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                }`}
+              >
+                منشور ({allProducts.filter((p) => p.inStore && p.isPublishedInStore !== false).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStoreStatusFilter('draft')}
+                className={`flex-1 sm:flex-none px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  storeStatusFilter === 'draft'
+                    ? 'bg-stone-700 text-white shadow-xs'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+                }`}
+              >
+                مسودة ({allProducts.filter((p) => p.inStore && p.isPublishedInStore === false).length})
+              </button>
+            </div>
+          </div>
+
+          {/* حالة عدم وجود منتجات في المتجر */}
+          {storeProducts.length === 0 ? (
+            <div className="p-12 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-center space-y-4 shadow-sm">
+              <div className="w-16 h-16 rounded-3xl bg-amber-500/10 text-amber-600 dark:text-amber-400 mx-auto flex items-center justify-center">
+                <Store className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-black text-stone-900 dark:text-stone-100">
+                  {allProducts.filter((p) => p.inStore).length === 0
+                    ? 'لم تقم بتصدير أي مشغولات إلى متجرك حتى الآن'
+                    : 'لا توجد منتجات مطابقة للبحث في متجرك'}
+                </h3>
+                <p className="text-xs text-stone-500 max-w-md mx-auto leading-relaxed">
+                  {allProducts.filter((p) => p.inStore).length === 0
+                    ? 'يمكنك الانتقال إلى تبويب "الكتالوج المرجعي للمشغولات" والضغط على زر "تصدير إلى متجري" لأي مشغولة معتمدة لعرضها وإدارتها هنا.'
+                    : 'جرب البحث باسم منتج مختلف أو إلغاء تصفية حالة النشر.'}
+                </p>
+              </div>
+              {allProducts.filter((p) => p.inStore).length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('catalog')}
+                  className="px-6 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                >
+                  الذهاب للكتالوج المرجعي وتصدير أول مشغولة
+                </button>
+              )}
+            </div>
+          ) : (
+            /* شبكة بطاقات مشغولات المتجر */
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {storeProducts.map((p, idx) => {
+                const cost = getCostPrice(p);
+                const retail = getRetailPrice(p);
+                const currentPrice =
+                  storePrices[p.id] !== undefined
+                    ? storePrices[p.id]
+                    : p.storePrice || retail;
+                const currentDesc =
+                  storeDescriptions[p.id] !== undefined
+                    ? storeDescriptions[p.id]
+                    : p.storeDescription || (p as any).marketingDescription || '';
+                const isPublished = p.isPublishedInStore !== false;
+                const imgUrl = p.imageUrl || p.input?.productImageUrl;
+                const serial = getProductSerialDisplay(p, idx);
+                const craft = getCraftDisplay(p);
+
+                return (
+                  <div
+                    key={p.id}
+                    className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm overflow-hidden flex flex-col justify-between hover:border-amber-300 dark:hover:border-amber-700 transition"
+                  >
+                    <div className="p-4 space-y-3">
+                      {/* رأس البطاقة: الصورة والبيانات */}
+                      <div className="flex gap-3 items-start">
+                        <div className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-stone-800 shrink-0 overflow-hidden border border-stone-200 dark:border-stone-700 flex items-center justify-center">
+                          {imgUrl ? (
+                            <img src={imgUrl} alt={p.productName} className="w-full h-full object-cover" />
+                          ) : (
+                            <Sparkles className="w-6 h-6 text-amber-500" />
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 text-[10px] font-mono text-stone-600 dark:text-stone-300">
+                              {serial}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-[10px] font-bold text-amber-800 dark:text-amber-300">
+                              {craft}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-black text-stone-900 dark:text-stone-100 mt-1 truncate">
+                            {p.productName}
+                          </h4>
+                        </div>
+                      </div>
+
+                      {/* مفتاح نشر في المتجر */}
+                      <div className="flex items-center justify-between p-2.5 rounded-2xl bg-stone-50 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-stone-700 dark:text-stone-200">
+                            حالة النشر:
+                          </span>
+                          <span
+                            className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                              isPublished
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : 'bg-stone-200 text-stone-600 dark:bg-stone-700 dark:text-stone-300'
+                            }`}
+                          >
+                            {isPublished ? 'منشور في المتجر' : 'مسودة غير منشورة'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePublishInStore(p)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                            isPublished ? 'bg-emerald-600' : 'bg-stone-300 dark:bg-stone-600'
+                          }`}
+                          title={isPublished ? 'إيقاف النشر مؤقتاً' : 'تفعيل النشر للعملاء'}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              isPublished ? 'translate-x-1' : 'translate-x-6'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {/* التكلفة المرجعية الأصلية (محمية ومحفوظة في الأرشيف دون تغيير) */}
+                      <div className="p-2.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 text-xs flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-stone-700 dark:text-stone-300 font-bold">
+                          <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>التكلفة المرجعية الأصلية:</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-mono font-black text-amber-800 dark:text-amber-300">
+                            {cost} {profile.currencySymbol}
+                          </span>
+                          <span className="text-[10px] text-stone-400 block font-normal">
+                            (محمية ومحفوظة في الأرشيف)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* السعر التسويقي في المتجر */}
+                      <div className="space-y-1">
+                        <label className="block text-[11px] font-bold text-stone-700 dark:text-stone-300">
+                          السعر التسويقي للعملاء ({profile.currencySymbol}) *
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={currentPrice}
+                          onChange={(e) =>
+                            setStorePrices((prev) => ({ ...prev, [p.id]: Number(e.target.value) }))
+                          }
+                          className="w-full px-3 py-2 text-xs font-black rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100"
+                        />
+                      </div>
+
+                      {/* وصف العرض للعملاء */}
+                      <div className="space-y-1">
+                        <label className="block text-[11px] font-bold text-stone-700 dark:text-stone-300">
+                          وصف المشغولة ومواصفات العرض
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={currentDesc}
+                          onChange={(e) =>
+                            setStoreDescriptions((prev) => ({ ...prev, [p.id]: e.target.value }))
+                          }
+                          placeholder="اكتب وصفاً تسويقياً جذاباً للزبائن..."
+                          className="w-full p-2.5 text-xs rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 leading-relaxed"
+                        />
+                      </div>
+                    </div>
+
+                    {/* أزرار الإجراءات في أسفل البطاقة */}
+                    <div className="p-3 bg-stone-50/70 dark:bg-stone-800/40 border-t border-stone-200 dark:border-stone-800 flex items-center justify-between gap-1.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleSaveStoreProductDetails(p, currentPrice, currentDesc)}
+                        className="flex-1 py-2 px-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>حفظ التعديلات</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleShareStoreProduct(p)}
+                        className="py-2 px-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-800 font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                        title="مشاركة عبر واتساب"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>مشاركة</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFromStore(p)}
+                        className="py-2 px-2 rounded-xl text-stone-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                        title="إلغاء من المتجر"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 4. MODAL: EDIT MISSING PRODUCT SPECIFICATIONS */}
       {editingRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="w-full max-w-2xl bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto"
+          onClick={() => setEditingRecord(null)}
+        >
+          <div
+            className="w-full max-w-2xl bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Modal Header */}
             <div className="p-5 border-b border-stone-200 dark:border-stone-800 flex items-center justify-between bg-stone-50 dark:bg-stone-800/50">
               <div className="flex items-center gap-2.5">
