@@ -978,6 +978,12 @@ export interface FixedAsset {
   responsiblePerson?: string;
   status: 'active' | 'maintenance' | 'scrapped' | 'sold';
   notes?: string;
+  // أجندة رعاية وصيانة معداتنا
+  lastMaintenanceDate?: string; // YYYY-MM-DD
+  maintenanceInterval?: 'monthly' | 'quarterly'; // شهري أو ربع سنوي
+  nextMaintenanceDate?: string; // YYYY-MM-DD
+  maintenanceNotes?: string;
   createdAt: number;
   updatedAt: number;
 }
+

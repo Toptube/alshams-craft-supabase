@@ -20,6 +20,13 @@ import {
   recordDisbursementExitTransaction,
 } from '../treasuries/DisbursementSourceSelector';
 import {
+  getLockedMonths,
+  isMonthLocked,
+  lockFinancialMonth,
+  unlockFinancialMonth,
+  MonthClosureRecord,
+} from '../../lib/monthClosure';
+import {
   Scale,
   TrendingUp,
   TrendingDown,
@@ -44,6 +51,9 @@ import {
   Banknote,
   Smartphone,
   Coins,
+  Lock,
+  Unlock,
+  Calendar,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
 
@@ -113,6 +123,17 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [collectChannel, setCollectChannel] = useState<'cash' | 'instapay' | 'wallet'>('cash');
   const [collectSubmitting, setCollectSubmitting] = useState(false);
 
+  // Financial Month Closure & Audit Lock State
+  const [lockedMonths, setLockedMonths] = useState<MonthClosureRecord[]>([]);
+  const [selectedClosureMonth, setSelectedClosureMonth] = useState<string>(
+    new Date().toISOString().slice(0, 7)
+  );
+  const [isLockModalOpen, setIsLockModalOpen] = useState(false);
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+  const [unlockPin, setUnlockPin] = useState('');
+  const [closureNotes, setClosureNotes] = useState('');
+  const [closureSubmitting, setClosureSubmitting] = useState(false);
+
   // Notice Toast
   const [notice, setNotice] = useState<{ text: string; isError?: boolean } | null>(null);
 
@@ -136,6 +157,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       setPayouts(payList);
       setWorkOrders(woList);
       setTreasuries((trRes && (trRes as any).data) || []);
+      setLockedMonths(getLockedMonths(workshopId));
     } catch (err: any) {
       console.error(err);
       setNotice({ text: err.message || 'فشل تحميل بيانات الحسابات', isError: true });
@@ -150,13 +172,17 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   useEffect(() => {
     const handleRemote = () => loadData();
+    const handleLockedChange = () => setLockedMonths(getLockedMonths(workshopId));
+
     window.addEventListener('alshams_financials_updated', handleRemote);
     window.addEventListener('alshams_treasury_updated', handleRemote);
+    window.addEventListener('alshams_locked_months_changed', handleLockedChange);
     return () => {
       window.removeEventListener('alshams_financials_updated', handleRemote);
       window.removeEventListener('alshams_treasury_updated', handleRemote);
+      window.removeEventListener('alshams_locked_months_changed', handleLockedChange);
     };
-  }, []);
+  }, [workshopId]);
 
   // 1. Build Unified Journal Entries
   const journalEntries: JournalEntry[] = useMemo(() => {
@@ -467,6 +493,108 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     }
   };
 
+  // Month Closure Calculations & Handlers
+  const isSelectedMonthLocked = useMemo(() => {
+    return isMonthLocked(selectedClosureMonth, workshopId);
+  }, [selectedClosureMonth, lockedMonths, workshopId]);
+
+  const selectedMonthMetrics = useMemo(() => {
+    const monthPrefix = selectedClosureMonth;
+    const mOrders = orders.filter((o) =>
+      (o.date || (o.createdAt ? new Date(o.createdAt).toISOString().split('T')[0] : '')).startsWith(monthPrefix)
+    );
+    const mSales = mOrders.reduce((sum, o) => sum + (Number(o.totalAmount) || 0), 0);
+
+    const mInvoices = supplierInvoices.filter((i) =>
+      (i.date || (i.createdAt ? new Date(i.createdAt).toISOString().split('T')[0] : '')).startsWith(monthPrefix)
+    );
+    const mPurchases = mInvoices.reduce((sum, i) => sum + (Number(i.totalAmount) || 0), 0);
+
+    const mAdmin = adminCosts.filter(
+      (e) => (e.paymentDate || e.date || '').startsWith(monthPrefix) && e.category !== 'أجور ومصنعيات عمالة'
+    );
+    const mExpenses = mAdmin.reduce((sum, e) => sum + (Number(e.baseCurrencyAmount || e.amount) || 0), 0);
+
+    const mPayouts = payouts.filter((p) =>
+      (p.date || (p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : '')).startsWith(monthPrefix)
+    );
+    const mWages = mPayouts.reduce((sum, p) => sum + (Number(p.amount || p.paidAmount) || 0), 0);
+
+    const mWorkOrders = workOrders.filter((w) =>
+      (w.startDate || (w.createdAt ? new Date(w.createdAt).toISOString().split('T')[0] : '')).startsWith(monthPrefix)
+    );
+
+    const totalCosts = mPurchases + mExpenses + mWages;
+    const netProfit = mSales - totalCosts;
+
+    return {
+      totalSales: mSales,
+      totalPurchases: mPurchases,
+      totalExpenses: mExpenses,
+      totalWages: mWages,
+      totalCosts,
+      netProfit,
+      invoicesCount: mOrders.length + mInvoices.length,
+      workOrdersCount: mWorkOrders.length,
+    };
+  }, [selectedClosureMonth, orders, supplierInvoices, adminCosts, payouts, workOrders]);
+
+  const handleExecuteLockMonth = () => {
+    setClosureSubmitting(true);
+    try {
+      lockFinancialMonth(
+        workshopId,
+        selectedClosureMonth,
+        (workshop as any).email || 'الإدارة العليا',
+        {
+          totalSales: selectedMonthMetrics.totalSales,
+          totalCosts: selectedMonthMetrics.totalCosts,
+          netProfit: selectedMonthMetrics.netProfit,
+          invoicesCount: selectedMonthMetrics.invoicesCount,
+          workOrdersCount: selectedMonthMetrics.workOrdersCount,
+        },
+        closureNotes.trim()
+      );
+      setLockedMonths(getLockedMonths(workshopId));
+      setIsLockModalOpen(false);
+      setClosureNotes('');
+      setNotice({
+        text: `🔒 تم قفل واعتماد الشهر المالي (${selectedClosureMonth}) بنجاح! تم تجميد كافة الحركات وأصبحت للقراءة والمراجعة فقط.`,
+      });
+      setTimeout(() => setNotice(null), 4500);
+    } catch (err: any) {
+      setNotice({ text: err.message || 'فشل قفل الشهر المالي', isError: true });
+    } finally {
+      setClosureSubmitting(false);
+    }
+  };
+
+  const handleExecuteUnlockMonth = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!unlockPin.trim()) return;
+
+    const res = unlockFinancialMonth(
+      workshopId,
+      selectedClosureMonth,
+      unlockPin,
+      (workshop as any).email || 'الإدارة العليا'
+    );
+
+    if (res.success) {
+      setLockedMonths(getLockedMonths(workshopId));
+      setIsUnlockModalOpen(false);
+      setUnlockPin('');
+      setNotice({ text: `🔓 ${res.message}` });
+      setTimeout(() => setNotice(null), 4000);
+    } else {
+      setNotice({ text: res.message, isError: true });
+    }
+  };
+
+  // Liquidity Alert Computation
+  const minLiquidityAlert = Number((workshop as any).minLiquidityAlert) || 5000;
+  const isLiquidityLow = balanceScale.actualTotal < minLiquidityAlert;
+
   // Filtered Journal
   const filteredJournal = journalEntries
     .filter((j) => {
@@ -519,6 +647,58 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           </div>
         </div>
 
+        {/* شريط الإجراء الرقابي: قفل واعتماد الشهر المالي */}
+        <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="text-xs font-bold text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
+              <Calendar className="w-4 h-4 text-amber-600" />
+              <span>الشهر المالي للتدقيق والاعتماد:</span>
+            </span>
+            <input
+              type="month"
+              value={selectedClosureMonth}
+              onChange={(e) => setSelectedClosureMonth(e.target.value)}
+              className="px-2.5 py-1 text-xs font-bold font-mono rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 outline-none cursor-pointer"
+            />
+            {isSelectedMonthLocked ? (
+              <span className="px-3 py-1 rounded-xl bg-amber-100 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs font-black flex items-center gap-1.5 shadow-xs">
+                <Lock className="w-3.5 h-3.5 text-amber-600" />
+                <span>معتمد ومقفل رقابياً - للقراءة والمراجعة فقط</span>
+              </span>
+            ) : (
+              <span className="px-3 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 text-xs font-black flex items-center gap-1.5 shadow-xs">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>شهر مفتوح لتسجيل الحركات</span>
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            {isSelectedMonthLocked ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setUnlockPin('');
+                  setIsUnlockModalOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl bg-stone-800 hover:bg-stone-900 text-amber-300 text-xs font-black flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs border border-stone-700"
+              >
+                <Unlock className="w-3.5 h-3.5 text-amber-400" />
+                <span>فك قفل الشهر (للإدارة)</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsLockModalOpen(true)}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>قفل واعتماد الشهر المالي</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* 0. كارت ميزان المطابقة والسيولة الحرفي */}
         <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-stone-900 via-stone-850 to-stone-900 text-white border border-stone-800 shadow-lg space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-800/80 pb-3">
@@ -555,6 +735,26 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               )}
             </div>
           </div>
+
+          {/* إنذار حد أمان السيولة اليومية */}
+          {isLiquidityLow && (
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-rose-700 via-rose-600 to-rose-700 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md border border-rose-400 animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-300 shrink-0 animate-bounce" />
+                <span className="text-xs font-black leading-relaxed">
+                  ⚠️ تنبيه: رصيد السيولة الحية أقل من حد أمان التشغيل اليومي للورشة، يُرجى تدبير سيولة أو تحصيل مستحقات
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('receivables_payables')}
+                className="px-4 py-2 rounded-xl bg-white text-rose-800 hover:bg-rose-50 text-xs font-black shadow-xs transition active:scale-95 cursor-pointer whitespace-nowrap self-start sm:self-auto flex items-center gap-1.5"
+              >
+                <Wallet className="w-3.5 h-3.5 text-rose-700" />
+                <span>مستحقات واجبة التحصيل</span>
+              </button>
+            </div>
+          )}
 
           {/* 3 Metrics: Inflows, Outflows, Actual Liquidity Breakdown */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1347,6 +1547,149 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black cursor-pointer disabled:opacity-50"
               >
                 {settleSubmitting ? 'جاري السداد...' : 'تأكيد السداد والخصم من الخزينة'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL: Lock Month (قفل واعتماد الشهر المالي) */}
+      {isLockModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-amber-300 dark:border-stone-700 w-full max-w-lg space-y-4 text-right shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-3 border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => setIsLockModalOpen(false)}
+                className="text-stone-400 hover:text-stone-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="font-extrabold text-sm text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-amber-600" />
+                <span>قفل واعتماد الشهر المالي ({selectedClosureMonth})</span>
+              </h3>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 space-y-1.5">
+              <p className="font-bold flex items-center gap-1">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>إجراء رقابي مالي معتمد:</span>
+              </p>
+              <p className="text-[11px] leading-relaxed text-stone-600 dark:text-stone-300">
+                عند اعتماد هذا الشهر، سيتم تجميد كافة القيود وحركات الفواتير والمصروفات وأوامر التشغيل الخاصة به وتتحول إلى وضع <strong>"للقراءة والمراجعة فقط"</strong> لمنع التعديل أو الحذف وحماية نزاهة الأرباح.
+              </p>
+            </div>
+
+            {/* Summary metrics of the month */}
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-stone-500">إجمالي المبيعات المعتمدة:</span>
+                <strong className="font-mono text-emerald-600">{selectedMonthMetrics.totalSales.toLocaleString()} {currencySymbol}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-stone-500">إجمالي التكاليف والمصروفات:</span>
+                <strong className="font-mono text-rose-600">{selectedMonthMetrics.totalCosts.toLocaleString()} {currencySymbol}</strong>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-stone-200 dark:border-stone-700">
+                <span className="font-bold">صافي الأرباح التشغيلية:</span>
+                <strong className="font-mono font-black text-amber-600">{selectedMonthMetrics.netProfit.toLocaleString()} {currencySymbol}</strong>
+              </div>
+              <div className="flex justify-between text-[11px] text-stone-400 pt-1">
+                <span>الحركات المرتبطة:</span>
+                <span>{selectedMonthMetrics.invoicesCount} فاتورة • {selectedMonthMetrics.workOrdersCount} أمر تشغيل</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                ملاحظات الاعتماد والإقفال (اختياري)
+              </label>
+              <input
+                type="text"
+                value={closureNotes}
+                onChange={(e) => setClosureNotes(e.target.value)}
+                placeholder="مثال: تم الجرد ومطابقة أرصدة الخزائن مع الدفتر بالكامل"
+                className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none"
+              />
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2 border-t border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => setIsLockModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-stone-500 cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={closureSubmitting}
+                onClick={handleExecuteLockMonth}
+                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black cursor-pointer disabled:opacity-50 transition flex items-center gap-1.5"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>{closureSubmitting ? 'جاري الاعتماد...' : 'تأكيد قفل واعتماد الشهر'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Unlock Month (فك قفل الشهر المالي) */}
+      {isUnlockModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <form
+            onSubmit={handleExecuteUnlockMonth}
+            className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-700 w-full max-w-md space-y-4 text-right shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b pb-3 border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => setIsUnlockModalOpen(false)}
+                className="text-stone-400 hover:text-stone-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="font-extrabold text-sm text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                <Unlock className="w-4 h-4 text-amber-600" />
+                <span>فك قفل الشهر المالي ({selectedClosureMonth})</span>
+              </h3>
+            </div>
+
+            <p className="text-xs text-stone-500 leading-relaxed">
+              هذا الإجراء مخصص حصرياً للإدارة/السوبر أدمن لإعادة فتح الشهر وإتاحة تصحيح القيود والفواتير. يرجى إدخال رمز الأمان المعتمد:
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                رمز الأمان للإدارة (PIN) *
+              </label>
+              <input
+                type="password"
+                required
+                autoFocus
+                value={unlockPin}
+                onChange={(e) => setUnlockPin(e.target.value)}
+                placeholder="أدخل رمز أمان الإدارة..."
+                className="w-full px-3 py-2 text-center rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-sm font-bold tracking-widest outline-none"
+              />
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2 border-t border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => setIsUnlockModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-stone-500 cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-900 text-amber-300 text-xs font-black cursor-pointer transition flex items-center gap-1.5"
+              >
+                <Unlock className="w-3.5 h-3.5 text-amber-400" />
+                <span>تأكيد فك القفل</span>
               </button>
             </div>
           </form>

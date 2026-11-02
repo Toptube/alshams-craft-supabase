@@ -13,6 +13,7 @@ import {
   SelectedDisbursementSource,
   recordDisbursementExitTransaction,
 } from '../treasuries/DisbursementSourceSelector';
+import { isDateInLockedMonth } from '../../lib/monthClosure';
 import {
   PackagePlus,
   Plus,
@@ -235,6 +236,13 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isDateInLockedMonth(workshopId, invoiceDate)) {
+      setNotice({
+        text: '⚠️ لا يمكن تسجيل فاتورة شراء في شهر مالي معتمد ومقفل رقابياً - السجلات للقراءة فقط.',
+        isError: true,
+      });
+      return;
+    }
     if (!selectedSupplierId) {
       setNotice({ text: 'يرجى اختيار المورد أولاً', isError: true });
       return;
@@ -368,6 +376,13 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
   const handleExecuteQuickPay = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payingInvoice || quickPayAmount <= 0) return;
+    if (isDateInLockedMonth(workshopId, payingInvoice.date || '')) {
+      setNotice({
+        text: '⚠️ لا يمكن سداد دفعة لفاتورة تتبع شهراً مالياً معتمداً ومقفلاً رقابياً - السجلات للقراءة والمراجعة فقط.',
+        isError: true,
+      });
+      return;
+    }
 
     setQuickPaySubmitting(true);
     try {
@@ -656,6 +671,11 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
                           <span>متبقي آجل ({inv.remainingAmount?.toLocaleString()} {currencySymbol})</span>
                         </span>
                       )}
+                      {isDateInLockedMonth(workshopId, inv.date || '') && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300 border border-stone-300">
+                          مقفل رقابياً (للمراجعة فقط)
+                        </span>
+                      )}
                     </div>
 
                     {/* Financial Amounts & Action */}
@@ -667,7 +687,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
                         </span>
                       </div>
 
-                      {!isFullyPaid && (
+                      {!isFullyPaid && !isDateInLockedMonth(workshopId, inv.date || '') && (
                         <button
                           type="button"
                           onClick={() => handleOpenQuickPay(inv)}

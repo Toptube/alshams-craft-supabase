@@ -23,6 +23,9 @@ import {
   Check,
   ShieldAlert,
   ArrowRight,
+  Wrench,
+  Clock,
+  AlertTriangle,
 } from 'lucide-react';
 
 export interface FixedAssetsViewProps {
@@ -73,9 +76,98 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
   const [responsiblePerson, setResponsiblePerson] = useState('');
   const [status, setStatus] = useState<'active' | 'maintenance' | 'scrapped' | 'sold'>('active');
   const [notes, setNotes] = useState('');
+  // Maintenance Schedule Form Fields
+  const [lastMaintenanceDate, setLastMaintenanceDate] = useState<string>('');
+  const [maintenanceInterval, setMaintenanceInterval] = useState<'monthly' | 'quarterly'>('monthly');
+  const [nextMaintenanceDate, setNextMaintenanceDate] = useState<string>('');
+  const [maintenanceNotes, setMaintenanceNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successNotice, setSuccessNotice] = useState('');
+
+  const computeNextMaintenanceDate = (baseDateStr: string, interval: 'monthly' | 'quarterly'): string => {
+    const base = baseDateStr ? new Date(baseDateStr) : new Date();
+    const days = interval === 'quarterly' ? 90 : 30;
+    const next = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+    return next.toISOString().split('T')[0];
+  };
+
+  const getMaintenanceBadge = (asset: FixedAsset) => {
+    if (!asset.nextMaintenanceDate && !asset.lastMaintenanceDate) {
+      return {
+        label: 'لم يُحدد جدول صيانة',
+        days: null,
+        status: 'neutral',
+        className: 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700',
+      };
+    }
+
+    const nextStr =
+      asset.nextMaintenanceDate ||
+      computeNextMaintenanceDate(asset.lastMaintenanceDate || asset.purchaseDate, asset.maintenanceInterval || 'monthly');
+    const nextDate = new Date(nextStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    nextDate.setHours(0, 0, 0, 0);
+
+    const diffTime = nextDate.getTime() - today.getTime();
+    const daysUntil = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (daysUntil < 0) {
+      return {
+        label: `⚠️ متأخرة عن موعدها بـ ${Math.abs(daysUntil)} يوم!`,
+        days: daysUntil,
+        status: 'danger',
+        className: 'bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-200 border-rose-300 dark:border-rose-800 animate-pulse',
+      };
+    } else if (daysUntil === 0) {
+      return {
+        label: '⚠️ موعد الصيانة مستحق اليوم!',
+        days: 0,
+        status: 'danger',
+        className: 'bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-200 border-rose-300 dark:border-rose-800 animate-pulse',
+      };
+    } else if (daysUntil <= 3) {
+      return {
+        label: `⚠️ اقتراب موعد الصيانة (خلال ${daysUntil} ${daysUntil === 1 ? 'يوم' : daysUntil === 2 ? 'يومين' : 'أيام'})`,
+        days: daysUntil,
+        status: 'warning',
+        className: 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-800 font-black',
+      };
+    } else {
+      return {
+        label: `✅ منتظمة (بعد ${daysUntil} يوماً)`,
+        days: daysUntil,
+        status: 'ok',
+        className: 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-800 font-bold',
+      };
+    }
+  };
+
+  const handleCompleteMaintenance = async (asset: FixedAsset) => {
+    const today = new Date().toISOString().split('T')[0];
+    const interval = asset.maintenanceInterval || 'monthly';
+    const nextDate = computeNextMaintenanceDate(today, interval);
+
+    const updatedAsset: FixedAsset = {
+      ...asset,
+      lastMaintenanceDate: today,
+      nextMaintenanceDate: nextDate,
+      status: asset.status === 'maintenance' ? 'active' : asset.status,
+      updatedAt: Date.now(),
+    };
+
+    try {
+      await tenantStorage.saveFixedAsset(updatedAsset);
+      playSuccessSound();
+      setSuccessNotice(`تم تسجيل إتمام صيانة "${asset.assetName}" بنجاح! موعد الصيانة القادم: ${nextDate}`);
+      setTimeout(() => setSuccessNotice(''), 4500);
+      loadAssets();
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg('فشل تحديث سجل صيانة المعدة.');
+    }
+  };
 
   const loadAssets = async () => {
     setLoading(true);
@@ -162,11 +254,12 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
 
   const handleOpenNewModal = () => {
     const nextCode = `AST-${String(assets.length + 1).padStart(3, '0')}`;
+    const today = new Date().toISOString().split('T')[0];
     setEditingAssetId(null);
     setAssetCode(nextCode);
     setAssetName('');
     setCategory('machinery');
-    setPurchaseDate(new Date().toISOString().split('T')[0]);
+    setPurchaseDate(today);
     setPurchaseCost(10000);
     setScrapValue(1000);
     setUsefulLifeYears(5);
@@ -175,11 +268,17 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
     setResponsiblePerson(profile.artistName || '');
     setStatus('active');
     setNotes('');
+    setLastMaintenanceDate(today);
+    setMaintenanceInterval('monthly');
+    setNextMaintenanceDate(computeNextMaintenanceDate(today, 'monthly'));
+    setMaintenanceNotes('');
     setErrorMsg('');
     setIsModalOpen(true);
   };
 
   const handleEditAsset = (asset: FixedAsset) => {
+    const lastDate = asset.lastMaintenanceDate || asset.purchaseDate;
+    const interval = asset.maintenanceInterval || 'monthly';
     setEditingAssetId(asset.id);
     setAssetCode(asset.assetCode);
     setAssetName(asset.assetName);
@@ -193,6 +292,13 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
     setResponsiblePerson(asset.responsiblePerson || '');
     setStatus(asset.status);
     setNotes(asset.notes || '');
+    setLastMaintenanceDate(lastDate || '');
+    setMaintenanceInterval(interval);
+    setNextMaintenanceDate(
+      asset.nextMaintenanceDate ||
+        computeNextMaintenanceDate(lastDate || new Date().toISOString().split('T')[0], interval)
+    );
+    setMaintenanceNotes(asset.maintenanceNotes || '');
     setErrorMsg('');
     setIsModalOpen(true);
   };
@@ -230,6 +336,10 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
       const accumDep = Math.min(annualDep * elapsedYears, maxDepreciable);
       const bookVal = Math.max(purchaseCost - accumDep, scrapValue);
 
+      const computedNextMaint =
+        nextMaintenanceDate ||
+        computeNextMaintenanceDate(lastMaintenanceDate || purchaseDate, maintenanceInterval);
+
       const assetPayload: FixedAsset = {
         id: editingAssetId || `asset_${Date.now()}`,
         tenantId,
@@ -248,6 +358,10 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
         responsiblePerson: responsiblePerson.trim(),
         status,
         notes: notes.trim(),
+        lastMaintenanceDate: lastMaintenanceDate || undefined,
+        maintenanceInterval,
+        nextMaintenanceDate: computedNextMaint,
+        maintenanceNotes: maintenanceNotes.trim() || undefined,
         createdAt: editingAssetId ? (assets.find((a) => a.id === editingAssetId)?.createdAt || Date.now()) : Date.now(),
         updatedAt: Date.now(),
       };
@@ -288,10 +402,10 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg sm:text-xl font-black text-stone-900 dark:text-stone-100">
-                إدارة الأصول الثابتة للورشة (Fixed Assets)
+                إدارة أصول ومعدات الورشة
               </h2>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-800 dark:text-amber-300 font-mono">
-                ERP
+              <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-800 dark:text-amber-300">
+                سجل الأصول والمعدات
               </span>
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
@@ -379,6 +493,138 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
             يُحمل سنوياً على الأرباح والخسائر
           </span>
         </div>
+      </div>
+
+      {/* 2. أجندة رعاية وصيانة معداتنا */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-stone-100 dark:border-stone-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center">
+              <Wrench className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
+                أجندة رعاية وصيانة معداتنا
+              </h3>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                متابعة دورية لماكينات وآلات الورشة، تنبيهات قبل موعد الصيانة بـ 3 أيام لحماية خط الإنتاج
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold px-2.5 py-1 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400">
+              {assets.filter((a) => a.category === 'machinery' || a.category === 'equipment' || a.category === 'tools').length} آلة ومعدة حرفية
+            </span>
+          </div>
+        </div>
+
+        {/* Machinery Maintenance Cards */}
+        {(() => {
+          const machineryAssets = assets.filter(
+            (a) =>
+              a.category === 'machinery' ||
+              a.category === 'equipment' ||
+              a.category === 'tools' ||
+              a.lastMaintenanceDate ||
+              a.nextMaintenanceDate
+          );
+
+          if (machineryAssets.length === 0) {
+            return (
+              <div className="p-6 text-center rounded-2xl bg-stone-50 dark:bg-stone-800/40 border border-dashed border-stone-200 dark:border-stone-700">
+                <Wrench className="w-8 h-8 text-stone-300 dark:text-stone-600 mx-auto mb-2" />
+                <p className="text-xs font-bold text-stone-500 dark:text-stone-400">
+                  لا توجد آلات أو معدات مسجلة بجدول الصيانة حتى الآن.
+                </p>
+                <p className="text-[11px] text-stone-400 mt-1">
+                  أضف ماكينات التشغيل أو عِدد الورشة لتفعيل المتابعة الوقائية الذكية.
+                </p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {machineryAssets.map((asset) => {
+                const badge = getMaintenanceBadge(asset);
+                const intervalLabel =
+                  asset.maintenanceInterval === 'quarterly'
+                    ? 'ربع سنوي (كل 90 يوم)'
+                    : 'شهري (كل 30 يوم)';
+                return (
+                  <div
+                    key={asset.id}
+                    className="p-3.5 rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-800/30 hover:border-amber-400/50 transition flex flex-col justify-between gap-3 shadow-xs"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-mono font-bold text-amber-700 dark:text-amber-400">
+                            {asset.assetCode}
+                          </span>
+                          <h4 className="text-xs font-black text-stone-900 dark:text-stone-100 line-clamp-1">
+                            {asset.assetName}
+                          </h4>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+
+                      <div className="mt-2.5 space-y-1 text-[11px] text-stone-600 dark:text-stone-400">
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-400">دورية الصيانة:</span>
+                          <span className="font-bold text-stone-700 dark:text-stone-300">{intervalLabel}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-400">آخر صيانة:</span>
+                          <span className="font-mono font-bold text-stone-700 dark:text-stone-300">
+                            {asset.lastMaintenanceDate || asset.purchaseDate || 'غير مسجلة'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-400">موعد الصيانة القادم:</span>
+                          <span className="font-mono font-black text-amber-700 dark:text-amber-400">
+                            {asset.nextMaintenanceDate ||
+                              computeNextMaintenanceDate(
+                                asset.lastMaintenanceDate || asset.purchaseDate,
+                                asset.maintenanceInterval || 'monthly'
+                              )}
+                          </span>
+                        </div>
+                        {asset.location && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-stone-400">الموقع بالورشة:</span>
+                            <span className="font-bold text-stone-700 dark:text-stone-300">{asset.location}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-stone-200/60 dark:border-stone-700/60 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCompleteMaintenance(asset)}
+                        className="w-full py-1.5 px-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>تسجيل إتمام الصيانة</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleEditAsset(asset)}
+                        className="p-1.5 rounded-xl border border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 text-xs transition cursor-pointer"
+                        title="تعديل تفاصيل الصيانة"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Filter and Search Bar */}
@@ -684,9 +930,70 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
                     onChange={(e) => setDepreciationMethod(e.target.value as any)}
                     className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none cursor-pointer"
                   >
-                    <option value="straight_line">القسط الثابت (Straight-Line) - موصى به</option>
-                    <option value="declining_balance">القسط المتناقص (Declining Balance)</option>
+                    <option value="straight_line">طريقة القسط الثابت - موصى به</option>
+                    <option value="declining_balance">طريقة القسط المتناقص</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Maintenance Schedule Section */}
+              <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Wrench className="w-4 h-4 text-amber-600" />
+                  <span className="text-xs font-black text-amber-900 dark:text-amber-300">
+                    أجندة رعاية وصيانة المعدة
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                      دورية الصيانة
+                    </label>
+                    <select
+                      value={maintenanceInterval}
+                      onChange={(e) => {
+                        const val = e.target.value as 'monthly' | 'quarterly';
+                        setMaintenanceInterval(val);
+                        setNextMaintenanceDate(
+                          computeNextMaintenanceDate(lastMaintenanceDate || purchaseDate, val)
+                        );
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-bold outline-none cursor-pointer"
+                    >
+                      <option value="monthly">شهرياً (كل 30 يوماً)</option>
+                      <option value="quarterly">ربع سنوي (كل 90 يوماً)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                      تاريخ آخر صيانة تم تنفيذها
+                    </label>
+                    <input
+                      type="date"
+                      value={lastMaintenanceDate}
+                      onChange={(e) => {
+                        setLastMaintenanceDate(e.target.value);
+                        setNextMaintenanceDate(
+                          computeNextMaintenanceDate(e.target.value, maintenanceInterval)
+                        );
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-mono font-bold outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                    موعد الصيانة القادم المتوقع
+                  </label>
+                  <input
+                    type="date"
+                    value={nextMaintenanceDate}
+                    onChange={(e) => setNextMaintenanceDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-mono font-bold outline-none"
+                  />
                 </div>
               </div>
 

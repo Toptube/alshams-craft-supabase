@@ -30,6 +30,7 @@ import {
   SelectedDisbursementSource,
   recordDisbursementExitTransaction,
 } from '../treasuries/DisbursementSourceSelector';
+import { isMonthClosed } from '../../lib/monthClosure';
 
 interface AdminExpensesModalProps {
   isOpen: boolean;
@@ -92,12 +93,18 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
     }
   };
 
+  const isLocked = isMonthClosed(tenantId, selectedMonth);
+
   useEffect(() => {
     loadData();
   }, [tenantId, selectedMonth]);
 
   const handleAddCost = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) {
+      alert('لا يمكن إضافة مصروف في شهر مالي معتمد ومقفل رقابياً.');
+      return;
+    }
     if (!title.trim() || amount <= 0) return;
 
     const rate = currency === baseCurrency ? 1.0 : (Number(exchangeRate) || dailyRates[currency] || 1.0);
@@ -155,6 +162,10 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
   };
 
   const handleDelete = async (id: string) => {
+    if (isLocked) {
+      alert('لا يمكن حذف مصروف من شهر مالي معتمد ومقفل رقابياً.');
+      return;
+    }
     await tenantStorage.deleteAdminCost(tenantId, id);
     loadData();
   };
@@ -233,6 +244,13 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
             ~ {suggestedSharePerPiece} {profile.currencySymbol} / قطعة
           </span>
         </div>
+
+        {/* تنبيه الشهر المالي المقفل رقابياً */}
+        {isLocked && (
+          <div className="mt-3 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+            <span>🔒 تنبيه رقابي: هذا الشهر المالي معتمد ومقفل رقابياً - السجلات للقراءة والمراجعة فقط ولا يمكن إضافة أو حذف مصروفات.</span>
+          </div>
+        )}
 
         {/* Add cost form */}
         <form onSubmit={handleAddCost} className="mt-5 p-4 rounded-2xl bg-amber-50/50 dark:bg-stone-800/40 border border-amber-200/60 dark:border-stone-700 space-y-3">
@@ -377,9 +395,10 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
 
           <button
             type="submit"
-            className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 transition cursor-pointer"
+            disabled={isLocked}
+            className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:bg-stone-400 disabled:cursor-not-allowed transition cursor-pointer"
           >
-            إضافة المصروف للدورة المالية
+            {isLocked ? 'الشهر المالي مقفل رقابياً (للقراءة فقط)' : 'إضافة المصروف للدورة المالية'}
           </button>
         </form>
 
@@ -418,14 +437,20 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
                       </span>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(e.id)}
-                    className="p-1 text-stone-400 hover:text-rose-600 transition cursor-pointer"
-                    title="حذف"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {!isLocked ? (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(e.id)}
+                      className="p-1 text-stone-400 hover:text-rose-600 transition cursor-pointer"
+                      title="حذف"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-stone-400 font-bold px-1.5 py-0.5 rounded bg-stone-100 dark:bg-stone-800">
+                      مقفل
+                    </span>
+                  )}
                 </div>
               </div>
             ))

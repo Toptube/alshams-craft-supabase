@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { WorkshopProfile, PaymentReminder, SafeTransaction } from '../../types';
+import { WorkshopProfile, PaymentReminder, SafeTransaction, CustomerOrder } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import {
   ResponsiveContainer,
@@ -74,11 +74,13 @@ import { NumberInput } from '../ui/NumberInput';
 interface TreasuriesViewProps {
   workshop: WorkshopProfile;
   onOpenHelp?: (sectionId: string) => void;
+  onNavigateToSales?: () => void;
 }
 
 export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
   workshop,
   onOpenHelp,
+  onNavigateToSales,
 }) => {
   const workshopId = workshop.id || workshop.workshopId || workshop.tenantId || '';
   const currency = workshop.currency || 'ج.م';
@@ -219,6 +221,73 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
   // 30-Day Safe Transactions & Chart View State
   const [safeTransactions, setSafeTransactions] = useState<SafeTransaction[]>([]);
   const [chartSeriesFilter, setChartSeriesFilter] = useState<'all' | 'main' | 'sub'>('all');
+
+  // Customer Receivables & Direct Collection State
+  const [receivablesModalOpen, setReceivablesModalOpen] = useState(false);
+  const [customerReceivables, setCustomerReceivables] = useState<CustomerOrder[]>([]);
+  const [receivablesLoading, setReceivablesLoading] = useState(false);
+  const [collectingOrder, setCollectingOrder] = useState<CustomerOrder | null>(null);
+  const [collectAmount, setCollectAmount] = useState<number>(0);
+  const [collectChannel, setCollectChannel] = useState<PaymentChannel>('cash');
+  const [collectSubmitting, setCollectSubmitting] = useState(false);
+
+  const handleOpenReceivablesModal = async () => {
+    setReceivablesLoading(true);
+    setReceivablesModalOpen(true);
+    try {
+      const orders = await tenantStorage.getOrders(workshopId);
+      const unpaid = orders.filter((o) => (o.remainingAmount || 0) > 0 && o.status !== 'cancelled');
+      setCustomerReceivables(unpaid.sort((a, b) => (b.remainingAmount || 0) - (a.remainingAmount || 0)));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setReceivablesLoading(false);
+    }
+  };
+
+  const handleExecuteCollectReceivable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!collectingOrder || collectAmount <= 0) return;
+    setCollectSubmitting(true);
+    try {
+      const val = Math.min(collectAmount, collectingOrder.remainingAmount || 0);
+      const targetTreasury = filteredTree.main || treasuryBalances[0];
+
+      if (targetTreasury) {
+        await rpcTreasuryDeposit(
+          workshopId,
+          targetTreasury.id,
+          collectChannel,
+          val,
+          'تحصيل مبيعات',
+          `تحصيل دفعة من العميل "${collectingOrder.customerName || 'عميل'}" - طلبية #${collectingOrder.invoiceNumber || collectingOrder.id.slice(-4)}`
+        );
+      }
+
+      const newPaid = (collectingOrder.paidAmount || 0) + val;
+      const newRem = Math.max(0, (collectingOrder.totalAmount || 0) - newPaid);
+      const updated: CustomerOrder = {
+        ...collectingOrder,
+        paidAmount: newPaid,
+        remainingAmount: newRem,
+        status: newRem <= 0 ? 'paid' : 'partially_paid',
+      };
+      await tenantStorage.saveOrder(updated);
+
+      setSuccessNotice(`تم تحصيل ${val.toLocaleString()} ${currency} وإيداعها في الخزينة بنجاح!`);
+      setCollectingOrder(null);
+      await loadTreasuryData(true);
+      const orders = await tenantStorage.getOrders(workshopId);
+      const unpaid = orders.filter((o) => (o.remainingAmount || 0) > 0 && o.status !== 'cancelled');
+      setCustomerReceivables(unpaid);
+      setTimeout(() => setSuccessNotice(null), 4000);
+    } catch (err: any) {
+      setErrorNotice(err.message || 'فشل التحصيل');
+      setTimeout(() => setErrorNotice(null), 4000);
+    } finally {
+      setCollectSubmitting(false);
+    }
+  };
 
   // Broadcast treasury updates to Trial Balance and all reports immediately
   const broadcastTreasuryUpdate = (balances: SupabaseTreasuryBalance[]) => {
@@ -1537,6 +1606,33 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* إنذار حد أمان السيولة اليومية */}
+      {(() => {
+        const minSafety = Number((workshop as any).minLiquidityAlert) || 5000;
+        const isOverallLow = overallTotals.total < minSafety;
+
+        if (!isOverallLow) return null;
+
+        return (
+          <div className="p-3.5 sm:p-4 rounded-3xl bg-gradient-to-r from-rose-700 via-rose-600 to-rose-700 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md border border-rose-400 animate-in fade-in">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-amber-300 shrink-0 animate-bounce" />
+              <span className="text-xs font-black leading-relaxed">
+                ⚠️ تنبيه: رصيد السيولة الحية أقل من حد أمان التشغيل اليومي للورشة، يُرجى تدبير سيولة أو تحصيل مستحقات
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenReceivablesModal}
+              className="px-4 py-2 rounded-xl bg-white text-rose-800 hover:bg-rose-50 text-xs font-black shadow-xs transition active:scale-95 cursor-pointer whitespace-nowrap self-start sm:self-auto flex items-center gap-1.5"
+            >
+              <Wallet className="w-3.5 h-3.5 text-rose-700" />
+              <span>مستحقات واجبة التحصيل</span>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Top Metric Summary Banner: "إجمالي كل الخزن" */}
       <div className="relative overflow-hidden p-5 sm:p-6 rounded-3xl bg-gradient-to-br from-stone-900 via-stone-800 to-amber-950 text-white shadow-xl border border-stone-700/60">
@@ -4047,6 +4143,149 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
                 type="button"
                 onClick={() => setRemindersModalOpen(false)}
                 className="px-5 py-2 rounded-xl bg-stone-200 dark:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold cursor-pointer hover:bg-stone-300"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Customer Receivables Collection (مستحقات واجبة التحصيل) */}
+      {receivablesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-rose-300 dark:border-stone-700 w-full max-w-xl max-h-[90vh] overflow-y-auto space-y-4 text-right shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-3 border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setReceivablesModalOpen(false);
+                  setCollectingOrder(null);
+                }}
+                className="text-stone-400 hover:text-stone-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="font-extrabold text-sm text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                <Wallet className="w-4 h-4 text-rose-600" />
+                <span>مستحقات واجبة التحصيل من العملاء ({customerReceivables.length})</span>
+              </h3>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 space-y-1">
+              <p className="font-bold">فواتير مبيعات آجلة بانتظار التحصيل لدعم السيولة النقدية:</p>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                يمكنك تحصيل أي دفعة نقداً أو عبر إنستاباي/المحفظة وإيداعها مباشرة في الخزينة لرفع رصيد السيولة الحية.
+              </p>
+            </div>
+
+            {/* Quick Collect Form if collectingOrder selected */}
+            {collectingOrder ? (
+              <form onSubmit={handleExecuteCollectReceivable} className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-3">
+                <div className="flex items-center justify-between text-xs font-bold pb-2 border-b">
+                  <span>تحصيل من: {collectingOrder.customerName}</span>
+                  <button
+                    type="button"
+                    onClick={() => setCollectingOrder(null)}
+                    className="text-stone-400 hover:text-stone-700 text-[11px]"
+                  >
+                    تراجع للقائمة
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="block text-stone-500 mb-1 font-bold">المبلغ المحصل ({currency}) *</label>
+                    <NumberInput
+                      min={1}
+                      max={collectingOrder.remainingAmount || 1}
+                      required
+                      value={collectAmount}
+                      onChange={(v) => setCollectAmount(Number(v) || 0)}
+                      className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono font-bold text-xs text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-stone-500 mb-1 font-bold">طريقة التحصيل *</label>
+                    <select
+                      value={collectChannel}
+                      onChange={(e) => setCollectChannel(e.target.value as PaymentChannel)}
+                      className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold"
+                    >
+                      <option value="cash">نقدي (كاش) 💵</option>
+                      <option value="instapay">إنستاباي / بنك 📱</option>
+                      <option value="wallet">محفظة إلكترونية 👛</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <button
+                    type="button"
+                    onClick={() => setCollectingOrder(null)}
+                    className="px-3.5 py-1.5 text-xs font-bold text-stone-500"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={collectSubmitting || collectAmount <= 0}
+                    className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer"
+                  >
+                    {collectSubmitting ? 'جاري الإيداع...' : 'تأكيد الإيداع بالخزينة'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-2">
+                {receivablesLoading ? (
+                  <div className="py-8 text-center text-xs text-stone-400">جاري فحص فواتير العملاء...</div>
+                ) : customerReceivables.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-stone-400 font-bold">
+                    لا توجد فواتير مبيعات آجلة مسجلة حالياً.
+                  </div>
+                ) : (
+                  customerReceivables.map((ord) => (
+                    <div
+                      key={ord.id}
+                      className="p-3 rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/60 dark:bg-stone-800/40 flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div>
+                        <div className="font-black text-stone-900 dark:text-stone-100">
+                          {ord.customerName || 'عميل الورشة'}
+                        </div>
+                        <div className="text-[10px] text-stone-400">
+                          طلبية #{ord.invoiceNumber || ord.id.slice(-4)} • المتبقي:{' '}
+                          <span className="font-mono font-bold text-rose-600">
+                            {Number(ord.remainingAmount || 0).toLocaleString()} {currency}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCollectingOrder(ord);
+                          setCollectAmount(ord.remainingAmount || 0);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                      >
+                        <Wallet className="w-3 h-3" />
+                        <span>تحصيل الآن</span>
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            <div className="pt-2 border-t flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setReceivablesModalOpen(false);
+                  setCollectingOrder(null);
+                }}
+                className="px-4 py-2 text-xs font-bold text-stone-500 cursor-pointer"
               >
                 إغلاق
               </button>
