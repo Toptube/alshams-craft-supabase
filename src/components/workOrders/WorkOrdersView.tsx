@@ -4,8 +4,8 @@ import {
   RawMaterialItem,
   EmployeeProfile,
   WorkshopProfile,
+  WorkOrderStatus,
 } from '../../types';
-import { firestoreService } from '../../db/firestoreService';
 import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
 import {
@@ -24,26 +24,35 @@ import {
   Percent,
   Sparkles,
   BookOpen,
+  ClipboardCheck,
+  Award,
+  DollarSign,
+  ArrowRight,
+  TrendingUp,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
 
 interface WorkOrdersViewProps {
   workshop: WorkshopProfile;
   onOpenHelp: (sectionId: string) => void;
+  initialStage?: 'create' | 'issue' | 'receive';
 }
 
 export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
   workshop,
   onOpenHelp,
+  initialStage,
 }) => {
+  const workshopId = workshop.tenantId || workshop.workshopId || workshop.id || '';
   const [workOrders, setWorkOrders] = useState<WorkOrderRecord[]>([]);
   const [materials, setMaterials] = useState<RawMaterialItem[]>([]);
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [archivedProducts, setArchivedProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTabFilter, setActiveTabFilter] = useState<'all' | 'open' | 'in_progress' | 'completed'>('all');
 
-  // Create Modal
+  // Stage 1: New Work Order Modal
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [productName, setProductName] = useState('');
   const [targetQuantity, setTargetQuantity] = useState(1);
@@ -54,7 +63,12 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
   >([]);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
-  // Close Wizard Modal
+  // Stage 2: Material Issue Modal (إذن صرف خامات للتصنيع)
+  const [isIssueModalOpen, setIsIssueModalOpen] = useState(false);
+  const [selectedIssueOrderId, setSelectedIssueOrderId] = useState<string>('');
+  const [issuingMaterials, setIssuingMaterials] = useState(false);
+
+  // Stage 3: Finished Goods Receipt & Close Modal (إذن استلام وتوريد منتج تام)
   const [closingOrder, setClosingOrder] = useState<WorkOrderRecord | null>(null);
   const [producedQuantity, setProducedQuantity] = useState(1);
   const [returnedMaterials, setReturnedMaterials] = useState<
@@ -64,33 +78,34 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
   const [closingNotes, setClosingNotes] = useState('');
   const [savingClose, setSavingClose] = useState(false);
 
+  // Global Notice Toast
   const [notice, setNotice] = useState<{ text: string; isError?: boolean } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     try {
       const [localWo, matList, empList, prods] = await Promise.all([
-        tenantStorage.getWorkOrders(workshop.id).catch(() => []),
-        tenantStorage.getRawMaterials(workshop.id).catch(() => []),
-        tenantStorage.getEmployees(workshop.id).catch(() => []),
-        tenantStorage.getProducts(workshop.id).catch(() => []),
+        tenantStorage.getWorkOrders(workshopId).catch(() => []),
+        tenantStorage.getRawMaterials(workshopId).catch(() => []),
+        tenantStorage.getEmployees(workshopId).catch(() => []),
+        tenantStorage.getProducts(workshopId).catch(() => []),
       ]);
 
       let finalWo = localWo;
 
-      // مزامنة احتياطية هادئة في الخلفية من Supabase
+      // مزامنة سحابية هادئة في الخلفية من جدول work_orders في Supabase
       try {
         const { data: supaWo } = await supabase
           .from('work_orders')
           .select('*')
-          .eq('workshop_id', workshop.id);
+          .eq('workshop_id', workshopId);
         if (Array.isArray(supaWo) && supaWo.length > 0) {
           const map = new Map<string, WorkOrderRecord>();
           localWo.forEach((w) => map.set(w.id, w));
           supaWo.forEach((sw: any) => {
             const mapped: WorkOrderRecord = {
               id: sw.id,
-              workshopId: sw.workshop_id || workshop.id,
+              workshopId: sw.workshop_id || workshopId,
               orderNumber: sw.order_number || 'WO-0001',
               productName: sw.product_name || 'مشغولة',
               craftId: sw.craft_id || 'macrame',
@@ -99,7 +114,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               assignedEmployeeId: sw.assigned_employee_id,
               assignedEmployeeName: sw.assigned_employee_name,
               assignedEmployeeWage: sw.assigned_employee_wage || 150,
-              status: sw.status || 'open',
+              status: (sw.status as WorkOrderStatus) || 'open',
               pulledMaterials: sw.pulled_materials || [],
               returnedMaterials: sw.returned_materials || [],
               finishedProductsProduced: sw.finished_products_produced || 0,
@@ -140,21 +155,45 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
 
   useEffect(() => {
     loadData();
-  }, [workshop.id]);
+  }, [workshopId]);
 
+  useEffect(() => {
+    if (initialStage === 'create') {
+      handleOpenCreate();
+    } else if (initialStage === 'issue') {
+      setIsIssueModalOpen(true);
+    }
+  }, [initialStage]);
+
+  // Listen to updates from other tabs
+  useEffect(() => {
+    const handleRemoteUpdate = () => loadData();
+    window.addEventListener('alshams_materials_updated', handleRemoteUpdate);
+    window.addEventListener('alshams_workorders_updated', handleRemoteUpdate);
+    return () => {
+      window.removeEventListener('alshams_materials_updated', handleRemoteUpdate);
+      window.removeEventListener('alshams_workorders_updated', handleRemoteUpdate);
+    };
+  }, []);
+
+  // Stage 1: New Work Order
   const handleOpenCreate = () => {
-    setProductName('رانر مكرمية بوهيمي فاخر');
+    setProductName('');
     setTargetQuantity(1);
     const defaultMat = materials[0];
-    setPulledMaterials([
-      {
-        materialId: defaultMat?.id || '',
-        materialName: defaultMat?.materialName || 'خيط قطن مجدول',
-        quantity: 2,
-        unit: defaultMat?.unit || 'كيلو',
-        unitCost: defaultMat?.costPerUnit || 180,
-      },
-    ]);
+    if (defaultMat) {
+      setPulledMaterials([
+        {
+          materialId: defaultMat.id,
+          materialName: defaultMat.materialName,
+          quantity: 1,
+          unit: defaultMat.unit || 'كيلو',
+          unitCost: defaultMat.costPerUnit || 100,
+        },
+      ]);
+    } else {
+      setPulledMaterials([]);
+    }
     setIsCreateModalOpen(true);
   };
 
@@ -172,6 +211,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
     ]);
   };
 
+  // استدعاء من الأرشيف
   const handleSelectArchivedProduct = (productId: string) => {
     const prod = archivedProducts.find((p) => p.id === productId);
     if (!prod) return;
@@ -182,7 +222,6 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
       setLaborCost(String(prod.output.laborCost));
     }
 
-    // Auto-populate materials from product output or specs
     const autoPulled: Array<{ materialId: string; materialName: string; quantity: number; unitCost: number; unit: string }> = [];
     if (Array.isArray(prod.materialsSnapshot) && prod.materialsSnapshot.length > 0) {
       prod.materialsSnapshot.forEach((snap: any) => {
@@ -214,18 +253,20 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
 
   const handleCreateWorkOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!productName.trim() || pulledMaterials.length === 0) return;
+    if (!productName.trim() || pulledMaterials.length === 0) {
+      setNotice({ text: 'يرجى كتابة اسم المشغولة وتحديد خامة واحدة على الأقل', isError: true });
+      return;
+    }
 
     setCreatingOrder(true);
     try {
       let orderNumber = `WO-${Date.now().toString().slice(-4)}`;
       try {
-        orderNumber = await tenantStorage.getNextWorkOrderNumber(workshop.id);
+        orderNumber = await tenantStorage.getNextWorkOrderNumber(workshopId);
       } catch {}
 
       const assignedEmp = employees.find((e) => e.id === assignedEmployeeId);
 
-      // حساب إجمالي تكلفة الخامات المسحوبة
       const consumedMaterialsCost = pulledMaterials.reduce(
         (sum, m) => sum + (Number(m.quantity) || 0) * (Number(m.unitCost) || 0),
         0
@@ -233,7 +274,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
 
       const newOrder: WorkOrderRecord = {
         id: 'wo_' + Date.now(),
-        workshopId: workshop.id,
+        workshopId,
         orderNumber,
         productName: productName.trim(),
         craftId: 'macrame',
@@ -242,7 +283,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         assignedEmployeeId: assignedEmp?.id,
         assignedEmployeeName: assignedEmp?.fullName,
         assignedEmployeeWage: Number(assignedEmployeeWage) || 150,
-        status: 'open',
+        status: 'open', // جاهز بانتظار صرف الخامات للتصنيع
         pulledMaterials,
         returnedMaterials: [],
         finishedProductsProduced: 0,
@@ -257,27 +298,13 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         createdBy: workshop.email,
       };
 
-      // 1. خصم الخامات من المخزن المحلي بدقة
-      for (const mat of pulledMaterials) {
-        try {
-          const raw = materials.find((m) => m.id === mat.materialId);
-          if (raw) {
-            raw.currentStock = Math.max(0, Math.round(((raw.currentStock || 0) - mat.quantity) * 1000) / 1000);
-            await tenantStorage.saveRawMaterial(raw);
-          }
-        } catch (stockErr) {
-          console.warn('Material deduction notice:', stockErr);
-        }
-      }
-
-      // 2. حفظ أمر التشغيل في المخزن المحلي (DexieDB)
       await tenantStorage.saveWorkOrder(newOrder);
 
-      // 3. مزامنة سحابية هادئة في جدول work_orders في Supabase
+      // مزامنة سحابية هادئة
       try {
         await supabase.from('work_orders').upsert({
           id: newOrder.id,
-          workshop_id: workshop.id,
+          workshop_id: workshopId,
           order_number: newOrder.orderNumber,
           product_name: newOrder.productName,
           craft_id: newOrder.craftId,
@@ -286,7 +313,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
           assigned_employee_id: newOrder.assignedEmployeeId,
           assigned_employee_name: newOrder.assignedEmployeeName,
           assigned_employee_wage: newOrder.assignedEmployeeWage,
-          status: newOrder.status,
+          status: 'open',
           pulled_materials: newOrder.pulledMaterials,
           returned_materials: [],
           finished_products_produced: 0,
@@ -302,21 +329,79 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         console.warn('Cloud sync for work order notice:', cloudErr);
       }
 
-      setNotice({ text: `تم فتح أمر التشغيل #${orderNumber} وصرف الخامات من المخزن بنجاح!` });
+      window.dispatchEvent(new CustomEvent('alshams_workorders_updated'));
+      setNotice({ text: `تم إنشاء أمر التشغيل #${orderNumber} بنجاح! انتقل للخطوة 2 لصرف الخامات ونقلها لقيد التشغيل.` });
       setIsCreateModalOpen(false);
       await loadData();
-      setTimeout(() => setNotice(null), 3500);
+      setTimeout(() => setNotice(null), 4000);
     } catch (err: any) {
-      setNotice({ text: err.message || 'فشل فتح أمر التشغيل', isError: true });
+      setNotice({ text: err.message || 'فشل إنشاء أمر التشغيل', isError: true });
     } finally {
       setCreatingOrder(false);
     }
   };
 
+  // Stage 2: Material Issue (إذن صرف خامات للتصنيع)
+  const handleExecuteIssueMaterials = async (orderId: string) => {
+    const order = workOrders.find((w) => w.id === orderId);
+    if (!order) return;
+
+    setIssuingMaterials(true);
+    try {
+      // 1. خصم الخامات المحددة من مخزن الخامات وتسجيل حركة المخزن
+      for (const mat of order.pulledMaterials) {
+        try {
+          const raw = materials.find((m) => m.id === mat.materialId);
+          if (raw) {
+            raw.currentStock = Math.max(0, Math.round(((raw.currentStock || 0) - mat.quantity) * 1000) / 1000);
+            await tenantStorage.saveRawMaterial(raw);
+          }
+        } catch (stockErr) {
+          console.warn('Material deduction notice:', stockErr);
+        }
+      }
+
+      // 2. تحديث حالة أمر التشغيل إلى in_progress (خامات قيد التشغيل)
+      const updatedOrder: WorkOrderRecord = {
+        ...order,
+        status: 'in_progress',
+        updatedAt: Date.now(),
+      };
+      await tenantStorage.saveWorkOrder(updatedOrder);
+
+      // 3. تحديث سحابي في Supabase
+      try {
+        await supabase
+          .from('work_orders')
+          .update({
+            status: 'in_progress',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', order.id);
+      } catch (cloudErr) {
+        console.warn('Cloud sync error on issue:', cloudErr);
+      }
+
+      window.dispatchEvent(new CustomEvent('alshams_materials_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_workorders_updated'));
+      setNotice({
+        text: `تم إصدار إذن الصرف لأمر التشغيل #${order.orderNumber}! تم خصم الخامات من المخزن ونقلها إلى خانة "خامات قيد التشغيل (WIP)".`,
+      });
+      setIsIssueModalOpen(false);
+      setSelectedIssueOrderId('');
+      await loadData();
+      setTimeout(() => setNotice(null), 4000);
+    } catch (err: any) {
+      setNotice({ text: err.message || 'فشل صرف الخامات', isError: true });
+    } finally {
+      setIssuingMaterials(false);
+    }
+  };
+
+  // Stage 3: Finished Goods Receipt & Close Wizard
   const handleOpenCloseWizard = (wo: WorkOrderRecord) => {
     setClosingOrder(wo);
     setProducedQuantity(wo.targetQuantity || 1);
-    // Initialize returned materials with 0 for each pulled material
     setReturnedMaterials(
       wo.pulledMaterials.map((m) => ({
         materialId: m.materialId,
@@ -336,11 +421,12 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
 
     setSavingClose(true);
     try {
-      // حساب الهالك والاستهلاك الفعلي
+      // 1. حساب الهالك الفعلي بدقة
       const scrapItems = closingOrder.pulledMaterials.map((pulled) => {
         const returned = returnedMaterials.find((r) => r.materialId === pulled.materialId)?.quantity || 0;
         const actualConsumed = Math.max(0, pulled.quantity - returned);
-        const scrapQty = Math.round(actualConsumed * 0.12 * 1000) / 1000;
+        // نسبة الهالك التقديرية الحرفية
+        const scrapQty = Math.round(actualConsumed * 0.08 * 1000) / 1000;
         return {
           materialId: pulled.materialId,
           materialName: pulled.materialName,
@@ -350,7 +436,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         };
       });
 
-      // إعادة الخامات المتبقية لمخزن الخامات
+      // 2. إعادة الخامات المتبقية لمخزن الخامات
       for (const ret of returnedMaterials) {
         if (ret.quantity > 0) {
           try {
@@ -365,6 +451,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         }
       }
 
+      // 3. احتساب التكاليف النهائية
       const totalConsumedCost = closingOrder.pulledMaterials.reduce((sum, p) => {
         const returned = returnedMaterials.find((r) => r.materialId === p.materialId)?.quantity || 0;
         const netConsumed = Math.max(0, p.quantity - returned);
@@ -386,13 +473,43 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         totalLaborCost: actualLaborCost,
         totalProductionCost: totalProdCost,
         unitCostCalculated: calculatedUnitCost,
+        closingNotes: closingNotes.trim(),
         updatedAt: Date.now(),
       };
 
-      // 1. تحديث أمر التشغيل في المخزن المحلي
+      // 4. حفظ أمر التشغيل في Dexie
       await tenantStorage.saveWorkOrder(completedOrder);
 
-      // 2. إضافة استحقاق أجر القطعة إلى كشف حساب الحرفي آلياً
+      // 5. زيادة رصيد المنتج التام في مخزن المنتجات الجاهزة (products inventory)
+      try {
+        const prods = await tenantStorage.getProducts(workshopId);
+        const match = prods.find((p) => p.productName.trim().toLowerCase() === completedOrder.productName.trim().toLowerCase());
+        if (match) {
+          match.currentStock = (match.currentStock || 0) + finishedQty;
+          match.costPrice = calculatedUnitCost;
+          await tenantStorage.mutateProduct(match);
+        } else {
+          // إنشاء صنف جديد في مخزن المنتجات التامة
+          await tenantStorage.mutateProduct({
+            id: 'prod_' + Date.now(),
+            tenantId: workshopId,
+            productName: completedOrder.productName,
+            currentStock: finishedQty,
+            costPrice: calculatedUnitCost,
+            retailPrice: Math.round(calculatedUnitCost * 1.4),
+            category: completedOrder.category || 'مشغولات يدوية',
+            isActive: true,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            input: {} as any,
+            output: {} as any,
+          } as any);
+        }
+      } catch (prodErr) {
+        console.warn('Finished product stock increase error:', prodErr);
+      }
+
+      // 6. تحويل مستحقات الصانع آلياً إلى حسابه وسجله في الموارد البشرية
       if (completedOrder.assignedEmployeeId && actualLaborCost > 0) {
         try {
           const emp = await tenantStorage.getEmployee(completedOrder.assignedEmployeeId);
@@ -406,11 +523,11 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         }
       }
 
-      // 3. مزامنة سحابية هادئة في Supabase
+      // 7. مزامنة سحابية هادئة في Supabase
       try {
         await supabase.from('work_orders').upsert({
           id: completedOrder.id,
-          workshop_id: workshop.id,
+          workshop_id: workshopId,
           order_number: completedOrder.orderNumber,
           status: 'completed',
           finished_products_produced: finishedQty,
@@ -425,12 +542,17 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         console.warn('Cloud sync error for closing work order:', cloudErr);
       }
 
+      window.dispatchEvent(new CustomEvent('alshams_products_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_materials_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_financials_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_workorders_updated'));
+
       setNotice({
-        text: `تم إغلاق أمر التشغيل #${closingOrder.orderNumber}! أضيفت المنتجات المصنعة للمخزن وأُضيف أجر القطعة لحساب الصانع.`,
+        text: `تم استلام ${finishedQty} قطعة تامة من المشغولة "${completedOrder.productName}" وتوريدها للمخزن بنجاح! تم قيد أجر المصنعية (${actualLaborCost.toLocaleString()} ${workshop.currencySymbol}) لحساب الصانع.`,
       });
       setClosingOrder(null);
       await loadData();
-      setTimeout(() => setNotice(null), 4000);
+      setTimeout(() => setNotice(null), 4500);
     } catch (err: any) {
       setNotice({ text: err.message || 'فشل إغلاق أمر التشغيل', isError: true });
     } finally {
@@ -438,58 +560,162 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
     }
   };
 
-  const filteredOrders = workOrders.filter((wo) => {
-    const q = searchQuery.trim().toLowerCase();
-    return (
-      !q ||
-      wo.orderNumber.toLowerCase().includes(q) ||
-      wo.productName.toLowerCase().includes(q) ||
-      wo.assignedEmployeeName?.toLowerCase().includes(q)
-    );
-  });
+  // Orders Filtered by Tab & Search
+  const openOrders = workOrders.filter((wo) => wo.status === 'open');
+  const inProgressOrders = workOrders.filter((wo) => wo.status === 'in_progress');
+  const completedOrders = workOrders.filter((wo) => wo.status === 'completed');
+
+  const filteredOrders = workOrders
+    .filter((wo) => {
+      if (activeTabFilter === 'open') return wo.status === 'open';
+      if (activeTabFilter === 'in_progress') return wo.status === 'in_progress';
+      if (activeTabFilter === 'completed') return wo.status === 'completed';
+      return true;
+    })
+    .filter((wo) => {
+      const q = searchQuery.trim().toLowerCase();
+      return (
+        !q ||
+        wo.orderNumber.toLowerCase().includes(q) ||
+        wo.productName.toLowerCase().includes(q) ||
+        wo.assignedEmployeeName?.toLowerCase().includes(q)
+      );
+    });
 
   return (
     <div className="space-y-6 text-right">
-      {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-orange-500/15 via-orange-500/5 to-transparent border border-orange-300/40 dark:border-orange-800/40">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-bold text-orange-700 dark:text-orange-400">
-            <Hammer className="w-4 h-4" />
-            <span>إدارة خط الإنتاج والتشغيل</span>
-            <button
-              type="button"
-              onClick={() => onOpenHelp('work_orders')}
-              className="text-stone-400 hover:text-orange-600 cursor-pointer"
-              title="ما معنى هذا؟"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-            </button>
+      {/* 1. المسار الصناعي الثلاثي الموحد (The 3 Industrial Stages Bar) */}
+      <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-100 dark:border-stone-800 pb-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-400">
+              <Hammer className="w-4 h-4 text-amber-600" />
+              <span>دورة الإنتاج والتصنيع الحرفي المتكاملة</span>
+              <button
+                type="button"
+                onClick={() => onOpenHelp('work_orders')}
+                className="text-stone-400 hover:text-amber-600 cursor-pointer"
+                title="ما معنى هذا؟"
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 mt-1">
+              أوامر التشغيل ومسار التصنيع الصناعي
+            </h2>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+              مسار تشغيلي منضبط: فتح أمر التشغيل ⬅️ صرف الخامات ونقلها لقيد التشغيل ⬅️ استلام المشغولة التامة وقيد أجر الصانع.
+            </p>
           </div>
-          <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 mt-1">
-            أوامر التشغيل وتتبع الهالك (Work Orders)
-          </h2>
-          <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-            أمر التشغيل يبقى مفتوحاً طوال فترة التصنيع. وعند إغلاقه تضاف المنتجات لمخزن المنتجات ويُقاس الهالك الفعلي.
-          </p>
+
+          <div className="flex items-center gap-2 text-xs font-mono font-bold text-stone-500">
+            <span className="px-3 py-1 rounded-xl bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
+              إجمالي الأوامر: {workOrders.length}
+            </span>
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenCreate}
-          className="px-5 py-2.5 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-extrabold flex items-center gap-2 shadow-md cursor-pointer transition self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>فتح أمر تشغيل جديد</span>
-        </button>
+        {/* The 3 Ordered Industrial Action Buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          {/* Step 1 Button */}
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent border border-amber-300 dark:border-amber-800/80 hover:border-amber-500 hover:bg-amber-500/15 transition-all text-right group cursor-pointer shadow-xs active:scale-98"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="w-7 h-7 rounded-xl bg-amber-600 text-white font-mono font-black text-xs flex items-center justify-center shadow-xs">
+                1
+              </span>
+              <Hammer className="w-5 h-5 text-amber-600 dark:text-amber-400 group-hover:scale-110 transition-transform" />
+            </div>
+            <h3 className="text-sm font-black text-stone-900 dark:text-stone-100 group-hover:text-amber-700 dark:group-hover:text-amber-400 transition-colors">
+              أمر تشغيل وتصنيع جديد
+            </h3>
+            <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+              استدعاء المشغولة من الأرشيف وتحديد الخامات والصانع المسؤول.
+            </p>
+          </button>
+
+          {/* Step 2 Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (openOrders.length === 0) {
+                setNotice({ text: 'لا توجد أوامر تشغيل مفتوحة بانتظار صرف الخامات حالياً. افتح أمر تشغيل أولاً.', isError: true });
+                setTimeout(() => setNotice(null), 3500);
+                return;
+              }
+              setSelectedIssueOrderId(openOrders[0].id);
+              setIsIssueModalOpen(true);
+            }}
+            className="p-4 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-cyan-500/5 to-transparent border border-cyan-300 dark:border-cyan-800/80 hover:border-cyan-500 hover:bg-cyan-500/15 transition-all text-right group cursor-pointer shadow-xs active:scale-98"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="w-7 h-7 rounded-xl bg-cyan-600 text-white font-mono font-black text-xs flex items-center justify-center shadow-xs">
+                2
+              </span>
+              <Boxes className="w-5 h-5 text-cyan-600 dark:text-cyan-400 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-black text-stone-900 dark:text-stone-100 group-hover:text-cyan-700 dark:group-hover:text-cyan-400 transition-colors">
+                إذن صرف خامات للتصنيع
+              </h3>
+              {openOrders.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300">
+                  {openOrders.length} بانتظار الصرف
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+              خصم الخامات من المخزن ونقلها إلى خانة "خامات قيد التشغيل (WIP)".
+            </p>
+          </button>
+
+          {/* Step 3 Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const readyToClose = inProgressOrders.length > 0 ? inProgressOrders[0] : openOrders[0];
+              if (!readyToClose) {
+                setNotice({ text: 'لا توجد أوامر قيد التشغيل حالياً لاستلامها. اصرف خامات أمر تشغيل أولاً.', isError: true });
+                setTimeout(() => setNotice(null), 3500);
+                return;
+              }
+              handleOpenCloseWizard(readyToClose);
+            }}
+            className="p-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-300 dark:border-emerald-800/80 hover:border-emerald-500 hover:bg-emerald-500/15 transition-all text-right group cursor-pointer shadow-xs active:scale-98"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white font-mono font-black text-xs flex items-center justify-center shadow-xs">
+                3
+              </span>
+              <PackageCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-black text-stone-900 dark:text-stone-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
+                إذن استلام وتوريد منتج تام
+              </h3>
+              {inProgressOrders.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                  {inProgressOrders.length} قيد التشغيل
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+              إثبات المنتج بالمخزن، احتساب الهالك، وقيد مستحقات الصانع آلياً بالـ HR.
+            </p>
+          </button>
+        </div>
       </div>
 
-      {/* Notice */}
+      {/* Notice Toast */}
       {notice && (
         <div
           className={`p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2 ${
             notice.isError
-              ? 'bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-800'
-              : 'bg-orange-50 dark:bg-orange-950/60 border border-orange-300 text-orange-800'
+              ? 'bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-800 dark:text-rose-200'
+              : 'bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200'
           }`}
         >
           {notice.isError ? (
@@ -501,92 +727,177 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         </div>
       )}
 
-      {/* Work Orders List */}
+      {/* 2. Filter Tabs & Search */}
       <div className="p-4 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-200 dark:border-stone-800">
-          <div className="w-full sm:w-72 relative">
+          {/* Status Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+            <button
+              type="button"
+              onClick={() => setActiveTabFilter('all')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                activeTabFilter === 'all'
+                  ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
+                  : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-200'
+              }`}
+            >
+              الكل ({workOrders.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTabFilter('open')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                activeTabFilter === 'open'
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>بانتظار صرف الخامات ({openOrders.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTabFilter('in_progress')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                activeTabFilter === 'in_progress'
+                  ? 'bg-cyan-600 text-white'
+                  : 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-800 dark:text-cyan-300 hover:bg-cyan-100'
+              }`}
+            >
+              <Boxes className="w-3.5 h-3.5" />
+              <span>خامات قيد التشغيل ({inProgressOrders.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTabFilter('completed')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                activeTabFilter === 'completed'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100'
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>تم التوريد للمخزن ({completedOrders.length})</span>
+            </button>
+          </div>
+
+          {/* Search bar */}
+          <div className="w-full sm:w-64 relative">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="بحث برقم أمر التشغيل أو المنتج..."
-              className="w-full px-3.5 py-2 pr-9 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none"
+              placeholder="بحث برقم الأمر أو الصانع أو المشغولة..."
+              className="w-full px-3.5 py-1.5 pr-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none"
             />
-            <Search className="w-4 h-4 text-stone-400 absolute right-3 top-2.5 pointer-events-none" />
+            <Search className="w-4 h-4 text-stone-400 absolute right-2.5 top-2 pointer-events-none" />
           </div>
-
-          <span className="text-xs text-stone-400 font-mono">
-            {filteredOrders.length} أوامر تشغيل
-          </span>
         </div>
 
+        {/* Work Orders List */}
         {loading ? (
-          <div className="py-12 text-center text-stone-400 text-xs">جاري تحميل أوامر التشغيل...</div>
+          <div className="py-12 text-center text-stone-400 text-xs">جاري فحص وتحديث أوامر التشغيل...</div>
         ) : filteredOrders.length === 0 ? (
           <div className="py-12 text-center text-stone-400 text-xs font-bold">
-            لا توجد أوامر تشغيل مسجلة حالياً.
+            لا توجد أوامر تشغيل مطابقة في هذا التصنيف.
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3.5">
             {filteredOrders.map((wo) => {
               const isOpen = wo.status === 'open';
+              const isInProgress = wo.status === 'in_progress';
+              const isCompleted = wo.status === 'completed';
+
               return (
                 <div
                   key={wo.id}
                   className={`p-4 sm:p-5 rounded-2xl border transition space-y-3 ${
                     isOpen
-                      ? 'bg-orange-50/50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-800/80 shadow-xs'
-                      : 'bg-stone-50/60 dark:bg-stone-800/40 border-stone-200 dark:border-stone-800'
+                      ? 'bg-amber-50/40 dark:bg-amber-950/15 border-amber-300/80 dark:border-amber-800/60 shadow-xs'
+                      : isInProgress
+                      ? 'bg-cyan-50/40 dark:bg-cyan-950/15 border-cyan-300/80 dark:border-cyan-800/60 shadow-xs'
+                      : 'bg-stone-50/70 dark:bg-stone-800/40 border-stone-200 dark:border-stone-800'
                   }`}
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono font-black text-sm text-orange-600 dark:text-orange-400">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                      <span className="font-mono font-black text-sm text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-lg border border-amber-200 dark:border-amber-900">
                         #{wo.orderNumber}
                       </span>
-                      <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
+                      <h3 className="font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
                         {wo.productName}
                       </h3>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          isOpen
-                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 animate-pulse'
-                            : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                        }`}
-                      >
-                        {isOpen ? 'تحت التشغيل (مفتوح للتعديل)' : 'تم الإنتاج والإغلاق'}
-                      </span>
+
+                      {/* Status Badges */}
+                      {isOpen && (
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          <span>بانتظار إذن الصرف</span>
+                        </span>
+                      )}
+                      {isInProgress && (
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-900 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-300 flex items-center gap-1 animate-pulse">
+                          <Boxes className="w-3 h-3" />
+                          <span>خامات قيد التشغيل (جاري التصنيع)</span>
+                        </span>
+                      )}
+                      {isCompleted && (
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>تم الإنتاج والتوريد للمخزن</span>
+                        </span>
+                      )}
                     </div>
 
+                    {/* Operational Action Buttons per Order */}
                     <div className="flex items-center gap-2">
-                      {isOpen ? (
+                      {isOpen && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedIssueOrderId(wo.id);
+                            setIsIssueModalOpen(true);
+                          }}
+                          className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                        >
+                          <Boxes className="w-3.5 h-3.5" />
+                          <span>إذن صرف الخامات للتصنيع</span>
+                        </button>
+                      )}
+
+                      {isInProgress && (
                         <button
                           type="button"
                           onClick={() => handleOpenCloseWizard(wo)}
-                          className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs transition"
                         >
                           <PackageCheck className="w-3.5 h-3.5" />
-                          <span>إغلاق وحساب الهالك</span>
+                          <span>إذن استلام وتوريد منتج تام</span>
                         </button>
-                      ) : (
-                        <span className="text-[11px] font-mono font-bold text-stone-500">
-                          تكلفة الوحدة: {wo.unitCostCalculated} {workshop.currencySymbol}
-                        </span>
+                      )}
+
+                      {isCompleted && (
+                        <div className="text-left font-mono">
+                          <span className="text-[11px] text-stone-500 block">تكلفة الوحدة:</span>
+                          <span className="text-xs font-black text-emerald-700 dark:text-emerald-400">
+                            {wo.unitCostCalculated.toLocaleString()} {workshop.currencySymbol}
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Materials Pulled */}
-                  <div className="pt-2 border-t border-stone-200/50 dark:border-stone-700/50 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                    <div>
+                  {/* Materials & Artisan Execution Details */}
+                  <div className="pt-2.5 border-t border-stone-200/70 dark:border-stone-700/60 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="sm:col-span-2">
                       <span className="text-stone-500 font-bold block mb-1">
-                        الخامات المسحوبة من المخزن:
+                        الخامات المحددة لأمر التشغيل:
                       </span>
-                      <div className="space-y-0.5">
+                      <div className="flex flex-wrap gap-1.5">
                         {wo.pulledMaterials.map((m, idx) => (
                           <span
                             key={idx}
-                            className="inline-block bg-white dark:bg-stone-900 px-2.5 py-1 rounded-lg border border-stone-200 dark:border-stone-700 font-mono text-[11px] ml-1.5 mb-1"
+                            className="bg-white dark:bg-stone-900 px-2.5 py-1 rounded-lg border border-stone-200 dark:border-stone-700 font-mono text-[11px] text-stone-800 dark:text-stone-200"
                           >
                             {m.materialName}: {m.quantity} {m.unit}
                           </span>
@@ -594,15 +905,31 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
                       </div>
                     </div>
 
-                    <div>
-                      <span className="text-stone-500 font-bold block mb-1">بيانات التنفيذ:</span>
+                    <div className="space-y-1">
                       <p className="text-[11px] text-stone-600 dark:text-stone-400">
-                        الصانع المسؤول: <strong>{wo.assignedEmployeeName || 'حرفي الورشة'}</strong> • الكمية المستهدفة:{' '}
-                        <strong>{wo.targetQuantity} قطعة</strong>
+                        الصانع المسؤول:{' '}
+                        <strong className="text-stone-900 dark:text-stone-100">
+                          {wo.assignedEmployeeName || 'حرفي الورشة'}
+                        </strong>
+                      </p>
+                      <p className="text-[11px] text-stone-600 dark:text-stone-400">
+                        الكمية المستهدفة:{' '}
+                        <strong className="text-stone-900 dark:text-stone-100">{wo.targetQuantity} قطعة</strong>
+                        {wo.finishedProductsProduced > 0 && (
+                          <span className="text-emerald-600 mr-2">
+                            (تم إنتاج {wo.finishedProductsProduced} قطعة)
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[11px] text-stone-600 dark:text-stone-400">
+                        أجر المصنعية المقدر:{' '}
+                        <strong className="text-stone-900 dark:text-stone-100 font-mono">
+                          {wo.assignedEmployeeWage} {workshop.currencySymbol}
+                        </strong>
                       </p>
                       {wo.scrapItems && wo.scrapItems.length > 0 && (
-                        <p className="text-[11px] text-rose-600 font-bold mt-1">
-                          الهالك المسجل: {wo.scrapItems.map((s) => `${s.materialName} (${s.wasteQty} ${s.unit})`).join('، ')}
+                        <p className="text-[10px] text-rose-600 font-bold">
+                          الهالك: {wo.scrapItems.map((s) => `${s.materialName} (${s.wasteQty} ${s.unit})`).join('، ')}
                         </p>
                       )}
                     </div>
@@ -614,33 +941,33 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         )}
       </div>
 
-      {/* Create Work Order Modal */}
+      {/* MODAL 1: Create Work Order (أمر تشغيل وتصنيع جديد) */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <form
             onSubmit={handleCreateWorkOrder}
-            className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-orange-300 dark:border-stone-700 w-full max-w-2xl max-h-[92vh] overflow-y-auto space-y-4 text-right shadow-2xl"
+            className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-amber-300 dark:border-stone-700 w-full max-w-2xl max-h-[92vh] overflow-y-auto space-y-4 text-right shadow-2xl"
           >
             <div className="flex items-center justify-between border-b pb-3 border-stone-200 dark:border-stone-800">
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(false)}
-                className="text-stone-400 hover:text-stone-700"
+                className="text-stone-400 hover:text-stone-700 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
-              <h3 className="font-extrabold text-sm text-orange-900 dark:text-orange-300 flex items-center gap-1.5">
-                <Hammer className="w-4 h-4 text-orange-600" />
-                <span>فتح أمر تشغيل وسحب خامات من المخزن</span>
+              <h3 className="font-extrabold text-sm text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+                <Hammer className="w-4 h-4 text-amber-600" />
+                <span>الخطوة 1: أمر تشغيل وتصنيع جديد</span>
               </h3>
             </div>
 
-            {/* استدعاء من الأرشيف */}
+            {/* 1. استدعاء المشغولة من الأرشيف */}
             {archivedProducts.length > 0 && (
-              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60">
-                <label className="block text-xs font-bold text-amber-900 dark:text-amber-300 mb-1 flex items-center gap-1.5">
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 space-y-1">
+                <label className="block text-xs font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                  <span>استدعاء مشغولة محفوظة من الأرشيف (تعبئة تلقائية للخامات والمصنعية):</span>
+                  <span>استدعاء مشغولة من الأرشيف (تعبئة تلقائية للخامات والمصنعية):</span>
                 </label>
                 <select
                   defaultValue=""
@@ -649,7 +976,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
                   }}
                   className="w-full px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-stone-900 text-xs font-bold text-stone-800 dark:text-stone-200 outline-none"
                 >
-                  <option value="">-- اختر مشغولة من الأرشيف للاستدعاء التلقائي --</option>
+                  <option value="">-- اختر مشغولة من الأرشيف للتعبئة التلقائية --</option>
                   {archivedProducts.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.productName} ({p.category || 'مشغولات'}) - مصنعية: {p.output?.laborCost || 150} {workshop.currencySymbol}
@@ -669,7 +996,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
                   required
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
-                  placeholder="مثال: رانر قطن 35*150 سم"
+                  placeholder="مثال: رانر قطن بوهيمي 40*160 سم"
                   className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none"
                 />
               </div>
@@ -688,14 +1015,49 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               </div>
             </div>
 
-            {/* Pulled Materials */}
-            <div className="space-y-2">
+            {/* الصانع المسؤول وأجر المصنعية */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                  الصانع أو الحرفي المسؤول
+                </label>
+                <select
+                  value={assignedEmployeeId}
+                  onChange={(e) => setAssignedEmployeeId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none"
+                >
+                  <option value="">-- اختر الصانع من فريق الورشة --</option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.fullName} ({emp.role || 'حرفي'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                  أجر اليد والمصنعية المقدرة للقطعة ({workshop.currencySymbol})
+                </label>
+                <NumberInput
+                  min={0}
+                  value={assignedEmployeeWage}
+                  onChange={(v) => setAssignedEmployeeWage(Number(v) || 0)}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono font-bold text-xs text-center"
+                />
+              </div>
+            </div>
+
+            {/* الخامات المطلوبة للتصنيع */}
+            <div className="space-y-2 pt-2 border-t border-stone-200 dark:border-stone-800">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold">الخامات المسحوبة من مخزن الخامات:</span>
+                <span className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                  الخامات ومستلزمات الإنتاج المطلوبة:
+                </span>
                 <button
                   type="button"
                   onClick={handleAddMaterialRow}
-                  className="text-xs font-bold text-orange-600 hover:underline flex items-center gap-1 cursor-pointer"
+                  className="text-xs font-bold text-amber-600 hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>إضافة خامة</span>
@@ -728,7 +1090,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
                     >
                       {materials.map((m) => (
                         <option key={m.id} value={m.id}>
-                          {m.materialName} (المتاح: {m.currentStock} {m.unit})
+                          {m.materialName} (متاح بالمخزن: {m.currentStock} {m.unit})
                         </option>
                       ))}
                     </select>
@@ -745,7 +1107,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
                         updated[idx].quantity = val;
                         setPulledMaterials(updated);
                       }}
-                      placeholder="الكمية المسحوبة"
+                      placeholder="الكمية المطلوبة"
                       className="w-full px-2 py-1.5 text-center rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono font-bold"
                     />
                   </div>
@@ -764,27 +1126,136 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               ))}
             </div>
 
-            <div className="pt-2 flex justify-end gap-2 border-t border-stone-200 dark:border-stone-800">
+            <div className="pt-3 flex justify-end gap-2 border-t border-stone-200 dark:border-stone-800">
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(false)}
-                className="px-4 py-2 text-xs font-bold text-stone-500"
+                className="px-4 py-2 text-xs font-bold text-stone-500 cursor-pointer"
               >
                 إلغاء
               </button>
               <button
                 type="submit"
                 disabled={creatingOrder}
-                className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
+                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black cursor-pointer disabled:opacity-50"
               >
-                {creatingOrder ? 'جاري الفتح...' : 'صرف الخامات وفتح أمر التشغيل'}
+                {creatingOrder ? 'جاري الحفظ...' : 'حفظ أمر التشغيل (جاهز للصرف)'}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* Close Wizard Modal */}
+      {/* MODAL 2: Issue Materials Modal (إذن صرف خامات للتصنيع) */}
+      {isIssueModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-cyan-300 dark:border-stone-700 w-full max-w-xl max-h-[92vh] overflow-y-auto space-y-4 text-right shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-3 border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => setIsIssueModalOpen(false)}
+                className="text-stone-400 hover:text-stone-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="font-extrabold text-sm text-cyan-900 dark:text-cyan-300 flex items-center gap-1.5">
+                <Boxes className="w-4 h-4 text-cyan-600" />
+                <span>الخطوة 2: إذن صرف خامات للتصنيع (WIP)</span>
+              </h3>
+            </div>
+
+            {/* Select open order */}
+            <div>
+              <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                اختر أمر التشغيل المراد صرف خاماته *
+              </label>
+              <select
+                value={selectedIssueOrderId}
+                onChange={(e) => setSelectedIssueOrderId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-cyan-300 dark:border-cyan-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none"
+              >
+                <option value="">-- اختر أمر تشغيل مفتوح --</option>
+                {openOrders.map((wo) => (
+                  <option key={wo.id} value={wo.id}>
+                    #{wo.orderNumber} - {wo.productName} ({wo.targetQuantity} قطعة) - الصانع: {wo.assignedEmployeeName || 'حرفي'}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Preview order materials */}
+            {(() => {
+              const orderToIssue = workOrders.find((w) => w.id === selectedIssueOrderId);
+              if (!orderToIssue) return null;
+
+              return (
+                <div className="space-y-3 p-4 rounded-2xl bg-cyan-50/50 dark:bg-cyan-950/20 border border-cyan-200 dark:border-cyan-900/60">
+                  <div className="flex items-center justify-between text-xs font-bold text-cyan-900 dark:text-cyan-200 border-b border-cyan-200 dark:border-cyan-800 pb-2">
+                    <span>بيان الخامات التي ستُخصم فورياً من المخزن:</span>
+                    <span>الصانع المستلم: {orderToIssue.assignedEmployeeName || 'صانع الورشة'}</span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {orderToIssue.pulledMaterials.map((m, idx) => {
+                      const stockAvailable = materials.find((mat) => mat.id === m.materialId)?.currentStock || 0;
+                      const hasEnough = stockAvailable >= m.quantity;
+
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-stone-900 border text-xs"
+                        >
+                          <div>
+                            <span className="font-bold text-stone-900 dark:text-stone-100">{m.materialName}</span>
+                            <span className="text-[10px] text-stone-400 block font-mono">
+                              الرصيد المتاح بالمخزن: {stockAvailable} {m.unit}
+                            </span>
+                          </div>
+
+                          <div className="text-left font-mono">
+                            <span className="font-black text-cyan-700 dark:text-cyan-400">
+                              {m.quantity} {m.unit}
+                            </span>
+                            {!hasEnough && (
+                              <span className="text-[10px] text-rose-500 font-bold block">
+                                (تنبيه: الرصيد أقل من المطلوب)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-[11px] text-amber-800 dark:text-amber-300">
+                    💡 بالضغط على زر الاعتماد، سيتم خصم هذه الكميات فورياً من أرصدة مخزن الخامات، وتنتقل حالة أمر التشغيل إلى <strong>"خامات قيد التشغيل في يد الصانع"</strong>.
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="pt-3 flex justify-end gap-2 border-t border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => setIsIssueModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-stone-500 cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={!selectedIssueOrderId || issuingMaterials}
+                onClick={() => handleExecuteIssueMaterials(selectedIssueOrderId)}
+                className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-black cursor-pointer disabled:opacity-50"
+              >
+                {issuingMaterials ? 'جاري الصرف والخصم...' : 'تأكيد صرف الخامات ونقلها لقيد التشغيل (WIP)'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Close Wizard & Finished Goods Receipt (إذن استلام وتوريد منتج تام) */}
       {closingOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <form
@@ -795,23 +1266,23 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               <button
                 type="button"
                 onClick={() => setClosingOrder(null)}
-                className="text-stone-400 hover:text-stone-700"
+                className="text-stone-400 hover:text-stone-700 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
               <h3 className="font-extrabold text-sm text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
                 <PackageCheck className="w-5 h-5 text-emerald-600" />
-                <span>معالج إغلاق أمر التشغيل #{closingOrder.orderNumber}</span>
+                <span>الخطوة 3: إذن استلام وتوريد منتج تام #{closingOrder.orderNumber}</span>
               </h3>
             </div>
 
-            {/* Step A: Produced Products */}
+            {/* (أ) الكمية التامة المنتجة */}
             <div className="p-3.5 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/60 space-y-2">
               <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 block">
-                (أ) المنتجات المصنعة التامة:
+                (أ) الكمية التامة المصنعة (تُضاف فورياً لمخزن المنتجات الجاهزة):
               </span>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-stone-700 dark:text-stone-300 flex-1">
+                <span className="text-xs font-bold text-stone-800 dark:text-stone-200 flex-1">
                   {closingOrder.productName}
                 </span>
                 <div className="w-32">
@@ -826,10 +1297,10 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               </div>
             </div>
 
-            {/* Step B: Returned Materials */}
+            {/* (ب) الخامات المتبقية/المرتجعة للمخزن */}
             <div className="p-3.5 rounded-2xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/60 space-y-2 text-xs">
               <span className="font-bold text-blue-900 dark:text-blue-200 block">
-                (ب) الخامات السليمة المرتجعة لمخزن الخامات (إن وجدت):
+                (ب) خامات متبقية وسليمة مرتجعة للمخزن (إن وُجدت):
               </span>
               {returnedMaterials.map((ret, idx) => (
                 <div key={idx} className="flex items-center justify-between gap-2">
@@ -851,48 +1322,66 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               ))}
             </div>
 
-            {/* Step C: Labor & Notes */}
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <label className="block font-bold mb-1 text-stone-700 dark:text-stone-300">
-                  أجور ومصنعية اليد العاملة ({workshop.currencySymbol})
-                </label>
-                <NumberInput
-                  min={0}
-                  value={laborCost}
-                  onChange={(val) => setLaborCost(String(val))}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono font-bold text-center"
-                />
-              </div>
+            {/* (ج) أجر يد الصانع والمصنعية المستحقة (تُقيد بالـ HR) */}
+            <div className="p-3.5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/60 space-y-2 text-xs">
+              <span className="font-bold text-amber-900 dark:text-amber-200 block flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-amber-600" />
+                <span>(ج) أجر يد الصانع ومستحقات القطعة (يُقيد آلياً في كشف حساب الحرفي بالـ HR):</span>
+              </span>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-stone-600 dark:text-stone-400 mb-1">
+                    الصانع المستحق:
+                  </label>
+                  <input
+                    type="text"
+                    disabled
+                    value={closingOrder.assignedEmployeeName || 'حرفي الورشة'}
+                    className="w-full px-3 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-100 dark:bg-stone-800 font-bold"
+                  />
+                </div>
 
-              <div>
-                <label className="block font-bold mb-1 text-stone-700 dark:text-stone-300">
-                  ملاحظات الإغلاق
-                </label>
-                <input
-                  type="text"
-                  value={closingNotes}
-                  onChange={(e) => setClosingNotes(e.target.value)}
-                  placeholder="تم الفنش والتغليف بنجاح..."
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800"
-                />
+                <div>
+                  <label className="block text-stone-600 dark:text-stone-400 mb-1">
+                    المبلغ المستحق ({workshop.currencySymbol}):
+                  </label>
+                  <NumberInput
+                    min={0}
+                    value={laborCost}
+                    onChange={(val) => setLaborCost(String(val))}
+                    className="w-full px-3 py-1.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-stone-900 font-mono font-bold text-center"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="pt-2 flex justify-end gap-2 border-t border-stone-200 dark:border-stone-800">
+            <div>
+              <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                ملاحظات الفنش والتسليم
+              </label>
+              <input
+                type="text"
+                value={closingNotes}
+                onChange={(e) => setClosingNotes(e.target.value)}
+                placeholder="مثال: تم الفنش والتغليف بدرجة ممتازة..."
+                className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none"
+              />
+            </div>
+
+            <div className="pt-3 flex justify-end gap-2 border-t border-stone-200 dark:border-stone-800">
               <button
                 type="button"
                 onClick={() => setClosingOrder(null)}
-                className="px-4 py-2 text-xs font-bold text-stone-500"
+                className="px-4 py-2 text-xs font-bold text-stone-500 cursor-pointer"
               >
                 إلغاء
               </button>
               <button
                 type="submit"
                 disabled={savingClose}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer disabled:opacity-50"
               >
-                {savingClose ? 'جاري الاعتماد...' : 'اعتماد الإغلاق وتغذية مخزن المنتجات'}
+                {savingClose ? 'جاري التوريد والقيد...' : 'اعتماد التوريد وقيد مستحقات الصانع'}
               </button>
             </div>
           </form>

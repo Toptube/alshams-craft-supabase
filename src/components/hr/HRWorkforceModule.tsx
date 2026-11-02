@@ -27,6 +27,11 @@ import {
   BadgePercent,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
+import {
+  DisbursementSourceSelector,
+  SelectedDisbursementSource,
+  recordDisbursementExitTransaction,
+} from '../treasuries/DisbursementSourceSelector';
 
 interface HRWorkforceModuleProps {
   profile: UserProfile;
@@ -46,8 +51,16 @@ export const HRWorkforceModule: React.FC<HRWorkforceModuleProps> = ({
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [payoutType, setPayoutType] = useState<'wage_payout' | 'advance' | 'bonus' | 'salary'>('wage_payout');
   const [payoutAmount, setPayoutAmount] = useState<number>(300);
-  const [safeType, setSafeType] = useState<SafeType>('main');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [selectedDisbursementSource, setSelectedDisbursementSource] = useState<SelectedDisbursementSource>({
+    id: 'main',
+    name: 'الخزينة الرئيسية (النقدية)',
+    kind: 'main',
+    availableCash: 0,
+    availableWallet: 0,
+    availableInstapay: 0,
+    totalBalance: 0,
+  });
+  const [payoutChannel, setPayoutChannel] = useState<'cash' | 'instapay' | 'wallet'>('cash');
   const [payoutNotes, setPayoutNotes] = useState<string>('تسوية مستحقات مصنعية القطع المشغولة');
 
   // Edit employee modal state
@@ -172,6 +185,10 @@ export const HRWorkforceModule: React.FC<HRWorkforceModuleProps> = ({
     if (!emp) return;
 
     try {
+      const channelLabel = payoutChannel === 'cash' ? 'نقدي (كاش)' : payoutChannel === 'instapay' ? 'إنستاباي / بنك' : 'محفظة إلكترونية';
+      const serial = 'TX-WAGE-' + Date.now().toString().slice(-6);
+      const exitTag = `[سيريال: ${serial}] [المصدر: ${selectedDisbursementSource.name}] [وعاء الدفع: ${channelLabel}]`;
+
       const payoutRecord: EmployeePayoutRecord = {
         id: 'pay_' + Date.now(),
         tenantId,
@@ -179,15 +196,36 @@ export const HRWorkforceModule: React.FC<HRWorkforceModuleProps> = ({
         employeeName: emp.fullName,
         type: payoutType,
         amount: payoutAmount,
-        safeType,
-        paymentMethod,
+        safeType: selectedDisbursementSource.kind === 'main' ? 'main' : 'sub',
+        paymentMethod: payoutChannel === 'cash' ? 'cash' : payoutChannel === 'instapay' ? 'bank_transfer' : 'wallet',
         date: new Date().toISOString().split('T')[0],
-        notes: payoutNotes,
+        notes: `${payoutNotes.trim()} ${exitTag}`.trim(),
         registeredAsOperatingExpense: true,
         createdAt: Date.now(),
       };
 
       await tenantStorage.recordEmployeePayout(payoutRecord);
+
+      // Record safe transaction with verified exit tags
+      try {
+        await recordDisbursementExitTransaction({
+          tenantId,
+          sourceId: selectedDisbursementSource.id,
+          sourceName: selectedDisbursementSource.name,
+          sourceKind: selectedDisbursementSource.kind,
+          holderName: selectedDisbursementSource.holderName,
+          channel: payoutChannel,
+          amount: payoutAmount,
+          recipientName: emp.fullName,
+          category: 'أجور ومصنعيات عمالة',
+          title: `صرف ${payoutType === 'advance' ? 'سلفة' : 'مستحقات'}: ${emp.fullName}`,
+          notes: payoutNotes,
+          userEmail: profile.email || 'system',
+        });
+      } catch (err) {
+        console.warn('Record disbursement exit notice:', err);
+      }
+
       await loadData();
       setIsPayoutModalOpen(false);
       setPayoutNotes('');
@@ -640,34 +678,17 @@ export const HRWorkforceModule: React.FC<HRWorkforceModuleProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold mb-1">الخزينة المسحوب منها *</label>
-                <select
-                  value={safeType}
-                  onChange={(e) => setSafeType(e.target.value as SafeType)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
-                >
-                  <option value="main">الخزينة الرئيسية (النقدية)</option>
-                  <option value="wallet">المحفظة الإلكترونية (فودافون كاش / إنستاباي)</option>
-                  <option value="bank">الحساب البنكي</option>
-                  <option value="sub">الخزينة الفرعية (المصروفات اليومية)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold mb-1">طريقة السداد *</label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold"
-                >
-                  <option value="cash">نقدي (كاش في اليد)</option>
-                  <option value="wallet">محفظة إلكترونية (إنستاباي / كاش)</option>
-                  <option value="bank_transfer">تحويل بنكي</option>
-                </select>
-              </div>
-            </div>
+            {/* اختيار مصدر ووعاء الصرف الحي مع الزر السريع */}
+            <DisbursementSourceSelector
+              workshopId={tenantId}
+              currencySymbol={profile.currencySymbol}
+              selectedSourceId={selectedDisbursementSource.id}
+              onSourceChange={setSelectedDisbursementSource}
+              selectedChannel={payoutChannel}
+              onChannelChange={setPayoutChannel}
+              disbursedAmount={payoutAmount}
+              label="الخزينة أو العهدة المسحوب منها أجر الفنان: *"
+            />
 
             <div>
               <label className="block text-xs font-bold mb-1">بيان الصرف والملاحظات</label>

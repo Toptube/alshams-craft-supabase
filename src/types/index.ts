@@ -34,7 +34,7 @@ export type InvoiceStatus =
   | 'pending'
   | 'new'
   | string;
-export type WorkOrderStatus = 'open' | 'completed' | 'cancelled';
+export type WorkOrderStatus = 'open' | 'in_progress' | 'completed' | 'cancelled';
 
 export interface CountryConfig {
   code: string;
@@ -191,6 +191,8 @@ export interface TreasuryTransaction {
   treasuryId?: string;
   treasuryName?: string;
   safeType?: string;
+  channel?: string;
+  recipient?: string;
   type:
     | 'deposit'
     | 'withdrawal'

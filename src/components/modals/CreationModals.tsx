@@ -28,6 +28,11 @@ import {
 } from '../../db/supabaseService';
 import { NumberInput } from '../ui/NumberInput';
 import {
+  DisbursementSourceSelector,
+  SelectedDisbursementSource,
+  recordDisbursementExitTransaction,
+} from '../treasuries/DisbursementSourceSelector';
+import {
   X,
   PackagePlus,
   UserPlus,
@@ -919,7 +924,17 @@ export const NewSupplierModal: React.FC<{
   const [quantity, setQuantity] = useState(10);
   const [unitCost, setUnitCost] = useState(180);
   const [paidAmount, setPaidAmount] = useState(1800);
-  const [safeType, setSafeType] = useState<SafeType>('main');
+  const [selectedDisbursementSource, setSelectedDisbursementSource] = useState<SelectedDisbursementSource>({
+    id: 'main',
+    name: 'الخزينة الرئيسية (النقدية)',
+    kind: 'main',
+    availableCash: 0,
+    availableWallet: 0,
+    availableInstapay: 0,
+    totalBalance: 0,
+  });
+  const [paymentChannel, setPaymentChannel] = useState<'cash' | 'instapay' | 'wallet'>('cash');
+  const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
 
   React.useEffect(() => {
@@ -929,7 +944,10 @@ export const NewSupplierModal: React.FC<{
     });
     tenantStorage.getRawMaterials(tenantId).then((mats) => {
       setRawMaterialsList(mats);
-      if (mats.length > 0) setSelectedMaterialId(mats[0].id);
+      if (mats.length > 0) {
+        setSelectedMaterialId(mats[0].id);
+        if (mats[0].costPerUnit) setUnitCost(mats[0].costPerUnit);
+      }
     });
     tenantStorage.getSupplierInvoices(tenantId).then(setInvoicesList);
   }, [tenantId]);
@@ -990,37 +1008,79 @@ export const NewSupplierModal: React.FC<{
     const mat = rawMaterialsList.find((m) => m.id === selectedMaterialId);
     if (!sup || !mat) return;
 
-    const total = quantity * unitCost;
-    const remaining = Math.max(0, total - paidAmount);
+    setInvoiceSubmitting(true);
+    try {
+      const total = quantity * unitCost;
+      const remaining = Math.max(0, total - paidAmount);
 
-    const invoice: SupplierPurchaseInvoice = {
-      id: 'sinv_' + Date.now(),
-      tenantId: profile.tenantId || profile.workshopId || profile.id || '',
-      supplierId: sup.id,
-      supplierName: sup.name || sup.companyName || 'مورد خامات',
-      invoiceNumber,
-      date: new Date().toISOString().split('T')[0],
-      items: [
-        {
-          materialId: mat.id,
-          materialName: mat.materialName,
-          quantity,
-          unit: mat.unit,
-          unitCost,
-          totalCost: total,
-        },
-      ],
-      totalAmount: total,
-      paidAmount,
-      remainingAmount: remaining,
-      safeType,
-      paymentMethod: 'cash',
-      createdAt: Date.now(),
-    };
+      let serial = 'TX-PURCHASE-' + Date.now().toString().slice(-6);
+      if (paidAmount > 0) {
+        try {
+          serial = await recordDisbursementExitTransaction({
+            tenantId,
+            sourceId: selectedDisbursementSource.id,
+            sourceName: selectedDisbursementSource.name,
+            sourceKind: selectedDisbursementSource.kind,
+            holderName: selectedDisbursementSource.holderName,
+            channel: paymentChannel,
+            amount: paidAmount,
+            recipientName: sup.name || sup.companyName || 'مورد خامات',
+            category: 'مشتريات خامات ومستلزمات',
+            title: `توريد خامة: ${mat.materialName}`,
+            notes: `فاتورة شراء رقم #${invoiceNumber}`,
+            userEmail: profile.email || 'system',
+          });
+        } catch (safeErr) {
+          console.warn('Safe transaction record notice:', safeErr);
+        }
+      }
 
-    await tenantStorage.recordSupplierPurchaseInvoice(invoice);
-    onSuccess();
-    onClose();
+      const channelLabel = paymentChannel === 'cash' ? 'نقدي (كاش)' : paymentChannel === 'instapay' ? 'إنستاباي / بنك' : 'محفظة إلكترونية';
+      const exitTag = paidAmount > 0
+        ? `[سيريال: ${serial}] [المصدر: ${selectedDisbursementSource.name}] [وعاء الدفع: ${channelLabel}]`
+        : '[فاتورة مشتريات بالآجل]';
+
+      const invoice: SupplierPurchaseInvoice = {
+        id: 'sinv_' + Date.now(),
+        tenantId,
+        workshopId: tenantId,
+        supplierId: sup.id,
+        supplierName: sup.name || sup.companyName || 'مورد خامات',
+        invoiceNumber,
+        date: new Date().toISOString().split('T')[0],
+        items: [
+          {
+            materialId: mat.id,
+            materialName: mat.materialName,
+            quantity,
+            unit: mat.unit,
+            unitCost,
+            totalCost: total,
+          },
+        ],
+        totalAmount: total,
+        paidAmount,
+        remainingAmount: remaining,
+        safeType: selectedDisbursementSource.kind === 'main' ? 'main' : 'sub',
+        paymentMethod: paymentChannel === 'cash' ? 'cash' : paymentChannel === 'instapay' ? 'bank_transfer' : 'wallet',
+        notes: exitTag,
+        createdAt: Date.now(),
+      };
+
+      await tenantStorage.recordSupplierPurchaseInvoice(invoice);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('alshams_treasury_updated'));
+        window.dispatchEvent(new CustomEvent('alshams_financials_updated'));
+        window.dispatchEvent(new CustomEvent('alshams_materials_updated'));
+      }
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setInvoiceSubmitting(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -1145,24 +1205,162 @@ export const NewSupplierModal: React.FC<{
             </div>
           </form>
         ) : mode === 'record_invoice' ? (
-          <div className="space-y-4 py-4 text-center">
-            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs font-bold space-y-2">
-              <Receipt className="w-8 h-8 mx-auto text-amber-600" />
-              <p>عمليات فواتير شراء وتوريد الخامات قيد النقل للنظام الجديد</p>
-              <p className="text-[11px] text-stone-500 dark:text-stone-400 font-normal">
-                جاري تجهيز الجداول السحابية لحفظ حركات التوريد وأرصدة الموردين مع المخزن والخزينة.
-              </p>
+          <form onSubmit={handleRecordInvoice} className="space-y-3.5 text-right">
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-xs font-bold mb-1">المورد / التاجر *</label>
+                <select
+                  value={selectedSupplierId}
+                  onChange={(e) => setSelectedSupplierId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none cursor-pointer"
+                  required
+                >
+                  {suppliersList.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name || s.companyName} {s.phoneNumber ? `(${s.phoneNumber})` : ''}
+                    </option>
+                  ))}
+                  {suppliersList.length === 0 && (
+                    <option value="">لا يوجد موردين مسجلين - عرّف مورداً أولاً</option>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">الخامة المشتراة *</label>
+                <select
+                  value={selectedMaterialId}
+                  onChange={(e) => {
+                    const mid = e.target.value;
+                    setSelectedMaterialId(mid);
+                    const mat = rawMaterialsList.find((m) => m.id === mid);
+                    if (mat && mat.costPerUnit) setUnitCost(mat.costPerUnit);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none cursor-pointer"
+                  required
+                >
+                  {rawMaterialsList.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.materialName} ({m.unit || 'وحدة'}) — الرصيد الحالي: {m.currentStock || 0}
+                    </option>
+                  ))}
+                  {rawMaterialsList.length === 0 && (
+                    <option value="">لا توجد خامات في المخزن</option>
+                  )}
+                </select>
+              </div>
             </div>
-            <div className="flex justify-end pt-2">
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-bold mb-1">الكمية المشتراة *</label>
+                <NumberInput
+                  min={0.1}
+                  step={0.5}
+                  required
+                  value={quantity}
+                  onChange={(val) => {
+                    const q = Number(val) || 0;
+                    setQuantity(q);
+                    setPaidAmount(Math.round(q * unitCost));
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs font-bold text-center"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">سعر الوحدة ({profile.currencySymbol}) *</label>
+                <NumberInput
+                  min={0.01}
+                  step={1}
+                  required
+                  value={unitCost}
+                  onChange={(val) => {
+                    const c = Number(val) || 0;
+                    setUnitCost(c);
+                    setPaidAmount(Math.round(quantity * c));
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs font-bold text-center"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1">إجمالي الفاتورة</label>
+                <div className="w-full px-3 py-2 rounded-xl bg-amber-100/70 dark:bg-stone-800 font-mono text-xs font-black text-amber-900 dark:text-amber-200 text-center flex items-center justify-center">
+                  {Math.round(quantity * unitCost)} {profile.currencySymbol}
+                </div>
+              </div>
+            </div>
+
+            {/* Paid amount & remaining */}
+            <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/40 border border-stone-200 dark:border-stone-700 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                  المبلغ المسدد نقداً الآن ({profile.currencySymbol}): *
+                </label>
+                <div className="flex items-center gap-1.5 text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setPaidAmount(Math.round(quantity * unitCost))}
+                    className="text-amber-700 dark:text-amber-400 hover:underline cursor-pointer"
+                  >
+                    سداد كامل
+                  </button>
+                  <span className="text-stone-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setPaidAmount(0)}
+                    className="text-stone-500 hover:underline cursor-pointer"
+                  >
+                    آجل بالكامل
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <NumberInput
+                  min={0}
+                  max={Math.round(quantity * unitCost)}
+                  value={paidAmount}
+                  onChange={setPaidAmount}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono text-xs font-bold"
+                />
+                <div className="px-3 py-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs font-bold flex items-center justify-between">
+                  <span className="text-stone-500">المتبقي (آجل):</span>
+                  <span className="font-mono text-rose-600 dark:text-rose-400 font-black">
+                    {Math.max(0, Math.round(quantity * unitCost) - paidAmount)} {profile.currencySymbol}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Disbursement Source Selector if paidAmount > 0 */}
+            {paidAmount > 0 && (
+              <DisbursementSourceSelector
+                workshopId={tenantId}
+                currencySymbol={profile.currencySymbol}
+                selectedSourceId={selectedDisbursementSource.id}
+                onSourceChange={setSelectedDisbursementSource}
+                selectedChannel={paymentChannel}
+                onChannelChange={setPaymentChannel}
+                disbursedAmount={paidAmount}
+                label="الخزينة أو العهدة المسحوب منها سداد الفاتورة: *"
+              />
+            )}
+
+            <div className="pt-2 flex justify-end gap-2 border-t">
+              <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-bold text-stone-500 cursor-pointer">
+                إلغاء
+              </button>
               <button
-                type="button"
-                onClick={onClose}
-                className="px-5 py-2 text-xs font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl cursor-pointer"
+                type="submit"
+                disabled={invoiceSubmitting}
+                className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl cursor-pointer disabled:opacity-50"
               >
-                إغلاق
+                {invoiceSubmitting ? 'جاري الاعتماد...' : 'اعتماد الفاتورة وتوريد الخامات'}
               </button>
             </div>
-          </div>
+          </form>
         ) : (
           /* SUPPLIER STATEMENT */
           <div className="space-y-4 py-4 text-center">

@@ -105,6 +105,8 @@ export interface WorkshopHomeScreenProps {
   onNavigateToInvoices: (filter?: string) => void;
   onNavigateToWorkOrders: (mode?: string) => void;
   onNavigateToTreasuries: () => void;
+  onNavigateToPurchases?: () => void;
+  onNavigateToAccounts?: () => void;
   onNavigateToHR: () => void;
   onNavigateToReports: () => void;
   onNavigateToFixedAssets?: () => void;
@@ -136,6 +138,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onNavigateToInvoices,
   onNavigateToWorkOrders,
   onNavigateToTreasuries,
+  onNavigateToPurchases,
+  onNavigateToAccounts,
   onNavigateToHR,
   onNavigateToReports,
   onNavigateToFixedAssets,
@@ -400,8 +404,22 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     if (workshopId) {
       loadMetrics();
     }
+
+    const handleDataRefresh = () => {
+      if (isMounted && workshopId) {
+        loadMetrics();
+      }
+    };
+
+    window.addEventListener('alshams_treasury_updated', handleDataRefresh);
+    window.addEventListener('alshams_financials_updated', handleDataRefresh);
+    window.addEventListener('alshams_materials_updated', handleDataRefresh);
+
     return () => {
       isMounted = false;
+      window.removeEventListener('alshams_treasury_updated', handleDataRefresh);
+      window.removeEventListener('alshams_financials_updated', handleDataRefresh);
+      window.removeEventListener('alshams_materials_updated', handleDataRefresh);
     };
   }, [workshopId]);
 
@@ -741,6 +759,11 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               onClick: onOpenSupplierInvoice,
             },
             {
+              label: 'سجل المشتريات وتوريد الخامات',
+              icon: Truck,
+              onClick: () => (onNavigateToPurchases ? onNavigateToPurchases() : onNavigateToSuppliers()),
+            },
+            {
               label: 'أمر شراء جديد للمورد',
               icon: Receipt,
               onClick: onOpenSupplierInvoice,
@@ -749,11 +772,6 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               label: 'إذن استلام وفحص الخامات',
               icon: ClipboardCheck,
               onClick: () => onOpenInventoryModal('audit'),
-            },
-            {
-              label: 'سجل فواتير المشتريات',
-              icon: Truck,
-              onClick: () => onNavigateToSuppliers(),
             },
           ],
         };
@@ -815,23 +833,23 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           icon: Hammer,
           items: [
             {
-              label: 'فتح أمر تشغيل جديد',
+              label: 'أمر تشغيل وتصنيع جديد',
               icon: PlusCircle,
               onClick: () => onNavigateToWorkOrders('create'),
             },
             {
-              label: 'أوامر التشغيل ومتابعة التنفيذ',
-              icon: Hammer,
-              onClick: () => onNavigateToWorkOrders(),
+              label: 'إذن صرف خامات للتصنيع',
+              icon: Boxes,
+              onClick: () => onNavigateToWorkOrders('issue'),
             },
             {
-              label: 'إذن صرف الخامات ونسب الهالك',
-              icon: AlertTriangle,
-              onClick: () => onNavigateToWorkOrders(),
-            },
-            {
-              label: 'استلام المنتج التام وحساب المصنعية',
+              label: 'إذن استلام وتوريد منتج تام',
               icon: PackageCheck,
+              onClick: () => onNavigateToWorkOrders('receive'),
+            },
+            {
+              label: 'سجل ومتابعة أوامر التشغيل',
+              icon: Hammer,
               onClick: () => onNavigateToWorkOrders(),
             },
           ],
@@ -1006,19 +1024,19 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           icon: Scale,
           items: [
             {
-              label: 'ميزان الحركة اليومية للورشة',
-              icon: Scale,
-              onClick: () => onNavigateToReports(),
+              label: 'دفتر اليومية وسجل الحركات الحية',
+              icon: Receipt,
+              onClick: () => (onNavigateToAccounts ? onNavigateToAccounts() : onNavigateToReports()),
             },
             {
-              label: 'الأرباح والخسائر للورشة',
+              label: 'صافي الأرباح والخسائر للورشة',
               icon: TrendingUp,
-              onClick: () => onNavigateToReports(),
+              onClick: () => (onNavigateToAccounts ? onNavigateToAccounts() : onNavigateToReports()),
             },
             {
-              label: 'شجرة الحسابات والدفتر المالي',
-              icon: BookOpen,
-              onClick: () => onNavigateToReports(),
+              label: 'كشف مستحقات الورشة والالتزامات',
+              icon: Scale,
+              onClick: () => (onNavigateToAccounts ? onNavigateToAccounts() : onNavigateToReports()),
             },
           ],
         };

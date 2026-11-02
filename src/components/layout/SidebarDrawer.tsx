@@ -41,6 +41,7 @@ import {
   Download,
   Check,
   RefreshCw,
+  PackagePlus,
 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 import { tenantStorage } from '../../db/dexieDB';
@@ -213,6 +214,13 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       badge: tr('badge_materials'),
     },
     {
+      id: 'purchases',
+      label: 'المشتريات وتوريد الخامات',
+      sublabel: 'فواتير التوريد والمدفوعات',
+      icon: PackagePlus,
+      badge: 'المشتريات',
+    },
+    {
       id: 'suppliers',
       label: tr('mod_suppliers'),
       sublabel: tr('sub_suppliers'),
@@ -260,6 +268,13 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       sublabel: tr('sub_treasuries'),
       icon: Wallet,
       badge: tr('badge_treasuries'),
+    },
+    {
+      id: 'accounts',
+      label: 'الحسابات والدفتر المالي',
+      sublabel: 'اليومية والأرباح والآجل',
+      icon: Scale,
+      badge: 'الدفتر',
     },
     {
       id: 'fixed_assets',

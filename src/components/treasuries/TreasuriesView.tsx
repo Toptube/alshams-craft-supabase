@@ -331,6 +331,7 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
       try {
         const txs = await tenantStorage.getSafeTransactions(workshopId);
         setSafeTransactions(txs);
+        loadTreasuryData(true);
       } catch (e) {}
     };
 
@@ -2258,6 +2259,60 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+          {/* LEVEL 3: OPEN FINANCIAL CUSTODIES (العهد المالية ومتابعة تسويتها) */}
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center justify-between pb-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold">
+                  <Wallet className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-stone-800 dark:text-stone-200">
+                    العهد المالية ومسؤوليات الصرف ({custodies.length})
+                  </h3>
+                  <p className="text-[11px] text-stone-500">
+                    متابعة المبالغ المسلمة للمسؤولين والمندوبين والمتبقي في ذمتهم وإقفال العهدة ورد الفائض
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleOpenIssueCustody()}
+                className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>صرف عهدة جديدة</span>
+              </button>
+            </div>
+
+            {custodies.length === 0 ? (
+              <div className="p-6 text-center rounded-2xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs text-stone-500 space-y-1">
+                <p className="font-bold">لا توجد عهد مالية مسجلة حالياً.</p>
+                <p className="text-[11px] text-stone-400">
+                  يمكنك صرف عهدة نقدية لمسؤول المشتريات أو الإنتاج بالضغط على "صرف عهدة جديدة".
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {custodies.map((c) => (
+                  <CustodyCard
+                    key={c.id}
+                    custody={c}
+                    currency={currency}
+                    minAlert={minAlerts[c.id] || 0}
+                    onSetAlert={() => handleOpenSetAlert(c)}
+                    onTopUp={() => handleOpenTopUp(c)}
+                    onReturn={() => handleOpenReturn(c)}
+                    onSettle={() => handleOpenSettle(c)}
+                    onStatement={() => handleOpenStatement(c)}
+                    onEdit={() => handleOpenEdit(c)}
+                    onReminder={() => handleOpenRemindersModal(c)}
+                  />
+                ))}
               </div>
             )}
           </div>

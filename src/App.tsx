@@ -41,6 +41,8 @@ import { HRWorkforceModule } from './components/hr/HRWorkforceModule';
 import { SaaSReportsAnalyticsView } from './components/reports/SaaSReportsAnalyticsView';
 import { FalconAIAgent, StructuredCalculatorExport } from './components/ai/FalconAIAgent';
 import { AdminDashboard } from './components/admin/AdminDashboard';
+import { PurchasesView } from './components/purchases/PurchasesView';
+import { AccountsView } from './components/accounting/AccountsView';
 import { AuthGateway } from './components/auth/AuthGateway';
 
 // Modals & Drawers
@@ -81,12 +83,14 @@ export type ActiveView =
   | 'archive'
   | 'catalog'
   | 'materials'
+  | 'purchases'
   | 'suppliers'
   | 'customers'
   | 'sales'
   | 'invoices'
   | 'work_orders'
   | 'treasuries'
+  | 'accounts'
   | 'fixed_assets'
   | 'hr'
   | 'reports'
@@ -101,12 +105,14 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   archive: 'أرشيف المنتجات والمشغولات',
   catalog: 'كتالوج الورشة والمنتجات',
   materials: 'المخزن وإدارة الخامات',
+  purchases: 'المشتريات وفواتير الخامات',
   suppliers: 'سجل الموردين',
   customers: 'سجل العملاء',
   sales: 'طلبيات ومبيعات الورشة',
   invoices: 'الفواتير وعروض الأسعار',
   work_orders: 'أوامر الشغل والتصنيع',
   treasuries: 'الخزينة والأرصدة والعهد',
+  accounts: 'دفتر حركة الورشة المالي والحسابات',
   fixed_assets: 'إدارة الأصول الثابتة',
   hr: 'شؤون العاملين والحرفيين',
   reports: 'التقارير المالية والتحليلية',
@@ -188,6 +194,7 @@ export const App: React.FC = () => {
   const [historyStack, setHistoryStack] = useState<ActiveView[]>([]);
   const [adminInitialTab, setAdminInitialTab] = useState<ExecutiveTab>('materials');
   const [catalogInitialTab, setCatalogInitialTab] = useState<'catalog' | 'store'>('catalog');
+  const [workOrdersInitialStage, setWorkOrdersInitialStage] = useState<'create' | 'issue' | 'receive' | undefined>(undefined);
 
   // Modals state
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
@@ -544,6 +551,18 @@ export const App: React.FC = () => {
     [navigateTo]
   );
 
+  const handleNavigateToWorkOrders = useCallback(
+    (mode?: string) => {
+      if (mode === 'create' || mode === 'issue' || mode === 'receive') {
+        setWorkOrdersInitialStage(mode);
+      } else {
+        setWorkOrdersInitialStage(undefined);
+      }
+      navigateTo('work_orders');
+    },
+    [navigateTo]
+  );
+
   const navigateBack = useCallback(() => {
     if (historyStack.length > 0) {
       const previous = historyStack[historyStack.length - 1];
@@ -841,8 +860,10 @@ export const App: React.FC = () => {
               onNavigateToSuppliers={() => navigateTo('suppliers')}
               onNavigateToSales={() => navigateTo('sales')}
               onNavigateToInvoices={() => navigateTo('invoices')}
-              onNavigateToWorkOrders={() => navigateTo('work_orders')}
+              onNavigateToWorkOrders={handleNavigateToWorkOrders}
               onNavigateToTreasuries={() => navigateTo('treasuries')}
+              onNavigateToPurchases={() => navigateTo('purchases')}
+              onNavigateToAccounts={() => navigateTo('accounts')}
               onNavigateToHR={() => navigateTo('hr')}
               onNavigateToReports={() => navigateTo('reports')}
               onNavigateToFixedAssets={() => navigateTo('fixed_assets')}
@@ -956,9 +977,22 @@ export const App: React.FC = () => {
           />
         )}
 
+        {activeView === 'purchases' && (
+          <PurchasesView
+            workshop={profile}
+            onOpenHelp={(sec: string) => {
+              setUserGuideSection(sec);
+              setIsUserGuideOpen(true);
+            }}
+            onOpenNewMaterial={() => setIsNewMaterialOpen(true)}
+            onOpenCreateSupplier={() => setIsNewSupplierOpen(true)}
+          />
+        )}
+
         {activeView === 'work_orders' && (
           <WorkOrdersView
             workshop={profile}
+            initialStage={workOrdersInitialStage}
             onOpenHelp={(sec: string) => {
               setUserGuideSection(sec);
               setIsUserGuideOpen(true);
@@ -973,6 +1007,18 @@ export const App: React.FC = () => {
               setUserGuideSection(sec);
               setIsUserGuideOpen(true);
             }}
+          />
+        )}
+
+        {activeView === 'accounts' && (
+          <AccountsView
+            workshop={profile}
+            onOpenHelp={(sec: string) => {
+              setUserGuideSection(sec);
+              setIsUserGuideOpen(true);
+            }}
+            onNavigateToSales={() => navigateTo('sales')}
+            onNavigateToPurchases={() => navigateTo('purchases')}
           />
         )}
 
