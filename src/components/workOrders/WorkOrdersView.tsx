@@ -341,6 +341,253 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
     }
   };
 
+  // Fast-Track: مسار التنفيذ والترحيل الفوري للمشغولات السريعة والجاهزة للتسليم
+  const handleExecuteFastTrackCreate = async () => {
+    if (!productName.trim() || pulledMaterials.length === 0) {
+      setNotice({ text: 'يرجى كتابة اسم المشغولة وتحديد خامة واحدة على الأقل للترحيل الفوري', isError: true });
+      return;
+    }
+
+    setCreatingOrder(true);
+    try {
+      let orderNumber = `WO-${Date.now().toString().slice(-4)}`;
+      try {
+        orderNumber = await tenantStorage.getNextWorkOrderNumber(workshopId);
+      } catch {}
+
+      const assignedEmp = employees.find((e) => e.id === assignedEmployeeId);
+      const finishedQty = Number(targetQuantity) || 1;
+      const actualLaborCost = Number(assignedEmployeeWage) || 0;
+
+      // 1. خصم الخامات المحددة من مخزن الخامات فورياً
+      for (const mat of pulledMaterials) {
+        try {
+          const raw = materials.find((m) => m.id === mat.materialId);
+          if (raw) {
+            raw.currentStock = Math.max(0, Math.round(((raw.currentStock || 0) - mat.quantity) * 1000) / 1000);
+            await tenantStorage.saveRawMaterial(raw);
+          }
+        } catch (stockErr) {
+          console.warn('Material deduction notice:', stockErr);
+        }
+      }
+
+      // 2. احتساب التكاليف الإجمالية وتكلفة الوحدة
+      const consumedMaterialsCost = pulledMaterials.reduce(
+        (sum, m) => sum + (Number(m.quantity) || 0) * (Number(m.unitCost) || 0),
+        0
+      );
+      const totalProductionCost = consumedMaterialsCost + actualLaborCost;
+      const unitCostCalculated = Math.round((totalProductionCost / finishedQty) * 100) / 100;
+
+      // 3. زيادة رصيد المنتج التام في مخزن المنتجات الجاهزة
+      try {
+        const prods = await tenantStorage.getProducts(workshopId);
+        const match = prods.find((p) => p.productName.trim().toLowerCase() === productName.trim().toLowerCase());
+        if (match) {
+          match.currentStock = (match.currentStock || 0) + finishedQty;
+          match.costPrice = unitCostCalculated;
+          await tenantStorage.mutateProduct(match);
+        } else {
+          await tenantStorage.mutateProduct({
+            id: 'prod_' + Date.now(),
+            tenantId: workshopId,
+            productName: productName.trim(),
+            currentStock: finishedQty,
+            costPrice: unitCostCalculated,
+            retailPrice: Math.round(unitCostCalculated * 1.4),
+            category: 'مشغولات يدوية',
+            isActive: true,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            input: {} as any,
+            output: {} as any,
+          } as any);
+        }
+      } catch (prodErr) {
+        console.warn('Finished product stock increase error:', prodErr);
+      }
+
+      // 4. قيد استحقاق الصانع في حسابه وسجله بالموارد البشرية
+      if (assignedEmp && actualLaborCost > 0) {
+        try {
+          const emp = await tenantStorage.getEmployee(assignedEmp.id);
+          if (emp) {
+            emp.totalEarned = (emp.totalEarned || 0) + actualLaborCost;
+            emp.currentBalance = (emp.totalEarned || 0) - (emp.totalPaid || 0);
+            await tenantStorage.saveEmployee(emp);
+          }
+        } catch (empErr) {
+          console.warn('Employee balance credit notice:', empErr);
+        }
+      }
+
+      // 5. حفظ أمر التشغيل بحالة مكتمل "completed"
+      const completedOrder: WorkOrderRecord = {
+        id: 'wo_' + Date.now(),
+        workshopId,
+        orderNumber,
+        productName: productName.trim(),
+        craftId: 'macrame',
+        category: 'مشغولات يدوية',
+        targetQuantity: finishedQty,
+        assignedEmployeeId: assignedEmp?.id,
+        assignedEmployeeName: assignedEmp?.fullName,
+        assignedEmployeeWage: actualLaborCost,
+        status: 'completed',
+        pulledMaterials,
+        returnedMaterials: [],
+        finishedProductsProduced: finishedQty,
+        scrapItems: [],
+        totalConsumedMaterialsCost: consumedMaterialsCost,
+        totalLaborCost: actualLaborCost,
+        totalProductionCost,
+        unitCostCalculated,
+        closingNotes: 'تم التنفيذ والترحيل الفوري بنجاح',
+        startDate: new Date().toISOString().split('T')[0],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        createdBy: workshop.email,
+      };
+
+      await tenantStorage.saveWorkOrder(completedOrder);
+
+      // مزامنة سحابية هادئة
+      try {
+        await supabase.from('work_orders').upsert({
+          id: completedOrder.id,
+          workshop_id: workshopId,
+          order_number: completedOrder.orderNumber,
+          product_name: completedOrder.productName,
+          status: 'completed',
+          finished_products_produced: finishedQty,
+          total_consumed_materials_cost: consumedMaterialsCost,
+          total_labor_cost: actualLaborCost,
+          total_production_cost: totalProductionCost,
+          unit_cost_calculated: unitCostCalculated,
+          updated_at: new Date().toISOString(),
+        });
+      } catch {}
+
+      window.dispatchEvent(new CustomEvent('alshams_products_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_materials_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_financials_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_workorders_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_employees_changed'));
+
+      setNotice({
+        text: `⚡ تم التنفيذ والترحيل الفوري بنجاح! تم خصم الخامات، وإيداع ${finishedQty} قطعة تامة بالمخزن، وقيد استحقاق الصانع (${actualLaborCost.toLocaleString()} ${workshop.currencySymbol}).`,
+      });
+      setIsCreateModalOpen(false);
+      await loadData();
+      setTimeout(() => setNotice(null), 4500);
+    } catch (err: any) {
+      setNotice({ text: err.message || 'فشل الترحيل الفوري', isError: true });
+    } finally {
+      setCreatingOrder(false);
+    }
+  };
+
+  // ترحيل فوري لأمر تشغيل قائم ومفتوح
+  const handleExecuteFastTrackForExisting = async (order: WorkOrderRecord) => {
+    if (!window.confirm(`هل تريد تنفيذ وترحيل أمر التشغيل #${order.orderNumber} فورياً إلى مخزن المنتجات التامة وإثبات استحقاق الصانع؟`)) return;
+
+    setLoading(true);
+    try {
+      const finishedQty = order.targetQuantity || 1;
+      const actualLaborCost = order.assignedEmployeeWage || 0;
+
+      // 1. خصم الخامات إذا كان الأمر لا يزال open
+      if (order.status === 'open') {
+        for (const mat of order.pulledMaterials) {
+          try {
+            const raw = materials.find((m) => m.id === mat.materialId);
+            if (raw) {
+              raw.currentStock = Math.max(0, Math.round(((raw.currentStock || 0) - mat.quantity) * 1000) / 1000);
+              await tenantStorage.saveRawMaterial(raw);
+            }
+          } catch {}
+        }
+      }
+
+      // 2. احتساب التكاليف
+      const consumedMaterialsCost = order.pulledMaterials.reduce(
+        (sum, m) => sum + (Number(m.quantity) || 0) * (Number(m.unitCost) || 0),
+        0
+      );
+      const totalProductionCost = consumedMaterialsCost + actualLaborCost;
+      const unitCostCalculated = Math.round((totalProductionCost / finishedQty) * 100) / 100;
+
+      // 3. توريد للمنتجات الجاهزة
+      try {
+        const prods = await tenantStorage.getProducts(workshopId);
+        const match = prods.find((p) => p.productName.trim().toLowerCase() === order.productName.trim().toLowerCase());
+        if (match) {
+          match.currentStock = (match.currentStock || 0) + finishedQty;
+          match.costPrice = unitCostCalculated;
+          await tenantStorage.mutateProduct(match);
+        } else {
+          await tenantStorage.mutateProduct({
+            id: 'prod_' + Date.now(),
+            tenantId: workshopId,
+            productName: order.productName.trim(),
+            currentStock: finishedQty,
+            costPrice: unitCostCalculated,
+            retailPrice: Math.round(unitCostCalculated * 1.4),
+            category: order.category || 'مشغولات يدوية',
+            isActive: true,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            input: {} as any,
+            output: {} as any,
+          } as any);
+        }
+      } catch {}
+
+      // 4. قيد استحقاق الصانع
+      if (order.assignedEmployeeId && actualLaborCost > 0) {
+        try {
+          const emp = await tenantStorage.getEmployee(order.assignedEmployeeId);
+          if (emp) {
+            emp.totalEarned = (emp.totalEarned || 0) + actualLaborCost;
+            emp.currentBalance = (emp.totalEarned || 0) - (emp.totalPaid || 0);
+            await tenantStorage.saveEmployee(emp);
+          }
+        } catch {}
+      }
+
+      // 5. حفظ أمر التشغيل بحالة مكتمل
+      const updated: WorkOrderRecord = {
+        ...order,
+        status: 'completed',
+        finishedProductsProduced: finishedQty,
+        totalConsumedMaterialsCost: consumedMaterialsCost,
+        totalLaborCost: actualLaborCost,
+        totalProductionCost,
+        unitCostCalculated,
+        closingNotes: 'تم الترحيل والإنجاز الفوري',
+        updatedAt: Date.now(),
+      };
+      await tenantStorage.saveWorkOrder(updated);
+
+      window.dispatchEvent(new CustomEvent('alshams_products_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_materials_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_financials_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_workorders_updated'));
+      window.dispatchEvent(new CustomEvent('alshams_employees_changed'));
+
+      setNotice({
+        text: `⚡ تم ترحيل أمر التشغيل #${order.orderNumber} بنجاح إلى مخزن المنتجات التامة وإثبات استحقاق الصانع!`,
+      });
+      await loadData();
+      setTimeout(() => setNotice(null), 4000);
+    } catch (err: any) {
+      setNotice({ text: err.message || 'فشل الترحيل الفوري', isError: true });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Stage 2: Material Issue (إذن صرف خامات للتصنيع)
   const handleExecuteIssueMaterials = async (orderId: string) => {
     const order = workOrders.find((w) => w.id === orderId);
@@ -615,8 +862,8 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
           </div>
         </div>
 
-        {/* The 3 Ordered Industrial Action Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+        {/* The 4 Ordered Industrial Action Buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
           {/* Step 1 Button */}
           <button
             type="button"
@@ -704,6 +951,31 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
             </div>
             <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
               إثبات المنتج بالمخزن، احتساب الهالك، وقيد مستحقات الصانع آلياً بالـ HR.
+            </p>
+          </button>
+
+          {/* Fast-Track Option */}
+          <button
+            type="button"
+            onClick={handleOpenCreate}
+            className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/20 via-orange-500/10 to-transparent border-2 border-dashed border-amber-400 dark:border-amber-600/60 hover:border-amber-500 hover:bg-amber-500/20 transition-all text-right group cursor-pointer shadow-xs active:scale-98"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="w-7 h-7 rounded-xl bg-amber-500 text-stone-950 font-mono font-black text-xs flex items-center justify-center shadow-xs">
+                ⚡
+              </span>
+              <Sparkles className="w-5 h-5 text-amber-500 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-sm font-black text-amber-900 dark:text-amber-200 group-hover:text-amber-700 transition-colors">
+                تنفيذ وترحيل فوري
+              </h3>
+              <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black bg-amber-400 text-amber-950">
+                سريع
+              </span>
+            </div>
+            <p className="text-[11px] text-stone-600 dark:text-stone-300 mt-1">
+              خصم الخامات + توريد للمخزن + قيد أجر الصانع بضغطة زر واحدة للمشغولات الجاهزة.
             </p>
           </button>
         </div>
@@ -850,30 +1122,52 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
                     </div>
 
                     {/* Operational Action Buttons per Order */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {isOpen && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedIssueOrderId(wo.id);
-                            setIsIssueModalOpen(true);
-                          }}
-                          className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs transition"
-                        >
-                          <Boxes className="w-3.5 h-3.5" />
-                          <span>إذن صرف الخامات للتصنيع</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedIssueOrderId(wo.id);
+                              setIsIssueModalOpen(true);
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                          >
+                            <Boxes className="w-3.5 h-3.5" />
+                            <span>إذن صرف الخامات</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleExecuteFastTrackForExisting(wo)}
+                            className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 border border-amber-500/40 text-xs font-black flex items-center gap-1 cursor-pointer transition active:scale-95"
+                            title="خصم الخامات وإيداع المشغولة التامة بالمخزن وقيد أجر الصانع فورياً"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                            <span>ترحيل فوري ⚡</span>
+                          </button>
+                        </>
                       )}
 
                       {isInProgress && (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenCloseWizard(wo)}
-                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs transition"
-                        >
-                          <PackageCheck className="w-3.5 h-3.5" />
-                          <span>إذن استلام وتوريد منتج تام</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCloseWizard(wo)}
+                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                          >
+                            <PackageCheck className="w-3.5 h-3.5" />
+                            <span>إذن استلام وتوريد</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleExecuteFastTrackForExisting(wo)}
+                            className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 border border-amber-500/40 text-xs font-black flex items-center gap-1 cursor-pointer transition active:scale-95"
+                            title="إيداع المشغولة التامة بالمخزن وقيد أجر الصانع فورياً"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                            <span>ترحيل فوري ⚡</span>
+                          </button>
+                        </>
                       )}
 
                       {isCompleted && (
@@ -1126,21 +1420,35 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               ))}
             </div>
 
-            <div className="pt-3 flex justify-end gap-2 border-t border-stone-200 dark:border-stone-800">
+            <div className="pt-3 flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 dark:border-stone-800">
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(false)}
-                className="px-4 py-2 text-xs font-bold text-stone-500 cursor-pointer"
+                className="px-4 py-2 text-xs font-bold text-stone-500 hover:text-stone-700 cursor-pointer"
               >
                 إلغاء
               </button>
-              <button
-                type="submit"
-                disabled={creatingOrder}
-                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black cursor-pointer disabled:opacity-50"
-              >
-                {creatingOrder ? 'جاري الحفظ...' : 'حفظ أمر التشغيل (جاهز للصرف)'}
-              </button>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={creatingOrder}
+                  className="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-black cursor-pointer disabled:opacity-50 transition"
+                  title="حفظ أمر التشغيل في المرحلة 1 بانتظار إذن الصرف لاحقاً"
+                >
+                  {creatingOrder ? 'جاري الحفظ...' : 'حفظ (المسار المتتابع)'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteFastTrackCreate}
+                  disabled={creatingOrder}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 via-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white text-xs font-black flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50 transition active:scale-95"
+                  title="خصم الخامات فورياً وإيداع المنتج التام بالمخزن وقيد أجر الصانع بالـ HR"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-200" />
+                  <span>{creatingOrder ? 'جاري الترحيل الفوري...' : '⚡ تنفيذ وترحيل فوري'}</span>
+                </button>
+              </div>
             </div>
           </form>
         </div>

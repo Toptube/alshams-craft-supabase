@@ -84,12 +84,21 @@ interface MaterialsViewProps {
   initialOpenAddModal?: boolean;
   onResetOpenAddModal?: () => void;
   onOpenHelp?: (sectionId: string) => void;
+  onNavigateToPurchases?: (initialMaterial: {
+    materialId: string;
+    materialName: string;
+    supplierId?: string;
+    unitCost?: number;
+    unitName?: string;
+  }) => void;
 }
 
 export const MaterialsView: React.FC<MaterialsViewProps> = ({
   workshop,
   initialOpenAddModal = false,
   onResetOpenAddModal,
+  onOpenHelp,
+  onNavigateToPurchases,
 }) => {
   const workshopId = workshop.workshopId || workshop.tenantId || workshop.id;
 
@@ -1547,10 +1556,31 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                             {m.name}
                           </div>
                           {isLowStock && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 animate-pulse">
-                              <AlertTriangle className="w-3 h-3 text-rose-600" />
-                              <span>مخزون منخفض ({currentStock} / {minAlertThreshold} {unt?.name || ''})</span>
-                            </span>
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 border border-rose-300 dark:border-rose-800 shadow-xs animate-pulse">
+                                <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                <span>⚠️ يلزم الشراء ({currentStock} / {minAlertThreshold} {unt?.name || ''})</span>
+                              </span>
+                              {onNavigateToPurchases && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onNavigateToPurchases({
+                                      materialId: m.id,
+                                      materialName: m.name,
+                                      supplierId: m.supplier_id || sup?.id,
+                                      unitCost: m.purchase_price,
+                                      unitName: unt?.name,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black shadow-xs transition active:scale-95 cursor-pointer whitespace-nowrap"
+                                  title="فتح فاتورة شراء وتوريد لهذه الخامة فورياً"
+                                >
+                                  <PackagePlus className="w-3 h-3" />
+                                  <span>طلب شراء 🛒</span>
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </td>

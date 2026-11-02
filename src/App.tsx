@@ -195,6 +195,25 @@ export const App: React.FC = () => {
   const [adminInitialTab, setAdminInitialTab] = useState<ExecutiveTab>('materials');
   const [catalogInitialTab, setCatalogInitialTab] = useState<'catalog' | 'store'>('catalog');
   const [workOrdersInitialStage, setWorkOrdersInitialStage] = useState<'create' | 'issue' | 'receive' | undefined>(undefined);
+  const [purchaseInitialMaterial, setPurchaseInitialMaterial] = useState<{
+    materialId: string;
+    materialName?: string;
+    supplierId?: string;
+    unitCost?: number;
+    unitName?: string;
+  } | null>(null);
+
+  const handleOpenPurchaseForMaterial = useCallback((mat: {
+    materialId: string;
+    materialName?: string;
+    supplierId?: string;
+    unitCost?: number;
+    unitName?: string;
+  }) => {
+    setPurchaseInitialMaterial(mat);
+    setIsMaterialsModalOpen(false);
+    setActiveView('purchases');
+  }, []);
 
   // Modals state
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
@@ -932,6 +951,7 @@ export const App: React.FC = () => {
               setUserGuideSection(sec);
               setIsUserGuideOpen(true);
             }}
+            onNavigateToPurchases={handleOpenPurchaseForMaterial}
           />
         )}
 
@@ -980,6 +1000,8 @@ export const App: React.FC = () => {
         {activeView === 'purchases' && (
           <PurchasesView
             workshop={profile}
+            initialMaterial={purchaseInitialMaterial}
+            onClearInitialMaterial={() => setPurchaseInitialMaterial(null)}
             onOpenHelp={(sec: string) => {
               setUserGuideSection(sec);
               setIsUserGuideOpen(true);
@@ -1293,6 +1315,15 @@ export const App: React.FC = () => {
           isOpen={isMaterialsModalOpen}
           onClose={() => setIsMaterialsModalOpen(false)}
           profile={profile}
+          onOpenPurchaseForMaterial={(item) =>
+            handleOpenPurchaseForMaterial({
+              materialId: item.id,
+              materialName: item.name,
+              supplierId: item.supplier_id,
+              unitCost: item.costPrice || item.purchase_price,
+              unitName: item.unit,
+            })
+          }
         />
       )}
 

@@ -34,8 +34,18 @@ import {
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
 
+export interface InitialPurchaseMaterial {
+  materialId: string;
+  materialName?: string;
+  supplierId?: string;
+  unitCost?: number;
+  unitName?: string;
+}
+
 interface PurchasesViewProps {
   workshop: WorkshopProfile | UserProfile;
+  initialMaterial?: InitialPurchaseMaterial | null;
+  onClearInitialMaterial?: () => void;
   onOpenHelp?: (sectionId: string) => void;
   onOpenNewMaterial?: () => void;
   onOpenCreateSupplier?: () => void;
@@ -43,6 +53,8 @@ interface PurchasesViewProps {
 
 export const PurchasesView: React.FC<PurchasesViewProps> = ({
   workshop,
+  initialMaterial,
+  onClearInitialMaterial,
   onOpenHelp,
   onOpenNewMaterial,
   onOpenCreateSupplier,
@@ -136,6 +148,31 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
       window.removeEventListener('alshams_financials_updated', handleRemoteUpdate);
     };
   }, []);
+
+  // عند طلب شراء خامة معينة من جدول الخامات أو المخزن
+  useEffect(() => {
+    if (initialMaterial && initialMaterial.materialId) {
+      setIsInvoiceModalOpen(true);
+      setInvoiceNumber(`SUP-${Date.now().toString().slice(-4)}`);
+      setInvoiceDate(new Date().toISOString().split('T')[0]);
+      if (initialMaterial.supplierId) {
+        setSelectedSupplierId(initialMaterial.supplierId);
+      }
+      setPurchasedItems([
+        {
+          materialId: initialMaterial.materialId,
+          materialName: initialMaterial.materialName || 'خامة مطلوبة',
+          quantity: 10,
+          unitCost: Number(initialMaterial.unitCost) || 50,
+          unit: initialMaterial.unitName || 'وحدة',
+        },
+      ]);
+      setNotice({
+        text: `تم تجهيز فاتورة شراء جديدة للخامة: "${initialMaterial.materialName || ''}" - حدد الكمية والمورد لتأكيد الشراء والتوريد للمخزن.`,
+      });
+      onClearInitialMaterial?.();
+    }
+  }, [initialMaterial]);
 
   // Compute Total Metrics
   const totalPurchasesSum = useMemo(() => {

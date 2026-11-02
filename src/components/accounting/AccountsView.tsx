@@ -11,6 +11,10 @@ import {
 } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import {
+  getTreasuryBalancesFromSupabase,
+  SupabaseTreasuryBalance,
+} from '../../db/supabaseService';
+import {
   DisbursementSourceSelector,
   SelectedDisbursementSource,
   recordDisbursementExitTransaction,
@@ -36,6 +40,10 @@ import {
   Users,
   Truck,
   Building,
+  ShieldCheck,
+  Banknote,
+  Smartphone,
+  Coins,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
 
@@ -78,6 +86,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [adminCosts, setAdminCosts] = useState<AdminCostRecord[]>([]);
   const [payouts, setPayouts] = useState<EmployeePayoutRecord[]>([]);
   const [workOrders, setWorkOrders] = useState<WorkOrderRecord[]>([]);
+  const [treasuries, setTreasuries] = useState<SupabaseTreasuryBalance[]>([]);
 
   // Search & Filters for Journal
   const [journalFilter, setJournalFilter] = useState<'all' | 'inflow' | 'outflow'>('all');
@@ -110,13 +119,14 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ordList, supInvList, safeList, adminList, payList, woList] = await Promise.all([
+      const [ordList, supInvList, safeList, adminList, payList, woList, trRes] = await Promise.all([
         tenantStorage.getOrders(workshopId).catch(() => []),
         tenantStorage.getSupplierInvoices(workshopId).catch(() => []),
         tenantStorage.getSafeTransactions(workshopId).catch(() => []),
         tenantStorage.getAdminCosts(workshopId).catch(() => []),
         tenantStorage.getEmployeePayouts(workshopId).catch(() => []),
         tenantStorage.getWorkOrders(workshopId).catch(() => []),
+        getTreasuryBalancesFromSupabase(workshopId).catch(() => ({ data: [] })),
       ]);
 
       setOrders(ordList);
@@ -125,6 +135,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       setAdminCosts(adminList);
       setPayouts(payList);
       setWorkOrders(woList);
+      setTreasuries((trRes && (trRes as any).data) || []);
     } catch (err: any) {
       console.error(err);
       setNotice({ text: err.message || 'فشل تحميل بيانات الحسابات', isError: true });
@@ -230,6 +241,65 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
     return list.sort((a, b) => b.timestamp - a.timestamp);
   }, [orders, supplierInvoices, payouts, adminCosts]);
+
+  // 1.1 ميزان المطابقة والسيولة الحرفي (حركة الورشة مقابل رصيد الخزائن)
+  const balanceScale = useMemo(() => {
+    // إجمالي المقبوضات النقدية (مبيعات وتحصيلات آجلة)
+    const totalInflows = journalEntries
+      .filter((j) => j.type === 'inflow')
+      .reduce((sum, j) => sum + (Number(j.amount) || 0), 0);
+
+    // إجمالي المدفوعات (مشتريات خامات + أجور صناع + مصروفات تشغيلية)
+    const totalOutflows = journalEntries
+      .filter((j) => j.type === 'outflow')
+      .reduce((sum, j) => sum + (Number(j.amount) || 0), 0);
+
+    // صافي حركة الدفتر
+    const netBookBalance = totalInflows - totalOutflows;
+
+    // تفنيد السيولة الفعلية في الخزائن والمحافظ
+    let actualCash = 0;
+    let actualInstapay = 0;
+    let actualWallet = 0;
+    let actualTotal = 0;
+
+    if (treasuries.length > 0) {
+      treasuries.forEach((t) => {
+        actualCash += Number(t.cash || 0);
+        actualInstapay += Number(t.instapay || 0);
+        actualWallet += Number(t.wallet || 0);
+        actualTotal += Number(t.balance || ((t.cash || 0) + (t.wallet || 0) + (t.instapay || 0)));
+      });
+    } else {
+      safeTxs.forEach((tx) => {
+        const amt = Number(tx.amount || 0);
+        if (tx.treasuryId === 'instapay') {
+          actualInstapay += amt;
+        } else if (tx.treasuryId === 'wallet') {
+          actualWallet += amt;
+        } else {
+          actualCash += amt;
+        }
+        actualTotal += amt;
+      });
+    }
+
+    // فارق المطابقة
+    const diff = actualTotal - netBookBalance;
+    const isMatched = Math.abs(diff) < 1;
+
+    return {
+      totalInflows,
+      totalOutflows,
+      netBookBalance,
+      actualCash,
+      actualInstapay,
+      actualWallet,
+      actualTotal,
+      diff,
+      isMatched,
+    };
+  }, [journalEntries, treasuries, safeTxs]);
 
   // 2. Profit & Loss Computation (صافي الأرباح والخسائر)
   const pnlMetrics = useMemo(() => {
@@ -446,6 +516,113 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             <span className="px-3 py-1 rounded-xl bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs font-mono font-bold text-stone-600 dark:text-stone-400">
               تحديث حي تلقائي
             </span>
+          </div>
+        </div>
+
+        {/* 0. كارت ميزان المطابقة والسيولة الحرفي */}
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-stone-900 via-stone-850 to-stone-900 text-white border border-stone-800 shadow-lg space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-800/80 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shadow-xs">
+                <Scale className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-amber-300 flex items-center gap-1.5">
+                  <span>ميزان حركة الورشة والسيولة الحرفية</span>
+                </h3>
+                <p className="text-[11px] text-stone-400">
+                  مطابقة فورية ومباشرة بين حركة الدفتر المحاسبي ورصيد الخزائن والعهد الحقيقي
+                </p>
+              </div>
+            </div>
+
+            {/* Reconciliation Badge */}
+            <div className="flex items-center gap-2">
+              {balanceScale.isMatched ? (
+                <div className="px-3.5 py-1.5 rounded-2xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-black flex items-center gap-1.5 shadow-xs">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>مطابق بالمليم ✔️ (رصيد الدفتر = الخزائن)</span>
+                </div>
+              ) : (
+                <div className="px-3.5 py-1.5 rounded-2xl bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-black flex items-center gap-1.5 shadow-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                  <span>
+                    {balanceScale.diff > 0
+                      ? `فائض غير مقيد: +${balanceScale.diff.toLocaleString()} ${currencySymbol}`
+                      : `عجز مسجل بحاجة لمراجعة: ${Math.abs(balanceScale.diff).toLocaleString()} ${currencySymbol}`}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 3 Metrics: Inflows, Outflows, Actual Liquidity Breakdown */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Inflows */}
+            <div className="p-3.5 rounded-2xl bg-stone-800/70 border border-stone-700/60 space-y-1">
+              <span className="text-[11px] font-bold text-teal-400 flex items-center gap-1">
+                <ArrowDownLeft className="w-3.5 h-3.5" />
+                <span>إجمالي المقبوضات النقدية</span>
+              </span>
+              <span className="text-lg sm:text-xl font-black font-mono text-white block">
+                {balanceScale.totalInflows.toLocaleString()} {currencySymbol}
+              </span>
+              <span className="text-[10px] text-stone-400 block">
+                مبيعات المشغولات + تحصيلات الآجل من العملاء
+              </span>
+            </div>
+
+            {/* Outflows */}
+            <div className="p-3.5 rounded-2xl bg-stone-800/70 border border-stone-700/60 space-y-1">
+              <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1">
+                <ArrowUpRight className="w-3.5 h-3.5" />
+                <span>إجمالي المدفوعات</span>
+              </span>
+              <span className="text-lg sm:text-xl font-black font-mono text-white block">
+                {balanceScale.totalOutflows.toLocaleString()} {currencySymbol}
+              </span>
+              <span className="text-[10px] text-stone-400 block">
+                مشتريات خامات + أجور صناع + مصروفات تشغيلية
+              </span>
+            </div>
+
+            {/* Net Actual Liquidity & Breakdown */}
+            <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-amber-300 flex items-center gap-1">
+                  <Coins className="w-3.5 h-3.5 text-amber-400" />
+                  <span>صافي السيولة الفعلية</span>
+                </span>
+                <span className="text-[10px] text-amber-200/80 font-mono">
+                  رصيد الدفتر: {balanceScale.netBookBalance.toLocaleString()} {currencySymbol}
+                </span>
+              </div>
+              <span className="text-lg sm:text-xl font-black font-mono text-amber-300 block">
+                {balanceScale.actualTotal.toLocaleString()} {currencySymbol}
+              </span>
+
+              {/* Instant Breakdown: Cash, InstaPay, Wallets */}
+              <div className="grid grid-cols-3 gap-1 pt-1 border-t border-amber-500/20 text-[10px]">
+                <div className="bg-stone-900/80 px-2 py-1 rounded-xl text-center">
+                  <span className="text-stone-400 block text-[9px]">💵 كاش</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {balanceScale.actualCash.toLocaleString()}
+                  </span>
+                </div>
+                <div className="bg-stone-900/80 px-2 py-1 rounded-xl text-center">
+                  <span className="text-stone-400 block text-[9px]">📱 إنستاباي</span>
+                  <span className="font-mono font-bold text-purple-400">
+                    {balanceScale.actualInstapay.toLocaleString()}
+                  </span>
+                </div>
+                <div className="bg-stone-900/80 px-2 py-1 rounded-xl text-center">
+                  <span className="text-stone-400 block text-[9px]">👛 محافظ</span>
+                  <span className="font-mono font-bold text-sky-400">
+                    {balanceScale.actualWallet.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
