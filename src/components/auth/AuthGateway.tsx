@@ -31,6 +31,8 @@ interface AuthGatewayProps {
   onNeedsWorkshopDetails?: (email: string) => void;
   recoveryError?: string | null;
   onClearRecoveryError?: () => void;
+  initialMode?: 'login' | 'signup';
+  onBackToLanding?: () => void;
 }
 
 export const AuthGateway: React.FC<AuthGatewayProps> = ({
@@ -38,8 +40,10 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   onNeedsWorkshopDetails,
   recoveryError,
   onClearRecoveryError,
+  initialMode = 'login',
+  onBackToLanding,
 }) => {
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [mode, setMode] = useState<'login' | 'signup'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [brandName, setBrandName] = useState('');
@@ -339,6 +343,17 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
 
   return (
     <div className="min-h-screen bg-stone-100 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col justify-center items-center p-4 sm:p-6 transition-colors duration-200">
+      {onBackToLanding && (
+        <div className="w-full max-w-md mb-3 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onBackToLanding}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 transition-colors p-2 rounded-xl hover:bg-stone-200 dark:hover:bg-stone-900 cursor-pointer"
+          >
+            <span>← الرجوع لصفحة المنظومة الرئيسية</span>
+          </button>
+        </div>
+      )}
       <div className="w-full max-w-md bg-white dark:bg-stone-900 rounded-3xl shadow-2xl border border-amber-200/80 dark:border-stone-800 p-6 sm:p-8 space-y-5 text-right relative overflow-hidden">
         {/* Top Decorative Sun Beam */}
         <div className="absolute -top-16 -right-16 w-36 h-36 bg-amber-400/20 rounded-full blur-2xl pointer-events-none" />

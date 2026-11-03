@@ -1050,6 +1050,21 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         console.warn('Supabase profile update notice:', supaErr);
       }
 
+      try {
+        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        await fetch(`/api/admin/workshops/${updated.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(updated),
+        });
+      } catch (apiErr) {
+        console.warn('Server workshop update notice:', apiErr);
+      }
+
       await tenantStorage.saveProfile(updated);
 
       setWorkshops((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
@@ -1057,6 +1072,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         onProfileUpdated(updated);
       }
 
+      loadWorkshops(true);
       playSuccessSound();
       setSuccessNotice(`تم تحديث بيانات ورشة "${updated.brandName}" بنجاح.`);
       setTimeout(() => setSuccessNotice(''), 4000);
@@ -1113,6 +1129,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       };
 
       setWorkshops((prev) => prev.map((w) => (w.id === editingWorkshop.id ? updatedWs : w)));
+      loadWorkshops(true);
       playAlertSound();
       setSuccessNotice(`تم إيقاف حساب ورشة "${editingWorkshop.brandName}" مؤقتاً لمدة ${suspensionDurationChoice}.`);
       setIsSuspendingModalOpen(false);
@@ -1162,6 +1179,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       };
 
       setWorkshops((prev) => prev.map((w) => (w.id === editingWorkshop.id ? updatedWs : w)));
+      loadWorkshops(true);
       playAlertSound();
       setSuccessNotice(`تم حظر ورشة "${editingWorkshop.brandName}" بشكل نهائي.`);
       setIsBanningModalOpen(false);
@@ -1200,6 +1218,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       };
 
       setWorkshops((prev) => prev.map((w) => (w.id === targetWs.id ? updatedWs : w)));
+      loadWorkshops(true);
       playSuccessSound();
       setSuccessNotice(`تم إلغاء الحظر وإعادة تفعيل ورشة "${targetWs.brandName}" بنجاح!`);
       setEditingWorkshop(null);
@@ -1347,6 +1366,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         }
         await tenantStorage.deleteProfile(deletingWorkshop.id);
         setWorkshops((prev) => prev.filter((w) => w.id !== deletingWorkshop.id));
+        loadWorkshops(true);
         setSuccessNotice(`تم حذف ورشة "${deletingWorkshop.brandName}" نهائياً من المنظومة.`);
       } else if (selectiveDeleteMode === 'catalog_inventory') {
         setSuccessNotice(`تم تصفير المخزن والكتالوج لورشة "${deletingWorkshop.brandName}" بنجاح.`);

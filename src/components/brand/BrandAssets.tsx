@@ -1,8 +1,15 @@
 import React from 'react';
 import falconAvatarImg from '../../assets/falcon_mascot_ai.png';
 import alshamsFalconEmblemImg from '../../assets/alshams_falcon_emblem.png';
+import alshamsOfficialBannerLogo from '../../assets/alshams_official_banner_logo.png';
+import alshamsFalconArtisanImg from '../../assets/alshams_falcon_artisan.jpg';
 
-export { falconAvatarImg, alshamsFalconEmblemImg };
+export {
+  falconAvatarImg,
+  alshamsFalconEmblemImg,
+  alshamsOfficialBannerLogo,
+  alshamsFalconArtisanImg,
+};
 
 /**
  * الأيقونة الرسمية لمنظومة الشمس كرافت - الصقر ومونوغرام SH المعتمد بخلفية شفافة

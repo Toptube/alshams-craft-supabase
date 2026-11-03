@@ -44,6 +44,7 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { PurchasesView } from './components/purchases/PurchasesView';
 import { AccountsView } from './components/accounting/AccountsView';
 import { AuthGateway } from './components/auth/AuthGateway';
+import { LandingPage } from './components/landing/LandingPage';
 
 // Modals & Drawers
 import { GlobalSearchModal, GlobalSearchDataCache } from './components/search/GlobalSearchModal';
@@ -170,6 +171,8 @@ export const App: React.FC = () => {
 
   const [authChecking, setAuthChecking] = useState<boolean>(true);
   const [suspensionNotice, setSuspensionNotice] = useState<string | null>(null);
+  const [showAuthGateway, setShowAuthGateway] = useState<boolean>(false);
+  const [authGatewayMode, setAuthGatewayMode] = useState<'login' | 'signup'>('login');
 
   // Welcome message shown only once upon opening the app
   const [showWelcomeBanner, setShowWelcomeBanner] = useState<boolean>(() => {
@@ -663,17 +666,37 @@ export const App: React.FC = () => {
     );
   }
 
-  // If unauthenticated and no valid profile, show Auth Gateway
+  // If unauthenticated and no valid profile, show Landing Page by default or Auth Gateway if user requested login/register
   if (!profile) {
+    if (showAuthGateway || suspensionNotice) {
+      return (
+        <AuthGateway
+          initialMode={authGatewayMode}
+          onBackToLanding={() => setShowAuthGateway(false)}
+          recoveryError={suspensionNotice}
+          onClearRecoveryError={() => setSuspensionNotice(null)}
+          onAuthenticated={(p) => {
+            setSuspensionNotice(null);
+            setShowAuthGateway(false);
+            setProfile(p);
+            localStorage.setItem('alshams_profile', JSON.stringify(p));
+          }}
+        />
+      );
+    }
+
     return (
-      <AuthGateway
-        recoveryError={suspensionNotice}
-        onClearRecoveryError={() => setSuspensionNotice(null)}
-        onAuthenticated={(p) => {
-          setSuspensionNotice(null);
-          setProfile(p);
-          localStorage.setItem('alshams_profile', JSON.stringify(p));
+      <LandingPage
+        onOpenLogin={() => {
+          setAuthGatewayMode('login');
+          setShowAuthGateway(true);
         }}
+        onOpenRegister={() => {
+          setAuthGatewayMode('signup');
+          setShowAuthGateway(true);
+        }}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setThemeMode(isDarkMode ? 'light' : 'dark')}
       />
     );
   }

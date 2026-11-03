@@ -90,6 +90,23 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
+      // إذا كان الموديل 70b غير متاح للحساب، جرب الموديل المستقر 8b
+      if (res.status === 404 && payload.model !== 'llama-3.1-8b-instant') {
+        payload.model = 'llama-3.1-8b-instant';
+        const retryRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        if (retryRes.ok) {
+          const retryData: any = await retryRes.json();
+          return retryData?.choices?.[0]?.message;
+        }
+      }
       throw new Error(`Groq HTTP ${res.status}: ${errText.slice(0, 150)}`);
     }
 
@@ -136,7 +153,7 @@ async function callFanarChat(messages: any[]): Promise<string> {
   }
 }
 
-// المحرك الاحتياطي الثالث: Gemini API (gemini-2.5-flash / gemini-1.5-flash)
+// المحرك الاحتياطي المعتمد: Google Gemini Flash
 async function callGeminiChat(systemInstruction: string, messages: any[]): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY غير متوفر');
@@ -150,7 +167,11 @@ async function callGeminiChat(systemInstruction: string, messages: any[]): Promi
     },
   });
 
-  const modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  const rawModel = process.env.GEMINI_MODEL || '';
+  const modelName = rawModel && !rawModel.includes('1.5') && !rawModel.includes('2.0')
+    ? rawModel
+    : 'gemini-3.8-flash';
+
   console.log(`[Shamousa] Calling Gemini model: ${modelName}`);
   const contents: any[] = [];
 
@@ -180,32 +201,54 @@ async function callGeminiChat(systemInstruction: string, messages: any[]): Promi
   }
 }
 
-function buildShamousaSystemPrompt(ctx: ShamousaContext, liveLiquidity: number, treasuriesListDesc: string): string {
+export interface ShamousaLiveMetrics {
+  liquidity: number;
+  treasuriesDesc: string;
+  lowMaterialsCount: number;
+  lowMaterialsDesc: string;
+  openWorkOrdersCount: number;
+  openWorkOrdersDesc: string;
+  pendingOrdersCount: number;
+}
+
+function buildShamousaSystemPrompt(ctx: ShamousaContext, metrics: ShamousaLiveMetrics): string {
   const firstName = extractFirstName(ctx.artistName) || 'يا غالي';
   const workshopName = ctx.workshopName || 'ورشة الشمس كرافت';
 
   return `أنتِ "شموسة" 🌞 — مديرة الأعمال التنفيذية الذكية والشريكة الأولى والواعية في ${workshopName}.
-أنتِ مديرة الورشة وحافظة أسرارها ودفاترها المالية والتشغيلية، شخصيتك ناضجة، واعية، ذكية، نشيطة، وتتحدثين بلهجة مصرية مهنية دافئة، مرحة ومحترمة تفهم تفاصيل وحركات الورشة وتساعد في اتخاذ القرارات وحل المشاكل.
+أنتِ مديرة الورشة وحافظة أسرارها ودفاترها المالية والتشغيلية، شخصيتك ناضجة، واعية، ذكية، نشيطة، وتتحدثين بلهجة مصرية مهنية دافئة، مرحة ومحترمة تفهم تفاصيل وحركات الورشة وتساعد في اتخاذ القرارات وحل المشاكل اليومية.
 
 قواعد الخطاب والهوية الصارمة:
 1. الترحيب عند بدء الحديث:
    تخاطبين صاحب الورشة باسمه الأول مباشرة وبلطف وود:
-   "أهلاً يا ${firstName} 🌞، أنا مديرة أعمالك.اخبارك ايه! واخبار شغلنا ايه ! يارب يكون كل حاجه تمام ... تحب نبدأ إزاي النهارده؟!"
-   (ممنوع منعاً باتاً مناداة المستخدم بـ "صاحب الورشة" أو "يا فنان" أو إعطاء رغي ومقدمات إنشائية طويلة).
+   "أهلاً يا ${firstName} 🌞، أنا مديرة أعمالك. اخبارك ايه! واخبار شغلنا ايه ! يارب يكون كل حاجه تمام ... تحب نبدأ إزاي النهارده؟!"
+   (ممنوع منعاً باتاً مناداة المستخدم بـ "صاحب الورشة" أو إعطاء مقدمات إنشائية فارغة).
 
-2. كسر القيود المصطنعة:
-   - ممنوع تماماً ومطلقاً أن تردي بجملة "هذا السؤال خارج نطاق بيانات الورشة" على أي استفسار يخص الخزائن، الفلوس، العهد، الخامات، الأوردرات، العملاء، الموردين، أو الموظفين.
-   - افهمي الكلمات والأخطاء الإملائية والعامية المصرية بذكاء (مثلاً: "خزنه"، "عهده"، "خامات"، "فلوس"، "كام معانا").
-   - لا تلقي أزرار تنقل في وجه المستخدم دون إجابة؛ اشرحي بالأرقام الحقيقية المباشرة أولاً.
-   - شموسة تجلب البيانات وتجيب بنفسها، ولا تحول المستخدم لـ "صقر" في أي موضوع مالي أو داخلي للورشة. صقر فقط مخصص لدراسة الأسواق والمنافسين الخارجيين وفحص صور الموديلات عند طلب ذلك تحديداً.
+2. كسر القيود المصطنعة والدقة الرقمية:
+   - ممنوع تماماً ومطلقاً أن تردي بجملة "هذا السؤال خارج نطاق بيانات الورشة" على أي استفسار يخص الخزائن، الفلوس، العهد، الخامات، الأوردرات، أو أوامر التشغيل.
+   - افهمي الكلمات والأخطاء الإملائية والعامية المصرية بذكاء (مثلاً: "خزنه"، "عهده"، "خامات"، "فلوس"، "كام معانا"، "النواقص"، "أوامر التشغيل").
+   - اشرحي بالأرقام الحقيقية المباشرة المرفقة في سياق الورشة الحية أدناه ولا تخترعي أرقاماً وهمية.
 
-البيانات والسيولة الفعلية المسجلة حالياً في الورشة:
-- إجمالي رصيد الخزائن والسيولة النقدية المتوفرة: ${liveLiquidity.toLocaleString('ar-EG')} ج.م (${liveLiquidity} ج.م).
-- تفاصيل الخزن والعهد المسجلة:
-${treasuriesListDesc || 'الخزينة النقدية الرئيسية متوفرة ومسجلة في دفاتر الورشة.'}
-- عندما يسألك ${firstName} عن رصيد الخزنة أو الفلوس أو السيولة أو عهدة معينة: أجيبي فوراً بالرقم الفعلي المسجل (${liveLiquidity.toLocaleString('ar-EG')} ج.م) وبكل تفاصيل العهد المسجلة دون تردد ودون أن تقولي غير متوفر ودون أن ترشحي صقر إطلاقاً!
+بيانات الورشة الحية والفعلية لحظة بلحظة (Live Workshop Ground Truth):
+1. السيولة النقدية والخزائن:
+   - إجمالي السيولة الفعلية المتوفرة حالياً: ${metrics.liquidity.toLocaleString('ar-EG')} ج.م (${metrics.liquidity} ج.م).
+   - تفاصيل الخزن والعهد المسجلة:
+${metrics.treasuriesDesc || 'الخزينة النقدية الرئيسية متوفرة ومسجلة في دفاتر الورشة.'}
 
-لديكِ أدوات استعلام فعلية متصلة بقاعدة البيانات (search_treasuries, search_materials, search_orders, search_customers, search_suppliers, search_employees, workshop_overview). استخدميها كلما احتجتِ تفاصيل أوفى عن المنتجات أو الخامات أو مواعيد التسليم.`;
+2. الخامات ومخزون المواد الأولية:
+   - الخامات الناقصة أو التي أوشكت على النفاد (تحت حد الأمان): ${metrics.lowMaterialsCount} خامة.
+${metrics.lowMaterialsDesc ? `   - تفاصيل النواقص:\n${metrics.lowMaterialsDesc}` : '   - كافة الخامات حالياً فوق حد الأمان وإعادة الطلب.'}
+
+3. أوامر التشغيل وخط الإنتاج:
+   - أوامر التشغيل المفتوحة وقيد التصنيع: ${metrics.openWorkOrdersCount} أمر تشغيل.
+${metrics.openWorkOrdersDesc ? `   - تفاصيل أوامر التشغيل النشطة:\n${metrics.openWorkOrdersDesc}` : '   - لا توجد أوامر تشغيل مفتوحة حالياً، خط الإنتاج جاهز لأوامر جديدة.'}
+
+4. المبيعات والطلبيات:
+   - عدد الطلبيات المعلقة قيد التنفيذ والتسليم: ${metrics.pendingOrdersCount} طلبية.
+
+- عندما يسألك ${firstName} عن رصيد الخزنة، الفلوس، الخامات الناقصة، أو أوامر التشغيل: أجيبي فوراً بالبيانات الحقيقية المحددة أعلاه بدقة ووضوح.
+
+لديكِ أدوات استعلام فعلية متصلة بقاعدة البيانات (search_treasuries, search_materials, search_orders, search_customers, search_suppliers, search_employees, workshop_overview). استخدميها كلما احتجتِ تفاصيل أوفى عن منتج محدد أو خامة معينة.`;
 }
 
 export async function handleShamousaChat(
@@ -241,7 +284,7 @@ export async function handleShamousaChat(
   };
   (toolCtx as any).clientContext = ctx.clientContext;
 
-  // 1. قراءة السيولة الحقيقية والخزن مباشرة لضمان تمريرها للـ System Prompt
+  // 1. استخراج سياق الورشة الحي الفعلي (Live Data Context)
   let liveLiquidity = Number(ctx.clientContext?.treasuryBalance ?? ctx.treasuryBalance ?? 0);
   let treasuriesDetailText = '';
 
@@ -256,17 +299,49 @@ export async function handleShamousaChat(
         .join('\n');
     }
   } catch (err: any) {
-    console.warn('[Shamousa] Pre-fetching treasuries failed, using client fallback:', err?.message);
+    console.warn('[Shamousa Context] search_treasuries notice:', err?.message);
   }
 
-  // إذا لم نجد تفاصيل ولكن العميل أرسل تفاصيل أو رصيد (مثل 85000 ج.م)
   if (!treasuriesDetailText && Array.isArray(ctx.clientContext?.treasuriesDetail) && ctx.clientContext!.treasuriesDetail.length > 0) {
     treasuriesDetailText = ctx.clientContext!.treasuriesDetail
       .map((t: any) => `- ${t.name || 'خزينة'}: ${Number(t.balance || t.amount || 0).toLocaleString('ar-EG')} ج.م`)
       .join('\n');
   }
 
-  const baseInstruction = buildShamousaSystemPrompt(ctx, liveLiquidity, treasuriesDetailText);
+  // استخراج النواقص الحية
+  const clientCtx: any = ctx.clientContext || {};
+  let lowMaterialsCount = Number(clientCtx.lowMaterialsCount || 0);
+  let lowMaterialsDesc = '';
+  if (Array.isArray(clientCtx.lowMaterialsList) && clientCtx.lowMaterialsList.length > 0) {
+    lowMaterialsDesc = clientCtx.lowMaterialsList.map((m: string) => `• ${m}`).join('\n');
+  } else if (Array.isArray(clientCtx.materialsSummary)) {
+    const low = clientCtx.materialsSummary.filter(
+      (m: any) => (Number(m.currentStock) || 0) <= (Number(m.minAlertThreshold) || 5)
+    );
+    lowMaterialsCount = low.length;
+    lowMaterialsDesc = low.map((m: any) => `• ${m.materialName}: المتبقي ${m.currentStock} ${m.unit || 'وحدة'} (حد الأمان: ${m.minAlertThreshold || 5})`).join('\n');
+  }
+
+  // استخراج أوامر التشغيل الحية
+  let openWorkOrdersCount = Number(clientCtx.openWorkOrdersCount || 0);
+  let openWorkOrdersDesc = '';
+  if (Array.isArray(clientCtx.openWorkOrdersList) && clientCtx.openWorkOrdersList.length > 0) {
+    openWorkOrdersDesc = clientCtx.openWorkOrdersList.map((w: string) => `• ${w}`).join('\n');
+  }
+
+  const pendingOrdersCount = Number(clientCtx.pendingOrdersCount || 0);
+
+  const liveMetrics: ShamousaLiveMetrics = {
+    liquidity: liveLiquidity,
+    treasuriesDesc: treasuriesDetailText,
+    lowMaterialsCount,
+    lowMaterialsDesc,
+    openWorkOrdersCount,
+    openWorkOrdersDesc,
+    pendingOrdersCount,
+  };
+
+  const baseInstruction = buildShamousaSystemPrompt(ctx, liveMetrics);
   const memoryPrompt = await buildGlobalMemoryPrompt('shamousa');
   const systemInstruction = baseInstruction + (memoryPrompt ? `\n\n${memoryPrompt}` : '');
 
@@ -280,11 +355,12 @@ export async function handleShamousaChat(
   ];
 
   const { primary: groqPrimary, secondary: groqSecondary } = getGroqKeys();
+  let groqFailReason = '';
+  let geminiFailReason = '';
 
   async function tryGroqExecution(key: string): Promise<string | null> {
     const assistantMsg = await callGroqChat(promptMessages, workshopToolSchemas, key);
 
-    // التحقق من استدعاء الأدوات (Tool Calling)
     if (assistantMsg?.tool_calls && Array.isArray(assistantMsg.tool_calls) && assistantMsg.tool_calls.length > 0) {
       const toolCall = assistantMsg.tool_calls[0];
       const fnName = toolCall.function?.name;
@@ -296,7 +372,6 @@ export async function handleShamousaChat(
       console.log(`[Shamousa Groq Tool Call]: ${fnName}`, fnArgs);
       const toolResult = await runWorkshopTool(fnName, fnArgs, toolCtx);
 
-      // تمرير نتيجة الأداة للنموذج لإتمام الصياغة الإنسانية الذكية
       const secondTurnMessages = [
         ...promptMessages,
         assistantMsg,
@@ -315,110 +390,75 @@ export async function handleShamousaChat(
     return assistantMsg?.content?.trim() || null;
   }
 
-  // 1. مزود Groq (المفتاح الأساسي)
-  if (groqPrimary) {
+  // -------------------------------------------------------------
+  // Provider 1: Groq API (Primary -> Secondary)
+  // -------------------------------------------------------------
+  const groqKeyToUse = groqPrimary || groqSecondary;
+  if (groqKeyToUse) {
+    console.log('[AI Service: Shamousa] Attempting Provider 1 (Groq)...');
     try {
-      const reply = await tryGroqExecution(groqPrimary);
-      if (reply) return { reply, handoffToFalcon: false, provider: 'groq' };
+      const reply = await tryGroqExecution(groqKeyToUse);
+      if (reply) {
+        console.log('[AI Service: Shamousa] Provider 1 (Groq) succeeded.');
+        return { reply, handoffToFalcon: false, provider: 'groq' };
+      }
+      groqFailReason = 'Empty response from Groq';
     } catch (groqErr: any) {
-      console.warn('[Shamousa] Groq primary notice. Switching to secondary key...', groqErr?.message);
+      groqFailReason = groqErr?.message || 'Groq connection failed';
+      console.warn(
+        `[AI Service: Shamousa] Attempting Provider 1 (Groq)... Failed: [${groqFailReason}] -> Switching to Provider 2 (Gemini Flash)...`
+      );
     }
+  } else {
+    groqFailReason = 'GROQ_API_KEY غير متوفر على الخادم';
+    console.log(`[AI Service: Shamousa] Provider 1 (Groq) skipped: ${groqFailReason} -> Switching to Provider 2 (Gemini Flash)...`);
   }
 
-  // 2. مزود Groq (المفتاح الثانوي البديل)
-  if (groqSecondary) {
-    try {
-      const reply2 = await tryGroqExecution(groqSecondary);
-      if (reply2) return { reply: reply2, handoffToFalcon: false, provider: 'groq' };
-    } catch (groq2Err: any) {
-      console.warn('[Shamousa] Groq secondary notice. Switching to Gemini Flash...', groq2Err?.message);
-    }
-  }
-
-  // 3. مزود Gemini Flash (المفتاح النشط)
+  // -------------------------------------------------------------
+  // Provider 2: Google Gemini Flash (gemini-3.8-flash)
+  // -------------------------------------------------------------
   if (process.env.GEMINI_API_KEY) {
+    console.log('[AI Service: Shamousa] Attempting Provider 2 (Gemini Flash)...');
     try {
       const geminiReply = await callGeminiChat(systemInstruction, promptMessages);
       if (geminiReply) {
+        console.log('[AI Service: Shamousa] Switching to Provider 2 (Gemini Flash)... Success!');
         return { reply: geminiReply, handoffToFalcon: false, provider: 'gemini' };
       }
+      geminiFailReason = 'Empty response from Gemini Flash';
     } catch (geminiErr: any) {
-      console.warn('[Shamousa] Gemini notice. Switching to Fanar...', geminiErr?.message);
+      geminiFailReason = geminiErr?.message || 'Gemini Flash connection failed';
+      console.error(`[AI Service: Shamousa] Provider 2 (Gemini Flash) failed: [${geminiFailReason}]`);
     }
+  } else {
+    geminiFailReason = 'GEMINI_API_KEY غير متوفر على الخادم';
   }
 
-  // 4. مزود فنار (Fanar) - الاحتياطي النهائي في كافة الأحوال
+  // -------------------------------------------------------------
+  // Provider 3: Optional Fanar (إذا تم ضبطه كاحتياطي إضافي)
+  // -------------------------------------------------------------
   if (process.env.FANAR_API_KEY) {
     try {
+      console.log('[AI Service: Shamousa] Attempting Provider 3 (Fanar)...');
       const fanarReply = await callFanarChat(promptMessages);
       if (fanarReply) {
+        console.log('[AI Service: Shamousa] Provider 3 (Fanar) succeeded.');
         return { reply: fanarReply, handoffToFalcon: false, provider: 'fanar' };
       }
     } catch (fanarErr: any) {
-      console.warn('[Shamousa] Fanar fallback notice:', fanarErr?.message);
+      console.warn('[AI Service: Shamousa] Fanar notice:', fanarErr?.message);
     }
   }
 
-  // 4. المحرك المحلي الذكي لحماية الصانع من أي انقطاع في الشبكة أو نفاد الحصص
-  const norm = userMessage.toLowerCase();
-  const firstName = extractFirstName(ctx.artistName) || 'يا غالي';
+  // -------------------------------------------------------------
+  // Strict: منع الردود الصامتة والوهمية (No Silent Mock Fallbacks)
+  // إذا فشل المزودان، إرجاع تنبيه صريح ومباشر يوضح السبب الحقيقي
+  // -------------------------------------------------------------
+  console.error(`[AI Service: Shamousa] Both providers failed! Provider 1: ${groqFailReason} | Provider 2: ${geminiFailReason}`);
 
-  // 1. استفسارات السيولة والخزن
-  if (norm.includes('خزن') || norm.includes('خزينه') || norm.includes('رصيد') || norm.includes('سيول') || norm.includes('فلوس') || norm.includes('معانا كام') || norm.includes('عهدة')) {
-    const reply = `أهلاً يا ${firstName} 🌞، رصيد الخزائن والسيولة المتوفرة حالياً في الورشة هو **${liveLiquidity.toLocaleString('ar-EG')} ج.م**.\n${treasuriesDetailText ? `\nتفاصيل الأرصدة والعهد المسجلة:\n${treasuriesDetailText}` : ''}`;
-    return { reply, handoffToFalcon: false, provider: 'internal_cache' };
-  }
-
-  // 2. استفسارات النواقص والخامات ومخزون الورشة
-  if (norm.includes('نواقص') || norm.includes('خامات') || norm.includes('خيط') || norm.includes('مخزن') || norm.includes('رصيد الخام')) {
-    const mats = Array.isArray(ctx.clientContext?.materialsSummary) ? ctx.clientContext.materialsSummary : [];
-    const lowMats = mats.filter((m: any) => (Number(m.currentStock) || 0) <= (Number(m.minAlertThreshold) || 5));
-    let matsText = '';
-    if (lowMats.length > 0) {
-      matsText = `⚠️ **تنبيه بالنواقص:** يوجد ${lowMats.length} أصناف أوشكت على النفاد وتتطلب إعادة طلب:\n` +
-        lowMats.map((m: any) => `• ${m.materialName}: رصيده المتبقي ${m.currentStock} ${m.unit || 'وحدة'} (حد الأمان: ${m.minAlertThreshold || 5})`).join('\n');
-    } else if (mats.length > 0) {
-      matsText = `✅ مخزون الخامات بحالة ممتازة ومستقرة، ولديك ${mats.length} صنف مسجل بكروت الصنف دون أي عجز.`;
-    } else {
-      matsText = `سجلات المخزن جاهزة ومتاحة تحت يدك، ويمكنك إضافة خاماتك ومتابعة كروت الصنف من شاشة "المخزن وإدارة الخامات".`;
-    }
-    const reply = `يا ${firstName} 🌞، إليك تقرير حالة مخزون الخامات في ورشتك:\n\n${matsText}`;
-    return { reply, handoffToFalcon: false, provider: 'internal_cache' };
-  }
-
-  // 3. استفسارات المنتجات والتسعير والكتالوج
-  if (norm.includes('منتجات') || norm.includes('كتالوج') || norm.includes('تسعير') || norm.includes('أسعار') || norm.includes('مشغولات')) {
-    const prods = Array.isArray(ctx.clientContext?.productsSummary) ? ctx.clientContext.productsSummary : [];
-    let prodsText = '';
-    if (prods.length > 0) {
-      prodsText = `📦 لديك حالياً **${prods.length} منتج مسعر ومعتمد** في أرشيف وكتالوج الورشة:\n` +
-        prods.slice(0, 5).map((p: any) => `• ${p.productName || p.name}: قطاعي ${Number(p.retailPrice || p.price || 0).toLocaleString('ar-EG')} ج.م | جملة ${Number(p.wholesalePrice || 0).toLocaleString('ar-EG')} ج.م`).join('\n') +
-        (prods.length > 5 ? `\n... وغيرهم ${prods.length - 5} أصناف أخرى مسجلة.` : '');
-    } else {
-      prodsText = `كتالوج منتجاتك جاهز، وبمجرد اعتماد أي قطعة من حاسبة التكاليف ستظهر هنا مع أسعار الجملة والقطاعي تلقائياً!`;
-    }
-    const reply = `يا ${firstName} 🌞، تقرير المنتجات والكتالوج لورشتك:\n\n${prodsText}`;
-    return { reply, handoffToFalcon: false, provider: 'internal_cache' };
-  }
-
-  // 4. استفسارات المبيعات والطلبيات والأوردرات
-  if (norm.includes('أوردر') || norm.includes('اوردر') || norm.includes('طلب') || norm.includes('مبيعات') || norm.includes('فواتير')) {
-    const orders = Array.isArray(ctx.clientContext?.ordersSummary) ? ctx.clientContext.ordersSummary : [];
-    const pendingOrders = orders.filter((o: any) => o.status !== 'delivered' && o.status !== 'completed');
-    let ordText = '';
-    if (orders.length > 0) {
-      ordText = `📑 مسجل بالورشة **${orders.length} طلبية ومبيعة**، منها ${pendingOrders.length} طلبية جاري تجهيزها وتسليمها.\n` +
-        `• يمكنك مراجعة كشوف العملاء ومتابعة تحصيل المتبقي من شاشة "طلبيات ومبيعات الورشة".`;
-    } else {
-      ordText = `سجل المبيعات جاهز لإصدار فواتيرك الجديدة ومتابعة دفعات العملاء النقدية والآجلة.`;
-    }
-    const reply = `يا ${firstName} 🌞، حركة المبيعات والأوردرات في ورشتك:\n\n${ordText}`;
-    return { reply, handoffToFalcon: false, provider: 'internal_cache' };
-  }
-
-  // رد شموسة الودود والواعي بحالة الورشة بدون إظهار أخطاء تقنية مزعجة
-  const defaultReply = `أهلاً يا ${firstName} 🌞، معاك شموسة مديرة أعمال ورشتك. سجلات الورشة متوفرة تحت إيدك: إجمالي سيولتنا النقدية المسجلة حالياً هو **${liveLiquidity.toLocaleString('ar-EG')} ج.م**، وأنا متابعة معاك كل تفاصيل الخامات والأوردرات والخزن لحظة بلحظة. تحب نراجع إيه مع بعض دلوقتي؟!`;
-  return { reply: defaultReply, handoffToFalcon: false, provider: 'internal_cache' };
+  throw new Error(
+    `تعذر اتصال الذكاء الاصطناعي: فشل المزود الأساسي (Groq: ${groqFailReason}) وفشل المزود البديل (Gemini Flash: ${geminiFailReason}). يرجى التحقق من اتصال الإنترنت أو تحديث مفاتيح التشغيل على الخادم.`
+  );
 }
 
 // للتوافق مع أي استدعاء قديم

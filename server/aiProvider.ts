@@ -151,6 +151,26 @@ async function callGroqFallback(
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
+      if (res.status === 404) {
+        const retryRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'llama-3.1-8b-instant',
+            messages,
+            temperature: 0.6,
+            max_tokens: 1200,
+          }),
+          signal: controller.signal,
+        });
+        if (retryRes.ok) {
+          const retryData: any = await retryRes.json();
+          return retryData?.choices?.[0]?.message?.content?.trim() || '';
+        }
+      }
       throw new Error(`Groq HTTP ${res.status}: ${errText.slice(0, 100)}`);
     }
 
@@ -216,7 +236,10 @@ export class GeminiAIProvider {
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;
     // النماذج الرسمية المدعومة وفق دليل gemini-api
-    this.modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+    const rawModel = process.env.GEMINI_MODEL || '';
+    this.modelName = rawModel && !rawModel.includes('1.5') && !rawModel.includes('2.0')
+      ? rawModel
+      : 'gemini-3.8-flash';
 
     if (apiKey) {
       this.ai = new GoogleGenAI({
@@ -415,29 +438,34 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
 
     const userPromptText = actionChip ? `استفسار حول [${actionChip}]: ${message || 'يرجى تقديم التوجيه الهندسي ودراسة السوق.'}` : message;
     const { primary: groqPrimary, secondary: groqSecondary } = getGroqKeys();
+    let groqFailReason = '';
+    let geminiFailReason = '';
 
-    // 1. مزود Groq (المفتاح الأساسي)
-    if (groqPrimary) {
+    // 1. مزود Groq (المفتاح الأساسي أو الثانوي)
+    const groqKey = groqPrimary || groqSecondary;
+    if (groqKey) {
+      console.log('[AI Service: Falcon] Attempting Provider 1 (Groq)...');
       try {
-        const groq1Reply = await callGroqFallback(systemInstruction, chatHistory, userPromptText, groqPrimary);
-        if (groq1Reply) return { reply: groq1Reply, sources: [], searchUsed: false };
-      } catch (groq1Err: any) {
-        console.error('[Falcon] Groq primary error:', groq1Err?.message);
+        const groqReply = await callGroqFallback(systemInstruction, chatHistory, userPromptText, groqKey);
+        if (groqReply) {
+          console.log('[AI Service: Falcon] Provider 1 (Groq) succeeded.');
+          return { reply: groqReply, sources: [], searchUsed: false };
+        }
+        groqFailReason = 'رد فارغ من مزود Groq';
+      } catch (groqErr: any) {
+        groqFailReason = groqErr?.message || 'فشل الاتصال بـ Groq';
+        console.warn(
+          `[AI Service: Falcon] Attempting Provider 1 (Groq)... Failed: [${groqFailReason}] -> Switching to Provider 2 (Gemini Flash)...`
+        );
       }
+    } else {
+      groqFailReason = 'GROQ_API_KEY غير متوفر على الخادم';
+      console.log(`[AI Service: Falcon] Provider 1 (Groq) skipped: ${groqFailReason} -> Switching to Provider 2 (Gemini Flash)...`);
     }
 
-    // 2. مزود Groq (المفتاح الثانوي البديل)
-    if (groqSecondary) {
-      try {
-        const groq2Reply = await callGroqFallback(systemInstruction, chatHistory, userPromptText, groqSecondary);
-        if (groq2Reply) return { reply: groq2Reply, sources: [], searchUsed: false };
-      } catch (groq2Err: any) {
-        console.error('[Falcon] Groq secondary error:', groq2Err?.message);
-      }
-    }
-
-    // 3. مزود Gemini Flash (المفتاح الحي الفعلي المعتمد)
-    if (this.ai && process.env.GEMINI_API_KEY) {
+    // 2. مزود Gemini Flash (المفتاح الفعلي المعتمد - gemini-3.8-flash)
+    if (process.env.GEMINI_API_KEY || this.ai) {
+      console.log('[AI Service: Falcon] Attempting Provider 2 (Gemini Flash)...');
       try {
         const contents: any[] = chatHistory.slice(-10).map((m) => ({
           role: m.sender === 'user' || m.role === 'user' ? 'user' : 'model',
@@ -490,63 +518,38 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
 
         const reply = response?.text?.trim();
         if (reply) {
+          console.log('[AI Service: Falcon] Switching to Provider 2 (Gemini Flash)... Success!');
           return { reply, sources: searchSources.slice(0, 4), searchUsed };
         }
+        geminiFailReason = 'رد فارغ من Gemini Flash';
       } catch (geminiErr: any) {
-        console.error('[Falcon] Gemini Flash error:', geminiErr?.message);
+        geminiFailReason = geminiErr?.message || 'فشل الاتصال بـ Gemini Flash';
+        console.error(`[AI Service: Falcon] Provider 2 (Gemini Flash) failed: [${geminiFailReason}]`);
       }
+    } else {
+      geminiFailReason = 'GEMINI_API_KEY غير متوفر على الخادم';
     }
 
-    // 4. مزود فنار (Fanar) - الاحتياطي النهائي
+    // 3. مزود فنار (Fanar) - اختياري إضافي
     if (process.env.FANAR_API_KEY) {
       try {
+        console.log('[AI Service: Falcon] Attempting Provider 3 (Fanar)...');
         const fanarReply = await callFanarCompletion(systemInstruction, chatHistory, userPromptText);
-        if (fanarReply) return { reply: fanarReply, sources: [], searchUsed: false };
+        if (fanarReply) {
+          console.log('[AI Service: Falcon] Provider 3 (Fanar) succeeded.');
+          return { reply: fanarReply, sources: [], searchUsed: false };
+        }
       } catch (fanarErr: any) {
-        console.error('[Falcon] Fanar fallback error:', fanarErr?.message);
+        console.warn('[AI Service: Falcon] Fanar fallback notice:', fanarErr?.message);
       }
     }
 
-    // 5. المحرك المحلي الذكي لصقر: الرد الحرفي الذكي بلهجة الورشة المعتمدة وفق سياق السؤال الفعلي
-    const q = userPromptText.toLowerCase();
-    const friendlyName = artistName ? `يا ${artistName}` : 'يا فنان الشمساوية';
-    let localCraftReply = '';
+    // 4. منع الردود الصامتة والوهمية (No Silent Mock Fallbacks)
+    console.error(`[AI Service: Falcon] Both providers failed! Provider 1: ${groqFailReason} | Provider 2: ${geminiFailReason}`);
 
-    if (q.includes('سعر') || q.includes('تسعير') || q.includes('بكام') || q.includes('تكلفة') || q.includes('ربح')) {
-      localCraftReply = `يا ${friendlyName} 🦅، صقر معاك في قلب ورشتك.. بخصوص التسعير وحساب التكلفة:\n\n` +
-        `• **معادلة تسعير المشغولات المعتمدة في شمس كرافت:**\n` +
-        `  1. **تكلفة الخامات المباشرة:** (الخيط الأساسي بالكيلو + الإضافات والخشب والإكسسوار).\n` +
-        `  2. **مصنعية اليد العاملة:** (صافي ساعات الشغل الفعلي × أجر الساعة المقدر بـ ${safeCurrency}).\n` +
-        `  3. **نسبة الهالك واستهلاك الأدوات:** إضافة 7% إلى 10% من إجمالي الخامات.\n` +
-        `  4. **المصاريف التشغيلية والإدارية:** 10% لتغطية الكهرباء والنقل والتغليف.\n` +
-        `  5. **سعر البيع النهائي:** إجمالي التكاليف أعلاه + هامش ربحك العادل (من 25% إلى 35% للقطاعي، و15% للجملة).\n\n` +
-        `💡 *نصيحة صقر:* افتح "حاسبة التكاليف" في المنظومة وسجل مقاسات القطعة بالكيلو والسنتيمتر لتحصل على تسعير فوري دقيق ومدروس بالمليم!`;
-    } else if (q.includes('خام') || q.includes('خيط') || q.includes('مكرمية') || q.includes('سماك') || q.includes('قطن') || q.includes('أمتار') || q.includes('حبل')) {
-      localCraftReply = `يا ${friendlyName} 🦅، كخبير هندسي في المشغولات اليدوية وصناعة المكرمية:\n\n` +
-        `• **قاعدة أطوال الحبال الهندسية:** طول الحبل الفردي المطلوب قصه = (4 إلى 6 أضعاف) طول القطعة النهائية المطلوبة، وتزيد النسبة إلى 7 أضعاف في الغرز المعقدة والمكثفة (كغرزة الفستونات الحلزونية).\n` +
-        `• **سماكة الخيوط ونوعيتها:** خيط القطن المحلول 4 مم هو الأنسب للجداريات والشراشيب، بينما خيط القطن المجدول (3 حبّات) يعطي متانة فائقة للمراجيح والشنط وأرفف النباتات.\n` +
-        `• **حساب وزن القطعة التقريبي:** القطعة المتوسطة (عرض 50 سم × طول 70 سم) تستهلك من 800 جرام إلى 1.2 كيلو خيط قطن شامل الشراشيب.\n\n` +
-        `تأكد من مراجعة كارت الصنف في "المخزن وإدارة الخامات" للتأكد من توفر الكمية الكافية قبل بدء التشغيل!`;
-    } else if (q.includes('خزن') || q.includes('خزينه') || q.includes('سيول') || q.includes('رصيد') || q.includes('فلوس') || q.includes('عهدة')) {
-      localCraftReply = `يا ${friendlyName} 🦅، صقر معاك.. لمتابعة التدفقات النقدية ومطابقة أرصدة ورشتك:\n\n` +
-        `• شجرة الخزائن في المنظومة مقسمة بدقة بين: **الخزينة النقدية الرئيسية (الكاش)**، **حساب إنستاباي/البنك**، و**العهد المالية للموظفين**.\n` +
-        `• تأكد من تسجيل أي منصرف يومي وتوريد مبيعات فواتيرك فوراً لضمان دقة مؤشر السيولة الحية ونظرة عامة على الورشة.\n\n` +
-        `يمكنك التوجه فوراً لشاشة "الخزينة والأرصدة والعهد" لاستعراض الكشوفات وإجراء أي تسوية فورية.`;
-    } else if (q.includes('نواقص') || q.includes('مخزن') || q.includes('منتج') || q.includes('كتالوج') || q.includes('أوردر')) {
-      localCraftReply = `يا ${friendlyName} 🦅، صقر سامعك وفاهم قصدك تماماً.. شاشة ورشتك الرئيسية تعرض لك الآن نبض التشغيل:\n\n` +
-        `• راجع بطاقة "تنبيهات المخزون" في الصفحة الرئيسية لأي خامات انخفض رصيدها عن حد الطلب الأدنى.\n` +
-        `• تأكد من تحويل الطلبيات الجاهزة إلى فواتير معتمدة لتحصيل المستحقات وإدراجها في حركة مبيعات الشهر.\n` +
-        `• أنا معاك دائماً لأي استشارة هندسية في دراسة السوق والأسعار والموديلات!`;
-    } else {
-      localCraftReply = `يا ${friendlyName} 🦅، صقر الشمساوية سامعك ومعاك خطوة بخطوة.. بخصوص استفسارك حول: "${message}"\n\n` +
-        `أنا حاضر معك بكل خبراتي في الورشة وحساب التكاليف ودراسة الأسواق. يمكنك سؤالي عن تسعير أي قطعة، أو حساب استهلاك الخيوط والأبعاد الهندسية، أو تحليل حركة السوق والمنافسين وسأجيبك بأدق الحسابات المهنية المعتمدة في عيلة الشمساوية!`;
-    }
-
-    return {
-      reply: localCraftReply,
-      sources: [],
-      searchUsed: false,
-    };
+    throw new Error(
+      `تعذر اتصال مستشار الورشة (صقر): فشل المزود الأساسي (Groq: ${groqFailReason}) وفشل المزود البديل (Gemini Flash: ${geminiFailReason}). يرجى التحقق من اتصال الإنترنت ومفاتيح التشغيل.`
+    );
   }
 }
 

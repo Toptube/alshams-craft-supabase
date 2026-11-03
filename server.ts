@@ -63,7 +63,13 @@ const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_KEY ||
   supabaseConfig.publishableKey;
-const supabaseAuthClient = createClient(supabaseConfig.url, supabaseServiceKey);
+export const supabaseAuthClient = createClient(supabaseConfig.url, supabaseServiceKey);
+export const supabaseAdminClient = createClient(supabaseConfig.url, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+});
 
 // Rate Limits
 const FALCON_DAILY_LIMIT = Number(process.env.FALCON_DAILY_LIMIT) || 20;
@@ -242,7 +248,7 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
   }
 
   try {
-    const client = req.scopedSupabase || supabaseAuthClient;
+    const client = supabaseAdminClient;
     let dbWorkshops: any[] = [];
     let dbProfiles: any[] = [];
 
@@ -346,7 +352,7 @@ app.get('/api/admin/system-report', requireAuth, async (req: AuthenticatedReques
   }
 
   try {
-    const client = req.scopedSupabase || supabaseAuthClient;
+    const client = supabaseAdminClient;
     let dbWorkshops: any[] = [];
     try {
       const { data, error } = await client
@@ -461,7 +467,7 @@ app.post('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, 
   savePersistentWorkshops(localList);
 
   try {
-    const client = req.scopedSupabase || supabaseAuthClient;
+    const client = supabaseAdminClient;
     await client.from('workshops').insert({
       id: newWs.id,
       brand_name: newWs.brandName,
@@ -496,16 +502,27 @@ app.put('/api/admin/workshops/:id', requireAuth, async (req: AuthenticatedReques
   }
 
   try {
-    const client = req.scopedSupabase || supabaseAuthClient;
-    await client.from('workshops').update({
-      brand_name: updates.brandName,
-      artist_name: updates.artistName,
-      email: updates.email,
-      phone_number: updates.phoneNumber,
-      country: updates.country,
-      currency: updates.currency,
-      updated_at: new Date().toISOString(),
-    }).eq('id', targetWid);
+    const client = supabaseAdminClient;
+    await Promise.allSettled([
+      client.from('workshops').update({
+        brand_name: updates.brandName,
+        artist_name: updates.artistName,
+        email: updates.email,
+        phone_number: updates.phoneNumber,
+        country: updates.country,
+        currency: updates.currency,
+        updated_at: new Date().toISOString(),
+      }).eq('id', targetWid),
+      client.from('profiles').update({
+        brand_name: updates.brandName,
+        artist_name: updates.artistName,
+        email: updates.email,
+        phone_number: updates.phoneNumber,
+        country: updates.country,
+        currency: updates.currency,
+        updated_at: new Date().toISOString(),
+      }).eq('id', targetWid),
+    ]);
   } catch {}
 
   res.json({ success: true, workshop: idx >= 0 ? localList[idx] : updates });
@@ -521,7 +538,7 @@ app.post('/api/admin/workshops/:id/credentials', requireAuth, async (req: Authen
   const targetWid = req.params.id;
   const { newPassword, newEmail, newPhone, newBrandName, newArtistName } = req.body || {};
 
-  const client = req.scopedSupabase || supabaseAuthClient;
+  const client = supabaseAdminClient;
   const localList = loadPersistentWorkshops();
   const targetIndex = localList.findIndex((w) => w.id === targetWid || w.workshopId === targetWid);
 
@@ -619,7 +636,7 @@ app.post('/api/admin/workshops/:id/award', requireAuth, async (req: Authenticate
 
   // Update Supabase if available
   try {
-    const client = req.scopedSupabase || supabaseAuthClient;
+    const client = supabaseAdminClient;
     await client.from('workshops').update({
       rating_stars: starsCount,
       medal: medal,
@@ -645,7 +662,7 @@ app.post('/api/admin/workshops/:id/award', requireAuth, async (req: Authenticate
   };
 
   try {
-    const client = req.scopedSupabase || supabaseAuthClient;
+    const client = supabaseAdminClient;
     await client.from('admin_announcements').insert(tributeAnn);
   } catch {}
   localAnnouncements.unshift(tributeAnn);
@@ -672,7 +689,7 @@ app.get('/api/admin/workshops/:id/audit', requireAuth, async (req: Authenticated
     return res.status(404).json({ error: 'الورشة غير موجودة' });
   }
 
-  const client = req.scopedSupabase || supabaseAuthClient;
+  const client = supabaseAdminClient;
   let matsCount = 12;
   let prodsCount = 8;
   let ordersCount = 15;
@@ -723,7 +740,7 @@ app.get('/api/admin/workshops/:id/deep-data', requireAuth, async (req: Authentic
   }
 
   const targetWid = req.params.id;
-  const client = req.scopedSupabase || supabaseAuthClient;
+  const client = supabaseAdminClient;
 
   try {
     const [matsRes, prodsRes, treasRes, ordersRes, custsRes, supsRes, empsRes] = await Promise.all([
@@ -758,7 +775,7 @@ app.post('/api/admin/workshops/:id/selective-delete', requireAuth, async (req: A
 
   const targetWid = req.params.id;
   const { mode } = req.body || {};
-  const client = req.scopedSupabase || supabaseAuthClient;
+  const client = supabaseAdminClient;
 
   try {
     if (mode === 'catalog_inventory') {
@@ -903,7 +920,7 @@ const handleMyStatus = async (req: Request, res: Response) => {
     return res.json({ success: true, status: 'active', appeal_status: 'none', workshop: { status: 'active', appeal_status: 'none' } });
   }
 
-  const client = supabaseAuthClient;
+  const client = supabaseAdminClient;
   const statusRec = await checkWorkshopStatusAndAutoUnfreeze(client, wid);
   res.json({
     success: true,
@@ -929,7 +946,7 @@ app.post('/api/workshop/appeal', async (req: Request, res: Response) => {
   }
 
   const nowIso = new Date().toISOString();
-  const client = supabaseAuthClient;
+  const client = supabaseAdminClient;
 
   try {
     await client
@@ -975,7 +992,7 @@ app.post('/api/admin/workshops/:id/status', requireAuth, async (req: Authenticat
   }
 
   const isFrozen = status !== 'active';
-  const client = req.scopedSupabase || supabaseAuthClient;
+  const client = supabaseAdminClient;
 
   const updateData: any = {
     status,
@@ -988,9 +1005,15 @@ app.post('/api/admin/workshops/:id/status', requireAuth, async (req: Authenticat
   };
 
   try {
-    await client.from('workshops').update(updateData).eq('id', targetWid);
-  } catch {
-    // ignore
+    await Promise.allSettled([
+      client.from('workshops').update(updateData).eq('id', targetWid),
+      client.from('profiles').update({
+        status,
+        updated_at: updateData.updated_at,
+      }).eq('id', targetWid),
+    ]);
+  } catch (dbErr) {
+    console.warn('[Admin Status] Supabase update warning:', dbErr);
   }
 
   const existing = localWorkshopStatusMap.get(targetWid) || { status: 'active' };
@@ -1034,7 +1057,7 @@ app.post('/api/admin/workshops/:id/appeal', requireAuth, async (req: Authenticat
     return res.status(400).json({ error: 'حالة الطعن غير صالحة' });
   }
 
-  const client = req.scopedSupabase || supabaseAuthClient;
+  const client = supabaseAdminClient;
   const isAccepted = appeal_status === 'accepted';
 
   const updateData: any = isAccepted
@@ -1053,10 +1076,10 @@ app.post('/api/admin/workshops/:id/appeal', requireAuth, async (req: Authenticat
       };
 
   try {
-    await client.from('workshops').update(updateData).eq('id', targetWid);
-  } catch {}
-  try {
-    await client.from('profiles').update(updateData).eq('id', targetWid);
+    await Promise.allSettled([
+      client.from('workshops').update(updateData).eq('id', targetWid),
+      client.from('profiles').update(updateData).eq('id', targetWid),
+    ]);
   } catch {}
 
   const existing = localWorkshopStatusMap.get(targetWid) || { status: 'suspended' };
@@ -1087,7 +1110,7 @@ app.get('/api/admin/appeals', requireAuth, async (req: AuthenticatedRequest, res
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
-  const client = req.scopedSupabase || supabaseAuthClient;
+  const client = supabaseAdminClient;
   try {
     const { data, error } = await client
       .from('workshops')
@@ -1121,7 +1144,7 @@ app.get('/api/admin/appeals', requireAuth, async (req: AuthenticatedRequest, res
 // 6. Get Announcements for current workshop
 app.get('/api/announcements', async (req: Request, res: Response) => {
   const wid = ((req.query.workshopId as string) || (req.body?.workshopId as string) || (req.headers['x-workshop-id'] as string) || '') as string;
-  const client = supabaseAuthClient;
+  const client = supabaseAdminClient;
 
   try {
     const { data: announcements, error: aErr } = await client
@@ -1185,7 +1208,7 @@ app.post('/api/admin/announcements', requireAuth, async (req: AuthenticatedReque
     created_at: new Date().toISOString(),
   };
 
-  const client = req.scopedSupabase || supabaseAuthClient;
+  const client = supabaseAdminClient;
   try {
     await client.from('admin_announcements').insert({
       recipient_type: newAnn.recipient_type,
@@ -1207,7 +1230,7 @@ app.post('/api/announcements/:id/receipt', async (req: Request, res: Response) =
   const messageId = req.params.id;
   const { action, reply_text } = req.body || {};
 
-  const client = supabaseAuthClient;
+  const client = supabaseAdminClient;
   const nowIso = new Date().toISOString();
 
   let receiptUpdate: any = {};
@@ -1254,7 +1277,7 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
-  const client = req.scopedSupabase || supabaseAuthClient;
+  const client = supabaseAdminClient;
   try {
     const { data: receipts } = await client
       .from('workshop_messages_receipts')
@@ -1284,10 +1307,56 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
   res.json({ inbox: replies });
 });
 
+// 10. Public Feedback & Proposals Endpoint (Landing Page & Artisans Reviews)
+app.post('/api/public/feedback', async (req: Request, res: Response) => {
+  const { name, craft, rating, message, contact } = req.body || {};
+  if (!name || !message) {
+    return res.status(400).json({ error: 'الاسم ونص الرسالة مطلوبان' });
+  }
+
+  const feedbackItem = {
+    id: 'fb_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    name: String(name).trim(),
+    craft: String(craft || 'مشغولات يدوية').trim(),
+    rating: Number(rating) || 5,
+    message: String(message).trim(),
+    contact: String(contact || '').trim(),
+    created_at: new Date().toISOString(),
+  };
+
+  const formattedReply = `[رأي ومقترح من صفحة الهبوط] الاسم: ${feedbackItem.name} (${feedbackItem.craft}) | التقييم: ${feedbackItem.rating}/5 نجوم | وسيلة التواصل: ${feedbackItem.contact || 'غير محدد'}\n\nنص الرسالة:\n${feedbackItem.message}`;
+
+  localReceipts.unshift({
+    message_id: 'feedback_msg',
+    workshop_id: 'visitor_' + Date.now(),
+    reply_text: formattedReply,
+    replied_at: feedbackItem.created_at,
+    workshop_name: feedbackItem.name,
+  });
+
+  try {
+    if (supabaseAdminClient) {
+      await supabaseAdminClient.from('workshop_messages_receipts').insert({
+        message_id: 'feedback_msg',
+        workshop_id: 'visitor_' + Date.now(),
+        reply_text: formattedReply,
+        replied_at: feedbackItem.created_at,
+      });
+    }
+  } catch {
+    // ignore
+  }
+
+  res.json({
+    success: true,
+    message: 'شكراً لمشاركتك رأيك القيّم مع عيلة الشمساوية! تم إرسال رسالتك مباشرة لصندوق الإدارة.',
+  });
+});
+
 // -------------------------------------------------------------
 // Shamousa Chat Endpoint (Workshop Data Only)
 // -------------------------------------------------------------
-app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
   const email = req.userEmail || req.user?.email || '';
   const superAdmin = isSuperAdmin(email);
@@ -1320,7 +1389,7 @@ app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, re
 
   // فحص الحظر والإيقاف المؤقت للورشة
   if (!superAdmin && wid && wid !== 'ALL_WORKSHOPS') {
-    const statusRec = await checkWorkshopStatusAndAutoUnfreeze(req.scopedSupabase || supabaseAuthClient, wid);
+    const statusRec = await checkWorkshopStatusAndAutoUnfreeze(supabaseAdminClient, wid);
     if (statusRec.status === 'suspended' || statusRec.status === 'banned') {
       res.status(403).json({
         error:
@@ -1374,7 +1443,7 @@ app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, re
         workshopName: brandName,
         treasuryBalance: clientTreasury,
         workshopId: wid,
-        db: req.scopedSupabase || supabaseAuthClient,
+        db: supabaseAdminClient,
         clientContext: clientWorkshopState,
         userEmail: email,
         isSuperAdmin: superAdmin,
@@ -1397,7 +1466,10 @@ app.post('/api/shamousa/chat', requireAuth, async (req: AuthenticatedRequest, re
       remaining: getRemainingUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT, email),
     });
   }
-});
+};
+
+app.post('/api/shamousa/chat', requireAuth, handleShamousaChatRoute);
+app.post('/api/ai/shamousa/chat', requireAuth, handleShamousaChatRoute);
 
 // -------------------------------------------------------------
 // Falcon AI Agent Endpoints (General Crafts, Vision, Pricing)
@@ -1589,7 +1661,14 @@ async function startServer() {
   }
 
   app.listen(PORT, HOST, () => {
-    console.log(`[AlShams ERP Server] Listening on http://${HOST}:${PORT}`);
+    console.log('================================================================');
+    console.log('☀️  [منظومة الشمساوية SaaS] خادم إدارة الورش الحرفية والإدارة العليا');
+    console.log(`🔌 حالة ربط قاعدة البيانات (Supabase URL): ${supabaseConfig.url ? 'متصل بنجاح ✅' : 'غير متصل ❌'}`);
+    console.log(`🛡️  صلاحيات السوبر أدمن (Service Role): ${process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY ? 'مفعل (تجاوز عزل RLS بالكامل) ✅' : 'قيد العمل بالمفتاح المنشور (Publishable Key) ⚠️'}`);
+    console.log(`🤖 المزود الأول للذكاء الاصطناعي (Groq): ${process.env.GROQ_API_KEY ? 'مفتاح التشغيل نشط ✅' : 'المفتاح غير مضبوط على الخادم ⚠️'}`);
+    console.log(`✨ المزود البديل للذكاء الاصطناعي (Gemini Flash): ${process.env.GEMINI_API_KEY ? 'مفتاح التشغيل نشط (gemini-3.8-flash) ✅' : 'المفتاح غير مضبوط على الخادم ⚠️'}`);
+    console.log(`🌐 خادم الويب يستمع على المنفذ: http://${HOST}:${PORT}`);
+    console.log('================================================================');
   });
 }
 

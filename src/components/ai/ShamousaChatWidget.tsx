@@ -568,6 +568,39 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         currentTreasury = (safe.mainSafe || 0) + (safe.subSafe || 0);
       }
 
+      // جمع سياق الورشة الفعلي المباشر: الخامات الناقصة، أوامر التشغيل، والطلبيات
+      let lowMaterialsList: string[] = [];
+      let openWorkOrdersList: string[] = [];
+      let pendingOrdersCount = 0;
+
+      try {
+        const [mats, wOrders, ords] = await Promise.all([
+          tenantStorage.getRawMaterials(workshopId).catch(() => []),
+          tenantStorage.getWorkOrders(workshopId).catch(() => []),
+          tenantStorage.getOrders(workshopId).catch(() => []),
+        ]);
+
+        const lowMats = (mats || []).filter(
+          (m) => (Number(m.currentStock) || 0) <= (Number(m.minAlertThreshold) || 5)
+        );
+        lowMaterialsList = lowMats.map(
+          (m) => `${m.materialName} (الرصيد: ${m.currentStock} ${m.unit || 'وحدة'} - حد الأمان: ${m.minAlertThreshold || 5})`
+        );
+
+        const openOrders = (wOrders || []).filter(
+          (w) => w.status === 'open' || w.status === 'in_progress'
+        );
+        openWorkOrdersList = openOrders.map(
+          (w) => `#${w.orderNumber}: "${w.productName}" (${w.status === 'in_progress' ? 'قيد التصنيع' : 'بانتظار الصرف'} - الصانع: ${w.assignedEmployeeName || 'حرفي'})`
+        );
+
+        pendingOrdersCount = (ords || []).filter(
+          (o) => o.status !== 'delivered' && o.status !== 'completed' && o.status !== 'cancelled'
+        ).length;
+      } catch (ctxErr) {
+        console.warn('Live context fetch warning:', ctxErr);
+      }
+
       const res = await authedFetch('/api/shamousa/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -581,6 +614,11 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           clientWorkshopState: {
             treasuryBalance: currentTreasury,
             treasuriesDetail: treasuriesList,
+            lowMaterialsCount: lowMaterialsList.length,
+            lowMaterialsList,
+            openWorkOrdersCount: openWorkOrdersList.length,
+            openWorkOrdersList,
+            pendingOrdersCount,
           },
         }),
       });
