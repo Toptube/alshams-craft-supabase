@@ -22,6 +22,7 @@ import {
   Send,
   X,
   ChevronDown,
+  ChevronUp,
   ExternalLink,
   Moon,
   Sun,
@@ -29,6 +30,13 @@ import {
   Check,
   Flame,
   Award,
+  Users,
+  BookOpen,
+  Store,
+  Receipt,
+  Share2,
+  HelpCircle,
+  Phone,
 } from 'lucide-react';
 
 interface LandingPageProps {
@@ -120,11 +128,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   منظومة الشمساوية
                 </span>
                 <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
-                  كرافت SaaS
+                  المنظومة الحرفية المتكاملة
                 </span>
               </div>
               <span className="text-[10px] text-stone-500 dark:text-stone-400 font-mono tracking-wider">
-                AL-SHAMSAWEYA CRAFT ERP
+                منظومة الشمساوية
               </span>
             </div>
           </div>
@@ -422,12 +430,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             {/* Shamousa The Operations Buddy */}
             <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-stone-900 border-2 border-amber-500/30 shadow-lg flex flex-col sm:flex-row items-center gap-6">
-              <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0 rounded-2xl overflow-hidden border-2 border-amber-400 bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center p-3 shadow-md">
-                <AlShamsFalconEmblem size="lg" className="drop-shadow-md" />
+              <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0 rounded-2xl overflow-hidden border-2 border-amber-400 bg-gradient-to-tr from-amber-400 via-orange-400 to-amber-500 flex items-center justify-center p-1 shadow-md">
+                <img
+                  src="/shamousa_mascot.png"
+                  alt="شموسة مديرة أعمال الورشة"
+                  className="w-full h-full object-cover object-top scale-110 select-none filter drop-shadow-md"
+                />
               </div>
               <div className="space-y-2 text-center sm:text-right">
                 <div className="flex items-center justify-center sm:justify-start gap-2">
-                  <h3 className="text-xl font-black text-stone-900 dark:text-amber-300">شموسة كرافت</h3>
+                  <h3 className="text-xl font-black text-stone-900 dark:text-amber-300">شموسة</h3>
                   <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-800 dark:text-amber-200 font-bold">مديرة العمليات والمهام</span>
                 </div>
                 <p className="text-sm text-stone-600 dark:text-stone-300 leading-relaxed">
@@ -492,7 +504,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800/80 min-h-[120px] flex flex-col justify-center text-sm leading-relaxed text-stone-200">
               {simQuestion === 'falcon_runner' && (
                 <div className="space-y-1.5 animate-fadeIn">
-                  <div className="text-amber-400 font-bold text-xs flex items-center gap-1.5">
+                  <div className="text-amber-400 font-bold text-xs flex items-center gap-2">
+                    <img
+                      src="/falcon_mascot_ai.png"
+                      alt="صقر"
+                      className="w-5 h-5 rounded-full object-cover object-top border border-amber-400 select-none"
+                    />
                     <span>رد صقر الشمساوية:</span>
                   </div>
                   <p>
@@ -502,8 +519,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               )}
               {simQuestion === 'shamousa_cash' && (
                 <div className="space-y-1.5 animate-fadeIn">
-                  <div className="text-amber-400 font-bold text-xs flex items-center gap-1.5">
-                    <span>رد شموسة كرافت:</span>
+                  <div className="text-amber-400 font-bold text-xs flex items-center gap-2">
+                    <img
+                      src="/shamousa_mascot.png"
+                      alt="شموسة"
+                      className="w-5 h-5 rounded-full object-cover object-top scale-125 border border-amber-400 select-none"
+                    />
+                    <span>رد شموسة:</span>
                   </div>
                   <p>
                     "صباح الفل يا فنان! درج الخزينة فيه <strong>3,450 ج.م كاش</strong>، والمحفظة فيها <strong>1,800 ج.م</strong>. بس خد بالك خيط المكرمية البيج باقي منه بكرة واحدة بس، وده تحت حد الأمان للورشة.. تطلب طلبية خامات جديدة من المورد؟"
@@ -622,6 +644,300 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </button>
           </div>
 
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 5.1 CRM: إدارة وعلاقات العملاء ومستحقاتهم                       */}
+      {/* ------------------------------------------------------------- */}
+      <section id="crm-clients" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-white dark:bg-stone-950">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col lg:flex-row items-center justify-between gap-12">
+            
+            <div className="flex-1 space-y-4 text-center lg:text-right">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 text-xs font-bold border border-emerald-500/20">
+                <Users className="w-3.5 h-3.5" />
+                <span>إدارة وعلاقات العملاء (CRM الحرفي)</span>
+              </div>
+              
+              <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white leading-tight">
+                عميلك مش رقم عابر.. <br />
+                <span className="text-emerald-600 dark:text-emerald-400">ده شريك نجاحك وسمعة ورشتك!</span>
+              </h2>
+
+              <p className="text-base sm:text-lg text-stone-600 dark:text-stone-300 leading-relaxed">
+                لكل عميل ملف متكامل يحفظ تفضيلاته، مقاسات بيته، ألوانه المفضلة، وسجل كل قطعة اشتراها منك. كشف حساب فوري يوضح المستحق والمتبقي بدون إحراج، وتواصل مباشر على واتساب بلمسة زر لتأكيد الطلب وتحديث مراحل التنفيذ.
+              </p>
+
+              <div className="space-y-2.5 pt-2 text-sm font-semibold text-stone-700 dark:text-stone-300">
+                <div className="flex items-center gap-2 justify-center lg:justify-start">
+                  <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>دليل عملاء ذكي بأرقامهم وعناوينهم وتاريخ تعاملاتهم</span>
+                </div>
+                <div className="flex items-center gap-2 justify-center lg:justify-start">
+                  <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>كشف حساب مديونيات ودفعات مقدمة بضغطة زر وبدون إحراج</span>
+                </div>
+                <div className="flex items-center gap-2 justify-center lg:justify-start">
+                  <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <span>مشاركة تحديثات التصنيع ومواعيد التسليم مباشرة عبر واتساب</span>
+                </div>
+              </div>
+
+              <div className="pt-4">
+                <button
+                  type="button"
+                  onClick={onOpenRegister}
+                  className="px-6 py-3 rounded-2xl font-bold text-sm sm:text-base bg-emerald-600 hover:bg-emerald-700 text-white shadow-md active:scale-95 transition-all cursor-pointer"
+                >
+                  نظّم حسابات زباينك وافتح ورشتك الآن 👥
+                </button>
+              </div>
+            </div>
+
+            {/* Interactive Preview Card for CRM */}
+            <div className="w-full max-w-md p-6 rounded-3xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 flex items-center justify-center font-bold">
+                    س
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm text-stone-900 dark:text-white">أ. سارة عبد الرحمن</p>
+                    <p className="text-[11px] text-stone-500 dark:text-stone-400">عميل مميز • القاهرة (المعادي)</p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                  حساب منتظم
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-center">
+                <div className="p-3 rounded-2xl bg-white dark:bg-stone-800/80 border border-stone-200/80 dark:border-stone-700">
+                  <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-1">إجمالي المشتريات</span>
+                  <span className="text-base font-black font-mono text-stone-900 dark:text-white">8,400 ج.م</span>
+                </div>
+                <div className="p-3 rounded-2xl bg-white dark:bg-stone-800/80 border border-stone-200/80 dark:border-stone-700">
+                  <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-1">المتبقي للتحصيل</span>
+                  <span className="text-base font-black font-mono text-emerald-600 dark:text-emerald-400">1,200 ج.م</span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-white dark:bg-stone-800/80 border border-stone-200/80 dark:border-stone-700 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-stone-800 dark:text-stone-200">آخر طلبية: طقم معلقات مكرمية بوهيمي</span>
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">قيد التشطيب</span>
+                </div>
+                <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                  تفضيل العميل: خيط قطن طبيعي عاجي بدون صبغات صناعية.
+                </p>
+              </div>
+
+              <div className="pt-1 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onOpenRegister}
+                  className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>تواصل واتساب مباشر</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 5.2 Smart Catalog: الكتالوج وعروض الأسعار بضغطة زر              */}
+      {/* ------------------------------------------------------------- */}
+      <section id="smart-catalog" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-stone-100/60 dark:bg-stone-900/40">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col-reverse lg:flex-row items-center justify-between gap-12">
+            
+            {/* Interactive Preview Card for Quotation & Catalog */}
+            <div className="w-full max-w-md p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-amber-500" />
+                  <span className="font-bold text-sm text-stone-900 dark:text-white">عرض سعر رسمي موثق</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                  QT-2026-08
+                </span>
+              </div>
+
+              <div className="space-y-2.5 text-xs">
+                <div className="p-3 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-stone-900 dark:text-stone-100">معلقة شمس الأصيل 120×80 سم</p>
+                    <p className="text-stone-500 dark:text-stone-400">خشب زان طبيعي + خيوط مكرمية قطن مصري</p>
+                  </div>
+                  <span className="font-black font-mono text-stone-900 dark:text-white text-sm">2,650 ج.م</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="p-2.5 rounded-lg bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                    <span className="text-stone-500 dark:text-stone-400 block mb-0.5">مدة التنفيذ المقدرة</span>
+                    <span className="font-bold text-stone-800 dark:text-stone-200">5 أيام عمل</span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700">
+                    <span className="text-stone-500 dark:text-stone-400 block mb-0.5">الدفعة المقدمة (عربون)</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">50% (1,325 ج.م)</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onOpenRegister}
+                  className="flex-1 py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>مشاركة رابط العرض للعميل</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-4 text-center lg:text-right">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs font-bold border border-amber-500/20">
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>الكتالوج المرجعي وعروض الأسعار</span>
+              </div>
+              
+              <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white leading-tight">
+                كتالوج يشرفك قدام زباينك.. <br />
+                <span className="text-amber-600 dark:text-amber-400">وعروض أسعار موثقة بضغطة زر!</span>
+              </h2>
+
+              <p className="text-base sm:text-lg text-stone-600 dark:text-stone-300 leading-relaxed">
+                ودّع التسعير المرتجل وعروض الأسعار المكتوبة على ورق ضايع! أنشئ عرض سعر احترافي بلمسة واحدة يوضح اسم المشغولة، الخامات، المقاسات، مدة التنفيذ، وشروط الدفعة المقدمة. شارك رابط الكتالوج مع زبائنك ليتصفحوا إبداعاتك بكل فخر.
+              </p>
+
+              <div className="space-y-2.5 pt-2 text-sm font-semibold text-stone-700 dark:text-stone-300">
+                <div className="flex items-center gap-2 justify-center lg:justify-start">
+                  <Check className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>عروض أسعار رسمية برقم مسلسل وشروط واضحة تحفظ حقوقك</span>
+                </div>
+                <div className="flex items-center gap-2 justify-center lg:justify-start">
+                  <Check className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>معرض مرجعي لمشغولات ورشتك يظهر تفاصيل كل قطعة بدقة</span>
+                </div>
+                <div className="flex items-center gap-2 justify-center lg:justify-start">
+                  <Check className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>تصدير سريع لفواتير وعروض الأسعار لمشاركتها على شبكات التواصل</span>
+                </div>
+              </div>
+
+              <div className="pt-4">
+                <button
+                  type="button"
+                  onClick={onOpenRegister}
+                  className="px-6 py-3 rounded-2xl font-bold text-sm sm:text-base bg-amber-500 hover:bg-amber-600 text-stone-950 shadow-md active:scale-95 transition-all cursor-pointer"
+                >
+                  صمّم كتالوج ورشتك الآن مجاناً 📖
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 5.3 Marketplace & Store: متجرك الخاص وسوق الشمساوية            */}
+      {/* ------------------------------------------------------------- */}
+      <section id="craft-store" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-white dark:bg-stone-950">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col lg:flex-row items-center justify-between gap-12">
+            
+            <div className="flex-1 space-y-4 text-center lg:text-right">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-pink-500/15 text-pink-700 dark:text-pink-400 text-xs font-bold border border-pink-500/20">
+                <Store className="w-3.5 h-3.5" />
+                <span>متجرك الخاص وسوق الشمساوية</span>
+              </div>
+              
+              <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white leading-tight">
+                من ورشتك لسوق أوسع.. <br />
+                <span className="text-pink-600 dark:text-pink-400">اعرض شغلك بدون وسيط ولا عمولات خفية!</span>
+              </h2>
+
+              <p className="text-base sm:text-lg text-stone-600 dark:text-stone-300 leading-relaxed">
+                واجهة متجر مستقلة خاصة بعلامتك التجارية لعرض منتجاتك الجاهزة للطلب أو المصنعة حسب الطلب. كما تفتح لك المنظومة باب المشاركة في "سوق الشمساوية" التكاملي للتعاون مع ورش أخرى وتبادل طلبيات الجملة وتوريد الخامات.
+              </p>
+
+              <div className="space-y-2.5 pt-2 text-sm font-semibold text-stone-700 dark:text-stone-300">
+                <div className="flex items-center gap-2 justify-center lg:justify-start">
+                  <Check className="w-4 h-4 text-pink-500 shrink-0" />
+                  <span>متجر رقمي يحمل اسم ورشتك وشعارك لعرض أعمالك للجمهور</span>
+                </div>
+                <div className="flex items-center gap-2 justify-center lg:justify-start">
+                  <Check className="w-4 h-4 text-pink-500 shrink-0" />
+                  <span>فرصة تكاملية للظهور داخل مجتمع ورش الشمساوية المتنامي</span>
+                </div>
+                <div className="flex items-center gap-2 justify-center lg:justify-start">
+                  <Check className="w-4 h-4 text-pink-500 shrink-0" />
+                  <span>أرباحك ومبيعاتك تصب مباشرة في خزينتك بدون أي عمولات وسيط</span>
+                </div>
+              </div>
+
+              <div className="pt-4">
+                <button
+                  type="button"
+                  onClick={onOpenRegister}
+                  className="px-6 py-3 rounded-2xl font-bold text-sm sm:text-base bg-pink-600 hover:bg-pink-700 text-white shadow-md active:scale-95 transition-all cursor-pointer"
+                >
+                  افتح متجرك الحرفي الآن 🛍️
+                </button>
+              </div>
+            </div>
+
+            {/* Interactive Preview Card for Store */}
+            <div className="w-full max-w-md p-6 rounded-3xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
+                <div className="flex items-center gap-2">
+                  <Store className="w-5 h-5 text-pink-500" />
+                  <span className="font-bold text-sm text-stone-900 dark:text-white">متجر الورشة الرقمي</span>
+                </div>
+                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-pink-500/15 text-pink-700 dark:text-pink-300">
+                  متاح للجمهور 🌐
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                <div className="p-3 rounded-2xl bg-white dark:bg-stone-800/80 border border-stone-200/80 dark:border-stone-700 flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center font-bold shrink-0">
+                    <ShoppingBag className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-xs text-stone-900 dark:text-white truncate">مرآة مكرمية بوهيمية قطر 60 سم</p>
+                    <p className="text-[10px] text-stone-500 dark:text-stone-400">متوفر 3 قطع جاهزة للتسليم الفوري</p>
+                  </div>
+                  <span className="font-black font-mono text-xs text-amber-600 dark:text-amber-400">1,450 ج.م</span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-white dark:bg-stone-800/80 border border-stone-200/80 dark:border-stone-700 flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-400 flex items-center justify-center font-bold shrink-0">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-xs text-stone-900 dark:text-white truncate">شجرة الحياة معلقة جدارية دائرية</p>
+                    <p className="text-[10px] text-stone-500 dark:text-stone-400">تنفيذ حسب الطلب (خلال 7 أيام)</p>
+                  </div>
+                  <span className="font-black font-mono text-xs text-violet-600 dark:text-violet-400">3,200 ج.م</span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-pink-50/70 dark:bg-pink-950/30 border border-pink-200 dark:border-pink-900/40 text-center">
+                <span className="text-xs font-bold text-pink-800 dark:text-pink-300">
+                  سوق الشمساوية: أكثر من 450 صانع وحرفي يتعاونون يومياً
+                </span>
+              </div>
+            </div>
+
+          </div>
         </div>
       </section>
 
@@ -887,6 +1203,90 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* ------------------------------------------------------------- */}
+      {/* 8.5 FAQ Accordion: الأسئلة الشائعة من صناع الهاند ميد         */}
+      {/* ------------------------------------------------------------- */}
+      <section id="faq-section" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-white dark:bg-stone-950">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          
+          <div className="text-center max-w-2xl mx-auto mb-12 space-y-3">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs font-bold border border-amber-500/20">
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>إجابات واضحة ومباشرة</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white">
+              الأسئلة الشائعة من صناع الهاند ميد
+            </h2>
+            <p className="text-base sm:text-lg text-stone-600 dark:text-stone-400 leading-relaxed">
+              كل اللي يدور في بالك عن المنظومة وحسابات الورشة وحماية أسرارك المهنية.
+            </p>
+          </div>
+
+          <div className="space-y-3.5">
+            {[
+              {
+                q: 'هل المنظومة صعبة أو محتاجة خبرة في الكمبيوتر والمحاسبة؟',
+                a: 'أبداً! المنظومة مصممة بالكامل بلغة عربية مصرية بسيطة وسلسة، وخالية تماماً من المصطلحات المعقدة. لو بتعرف تستخدم واتساب هتتعلم تدير ورشتك وتسجل فواتيرك وتصرف خاماتك في أقل من 5 دقائق.',
+              },
+              {
+                q: 'إزاي المنظومة بتحسب تكلفة الهدر وساعات التعب بدقة؟',
+                a: 'حاسبة التكاليف الذكية بتطلب منك أطوال الخامات الأساسية ووقت العمل، وبتحسب تلقائياً نسبة الهدر الطبيعي (شراشيب، قصائص)، ونسبة استهلاك العِدد والكهرباء، وتضيف هامش ربح الورشة المعتمد لتصل لسعر بيع عادل ومربح.',
+              },
+              {
+                q: 'هل تفاصيل خاماتي وأسعار مشغولاتي وتصاميمي في أمان وخصوصية؟',
+                a: 'بكل تأكيد! بيانات كل ورشة معزولة ومحمية بالكامل في قاعدة بيانات خاصة مشفرة. لا يمكن لأي ورشة أو صانع آخر الاطلاع على أسرار تركيباتك أو أسعار مورديك أو تصميماتك الخاصة.',
+              },
+              {
+                q: 'إيه الفرق بين دور صقر الشمساوية ودور شموسة؟',
+                a: 'صقر 🦅 هو مستشارك التقني والحسابي للأطوال والغرز وحسابات التكلفة والاستشارات الفنية. أما شموسة ☀️ فهي مديرة أعمال ورشتك: تفكرك بمواعيد تسليم الزباين، تنبهك بنواقص الخامات، وتطابق لك السيولة النقدية في الخزائن والعهد أولاً بأول.',
+              },
+              {
+                q: 'هل أقدر أستخدم المنظومة من الموبايل في قلب الورشة؟',
+                a: 'نعم 100%! المنظومة متوافقة تماماً وتعمل بسلاسة فائقة على شاشات الموبايل والتابلت والكمبيوتر، تقدر تصرف خامة أو تسلم منتج وأنت واقف مع الصنايعية في قلب الورشة بلمسة زر واحدة.',
+              },
+            ].map((faq, idx) => {
+              const isOpen = openFaq === idx;
+              return (
+                <div
+                  key={idx}
+                  className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
+                    isOpen
+                      ? 'border-amber-400 bg-amber-50/40 dark:bg-amber-950/20 shadow-xs'
+                      : 'border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-900/60 hover:border-stone-300 dark:hover:border-stone-700'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenFaq(isOpen ? null : idx)}
+                    className="w-full p-4 sm:p-5 text-right flex items-center justify-between gap-4 cursor-pointer"
+                  >
+                    <span className="font-bold text-sm sm:text-base text-stone-900 dark:text-stone-100">
+                      {faq.q}
+                    </span>
+                    <span
+                      className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-200 ${
+                        isOpen
+                          ? 'bg-amber-500 text-stone-950 rotate-180 shadow-2xs'
+                          : 'bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-300'
+                      }`}
+                    >
+                      <ChevronDown className="w-4 h-4" />
+                    </span>
+                  </button>
+
+                  {isOpen && (
+                    <div className="px-4 pb-5 sm:px-5 text-xs sm:text-sm text-stone-600 dark:text-stone-300 leading-relaxed border-t border-amber-200/40 dark:border-stone-800/80 pt-3 animate-in fade-in duration-200">
+                      {faq.a}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------- */}
       {/* 9. Final High-Impact Call To Action Banner                     */}
       {/* ------------------------------------------------------------- */}
       <section className="py-16 md:py-20 relative overflow-hidden bg-gradient-to-br from-amber-600 via-amber-700 to-stone-950 text-white">
@@ -923,7 +1323,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex items-center gap-3">
               <AlShamsFalconEmblem size="sm" />
               <div>
-                <p className="font-bold text-white text-base">منظومة الشمساوية كرافت SaaS</p>
+                <p className="font-bold text-white text-base">منظومة الشمساوية</p>
                 <p className="text-xs text-stone-500">نظام إدارة الإنتاج والتسعير والمالية لورش الهاند ميد</p>
               </div>
             </div>
@@ -940,7 +1340,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500">
             <p>صُنع بكل فخر وإتقان بأيادٍ مصرية لدعم الحرفيين وصناع الإبداع © 2026</p>
-            <p>منظومة الشمساوية • Al-Shams Craft SaaS</p>
+            <p>منظومة الشمساوية • رحلة كفاح تتحول لنجاح</p>
           </div>
         </div>
       </footer>

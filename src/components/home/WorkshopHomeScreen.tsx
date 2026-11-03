@@ -84,13 +84,15 @@ export type HomeCardSection =
   | 'work_orders'
   | 'sales'
   | 'customers'
+  | 'workforce'
   | 'artisans'
   | 'employees'
   | 'expenses'
   | 'treasuries'
   | 'accounts'
   | 'reports'
-  | 'my_platform';
+  | 'my_platform'
+  | 'ai_helpers';
 
 export interface WorkshopHomeScreenProps {
   profile: UserProfile;
@@ -161,6 +163,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
   // Active sub-screen state (null = main 11-card grid)
   const [activeSubSection, setActiveSubSection] = useState<HomeCardSection | null>(null);
+  const [workforceTab, setWorkforceTab] = useState<'artisans' | 'employees'>('artisans');
 
   const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
 
@@ -632,16 +635,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       borderColor: 'border-emerald-200/80 dark:border-emerald-900/40',
     },
     {
-      id: 'artisans' as HomeCardSection,
-      label: 'الفنانون والحرفيون',
-      icon: Palette,
-      color: 'text-amber-700 dark:text-amber-300',
-      bgColor: 'bg-amber-100/70 dark:bg-amber-950/50',
-      borderColor: 'border-amber-300 dark:border-amber-800',
-    },
-    {
-      id: 'employees' as HomeCardSection,
-      label: 'الموظفون',
+      id: 'workforce' as HomeCardSection,
+      label: 'فريق العمل والحرفيين',
       icon: Users2,
       color: 'text-violet-600 dark:text-violet-400',
       bgColor: 'bg-violet-50 dark:bg-violet-950/40',
@@ -686,6 +681,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       color: 'text-pink-600 dark:text-pink-400',
       bgColor: 'bg-pink-50 dark:bg-pink-950/40',
       borderColor: 'border-pink-200/80 dark:border-pink-900/40',
+    },
+    {
+      id: 'ai_helpers' as HomeCardSection,
+      label: 'مساعدو الشمساوية',
+      icon: Sparkles,
+      color: 'text-amber-600 dark:text-amber-400',
+      bgColor: 'bg-amber-50 dark:bg-amber-950/40',
+      borderColor: 'border-amber-300 dark:border-amber-800',
     },
   ];
 
@@ -739,11 +742,6 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               label: 'أرشيف المشغولات والتصاميم',
               icon: FolderArchive,
               onClick: onNavigateToArchive,
-            },
-            {
-              label: 'كتالوج الورشة المرجعي',
-              icon: BookOpen,
-              onClick: () => onNavigateToCatalog(),
             },
           ],
         };
@@ -906,53 +904,75 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           ],
         };
 
+      case 'workforce':
       case 'artisans':
-        return {
-          title: 'الفنانون والحرفيون (صناع الشمساوية)',
-          icon: Palette,
-          items: [
-            {
-              label: 'سجل صناع الورشة والتخصصات',
-              icon: Users,
-              onClick: () => onNavigateToHR(),
-            },
-            {
-              label: 'حساب أجر القطعة ومستحقات الإنتاج',
-              icon: Award,
-              onClick: () => onNavigateToHR(),
-            },
-            {
-              label: 'تسوية وصرف مستحقات حرفي',
-              icon: Wallet,
-              onClick: () => onNavigateToHR(),
-            },
-            {
-              label: 'كتالوج مشغولات الفنانين',
-              icon: BookOpen,
-              onClick: () => onNavigateToCatalog(),
-            },
-          ],
-        };
-
       case 'employees':
         return {
-          title: 'الموظفون وفريق العمل',
+          title: 'فريق العمل والحرفيين',
           icon: Users2,
+          isWorkforce: true,
+          items:
+            workforceTab === 'artisans'
+              ? [
+                  {
+                    label: 'سجل صناع الورشة وتخصصاتهم',
+                    icon: Users,
+                    onClick: () => onNavigateToHR(),
+                  },
+                  {
+                    label: 'حساب أجر القطعة ومستحقات الإنتاج',
+                    icon: Award,
+                    onClick: () => onNavigateToHR(),
+                  },
+                  {
+                    label: 'تسوية وصرف مستحقات حرفي',
+                    icon: Wallet,
+                    onClick: () => onNavigateToHR(),
+                  },
+                  {
+                    label: 'تكليف ومتابعة إنجاز المشغولات',
+                    icon: Hammer,
+                    onClick: () => onNavigateToWorkOrders(),
+                  },
+                ]
+              : [
+                  {
+                    label: 'إضافة موظف / صانع جديد',
+                    icon: UserPlus,
+                    onClick: () => onOpenNewEmployeeModal(),
+                  },
+                  {
+                    label: 'مسير الرواتب والأجور الشهرية',
+                    icon: Wallet,
+                    onClick: () => onNavigateToHR(),
+                  },
+                  {
+                    label: 'السلف والدفعات النقدية المقدمة',
+                    icon: DollarSign,
+                    onClick: () => onNavigateToHR(),
+                  },
+                  {
+                    label: 'سجل الحضور والانضباط',
+                    icon: ClipboardCheck,
+                    onClick: () => onNavigateToHR(),
+                  },
+                ],
+        };
+
+      case 'ai_helpers':
+        return {
+          title: 'مساعدو الشمساوية الذكية',
+          icon: Sparkles,
           items: [
             {
-              label: 'إضافة موظف / صانع جديد',
-              icon: UserPlus,
-              onClick: () => onOpenNewEmployeeModal(),
+              label: 'استشارة صقر الشمساوية AI',
+              icon: Sparkles,
+              onClick: () => onNavigateToAIAgent(),
             },
             {
-              label: 'مسير الرواتب والأجور الشهرية',
-              icon: Wallet,
-              onClick: () => onNavigateToHR(),
-            },
-            {
-              label: 'السلف والدفعات النقدية المقدمة',
-              icon: DollarSign,
-              onClick: () => onNavigateToHR(),
+              label: 'محادثة شموسة مديرة الأعمال',
+              icon: Sparkles,
+              onClick: () => window.dispatchEvent(new CustomEvent('alshams_open_shamousa')),
             },
           ],
         };
@@ -1079,11 +1099,6 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               icon: Store,
               onClick: () => onNavigateToCatalog('store'),
             },
-            {
-              label: 'أرشيف التصاميم وتصدير المشغولات',
-              icon: FolderArchive,
-              onClick: () => onNavigateToArchive(),
-            },
           ],
         };
 
@@ -1163,11 +1178,40 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             </button>
           </div>
 
+          {/* Workforce Tabs Switcher (صناع بالقطعة vs موظفون ورواتب) */}
+          {(currentSubHub as any).isWorkforce && (
+            <div className="flex items-center gap-2 bg-stone-100 dark:bg-stone-800/90 p-1.5 rounded-2xl w-full max-w-xl mx-auto border border-stone-200 dark:border-stone-700">
+              <button
+                type="button"
+                onClick={() => setWorkforceTab('artisans')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer text-center ${
+                  workforceTab === 'artisans'
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white'
+                }`}
+              >
+                صناع وحرفيو الورشة - بالقطعة والإنتاج
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkforceTab('employees')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer text-center ${
+                  workforceTab === 'employees'
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white'
+                }`}
+              >
+                الموظفون والإدارة - رواتب وسلف
+              </button>
+            </div>
+          )}
+
           {/* Sub-Action Buttons Grid: Same style (Icon + Short Word) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5 pt-1">
             {currentSubHub.items.map((sub, idx) => {
               const SubIcon = sub.icon;
               const isFalcon = sub.label.includes('صقر');
+              const isShamousa = sub.label.includes('شموسة');
               return (
                 <button
                   key={idx}
@@ -1175,15 +1219,25 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                   onClick={sub.onClick}
                   className="p-3.5 sm:p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/70 border border-stone-200/80 dark:border-stone-700 hover:border-amber-500 dark:hover:border-amber-500 hover:bg-amber-500/10 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-95 group text-center min-h-[90px]"
                 >
-                  <div className="w-8 h-8 rounded-xl bg-white dark:bg-stone-700 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-2xs group-hover:scale-110 transition-transform overflow-hidden p-0.5 border border-stone-200/60 dark:border-stone-600">
+                  <div className="w-9 h-9 rounded-xl bg-transparent text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-none group-hover:scale-110 transition-transform overflow-hidden p-0.5">
                     {isFalcon ? (
                       <img
                         src="/falcon_mascot_ai.png"
                         alt="صقر AI"
-                        className="w-full h-full object-cover object-top select-none rounded-lg"
+                        className="w-full h-full object-contain select-none"
                       />
+                    ) : isShamousa ? (
+                      <div className="w-8 h-8 rounded-full overflow-hidden border border-amber-400 bg-gradient-to-tr from-amber-400 to-orange-400 flex items-center justify-center shadow-xs">
+                        <img
+                          src="/shamousa_mascot.png"
+                          alt="شموسة"
+                          className="w-full h-full object-cover object-top scale-125 select-none"
+                        />
+                      </div>
                     ) : (
-                      <SubIcon className="w-4 h-4" />
+                      <div className="w-8 h-8 rounded-xl bg-white dark:bg-stone-700 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-2xs p-0.5 border border-stone-200/60 dark:border-stone-600">
+                        <SubIcon className="w-4 h-4" />
+                      </div>
                     )}
                   </div>
                   <span className="text-xs font-black text-stone-800 dark:text-stone-200 group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors">
@@ -1258,12 +1312,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-lime-50 to-emerald-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-lime-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-lime-500 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-0.5">
+              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
                 {tr('treasury_balance')}
               </span>
-              <span className="text-sm sm:text-base font-black font-mono text-lime-700 dark:text-lime-400">
+              <span className="text-sm sm:text-base font-black font-mono text-lime-700 dark:text-lime-300">
                 {loadingSummary ? '...' : totalTreasuryBalance.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-bold text-stone-600 dark:text-stone-300">
+                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1279,12 +1333,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-amber-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-amber-500 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-0.5">
+              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
                 {tr('month_sales')}
               </span>
-              <span className="text-sm sm:text-base font-black font-mono text-amber-700 dark:text-amber-400">
+              <span className="text-sm sm:text-base font-black font-mono text-amber-700 dark:text-amber-300">
                 {loadingSummary ? '...' : monthSalesTotal.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-bold text-stone-600 dark:text-stone-300">
+                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1300,12 +1354,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-rose-50 to-orange-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-rose-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-rose-500 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-0.5">
+              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
                 إجمالي المصروفات
               </span>
-              <span className="text-sm sm:text-base font-black font-mono text-rose-700 dark:text-rose-400">
+              <span className="text-sm sm:text-base font-black font-mono text-rose-700 dark:text-rose-300">
                 {loadingSummary ? '...' : totalExpenses.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-bold text-stone-600 dark:text-stone-300">
+                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1321,12 +1375,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-blue-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-blue-500 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-0.5">
+              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
                 قيمة المنتجات ({productsCount} منتج)
               </span>
-              <span className="text-sm sm:text-base font-black font-mono text-blue-700 dark:text-blue-400">
+              <span className="text-sm sm:text-base font-black font-mono text-blue-700 dark:text-blue-300">
                 {loadingSummary ? '...' : productsCostValue.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-bold text-stone-600 dark:text-stone-300">
+                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1342,12 +1396,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-purple-50 to-amber-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-purple-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-purple-500 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-0.5">
+              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
                 قيمة مخزون الخامات ({materialsCount} صنف)
               </span>
-              <span className="text-sm sm:text-base font-black font-mono text-purple-700 dark:text-purple-400">
+              <span className="text-sm sm:text-base font-black font-mono text-purple-700 dark:text-purple-300">
                 {loadingSummary ? '...' : inventoryValue.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-bold text-stone-600 dark:text-stone-300">
+                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1363,14 +1417,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-rose-50 to-amber-50/30 dark:from-stone-800 dark:to-stone-800/80 border border-rose-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-rose-500 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-0.5">
+              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
                 {tr('stock_alerts')}
               </span>
               <span
                 className={`text-sm sm:text-base font-black ${
                   stockAlertCount > 0
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : 'text-stone-700 dark:text-stone-300'
+                    ? 'text-rose-600 dark:text-rose-300'
+                    : 'text-stone-800 dark:text-stone-100'
                 }`}
               >
                 {loadingSummary
@@ -1383,8 +1437,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             <div
               className={`w-8 h-8 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform ${
                 stockAlertCount > 0
-                  ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
-                  : 'bg-stone-100 dark:bg-stone-700 text-stone-500'
+                  ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300'
+                  : 'bg-stone-100 dark:bg-stone-700 text-stone-300'
               }`}
             >
               <AlertTriangle className="w-4 h-4" />
@@ -1400,23 +1454,23 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                 <TrendingUp className="w-5 h-5 text-amber-600 dark:text-amber-400" />
               </div>
               <div>
-                <h4 className="text-sm sm:text-base font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
+                <h4 className="text-sm sm:text-base font-black text-stone-900 dark:text-white flex items-center gap-2">
                   <span>ملخص حركة الورشة هذا الشهر</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 font-bold">
                     مقارنة شهرية مباشرة
                   </span>
                 </h4>
-                <p className="text-xs text-stone-500 dark:text-stone-400">
+                <p className="text-xs text-stone-600 dark:text-stone-300">
                   مقارنة فورية بين دخل المبيعات وتكاليف التشغيل لاحتساب صافي حركة الورشة
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3 text-xs font-bold text-stone-600 dark:text-stone-300">
+            <div className="flex items-center gap-3 text-xs font-bold text-stone-700 dark:text-stone-200">
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#10b981] inline-block shadow-2xs"></span>
                 <span>إجمالي المبيعات</span>
               </span>
-              <span className="text-stone-300 dark:text-stone-700">•</span>
+              <span className="text-stone-300 dark:text-stone-600">•</span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b] inline-block shadow-2xs"></span>
                 <span>تكاليف الإنتاج والمصروفات</span>
@@ -1427,16 +1481,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           {/* 3 بطاقات مؤشرات فاخرة: المبيعات، التكاليف والمصروفات، صافي الحركة */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {/* 1. إجمالي المبيعات */}
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50/70 via-white to-emerald-50/30 dark:from-emerald-950/25 dark:via-stone-900 dark:to-emerald-950/10 border border-emerald-200/90 dark:border-emerald-800/60 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between">
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50/70 via-white to-emerald-50/30 dark:from-emerald-950/40 dark:via-stone-900 dark:to-emerald-950/20 border border-emerald-200/90 dark:border-emerald-800/80 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between">
               <div>
-                <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-400 block mb-0.5">
+                <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-300 block mb-0.5">
                   إجمالي المبيعات
                 </span>
                 <div className="text-xl sm:text-2xl font-black font-mono text-emerald-700 dark:text-emerald-300 tracking-tight">
                   {loadingSummary ? '...' : monthSalesTotal.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                  <span className="text-xs font-bold font-sans text-stone-600 dark:text-stone-400">{profile.currencySymbol}</span>
+                  <span className="text-xs font-black font-sans text-stone-700 dark:text-stone-200">{profile.currencySymbol}</span>
                 </div>
-                <span className="text-[10px] text-emerald-700/80 dark:text-emerald-400/80 font-bold block mt-0.5">
+                <span className="text-[10px] text-emerald-700/90 dark:text-emerald-300 font-bold block mt-0.5">
                   عائد مبيعات المنتجات والطلبيات
                 </span>
               </div>
@@ -1446,16 +1500,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             </div>
 
             {/* 2. تكاليف الإنتاج والمصروفات */}
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50/70 via-white to-amber-50/30 dark:from-amber-950/25 dark:via-stone-900 dark:to-amber-950/10 border border-amber-200/90 dark:border-amber-800/60 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between">
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50/70 via-white to-amber-50/30 dark:from-amber-950/40 dark:via-stone-900 dark:to-amber-950/20 border border-amber-200/90 dark:border-amber-800/80 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between">
               <div>
-                <span className="text-[11px] font-black text-amber-800 dark:text-amber-400 block mb-0.5">
+                <span className="text-[11px] font-black text-amber-800 dark:text-amber-300 block mb-0.5">
                   تكاليف الإنتاج والمصروفات
                 </span>
                 <div className="text-xl sm:text-2xl font-black font-mono text-amber-700 dark:text-amber-300 tracking-tight">
                   {loadingSummary ? '...' : totalExpenses.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                  <span className="text-xs font-bold font-sans text-stone-600 dark:text-stone-400">{profile.currencySymbol}</span>
+                  <span className="text-xs font-black font-sans text-stone-700 dark:text-stone-200">{profile.currencySymbol}</span>
                 </div>
-                <span className="text-[10px] text-amber-700/80 dark:text-amber-400/80 font-bold block mt-0.5">
+                <span className="text-[10px] text-amber-700/90 dark:text-amber-300 font-bold block mt-0.5">
                   أجور، خامات، ومصروفات تشغيل
                 </span>
               </div>
@@ -1467,12 +1521,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             {/* 3. صافي حركة الورشة */}
             <div className={`p-4 rounded-2xl shadow-2xs hover:shadow-xs transition-all flex items-center justify-between ${
               (monthSalesTotal - totalExpenses) >= 0
-                ? 'bg-gradient-to-br from-teal-50/70 via-white to-teal-50/30 dark:from-teal-950/25 dark:via-stone-900 dark:to-teal-950/10 border border-teal-200/90 dark:border-teal-850'
-                : 'bg-gradient-to-br from-rose-50/70 via-white to-rose-50/30 dark:from-rose-950/25 dark:via-stone-900 dark:to-rose-950/10 border border-rose-200/90 dark:border-rose-850'
+                ? 'bg-gradient-to-br from-teal-50/70 via-white to-teal-50/30 dark:from-teal-950/40 dark:via-stone-900 dark:to-teal-950/20 border border-teal-200/90 dark:border-teal-800/80'
+                : 'bg-gradient-to-br from-rose-50/70 via-white to-rose-50/30 dark:from-rose-950/40 dark:via-stone-900 dark:to-rose-950/20 border border-rose-200/90 dark:border-rose-800/80'
             }`}>
               <div>
                 <span className={`text-[11px] font-black block mb-0.5 ${
-                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-800 dark:text-teal-400' : 'text-rose-800 dark:text-rose-400'
+                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-800 dark:text-teal-300' : 'text-rose-800 dark:text-rose-300'
                 }`}>
                   صافي حركة الورشة
                 </span>
@@ -1482,10 +1536,10 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                   {loadingSummary
                     ? '...'
                     : `${(monthSalesTotal - totalExpenses) >= 0 ? '+' : ''}${(monthSalesTotal - totalExpenses).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}`}{' '}
-                  <span className="text-xs font-bold font-sans text-stone-600 dark:text-stone-400">{profile.currencySymbol}</span>
+                  <span className="text-xs font-black font-sans text-stone-700 dark:text-stone-200">{profile.currencySymbol}</span>
                 </div>
-                <span className={`text-[10px] font-bold block mt-0.5 ${
-                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-700/80 dark:text-teal-400/80' : 'text-rose-700/80 dark:text-rose-400/80'
+                <span className={`text-[10px] font-black block mt-0.5 ${
+                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-700 dark:text-teal-300' : 'text-rose-700 dark:text-rose-300'
                 }`}>
                   {(monthSalesTotal - totalExpenses) >= 0 ? 'فائض تشغيلي مريح لورشتك' : 'التكاليف تفوق المبيعات هذا الشهر'}
                 </span>
@@ -1493,7 +1547,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-xs ${
                 (monthSalesTotal - totalExpenses) >= 0
                   ? 'bg-teal-100/80 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'
-                  : 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400'
+                  : 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'
               }`}>
                 <Scale className="w-5 h-5" />
               </div>

@@ -283,6 +283,15 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'tasks_agenda'>('chat');
+
+  // الاستماع لحدث فتح شموسة من أي مكان في المنظومة
+  useEffect(() => {
+    const handleOpen = () => {
+      setIsOpen(true);
+    };
+    window.addEventListener('alshams_open_shamousa', handleOpen);
+    return () => window.removeEventListener('alshams_open_shamousa', handleOpen);
+  }, []);
   
   // Chat messages
   const [messages, setMessages] = useState<ShamousaMessage[]>(() => {
@@ -669,23 +678,28 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           <div
             aria-label="افتح شموسة — مديرة أعمال الورشة"
             title="شموسة — مديرة أعمال الورشة"
-            className={`group relative flex items-center justify-center rounded-full bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 text-white shadow-xl shadow-amber-900/30 hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer w-14 h-14 sm:w-16 sm:h-16 border-2 border-white/60 ${
+            className={`group relative flex items-center justify-center rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 text-white shadow-xl shadow-amber-900/40 hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer w-14 h-14 sm:w-16 sm:h-16 border-2 border-white/80 p-0.5 ${
               isAnyModalOpen ? 'opacity-0 pointer-events-none scale-0' : 'opacity-100 scale-100'
             }`}
           >
-            <span className="relative flex items-center justify-center w-7 h-7">
-              <MessageCircle className="w-7 h-7 text-white drop-shadow-xs" />
-              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white ring-1 ring-emerald-600/30" />
-            </span>
+            {/* Real Shamousa Mascot Character */}
+            <div className="relative w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+              <img
+                src="/shamousa_mascot.png"
+                alt="شموسة — مديرة أعمال الورشة"
+                className="w-full h-full object-cover object-top scale-125 select-none filter drop-shadow-sm"
+              />
+              <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-white ring-1 ring-emerald-600/30 z-10" />
+            </div>
 
             {/* شارة رقمية (Badge) توضح عدد التوجيهات أو المواعيد المستحقة */}
             {totalPendingBadge > 0 && (
-              <span className="absolute -top-1.5 -left-1.5 min-w-[22px] h-[22px] px-1 rounded-full bg-rose-600 border-2 border-white text-white font-mono text-[11px] font-black flex items-center justify-center shadow-md animate-pulse">
+              <span className="absolute -top-1.5 -left-1.5 min-w-[22px] h-[22px] px-1 rounded-full bg-rose-600 border-2 border-white text-white font-mono text-[11px] font-black flex items-center justify-center shadow-md animate-pulse z-20">
                 {totalPendingBadge}
               </span>
             )}
 
-            <span className="absolute -bottom-1 text-[10px] font-extrabold bg-stone-900/80 px-1.5 py-0.2 rounded-full border border-amber-400/50 text-amber-200">
+            <span className="absolute -bottom-1 text-[10px] font-black bg-stone-900/90 px-2 py-0.5 rounded-full border border-amber-400/80 text-amber-200 z-20 shadow-xs">
               شموسة
             </span>
           </div>
@@ -703,8 +717,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           {/* Header */}
           <div className="flex items-center justify-between gap-2 px-4 py-3 bg-gradient-to-l from-amber-500 via-orange-500 to-amber-600 text-white flex-shrink-0 shadow-xs">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-full bg-white/20 p-1.5 flex-shrink-0 flex items-center justify-center">
-                <AlShamsSunIcon />
+              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/80 bg-gradient-to-tr from-amber-400 to-orange-400 flex-shrink-0 flex items-center justify-center shadow-xs">
+                <img
+                  src="/shamousa_mascot.png"
+                  alt="شموسة مديرة أعمال الورشة"
+                  className="w-full h-full object-cover object-top scale-125 select-none"
+                />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -1258,7 +1276,16 @@ const Bubble: React.FC<{ role: 'user' | 'assistant'; children: React.ReactNode }
   role,
   children,
 }) => (
-  <div className={`flex ${role === 'user' ? 'justify-start' : 'justify-end'}`}>
+  <div className={`flex items-end gap-2 ${role === 'user' ? 'justify-start' : 'justify-end'}`}>
+    {role === 'assistant' && (
+      <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-amber-400 bg-amber-500/20 shadow-2xs">
+        <img
+          src="/shamousa_mascot.png"
+          alt="شموسة"
+          className="w-full h-full object-cover object-top scale-125 select-none"
+        />
+      </div>
+    )}
     <div
       className={`max-w-[85%] whitespace-pre-wrap break-words text-sm leading-relaxed px-4 py-2.5 rounded-2xl shadow-2xs ${
         role === 'user'

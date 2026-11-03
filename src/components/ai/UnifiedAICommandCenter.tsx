@@ -242,8 +242,12 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
           }`}
         >
           <div className="flex items-start justify-between mb-3">
-            <div className="w-12 h-12 rounded-2xl bg-white/20 dark:bg-amber-950/40 flex items-center justify-center text-2xl shadow-xs">
-              🌞
+            <div className="w-12 h-12 rounded-2xl overflow-hidden border border-amber-300/80 bg-white/20 dark:bg-amber-950/40 flex items-center justify-center p-0.5 shadow-xs">
+              <img
+                src="/shamousa_mascot.png"
+                alt="شموسة"
+                className="w-full h-full object-cover object-top scale-125 select-none"
+              />
             </div>
             <span
               className={`text-[10px] font-black px-2.5 py-1 rounded-full ${
@@ -355,11 +359,19 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
                   className={`flex items-start gap-2.5 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}
                 >
                   <div
-                    className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 text-sm ${
-                      m.role === 'user' ? 'bg-amber-600 text-white' : 'bg-amber-100 dark:bg-amber-950 text-amber-700'
+                    className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 overflow-hidden ${
+                      m.role === 'user' ? 'bg-amber-600 text-white text-sm' : 'bg-amber-100 dark:bg-amber-950 border border-amber-400/80 p-0.5'
                     }`}
                   >
-                    {m.role === 'user' ? '👑' : '🌞'}
+                    {m.role === 'user' ? (
+                      '👑'
+                    ) : (
+                      <img
+                        src="/shamousa_mascot.png"
+                        alt="شموسة"
+                        className="w-full h-full object-cover object-top scale-125 select-none"
+                      />
+                    )}
                   </div>
                   <div
                     className={`max-w-[80%] p-3.5 rounded-2xl leading-relaxed ${

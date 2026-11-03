@@ -56,10 +56,10 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
   if (!apiKey) throw new Error('GROQ_API_KEY غير متوفر');
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const timer = setTimeout(() => controller.abort(), 25000); // 25s timeout
 
   const payload: any = {
-    model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
     messages,
     temperature: 0.6,
     max_tokens: 1200,
@@ -184,7 +184,7 @@ async function callGeminiChat(systemInstruction: string, messages: any[]): Promi
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 16000);
+  const timer = setTimeout(() => controller.abort(), 25000); // 25s timeout
 
   try {
     const response = await ai.models.generateContent({

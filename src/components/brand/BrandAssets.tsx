@@ -1,11 +1,13 @@
 import React from 'react';
 import falconAvatarImg from '../../assets/falcon_mascot_ai.png';
+import shamousaAvatarImg from '../../assets/shamousa_mascot.png';
 import alshamsFalconEmblemImg from '../../assets/alshams_falcon_emblem.png';
 import alshamsOfficialBannerLogo from '../../assets/alshams_official_banner_logo.png';
 import alshamsFalconArtisanImg from '../../assets/alshams_falcon_artisan.jpg';
 
 export {
   falconAvatarImg,
+  shamousaAvatarImg,
   alshamsFalconEmblemImg,
   alshamsOfficialBannerLogo,
   alshamsFalconArtisanImg,
@@ -126,6 +128,49 @@ export const FalconMascotAvatar: React.FC<{
         <img
           src={falconAvatarImg}
           alt="صقر الشمساوية AI"
+          className={`w-full h-full ${fitClass} rounded-2xl select-none filter drop-shadow-sm`}
+        />
+      </div>
+
+      {statusDot && (
+        <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 border-2 border-white dark:border-stone-900"></span>
+        </span>
+      )}
+    </div>
+  );
+};
+
+// EXCLUSIVE SHAMOUSA MASCOT AVATAR FOR "شموسة — مديرة أعمال الورشة"
+export const ShamousaMascotAvatar: React.FC<{
+  className?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  statusDot?: boolean;
+  fit?: 'contain' | 'cover' | 'top';
+}> = ({ className = '', size = 'md', statusDot = true, fit = 'top' }) => {
+  const sizeMap = {
+    xs: 'w-7 h-7',
+    sm: 'w-9 h-9',
+    md: 'w-11 h-11',
+    lg: 'w-16 h-16',
+    xl: 'w-24 h-24',
+    '2xl': 'w-32 h-32',
+  };
+
+  const fitClass =
+    fit === 'contain'
+      ? 'object-contain scale-95'
+      : fit === 'top'
+      ? 'object-cover object-top scale-110'
+      : 'object-cover';
+
+  return (
+    <div className={`relative ${sizeMap[size]} flex-shrink-0 ${className}`}>
+      <div className="w-full h-full rounded-2xl bg-gradient-to-tr from-amber-500 via-orange-500 to-amber-600 p-0.5 shadow-md border border-amber-300/80 dark:border-amber-400/80 overflow-hidden flex items-center justify-center transition-all duration-200">
+        <img
+          src={shamousaAvatarImg}
+          alt="شموسة مديرة أعمال الورشة"
           className={`w-full h-full ${fitClass} rounded-2xl select-none filter drop-shadow-sm`}
         />
       </div>

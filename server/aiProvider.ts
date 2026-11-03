@@ -131,7 +131,7 @@ async function callGroqFallback(
   messages.push({ role: 'user', content: userMessage });
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 16000); // 16s timeout
+  const timer = setTimeout(() => controller.abort(), 25000); // 25s timeout
 
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -141,7 +141,7 @@ async function callGroqFallback(
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+        model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
         messages,
         temperature: 0.6,
         max_tokens: 1200,
@@ -490,7 +490,7 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
                   tools: [{ googleSearch: {} }],
                 },
               },
-              { label: 'chat-search', timeoutMs: 16_000 }
+              { label: 'chat-search', timeoutMs: 25_000 }
             );
             searchUsed = true;
           } catch (searchErr: any) {
@@ -498,13 +498,13 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
             markSearchQuotaExhausted();
             response = await this.generate(
               { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-              { label: 'chat-fallback-no-search', timeoutMs: 14_000 }
+              { label: 'chat-fallback-no-search', timeoutMs: 25_000 }
             );
           }
         } else {
           response = await this.generate(
             { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-            { label: 'chat', timeoutMs: 15_000 }
+            { label: 'chat', timeoutMs: 25_000 }
           );
         }
 
