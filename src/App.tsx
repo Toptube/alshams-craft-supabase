@@ -1150,8 +1150,8 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* Floating Shamousa Chat Assistant: Restricted to regular artisan accounts only and hidden inside Falcon screen */}
-      {!isUserAdmin(profile) && activeView !== 'ai_agent' && (
+      {/* Floating Shamousa Chat Assistant: Active across workshops, strictly auto-hidden inside Falcon AI chat screen */}
+      {profile && activeView !== 'ai_agent' && (
         <ShamousaChatWidget
           profile={profile}
           onOpenFalcon={() => navigateTo('ai_agent')}

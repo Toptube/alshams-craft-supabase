@@ -96,51 +96,41 @@ html.dark textarea::placeholder {
   opacity: 0.9 !important;
 }
 
-/* وضع السهر الحرفي المريح للعين (Night Focus Mode) - كهرمان وعنبر داكن دافئ ومريح لعين الفنان */
+/* وضع السهر الحرفي المريح للعين (Night Focus Mode) - كحلي ليلي دافئ وعنبر وذهب فاخر مريح لعين الفنان */
 html.night-focus.dark body {
-  background-color: #16120e !important;
-  color: #fbf9f5 !important;
+  background-color: #060B18 !important;
+  color: #FDFBF7 !important;
 }
 
 html.night-focus.dark header {
-  background-color: rgba(26, 21, 16, 0.98) !important;
-  border-bottom-color: rgba(217, 119, 6, 0.35) !important;
+  background-color: rgba(6, 11, 24, 0.98) !important;
+  border-bottom-color: rgba(245, 158, 11, 0.4) !important;
 }
 
-html.night-focus.dark .dark\:bg-stone-900 {
-  background-color: #1d1712 !important;
-}
-
+html.night-focus.dark .dark\:bg-stone-900,
 html.night-focus.dark .dark\:bg-stone-950 {
-  background-color: #140f0c !important;
-}
-
-html.night-focus.dark .dark\:bg-stone-850 {
-  background-color: #241c15 !important;
+  background-color: #0A1128 !important;
 }
 
 html.night-focus.dark .dark\:bg-stone-800 {
-  background-color: #2b221a !important;
+  background-color: #0F172A !important;
 }
 
-html.night-focus.dark .dark\:border-stone-800 {
-  border-color: rgba(217, 119, 6, 0.28) !important;
-}
-
+html.night-focus.dark .dark\:border-stone-800,
 html.night-focus.dark .dark\:border-stone-700 {
-  border-color: rgba(217, 119, 6, 0.38) !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
 }
 
 html.night-focus.dark input,
 html.night-focus.dark textarea,
 html.night-focus.dark select {
-  background-color: #1d1712 !important;
-  color: #fffbeb !important;
-  border-color: rgba(217, 119, 6, 0.35) !important;
+  background-color: #0A1128 !important;
+  color: #FDFBF7 !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
 }
 
 html.night-focus.dark input::placeholder,
 html.night-focus.dark textarea::placeholder {
-  color: #d97706 !important;
+  color: #FCD34D !important;
   opacity: 0.75 !important;
 }

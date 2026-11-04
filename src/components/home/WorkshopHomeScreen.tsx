@@ -1447,32 +1447,33 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         </div>
 
         {/* بطاقة: ملخص حركة الورشة هذا الشهر */}
-        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-amber-50/70 via-stone-50 to-emerald-50/50 dark:from-stone-900 dark:via-stone-850 dark:to-stone-900 border border-amber-200/90 dark:border-amber-900/40 shadow-sm space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/50 dark:border-stone-800 pb-3">
+        {/* بطاقة: ملخص حركة الورشة هذا الشهر (تصميم حرفي فخم عالي التباين خالي من الرمادي) */}
+        <div className="p-4 sm:p-5 rounded-3xl bg-[#FDFBF7] dark:bg-[#060B18] border-2 border-amber-300/80 dark:border-amber-500/40 shadow-xl space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/60 dark:border-[#1E293B] pb-3">
             <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 dark:bg-amber-400/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
-                <TrendingUp className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/15 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold shadow-xs">
+                <TrendingUp className="w-5 h-5 text-amber-700 dark:text-amber-300" />
               </div>
               <div>
-                <h4 className="text-sm sm:text-base font-black text-stone-900 dark:text-white flex items-center gap-2">
+                <h4 className="text-sm sm:text-base font-black text-[#0A1128] dark:text-white flex items-center gap-2">
                   <span>ملخص حركة الورشة هذا الشهر</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 font-bold">
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950/90 dark:text-amber-300 font-black border border-amber-300 dark:border-amber-600/50">
                     مقارنة شهرية مباشرة
                   </span>
                 </h4>
-                <p className="text-xs text-stone-600 dark:text-stone-300">
+                <p className="text-xs text-stone-700 dark:text-[#EADBC8] font-medium">
                   مقارنة فورية بين دخل المبيعات وتكاليف التشغيل لاحتساب صافي حركة الورشة
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3 text-xs font-bold text-stone-700 dark:text-stone-200">
+            <div className="flex items-center gap-3 text-xs font-black text-stone-800 dark:text-amber-200">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#10b981] inline-block shadow-2xs"></span>
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shadow-xs"></span>
                 <span>إجمالي المبيعات</span>
               </span>
-              <span className="text-stone-300 dark:text-stone-600">•</span>
+              <span className="text-amber-400 dark:text-amber-600">•</span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b] inline-block shadow-2xs"></span>
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shadow-xs"></span>
                 <span>تكاليف الإنتاج والمصروفات</span>
               </span>
             </div>
@@ -1481,73 +1482,73 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           {/* 3 بطاقات مؤشرات فاخرة: المبيعات، التكاليف والمصروفات، صافي الحركة */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {/* 1. إجمالي المبيعات */}
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-50/70 via-white to-emerald-50/30 dark:from-emerald-950/40 dark:via-stone-900 dark:to-emerald-950/20 border border-emerald-200/90 dark:border-emerald-800/80 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between">
+            <div className="p-4 rounded-2xl bg-emerald-50/90 dark:bg-[#061A14] border-2 border-emerald-300 dark:border-emerald-500/50 shadow-md hover:shadow-lg transition-all flex items-center justify-between">
               <div>
-                <span className="text-[11px] font-black text-emerald-800 dark:text-emerald-300 block mb-0.5">
+                <span className="text-xs font-black text-emerald-900 dark:text-emerald-300 block mb-0.5">
                   إجمالي المبيعات
                 </span>
-                <div className="text-xl sm:text-2xl font-black font-mono text-emerald-700 dark:text-emerald-300 tracking-tight">
+                <div className="text-xl sm:text-2xl font-black font-mono text-emerald-800 dark:text-emerald-300 tracking-tight">
                   {loadingSummary ? '...' : monthSalesTotal.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                  <span className="text-xs font-black font-sans text-stone-700 dark:text-stone-200">{profile.currencySymbol}</span>
+                  <span className="text-xs font-black font-sans text-emerald-950 dark:text-emerald-100">{profile.currencySymbol}</span>
                 </div>
-                <span className="text-[10px] text-emerald-700/90 dark:text-emerald-300 font-bold block mt-0.5">
+                <span className="text-[11px] text-emerald-800 dark:text-emerald-200/90 font-bold block mt-0.5">
                   عائد مبيعات المنتجات والطلبيات
                 </span>
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-emerald-100/80 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-xs">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-200/80 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 flex items-center justify-center shadow-xs">
                 <ArrowUpRight className="w-5 h-5" />
               </div>
             </div>
 
             {/* 2. تكاليف الإنتاج والمصروفات */}
-            <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50/70 via-white to-amber-50/30 dark:from-amber-950/40 dark:via-stone-900 dark:to-amber-950/20 border border-amber-200/90 dark:border-amber-800/80 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between">
+            <div className="p-4 rounded-2xl bg-amber-50/90 dark:bg-[#1A1206] border-2 border-amber-300 dark:border-amber-500/50 shadow-md hover:shadow-lg transition-all flex items-center justify-between">
               <div>
-                <span className="text-[11px] font-black text-amber-800 dark:text-amber-300 block mb-0.5">
+                <span className="text-xs font-black text-amber-900 dark:text-amber-300 block mb-0.5">
                   تكاليف الإنتاج والمصروفات
                 </span>
-                <div className="text-xl sm:text-2xl font-black font-mono text-amber-700 dark:text-amber-300 tracking-tight">
+                <div className="text-xl sm:text-2xl font-black font-mono text-amber-800 dark:text-amber-300 tracking-tight">
                   {loadingSummary ? '...' : totalExpenses.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                  <span className="text-xs font-black font-sans text-stone-700 dark:text-stone-200">{profile.currencySymbol}</span>
+                  <span className="text-xs font-black font-sans text-amber-950 dark:text-amber-100">{profile.currencySymbol}</span>
                 </div>
-                <span className="text-[10px] text-amber-700/90 dark:text-amber-300 font-bold block mt-0.5">
+                <span className="text-[11px] text-amber-800 dark:text-amber-200/90 font-bold block mt-0.5">
                   أجور، خامات، ومصروفات تشغيل
                 </span>
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-amber-100/80 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center shadow-xs">
+              <div className="w-10 h-10 rounded-2xl bg-amber-200/80 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 flex items-center justify-center shadow-xs">
                 <ArrowDownRight className="w-5 h-5" />
               </div>
             </div>
 
             {/* 3. صافي حركة الورشة */}
-            <div className={`p-4 rounded-2xl shadow-2xs hover:shadow-xs transition-all flex items-center justify-between ${
+            <div className={`p-4 rounded-2xl shadow-md hover:shadow-lg transition-all flex items-center justify-between ${
               (monthSalesTotal - totalExpenses) >= 0
-                ? 'bg-gradient-to-br from-teal-50/70 via-white to-teal-50/30 dark:from-teal-950/40 dark:via-stone-900 dark:to-teal-950/20 border border-teal-200/90 dark:border-teal-800/80'
-                : 'bg-gradient-to-br from-rose-50/70 via-white to-rose-50/30 dark:from-rose-950/40 dark:via-stone-900 dark:to-rose-950/20 border border-rose-200/90 dark:border-rose-800/80'
+                ? 'bg-teal-50/90 dark:bg-[#06161E] border-2 border-teal-300 dark:border-teal-500/50'
+                : 'bg-rose-50/90 dark:bg-[#1A0808] border-2 border-rose-300 dark:border-rose-500/50'
             }`}>
               <div>
-                <span className={`text-[11px] font-black block mb-0.5 ${
-                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-800 dark:text-teal-300' : 'text-rose-800 dark:text-rose-300'
+                <span className={`text-xs font-black block mb-0.5 ${
+                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-900 dark:text-teal-300' : 'text-rose-900 dark:text-rose-300'
                 }`}>
                   صافي حركة الورشة
                 </span>
                 <div className={`text-xl sm:text-2xl font-black font-mono tracking-tight ${
-                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-700 dark:text-teal-300' : 'text-rose-700 dark:text-rose-300'
+                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-800 dark:text-teal-300' : 'text-rose-800 dark:text-rose-300'
                 }`}>
                   {loadingSummary
                     ? '...'
                     : `${(monthSalesTotal - totalExpenses) >= 0 ? '+' : ''}${(monthSalesTotal - totalExpenses).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}`}{' '}
-                  <span className="text-xs font-black font-sans text-stone-700 dark:text-stone-200">{profile.currencySymbol}</span>
+                  <span className="text-xs font-black font-sans text-stone-900 dark:text-white">{profile.currencySymbol}</span>
                 </div>
-                <span className={`text-[10px] font-black block mt-0.5 ${
-                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-700 dark:text-teal-300' : 'text-rose-700 dark:text-rose-300'
+                <span className={`text-[11px] font-black block mt-0.5 ${
+                  (monthSalesTotal - totalExpenses) >= 0 ? 'text-teal-800 dark:text-teal-200' : 'text-rose-800 dark:text-rose-200'
                 }`}>
                   {(monthSalesTotal - totalExpenses) >= 0 ? 'فائض تشغيلي مريح لورشتك' : 'التكاليف تفوق المبيعات هذا الشهر'}
                 </span>
               </div>
               <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-xs ${
                 (monthSalesTotal - totalExpenses) >= 0
-                  ? 'bg-teal-100/80 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300'
-                  : 'bg-rose-100/80 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'
+                  ? 'bg-teal-200/80 dark:bg-teal-950/80 text-teal-800 dark:text-teal-300'
+                  : 'bg-rose-200/80 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300'
               }`}>
                 <Scale className="w-5 h-5" />
               </div>

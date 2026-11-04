@@ -1030,53 +1030,56 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   <ChevronLeft className="w-3.5 h-3.5 text-stone-300" />
                 </button>
 
-                {/* وضع السهر الحرفي المريح للعين ومظهر الورشة */}
+                {/* وضع السهر الحرفي المريح للعين ومظهر الورشة (تباين حاد وألوان حرفية ناصعة) */}
                 {onSelectThemeMode && (
-                  <div className="p-2.5 rounded-xl bg-stone-100/80 dark:bg-stone-850/60 border border-stone-200/80 dark:border-stone-800 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] font-black text-stone-700 dark:text-stone-300">
-                      <span>مظهر الورشة وإضاءة العمل</span>
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
-                        {themeMode === 'night_focus' ? 'سهر هادئ' : themeMode === 'dark' ? 'داكن' : 'نهاري'}
+                  <div className="p-2.5 rounded-2xl bg-[#F8F4EC] dark:bg-[#060B18] border-2 border-amber-300/80 dark:border-amber-500/40 shadow-md space-y-2">
+                    <div className="flex items-center justify-between text-xs font-black text-[#0A1128] dark:text-white">
+                      <span className="flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                        <span>مظهر الورشة وإضاءة العمل</span>
+                      </span>
+                      <span className="text-[11px] text-amber-800 dark:text-amber-300 font-black px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80 border border-amber-300/80 dark:border-amber-600/40">
+                        {themeMode === 'night_focus' ? 'سهر هادئ 🌙' : themeMode === 'dark' ? 'داكن 🌑' : 'نهاري ☀️'}
                       </span>
                     </div>
-                    <div className="grid grid-cols-3 gap-1">
+                    <div className="grid grid-cols-3 gap-1.5">
                       <button
                         type="button"
                         onClick={() => onSelectThemeMode('light')}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                        className={`py-2 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
                           themeMode === 'light'
-                            ? 'bg-white text-amber-900 shadow-xs font-black border border-amber-300'
-                            : 'text-stone-600 dark:text-stone-400 hover:bg-white/50 dark:hover:bg-stone-800'
+                            ? 'bg-amber-600 text-white shadow-md font-black border border-amber-500 ring-2 ring-amber-400/30'
+                            : 'bg-white/80 dark:bg-[#0B132B] text-stone-800 dark:text-[#EADBC8] hover:bg-amber-100 dark:hover:bg-[#1E293B] border border-stone-200 dark:border-[#1E293B]'
                         }`}
-                        title="الوضع النهاري"
+                        title="الوضع النهاري المشرق"
                       >
-                        <Sun className="w-3.5 h-3.5 text-amber-600" />
+                        <Sun className={`w-3.5 h-3.5 ${themeMode === 'light' ? 'text-white' : 'text-amber-600'}`} />
                         <span>نهاري</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => onSelectThemeMode('night_focus')}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                        className={`py-2 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
                           themeMode === 'night_focus'
-                            ? 'bg-amber-900/60 text-amber-200 shadow-xs font-black border border-amber-500/80 ring-1 ring-amber-500/30'
-                            : 'text-stone-600 dark:text-stone-400 hover:bg-amber-950/30 hover:text-amber-300'
+                            ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-md font-black border border-amber-400 ring-2 ring-amber-500/40'
+                            : 'bg-white/80 dark:bg-[#0B132B] text-stone-800 dark:text-[#EADBC8] hover:bg-amber-500/20 hover:text-amber-300 border border-stone-200 dark:border-[#1E293B]'
                         }`}
                         title="وضع السهر الهادئ - درجات الكهرمان المريحة للعين"
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <Sparkles className={`w-3.5 h-3.5 ${themeMode === 'night_focus' ? 'text-amber-200' : 'text-amber-500'}`} />
                         <span>سهر هادئ</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => onSelectThemeMode('dark')}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                        className={`py-2 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
                           themeMode === 'dark'
-                            ? 'bg-stone-800 text-stone-100 shadow-xs font-black border border-stone-700'
-                            : 'text-stone-600 dark:text-stone-400 hover:bg-stone-800'
+                            ? 'bg-[#0F172A] text-amber-300 shadow-md font-black border border-amber-500/60 ring-2 ring-amber-500/30'
+                            : 'bg-white/80 dark:bg-[#0B132B] text-stone-800 dark:text-[#EADBC8] hover:bg-stone-200 dark:hover:bg-[#1E293B] border border-stone-200 dark:border-[#1E293B]'
                         }`}
-                        title="الوضع الليلي"
+                        title="الوضع الليلي الداكن"
                       >
-                        <Moon className="w-3.5 h-3.5 text-stone-400" />
+                        <Moon className={`w-3.5 h-3.5 ${themeMode === 'dark' ? 'text-amber-300' : 'text-stone-500 dark:text-stone-400'}`} />
                         <span>داكن</span>
                       </button>
                     </div>

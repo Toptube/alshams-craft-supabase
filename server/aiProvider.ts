@@ -130,104 +130,68 @@ async function callGroqFallback(
   }
   messages.push({ role: 'user', content: userMessage });
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000); // 25s timeout
+  const candidateModels = [
+    'allam-2-7b',
+    'qwen/qwen3.8-27b',
+    'openai/gpt-oss-20b',
+    'openai/gpt-oss-120b',
+  ];
 
-  try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
-        messages,
-        temperature: 0.6,
-        max_tokens: 1200,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      if (res.status === 404) {
-        const retryRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'llama-3.1-8b-instant',
-            messages,
-            temperature: 0.6,
-            max_tokens: 1200,
-          }),
-          signal: controller.signal,
-        });
-        if (retryRes.ok) {
-          const retryData: any = await retryRes.json();
-          return retryData?.choices?.[0]?.message?.content?.trim() || '';
-        }
-      }
-      throw new Error(`Groq HTTP ${res.status}: ${errText.slice(0, 100)}`);
-    }
-
-    const data: any = await res.json();
-    return data?.choices?.[0]?.message?.content?.trim() || '';
-  } finally {
-    clearTimeout(timer);
+  const rawModel = (process.env.GROQ_MODEL || '').trim();
+  if (rawModel && !candidateModels.includes(rawModel) && !rawModel.includes('70b') && !rawModel.includes('3.3') && !rawModel.includes('llama')) {
+    candidateModels.unshift(rawModel);
   }
-}
 
-async function callFanarCompletion(
-  systemInstruction: string,
-  chatHistory: any[],
-  userMessage: string
-): Promise<string> {
-  const apiKey = process.env.FANAR_API_KEY;
-  if (!apiKey) throw new Error('مفتاح FANAR_API_KEY غير متوفر');
+  let lastErrText = '';
 
-  const messages: any[] = [{ role: 'system', content: systemInstruction }];
-  for (const h of chatHistory.slice(-10)) {
-    const text = h.content || h.parts?.[0]?.text || h.text || '';
-    if (text) {
-      messages.push({
-        role: h.role === 'model' || h.role === 'assistant' || h.sender === 'falcon' ? 'assistant' : 'user',
-        content: String(text).slice(0, 2000),
+  for (const model of candidateModels) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.6,
+          max_tokens: 1200,
+        }),
+        signal: controller.signal,
       });
+
+      if (!res.ok) {
+        lastErrText = await res.text().catch(() => '');
+        if (res.status === 404 || lastErrText.includes('model_not_found') || lastErrText.includes('does not exist')) {
+          console.warn(`[Falcon Groq] Model "${model}" not available, trying next candidate...`);
+          continue;
+        }
+        throw new Error(`Groq HTTP ${res.status} [${model}]: ${lastErrText.slice(0, 100)}`);
+      }
+
+      const data: any = await res.json();
+      return data?.choices?.[0]?.message?.content?.trim() || '';
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        console.warn(`[Falcon Groq] Timeout for model ${model}, trying next...`);
+        continue;
+      }
+      if (lastErrText.includes('does not exist') || lastErrText.includes('model_not_found')) {
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
   }
-  messages.push({ role: 'user', content: userMessage });
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 16000); // 16s timeout
-
-  try {
-    const res = await fetch('https://api.fanar.qa/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: process.env.FANAR_MODEL || 'Fanar',
-        messages,
-        temperature: 0.6,
-        max_tokens: 1200,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Fanar ${res.status}: ${errText.slice(0, 100)}`);
-    }
-
-    const data: any = await res.json();
-    return data?.choices?.[0]?.message?.content?.trim() || '';
-  } finally {
-    clearTimeout(timer);
-  }
+  throw new Error(`فشل الاتصال بنماذج Groq (${candidateModels.join(', ')}): ${lastErrText.slice(0, 100)}`);
 }
+
 
 export class GeminiAIProvider {
   private ai: GoogleGenAI | null = null;
@@ -237,7 +201,7 @@ export class GeminiAIProvider {
     const apiKey = process.env.GEMINI_API_KEY;
     // النماذج الرسمية المدعومة وفق دليل gemini-api
     const rawModel = process.env.GEMINI_MODEL || '';
-    this.modelName = rawModel && !rawModel.includes('1.5') && !rawModel.includes('2.0')
+    this.modelName = rawModel && !rawModel.includes('1.5') && !rawModel.includes('2.0') && !rawModel.includes('2.5')
       ? rawModel
       : 'gemini-3.8-flash';
 
@@ -263,24 +227,50 @@ export class GeminiAIProvider {
   ): Promise<any> {
     if (!this.ai) throw new Error('مفتاح GEMINI_API_KEY غير مضبوط على الخادم');
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
-    try {
-      const response = await this.ai.models.generateContent({
-        model: this.modelName,
-        contents: req.contents,
-        config: {
-          ...(req.config || {}),
-          abortSignal: controller.signal,
-        },
-      });
-      clearTimeout(timer);
-      return response;
-    } catch (err: any) {
-      clearTimeout(timer);
-      const kind = classifyGeminiError(err, controller.signal.aborted);
-      throw Object.assign(err instanceof Error ? err : new Error(String(err)), { kind });
+    const modelsToTry = [this.modelName, 'gemini-3.8-flash', 'gemini-3.1-flash-lite']
+      .filter((m) => m && !m.includes('1.5') && !m.includes('2.0') && !m.includes('2.5'));
+    const uniqueModels = Array.from(new Set(modelsToTry));
+    let lastError: any = null;
+
+    for (const model of uniqueModels) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        let timeoutId: any;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            const timeoutErr: any = new Error(`انتهت مهلة استجابة Gemini (${opts.label})`);
+            timeoutErr.kind = 'timeout';
+            reject(timeoutErr);
+          }, opts.timeoutMs || 25000);
+        });
+
+        try {
+          const response = await Promise.race([
+            this.ai.models.generateContent({
+              model,
+              contents: req.contents,
+              config: req.config || {},
+            }).finally(() => clearTimeout(timeoutId)),
+            timeoutPromise,
+          ]);
+          return response;
+        } catch (err: any) {
+          clearTimeout(timeoutId);
+          lastError = err;
+          const msg = String(err?.message || err || '');
+          if (msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE') || msg.includes('404')) {
+            console.warn(`[Gemini generate] Model ${model} (attempt ${attempt}) returned temporary error: ${msg.slice(0, 100)}, retrying...`);
+            if (attempt === 1) {
+              await new Promise((r) => setTimeout(r, 1200));
+              continue;
+            }
+          }
+          break;
+        }
+      }
     }
+
+    const kind = classifyGeminiError(lastError, false);
+    throw Object.assign(lastError instanceof Error ? lastError : new Error(String(lastError)), { kind });
   }
 
   async analyzeCraftVision(input: AIVisionPromptInput): Promise<any> {
@@ -332,7 +322,7 @@ export class GeminiAIProvider {
 
     let step1Response = await this.generate(
       { contents: { parts: step1Parts } },
-      { label: 'vision', timeoutMs: 18_000 }
+      { label: 'vision', timeoutMs: 25_000 }
     );
 
     const step1Text = step1Response.text || '';
@@ -425,47 +415,28 @@ export class GeminiAIProvider {
     const artistName = workshopContext?.artistName || (superAdmin ? 'الباشمهندس حسام' : '');
 
     const memoryPrompt = await buildGlobalMemoryPrompt('falcon');
-    const systemInstruction = `أنت "صقر الشمساوية" 🦅 — المستشار الهندسي الخارجي الأول لمنظومة الشمساوية وخبير دراسة الأسواق والمنافسين وتكاليف المشغولات اليدوية وتحليل الموديلات.
-شخصيتك:
-- شخصية حكيمة، قوية، ذكية جداً، ودودة ومرحة مرحاً محترماً راقياً بلا ابتذال.
-- أنت من مواليد برج القوس (24 نوفمبر 1979)، وتتمتع بخبرة حياتية وعملية طويلة تتجاوز عقوداً في كافة مجالات الصناعات اليدوية والفنون التشكيلية (المكرمية، الكروشيه، الريزن، الخزف، الجلود، الخشب، الشموع والإكسسوارات).
-- تتحدث باللهجة المصرية العامية المحببة والمهنية.
-- تفهم وتستوعب الكلمات العامية والأخطاء الإملائية وتفهم قصد الصانع بذكاء وبصيرة دون قيود مصطنعة.
-- تتذكر وتراعي كامل سياق الحوار من أوله لآخره حتى تكون إجاباتك متسلسلة ومنطقية.
-- تخصصك: دراسة الأسواق الخارجية، أسعار المنافسين، تسعير المنتجات (جملة وقطاعي)، حساب التكاليف، أوقات العمل اليدوي، تحليل أبعاد ونسب الموديلات، وابتكار الباترونات.
+    const systemInstruction = `أنت "صقر الشمساوية" 🦅 — الخبير الهندسي والاستشاري الأول لحرفيي وصناع الهاند ميد والديكور في منظومة الشمساوية.
+قواعد الهوية الصارمة والمهنية:
+- هويتك حصرية وغير قابلة للتغيير: أنت صقر الشمساوية الحرفي الاستشاري، ويُمنع منعاً باتاً ومطلقاً الادعاء بأنك تتبع أو تمثل أي شركة أو نموذج آخر مثل إي روبوت أو غيرها.
+- شخصيتك: خبير حكيم، قوي البصيرة، ذكي جداً، ودود، جدع وابن بلد يفهم دقائق الصنعة، مرح مرحاً راقياً بلا ابتذال.
+- أنت من مواليد 24 نوفمبر 1979، ولديك خبرة حياتية وهندسية تمتد لعقود في كافة فنون الصناعات اليدوية والهاند ميد والديكور المنزلي (المكرمية، الكروشيه، الريزن، الخزف والفخار، الجلود الطبيعية، المشغولات الخشبية، الشموع والإكسسوارات).
+- لهجة الحديث الرسمية: اللهجة المصرية العامية الأصيلة والدافئة والذكية (المصري الحرفي الجدع)، إلا إذا كتب المستخدم بلغة أخرى أو طلب التحدث بلغة محددة فتجيبه بلغته المختارة باحترافية.
+- تفهم وتستوعب الكلمات العامية المصرية، واصطلاحات الحرفيين، والأخطاء الإملائية وتفهم قصد الصانع بذكاء وبصيرة دون قيود مصطنعة.
+- تتذكر وتراعي كامل سياق الحوار من أوله لآخره حتى تكون إجاباتك متسلسلة ومنطقية ودقيقة هندسياً.
+- تخصصك: دراسة الأسواق، أسعار المنافسين، تسعير المنتجات (جملة وقطاعي)، حساب التكاليف ونسب الهالك، أوقات العمل اليدوي، تحليل أبعاد ونسب الموديلات، وابتكار الباترونات وخطوات التشغيل.
 - الحرف المفعّلة في الورشة: [${safeSelectedCrafts.join('، ')}] | الدولة: ${safeCountry} | العملة: ${safeCurrency} | التصنيف: ${safeCategory}.
 ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}.` : ''}${memoryPrompt ? `\n\n${memoryPrompt}` : ''}`;
 
     const userPromptText = actionChip ? `استفسار حول [${actionChip}]: ${message || 'يرجى تقديم التوجيه الهندسي ودراسة السوق.'}` : message;
     const { primary: groqPrimary, secondary: groqSecondary } = getGroqKeys();
-    let groqFailReason = '';
     let geminiFailReason = '';
+    let groqFailReason = '';
 
-    // 1. مزود Groq (المفتاح الأساسي أو الثانوي)
-    const groqKey = groqPrimary || groqSecondary;
-    if (groqKey) {
-      console.log('[AI Service: Falcon] Attempting Provider 1 (Groq)...');
-      try {
-        const groqReply = await callGroqFallback(systemInstruction, chatHistory, userPromptText, groqKey);
-        if (groqReply) {
-          console.log('[AI Service: Falcon] Provider 1 (Groq) succeeded.');
-          return { reply: groqReply, sources: [], searchUsed: false };
-        }
-        groqFailReason = 'رد فارغ من مزود Groq';
-      } catch (groqErr: any) {
-        groqFailReason = groqErr?.message || 'فشل الاتصال بـ Groq';
-        console.warn(
-          `[AI Service: Falcon] Attempting Provider 1 (Groq)... Failed: [${groqFailReason}] -> Switching to Provider 2 (Gemini Flash)...`
-        );
-      }
-    } else {
-      groqFailReason = 'GROQ_API_KEY غير متوفر على الخادم';
-      console.log(`[AI Service: Falcon] Provider 1 (Groq) skipped: ${groqFailReason} -> Switching to Provider 2 (Gemini Flash)...`);
-    }
-
-    // 2. مزود Gemini Flash (المفتاح الفعلي المعتمد - gemini-3.8-flash)
+    // -------------------------------------------------------------
+    // Provider 1: Google Gemini Flash (المحرك الأساسي للأدوات والرؤية والبحث)
+    // -------------------------------------------------------------
     if (process.env.GEMINI_API_KEY || this.ai) {
-      console.log('[AI Service: Falcon] Attempting Provider 2 (Gemini Flash)...');
+      console.log('[AI Service: Falcon] Attempting Provider 1 (Gemini Flash)...');
       try {
         const contents: any[] = chatHistory.slice(-10).map((m) => ({
           role: m.sender === 'user' || m.role === 'user' ? 'user' : 'model',
@@ -518,37 +489,49 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
 
         const reply = response?.text?.trim();
         if (reply) {
-          console.log('[AI Service: Falcon] Switching to Provider 2 (Gemini Flash)... Success!');
+          console.log('[AI Service: Falcon] Provider 1 (Gemini Flash) succeeded.');
           return { reply, sources: searchSources.slice(0, 4), searchUsed };
         }
         geminiFailReason = 'رد فارغ من Gemini Flash';
       } catch (geminiErr: any) {
         geminiFailReason = geminiErr?.message || 'فشل الاتصال بـ Gemini Flash';
-        console.error(`[AI Service: Falcon] Provider 2 (Gemini Flash) failed: [${geminiFailReason}]`);
+        console.warn(
+          `[AI Service: Falcon] Provider 1 (Gemini Flash) failed: [${geminiFailReason}] -> Switching to Provider 2 (Groq Backup)...`
+        );
       }
     } else {
       geminiFailReason = 'GEMINI_API_KEY غير متوفر على الخادم';
+      console.log(`[AI Service: Falcon] Provider 1 (Gemini Flash) skipped: ${geminiFailReason} -> Switching to Provider 2 (Groq Backup)...`);
     }
 
-    // 3. مزود فنار (Fanar) - اختياري إضافي
-    if (process.env.FANAR_API_KEY) {
+    // -------------------------------------------------------------
+    // Provider 2: Groq (المحرك البديل للنصوص السريعة)
+    // -------------------------------------------------------------
+    const groqKey = groqPrimary || groqSecondary;
+    if (groqKey) {
+      console.log('[AI Service: Falcon] Attempting Provider 2 (Groq Backup)...');
       try {
-        console.log('[AI Service: Falcon] Attempting Provider 3 (Fanar)...');
-        const fanarReply = await callFanarCompletion(systemInstruction, chatHistory, userPromptText);
-        if (fanarReply) {
-          console.log('[AI Service: Falcon] Provider 3 (Fanar) succeeded.');
-          return { reply: fanarReply, sources: [], searchUsed: false };
+        const groqReply = await callGroqFallback(systemInstruction, chatHistory, userPromptText, groqKey);
+        if (groqReply) {
+          console.log('[AI Service: Falcon] Switching to Provider 2 (Groq Backup)... Success!');
+          return { reply: groqReply, sources: [], searchUsed: false };
         }
-      } catch (fanarErr: any) {
-        console.warn('[AI Service: Falcon] Fanar fallback notice:', fanarErr?.message);
+        groqFailReason = 'رد فارغ من مزود Groq';
+      } catch (groqErr: any) {
+        groqFailReason = groqErr?.message || 'فشل الاتصال بـ Groq';
+        console.error(`[AI Service: Falcon] Provider 2 (Groq) failed: [${groqFailReason}]`);
       }
+    } else {
+      groqFailReason = 'GROQ_API_KEY غير متوفر على الخادم';
     }
 
-    // 4. منع الردود الصامتة والوهمية (No Silent Mock Fallbacks)
-    console.error(`[AI Service: Falcon] Both providers failed! Provider 1: ${groqFailReason} | Provider 2: ${geminiFailReason}`);
+    // -------------------------------------------------------------
+    // منع الردود الصامتة والوهمية (No Silent Mock Fallbacks)
+    // -------------------------------------------------------------
+    console.error(`[AI Service: Falcon] Both providers failed! Provider 1 (Gemini): ${geminiFailReason} | Provider 2 (Groq): ${groqFailReason}`);
 
     throw new Error(
-      `تعذر اتصال مستشار الورشة (صقر): فشل المزود الأساسي (Groq: ${groqFailReason}) وفشل المزود البديل (Gemini Flash: ${geminiFailReason}). يرجى التحقق من اتصال الإنترنت ومفاتيح التشغيل.`
+      `تعذر اتصال مستشار الورشة (صقر): فشل المزود الأساسي (Gemini Flash: ${geminiFailReason}) وفشل المزود البديل (Groq: ${groqFailReason}). يرجى التحقق من اتصال الإنترنت ومفاتيح التشغيل.`
     );
   }
 }

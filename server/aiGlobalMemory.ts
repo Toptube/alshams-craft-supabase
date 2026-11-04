@@ -269,7 +269,10 @@ ${rawContent}
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
         },
         body: JSON.stringify({
-          model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+          model:
+            process.env.GROQ_MODEL && !process.env.GROQ_MODEL.includes('70b') && !process.env.GROQ_MODEL.includes('3.3') && !process.env.GROQ_MODEL.includes('instant')
+              ? process.env.GROQ_MODEL
+              : 'allam-2-7b',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: 1500,

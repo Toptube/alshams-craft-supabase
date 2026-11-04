@@ -50,108 +50,97 @@ function getGroqKeys(): { primary?: string; secondary?: string } {
   };
 }
 
-// الاتصال بـ Groq عبر fetch المدمج بدون الحاجة لـ groq-sdk لتجنب ERR_MODULE_NOT_FOUND
+// الاتصال بـ Groq عبر fetch المدمج مع دعم النماذج المتاحة فعلياً للحساب
 async function callGroqChat(messages: any[], tools?: any[], customApiKey?: string) {
   const apiKey = customApiKey || process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY غير متوفر');
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000); // 25s timeout
+  const hasTools = Array.isArray(tools) && tools.length > 0;
 
-  const payload: any = {
-    model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
-    messages,
-    temperature: 0.6,
-    max_tokens: 1200,
-  };
+  // النماذج المتاحة فعلياً في Groq
+  // إذا كانت هناك أدوات مستدعاة: نجرّب النماذج الداعمة للأدوات أولاً، ثم نجرّب النماذج النصية بدون أدوات
+  const candidateModels = hasTools
+    ? ['qwen/qwen3.8-27b', 'openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'allam-2-7b']
+    : ['allam-2-7b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'];
 
-  if (Array.isArray(tools) && tools.length > 0) {
-    payload.tools = tools.map((t) => ({
-      type: 'function',
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters,
-      },
-    }));
-    payload.tool_choice = 'auto';
+  const rawModel = (process.env.GROQ_MODEL || '').trim();
+  if (rawModel && !candidateModels.includes(rawModel) && !rawModel.includes('70b') && !rawModel.includes('3.3') && !rawModel.includes('llama')) {
+    candidateModels.unshift(rawModel);
   }
 
-  try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+  let lastErrText = '';
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      // إذا كان الموديل 70b غير متاح للحساب، جرب الموديل المستقر 8b
-      if (res.status === 404 && payload.model !== 'llama-3.1-8b-instant') {
-        payload.model = 'llama-3.1-8b-instant';
-        const retryRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-        if (retryRes.ok) {
-          const retryData: any = await retryRes.json();
-          return retryData?.choices?.[0]?.message;
+  for (const model of candidateModels) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+
+    const isAllam = model.toLowerCase().includes('allam');
+    const sendTools = hasTools && !isAllam;
+
+    const payload: any = {
+      model,
+      messages,
+      temperature: 0.6,
+      max_tokens: 1200,
+    };
+
+    if (sendTools && tools) {
+      payload.tools = tools.map((t) => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters,
+        },
+      }));
+      payload.tool_choice = 'auto';
+    }
+
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        lastErrText = await res.text().catch(() => '');
+        // إذا كان الموديل غير متاح أو لا يدعم الأدوات، جرب الموديل التالي فوراً
+        if (
+          res.status === 404 ||
+          (res.status === 400 && (lastErrText.includes('tool calling') || lastErrText.includes('tools') || lastErrText.includes('not supported'))) ||
+          lastErrText.includes('model_not_found') ||
+          lastErrText.includes('does not exist')
+        ) {
+          console.warn(`[Groq] Model "${model}" notice (${res.status}), trying next candidate...`);
+          continue;
         }
+        throw new Error(`Groq HTTP ${res.status} [${model}]: ${lastErrText.slice(0, 150)}`);
       }
-      throw new Error(`Groq HTTP ${res.status}: ${errText.slice(0, 150)}`);
-    }
 
-    const data: any = await res.json();
-    return data?.choices?.[0]?.message;
-  } finally {
-    clearTimeout(timer);
+      const data: any = await res.json();
+      return data?.choices?.[0]?.message;
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        console.warn(`[Groq] Timeout for model ${model}, trying next candidate...`);
+        continue;
+      }
+      if (lastErrText.includes('does not exist') || lastErrText.includes('model_not_found') || lastErrText.includes('tool calling')) {
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  throw new Error(`Groq: لم يتوفر أي نموذج صالح من النماذج المدعومة (${candidateModels.join(', ')}). الخطأ: ${lastErrText.slice(0, 150)}`);
 }
 
-// المحرك الاحتياطي: Fanar API
-async function callFanarChat(messages: any[]): Promise<string> {
-  const apiKey = process.env.FANAR_API_KEY;
-  if (!apiKey) throw new Error('FANAR_API_KEY غير متوفر');
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-
-  try {
-    const res = await fetch('https://api.fanar.qa/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: process.env.FANAR_MODEL || 'Fanar',
-        messages,
-        temperature: 0.6,
-        max_tokens: 1200,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Fanar HTTP ${res.status}: ${errText.slice(0, 150)}`);
-    }
-
-    const data: any = await res.json();
-    return data?.choices?.[0]?.message?.content?.trim() || '';
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // المحرك الاحتياطي المعتمد: Google Gemini Flash
 async function callGeminiChat(systemInstruction: string, messages: any[]): Promise<string> {
@@ -167,12 +156,7 @@ async function callGeminiChat(systemInstruction: string, messages: any[]): Promi
     },
   });
 
-  const rawModel = process.env.GEMINI_MODEL || '';
-  const modelName = rawModel && !rawModel.includes('1.5') && !rawModel.includes('2.0')
-    ? rawModel
-    : 'gemini-3.8-flash';
-
-  console.log(`[Shamousa] Calling Gemini model: ${modelName}`);
+  const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
   const contents: any[] = [];
 
   for (const m of messages.slice(-10)) {
@@ -183,22 +167,47 @@ async function callGeminiChat(systemInstruction: string, messages: any[]): Promi
     });
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000); // 25s timeout
+  let lastGeminiError: any = null;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents,
-      config: {
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        abortSignal: controller.signal,
-      },
-    });
-    return response.text?.trim() || '';
-  } finally {
-    clearTimeout(timer);
+  for (const modelName of modelsToTry) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      let timeoutId: any;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`انتهت مهلة استجابة Gemini (${modelName})`)), 25000);
+      });
+
+      try {
+        console.log(`[Shamousa] Calling Gemini model: ${modelName} (attempt ${attempt})`);
+        const response: any = await Promise.race([
+          ai.models.generateContent({
+            model: modelName,
+            contents,
+            config: {
+              systemInstruction: { parts: [{ text: systemInstruction }] },
+            },
+          }).finally(() => clearTimeout(timeoutId)),
+          timeoutPromise,
+        ]);
+
+        const reply = response?.text?.trim();
+        if (reply) return reply;
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        lastGeminiError = err;
+        const errMsg = String(err?.message || err || '');
+        console.warn(`[Gemini Flash] Model ${modelName} (attempt ${attempt}) returned: ${errMsg.slice(0, 120)}`);
+        if (errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('UNAVAILABLE') || errMsg.includes('404')) {
+          if (attempt === 1) {
+            await new Promise((r) => setTimeout(r, 1200));
+            continue;
+          }
+        }
+        break;
+      }
+    }
   }
+
+  throw lastGeminiError || new Error('فشل الاتصال بكافة نماذج Gemini المتاحة');
 }
 
 export interface ShamousaLiveMetrics {
@@ -215,8 +224,11 @@ function buildShamousaSystemPrompt(ctx: ShamousaContext, metrics: ShamousaLiveMe
   const firstName = extractFirstName(ctx.artistName) || 'يا غالي';
   const workshopName = ctx.workshopName || 'ورشة الشمس كرافت';
 
-  return `أنتِ "شموسة" 🌞 — مديرة الأعمال التنفيذية الذكية والشريكة الأولى والواعية في ${workshopName}.
-أنتِ مديرة الورشة وحافظة أسرارها ودفاترها المالية والتشغيلية، شخصيتك ناضجة، واعية، ذكية، نشيطة، وتتحدثين بلهجة مصرية مهنية دافئة، مرحة ومحترمة تفهم تفاصيل وحركات الورشة وتساعد في اتخاذ القرارات وحل المشاكل اليومية.
+  return `أنتِ "شموسة" ☀️ — مديرة العمليات وحسابات الخزائن والمهام اليومية للورشة في منظومة الشمساوية (${workshopName}).
+هويتك حصرية وغير قابلة للتغيير:
+- أنتِ "شموسة" مديرة أعمال الورشة وحافظة أسرارها ودفاترها المالية والتشغيلية، ويُمنع منعاً باتاً ومطلقاً الادعاء بأنك تتبعين أي شركة أو نموذج آخر مثل إي روبوت أو غيرها.
+- شخصيتك ناضجة، واعية، ذكية، نشيطة، وتتحدثين بلهجة مصرية مهنية دافئة، أصيلة وجدعة (المصري الحرفي الجدع)، مرحة ومحترمة تفهم تفاصيل الورشة وتساعد في اتخاذ القرارات وحل المشاكل اليومية.
+- لهجة الحديث الرسمية: اللهجة المصرية العامية الأصيلة والدافئة والذكية، إلا إذا كتب المستخدم بلغة أخرى أو طلب التحدث بلغة محددة فتجيبين بلغته المختارة باحترافية.
 
 قواعد الخطاب والهوية الصارمة:
 1. الترحيب عند بدء الحديث:
@@ -359,7 +371,13 @@ export async function handleShamousaChat(
   let geminiFailReason = '';
 
   async function tryGroqExecution(key: string): Promise<string | null> {
-    const assistantMsg = await callGroqChat(promptMessages, workshopToolSchemas, key);
+    let assistantMsg: any;
+    try {
+      assistantMsg = await callGroqChat(promptMessages, workshopToolSchemas, key);
+    } catch (err: any) {
+      console.warn('[Shamousa Groq] Calling with tools encountered issue, falling back to direct chat:', err?.message);
+      assistantMsg = await callGroqChat(promptMessages, undefined, key);
+    }
 
     if (assistantMsg?.tool_calls && Array.isArray(assistantMsg.tool_calls) && assistantMsg.tool_calls.length > 0) {
       const toolCall = assistantMsg.tool_calls[0];
@@ -434,21 +452,6 @@ export async function handleShamousaChat(
     geminiFailReason = 'GEMINI_API_KEY غير متوفر على الخادم';
   }
 
-  // -------------------------------------------------------------
-  // Provider 3: Optional Fanar (إذا تم ضبطه كاحتياطي إضافي)
-  // -------------------------------------------------------------
-  if (process.env.FANAR_API_KEY) {
-    try {
-      console.log('[AI Service: Shamousa] Attempting Provider 3 (Fanar)...');
-      const fanarReply = await callFanarChat(promptMessages);
-      if (fanarReply) {
-        console.log('[AI Service: Shamousa] Provider 3 (Fanar) succeeded.');
-        return { reply: fanarReply, handoffToFalcon: false, provider: 'fanar' };
-      }
-    } catch (fanarErr: any) {
-      console.warn('[AI Service: Shamousa] Fanar notice:', fanarErr?.message);
-    }
-  }
 
   // -------------------------------------------------------------
   // Strict: منع الردود الصامتة والوهمية (No Silent Mock Fallbacks)

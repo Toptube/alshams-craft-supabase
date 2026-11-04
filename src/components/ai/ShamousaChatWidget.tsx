@@ -3,6 +3,10 @@ import {
   MessageCircle, 
   X, 
   Send, 
+  ArrowUp,
+  Paperclip,
+  Mic,
+  MicOff,
   Database, 
   Trash2, 
   ArrowLeftRight, 
@@ -303,9 +307,96 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [remaining, setRemaining] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const speechRecognitionRef = useRef<any>(null);
+
+  // Modern Chat UX additions: Auto-expanding, Voice, Attachments
+  const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
+  const [remaining, setRemaining] = useState<number | null>(null);
+
+  const adjustTextareaHeight = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(Math.max(el.scrollHeight, 44), 140) + 'px';
+  };
+
+  const toggleVoiceRecording = () => {
+    const SpeechRecognitionAPI =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : null;
+
+    if (!SpeechRecognitionAPI) {
+      alert('ميزة التعرف الصوتي المباشر غير مدعومة في متصفحك.');
+      return;
+    }
+
+    if (isListeningVoice) {
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.stop();
+        } catch {}
+      }
+      setIsListeningVoice(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognitionAPI();
+      recognition.lang = 'ar-EG';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        setIsListeningVoice(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript.trim()) {
+          setInput((prev) => {
+            const next = prev ? `${prev} ${transcript.trim()}` : transcript.trim();
+            setTimeout(() => adjustTextareaHeight(inputRef.current), 0);
+            return next;
+          });
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error in Shamousa:', event.error);
+        setIsListeningVoice(false);
+      };
+
+      recognition.onend = () => {
+        setIsListeningVoice(false);
+      };
+
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error('Failed to start speech recognition in Shamousa:', err);
+      setIsListeningVoice(false);
+    }
+  };
+
+  const handleAttachmentSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setPendingAttachment({ base64, mimeType: file.type || 'image/jpeg', name: file.name });
+      setTimeout(() => inputRef.current?.focus(), 100);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   // Daily Tasks state
   const [dailyTasks, setDailyTasks] = useState<ShamousaDailyTask[]>([]);
@@ -541,8 +632,18 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   };
 
   const send = async (text: string) => {
-    const message = text.trim();
+    let message = text.trim();
+    if (pendingAttachment) {
+      message = message
+        ? `${message}\n📎 [مرفق: ${pendingAttachment.name || 'مستند / صورة'}]`
+        : `📎 [مرفق: ${pendingAttachment.name || 'مستند / صورة'}]`;
+      setPendingAttachment(null);
+    }
     if (!message || isLoading) return;
+
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
 
     const detectedChips = detectKeywordActionChips(message);
     const userMsg: ShamousaMessage = { 
@@ -672,34 +773,37 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
   return (
     <>
-      {/* Floating launcher icon with badge */}
+      {/* Floating launcher mascot with transparent PNG silhouette */}
       {!isOpen && (
         <DraggableShamosa onClick={() => setIsOpen(true)}>
           <div
             aria-label="افتح شموسة — مديرة أعمال الورشة"
-            title="شموسة — مديرة أعمال الورشة"
-            className={`group relative flex items-center justify-center rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 text-white shadow-xl shadow-amber-900/40 hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer w-14 h-14 sm:w-16 sm:h-16 border-2 border-white/80 p-0.5 ${
+            title="شموسة — مديرة أعمال الورشة (اسحبي في أي مكان على الشاشة)"
+            className={`group relative flex flex-col items-center justify-center cursor-pointer transition-transform duration-200 hover:scale-110 active:scale-95 select-none ${
               isAnyModalOpen ? 'opacity-0 pointer-events-none scale-0' : 'opacity-100 scale-100'
             }`}
           >
-            {/* Real Shamousa Mascot Character */}
-            <div className="relative w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+            {/* Mascot Image - Transparent PNG without any background container box */}
+            <div className="relative w-16 h-20 sm:w-20 sm:h-24 flex items-center justify-center">
               <img
                 src="/shamousa_mascot.png"
                 alt="شموسة — مديرة أعمال الورشة"
-                className="w-full h-full object-cover object-top scale-125 select-none filter drop-shadow-sm"
+                draggable={false}
+                className="w-full h-full object-contain filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.5)] select-none pointer-events-none group-hover:brightness-105 transition-all"
               />
-              <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-white ring-1 ring-emerald-600/30 z-10" />
+              {/* نقطة الاتصال والنشاط الأخضر */}
+              <span className="absolute top-1 right-2 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-[#060B18] shadow-md z-10" />
+
+              {/* شارة رقمية (Badge) توضح عدد التوجيهات أو المواعيد المستحقة */}
+              {totalPendingBadge > 0 && (
+                <span className="absolute -top-1 -left-1 min-w-[22px] h-[22px] px-1 rounded-full bg-rose-600 border-2 border-white text-white font-mono text-[11px] font-black flex items-center justify-center shadow-md animate-pulse z-20">
+                  {totalPendingBadge}
+                </span>
+              )}
             </div>
 
-            {/* شارة رقمية (Badge) توضح عدد التوجيهات أو المواعيد المستحقة */}
-            {totalPendingBadge > 0 && (
-              <span className="absolute -top-1.5 -left-1.5 min-w-[22px] h-[22px] px-1 rounded-full bg-rose-600 border-2 border-white text-white font-mono text-[11px] font-black flex items-center justify-center shadow-md animate-pulse z-20">
-                {totalPendingBadge}
-              </span>
-            )}
-
-            <span className="absolute -bottom-1 text-[10px] font-black bg-stone-900/90 px-2 py-0.5 rounded-full border border-amber-400/80 text-amber-200 z-20 shadow-xs">
+            {/* الاسم اللطيف أسفل الشخصية مباشرة بدون حجب التفاصيل */}
+            <span className="-mt-1 px-2.5 py-0.5 rounded-full bg-[#060B18]/90 text-amber-300 border border-amber-500/40 text-[10px] font-black shadow-lg backdrop-blur-xs select-none">
               شموسة
             </span>
           </div>
@@ -889,41 +993,132 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 )}
               </div>
 
+              {/* معاينة المرفق قيد الإرسال */}
+              {pendingAttachment && (
+                <div className="px-3 py-2 bg-amber-500/10 dark:bg-amber-950/40 border-t border-amber-300/60 dark:border-amber-700/40 flex items-center justify-between gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img
+                      src={pendingAttachment.base64}
+                      alt="مرفق"
+                      className="w-9 h-9 rounded-xl object-cover border border-amber-400 shrink-0"
+                    />
+                    <div className="min-w-0 text-right">
+                      <span className="text-xs font-bold text-stone-900 dark:text-stone-100 block truncate max-w-[180px]">
+                        {pendingAttachment.name || 'مستند / صورة'}
+                      </span>
+                      <span className="text-[10px] text-amber-700 dark:text-amber-400 block font-bold">
+                        مرفق لسؤال أو معاملة الخزينة
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPendingAttachment(null)}
+                    className="p-1.5 rounded-full hover:bg-stone-200 dark:hover:bg-stone-800 text-stone-500 hover:text-red-500 transition cursor-pointer"
+                    title="حذف المرفق"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* شريط حالة الاستماع الصوتي في شموسة */}
+              {isListeningVoice && (
+                <div className="px-3 py-1.5 bg-red-500/15 border-t border-red-500/30 flex items-center justify-between text-xs text-red-700 dark:text-red-300 flex-shrink-0 animate-pulse">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />
+                    <span className="font-bold">شموسة تستمع لصوتك.. تحدثي وسيكتب السؤال فوراً</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={toggleVoiceRecording}
+                    className="text-[11px] font-black underline cursor-pointer hover:text-red-900"
+                  >
+                    إنهاء
+                  </button>
+                </div>
+              )}
+
               {/* Chat Input Form */}
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   send(input);
                 }}
-                className="p-3 border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 flex-shrink-0"
+                className="p-2.5 border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 flex-shrink-0"
               >
-                <div className="flex items-end gap-2">
-                  <textarea
-                    ref={inputRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        send(input);
-                      }
-                    }}
-                    rows={1}
-                    maxLength={1000}
-                    placeholder="اسألي شموسة عن الخزنة، النواقص، تسليمات الأوردرات..."
-                    className="flex-1 resize-none max-h-28 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 px-3.5 py-2.5 text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-                  />
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*,.pdf"
+                  onChange={handleAttachmentSelected}
+                  className="hidden"
+                />
+
+                <div className="flex items-end gap-1.5">
+                  {/* زر المرفقات 📎 */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="إرفاق فاتورة، إيصال، أو صورة خامة"
+                    className="p-2.5 rounded-2xl text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer shrink-0"
+                  >
+                    <Paperclip className="w-5 h-5" />
+                  </button>
+
+                  {/* زر التسجيل الصوتي 🎙️ */}
+                  <button
+                    type="button"
+                    onClick={toggleVoiceRecording}
+                    title={isListeningVoice ? 'إيقاف التسجيل الصوتي' : 'تسجيل سؤال بصوتك'}
+                    className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 ${
+                      isListeningVoice
+                        ? 'bg-red-500 text-white shadow-md animate-pulse'
+                        : 'text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800'
+                    }`}
+                  >
+                    {isListeningVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  </button>
+
+                  {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}
+                  <div className="flex-1 relative">
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
+                        adjustTextareaHeight(e.target);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          if (e.ctrlKey || e.metaKey) {
+                            e.preventDefault();
+                            send(input);
+                          }
+                          // الضغط العادي على Enter ينزل سطراً جديداً لكتابة أفكار جديدة
+                        }
+                      }}
+                      rows={1}
+                      maxLength={1000}
+                      placeholder="اسألي شموسة عن الخزنة، النواقص، الأوردرات... (Enter لسطر جديد)"
+                      className="w-full resize-none max-h-36 overflow-y-auto px-3.5 py-2.5 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 leading-relaxed"
+                    />
+                  </div>
+
+                  {/* زر الإرسال مع سهم متجه للأعلى ⬆️ */}
                   <button
                     type="submit"
-                    disabled={!input.trim() || isLoading}
+                    disabled={(!input.trim() && !pendingAttachment) || isLoading}
                     aria-label="إرسال"
-                    className="w-11 h-11 flex-shrink-0 rounded-full bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-md cursor-pointer"
+                    title="إرسال (Ctrl+Enter)"
+                    className="w-10 h-10 flex-shrink-0 rounded-2xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-md active:scale-95 cursor-pointer"
                   >
-                    <Send className="w-5 h-5 -scale-x-100" />
+                    <ArrowUp className="w-5 h-5 stroke-[2.5]" />
                   </button>
                 </div>
+
                 {remaining !== null && (
-                  <p className="text-[10px] text-center text-stone-500 dark:text-stone-400 pt-2 font-bold">
+                  <p className="text-[10px] text-center text-stone-500 dark:text-stone-400 pt-1.5 font-bold">
                     باقي {remaining} استفسار اليوم
                   </p>
                 )}

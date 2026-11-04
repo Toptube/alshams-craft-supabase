@@ -6,6 +6,15 @@ import {
   Sparkles,
   Camera,
   Send,
+  ArrowUp,
+  Paperclip,
+  Mic,
+  MicOff,
+  Save,
+  Trash2,
+  MoreVertical,
+  X,
+  Plus,
   TrendingUp,
   FileText,
   Grid,
@@ -103,9 +112,41 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const [dailyRemaining, setDailyRemaining] = useState<number | null>(null);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
 
+  // Modern Chat UX additions: Auto-expanding, Voice, Attachments, Saved sessions & Menu
+  const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [savedSessions, setSavedSessions] = useState<Array<{ id: string; title: string; timestamp: number; messages: ChatMessage[] }>>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const speechRecognitionRef = useRef<any>(null);
+
+  const savedSessionsKey = `alshams_falcon_saved_sessions_${workshopId}`;
+
+  const showFeedback = (msg: string) => {
+    setActionFeedback(msg);
+    setTimeout(() => setActionFeedback(null), 3000);
+  };
+
+  const adjustTextareaHeight = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(Math.max(el.scrollHeight, 44), 140) + 'px';
+  };
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(savedSessionsKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) setSavedSessions(parsed);
+      }
+    } catch {}
+  }, [savedSessionsKey]);
 
   const scrollToBottom = useCallback((smooth = true) => {
     if (chatContainerRef.current) {
@@ -178,14 +219,163 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     const welcome = createInitialFalconMessage(firstName);
     setMessages([welcome]);
     setInputPrompt('');
+    setPendingAttachment(null);
     setImagePreview(null);
     setIsAnalyzingImage(false);
     setExpandedSources({});
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     try {
       localStorage.removeItem(sessionKey);
     } catch {}
-    setNewChatFeedback(true);
-    setTimeout(() => setNewChatFeedback(false), 2000);
+    showFeedback('✓ تم بدء جلسة استشارة جديدة');
+  };
+
+  const handleSaveChat = () => {
+    if (messages.length <= 1) {
+      showFeedback('المحادثة لا تحتوي على رسائل كافية لحفظها.');
+      return;
+    }
+    const firstUserMsg = messages.find((m) => m.sender === 'user');
+    const title = firstUserMsg
+      ? firstUserMsg.text.slice(0, 36) + (firstUserMsg.text.length > 36 ? '...' : '')
+      : 'استشارة هندسية ' + new Date().toLocaleDateString('ar-EG');
+
+    const newSession = {
+      id: 'session_' + Date.now(),
+      title,
+      timestamp: Date.now(),
+      messages: [...messages],
+    };
+
+    const updated = [newSession, ...savedSessions.filter((s) => s.id !== newSession.id)].slice(0, 20);
+    setSavedSessions(updated);
+    try {
+      localStorage.setItem(savedSessionsKey, JSON.stringify(updated));
+    } catch {}
+    showFeedback('✓ تم حفظ المحادثة بنجاح في الأرشيف');
+  };
+
+  const handleClearChat = () => {
+    const welcome = createInitialFalconMessage(firstName);
+    setMessages([welcome]);
+    setInputPrompt('');
+    setPendingAttachment(null);
+    setImagePreview(null);
+    setIsAnalyzingImage(false);
+    setExpandedSources({});
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    try {
+      localStorage.removeItem(sessionKey);
+    } catch {}
+    showFeedback('✓ تم تفريغ وحذف سجل المحادثة');
+  };
+
+  const handleLoadSession = (session: { id: string; title: string; timestamp: number; messages: ChatMessage[] }) => {
+    if (Array.isArray(session.messages) && session.messages.length > 0) {
+      setMessages(session.messages);
+      setIsMenuOpen(false);
+      showFeedback(`✓ تم استرجاع: ${session.title}`);
+    }
+  };
+
+  const handleDeleteSavedSession = (sessionId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const updated = savedSessions.filter((s) => s.id !== sessionId);
+    setSavedSessions(updated);
+    try {
+      localStorage.setItem(savedSessionsKey, JSON.stringify(updated));
+    } catch {}
+    showFeedback('تم حذف الجلسة من الأرشيف.');
+  };
+
+  const handleExportLatestToCalculator = () => {
+    // 1. البحث عن آخر تحليل رؤية للمشغولة
+    const lastWithVision = [...messages].reverse().find((m) => m.metadata?.visionAnalysis);
+    if (lastWithVision && lastWithVision.metadata?.visionAnalysis) {
+      handleExportStructuredToCalculator(lastWithVision.metadata.visionAnalysis);
+      showFeedback('✓ تم تصدير بيانات القطعة لحاسبة التكاليف');
+      return;
+    }
+
+    // 2. أو تصدير سياق المحادثة الأخيرة
+    const lastAssistant = [...messages].reverse().find((m) => m.sender === 'falcon' && m.id !== 'msg_welcome');
+    if (lastAssistant && onExportStructuredToCalculator) {
+      onExportStructuredToCalculator({
+        category: currentCategory,
+        notes: `توجيهات صقر الشمساوية: ${lastAssistant.text.slice(0, 250)}`,
+      });
+      showFeedback('✓ تم تصدير بيانات المحادثة لحاسبة التكاليف');
+      return;
+    }
+
+    showFeedback('لا توجد بيانات تسعير حالية للتصدير.');
+  };
+
+  const toggleVoiceRecording = () => {
+    const SpeechRecognitionAPI =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : null;
+
+    if (!SpeechRecognitionAPI) {
+      showFeedback('ميزة التعرف الصوتي المباشر غير مدعومة في متصفحك.');
+      return;
+    }
+
+    if (isListeningVoice) {
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.stop();
+        } catch {}
+      }
+      setIsListeningVoice(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognitionAPI();
+      recognition.lang = 'ar-EG';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        setIsListeningVoice(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript.trim()) {
+          setInputPrompt((prev) => {
+            const next = prev ? `${prev} ${transcript.trim()}` : transcript.trim();
+            setTimeout(() => adjustTextareaHeight(textareaRef.current), 0);
+            return next;
+          });
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error:', event.error);
+        setIsListeningVoice(false);
+      };
+
+      recognition.onend = () => {
+        setIsListeningVoice(false);
+      };
+
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error('Failed to start speech recognition:', err);
+      setIsListeningVoice(false);
+      showFeedback('تعذر تشغيل الميكروفون. يرجى التأكد من منح الإذن.');
+    }
   };
 
   const actionChips = [
@@ -237,93 +427,112 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     if (!file) return;
 
     try {
-      setIsAnalyzingImage(true);
       const { base64, mimeType } = await compressImageForAI(file);
       if (!base64) throw new Error('فشل معالجة الصورة المرفوعة.');
 
-      setImagePreview(base64);
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: 'user_img_' + Date.now(),
-          sender: 'user',
-          text: '📸 قمت برفع صورة قطعة مشغولات يدوية لتحليلها هندسياً ودراسة سوقها.',
-          timestamp: Date.now(),
-          metadata: { previewImage: base64 },
-        },
-      ]);
-
-      const res = await falconFetch(
-        '/api/analyze-vision',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: base64,
-            mimeType: mimeType || 'image/jpeg',
-            artistNotes: inputPrompt || '',
-            activeCrafts: Array.isArray(profile.selectedCrafts) ? profile.selectedCrafts : [],
-          }),
-        },
-        20000
-      );
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(getArabicAiError(res.status, errData.error));
-      }
-
-      const data: AIVisionAnalysis = await res.json();
-      const visionRem = typeof (data as any).remaining === 'number' ? (data as any).remaining : (data as any).dailyAiRemaining;
-      if (typeof visionRem === 'number') {
-        setDailyRemaining(visionRem);
-      }
-
-      if (data.detectedCategory) onApplyCategoryFromAI(data.detectedCategory);
-      if (data.estimatedLaborWage) onApplyEstimatedLaborWage(data.estimatedLaborWage, data.estimatedHours);
-
-      const pricingIsEstimated = Boolean(data.competitionPricing?.estimated);
-      const pricingSuffix = pricingIsEstimated ? ' (تقديري)' : ' (بحث سوقي)';
-      const newMsgId = 'falcon_res_' + Date.now();
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newMsgId,
-          sender: 'falcon',
-          text: `🎯 تم تحليل القطعة بنجاح:
-- التصنيف المعتمد: **${data.detectedCategory}**
-- ساعات العمل المقدرة: **${data.estimatedHours} ساعة**
-- المصنعية المقترحة: **${data.estimatedLaborWage} ${profile.currencySymbol || 'ج.م'}**
-- أسعار السوق${pricingSuffix}: من ${data.competitionPricing?.minMarketPrice || 0} إلى ${data.competitionPricing?.maxMarketPrice || 0} ${profile.currencySymbol || 'ج.م'}`,
-          timestamp: Date.now(),
-          metadata: { visionAnalysis: data },
-          sources: (data as any).sources || [],
-          searchEntryPoint: (data as any).searchEntryPoint,
-          searchUsed: !pricingIsEstimated,
-        },
-      ]);
+      setPendingAttachment({ base64, mimeType, name: file.name });
+      showFeedback('📸 تم إرفاق الصورة. يمكنك كتابة استفسارك ثم الضغط على إرسال.');
+      setTimeout(() => textareaRef.current?.focus(), 100);
     } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: 'err_' + Date.now(),
-          sender: 'falcon',
-          text: `⚠️ ${err.message || 'تعذر تحليل الصورة، حاول مرة أخرى.'}`,
-          timestamp: Date.now(),
-        },
-      ]);
+      showFeedback('تعذر قراءة الصورة: ' + (err.message || ''));
     } finally {
-      setIsAnalyzingImage(false);
       if (e.target) e.target.value = '';
     }
   };
 
   const handleSendMessage = async (customText?: string, chip?: string) => {
     const textToSend = (customText || inputPrompt).trim();
-    if (!textToSend && !chip) return;
+    if (!textToSend && !chip && !pendingAttachment) return;
 
+    // إذا كان هناك مرفق صورة، يتم فحصها هندسياً مع ملاحظات الحرفي
+    if (pendingAttachment) {
+      const att = pendingAttachment;
+      setPendingAttachment(null);
+      setIsAnalyzingImage(true);
+
+      const userMsg: ChatMessage = {
+        id: 'user_img_' + Date.now(),
+        sender: 'user',
+        text: textToSend || '📸 قمت برفع صورة قطعة مشغولات يدوية لفحصها هندسياً واستخراج الخامات ونسب الهالك والأسعار.',
+        timestamp: Date.now(),
+        metadata: { previewImage: att.base64 },
+      };
+
+      setMessages((prev) => [...prev, userMsg]);
+      setInputPrompt('');
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+
+      try {
+        const res = await falconFetch(
+          '/api/analyze-vision',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imageBase64: att.base64,
+              mimeType: att.mimeType || 'image/jpeg',
+              artistNotes: textToSend || '',
+              activeCrafts: Array.isArray(profile.selectedCrafts) ? profile.selectedCrafts : [],
+            }),
+          },
+          30000
+        );
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(getArabicAiError(res.status, errData.error));
+        }
+
+        const data: AIVisionAnalysis = await res.json();
+        const visionRem = typeof (data as any).remaining === 'number' ? (data as any).remaining : (data as any).dailyAiRemaining;
+        if (typeof visionRem === 'number') {
+          setDailyRemaining(visionRem);
+        }
+
+        if (data.detectedCategory) onApplyCategoryFromAI(data.detectedCategory);
+        if (data.estimatedLaborWage) onApplyEstimatedLaborWage(data.estimatedLaborWage, data.estimatedHours);
+
+        const pricingIsEstimated = Boolean(data.competitionPricing?.estimated);
+        const pricingSuffix = pricingIsEstimated ? ' (تقديري)' : ' (بحث سوقي)';
+        const newMsgId = 'falcon_res_' + Date.now();
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: newMsgId,
+            sender: 'falcon',
+            text: `🎯 تم فحص القطعة هندسياً واستخراج المواصفات:
+- التصنيف المعتمد: **${data.detectedCategory}**
+- ساعات العمل المقدرة: **${data.estimatedHours} ساعة**
+- المصنعية المقترحة: **${data.estimatedLaborWage} ${profile.currencySymbol || 'ج.م'}**
+- أسعار السوق${pricingSuffix}: من ${data.competitionPricing?.minMarketPrice || 0} إلى ${data.competitionPricing?.maxMarketPrice || 0} ${profile.currencySymbol || 'ج.م'}
+${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesForCalculator}` : ''}`,
+            timestamp: Date.now(),
+            metadata: { visionAnalysis: data },
+            sources: (data as any).sources || [],
+            searchEntryPoint: (data as any).searchEntryPoint,
+            searchUsed: !pricingIsEstimated,
+          },
+        ]);
+      } catch (err: any) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: 'err_' + Date.now(),
+            sender: 'falcon',
+            text: `⚠️ ${err.message || 'تعذر تحليل الصورة، حاول مرة أخرى.'}`,
+            timestamp: Date.now(),
+          },
+        ]);
+      } finally {
+        setIsAnalyzingImage(false);
+      }
+      return;
+    }
+
+    // إرسال استفسار نصي عادي
     const userMsg: ChatMessage = {
       id: 'msg_' + Date.now(),
       sender: 'user',
@@ -334,10 +543,12 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
 
     setMessages((prev) => [...prev, userMsg]);
     setInputPrompt('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setIsSending(true);
 
     try {
-      // إرسال السجل بالتنسيق المعياري مع تقييد الحجم لمنع انقطاع السياق وتسريع الإجابة
       const formattedHistory = messages
         .filter((m) => m.id !== 'msg_welcome')
         .slice(-8)
@@ -463,24 +674,176 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* دردشة جديدة ➕ */}
           <button
             type="button"
             onClick={handleNewChat}
-            className="px-3 py-1.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer"
+            title="دردشة جديدة (➕)"
+            className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1 shadow-xs transition active:scale-95 cursor-pointer"
           >
-            <PlusCircle className="w-3.5 h-3.5 text-amber-400" />
-            <span>دردشة جديدة</span>
+            <Plus className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden md:inline">دردشة جديدة</span>
           </button>
 
+          {/* حفظ المحادثة 💾 */}
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-md transition active:scale-95 cursor-pointer"
+            onClick={handleSaveChat}
+            title="حفظ المحادثة في الأرشيف (💾)"
+            className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1 shadow-xs transition active:scale-95 cursor-pointer"
           >
-            <Camera className="w-4 h-4" />
-            <span className="hidden sm:inline">تحليل صورة موديل</span>
+            <Save className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden md:inline">حفظ</span>
           </button>
+
+          {/* تصدير للحاسبة 🧮 */}
+          <button
+            type="button"
+            onClick={handleExportLatestToCalculator}
+            title="تصدير الأرقام والأسعار لحاسبة التكاليف (🧮)"
+            className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs transition active:scale-95 cursor-pointer"
+          >
+            <Calculator className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">للحاسبة</span>
+          </button>
+
+          {/* حذف الشات 🗑️ */}
+          <button
+            type="button"
+            onClick={handleClearChat}
+            title="حذف وتفريغ سجل المحادثة (🗑️)"
+            className="p-2 rounded-xl bg-stone-800/90 hover:bg-red-950/80 border border-stone-700 hover:border-red-500/60 text-stone-300 hover:text-red-300 transition active:scale-95 cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+
+          {/* قائمة ثلاث نقاط ⋮ */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsMenuOpen((prev) => !prev)}
+              title="خيارات إضافية والمحادثات السابقة"
+              className="p-2 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-stone-700 text-stone-300 transition active:scale-95 cursor-pointer"
+            >
+              <MoreVertical className="w-4 h-4 text-amber-400" />
+            </button>
+
+            {/* Dropdown Menu */}
+            {isMenuOpen && (
+              <div className="absolute left-0 mt-2 w-72 rounded-2xl bg-stone-900 border border-amber-500/40 shadow-2xl p-2.5 z-50 text-right space-y-2 backdrop-blur-md">
+                <div className="flex items-center justify-between pb-1.5 border-b border-stone-800 px-1">
+                  <span className="text-xs font-black text-amber-300">خيارات مستشار صقر 🦅</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="p-1 rounded-lg text-stone-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleNewChat();
+                      setIsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 p-2 rounded-xl hover:bg-stone-800 text-stone-200 text-xs font-bold transition text-right cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <span className="block text-white">بدء دردشة جديدة</span>
+                      <span className="text-[10px] text-stone-400 font-normal">تصفير الحوار وبدء استشارة فريش</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSaveChat();
+                      setIsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 p-2 rounded-xl hover:bg-stone-800 text-stone-200 text-xs font-bold transition text-right cursor-pointer"
+                  >
+                    <Save className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <span className="block text-white">حفظ المحادثة الحالية</span>
+                      <span className="text-[10px] text-stone-400 font-normal">أرشفة الجلسة للرجوع لها في أي وقت</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleExportLatestToCalculator();
+                      setIsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 p-2 rounded-xl hover:bg-stone-800 text-stone-200 text-xs font-bold transition text-right cursor-pointer"
+                  >
+                    <Calculator className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <span className="block text-white">تصدير الأرقام للحاسبة</span>
+                      <span className="text-[10px] text-stone-400 font-normal">نقل المصنعية وساعات العمل لحاسبة التكاليف</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleClearChat();
+                      setIsMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 p-2 rounded-xl hover:bg-red-950/60 text-red-300 text-xs font-bold transition text-right cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-400 shrink-0" />
+                    <div>
+                      <span className="block">حذف وتفريغ الشات</span>
+                      <span className="text-[10px] text-stone-400 font-normal">مسح رسائل الحوار الحالية بالكامل</span>
+                    </div>
+                  </button>
+                </div>
+
+                {/* المحادثات المحفوظة */}
+                <div className="pt-2 border-t border-stone-800 space-y-1.5">
+                  <span className="text-[11px] font-black text-amber-400 block px-1">
+                    المحادثات المحفوظة ({savedSessions.length})
+                  </span>
+                  {savedSessions.length === 0 ? (
+                    <p className="text-[10px] text-stone-500 px-1 py-1">لا توجد محادثات مؤرشفة بعد. اضغط (حفظ) لحفظ أي جلسة.</p>
+                  ) : (
+                    <div className="max-h-36 overflow-y-auto space-y-1">
+                      {savedSessions.map((sess) => (
+                        <div
+                          key={sess.id}
+                          onClick={() => handleLoadSession(sess)}
+                          className="p-1.5 rounded-lg bg-stone-850 hover:bg-stone-800 border border-stone-800 flex items-center justify-between text-right cursor-pointer group transition"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[11px] font-bold text-stone-200 block truncate group-hover:text-amber-300">
+                              {sess.title}
+                            </span>
+                            <span className="text-[9px] text-stone-500 block">
+                              {new Date(sess.timestamp).toLocaleDateString('ar-EG')} • {sess.messages.length} رسالة
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteSavedSession(sess.id, e)}
+                            className="p-1 text-stone-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
+                            title="حذف هذه الجلسة"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <input
@@ -492,6 +855,13 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         />
       </div>
 
+      {/* شريط الإشعارات والإجراءات اللحظية */}
+      {actionFeedback && (
+        <div className="px-4 py-2 bg-emerald-500/20 border-b border-emerald-500/40 text-emerald-800 dark:text-emerald-300 text-xs font-bold text-center flex items-center justify-center gap-2 animate-pulse flex-shrink-0">
+          <span>{actionFeedback}</span>
+        </div>
+      )}
+
       {/* شريط الرصيد اليومي */}
       <div className="px-4 py-2 bg-amber-500/10 dark:bg-amber-950/40 border-b border-amber-200/60 dark:border-amber-900/40 flex-shrink-0 flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
@@ -500,11 +870,6 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           <span className="font-mono font-black text-amber-800 dark:text-amber-300">
             {dailyRemaining ?? 20} من 20 استشارة
           </span>
-          {newChatFeedback && (
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mr-2">
-              ✓ تم بدء جلسة جديدة
-            </span>
-          )}
         </div>
       </div>
 
@@ -668,38 +1033,111 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         ))}
       </div>
 
-      {/* حقل الإدخال */}
-      <div className="p-2.5 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 flex items-center gap-2 flex-shrink-0">
+      {/* معاينة الصورة المرفقة قبل الإرسال */}
+      {pendingAttachment && (
+        <div className="px-3 py-2 bg-amber-500/10 dark:bg-amber-950/40 border-t border-amber-300/60 dark:border-amber-700/40 flex items-center justify-between gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <img
+              src={pendingAttachment.base64}
+              alt="معاينة المرفق"
+              className="w-10 h-10 rounded-xl object-cover border border-amber-400 shadow-2xs shrink-0"
+            />
+            <div className="min-w-0 text-right">
+              <span className="text-xs font-black text-stone-900 dark:text-stone-100 block truncate max-w-[200px]">
+                {pendingAttachment.name || 'صورة المشغولة'}
+              </span>
+              <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold block">
+                جاهزة للفحص الهندسي واستخراج الخامات ونسب الهالك
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPendingAttachment(null)}
+            className="p-1.5 rounded-full hover:bg-stone-200 dark:hover:bg-stone-800 text-stone-500 hover:text-red-500 transition cursor-pointer"
+            title="حذف المرفق"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* شريط حالة التسجيل الصوتي */}
+      {isListeningVoice && (
+        <div className="px-3.5 py-2 bg-red-500/15 border-t border-red-500/30 flex items-center justify-between text-xs text-red-700 dark:text-red-300 flex-shrink-0 animate-pulse">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />
+            <span className="font-bold">صقر يستمع لصوتك الآن.. تحدث وسيكتب استفسارك فوراً</span>
+          </div>
+          <button
+            type="button"
+            onClick={toggleVoiceRecording}
+            className="text-[11px] font-black underline cursor-pointer hover:text-red-900 dark:hover:text-red-200"
+          >
+            إنهاء التسجيل
+          </button>
+        </div>
+      )}
+
+      {/* شريط الإدخال العصري المتمدد تلقائياً */}
+      <div className="p-2.5 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 flex items-end gap-2 flex-shrink-0">
+        {/* زر إرفاق الصور والملفات 📎 */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          title="رفع صورة لتحليلها"
-          className="p-2 rounded-xl text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+          title="إرفاق صورة مشغولة لفحصها هندسياً واستخراج الخامات"
+          className="p-2.5 rounded-2xl text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer shrink-0"
         >
-          <Camera className="w-5 h-5" />
+          <Paperclip className="w-5 h-5" />
         </button>
 
-        <input
-          type="text"
-          value={inputPrompt}
-          onChange={(e) => setInputPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSendMessage();
-            }
-          }}
-          placeholder="اسأل صقر عن التكاليف، التسعير، أو المنافسين..."
-          className="flex-1 px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500"
-        />
-
+        {/* زر التسجيل الصوتي المباشر 🎙️ */}
         <button
           type="button"
-          disabled={isSending || !inputPrompt.trim()}
-          onClick={() => handleSendMessage()}
-          className="p-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white transition disabled:opacity-40 cursor-pointer shadow-sm"
+          onClick={toggleVoiceRecording}
+          title={isListeningVoice ? 'إيقاف التسجيل الصوتي' : 'تسجيل استفسار بصوتك'}
+          className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 ${
+            isListeningVoice
+              ? 'bg-red-500 text-white shadow-md animate-pulse'
+              : 'text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
         >
-          <Send className="w-4 h-4 transform rotate-180" />
+          {isListeningVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+        </button>
+
+        {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}
+        <div className="flex-1 relative">
+          <textarea
+            ref={textareaRef}
+            value={inputPrompt}
+            onChange={(e) => {
+              setInputPrompt(e.target.value);
+              adjustTextareaHeight(e.target);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                if (e.ctrlKey || e.metaKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+                // الضغط العادي على Enter ينزل سطراً جديداً لكتابة أفكار جديدة
+              }
+            }}
+            rows={1}
+            placeholder="اكتب استفسارك لصقر... (Enter لسطر جديد، واضغط الإرسال للإرسال)"
+            className="w-full resize-none max-h-36 overflow-y-auto px-3.5 py-2.5 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 leading-relaxed placeholder:text-stone-400"
+          />
+        </div>
+
+        {/* زر الإرسال مع سهم متجه للأعلى ⬆️ */}
+        <button
+          type="button"
+          disabled={isSending || (!inputPrompt.trim() && !pendingAttachment)}
+          onClick={() => handleSendMessage()}
+          title="إرسال الاستفسار (أو اضغط Ctrl+Enter)"
+          className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md active:scale-95 cursor-pointer shrink-0"
+        >
+          <ArrowUp className="w-5 h-5 stroke-[2.5]" />
         </button>
       </div>
     </div>

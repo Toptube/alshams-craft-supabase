@@ -200,14 +200,6 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
 // -------------------------------------------------------------
 // Health Check
 // -------------------------------------------------------------
-app.get('/healthz', (_req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: Date.now(),
-    geminiConfigured: aiProvider.isAvailable(),
-    shamousaConfigured: true,
-  });
-});
 
 // -------------------------------------------------------------
 // AI Usage Endpoint
@@ -1585,7 +1577,7 @@ const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
     return;
   }
 
-  const { imageBase64, mimeType, artistNotes, workshopContext } = req.body || {};
+  const { imageBase64, mimeType, artistNotes, workshopContext, activeCrafts } = req.body || {};
   if (!imageBase64 || typeof imageBase64 !== 'string') {
     res.status(400).json({ error: 'صورة المنتج مطلوبة للتحليل' });
     return;
@@ -1596,7 +1588,13 @@ const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
       imageBase64,
       mimeType,
       artistNotes,
-      workshopContext: workshopContext || {},
+      workshopContext: {
+        activeCrafts: activeCrafts || workshopContext?.activeCrafts || ['macrame'],
+        country: workshopContext?.country || 'مصر',
+        currency: workshopContext?.currency || 'ج.م',
+        hourlyRate: Number(workshopContext?.hourlyRate) || 30,
+        artistName: workshopContext?.artistName,
+      },
     });
 
     // الخصم فقط بعد تمام التحليل (والسوبر أدمن لا يخصم)

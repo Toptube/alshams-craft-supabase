@@ -12,11 +12,24 @@ export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
   className = '',
 }) => {
   const [position, setPosition] = useState<{ x: number; y: number }>(() => {
-    // Default position: bottom-left
     if (typeof window !== 'undefined') {
-      return { x: 24, y: window.innerHeight - 90 };
+      try {
+        const saved = localStorage.getItem('shamousa_fab_pos');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number') {
+            const maxX = Math.max(8, window.innerWidth - 75);
+            const maxY = Math.max(8, window.innerHeight - 95);
+            return {
+              x: Math.min(Math.max(8, parsed.x), maxX),
+              y: Math.min(Math.max(8, parsed.y), maxY),
+            };
+          }
+        }
+      } catch {}
+      return { x: 20, y: Math.max(20, window.innerHeight - 110) };
     }
-    return { x: 24, y: 500 };
+    return { x: 20, y: 500 };
   });
 
   const isDraggingRef = useRef(false);
@@ -28,11 +41,11 @@ export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
   useEffect(() => {
     const handleResize = () => {
       setPosition((prev) => {
-        const maxX = Math.max(0, window.innerWidth - 76);
-        const maxY = Math.max(0, window.innerHeight - 76);
+        const maxX = Math.max(8, window.innerWidth - 75);
+        const maxY = Math.max(8, window.innerHeight - 95);
         return {
-          x: Math.min(Math.max(12, prev.x), maxX),
-          y: Math.min(Math.max(12, prev.y), maxY),
+          x: Math.min(Math.max(8, prev.x), maxX),
+          y: Math.min(Math.max(8, prev.y), maxY),
         };
       });
     };
@@ -41,12 +54,16 @@ export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
   }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    // Only primary button
+    if (e.button !== 0) return;
     isDraggingRef.current = true;
     hasMovedRef.current = false;
     dragStartPosRef.current = { x: e.clientX, y: e.clientY };
     elementStartPosRef.current = { ...position };
 
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -54,15 +71,15 @@ export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
     const dx = e.clientX - dragStartPosRef.current.x;
     const dy = e.clientY - dragStartPosRef.current.y;
 
-    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
       hasMovedRef.current = true;
     }
 
-    const maxX = Math.max(0, window.innerWidth - 76);
-    const maxY = Math.max(0, window.innerHeight - 76);
+    const maxX = Math.max(8, window.innerWidth - 75);
+    const maxY = Math.max(8, window.innerHeight - 95);
 
-    const nextX = Math.min(Math.max(12, elementStartPosRef.current.x + dx), maxX);
-    const nextY = Math.min(Math.max(12, elementStartPosRef.current.y + dy), maxY);
+    const nextX = Math.min(Math.max(8, elementStartPosRef.current.x + dx), maxX);
+    const nextY = Math.min(Math.max(8, elementStartPosRef.current.y + dy), maxY);
 
     setPosition({ x: nextX, y: nextY });
   };
@@ -72,11 +89,14 @@ export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
     isDraggingRef.current = false;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      // Ignore
-    }
+    } catch {}
 
-    if (!hasMovedRef.current && onClick) {
+    // Save artisan preferred placement
+    if (hasMovedRef.current) {
+      try {
+        localStorage.setItem('shamousa_fab_pos', JSON.stringify(position));
+      } catch {}
+    } else if (onClick) {
       onClick();
     }
   };

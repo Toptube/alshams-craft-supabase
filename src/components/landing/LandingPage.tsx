@@ -847,93 +847,120 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* ------------------------------------------------------------- */}
-      {/* 5.3 Marketplace & Store: متجرك الخاص وسوق الشمساوية            */}
+      {/* 5.3 Marketplace & Store: متجرك المستقل وسوق الشمساوية التكاملي  */}
       {/* ------------------------------------------------------------- */}
-      <section id="craft-store" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-white dark:bg-stone-950">
+      <section id="craft-store" className="py-16 md:py-24 border-b border-stone-200 dark:border-[#1E293B] bg-gradient-to-b from-white via-amber-50/20 to-white dark:from-[#060B18] dark:via-[#0A1128] dark:to-[#060B18]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-12">
             
-            <div className="flex-1 space-y-4 text-center lg:text-right">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-pink-500/15 text-pink-700 dark:text-pink-400 text-xs font-bold border border-pink-500/20">
-                <Store className="w-3.5 h-3.5" />
-                <span>متجرك الخاص وسوق الشمساوية</span>
+            <div className="flex-1 space-y-5 text-center lg:text-right">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 text-xs font-black border border-amber-500/30">
+                <Store className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                <span>أول وأكبر سوق للحرف اليدوية (Multi-Vendor Marketplace)</span>
               </div>
               
-              <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white leading-tight">
-                من ورشتك لسوق أوسع.. <br />
-                <span className="text-pink-600 dark:text-pink-400">اعرض شغلك بدون وسيط ولا عمولات خفية!</span>
+              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0A1128] dark:text-white leading-tight">
+                سوق الشمساوية.. <br />
+                <span className="text-amber-600 dark:text-amber-400">أول منصة متعددة التجار متخصصة لفناني وصنّاع الحرف اليدوية في مصر والعالم العربي!</span>
               </h2>
 
-              <p className="text-base sm:text-lg text-stone-600 dark:text-stone-300 leading-relaxed">
-                واجهة متجر مستقلة خاصة بعلامتك التجارية لعرض منتجاتك الجاهزة للطلب أو المصنعة حسب الطلب. كما تفتح لك المنظومة باب المشاركة في "سوق الشمساوية" التكاملي للتعاون مع ورش أخرى وتبادل طلبيات الجملة وتوريد الخامات.
+              <p className="text-base sm:text-lg text-stone-700 dark:text-[#EADBC8] leading-relaxed font-medium">
+                بمجرد فتح ورشتك، ووضع منتجاتك.. هتسمّع معاك في الأرشيف والكتالوج، ومنه بضغطة زر واحدة هتقدر تصدر منتجاتك لمتجرك الخاص، وهتحصل تلقائياً على <strong>واجهة متجر رقمي مستقلة</strong> بهويتك وعلامتك، مع إدراج مشغولاتك المعتمدة فوراً داخل <span className="text-amber-600 dark:text-amber-300 font-bold">سوق الشمساوية العام</span> للوصول لآلاف العملاء وتجار الجملة وعشاق الهاند ميد في مصر والخليج دون وسطاء ولا عمولات خفية.
               </p>
 
-              <div className="space-y-2.5 pt-2 text-sm font-semibold text-stone-700 dark:text-stone-300">
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-pink-500 shrink-0" />
-                  <span>متجر رقمي يحمل اسم ورشتك وشعارك لعرض أعمالك للجمهور</span>
+              <div className="space-y-3 pt-2 text-sm font-bold text-stone-800 dark:text-stone-200">
+                <div className="flex items-start gap-2.5 justify-center lg:justify-start">
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  </div>
+                  <span><strong>متجر رقمي مستقل:</strong> رابط خاص باسم ورشتك وشعارك لعرض أعمالك واستقبال طلبات الزبائن مباشرة.</span>
                 </div>
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-pink-500 shrink-0" />
-                  <span>فرصة تكاملية للظهور داخل مجتمع ورش الشمساوية المتنامي</span>
+                <div className="flex items-start gap-2.5 justify-center lg:justify-start">
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  </div>
+                  <span><strong>تصنيف ذكي حسب نوع الحرفة:</strong> تبويب دقيق للمكرمية، الجلود الطبيعية، الفخار والخزف، الكروشيه، والأخشاب مع تقييمات العملاء الموثقة.</span>
                 </div>
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-pink-500 shrink-0" />
-                  <span>أرباحك ومبيعاتك تصب مباشرة في خزينتك بدون أي عمولات وسيط</span>
+                <div className="flex items-start gap-2.5 justify-center lg:justify-start">
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  </div>
+                  <span><strong>فتح أبواب جديدة لتوريدات الجملة والتصدير:</strong> نافذة لتوريد المعارض الكبرى والفنادق والديكور الداخلي خليجياً ودولياً بربحية عادلة.</span>
+                </div>
+                <div className="flex items-start gap-2.5 justify-center lg:justify-start">
+                  <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  </div>
+                  <span><strong>ربط فوري بمخزن المنتجات والخزينة:</strong> كل مبيعة من المتجر تُخصم فوراً من رصيد مخزن المنتجات تامة التصنيع، وتسمّع في خزينتك تلقائياً بدون تكرار، مع تقارير فورية وتنبيهات حصرية.</span>
                 </div>
               </div>
 
-              <div className="pt-4">
+              <div className="pt-4 flex flex-wrap items-center gap-3 justify-center lg:justify-start">
                 <button
                   type="button"
                   onClick={onOpenRegister}
-                  className="px-6 py-3 rounded-2xl font-bold text-sm sm:text-base bg-pink-600 hover:bg-pink-700 text-white shadow-md active:scale-95 transition-all cursor-pointer"
+                  className="px-7 py-3.5 rounded-2xl font-black text-sm sm:text-base bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-xl shadow-amber-900/30 active:scale-95 transition-all cursor-pointer border border-amber-400/40"
                 >
-                  افتح متجرك الحرفي الآن 🛍️
+                  افتح متجرك واعرض شغلك في سوق الشمساوية 🛍️
                 </button>
               </div>
             </div>
 
-            {/* Interactive Preview Card for Store */}
-            <div className="w-full max-w-md p-6 rounded-3xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xl space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
+            {/* Interactive Preview Card for Store & Multi-Vendor Marketplace */}
+            <div className="w-full max-w-md p-6 rounded-3xl bg-[#FDFBF7] dark:bg-[#0A1128] border-2 border-amber-300/80 dark:border-amber-500/40 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-amber-200 dark:border-[#1E293B]">
                 <div className="flex items-center gap-2">
-                  <Store className="w-5 h-5 text-pink-500" />
-                  <span className="font-bold text-sm text-stone-900 dark:text-white">متجر الورشة الرقمي</span>
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                    <Store className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-black text-sm text-[#0A1128] dark:text-white block">سوق الشمساوية التكاملي</span>
+                    <span className="text-[10px] text-stone-500 dark:text-amber-200/80">منصة الحرف اليدوية المعتمدة</span>
+                  </div>
                 </div>
-                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-pink-500/15 text-pink-700 dark:text-pink-300">
-                  متاح للجمهور 🌐
+                <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                  متعدد التجار • Multi-Vendor 🌐
                 </span>
               </div>
 
               <div className="space-y-3">
-                <div className="p-3 rounded-2xl bg-white dark:bg-stone-800/80 border border-stone-200/80 dark:border-stone-700 flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center font-bold shrink-0">
+                <div className="p-3.5 rounded-2xl bg-white dark:bg-[#060B18] border border-amber-200/80 dark:border-[#1E293B] flex items-center gap-3 shadow-xs hover:border-amber-400 transition-all">
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold shrink-0">
                     <ShoppingBag className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-xs text-stone-900 dark:text-white truncate">مرآة مكرمية بوهيمية قطر 60 سم</p>
-                    <p className="text-[10px] text-stone-500 dark:text-stone-400">متوفر 3 قطع جاهزة للتسليم الفوري</p>
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="font-black text-xs text-[#0A1128] dark:text-white truncate">مرآة مكرمية بوهيمية قطر 60 سم</p>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-sm bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">مكرمية</span>
+                    </div>
+                    <p className="text-[10px] text-stone-600 dark:text-stone-300 font-medium">ورشة شمس الأصيل • 3 قطع جاهزة للتسليم</p>
                   </div>
-                  <span className="font-black font-mono text-xs text-amber-600 dark:text-amber-400">1,450 ج.م</span>
+                  <span className="font-black font-mono text-xs text-amber-700 dark:text-amber-300">1,450 ج.م</span>
                 </div>
 
-                <div className="p-3 rounded-2xl bg-white dark:bg-stone-800/80 border border-stone-200/80 dark:border-stone-700 flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-400 flex items-center justify-center font-bold shrink-0">
+                <div className="p-3.5 rounded-2xl bg-white dark:bg-[#060B18] border border-amber-200/80 dark:border-[#1E293B] flex items-center gap-3 shadow-xs hover:border-amber-400 transition-all">
+                  <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold shrink-0">
                     <Sparkles className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-xs text-stone-900 dark:text-white truncate">شجرة الحياة معلقة جدارية دائرية</p>
-                    <p className="text-[10px] text-stone-500 dark:text-stone-400">تنفيذ حسب الطلب (خلال 7 أيام)</p>
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="font-black text-xs text-[#0A1128] dark:text-white truncate">حقيبة جلد طبيعي مدبوغ نباتياً</p>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-sm bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300">جلود طبيعية</span>
+                    </div>
+                    <p className="text-[10px] text-stone-600 dark:text-stone-300 font-medium">ورشة الباشا كرافت • تفصيل حسب الطلب</p>
                   </div>
-                  <span className="font-black font-mono text-xs text-violet-600 dark:text-violet-400">3,200 ج.م</span>
+                  <span className="font-black font-mono text-xs text-blue-700 dark:text-blue-300">2,800 ج.م</span>
                 </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-pink-50/70 dark:bg-pink-950/30 border border-pink-200 dark:border-pink-900/40 text-center">
-                <span className="text-xs font-bold text-pink-800 dark:text-pink-300">
-                  سوق الشمساوية: أكثر من 450 صانع وحرفي يتعاونون يومياً
+              {/* مزامنة المخزون التلقائية */}
+              <div className="p-3 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-400/40 text-center space-y-1">
+                <span className="text-xs font-black text-amber-900 dark:text-amber-300 block">
+                  ⚡ مزامنة ذكية فورية مع الورشة
                 </span>
+                <p className="text-[11px] text-stone-700 dark:text-[#EADBC8] leading-tight">
+                  أي طلب يتم اعتماده في السوق يخصم خاماته من مخزنك ويضيف عائداته لخزينتك مباشرة
+                </p>
               </div>
             </div>
 
