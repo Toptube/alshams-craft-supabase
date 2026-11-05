@@ -1970,19 +1970,19 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         dir="rtl"
       >
         {isQuickActionsOpen && (
-          <div className="w-64 p-2.5 rounded-2xl bg-white/95 dark:bg-stone-900/95 backdrop-blur-md border border-amber-300/80 dark:border-amber-700/80 shadow-2xl space-y-1.5 animate-in fade-in slide-in-from-bottom-4 duration-200">
-            <div className="px-2 py-1.5 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
-              <span className="text-[11px] font-black text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+          <div className="w-68 p-3 rounded-3xl bg-[#fffdf5] dark:bg-[#070e1e] border-2 border-amber-500/50 dark:border-amber-500/60 shadow-2xl space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-200">
+            <div className="px-2 py-1.5 border-b border-amber-200/80 dark:border-amber-900/60 flex items-center justify-between">
+              <span className="text-xs font-black text-[#0c1427] dark:text-amber-200 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                <span>إجراءات سريعة</span>
+                <span>إجراءات الورشة السريعة</span>
               </span>
               <button
                 type="button"
                 onClick={() => setIsQuickActionsOpen(false)}
-                className="p-1 rounded-lg text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 transition cursor-pointer"
+                className="p-1 rounded-lg text-stone-600 hover:text-stone-900 dark:text-amber-300 dark:hover:text-white transition cursor-pointer"
                 title="إغلاق القائمة"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -1993,14 +1993,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                 setIsQuickActionsOpen(false);
                 onNavigateToSales('new');
               }}
-              className="w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-right bg-emerald-50/80 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 transition cursor-pointer group shadow-2xs"
+              className="w-full px-3 py-2.5 rounded-2xl flex items-center gap-3 text-right bg-[#fdf6e7] hover:bg-[#f7ebd0] dark:bg-[#0c1427] dark:hover:bg-[#121d3a] border border-amber-300/80 dark:border-amber-500/30 hover:border-amber-500 text-[#0c1427] dark:text-white transition cursor-pointer group shadow-2xs"
             >
-              <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+              <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
                 <ShoppingCart className="w-4 h-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-xs font-black block">تسجيل بيع جديد</span>
-                <span className="text-[10px] text-emerald-700/80 dark:text-emerald-300/80 block">
+                <span className="text-xs font-black block text-[#0c1427] dark:text-white group-hover:text-emerald-800 dark:group-hover:text-emerald-300">تسجيل بيع جديد</span>
+                <span className="text-[10px] text-stone-600 dark:text-amber-200/80 block font-medium">
                   إصدار فاتورة نقدية أو آجل
                 </span>
               </div>
@@ -2013,14 +2013,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                 setIsQuickActionsOpen(false);
                 onOpenNewMaterialModal();
               }}
-              className="w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-right bg-amber-50/80 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 transition cursor-pointer group shadow-2xs"
+              className="w-full px-3 py-2.5 rounded-2xl flex items-center gap-3 text-right bg-[#fdf6e7] hover:bg-[#f7ebd0] dark:bg-[#0c1427] dark:hover:bg-[#121d3a] border border-amber-300/80 dark:border-amber-500/30 hover:border-amber-500 text-[#0c1427] dark:text-white transition cursor-pointer group shadow-2xs"
             >
-              <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+              <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
                 <Layers className="w-4 h-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-xs font-black block">إضافة خامة جديدة</span>
-                <span className="text-[10px] text-amber-700/80 dark:text-amber-300/80 block">
+                <span className="text-xs font-black block text-[#0c1427] dark:text-white group-hover:text-amber-800 dark:group-hover:text-amber-300">إضافة خامة جديدة</span>
+                <span className="text-[10px] text-stone-600 dark:text-amber-200/80 block font-medium">
                   إدخال صنف خام للمخزن
                 </span>
               </div>
@@ -2033,14 +2033,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                 setIsQuickActionsOpen(false);
                 onNavigateToCalculator();
               }}
-              className="w-full px-3 py-2.5 rounded-xl flex items-center gap-3 text-right bg-purple-50/80 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-900 dark:text-purple-200 transition cursor-pointer group shadow-2xs"
+              className="w-full px-3 py-2.5 rounded-2xl flex items-center gap-3 text-right bg-[#fdf6e7] hover:bg-[#f7ebd0] dark:bg-[#0c1427] dark:hover:bg-[#121d3a] border border-amber-300/80 dark:border-amber-500/30 hover:border-amber-500 text-[#0c1427] dark:text-white transition cursor-pointer group shadow-2xs"
             >
-              <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+              <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
                 <Calculator className="w-4 h-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-xs font-black block">حاسبة التكاليف والتسعير</span>
-                <span className="text-[10px] text-purple-700/80 dark:text-purple-300/80 block">
+                <span className="text-xs font-black block text-[#0c1427] dark:text-white group-hover:text-purple-800 dark:group-hover:text-purple-300">حاسبة التكاليف والتسعير</span>
+                <span className="text-[10px] text-stone-600 dark:text-amber-200/80 block font-medium">
                   حساب تكلفة ومصنعية القطعة
                 </span>
               </div>

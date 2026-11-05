@@ -61,6 +61,7 @@ export interface ShamousaMessage {
   actionLink?: ShamousaActionLink;
   contactAction?: ShamousaContactAction;
   actionChips?: SmartActionChip[];
+  attachmentPreview?: string;
 }
 
 export interface WorkshopAppointment {
@@ -310,11 +311,14 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const speechRecognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   // Modern Chat UX additions: Auto-expanding, Voice, Attachments
   const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
-  const [isListeningVoice, setIsListeningVoice] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
 
   const adjustTextareaHeight = (el: HTMLTextAreaElement | null) => {
@@ -323,65 +327,102 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     el.style.height = Math.min(Math.max(el.scrollHeight, 44), 140) + 'px';
   };
 
-  const toggleVoiceRecording = () => {
-    const SpeechRecognitionAPI =
-      typeof window !== 'undefined'
-        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-        : null;
-
-    if (!SpeechRecognitionAPI) {
-      alert('ميزة التعرف الصوتي المباشر غير مدعومة في متصفحك.');
-      return;
-    }
-
-    if (isListeningVoice) {
-      if (speechRecognitionRef.current) {
-        try {
-          speechRecognitionRef.current.stop();
-        } catch {}
-      }
-      setIsListeningVoice(false);
-      return;
-    }
-
+  const startVoiceRecording = async () => {
     try {
-      const recognition = new SpeechRecognitionAPI();
-      recognition.lang = 'ar-EG';
-      recognition.continuous = true;
-      recognition.interimResults = true;
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        setVoiceNotice('المتصفح لا يدعم التسجيل الصوتي المباشر.');
+        setTimeout(() => setVoiceNotice(null), 3000);
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : 'audio/ogg';
 
-      recognition.onstart = () => {
-        setIsListeningVoice(true);
-      };
-
-      recognition.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        if (transcript.trim()) {
-          setInput((prev) => {
-            const next = prev ? `${prev} ${transcript.trim()}` : transcript.trim();
-            setTimeout(() => adjustTextareaHeight(inputRef.current), 0);
-            return next;
-          });
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
         }
       };
 
-      recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error in Shamousa:', event.error);
-        setIsListeningVoice(false);
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecordingVoice(false);
+
+        if (audioChunksRef.current.length === 0) return;
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        audioChunksRef.current = [];
+
+        setIsTranscribingVoice(true);
+        setVoiceNotice('⏳ جاري تفريغ الصوت وتحويله لكلام مكتوب...');
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const rawBase64 = event.target?.result as string;
+          try {
+            const res = await authedFetch('/api/ai/transcribe-audio', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ audioBase64: rawBase64, mimeType }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.text && data.text.trim()) {
+                setInput((prev) => {
+                  const cleanPrev = prev.trim();
+                  const newText = data.text.trim();
+                  const merged = cleanPrev ? `${cleanPrev} ${newText}` : newText;
+                  setTimeout(() => adjustTextareaHeight(inputRef.current), 50);
+                  return merged;
+                });
+                setVoiceNotice('✓ تم تفريغ الصوت بنجاح');
+                setTimeout(() => setVoiceNotice(null), 2000);
+              } else {
+                setVoiceNotice(null);
+              }
+            } else {
+              setVoiceNotice(null);
+            }
+          } catch (err) {
+            console.warn('Transcription error:', err);
+            setVoiceNotice(null);
+          } finally {
+            setIsTranscribingVoice(false);
+          }
+        };
+        reader.readAsDataURL(audioBlob);
       };
 
-      recognition.onend = () => {
-        setIsListeningVoice(false);
-      };
+      mediaRecorderRef.current = recorder;
+      recorder.start(250);
+      setIsRecordingVoice(true);
+      setVoiceNotice('🔴 جاري التسجيل الصوتي... تحدث بحرية ثم انقر على الميكروفون للإيقاف والتفريغ');
+    } catch (err: any) {
+      console.warn('Microphone error in Shamousa:', err);
+      setIsRecordingVoice(false);
+      setVoiceNotice('يرجى السماح بالوصول للميكروفون للتسجيل.');
+      setTimeout(() => setVoiceNotice(null), 3000);
+    }
+  };
 
-      speechRecognitionRef.current = recognition;
-      recognition.start();
-    } catch (err) {
-      console.error('Failed to start speech recognition in Shamousa:', err);
-      setIsListeningVoice(false);
+  const stopVoiceRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+    setIsRecordingVoice(false);
+  };
+
+  const toggleVoiceRecording = () => {
+    if (isRecordingVoice) {
+      stopVoiceRecording();
+    } else {
+      startVoiceRecording();
     }
   };
 
@@ -632,14 +673,16 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   };
 
   const send = async (text: string) => {
+    if (isRecordingVoice) {
+      stopVoiceRecording();
+    }
     let message = text.trim();
+    const currentAttachment = pendingAttachment;
     if (pendingAttachment) {
-      message = message
-        ? `${message}\n📎 [مرفق: ${pendingAttachment.name || 'مستند / صورة'}]`
-        : `📎 [مرفق: ${pendingAttachment.name || 'مستند / صورة'}]`;
       setPendingAttachment(null);
     }
-    if (!message || isLoading) return;
+    if (!message && !currentAttachment) return;
+    if (isLoading) return;
 
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
@@ -649,8 +692,9 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     const userMsg: ShamousaMessage = { 
       id: `u_${Date.now()}`, 
       role: 'user', 
-      content: message,
+      content: message || (currentAttachment ? `📸 [صورة مرفقة: ${currentAttachment.name}]` : ''),
       actionChips: detectedChips.length > 0 ? detectedChips : undefined,
+      attachmentPreview: currentAttachment ? currentAttachment.base64 : undefined,
     };
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
     setMessages((prev) => [...prev, userMsg]);
@@ -715,7 +759,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message,
+          message: message || 'يرجى فحص وتحليل الصورة المرفقة واستخراج تفاصيلها',
+          images: currentAttachment ? [{
+            base64: currentAttachment.base64,
+            mimeType: currentAttachment.mimeType,
+            name: currentAttachment.name,
+          }] : [],
           history,
           artistName: firstName,
           brandName: profile.brandName || 'ورشة الشمس كرافت',
@@ -916,8 +965,15 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 <Bubble role="assistant">{renderText(welcomeMessage)}</Bubble>
 
                 {messages.map((m) => (
-                  <div key={m.id} className="space-y-2">
-                    <Bubble role={m.role}>{renderText(m.content)}</Bubble>
+                  <div key={m.id} className="space-y-1.5">
+                    <Bubble role={m.role}>
+                      {m.attachmentPreview && (
+                        <div className="mb-2 overflow-hidden rounded-xl border border-amber-300/60 max-w-[220px] shadow-xs">
+                          <img src={m.attachmentPreview} alt="مرفق" className="w-full h-auto max-h-44 object-cover" />
+                        </div>
+                      )}
+                      {renderText(m.content)}
+                    </Bubble>
 
                     {/* أزرار الإجراءات السريعة بالكلمات الدلالية */}
                     {m.actionChips && m.actionChips.length > 0 && (
@@ -1022,20 +1078,28 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 </div>
               )}
 
-              {/* شريط حالة الاستماع الصوتي في شموسة */}
-              {isListeningVoice && (
-                <div className="px-3 py-1.5 bg-red-500/15 border-t border-red-500/30 flex items-center justify-between text-xs text-red-700 dark:text-red-300 flex-shrink-0 animate-pulse">
+              {/* شريط حالة التسجيل الصوتي والتفريغ في شموسة */}
+              {(isRecordingVoice || isTranscribingVoice || voiceNotice) && (
+                <div className={`px-3 py-1.5 border-t flex items-center justify-between text-xs flex-shrink-0 transition-all ${
+                  isRecordingVoice
+                    ? 'bg-red-500/15 border-red-500/30 text-red-700 dark:text-red-300 animate-pulse'
+                    : isTranscribingVoice
+                    ? 'bg-amber-500/15 border-amber-500/30 text-amber-800 dark:text-amber-200'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
+                }`}>
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />
-                    <span className="font-bold">شموسة تستمع لصوتك.. تحدثي وسيكتب السؤال فوراً</span>
+                    {isRecordingVoice && <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />}
+                    <span className="font-bold">{voiceNotice || (isRecordingVoice ? 'شموسة تسجل صوتك.. تحدثي بحرية ثم انقري الميكروفون للإيقاف' : '')}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={toggleVoiceRecording}
-                    className="text-[11px] font-black underline cursor-pointer hover:text-red-900"
-                  >
-                    إنهاء
-                  </button>
+                  {isRecordingVoice && (
+                    <button
+                      type="button"
+                      onClick={stopVoiceRecording}
+                      className="text-[11px] font-black px-2 py-0.5 rounded-md bg-red-600 text-white cursor-pointer hover:bg-red-700 shadow-xs"
+                    >
+                      إيقاف وتفريغ
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1070,14 +1134,16 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   <button
                     type="button"
                     onClick={toggleVoiceRecording}
-                    title={isListeningVoice ? 'إيقاف التسجيل الصوتي' : 'تسجيل سؤال بصوتك'}
+                    title={isRecordingVoice ? 'إيقاف التسجيل الصوتي وتفريغه' : 'تسجيل سؤال بصوتك'}
                     className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 ${
-                      isListeningVoice
-                        ? 'bg-red-500 text-white shadow-md animate-pulse'
+                      isRecordingVoice
+                        ? 'bg-red-500 text-white shadow-md animate-pulse ring-2 ring-red-300'
+                        : isTranscribingVoice
+                        ? 'bg-amber-500 text-white animate-spin'
                         : 'text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800'
                     }`}
                   >
-                    {isListeningVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                    {isRecordingVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                   </button>
 
                   {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}

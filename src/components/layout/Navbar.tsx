@@ -250,16 +250,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* قائمة الاختصارات السريعة المنبثقة من الزر */}
             {isQuickCreateMenuOpen && (
-              <div className="absolute top-full mt-2 right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 w-64 sm:w-72 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl p-3 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 space-y-1">
-                <div className="px-2 py-1.5 border-b border-stone-100 dark:border-stone-800 mb-1 flex items-center justify-between">
-                  <span className="text-xs font-black text-stone-800 dark:text-stone-200">
-                    {tr('quick_create')}
+              <div className="absolute top-full mt-2.5 right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 w-72 sm:w-80 bg-[#fffdf5] dark:bg-[#070e1e] border-2 border-amber-500/50 dark:border-amber-500/60 rounded-3xl p-3.5 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 space-y-2">
+                <div className="px-2 py-1.5 border-b border-amber-200/80 dark:border-amber-900/60 flex items-center justify-between">
+                  <span className="text-xs font-black text-[#0c1427] dark:text-amber-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>{tr('quick_create')}</span>
                   </span>
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
+                  <span className="text-[10px] text-amber-900 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-300 dark:border-amber-700 font-extrabold">
                     {tr('instant_action')}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-2 gap-2">
                   {quickActions.map((action, idx) => {
                     const Icon = action.icon;
                     return (
@@ -270,12 +271,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                           setIsQuickCreateMenuOpen(false);
                           if (action.action) action.action();
                         }}
-                        className="p-2 sm:p-2.5 rounded-2xl bg-stone-50 dark:bg-stone-850 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:border-amber-400 border border-stone-200/80 dark:border-stone-700/80 text-right transition flex items-center gap-2 cursor-pointer group active:scale-95"
+                        className="p-2.5 rounded-2xl bg-[#fdf6e7] hover:bg-[#f7ebd0] dark:bg-[#0c1427] dark:hover:bg-[#121d3a] border border-amber-300/80 dark:border-amber-500/30 hover:border-amber-500 text-right transition flex items-center gap-2.5 cursor-pointer group active:scale-95 shadow-2xs"
                       >
-                        <div className="w-7 h-7 rounded-xl bg-white dark:bg-stone-750 flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform shrink-0">
-                          <Icon className={`w-3.5 h-3.5 ${action.color}`} />
+                        <div className="w-8 h-8 rounded-xl bg-amber-500/15 dark:bg-amber-500/20 border border-amber-400/40 dark:border-amber-500/40 flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform shrink-0">
+                          <Icon className={`w-4 h-4 ${action.color}`} />
                         </div>
-                        <span className="text-xs font-black text-stone-800 dark:text-stone-200 group-hover:text-amber-700 dark:group-hover:text-amber-300">
+                        <span className="text-xs font-black text-[#0c1427] dark:text-white group-hover:text-amber-800 dark:group-hover:text-amber-300 leading-snug">
                           {action.label}
                         </span>
                       </button>

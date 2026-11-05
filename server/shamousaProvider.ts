@@ -142,8 +142,12 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
 }
 
 
-// المحرك الاحتياطي المعتمد: Google Gemini Flash
-async function callGeminiChat(systemInstruction: string, messages: any[]): Promise<string> {
+// المحرك الاحتياطي المعتمد: Google Gemini Flash (مع دعم الرؤية الحاسوبية وقراءة الصور والفواتير)
+async function callGeminiChat(
+  systemInstruction: string,
+  messages: any[],
+  images?: Array<{ base64: string; mimeType?: string; name?: string }>
+): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY غير متوفر');
 
@@ -159,11 +163,29 @@ async function callGeminiChat(systemInstruction: string, messages: any[]): Promi
   const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
   const contents: any[] = [];
 
-  for (const m of messages.slice(-10)) {
-    if (m.role === 'system') continue;
+  const nonSystemMessages = messages.filter((m) => m.role !== 'system').slice(-10);
+  for (let i = 0; i < nonSystemMessages.length; i++) {
+    const m = nonSystemMessages[i];
+    const isLast = i === nonSystemMessages.length - 1;
+    const parts: any[] = [{ text: String(m.content || '') }];
+
+    if (isLast && Array.isArray(images) && images.length > 0) {
+      for (const img of images) {
+        if (img?.base64) {
+          const cleanData = img.base64.replace(/^data:[^;]+;base64,/, '');
+          parts.push({
+            inlineData: {
+              mimeType: img.mimeType || 'image/jpeg',
+              data: cleanData,
+            },
+          });
+        }
+      }
+    }
+
     contents.push({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: String(m.content || '') }],
+      parts,
     });
   }
 
@@ -177,7 +199,7 @@ async function callGeminiChat(systemInstruction: string, messages: any[]): Promi
       });
 
       try {
-        console.log(`[Shamousa] Calling Gemini model: ${modelName} (attempt ${attempt})`);
+        console.log(`[Shamousa] Calling Gemini model: ${modelName} (attempt ${attempt})${images && images.length > 0 ? ' [With Vision/Images]' : ''}`);
         const response: any = await Promise.race([
           ai.models.generateContent({
             model: modelName,
@@ -266,7 +288,8 @@ ${metrics.openWorkOrdersDesc ? `   - تفاصيل أوامر التشغيل ال
 export async function handleShamousaChat(
   userMessage: string,
   history: any[],
-  ctx: ShamousaContext
+  ctx: ShamousaContext,
+  images?: Array<{ base64: string; mimeType?: string; name?: string }>
 ): Promise<{ reply: string; handoffToFalcon?: boolean; provider: string; inTrainingMode?: boolean }> {
   const userEmail = ctx.userEmail || '';
   const superAdmin = Boolean(ctx.isSuperAdmin || isSuperAdmin(userEmail));
@@ -408,10 +431,26 @@ export async function handleShamousaChat(
     return assistantMsg?.content?.trim() || null;
   }
 
+  const hasImages = Array.isArray(images) && images.length > 0;
+
+  // إذا تم إرفاق صور، يتم توجيه الطلب حصرياً ومباشرة لمحرك الرؤية الحاسوبية Gemini Flash
+  if (hasImages && process.env.GEMINI_API_KEY) {
+    console.log('[AI Service: Shamousa] Images attached -> Routing directly to Gemini Flash Vision...');
+    try {
+      const geminiVisionReply = await callGeminiChat(systemInstruction, promptMessages, images);
+      if (geminiVisionReply) {
+        console.log('[AI Service: Shamousa] Gemini Flash Vision succeeded.');
+        return { reply: geminiVisionReply, handoffToFalcon: false, provider: 'gemini_vision' };
+      }
+    } catch (gErr: any) {
+      console.warn('[AI Service: Shamousa] Gemini Vision initial attempt failed:', gErr?.message);
+    }
+  }
+
   // -------------------------------------------------------------
-  // Provider 1: Groq API (Primary -> Secondary)
+  // Provider 1: Groq API (Primary -> Secondary for fast text)
   // -------------------------------------------------------------
-  const groqKeyToUse = groqPrimary || groqSecondary;
+  const groqKeyToUse = !hasImages ? (groqPrimary || groqSecondary) : undefined;
   if (groqKeyToUse) {
     console.log('[AI Service: Shamousa] Attempting Provider 1 (Groq)...');
     try {
@@ -427,7 +466,7 @@ export async function handleShamousaChat(
         `[AI Service: Shamousa] Attempting Provider 1 (Groq)... Failed: [${groqFailReason}] -> Switching to Provider 2 (Gemini Flash)...`
       );
     }
-  } else {
+  } else if (!hasImages) {
     groqFailReason = 'GROQ_API_KEY غير متوفر على الخادم';
     console.log(`[AI Service: Shamousa] Provider 1 (Groq) skipped: ${groqFailReason} -> Switching to Provider 2 (Gemini Flash)...`);
   }
@@ -438,7 +477,7 @@ export async function handleShamousaChat(
   if (process.env.GEMINI_API_KEY) {
     console.log('[AI Service: Shamousa] Attempting Provider 2 (Gemini Flash)...');
     try {
-      const geminiReply = await callGeminiChat(systemInstruction, promptMessages);
+      const geminiReply = await callGeminiChat(systemInstruction, promptMessages, images);
       if (geminiReply) {
         console.log('[AI Service: Shamousa] Switching to Provider 2 (Gemini Flash)... Success!');
         return { reply: geminiReply, handoffToFalcon: false, provider: 'gemini' };

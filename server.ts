@@ -12,6 +12,7 @@ import {
   saveWorkshopSession,
   getWorkshopSession,
   clearWorkshopSession,
+  transcribeAudioWithGemini,
 } from './server/aiProvider.js';
 import * as shamousaModule from './server/shamousaProvider.js';
 import {
@@ -1353,7 +1354,7 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
   const email = req.userEmail || req.user?.email || '';
   const superAdmin = isSuperAdmin(email);
 
-  const { message, history, clientWorkshopState } = req.body || {};
+  const { message, history, clientWorkshopState, images } = req.body || {};
   if (!message || typeof message !== 'string' || !message.trim()) {
     res.status(400).json({ error: 'الرسالة فارغة' });
     return;
@@ -1439,7 +1440,8 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
         clientContext: clientWorkshopState,
         userEmail: email,
         isSuperAdmin: superAdmin,
-      }
+      },
+      Array.isArray(images) ? images : undefined
     );
 
     // الخصم فقط بعد نجاح الاستجابة لعدم إهدار الرصيد (والسوبر أدمن لا يخصم)
@@ -1471,9 +1473,9 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
   const email = req.userEmail || req.user?.email || '';
   const superAdmin = isSuperAdmin(email);
 
-  const { message, actionChip, chatHistory, workshopContext } = req.body || {};
-  if (!message && !actionChip) {
-    res.status(400).json({ error: 'الرسالة مطلوبة' });
+  const { message, actionChip, chatHistory, workshopContext, images } = req.body || {};
+  if (!message && !actionChip && (!images || images.length === 0)) {
+    res.status(400).json({ error: 'الرسالة أو الصورة مطلوبة' });
     return;
   }
 
@@ -1536,6 +1538,7 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
       chatHistory: Array.isArray(chatHistory) ? chatHistory : [],
       userEmail: email,
       isSuperAdmin: superAdmin,
+      images: Array.isArray(images) ? images : undefined,
       workshopContext: {
         ...(workshopContext || {}),
         artistName: (workshopContext?.artistName || artistName),
@@ -1616,6 +1619,27 @@ const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
 
 app.post('/api/analyze-vision', requireAuth, handleFalconVision);
 app.post('/api/ai/analyze-image', requireAuth, handleFalconVision);
+
+// -------------------------------------------------------------
+// تفريغ المقاطع الصوتية بالذكاء الاصطناعي (Audio Speech-to-Text)
+// -------------------------------------------------------------
+const handleAudioTranscription = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { audioBase64, mimeType } = req.body || {};
+    if (!audioBase64) {
+      res.status(400).json({ error: 'ملف الصوت مطلوب للتفريغ' });
+      return;
+    }
+    const transcribedText = await transcribeAudioWithGemini(audioBase64, mimeType || 'audio/webm');
+    res.json({ text: transcribedText });
+  } catch (err: any) {
+    console.error('[Audio Transcription Error]:', err);
+    res.status(500).json({ error: err?.message || 'تعذر تفريغ المقطع الصوتي' });
+  }
+};
+
+app.post('/api/ai/transcribe-audio', requireAuth, handleAudioTranscription);
+app.post('/api/transcribe-audio', requireAuth, handleAudioTranscription);
 
 // -------------------------------------------------------------
 // Chat Session Management

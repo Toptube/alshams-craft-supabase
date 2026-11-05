@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   AlShamsFalconEmblem,
   alshamsOfficialBannerLogo,
   alshamsFalconArtisanImg,
+  falconAvatarImg,
+  shamousaAvatarImg,
 } from '../brand/BrandAssets';
+import { AlShamsWelcomeGate } from './AlShamsWelcomeGate';
+import { AlShamsAudioPlayer, AlShamsAudioPlayerHandle } from './AlShamsAudioPlayer';
 import {
   Sparkles,
   Calculator,
@@ -52,6 +56,31 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   isDarkMode = false,
   onToggleTheme,
 }) => {
+  // مشغل الصوت الترويجي وبوابة الاستقبال التفاعلية
+  const audioPlayerRef = useRef<AlShamsAudioPlayerHandle | null>(null);
+  const [isWelcomeGateOpen, setIsWelcomeGateOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem('alshams_welcome_gate_seen');
+      if (!seen) {
+        // إظهار بوابة الاستقبال تلقائياً للزائر الجديد لأول مرة
+        const timer = setTimeout(() => {
+          setIsWelcomeGateOpen(true);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    } catch {}
+  }, []);
+
+  const handleGateEnter = () => {
+    try {
+      localStorage.setItem('alshams_welcome_gate_seen', 'true');
+    } catch {}
+    // تشغيل الأوديو فوراً بالتزامن مع كليك الزائر على زر الترحيب
+    audioPlayerRef.current?.playTrack();
+  };
+
   // Feedback modal state
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [feedbackName, setFeedbackName] = useState('');
@@ -114,31 +143,62 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans selection:bg-amber-500 selection:text-white transition-colors duration-300" dir="rtl">
       
       {/* ------------------------------------------------------------- */}
-      {/* 1. Header / Navbar (Sticky, Sleek & Floating)                 */}
+      {/* بوابة الاستقبال التفاعلية الفاخرة (Hero Gate / Welcome Modal)   */}
       {/* ------------------------------------------------------------- */}
-      <header className="sticky top-0 z-40 w-full backdrop-blur-md bg-white/85 dark:bg-stone-950/85 border-b border-stone-200/80 dark:border-stone-800/80 transition-colors shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
+      <AlShamsWelcomeGate
+        isOpen={isWelcomeGateOpen}
+        onClose={() => setIsWelcomeGateOpen(false)}
+        onEnter={handleGateEnter}
+      />
+
+      {/* ------------------------------------------------------------- */}
+      {/* 1. Header / Navbar (Sticky, Modern Glassmorphism & Audio Widget)*/}
+      {/* ------------------------------------------------------------- */}
+      <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-white/80 dark:bg-[#070e1e]/85 border-b border-amber-500/20 transition-all shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-3 sm:gap-4">
           
-          {/* Logo & Brand identity */}
-          <div className="flex items-center gap-3 select-none">
-            <AlShamsFalconEmblem size="md" className="hover:scale-105 transition-transform drop-shadow-sm" />
+          {/* Logo & Brand identity with Mascot Avatars (Hover tilt & Subtle Glow) */}
+          <div className="flex items-center gap-2.5 sm:gap-3.5 select-none">
+            {/* الشعار المعتمد مع تأثير التوهج الزجاجي */}
+            <div className="relative p-1 rounded-2xl bg-gradient-to-br from-amber-500/15 via-white/50 dark:via-stone-900/50 to-transparent border border-amber-400/40 shadow-xs hover:border-amber-400 transition-colors">
+              <AlShamsFalconEmblem size="md" className="hover:scale-105 transition-transform drop-shadow-sm" />
+            </div>
+
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg sm:text-xl text-stone-900 dark:text-amber-400 tracking-tight">
+                <span className="font-black text-base sm:text-xl text-stone-900 dark:text-amber-400 tracking-tight">
                   منظومة الشمساوية
                 </span>
-                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
+                <span className="hidden sm:inline-block text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
                   المنظومة الحرفية المتكاملة
                 </span>
               </div>
               <span className="text-[10px] text-stone-500 dark:text-stone-400 font-mono tracking-wider">
-                منظومة الشمساوية
+                AlShams Craft Platform
               </span>
+            </div>
+
+            {/* ثنائي صقر وشموسة المصغر بتفاعل حركي نابض (Hover tilt & Glow) */}
+            <div className="hidden md:flex items-center gap-1.5 mr-2 px-2 py-1 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-400/30 backdrop-blur-xs shadow-2xs">
+              <div
+                className="relative w-8 h-8 rounded-xl overflow-hidden border border-amber-400/60 shadow-xs cursor-pointer transition-all duration-300 hover:scale-115 hover:-rotate-6 hover:shadow-amber-500/40"
+                title="صقر الشمساوية 🦅 (خبيرك الهندسي والتسعير)"
+              >
+                <img src={falconAvatarImg} alt="صقر الشمساوية" className="w-full h-full object-cover" />
+                <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400 border border-stone-900" />
+              </div>
+              <div
+                className="relative w-8 h-8 rounded-xl overflow-hidden border border-amber-400/60 shadow-xs cursor-pointer transition-all duration-300 hover:scale-115 hover:rotate-6 hover:shadow-amber-500/40"
+                title="شموسة ☀️ (مديرة ورشتك وحساباتك)"
+              >
+                <img src={shamousaAvatarImg} alt="شموسة" className="w-full h-full object-cover" />
+                <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400 border border-stone-900" />
+              </div>
             </div>
           </div>
 
           {/* Quick Nav Links (Desktop) */}
-          <nav className="hidden lg:flex items-center gap-6 text-sm font-semibold text-stone-600 dark:text-stone-300">
+          <nav className="hidden xl:flex items-center gap-6 text-sm font-semibold text-stone-600 dark:text-stone-300">
             <a href="#safe-accounts" className="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
               عقلك الحرفي
             </a>
@@ -155,31 +215,41 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <a href="#reviews" className="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
               حكايات الورش
             </a>
-            <a href="#whats-new" className="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
-              جديد المنظومة
-            </a>
           </nav>
 
-          {/* Actions: Theme Toggle + Login / Open Workshop CTA */}
-          <div className="flex items-center gap-3">
+          {/* Actions: Audio Player Widget + Welcome Gate Button + Theme Toggle + Login */}
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* مشغل الأوديو الترويجي المدمج (Audio Player Widget) */}
+            <AlShamsAudioPlayer ref={audioPlayerRef} />
+
+            {/* زر إعادة فتح بوابة الترحيب التفاعلية */}
+            <button
+              type="button"
+              onClick={() => setIsWelcomeGateOpen(true)}
+              className="hidden lg:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-amber-500/15 via-yellow-500/15 to-amber-500/10 hover:from-amber-500/25 hover:to-yellow-500/25 text-amber-900 dark:text-amber-200 border border-amber-400/40 transition active:scale-95 cursor-pointer shadow-2xs"
+              title="فتح بوابة الترحيب التفاعلية"
+            >
+              <span>بوابة الترحيب 🚪✨</span>
+            </button>
+
             {onToggleTheme && (
               <button
                 type="button"
                 onClick={onToggleTheme}
                 aria-label="تبديل المظهر"
-                className="p-2.5 rounded-xl border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-900 text-stone-600 dark:text-stone-300 transition-colors cursor-pointer"
+                className="p-2 sm:p-2.5 rounded-xl border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-900 text-stone-600 dark:text-stone-300 transition-colors cursor-pointer"
               >
-                {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-stone-700" />}
+                {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700" />}
               </button>
             )}
 
             <button
               type="button"
               onClick={onOpenLogin}
-              className="px-4 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer flex items-center gap-2 border border-amber-400/30"
+              className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5 sm:gap-2 border border-amber-400/30 whitespace-nowrap"
             >
-              <span>تسجيل الدخول / فتح ورشتي</span>
-              <ArrowLeft className="w-4 h-4" />
+              <span>فتح ورشتي</span>
+              <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           </div>
         </div>

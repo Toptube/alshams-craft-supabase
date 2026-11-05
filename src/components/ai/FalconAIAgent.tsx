@@ -52,14 +52,15 @@ interface FalconAIAgentProps {
   onExportStructuredToCalculator?: (data: StructuredCalculatorExport) => void;
 }
 
-export const FALCON_WELCOME_TEXT = `أهلاً بك في الجناح الذكي لمنظومة الشمساوية! 🦅
-أنا "صقر الشمساوية"، مستشارك لدراسة الأسواق وحساب التكاليف وتحليل المشغولات. ارفع صورة القطعة أو اكتب استفسارك وسأجيبك فوراً.`;
+export const FALCON_WELCOME_TEXT = `أهلاً بيك في الجناح الهندسي لمنظومة الشمساوية! 🦅
+أنا «صقر الشمساوية»، مستشارك الأول لدراسة الأسواق وحساب التكاليف ونسب الهالك وتحليل المشغولات يدوياً وهندسياً.
+تقدر ترفع صورة أي قطعة مشغولات أو فاتورة خامات لفحصها واستخراج أبعادها وسعرها العادل، أو تكتب استفسارك وسأجيبك فوراً!`;
 
 export const createInitialFalconMessage = (userName?: string): ChatMessage => ({
   id: 'msg_welcome',
   sender: 'falcon',
   text: userName
-    ? `أهلاً بك يا ${userName} في الجناح الذكي لمنظومة الشمساوية! 🦅\nأنا "صقر الشمساوية"، مستشارك لدراسة الأسواق وحساب التكاليف وتحليل المشغولات. ارفع صورة القطعة أو اكتب استفسارك وسأجيبك فوراً.`
+    ? `أهلاً بيك يا ${userName} في الجناح الهندسي لمنظومة الشمساوية! 🦅\nأنا «صقر الشمساوية»، مستشارك الأول لدراسة الأسواق وحساب التكاليف ونسب الهالك وتحليل المشغولات يدوياً وهندسياً.\nتقدر ترفع صورة أي مشغولة أو فاتورة لفحصها واستخراج تفاصيلها وسعرها العادل، أو تكتب استفسارك وسأجيبك فوراً!`
     : FALCON_WELCOME_TEXT,
   timestamp: Date.now(),
 });
@@ -74,7 +75,7 @@ function getArabicAiError(status: number, serverMessage?: string): string {
   return 'تعذر إتمام الطلب، حاول مرة أخرى.';
 }
 
-async function falconFetch(url: string, init: RequestInit, timeoutMs = 18000): Promise<Response> {
+async function falconFetch(url: string, init: RequestInit, timeoutMs = 35000): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -114,7 +115,9 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
 
   // Modern Chat UX additions: Auto-expanding, Voice, Attachments, Saved sessions & Menu
   const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
-  const [isListeningVoice, setIsListeningVoice] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [savedSessions, setSavedSessions] = useState<Array<{ id: string; title: string; timestamp: number; messages: ChatMessage[] }>>([]);
@@ -123,7 +126,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const speechRecognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const savedSessionsKey = `alshams_falcon_saved_sessions_${workshopId}`;
 
@@ -315,66 +319,95 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     showFeedback('لا توجد بيانات تسعير حالية للتصدير.');
   };
 
-  const toggleVoiceRecording = () => {
-    const SpeechRecognitionAPI =
-      typeof window !== 'undefined'
-        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-        : null;
-
-    if (!SpeechRecognitionAPI) {
-      showFeedback('ميزة التعرف الصوتي المباشر غير مدعومة في متصفحك.');
-      return;
-    }
-
-    if (isListeningVoice) {
-      if (speechRecognitionRef.current) {
-        try {
-          speechRecognitionRef.current.stop();
-        } catch {}
-      }
-      setIsListeningVoice(false);
-      return;
-    }
-
+  const startVoiceRecording = async () => {
     try {
-      const recognition = new SpeechRecognitionAPI();
-      recognition.lang = 'ar-EG';
-      recognition.continuous = true;
-      recognition.interimResults = true;
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        showFeedback('المتصفح لا يدعم التسجيل الصوتي المباشر.');
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : 'audio/ogg';
 
-      recognition.onstart = () => {
-        setIsListeningVoice(true);
-      };
-
-      recognition.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        if (transcript.trim()) {
-          setInputPrompt((prev) => {
-            const next = prev ? `${prev} ${transcript.trim()}` : transcript.trim();
-            setTimeout(() => adjustTextareaHeight(textareaRef.current), 0);
-            return next;
-          });
+      const recorder = new MediaRecorder(stream, { mimeType });
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
         }
       };
 
-      recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error:', event.error);
-        setIsListeningVoice(false);
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecordingVoice(false);
+
+        if (audioChunksRef.current.length === 0) return;
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        audioChunksRef.current = [];
+
+        setIsTranscribingVoice(true);
+        setVoiceNotice('⏳ جاري تفريغ الصوت وتحويله لكلام مكتوب...');
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const rawBase64 = event.target?.result as string;
+          try {
+            const res = await authedFetch('/api/ai/transcribe-audio', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ audioBase64: rawBase64, mimeType }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.text && data.text.trim()) {
+                setInputPrompt((prev) => {
+                  const cleanPrev = prev.trim();
+                  const newText = data.text.trim();
+                  const merged = cleanPrev ? `${cleanPrev} ${newText}` : newText;
+                  setTimeout(() => adjustTextareaHeight(textareaRef.current), 50);
+                  return merged;
+                });
+                showFeedback('✓ تم تفريغ الصوت بنجاح');
+              }
+            }
+          } catch (err) {
+            console.warn('Transcription error in Falcon:', err);
+          } finally {
+            setIsTranscribingVoice(false);
+            setVoiceNotice(null);
+          }
+        };
+        reader.readAsDataURL(audioBlob);
       };
 
-      recognition.onend = () => {
-        setIsListeningVoice(false);
-      };
+      mediaRecorderRef.current = recorder;
+      recorder.start(250);
+      setIsRecordingVoice(true);
+      setVoiceNotice('🔴 جاري التسجيل الصوتي... تحدث بحرية ثم انقر على الميكروفون للإيقاف والتفريغ');
+    } catch (err: any) {
+      console.warn('Microphone error in Falcon:', err);
+      setIsRecordingVoice(false);
+      showFeedback('يرجى السماح بالوصول للميكروفون للتسجيل.');
+    }
+  };
 
-      speechRecognitionRef.current = recognition;
-      recognition.start();
-    } catch (err) {
-      console.error('Failed to start speech recognition:', err);
-      setIsListeningVoice(false);
-      showFeedback('تعذر تشغيل الميكروفون. يرجى التأكد من منح الإذن.');
+  const stopVoiceRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+    setIsRecordingVoice(false);
+  };
+
+  const toggleVoiceRecording = () => {
+    if (isRecordingVoice) {
+      stopVoiceRecording();
+    } else {
+      startVoiceRecording();
     }
   };
 
@@ -441,112 +474,35 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   };
 
   const handleSendMessage = async (customText?: string, chip?: string) => {
-    const textToSend = (customText || inputPrompt).trim();
-    if (!textToSend && !chip && !pendingAttachment) return;
-
-    // إذا كان هناك مرفق صورة، يتم فحصها هندسياً مع ملاحظات الحرفي
-    if (pendingAttachment) {
-      const att = pendingAttachment;
-      setPendingAttachment(null);
-      setIsAnalyzingImage(true);
-
-      const userMsg: ChatMessage = {
-        id: 'user_img_' + Date.now(),
-        sender: 'user',
-        text: textToSend || '📸 قمت برفع صورة قطعة مشغولات يدوية لفحصها هندسياً واستخراج الخامات ونسب الهالك والأسعار.',
-        timestamp: Date.now(),
-        metadata: { previewImage: att.base64 },
-      };
-
-      setMessages((prev) => [...prev, userMsg]);
-      setInputPrompt('');
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
-
-      try {
-        const res = await falconFetch(
-          '/api/analyze-vision',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              imageBase64: att.base64,
-              mimeType: att.mimeType || 'image/jpeg',
-              artistNotes: textToSend || '',
-              activeCrafts: Array.isArray(profile.selectedCrafts) ? profile.selectedCrafts : [],
-            }),
-          },
-          30000
-        );
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(getArabicAiError(res.status, errData.error));
-        }
-
-        const data: AIVisionAnalysis = await res.json();
-        const visionRem = typeof (data as any).remaining === 'number' ? (data as any).remaining : (data as any).dailyAiRemaining;
-        if (typeof visionRem === 'number') {
-          setDailyRemaining(visionRem);
-        }
-
-        if (data.detectedCategory) onApplyCategoryFromAI(data.detectedCategory);
-        if (data.estimatedLaborWage) onApplyEstimatedLaborWage(data.estimatedLaborWage, data.estimatedHours);
-
-        const pricingIsEstimated = Boolean(data.competitionPricing?.estimated);
-        const pricingSuffix = pricingIsEstimated ? ' (تقديري)' : ' (بحث سوقي)';
-        const newMsgId = 'falcon_res_' + Date.now();
-
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: newMsgId,
-            sender: 'falcon',
-            text: `🎯 تم فحص القطعة هندسياً واستخراج المواصفات:
-- التصنيف المعتمد: **${data.detectedCategory}**
-- ساعات العمل المقدرة: **${data.estimatedHours} ساعة**
-- المصنعية المقترحة: **${data.estimatedLaborWage} ${profile.currencySymbol || 'ج.م'}**
-- أسعار السوق${pricingSuffix}: من ${data.competitionPricing?.minMarketPrice || 0} إلى ${data.competitionPricing?.maxMarketPrice || 0} ${profile.currencySymbol || 'ج.م'}
-${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesForCalculator}` : ''}`,
-            timestamp: Date.now(),
-            metadata: { visionAnalysis: data },
-            sources: (data as any).sources || [],
-            searchEntryPoint: (data as any).searchEntryPoint,
-            searchUsed: !pricingIsEstimated,
-          },
-        ]);
-      } catch (err: any) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: 'err_' + Date.now(),
-            sender: 'falcon',
-            text: `⚠️ ${err.message || 'تعذر تحليل الصورة، حاول مرة أخرى.'}`,
-            timestamp: Date.now(),
-          },
-        ]);
-      } finally {
-        setIsAnalyzingImage(false);
-      }
-      return;
+    if (isRecordingVoice) {
+      stopVoiceRecording();
     }
+    const textToSend = (customText || inputPrompt).trim();
+    const att = pendingAttachment;
+    if (!textToSend && !chip && !att) return;
 
-    // إرسال استفسار نصي عادي
-    const userMsg: ChatMessage = {
-      id: 'msg_' + Date.now(),
-      sender: 'user',
-      text: textToSend || `استفسار حول: ${chip}`,
-      actionChip: chip,
-      timestamp: Date.now(),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
+    // تفريغ الحقول فورا
     setInputPrompt('');
+    setPendingAttachment(null);
+    setImagePreview(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+
+    const userMsg: ChatMessage = {
+      id: 'user_' + Date.now(),
+      sender: 'user',
+      text: textToSend || (att ? '📸 قمت برفع صورة مشغولة يدوية لفحصها هندسياً واستخراج المقاسات والخامات والتكلفة وسعر البيع.' : `استفسار حول: ${chip}`),
+      actionChip: chip,
+      timestamp: Date.now(),
+      metadata: att ? { previewImage: att.base64 } : undefined,
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
     setIsSending(true);
+    if (att) {
+      setIsAnalyzingImage(true);
+    }
 
     try {
       const formattedHistory = messages
@@ -557,27 +513,44 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
           content: m.text,
         }));
 
+      const payload: any = {
+        message: textToSend || (att ? 'يرجى فحص وتحليل صورة المشغولة هندسياً بدقة، وتحديد أبعادها ومستلزمات إنتاجها والتكلفة وسعر البيع العادل جملة وقطاعي في السوق المصري.' : `استفسار حول: ${chip}`),
+        actionChip: chip || null,
+        chatHistory: formattedHistory,
+        workshopContext: {
+          selectedCrafts: profile.selectedCrafts || ['macrame'],
+          country: profile.country || 'جمهورية مصر العربية',
+          currency: profile.currencySymbol || 'ج.م',
+          category: currentCategory,
+          artistName: firstName,
+          brandName: (profile as any).workshopName || profile.brandName || '',
+          hourlyRate: (profile as any).hourlyRate || 35,
+          liveLiquidity: 0,
+          lowMaterialsCount: 0,
+          openWorkOrdersCount: 0,
+          pendingOrdersCount: 0,
+        },
+        userEmail: profile.email || '',
+      };
+
+      if (att) {
+        payload.images = [
+          {
+            base64: att.base64,
+            mimeType: att.mimeType || 'image/jpeg',
+            name: att.name || 'craft.jpg',
+          },
+        ];
+      }
+
       const res = await falconFetch(
         '/api/chat-agent',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: textToSend,
-            actionChip: chip || null,
-            chatHistory: formattedHistory,
-            currentContext: {
-              selectedCrafts: profile.selectedCrafts || ['macrame'],
-              country: profile.country || 'مصر',
-              currency: profile.currencySymbol || 'ج.م',
-              category: currentCategory,
-              artistName: firstName,
-              brandName: profile.brandName,
-            },
-            userEmail: profile.email || '',
-          }),
+          body: JSON.stringify(payload),
         },
-        18000
+        35000
       );
 
       if (!res.ok) {
@@ -591,6 +564,7 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
         setDailyRemaining(chatRem);
       }
 
+      // إضافة الرد داخل المحادثة مباشرة دون أي تحويل تلقائي للحاسبة
       setMessages((prev) => [
         ...prev,
         {
@@ -598,6 +572,7 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
           sender: 'falcon',
           text: data.reply || 'تمت دراسة طلبك، هل تود معرفة أي تفاصيل إضافية؟',
           timestamp: Date.now(),
+          metadata: data.visionAnalysis ? { visionAnalysis: data.visionAnalysis } : undefined,
           sources: data.sources || [],
           searchEntryPoint: data.searchEntryPoint,
           searchUsed: data.searchUsed,
@@ -615,6 +590,7 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
       ]);
     } finally {
       setIsSending(false);
+      setIsAnalyzingImage(false);
     }
   };
 
@@ -653,69 +629,61 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
   };
 
   return (
-    <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-xl overflow-hidden flex flex-col h-[780px] relative transition-colors duration-200">
-      {/* Header */}
-      <div className="p-4 bg-gradient-to-r from-stone-950 via-amber-950 to-stone-900 text-white flex items-center justify-between border-b border-amber-500/30 shadow-md flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <FalconMascotAvatar size="lg" fit="top" statusDot={true} />
-          <div className="text-right">
-            <div className="flex items-center gap-2">
-              <h3 className="font-extrabold text-sm sm:text-base text-amber-300 flex items-center gap-1.5">
-                <span>صقر الشمساوية AI</span>
-                <Sparkles className="w-4 h-4 text-amber-400" />
-              </h3>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30 font-bold">
-                خبير الحرف والأسواق
-              </span>
-            </div>
-            <p className="text-[11px] text-stone-300">
-              تسعير، مقارنة أسعار، دراسة الخامات، وتحليل الصور هندسياً
-            </p>
+    <div className="bg-white dark:bg-[#070e1e] rounded-2xl sm:rounded-3xl border border-stone-200 dark:border-amber-900/40 shadow-xl overflow-hidden flex flex-col h-[calc(100dvh-5.5rem)] sm:h-[750px] max-h-[100dvh] relative transition-colors duration-200">
+      {/* Compact Slim Header for Mobile & Desktop */}
+      <div className="px-3 py-2 sm:px-4 sm:py-2.5 bg-gradient-to-r from-stone-950 via-amber-950 to-stone-900 text-white flex items-center justify-between border-b border-amber-500/30 shadow-md flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="relative shrink-0">
+            <FalconMascotAvatar size="sm" fit="top" statusDot={false} />
+            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-[#060B18] shadow-xs" />
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h3 className="font-black text-sm sm:text-base text-amber-300 truncate">
+              صقر الشمساوية
+            </h3>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse" title="متصل الآن" />
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           {/* دردشة جديدة ➕ */}
           <button
             type="button"
             onClick={handleNewChat}
             title="دردشة جديدة (➕)"
-            className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1 shadow-xs transition active:scale-95 cursor-pointer"
+            className="w-8 h-8 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-amber-500/40 text-amber-300 flex items-center justify-center shadow-xs transition active:scale-95 cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden md:inline">دردشة جديدة</span>
-          </button>
-
-          {/* حفظ المحادثة 💾 */}
-          <button
-            type="button"
-            onClick={handleSaveChat}
-            title="حفظ المحادثة في الأرشيف (💾)"
-            className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-1 shadow-xs transition active:scale-95 cursor-pointer"
-          >
-            <Save className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden md:inline">حفظ</span>
+            <Plus className="w-4 h-4 text-amber-400" />
           </button>
 
           {/* تصدير للحاسبة 🧮 */}
           <button
             type="button"
             onClick={handleExportLatestToCalculator}
-            title="تصدير الأرقام والأسعار لحاسبة التكاليف (🧮)"
-            className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs transition active:scale-95 cursor-pointer"
+            title="تصدير للحاسبة (🧮)"
+            className="w-8 h-8 rounded-xl bg-amber-600 hover:bg-amber-700 text-white flex items-center justify-center shadow-xs transition active:scale-95 cursor-pointer"
           >
-            <Calculator className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">للحاسبة</span>
+            <Calculator className="w-4 h-4" />
+          </button>
+
+          {/* حفظ المحادثة 💾 */}
+          <button
+            type="button"
+            onClick={handleSaveChat}
+            title="حفظ المحادثة (💾)"
+            className="w-8 h-8 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-amber-500/40 text-amber-300 flex items-center justify-center shadow-xs transition active:scale-95 cursor-pointer"
+          >
+            <Save className="w-4 h-4 text-amber-400" />
           </button>
 
           {/* حذف الشات 🗑️ */}
           <button
             type="button"
             onClick={handleClearChat}
-            title="حذف وتفريغ سجل المحادثة (🗑️)"
-            className="p-2 rounded-xl bg-stone-800/90 hover:bg-red-950/80 border border-stone-700 hover:border-red-500/60 text-stone-300 hover:text-red-300 transition active:scale-95 cursor-pointer"
+            title="مسح المحادثة (🗑️)"
+            className="w-8 h-8 rounded-xl bg-stone-800/90 hover:bg-red-950/80 border border-stone-700 hover:border-red-500/60 text-stone-300 hover:text-red-300 flex items-center justify-center transition active:scale-95 cursor-pointer"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-4 h-4" />
           </button>
 
           {/* قائمة ثلاث نقاط ⋮ */}
@@ -723,10 +691,10 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
             <button
               type="button"
               onClick={() => setIsMenuOpen((prev) => !prev)}
-              title="خيارات إضافية والمحادثات السابقة"
-              className="p-2 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-stone-700 text-stone-300 transition active:scale-95 cursor-pointer"
+              title="المحادثات السابقة والأرشيف"
+              className="w-8 h-8 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-stone-700 text-amber-400 flex items-center justify-center transition active:scale-95 cursor-pointer"
             >
-              <MoreVertical className="w-4 h-4 text-amber-400" />
+              <MoreVertical className="w-4 h-4" />
             </button>
 
             {/* Dropdown Menu */}
@@ -913,20 +881,21 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
 
                 <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
 
-                {/* كارت نتائج الرؤية */}
+                {/* كارت نتائج الرؤية والتسعير */}
                 {vData && (
                   <div className="space-y-2.5 mt-3 pt-3 border-t border-amber-500/20">
                     <div className="flex items-center justify-between gap-2 bg-amber-500/10 p-2 rounded-xl">
                       <span className="font-bold text-xs text-amber-900 dark:text-amber-200">
-                        مواصفات القطعة ({vData.detectedCategory})
+                        مواصفات القطعة والأسعار ({vData.detectedCategory})
                       </span>
                       <button
                         type="button"
                         onClick={() => handleExportStructuredToCalculator(vData)}
-                        className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                        className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition"
+                        title="تصدير الأرقام والتفاصيل لحاسبة التكاليف"
                       >
-                        <Calculator className="w-3 h-3" />
-                        <span>نقل للحاسبة</span>
+                        <Calculator className="w-3.5 h-3.5" />
+                        <span>تصدير للحاسبة 🧮</span>
                       </button>
                     </div>
 
@@ -937,17 +906,17 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
                     )}
 
                     <div className="grid grid-cols-3 gap-1.5 text-center">
-                      <div className="p-1 rounded bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
-                        <span className="text-[9px] text-stone-500 block">أقل سعر</span>
-                        <span className="font-bold text-xs">{vData.competitionPricing?.minMarketPrice || 0}</span>
+                      <div className="p-1.5 rounded bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
+                        <span className="text-[9px] text-stone-500 dark:text-stone-400 block font-medium">سعر الجملة</span>
+                        <span className="font-bold text-xs text-stone-900 dark:text-stone-100">{vData.competitionPricing?.minMarketPrice || 0} {profile.currencySymbol || 'ج.م'}</span>
                       </div>
-                      <div className="p-1 rounded bg-amber-100 dark:bg-amber-950/60 border border-amber-300">
-                        <span className="text-[9px] text-amber-700 dark:text-amber-400 block font-bold">المتوسط</span>
-                        <span className="font-bold text-xs">{vData.competitionPricing?.avgMarketPrice || 0}</span>
+                      <div className="p-1.5 rounded bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700">
+                        <span className="text-[9px] text-amber-800 dark:text-amber-300 block font-bold">سعر القطاعي</span>
+                        <span className="font-bold text-xs text-amber-900 dark:text-amber-200">{vData.competitionPricing?.avgMarketPrice || 0} {profile.currencySymbol || 'ج.م'}</span>
                       </div>
-                      <div className="p-1 rounded bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
-                        <span className="text-[9px] text-stone-500 block">أعلى سعر</span>
-                        <span className="font-bold text-xs">{vData.competitionPricing?.maxMarketPrice || 0}</span>
+                      <div className="p-1.5 rounded bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
+                        <span className="text-[9px] text-stone-500 dark:text-stone-400 block font-medium">أعلى سعر سوقي</span>
+                        <span className="font-bold text-xs text-stone-900 dark:text-stone-100">{vData.competitionPricing?.maxMarketPrice || 0} {profile.currencySymbol || 'ج.م'}</span>
                       </div>
                     </div>
                   </div>
@@ -1062,20 +1031,28 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
         </div>
       )}
 
-      {/* شريط حالة التسجيل الصوتي */}
-      {isListeningVoice && (
-        <div className="px-3.5 py-2 bg-red-500/15 border-t border-red-500/30 flex items-center justify-between text-xs text-red-700 dark:text-red-300 flex-shrink-0 animate-pulse">
+      {/* شريط حالة التسجيل الصوتي والتفريغ */}
+      {(isRecordingVoice || isTranscribingVoice || voiceNotice) && (
+        <div className={`px-3.5 py-2 border-t flex items-center justify-between text-xs flex-shrink-0 transition-all ${
+          isRecordingVoice
+            ? 'bg-red-500/15 border-red-500/30 text-red-700 dark:text-red-300 animate-pulse'
+            : isTranscribingVoice
+            ? 'bg-amber-500/15 border-amber-500/30 text-amber-800 dark:text-amber-200'
+            : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
+        }`}>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />
-            <span className="font-bold">صقر يستمع لصوتك الآن.. تحدث وسيكتب استفسارك فوراً</span>
+            {isRecordingVoice && <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />}
+            <span className="font-bold">{voiceNotice || (isRecordingVoice ? 'صقر يسجل صوتك.. تحدث بحرية ثم انقر الميكروفون للإيقاف والتفريغ' : '')}</span>
           </div>
-          <button
-            type="button"
-            onClick={toggleVoiceRecording}
-            className="text-[11px] font-black underline cursor-pointer hover:text-red-900 dark:hover:text-red-200"
-          >
-            إنهاء التسجيل
-          </button>
+          {isRecordingVoice && (
+            <button
+              type="button"
+              onClick={stopVoiceRecording}
+              className="text-[11px] font-black px-2 py-0.5 rounded-md bg-red-600 text-white cursor-pointer hover:bg-red-700 shadow-xs"
+            >
+              إيقاف وتفريغ
+            </button>
+          )}
         </div>
       )}
 
@@ -1095,14 +1072,16 @@ ${data.notesForCalculator ? `\n💡 توجيهات التشغيل: ${data.notesF
         <button
           type="button"
           onClick={toggleVoiceRecording}
-          title={isListeningVoice ? 'إيقاف التسجيل الصوتي' : 'تسجيل استفسار بصوتك'}
+          title={isRecordingVoice ? 'إيقاف التسجيل الصوتي وتفريغه' : 'تسجيل استفسار بصوتك'}
           className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 ${
-            isListeningVoice
-              ? 'bg-red-500 text-white shadow-md animate-pulse'
+            isRecordingVoice
+              ? 'bg-red-500 text-white shadow-md animate-pulse ring-2 ring-red-300'
+              : isTranscribingVoice
+              ? 'bg-amber-500 text-white animate-spin'
               : 'text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800'
           }`}
         >
-          {isListeningVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          {isRecordingVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
         {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}

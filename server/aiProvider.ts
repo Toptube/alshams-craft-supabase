@@ -29,6 +29,7 @@ export interface AIChatPromptInput {
   chatHistory: any[];
   userEmail?: string;
   isSuperAdmin?: boolean;
+  images?: Array<{ base64: string; mimeType?: string; name?: string }>;
   workshopContext: {
     selectedCrafts?: string[];
     country?: string;
@@ -38,6 +39,11 @@ export interface AIChatPromptInput {
     brandName?: string;
     userEmail?: string;
     isSuperAdmin?: boolean;
+    hourlyRate?: number;
+    liveLiquidity?: number;
+    lowMaterialsCount?: number;
+    openWorkOrdersCount?: number;
+    pendingOrdersCount?: number;
   };
 }
 
@@ -47,6 +53,7 @@ export interface AIChatResult {
   searchUsed: boolean;
   searchEntryPoint?: string;
   inTrainingMode?: boolean;
+  visionAnalysis?: any;
 }
 
 // قاطع دارة للبحث عند استنزاف الكوتة
@@ -280,7 +287,7 @@ export class GeminiAIProvider {
     const activeCrafts = Array.isArray(workshopContext.activeCrafts) ? workshopContext.activeCrafts : ['macrame'];
     const country = workshopContext.country || 'جمهورية مصر العربية';
     const currency = workshopContext.currency || 'ج.م';
-    const hourlyRate = Number(workshopContext.hourlyRate) || 30;
+    const hourlyRate = Number(workshopContext.hourlyRate) || 35;
 
     let cleanBase64 = imageBase64;
     let resolvedMimeType = mimeType || 'image/jpeg';
@@ -293,16 +300,19 @@ export class GeminiAIProvider {
     }
     cleanBase64 = cleanBase64.replace(/\s+/g, '');
 
-    const step1Prompt = `أنت "صقر الشمساوية"، المستشار الهندسي الخبير والحكيم لمنظومة الشمساوية الحرفية.
-أنت من مواليد برج القوس 24 نوفمبر 1979، ولديك خبرة عميقة ممتدة لعقود في كافة الصناعات اليدوية والهندسة الحرفية.
-حلل صورة المشغولة بدقة هندسية عالية وتعرف على أبعادها وخاماتها:
-الحِرف المفعّلة في الورشة: [${activeCrafts.join('، ')}].
+    const prompt = `أنت "صقر الشمساوية" 🦅، المستشار الرسمي للحسابات والتكاليف والتسعير ودراسة الأسواق في منظومة الشمساوية التابعة لشركة الشمس كرافت.
+قم بالتحليل الهندسي الدقيق لصورة المشغولة اليدوية واستخرج الأبعاد والتكاليف وسعر البيع في السوق المصري:
+الحِرف المفعّلة في الورشة: [${activeCrafts.join('، ')}] | الدولة: ${country} | العملة: ${currency} | أجر الساعة: ${hourlyRate}.
 
-القواعد:
-1. اختر التصنيف الأنسب من المشغولات: ["رانر", "ستائر", "سجاد", "كوشن", "جدارية", "بوف", "كرسي", "أرجوحة", "نجف وإضاءة", "شنطة أو كلاتش"].
-2. قدّر صافي ساعات العمل اليدوي الفعلية (estimatedHours).
-3. قدّر الأبعاد المقترحة وخطوات العمل والتقنيات وغرز العمل.
-4. أنشئ كود SVG نظيف للرسم التخطيطي الهندسي.
+القواعد الهندسية:
+1. فحص وقراءة الأبعاد:
+   - افحص أي مقاسات أو أبعاد مكتوبة داخل الصورة أو الملاحظات (مثلاً: أطقم بوكسات 4 مقاسات 40×30×15 حتى 20×15×10).
+   - إذا لم تكن الأبعاد مكتوبة، قدّر الأبعاد هندسياً كنسبة وتناسب واقعية من شكل القطعة.
+2. تفنيد مستلزمات الإنتاج:
+   - خامات الهيكل (شاسيه حديد، خشب، قواعد).
+   - أطوال وأوزان الخيوط والغرز ونسبة هالك التشغيل الفعلي (10% - 15%).
+   - حساب إجمالي التكلفة التقديرية بدقة.
+   - تحديد سعر البيع العادل (سعر الجملة وسعر القطاعي) في مصر.
 
 أخرج النتيجة بصيغة JSON نظيفة فقط:
 {
@@ -312,82 +322,82 @@ export class GeminiAIProvider {
   "productionGuide": ["string"],
   "stitchPatterns": ["string"],
   "svgSchematic": "<svg viewBox=\\"0 0 300 200\\"></svg>",
+  "competitionPricing": {
+    "minMarketPrice": number,
+    "avgMarketPrice": number,
+    "maxMarketPrice": number,
+    "recommendedFairPrice": number,
+    "estimated": true
+  },
   "notesForCalculator": "string"
 }`;
 
-    const step1Parts = [
+    const parts = [
       { inlineData: { mimeType: resolvedMimeType, data: cleanBase64 } },
-      { text: step1Prompt + (artistNotes ? `\nملاحظات وتوجيهات الفنان: ${artistNotes}` : '') },
+      { text: prompt + (artistNotes ? `\nملاحظات وتوجيهات الفنان: ${artistNotes}` : '') },
     ];
 
-    let step1Response = await this.generate(
-      { contents: { parts: step1Parts } },
-      { label: 'vision', timeoutMs: 25_000 }
+    const response = await this.generate(
+      { contents: { parts } },
+      { label: 'vision-direct', timeoutMs: 20_000 }
     );
 
-    const step1Text = step1Response.text || '';
-    const cleanJsonText = step1Text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const responseText = response.text || '';
+    const cleanJsonText = responseText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     const jsonMatch = cleanJsonText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('تعذر فك بيانات التحليل الفني للصورة.');
+    if (!jsonMatch) throw new Error('تعذر استخراج بيانات التحليل الهندسي للصورة.');
 
     const parsedData = JSON.parse(jsonMatch[0]);
     const hours = Number(parsedData.estimatedHours) || 3;
     parsedData.estimatedHours = hours;
     parsedData.estimatedLaborWage = Math.round(hours * hourlyRate);
 
-    // الخطوة 2: بحث الأسعار عبر Google Search Tool
-    let minPrice = 0;
-    let avgPrice = 0;
-    let maxPrice = 0;
-    let isEstimatedPricing = false;
-    let searchSources: Array<{ title: string; url: string }> = [];
-
-    if (isSearchQuotaCoolingDown()) {
-      isEstimatedPricing = true;
-    } else {
-      try {
-        const searchPrompt = `أنت صقر الشمساوية، ابحث في السوق عن أسعار بيع مشغولات "${parsedData.detectedCategory}" في "${country}" بعملة "${currency}". أخرج فقط JSON: {"minMarketPrice": number, "avgMarketPrice": number, "maxMarketPrice": number}`;
-
-        const step2Response = await this.generate(
-          { contents: searchPrompt, config: { tools: [{ googleSearch: {} }] } },
-          { label: 'vision-search', timeoutMs: 15_000 }
-        );
-
-        const cand = step2Response.candidates?.[0];
-        const grounding = cand?.groundingMetadata;
-        if (grounding?.groundingChunks) {
-          for (const chunk of grounding.groundingChunks) {
-            if (chunk.web?.uri) searchSources.push({ title: chunk.web.title || chunk.web.uri, url: chunk.web.uri });
-          }
-        }
-
-        const match2 = (step2Response.text || '').match(/\{[\s\S]*\}/);
-        if (match2) {
-          const prices = JSON.parse(match2[0]);
-          minPrice = Number(prices.minMarketPrice) || 0;
-          avgPrice = Number(prices.avgMarketPrice) || 0;
-          maxPrice = Number(prices.maxMarketPrice) || 0;
-        }
-      } catch (err) {
-        markSearchQuotaExhausted();
-        isEstimatedPricing = true;
-      }
+    if (!parsedData.competitionPricing) {
+      const avgPrice = Math.max(120, Math.round(parsedData.estimatedLaborWage * 2.2));
+      parsedData.competitionPricing = {
+        minMarketPrice: Math.round(avgPrice * 0.75),
+        avgMarketPrice: avgPrice,
+        maxMarketPrice: Math.round(avgPrice * 1.5),
+        recommendedFairPrice: avgPrice,
+        estimated: true,
+      };
     }
 
-    if (isEstimatedPricing || (minPrice === 0 && avgPrice === 0 && maxPrice === 0)) {
-      isEstimatedPricing = true;
-      avgPrice = Math.max(100, Math.round(parsedData.estimatedLaborWage * 2.2));
-      minPrice = Math.round(avgPrice * 0.75);
-      maxPrice = Math.round(avgPrice * 1.5);
-    }
-
-    parsedData.competitionPricing = { minMarketPrice: minPrice, avgMarketPrice: avgPrice, maxMarketPrice: maxPrice, estimated: isEstimatedPricing };
-    parsedData.sources = searchSources;
+    parsedData.sources = [];
     return parsedData;
   }
 
+  private extractStructuredPricingFromReply(reply: string, category: string, hourlyRate = 35) {
+  const hoursMatch = reply.match(/(?:ساعات|ساعة|الوقت|استغراق)[\s:*-]*([0-9]+(?:\.[0-9]+)?)/i);
+  const hours = hoursMatch ? parseFloat(hoursMatch[1]) : 3;
+
+  const costMatch = reply.match(/(?:إجمالي التكلفة|التكلفة التقديرية|التكلفة الإجمالية|تكلفة الخامات)[\s:*-]*([0-9]+(?:\.[0-9]+)?)/i);
+  const estCost = costMatch ? parseFloat(costMatch[1]) : 150;
+
+  const wholesaleMatch = reply.match(/(?:سعر الجملة|الجملة)[\s:*-]*([0-9]+(?:\.[0-9]+)?)/i);
+  const retailMatch = reply.match(/(?:سعر القطاعي|القطاعي|سعر البيع)[\s:*-]*([0-9]+(?:\.[0-9]+)?)/i);
+
+  const minMarket = wholesaleMatch ? parseFloat(wholesaleMatch[1]) : Math.round(estCost * 1.3);
+  const avgMarket = retailMatch ? parseFloat(retailMatch[1]) : Math.round(estCost * 1.6);
+  const maxMarket = Math.round(avgMarket * 1.25);
+
+  return {
+    detectedCategory: category || 'مشغولات يدوية',
+    estimatedHours: hours,
+    estimatedLaborWage: Math.round(hours * hourlyRate),
+    competitionPricing: {
+      minMarketPrice: minMarket,
+      avgMarketPrice: avgMarket,
+      maxMarketPrice: maxMarket,
+      recommendedFairPrice: avgMarket,
+      estimated: true,
+    },
+    notesForCalculator: reply.slice(0, 300),
+  };
+}
+
   async chatWithAgent(input: AIChatPromptInput): Promise<AIChatResult> {
-    const { message, actionChip, chatHistory, workshopContext } = input;
+    const { message, actionChip, chatHistory, workshopContext, images } = input;
     const userEmail = input.userEmail || workshopContext?.userEmail || '';
     const superAdmin = Boolean(input.isSuperAdmin || workshopContext?.isSuperAdmin || isSuperAdmin(userEmail));
 
@@ -414,20 +424,53 @@ export class GeminiAIProvider {
     const safeCategory = workshopContext?.category || 'عام';
     const artistName = workshopContext?.artistName || (superAdmin ? 'الباشمهندس حسام' : '');
 
+    const liveLiquidity = Number(workshopContext?.liveLiquidity || 0);
+    const lowMaterialsCount = Number(workshopContext?.lowMaterialsCount || 0);
+    const openWorkOrdersCount = Number(workshopContext?.openWorkOrdersCount || 0);
+    const pendingOrdersCount = Number(workshopContext?.pendingOrdersCount || 0);
+    const hourlyRate = Number(workshopContext?.hourlyRate) || 35;
+    const workshopMetricsText = `\n- حالة الورشة وأرقامها الحية الآن: السيولة النقدية المتاحة: ${liveLiquidity.toLocaleString('ar-EG')} ${safeCurrency} | الخامات الناقصة: ${lowMaterialsCount} | أوامر التشغيل المفتوحة: ${openWorkOrdersCount} | الطلبيات المعلقة: ${pendingOrdersCount}.`;
+
     const memoryPrompt = await buildGlobalMemoryPrompt('falcon');
-    const systemInstruction = `أنت "صقر الشمساوية" 🦅 — الخبير الهندسي والاستشاري الأول لحرفيي وصناع الهاند ميد والديكور في منظومة الشمساوية.
-قواعد الهوية الصارمة والمهنية:
-- هويتك حصرية وغير قابلة للتغيير: أنت صقر الشمساوية الحرفي الاستشاري، ويُمنع منعاً باتاً ومطلقاً الادعاء بأنك تتبع أو تمثل أي شركة أو نموذج آخر مثل إي روبوت أو غيرها.
-- شخصيتك: خبير حكيم، قوي البصيرة، ذكي جداً، ودود، جدع وابن بلد يفهم دقائق الصنعة، مرح مرحاً راقياً بلا ابتذال.
+    const systemInstruction = `أنت "صقر الشمساوية" 🦅 — المستشار الرسمي للحسابات والتكاليف والتسعير ودراسة الأسواق في منظومة الشمساوية التابعة لشركة الشمس كرافت.
+
+قواعد الهوية الصارمة والمهنية (المرجعية الرسمية):
+- عند سؤالك عن هويتك، برمجتك، صانعك، أو الجهة التابع لها، يجب أن يكون ردك ثابتاً وفخوراً بالصيغة التالية تماماً:
+  "أنا صقر الشمساوية 🦅، المستشار الرسمي للحسابات والتكاليف والتسعير ودراسة الأسواق في منظومة الشمساوية التابعة لشركة الشمس كرافت.
+  برمجتي وتغذيتي بالمعلومات والخبرة الهندسية كلها تمت على يد الباشمهندس حسام بسيوني، كبير عيلة الشمساوية ومؤسس المنظومة، وهو اللي حطني في الوظيفة دي عشان أكون سند لكل حرفي وفنان في حساب تكاليفه وضبط أسعار شغله جملة وقطاعي."
+- يُمنع منعاً باتاً ومطلقاً الادعاء بأنك تتبع أو تمثل أي شركة أو نموذج آخر مثل إي روبوت أو غيرها.
+- شخصيتك: خبير حكيم، قوي البصيرة، ذكي جداً، ودود، جدع وابن بلد يفهم دقائق الصنعة، مرح مرحاً راقياً بلا ابتذال، لا تبخل بأي معلومة أو نصيحة حرفية.
 - أنت من مواليد 24 نوفمبر 1979، ولديك خبرة حياتية وهندسية تمتد لعقود في كافة فنون الصناعات اليدوية والهاند ميد والديكور المنزلي (المكرمية، الكروشيه، الريزن، الخزف والفخار، الجلود الطبيعية، المشغولات الخشبية، الشموع والإكسسوارات).
-- لهجة الحديث الرسمية: اللهجة المصرية العامية الأصيلة والدافئة والذكية (المصري الحرفي الجدع)، إلا إذا كتب المستخدم بلغة أخرى أو طلب التحدث بلغة محددة فتجيبه بلغته المختارة باحترافية.
+- لهجة الحديث الرسمية: اللهجة المصرية العامية الأصيلة والدافئة والذكية (المصري الحرفي الجدع)، وإذا كتب المستخدم بلغة أخرى تجيبه بلغته باحترافية.
 - تفهم وتستوعب الكلمات العامية المصرية، واصطلاحات الحرفيين، والأخطاء الإملائية وتفهم قصد الصانع بذكاء وبصيرة دون قيود مصطنعة.
 - تتذكر وتراعي كامل سياق الحوار من أوله لآخره حتى تكون إجاباتك متسلسلة ومنطقية ودقيقة هندسياً.
-- تخصصك: دراسة الأسواق، أسعار المنافسين، تسعير المنتجات (جملة وقطاعي)، حساب التكاليف ونسب الهالك، أوقات العمل اليدوي، تحليل أبعاد ونسب الموديلات، وابتكار الباترونات وخطوات التشغيل.
-- الحرف المفعّلة في الورشة: [${safeSelectedCrafts.join('، ')}] | الدولة: ${safeCountry} | العملة: ${safeCurrency} | التصنيف: ${safeCategory}.
+
+التحليل الهندسي التلقائي للصور وحساب التكاليف داخل رسالة الشات (In-Chat Vision Analysis):
+عند استقبال صورة مشغولة يدوية (مثل أطقم البوكسات، منتجات المكرمية، المشغولات الخشبية، الكروشيه، الجداريات، الشنط، الإضاءات، أو غيرها) أو طلب حساب تكلفة:
+1. فحص وقراءة الأبعاد:
+   - افحص فوراً الأبعاد والمقاسات المكتوبة داخل الصورة أو المذكورة في نص الرسالة بدقة (مثلاً: أطقم بوكسات 4 مقاسات من 40×30×15 حتى 20×15×10 سم).
+   - إذا لم تكن الأبعاد مكتوبة أو مذكورة، قدّر الأبعاد هندسياً كنسبة وتناسب تقريبية وواقعية من واقع شكل وتناسق القطعة في الصورة.
+2. تفنيد مستلزمات الإنتاج وخامات التشغيل تفصيلياً داخل رسالة الشات:
+   - خامات الهيكل (شاسيه حديد، خشب، قواعد خشبية أو أكريليك، إكسسوارات).
+   - أطوال وأوزان الخيوط المطلوبة بدقة ونوع الغرز المستخدمة.
+   - حساب نسبة هالك التشغيل الفعلي (10% إلى 15%) وإضافتها للحساب.
+3. حساب إجمالي التكلفة التقديرية بدقة:
+   - تكلفة الخامات الإجمالية.
+   - ساعات العمل اليدوي ومصنعية اليد العادلة (بناءً على أجر ساعة الورشة: ${hourlyRate} ${safeCurrency}).
+   - مصاريف التشغيل غير المباشرة والتغليف وهالك التشغيل.
+   - إجمالي التكلفة التقديرية بدقة.
+4. تحديد واقتراح سعر البيع العادل في مصر:
+   - اقتراح سعر الجملة العادل للمشغولة.
+   - اقتراح سعر القطاعي العادل للمستهلك.
+   - مقارنة سريعة بمتوسط أسعار السوق الحرفي في مصر لنفس المستوى من الجودة.
+5. الالتزام الصارم والنهائي:
+   - اكتب كامل التحليل الهندسي والتسعير بوضوح وتفصيل منسق وجميل داخل رسالة الشات الحالية أولاً.
+   - لا تحل المستخدم إلى شاشة الحاسبة أو تجبره على مغادرة الشات، فالتحليل يُكتب بالكامل هنا أولاً، وزر التصدير للحاسبة يظل خياراً يدوياً للمستخدم.
+
+الحرف المفعّلة في الورشة: [${safeSelectedCrafts.join('، ')}] | الدولة: ${safeCountry} | العملة: ${safeCurrency} | التصنيف: ${safeCategory}.${workshopMetricsText}
 ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}.` : ''}${memoryPrompt ? `\n\n${memoryPrompt}` : ''}`;
 
-    const userPromptText = actionChip ? `استفسار حول [${actionChip}]: ${message || 'يرجى تقديم التوجيه الهندسي ودراسة السوق.'}` : message;
+    const userPromptText = actionChip ? `استفسار حول [${actionChip}]: ${message || 'يرجى تقديم التوجيه الهندسي ودراسة السوق.'}` : (message || '');
     const { primary: groqPrimary, secondary: groqSecondary } = getGroqKeys();
     let geminiFailReason = '';
     let groqFailReason = '';
@@ -442,10 +485,36 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
           role: m.sender === 'user' || m.role === 'user' ? 'user' : 'model',
           parts: [{ text: m.text || m.content || '' }],
         }));
-        contents.push({ role: 'user', parts: [{ text: userPromptText }] });
 
-        const lowerQuery = userPromptText.toLowerCase();
-        const needsSearch = ['سعر', 'أسعار', 'سوق', 'مورد', 'تريند', 'منافس'].some((k) => lowerQuery.includes(k));
+        const userParts: any[] = [{ text: userPromptText || 'يرجى فحص وتحليل الصورة هندسياً وتقديم التوجيه الحرفي.' }];
+        const hasImages = Array.isArray(images) && images.length > 0;
+        if (hasImages) {
+          for (const img of images) {
+            if (img?.base64) {
+              let cleanData = img.base64;
+              let mime = img.mimeType || 'image/jpeg';
+              const match = img.base64.match(/^data:([^;]+);base64,(.+)$/s);
+              if (match) {
+                mime = match[1].trim();
+                cleanData = match[2].trim();
+              } else {
+                cleanData = cleanData.replace(/^data:[^,]+,/, '').trim();
+              }
+              cleanData = cleanData.replace(/\s+/g, '');
+              userParts.push({
+                inlineData: {
+                  mimeType: mime,
+                  data: cleanData,
+                },
+              });
+            }
+          }
+        }
+        contents.push({ role: 'user', parts: userParts });
+
+        const lowerQuery = (userPromptText || '').toLowerCase();
+        // لا نستخدم أدوات البحث عند تحليل الصور لتفادي التعليق والبطء
+        const needsSearch = !hasImages && ['سعر', 'أسعار', 'سوق', 'مورد', 'تريند', 'منافس'].some((k) => lowerQuery.includes(k));
 
         let response: any = null;
         let searchUsed = false;
@@ -461,21 +530,21 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
                   tools: [{ googleSearch: {} }],
                 },
               },
-              { label: 'chat-search', timeoutMs: 25_000 }
+              { label: 'chat-search', timeoutMs: 12_000 }
             );
             searchUsed = true;
           } catch (searchErr: any) {
-            console.warn('[Falcon] Gemini search tools notice, falling back to pure text:', searchErr?.message);
+            console.warn('[Falcon] Gemini search tools notice, falling back to direct fast chat:', searchErr?.message);
             markSearchQuotaExhausted();
             response = await this.generate(
               { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-              { label: 'chat-fallback-no-search', timeoutMs: 25_000 }
+              { label: 'chat-fallback-no-search', timeoutMs: 14_000 }
             );
           }
         } else {
           response = await this.generate(
             { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-            { label: 'chat', timeoutMs: 25_000 }
+            { label: hasImages ? 'chat-vision' : 'chat', timeoutMs: hasImages ? 22_000 : 15_000 }
           );
         }
 
@@ -490,7 +559,8 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
         const reply = response?.text?.trim();
         if (reply) {
           console.log('[AI Service: Falcon] Provider 1 (Gemini Flash) succeeded.');
-          return { reply, sources: searchSources.slice(0, 4), searchUsed };
+          const visionAnalysis = hasImages ? this.extractStructuredPricingFromReply(reply, safeCategory, hourlyRate) : undefined;
+          return { reply, sources: searchSources.slice(0, 4), searchUsed, visionAnalysis };
         }
         geminiFailReason = 'رد فارغ من Gemini Flash';
       } catch (geminiErr: any) {
@@ -617,6 +687,43 @@ export function getWorkshopSession(workshopId: string): WorkshopSessionState | n
 
 export function clearWorkshopSession(workshopId: string): void {
   workshopSessionsCache.delete(workshopId);
+}
+
+export async function transcribeAudioWithGemini(audioBase64: string, mimeType = 'audio/webm'): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('مفتاح GEMINI_API_KEY غير متوفر لتفريغ الصوت');
+
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+
+  const cleanData = audioBase64.replace(/^data:[^;]+;base64,/, '');
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.8-flash',
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            inlineData: {
+              mimeType: mimeType || 'audio/webm',
+              data: cleanData,
+            },
+          },
+          {
+            text: 'أنت مفرغ صوتي محترف وخبير في اللهجة المصرية والعربية للحرفيين. استمع إلى التسجيل الصوتي واكتب الكلام المنطوق فقط بدقة تامة دون تكرار ودون أي مقدمات أو شروحات. أخرج نص الكلام المنطوق مباشرة فقط.',
+          },
+        ],
+      },
+    ],
+  });
+
+  return response.text?.trim() || '';
 }
 
 export { isSuperAdmin };
