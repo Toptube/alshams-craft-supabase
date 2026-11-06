@@ -45,6 +45,8 @@ export interface NavbarProps {
   // Theme mode
   themeMode?: ThemeMode;
   onSelectThemeMode?: (mode: ThemeMode) => void;
+  onNavigateToMarketplace?: () => void;
+  onOpenArtisanStore?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -65,6 +67,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenNewEmployeeModal,
   themeMode = 'light',
   onSelectThemeMode,
+  onNavigateToMarketplace,
+  onOpenArtisanStore,
 }) => {
   const { t: tr } = useTranslation();
   const [isQuickCreateMenuOpen, setIsQuickCreateMenuOpen] = useState(false);
@@ -313,6 +317,32 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* القسم الأيسر: مؤشر حالة الاتصال السحابي + البحث الموحد + محول اللغات (متباعدة تماماً وبدون أي تداخل) */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* زر سوق الشمساوية المركزي */}
+          {onNavigateToMarketplace && (
+            <button
+              type="button"
+              onClick={onNavigateToMarketplace}
+              className="px-2.5 sm:px-3 py-1.5 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700/80 font-black text-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+              title="تصفح سوق الشمساوية المركزي متعدد التجار"
+            >
+              <span>🛍️</span>
+              <span className="hidden md:inline">سوق الشمساوية</span>
+            </button>
+          )}
+
+          {/* زر متجر الورشة */}
+          {onOpenArtisanStore && (
+            <button
+              type="button"
+              onClick={onOpenArtisanStore}
+              className="px-2.5 sm:px-3 py-1.5 rounded-2xl bg-[#0c1427] hover:bg-[#131e38] text-amber-300 border border-amber-500/40 font-black text-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+              title="فتح متجر الورشة ومولد كود QR والطلبيات"
+            >
+              <span>🏪</span>
+              <span className="hidden md:inline">متجري</span>
+            </button>
+          )}
+
           {/* مكون حالة الاتصال بنبضات بصرية ملونة */}
           <ConnectionStatus hasActiveSession={hasActiveSession} />
 

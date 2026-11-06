@@ -46,6 +46,7 @@ import {
   EyeOff,
   Copy,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { supabase, supabaseConfig } from '../../lib/supabase';
@@ -58,6 +59,8 @@ interface ProfileSettingsModalProps {
   profile: UserProfile;
   onProfileUpdated: (updated: UserProfile) => void;
   onFactoryResetDone?: () => void;
+  isPerformanceMode?: boolean;
+  onTogglePerformanceMode?: (enabled?: boolean) => void;
 }
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
@@ -66,7 +69,34 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   profile,
   onProfileUpdated,
   onFactoryResetDone,
+  isPerformanceMode,
+  onTogglePerformanceMode,
 }) => {
+  const [localPerfMode, setLocalPerfMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('alshams_performance_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const activePerfMode = isPerformanceMode !== undefined ? isPerformanceMode : localPerfMode;
+
+  const handlePerfToggle = () => {
+    if (onTogglePerformanceMode) {
+      onTogglePerformanceMode();
+    } else {
+      setLocalPerfMode((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('alshams_performance_mode', String(next));
+        } catch {}
+        window.dispatchEvent(new CustomEvent('alshams_toggle_performance_mode', { detail: { enabled: next } }));
+        return next;
+      });
+    }
+  };
   const [activeTab, setActiveTab] = useState<'profile' | 'language' | 'reminders' | 'export_data' | 'factory_reset'>('profile');
 
   // Language settings state
@@ -719,6 +749,43 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   className="hidden"
                 />
               </label>
+            </div>
+
+            {/* مفتاح تقليل الحركة وسلاسة الأجهزة الضعيفة (Performance Mode Toggle) */}
+            <div className="p-4 rounded-2xl bg-[#0C1427] text-white border-2 border-amber-500/40 shadow-xl flex items-center justify-between gap-4">
+              <div className="space-y-1 text-right">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                    <Zap className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <span className="text-xs sm:text-sm font-black text-amber-300">
+                    وضع الأداء السريع / تقليل الحركة والانتقالات ⚡
+                  </span>
+                  {activePerfMode && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black shadow-xs">
+                      مفعل
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-amber-100/70 leading-relaxed pr-9">
+                  تعطيل أنيميشن وانتقالات Framer Motion لتوفير استهلاك موارد المعالج في الهواتف الضعيفة مع الحفاظ التام على ألوان وهوية الشمساوية.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handlePerfToggle}
+                className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer p-0.5 shrink-0 ${
+                  activePerfMode ? 'bg-amber-500 shadow-md ring-2 ring-amber-400/30' : 'bg-slate-800 border border-amber-500/30'
+                }`}
+                title="مفتاح تبديل وضع الأداء السريع"
+              >
+                <div
+                  className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                    activePerfMode ? '-translate-x-6' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
 
             {/* Inputs */}

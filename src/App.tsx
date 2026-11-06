@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   UserProfile,
   SavedProductRecord,
@@ -74,6 +75,9 @@ import {
 import { ShamousaChatWidget } from './components/ai/ShamousaChatWidget';
 import { UnifiedAICommandCenter } from './components/ai/UnifiedAICommandCenter';
 import { ExecutiveTab } from './components/admin/AdminDashboard';
+import { MarketplaceView } from './components/marketplace/MarketplaceView';
+import { ArtisanStorefrontModal } from './components/store/ArtisanStorefrontModal';
+import { registerServiceWorker } from './lib/pushNotifications';
 
 // Icons for the sub-page navigation bar
 import { ArrowRight, Home, Sparkles, X } from 'lucide-react';
@@ -98,7 +102,8 @@ export type ActiveView =
   | 'ai_agent'
   | 'admin'
   | 'appeals'
-  | 'messaging';
+  | 'messaging'
+  | 'marketplace';
 
 const VIEW_TITLES: Record<ActiveView, string> = {
   home: 'لوحة تحكم الورشة',
@@ -121,6 +126,7 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   admin: 'لوحة الإدارة والتحكم الشاملة',
   appeals: 'مركز الطعون والشكاوى الرقابي',
   messaging: 'مركز المراسلات الحية (بوسطة)',
+  marketplace: 'سوق الشمساوية المركزي (متعدد التجار)',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -241,6 +247,10 @@ export const App: React.FC = () => {
   const [isNewSupplierOpen, setIsNewSupplierOpen] = useState<boolean>(false);
   const [isNewEmployeeOpen, setIsNewEmployeeOpen] = useState<boolean>(false);
 
+  // Dedicated Artisan Storefront & Central Marketplace state
+  const [isArtisanStoreModalOpen, setIsArtisanStoreModalOpen] = useState<boolean>(false);
+  const [selectedStoreOrderId, setSelectedStoreOrderId] = useState<string | undefined>(undefined);
+
   // Calculator interaction state
   const [calculatorInitialRecord, setCalculatorInitialRecord] = useState<SavedProductRecord | null>(null);
   const [calculatorExternalNotes, setCalculatorExternalNotes] = useState<string | null>(null);
@@ -300,6 +310,47 @@ export const App: React.FC = () => {
       localStorage.setItem('alshams_theme', 'light');
     }
   }, [themeMode]);
+
+  // Performance Mode / Reduced Motion state (سلاسة الأجهزة الضعيفة)
+  const [isPerformanceMode, setIsPerformanceMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('alshams_performance_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleTogglePerformanceMode = useCallback((enabled?: boolean) => {
+    setIsPerformanceMode((prev) => {
+      const next = enabled !== undefined ? enabled : !prev;
+      try {
+        localStorage.setItem('alshams_performance_mode', String(next));
+      } catch {}
+      if (next) {
+        document.documentElement.classList.add('performance-mode');
+      } else {
+        document.documentElement.classList.remove('performance-mode');
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isPerformanceMode) {
+      document.documentElement.classList.add('performance-mode');
+    } else {
+      document.documentElement.classList.remove('performance-mode');
+    }
+
+    const handleEventToggle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ enabled?: boolean }>;
+      handleTogglePerformanceMode(customEvent.detail?.enabled);
+    };
+
+    window.addEventListener('alshams_toggle_performance_mode', handleEventToggle);
+    return () => window.removeEventListener('alshams_toggle_performance_mode', handleEventToggle);
+  }, [isPerformanceMode, handleTogglePerformanceMode]);
 
   // Load search cache & notifications from local Dexie storage
   const loadSearchCacheAndNotifications = useCallback(async () => {
@@ -540,19 +591,65 @@ export const App: React.FC = () => {
     (a) => !a.receipt || !a.receipt.read_at
   ).length;
 
+  // Register Web Push Service Worker for real-time background workshop alerts
+  useEffect(() => {
+    registerServiceWorker().catch(() => {});
+  }, []);
+
+  // Listen to store opening events (with optional targeted order ID)
+  useEffect(() => {
+    const handleOpenStore = (e: Event) => {
+      const customEvent = e as CustomEvent<{ orderId?: string }>;
+      if (customEvent.detail?.orderId) {
+        setSelectedStoreOrderId(customEvent.detail.orderId);
+      }
+      setIsArtisanStoreModalOpen(true);
+    };
+
+    window.addEventListener('alshams_open_store', handleOpenStore);
+    return () => window.removeEventListener('alshams_open_store', handleOpenStore);
+  }, []);
+
   // Listen to custom navigation events from Shamousa or other components
   useEffect(() => {
     const handleOpenView = (e: Event) => {
       const customEvent = e as CustomEvent<{ view?: string }>;
-      const view = customEvent.detail?.view as ActiveView | undefined;
-      if (view && VIEW_TITLES[view]) {
-        navigateTo(view);
+      const view = customEvent.detail?.view;
+      if (view === 'marketplace') {
+        navigateTo('marketplace');
+        return;
+      }
+      if (view === 'store') {
+        setIsArtisanStoreModalOpen(true);
+        return;
+      }
+      if (view && VIEW_TITLES[view as ActiveView]) {
+        navigateTo(view as ActiveView);
       }
     };
 
     window.addEventListener('alshams_open_view', handleOpenView);
     return () => window.removeEventListener('alshams_open_view', handleOpenView);
   }, [activeView]);
+
+  // Listen to quick purchase invoice requests from Shamousa or other widgets
+  useEffect(() => {
+    const handleQuickPurchase = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        materialId: string;
+        materialName?: string;
+        supplierId?: string;
+        unitCost?: number;
+        unitName?: string;
+      }>;
+      if (customEvent.detail) {
+        handleOpenPurchaseForMaterial(customEvent.detail);
+      }
+    };
+
+    window.addEventListener('alshams_quick_purchase', handleQuickPurchase);
+    return () => window.removeEventListener('alshams_quick_purchase', handleQuickPurchase);
+  }, [handleOpenPurchaseForMaterial]);
 
   // Navigation handlers with history tracking (يدعم الرجوع للصفحة السابقة)
   const navigateTo = useCallback(
@@ -644,6 +741,105 @@ export const App: React.FC = () => {
   const handleExportStructuredToCalculator = (data: StructuredCalculatorExport) => {
     if (data.notes) setCalculatorExternalNotes(data.notes);
     if (data.category) setCurrentCategory(data.category as CraftCategory);
+
+    const safeCategory = (data.category as CraftCategory) || currentCategory || 'macrame';
+    const prodName = data.productName || 'مشغولة يدوية فاخرة';
+    const hours = Number(data.hours) || 3;
+    const wage = Number(data.laborWage) || 90;
+    const hourly = hours > 0 ? Math.round(wage / hours) : 35;
+    const weight = Number(data.weightKg) || 0.8;
+    const cordCost = Math.round(weight * 180);
+
+    const extraMats = data.extraMaterials && data.extraMaterials.length > 0
+      ? data.extraMaterials
+      : [
+          {
+            id: 'mat_base_' + Date.now(),
+            name: 'قاعدة خشبية / شاسيه دعم حديد',
+            unit: 'قطعة',
+            unitPrice: 40,
+            quantity: 1,
+            totalCost: 40,
+          },
+          {
+            id: 'mat_acc_' + Date.now(),
+            name: 'إكسسوارات ومقابض وتغليف',
+            unit: 'طقم',
+            unitPrice: 25,
+            quantity: 1,
+            totalCost: 25,
+          },
+        ];
+
+    const extraMatsCost = extraMats.reduce((acc, m) => acc + (m.totalCost || 0), 0);
+    const directMaterials = cordCost + extraMatsCost;
+    const costPrice = data.costPrice || (directMaterials + wage + 15 + 10 + 15);
+    const wholesalePrice = data.wholesalePrice || data.minMarketPrice || Math.round(costPrice * 1.3);
+    const retailPrice = data.retailPrice || data.recommendedFairPrice || Math.round(costPrice * 1.6);
+
+    const synthesizedRecord: SavedProductRecord = {
+      id: 'calc_export_' + Date.now(),
+      workshopId: (profile as any)?.workshopId || undefined,
+      tenantId: (profile as any)?.tenantId || undefined,
+      productName: prodName,
+      productCode: 'SH-' + Math.floor(1000 + Math.random() * 9000),
+      category: safeCategory,
+      costPrice,
+      retailPrice,
+      wholesalePrice,
+      imageUrl: data.imageUrl,
+      inStore: true,
+      isPublishedInStore: true,
+      currentStock: 0,
+      isActive: true,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      input: {
+        category: safeCategory,
+        productName: prodName,
+        shape3D: 'rectangle',
+        widthCm: Number(data.widthCm) || 40,
+        diameterCm: Number(data.diameterCm) || 0,
+        baseDiameterCm: 0,
+        sideHeightCm: Number(data.sideHeightCm) || 15,
+        totalLengthCm: Number(data.heightCm) || 50,
+        fringeLengthCm: Number(data.fringeLengthCm) || 10,
+        cordTypeId: data.cordTypeId || 'cotton_twisted_4mm',
+        cordThicknessMm: Number(data.cordThicknessMm) || 4,
+        pricePerKg: Number(data.pricePerKg) || 180,
+        curtainRodCost: 0,
+        cushionCoverCost: 0,
+        fiberCost: 0,
+        bagAccessoriesCost: 0,
+        extraMaterials: extraMats,
+        laborWage: wage,
+        profitMarginPercent: 35,
+        packagingCost: 15,
+        transitFees: 10,
+        adminExpensesShare: 15,
+        personalNotes: data.notes || '',
+      },
+      output: {
+        baseStrandsCount: 0,
+        workingCordsCount: 0,
+        singleStrandLengthCm: 0,
+        totalYarnLengthMeters: Math.round(weight * 150),
+        totalWeightKg: weight,
+        totalWeightGrams: Math.round(weight * 1000),
+        yarnCost: cordCost,
+        extraMaterialsTotalCost: extraMatsCost,
+        totalDirectMaterialsCost: directMaterials,
+        laborWage: wage,
+        packagingCost: 15,
+        transitFees: 10,
+        adminExpensesShare: 15,
+        finalSellingPrice: retailPrice,
+        insulatedProfitAmount: retailPrice - costPrice,
+        isOverridden: { strands: false, strandLength: false, weight: false },
+      },
+    };
+
+    setCalculatorInitialRecord(synthesizedRecord);
     navigateTo('calculator');
   };
 
@@ -738,7 +934,8 @@ export const App: React.FC = () => {
     isNewSupplierOpen ||
     isNewEmployeeOpen ||
     isQuoteDrawerOpen ||
-    isMessagesHubOpen
+    isMessagesHubOpen ||
+    isArtisanStoreModalOpen
   );
 
   return (
@@ -766,6 +963,8 @@ export const App: React.FC = () => {
         onNavigateToSales={() => navigateTo('sales')}
         onOpenNewClientModal={() => setIsNewClientOpen(true)}
         onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
+        onNavigateToMarketplace={() => navigateTo('marketplace')}
+        onOpenArtisanStore={() => setIsArtisanStoreModalOpen(true)}
         themeMode={themeMode}
         onSelectThemeMode={setThemeMode}
       />
@@ -862,8 +1061,16 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Content View Switcher */}
-      <main className="flex-1 pb-16">
-        {activeView === 'home' && (
+      <main className="flex-1 pb-16 overflow-x-hidden">
+        <AnimatePresence mode={isPerformanceMode ? undefined : 'wait'}>
+          <motion.div
+            key={activeView}
+            initial={isPerformanceMode ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={isPerformanceMode ? undefined : { opacity: 0, y: -8 }}
+            transition={isPerformanceMode ? { duration: 0 } : { duration: 0.18, ease: 'easeOut' }}
+          >
+            {activeView === 'home' && (
           isUserAdmin(profile) && !switchedWorkshopContext ? (
             <AdminDashboard
               profile={profile}
@@ -1148,6 +1355,16 @@ export const App: React.FC = () => {
             }}
           />
         )}
+
+        {activeView === 'marketplace' && (
+          <MarketplaceView
+            profile={profile}
+            onNavigateHome={goHome}
+            onOpenStoreModal={() => setIsArtisanStoreModalOpen(true)}
+          />
+        )}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Floating Shamousa Chat Assistant: Active across workshops, strictly auto-hidden inside Falcon AI chat screen */}
@@ -1191,6 +1408,10 @@ export const App: React.FC = () => {
               setIsAdminExpensesOpen(true);
             } else if (v === 'inventory') {
               setIsMaterialsModalOpen(true);
+            } else if (v === 'marketplace') {
+              navigateTo('marketplace');
+            } else if (v === 'store') {
+              setIsArtisanStoreModalOpen(true);
             } else {
               navigateTo(v as ActiveView);
             }
@@ -1216,6 +1437,8 @@ export const App: React.FC = () => {
           isDarkMode={isDarkMode}
           themeMode={themeMode}
           onSelectThemeMode={setThemeMode}
+          isPerformanceMode={isPerformanceMode}
+          onTogglePerformanceMode={handleTogglePerformanceMode}
           onLogout={handleLogout}
         />
       )}
@@ -1262,6 +1485,8 @@ export const App: React.FC = () => {
             setProfile(updated);
             localStorage.setItem('alshams_profile', JSON.stringify(updated));
           }}
+          isPerformanceMode={isPerformanceMode}
+          onTogglePerformanceMode={handleTogglePerformanceMode}
         />
       )}
 
@@ -1440,6 +1665,22 @@ export const App: React.FC = () => {
           onReceiptUpdate={loadAnnouncements}
         />
       )}
+
+      {/* Artisan Storefront Modal & Order Lifecycle */}
+      <ArtisanStorefrontModal
+        isOpen={isArtisanStoreModalOpen}
+        onClose={() => {
+          setIsArtisanStoreModalOpen(false);
+          setSelectedStoreOrderId(undefined);
+        }}
+        profile={profile}
+        initialOrderId={selectedStoreOrderId}
+        onOpenCalculatorForRecord={(rec) => {
+          setCalculatorInitialRecord(rec);
+          navigateTo('calculator');
+          setIsArtisanStoreModalOpen(false);
+        }}
+      />
     </div>
   );
 };

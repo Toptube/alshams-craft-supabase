@@ -458,6 +458,47 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     }
   };
 
+  // Bulk Export selected products or entire filtered category to My Store
+  const handleBulkExportToStore = async () => {
+    const targets = selectedIds.size > 0
+      ? allProducts.filter((p) => selectedIds.has(p.id))
+      : filteredProducts;
+
+    if (targets.length === 0) return;
+
+    try {
+      for (const p of targets) {
+        const defaultPrice = p.storePrice || getRetailPrice(p);
+        const defaultDesc =
+          p.storeDescription ||
+          (p as any).marketingDescription ||
+          p.input?.personalNotes ||
+          `مشغولة يدوية أصلية - ${p.productName}`;
+
+        const updated: SavedProductRecord = {
+          ...p,
+          inStore: true,
+          isPublishedInStore: true,
+          storePrice: defaultPrice,
+          storeDescription: defaultDesc,
+          updatedAt: Date.now(),
+        };
+        await tenantStorage.mutateProduct(updated);
+      }
+
+      const updatedMap = new Map(targets.map((t) => [t.id, true]));
+      setAllProducts((prev) =>
+        prev.map((item) => (updatedMap.has(item.id) ? { ...item, inStore: true, isPublishedInStore: true } : item))
+      );
+      setNotice(`✓ تم تصدير (${targets.length}) مشغولة إلى متجرك دفعة واحدة بنجاح! 🏪`);
+      setTimeout(() => setNotice(''), 4500);
+      setSelectedIds(new Set());
+    } catch (err: any) {
+      setNotice('تعذر التصدير الجماعي للمتجر: ' + (err.message || 'خطأ غير معروف'));
+      setTimeout(() => setNotice(''), 4000);
+    }
+  };
+
   // Toggle publish status in store
   const handleTogglePublishInStore = async (p: SavedProductRecord) => {
     try {
@@ -982,6 +1023,39 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               <ArrowUpDown className="w-3.5 h-3.5" />
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Bulk Export to Store Action Banner */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-2xl bg-gradient-to-r from-amber-600/15 via-amber-500/10 to-transparent border border-amber-500/30">
+        <div className="flex items-center gap-2 text-xs font-bold text-amber-900 dark:text-amber-200">
+          <Store className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          <span>
+            {selectedIds.size > 0
+              ? `محدد حالياً (${selectedIds.size}) مشغولة للتصدير المباشر`
+              : selectedCraft !== 'all' || selectedMainSection !== 'all'
+              ? `المعروض في هذا التصنيف (${filteredProducts.length}) مشغولة جاهزة للتصدير`
+              : `تصدير جماعي لمتجر الورشة (${filteredProducts.length} مشغولة)`}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleSelectAll}
+            className="px-3 py-1.5 rounded-xl border border-amber-500/40 text-amber-900 dark:text-amber-200 text-xs font-bold hover:bg-amber-500/10 transition cursor-pointer"
+          >
+            {isAllSelected ? 'إلغاء تحديد الكل' : 'تحديد كافة الأصناف المعروضة'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleBulkExportToStore}
+            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition cursor-pointer"
+          >
+            <Store className="w-4 h-4" />
+            <span>تصدير إلى متجري 🏪 ({selectedIds.size > 0 ? selectedIds.size : filteredProducts.length})</span>
+          </button>
         </div>
       </div>
 
@@ -1527,7 +1601,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                 return (
                   <div
                     key={p.id}
-                    className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm overflow-hidden flex flex-col justify-between hover:border-amber-300 dark:hover:border-amber-700 transition"
+                    className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm overflow-hidden flex flex-col justify-between hover:border-amber-300 dark:hover:border-amber-700 transition artisan-card-hover"
                   >
                     <div className="p-4 space-y-3">
                       {/* رأس البطاقة: الصورة والبيانات */}

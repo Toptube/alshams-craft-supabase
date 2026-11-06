@@ -387,7 +387,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         if (d.existingRecordId) setExistingRecordId(d.existingRecordId);
 
         setSyncStatus(draft.syncedToCloud ? 'synced' : 'local_only');
-        setDraftRestoredNotice('تم استرجاع مسودة العمل الأخيرة من التخزين المحلي dexieDB تلقائياً لحماية بياناتك.');
+        setDraftRestoredNotice('تم استرجاع مسودة العمل الأخيرة بأمان لحماية بيانات ورشتك.');
         setTimeout(() => {
           if (isMounted) setDraftRestoredNotice('');
         }, 5000);
@@ -402,6 +402,34 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       isMounted = false;
     };
   }, [profile.tenantId, profile.workshopId, profile.id, initialRecord]);
+
+  // تحديث الحقول فوراً عند تصدير قطعة هندسية من صقر الشمساوية أو استرجاع منتج
+  useEffect(() => {
+    if (!initialRecord) return;
+    if (initialRecord.input) {
+      const inp = initialRecord.input;
+      if (inp.category) setCategory(inp.category);
+      if (inp.productName) setProductName(inp.productName);
+      if (inp.shape3D) setShape3D(inp.shape3D);
+      if (typeof inp.widthCm === 'number') setWidthCm(inp.widthCm);
+      if (typeof inp.diameterCm === 'number') setDiameterCm(inp.diameterCm);
+      if (typeof inp.baseDiameterCm === 'number') setBaseDiameterCm(inp.baseDiameterCm);
+      if (typeof inp.sideHeightCm === 'number') setSideHeightCm(inp.sideHeightCm);
+      if (typeof inp.totalLengthCm === 'number') setTotalLengthCm(inp.totalLengthCm);
+      if (typeof inp.fringeLengthCm === 'number') setFringeLengthCm(inp.fringeLengthCm);
+      if (inp.cordTypeId) setCordTypeId(inp.cordTypeId);
+      if (typeof inp.cordThicknessMm === 'number') setCordThicknessMm(inp.cordThicknessMm);
+      if (typeof inp.pricePerKg === 'number') setPricePerKg(inp.pricePerKg);
+      if (Array.isArray(inp.extraMaterials) && inp.extraMaterials.length > 0) setExtraMaterials(inp.extraMaterials);
+      if (typeof inp.laborWage === 'number') setLaborWage(inp.laborWage);
+      if (typeof inp.packagingCost === 'number') setPackagingCost(inp.packagingCost);
+      if (typeof inp.transitFees === 'number') setTransitFees(inp.transitFees);
+      if (typeof inp.adminExpensesShare === 'number') setAdminExpensesShare(inp.adminExpensesShare);
+      if ((inp as any).notes || inp.personalNotes) setPersonalNotes((inp as any).notes || inp.personalNotes || '');
+    }
+    if (initialRecord.imageUrl) setProductImageUrl(initialRecord.imageUrl);
+    if (initialRecord.id) setExistingRecordId(initialRecord.id);
+  }, [initialRecord]);
 
   // Debounced auto-save draft to dexieDB whenever fields change
   const draftSaveTimeoutRef = React.useRef<any>(null);
@@ -976,6 +1004,10 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         input: calculationInput,
         output,
         imageUrl: productImageUrl,
+        inStore: initialRecord?.inStore ?? true,
+        isPublishedInStore: initialRecord?.isPublishedInStore ?? true,
+        storePrice: initialRecord?.storePrice || retailPrice,
+        currentStock: initialRecord?.currentStock ?? 0,
         isActive: true,
         createdAt: initialRecord?.createdAt || Date.now(),
         updatedAt: Date.now(),

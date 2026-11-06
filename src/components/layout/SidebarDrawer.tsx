@@ -41,7 +41,10 @@ import {
   Download,
   Check,
   RefreshCw,
+  Store,
+  ShoppingBag,
   PackagePlus,
+  Zap,
 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 import { tenantStorage } from '../../db/dexieDB';
@@ -67,6 +70,8 @@ interface SidebarDrawerProps {
   isDarkMode: boolean;
   themeMode?: ThemeMode;
   onSelectThemeMode?: (mode: ThemeMode) => void;
+  isPerformanceMode?: boolean;
+  onTogglePerformanceMode?: (enabled?: boolean) => void;
   onLogout: () => void;
 }
 
@@ -90,9 +95,37 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   isDarkMode,
   themeMode = 'light',
   onSelectThemeMode,
+  isPerformanceMode,
+  onTogglePerformanceMode,
   onLogout,
 }) => {
   const { lang: currentLang, dir, t: tr } = useTranslation();
+
+  const [localPerfMode, setLocalPerfMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('alshams_performance_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const activePerfMode = isPerformanceMode !== undefined ? isPerformanceMode : localPerfMode;
+
+  const handlePerfToggle = () => {
+    if (onTogglePerformanceMode) {
+      onTogglePerformanceMode();
+    } else {
+      setLocalPerfMode((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('alshams_performance_mode', String(next));
+        } catch {}
+        window.dispatchEvent(new CustomEvent('alshams_toggle_performance_mode', { detail: { enabled: next } }));
+        return next;
+      });
+    }
+  };
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     erp: false,
@@ -314,6 +347,20 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       sublabel: tr('sub_customers'),
       icon: Users,
       badge: tr('badge_customers'),
+    },
+    {
+      id: 'store',
+      label: 'متجر الورشة وكود QR',
+      sublabel: 'إدارة متجري والطلبيات المباشرة وتوليد باركود المشاركة',
+      icon: Store,
+      badge: 'متجري',
+    },
+    {
+      id: 'marketplace',
+      label: 'سوق الشمساوية المركزي',
+      sublabel: 'سوق الحرفيين المشترك لعرض وبيع المشغولات وتقييمات المشترين',
+      icon: ShoppingBag,
+      badge: 'السوق',
     },
   ];
 
@@ -1032,13 +1079,13 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
                 {/* وضع السهر الحرفي المريح للعين ومظهر الورشة (تباين حاد وألوان حرفية ناصعة) */}
                 {onSelectThemeMode && (
-                  <div className="p-2.5 rounded-2xl bg-[#F8F4EC] dark:bg-[#060B18] border-2 border-amber-300/80 dark:border-amber-500/40 shadow-md space-y-2">
-                    <div className="flex items-center justify-between text-xs font-black text-[#0A1128] dark:text-white">
-                      <span className="flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <div className="p-3 rounded-2xl bg-[#0C1427] border-2 border-amber-500/40 shadow-xl space-y-2.5">
+                    <div className="flex items-center justify-between text-xs font-black text-white">
+                      <span className="flex items-center gap-1.5 text-amber-300">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                         <span>مظهر الورشة وإضاءة العمل</span>
                       </span>
-                      <span className="text-[11px] text-amber-800 dark:text-amber-300 font-black px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/80 border border-amber-300/80 dark:border-amber-600/40">
+                      <span className="text-[11px] text-amber-200 font-black px-2 py-0.5 rounded-full bg-amber-950/80 border border-amber-500/50">
                         {themeMode === 'night_focus' ? 'سهر هادئ 🌙' : themeMode === 'dark' ? 'داكن 🌑' : 'نهاري ☀️'}
                       </span>
                     </div>
@@ -1046,41 +1093,68 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                       <button
                         type="button"
                         onClick={() => onSelectThemeMode('light')}
-                        className={`py-2 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        className={`py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer ${
                           themeMode === 'light'
-                            ? 'bg-amber-600 text-white shadow-md font-black border border-amber-500 ring-2 ring-amber-400/30'
-                            : 'bg-white/80 dark:bg-[#0B132B] text-stone-800 dark:text-[#EADBC8] hover:bg-amber-100 dark:hover:bg-[#1E293B] border border-stone-200 dark:border-[#1E293B]'
+                            ? 'bg-amber-600 text-white shadow-md border border-amber-400 ring-2 ring-amber-400/40'
+                            : 'bg-[#131E38] text-amber-200 hover:bg-[#1D2F57] border border-amber-500/30'
                         }`}
                         title="الوضع النهاري المشرق"
                       >
-                        <Sun className={`w-3.5 h-3.5 ${themeMode === 'light' ? 'text-white' : 'text-amber-600'}`} />
+                        <Sun className="w-3.5 h-3.5 text-amber-400" />
                         <span>نهاري</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => onSelectThemeMode('night_focus')}
-                        className={`py-2 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        className={`py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer ${
                           themeMode === 'night_focus'
-                            ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-md font-black border border-amber-400 ring-2 ring-amber-500/40'
-                            : 'bg-white/80 dark:bg-[#0B132B] text-stone-800 dark:text-[#EADBC8] hover:bg-amber-500/20 hover:text-amber-300 border border-stone-200 dark:border-[#1E293B]'
+                            ? 'bg-amber-600 text-white shadow-md border border-amber-400 ring-2 ring-amber-400/40'
+                            : 'bg-[#131E38] text-amber-200 hover:bg-[#1D2F57] border border-amber-500/30'
                         }`}
                         title="وضع السهر الهادئ - درجات الكهرمان المريحة للعين"
                       >
-                        <Sparkles className={`w-3.5 h-3.5 ${themeMode === 'night_focus' ? 'text-amber-200' : 'text-amber-500'}`} />
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                         <span>سهر هادئ</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => onSelectThemeMode('dark')}
-                        className={`py-2 px-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        className={`py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer ${
                           themeMode === 'dark'
-                            ? 'bg-[#0F172A] text-amber-300 shadow-md font-black border border-amber-500/60 ring-2 ring-amber-500/30'
-                            : 'bg-white/80 dark:bg-[#0B132B] text-stone-800 dark:text-[#EADBC8] hover:bg-stone-200 dark:hover:bg-[#1E293B] border border-stone-200 dark:border-[#1E293B]'
+                            ? 'bg-amber-600 text-white shadow-md border border-amber-400 ring-2 ring-amber-400/40'
+                            : 'bg-[#131E38] text-amber-200 hover:bg-[#1D2F57] border border-amber-500/30'
                         }`}
-                        title="الوضع الليلي الداكن"
+                        title="الوضع الداكن الليلي"
                       >
-                        <Moon className={`w-3.5 h-3.5 ${themeMode === 'dark' ? 'text-amber-300' : 'text-stone-500 dark:text-stone-400'}`} />
+                        <Moon className="w-3.5 h-3.5 text-amber-400" />
                         <span>داكن</span>
+                      </button>
+                    </div>
+
+                    {/* مفتاح تقليل الحركة وسلاسة الأجهزة الضعيفة */}
+                    <div className="pt-2.5 mt-2 border-t border-amber-500/20 flex items-center justify-between gap-2">
+                      <div className="text-right min-w-0">
+                        <div className="flex items-center gap-1.5 text-xs font-black text-amber-300">
+                          <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span className="truncate">وضع الأداء السريع / تقليل الحركة والانتقالات ⚡</span>
+                        </div>
+                        <span className="text-[10px] text-amber-200/70 block mt-0.5">
+                          تسريع الاستجابة وتعطيل الانتقالات لتوفير موارد الهواتف الضعيفة
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handlePerfToggle}
+                        className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer p-0.5 shrink-0 ${
+                          activePerfMode ? 'bg-amber-500 shadow-md' : 'bg-slate-800 border border-amber-500/30'
+                        }`}
+                        title="مفتاح تبديل وضع الأداء السريع"
+                      >
+                        <div
+                          className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                            activePerfMode ? '-translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
                       </button>
                     </div>
                   </div>

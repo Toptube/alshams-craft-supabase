@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 
 export interface StructuredCalculatorExport {
+  productName?: string;
   category?: CraftCategory | string;
   laborWage?: number;
   hours?: number;
@@ -39,8 +40,27 @@ export interface StructuredCalculatorExport {
   maxMarketPrice?: number;
   widthCm?: number;
   heightCm?: number;
+  sideHeightCm?: number;
+  diameterCm?: number;
+  fringeLengthCm?: number;
   weightKg?: number;
+  cordTypeId?: string;
+  cordThicknessMm?: number;
+  pricePerKg?: number;
   notes?: string;
+  imageUrl?: string;
+  extraMaterials?: Array<{
+    id: string;
+    name: string;
+    unit: string;
+    unitPrice: number;
+    quantity: number;
+    totalCost: number;
+  }>;
+  costPrice?: number;
+  wholesalePrice?: number;
+  retailPrice?: number;
+  visionAnalysis?: any;
 }
 
 interface FalconAIAgentProps {
@@ -52,16 +72,13 @@ interface FalconAIAgentProps {
   onExportStructuredToCalculator?: (data: StructuredCalculatorExport) => void;
 }
 
-export const FALCON_WELCOME_TEXT = `أهلاً بيك في الجناح الهندسي لمنظومة الشمساوية! 🦅
-أنا «صقر الشمساوية»، مستشارك الأول لدراسة الأسواق وحساب التكاليف ونسب الهالك وتحليل المشغولات يدوياً وهندسياً.
-تقدر ترفع صورة أي قطعة مشغولات أو فاتورة خامات لفحصها واستخراج أبعادها وسعرها العادل، أو تكتب استفسارك وسأجيبك فوراً!`;
+export const FALCON_WELCOME_TEXT = `يا صباح الفل يا فنان! 🦅
+جاهز ومستعد لمراجعة حساباتك وتكاليف شغلك.. قولي حابب نبدأ بإيه؟`;
 
-export const createInitialFalconMessage = (userName?: string): ChatMessage => ({
+export const createInitialFalconMessage = (_userName?: string): ChatMessage => ({
   id: 'msg_welcome',
   sender: 'falcon',
-  text: userName
-    ? `أهلاً بيك يا ${userName} في الجناح الهندسي لمنظومة الشمساوية! 🦅\nأنا «صقر الشمساوية»، مستشارك الأول لدراسة الأسواق وحساب التكاليف ونسب الهالك وتحليل المشغولات يدوياً وهندسياً.\nتقدر ترفع صورة أي مشغولة أو فاتورة لفحصها واستخراج تفاصيلها وسعرها العادل، أو تكتب استفسارك وسأجيبك فوراً!`
-    : FALCON_WELCOME_TEXT,
+  text: FALCON_WELCOME_TEXT,
   timestamp: Date.now(),
 });
 
@@ -300,8 +317,11 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     // 1. البحث عن آخر تحليل رؤية للمشغولة
     const lastWithVision = [...messages].reverse().find((m) => m.metadata?.visionAnalysis);
     if (lastWithVision && lastWithVision.metadata?.visionAnalysis) {
-      handleExportStructuredToCalculator(lastWithVision.metadata.visionAnalysis);
-      showFeedback('✓ تم تصدير بيانات القطعة لحاسبة التكاليف');
+      handleExportStructuredToCalculator(
+        lastWithVision.metadata.visionAnalysis,
+        lastWithVision.metadata?.previewImage || imagePreview || undefined
+      );
+      showFeedback('✓ تم تصدير بيانات القطعة والصورة لحاسبة التكاليف');
       return;
     }
 
@@ -594,25 +614,51 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     }
   };
 
-  const handleExportStructuredToCalculator = (vData: AIVisionAnalysis) => {
+  const handleExportStructuredToCalculator = (vData: AIVisionAnalysis, associatedImage?: string) => {
     if (!vData) return;
     const minP = vData.competitionPricing?.minMarketPrice || 0;
     const avgP = vData.competitionPricing?.avgMarketPrice || vData.competitionPricing?.recommendedFairPrice || 0;
     const maxP = vData.competitionPricing?.maxMarketPrice || 0;
 
-    const notes = `تحليل صقر (${vData.detectedCategory}): مصنعية ${vData.estimatedLaborWage} | ساعات ${vData.estimatedHours} | سوق [${minP} - ${maxP}]`;
     const wage = vData.estimatedLaborWage || 90;
     const hours = vData.estimatedHours || 3;
+    const width = vData.suggestedDimensions?.width || vData.widthCm || 40;
+    const height = vData.suggestedDimensions?.totalLength || vData.heightCm || 50;
+    const sideHeight = vData.suggestedDimensions?.sideHeight || vData.sideHeightCm || 15;
+    const diameter = vData.suggestedDimensions?.diameter || vData.diameterCm || 0;
+    const fringe = vData.suggestedDimensions?.fringeLength || 10;
+    const weight = vData.totalWeightGrams ? Math.round((vData.totalWeightGrams / 1000) * 100) / 100 : 0.8;
+    const pName = vData.modelDetectedName || `مشغولة ${vData.detectedCategory || 'يدوية فاخرة'}`;
+    const img = associatedImage || vData.imageUrl || imagePreview || undefined;
+
+    const notes = `تحليل صقر الهندسي (${vData.detectedCategory || 'هاند ميد'}):\n` +
+      `- اسم القطعة: ${pName}\n` +
+      `- الأبعاد التقديرية: العرض ${width} سم × الطول ${height} سم × الارتفاع ${sideHeight} سم\n` +
+      `- الوزن التقديري: ${weight} كجم\n` +
+      `- مصنعية اليد: ${wage} ${profile.currencySymbol || 'ج.م'} (${hours} ساعات عمل)\n` +
+      `- نطاق السوق: جملة ${minP} ${profile.currencySymbol || 'ج.م'} | قطاعي مقترح ${avgP} ${profile.currencySymbol || 'ج.م'}`;
 
     if (onExportStructuredToCalculator) {
       onExportStructuredToCalculator({
+        productName: pName,
         category: (vData.detectedCategory as CraftCategory) || currentCategory,
         laborWage: wage,
         hours,
         minMarketPrice: minP,
         recommendedFairPrice: avgP,
         maxMarketPrice: maxP,
+        widthCm: width,
+        heightCm: height,
+        sideHeightCm: sideHeight,
+        diameterCm: diameter,
+        fringeLengthCm: fringe,
+        weightKg: weight,
+        imageUrl: img,
         notes,
+        costPrice: Math.round(weight * 180 + 60 + wage),
+        wholesalePrice: minP || Math.round((weight * 180 + 60 + wage) * 1.3),
+        retailPrice: avgP || Math.round((weight * 180 + 60 + wage) * 1.6),
+        visionAnalysis: vData,
       });
     } else {
       onApplyCategoryFromAI((vData.detectedCategory as CraftCategory) || currentCategory);
@@ -890,7 +936,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                       </span>
                       <button
                         type="button"
-                        onClick={() => handleExportStructuredToCalculator(vData)}
+                        onClick={() => handleExportStructuredToCalculator(vData, msg.metadata?.previewImage || imagePreview || undefined)}
                         className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 transition"
                         title="تصدير الأرقام والتفاصيل لحاسبة التكاليف"
                       >

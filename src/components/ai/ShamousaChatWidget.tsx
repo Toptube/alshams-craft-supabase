@@ -32,8 +32,9 @@ import type { UserProfile } from '../../types';
 import { DraggableShamosa } from './DraggableShamosa';
 import { tenantStorage } from '../../db/dexieDB';
 import { firestoreService } from '../../db/firestoreService';
-import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { playTaskDoneSound, playButtonClickSound, playSuccessSound } from '../../lib/sounds';
+import { dispatchArtisanNotification } from '../../lib/pushNotifications';
+import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 
 export interface ShamousaActionLink {
   label: string;
@@ -50,7 +51,13 @@ export interface SmartActionChip {
   id: string;
   label: string;
   view?: string;
-  action?: 'open_agenda' | 'new_appointment' | 'open_expenses' | 'open_sales' | 'open_materials';
+  action?: 'open_agenda' | 'new_appointment' | 'open_expenses' | 'open_sales' | 'open_materials' | 'quick_purchase';
+  materialPayload?: {
+    materialId: string;
+    materialName: string;
+    unitCost?: number;
+    unitName?: string;
+  };
 }
 
 export interface ShamousaMessage {
@@ -284,7 +291,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const firstName = extractUserFirstName((profile as any).fullName || (profile as any).name || profile.artistName || (profile as any).artisanName) || 'صديقي';
   const brandTitle = profile.brandName ? `ورشة ${profile.brandName}` : 'ورشة الشمس كرافت';
 
-  const welcomeMessage = `أهلاً يا ${firstName} 🌞، أنا مديرة أعمالك. اخبارك ايه! واخبار شغلنا ايه ! يارب يكون كل حاجه تمام ... تحب نبدأ إزاي النهارده؟!`;
+  const welcomeMessage = "أهلاً بيك يا بطل! ☀️ منورة ورشتنا..\nطمني حابب تتابع أوردراتك ولا تراجع الخزينة والمخزن؟";
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'tasks_agenda'>('chat');
@@ -643,6 +650,112 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     } catch {}
   }, [messages, storageKey]);
 
+  // فحص استباقي لمواعيد تسليم أوردرات المتجر (تنبيه قبل التسليم بيوم)
+  const orderCheckDoneRef = useRef(false);
+  useEffect(() => {
+    if (orderCheckDoneRef.current) return;
+    orderCheckDoneRef.current = true;
+
+    const checkStoreOrdersDelivery = async () => {
+      try {
+        const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
+        if (!tenantId) return;
+
+        const allOrders = (await tenantStorage.getOrders(tenantId)) as any[];
+        const now = Date.now();
+        const oneDayMs = 86400000;
+
+        for (const ord of allOrders) {
+          if (ord.status === 'in_progress' || ord.status === 'pending') {
+            const dueDateTs = (ord.dueDate || ord.deliveryDate) ? new Date(ord.dueDate || ord.deliveryDate).getTime() : 0;
+            // إذا كان موعد التسليم خلال 24 ساعة أو اليوم أو متأخراً
+            if (dueDateTs > 0 && (dueDateTs - now <= oneDayMs)) {
+              const itemSummary = ord.items?.map((i: any) => i.productName || i.name).join(' + ') || 'مشغولات يدوية';
+              const alertMsg: ShamousaMessage = {
+                id: `alert_delivery_${ord.id}`,
+                role: 'assistant',
+                content: `🔔 تنبيه تشغيلي: معاد تسليم الأوردر رقم #${ord.orderNumber || ord.invoiceNumber || ''} باسم (${ord.customerName || 'العميل'}) قرب.. مطلوب ${itemSummary}.. جهز حالك للتسليم!`,
+                actionLink: {
+                  label: 'فتح تفاصيل الأوردر في متجري 🏪',
+                  view: 'store',
+                },
+                actionChips: [
+                  { id: 'chip_store', label: 'فتح أوردرات المتجر 🏪', view: 'store' },
+                ],
+              };
+
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === alertMsg.id)) return prev;
+                return [alertMsg, ...prev];
+              });
+
+              dispatchArtisanNotification(`تنبيه تشغيلي: أوردر #${ord.invoiceNumber}`, {
+                body: `معاد تسليم أوردر ${ord.customerName || 'العميل'} قرب، جهز المشغولة للتسليم!`,
+                tag: `delivery-${ord.id}`,
+              });
+              break;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Error checking orders delivery in Shamousa:', err);
+      }
+    };
+
+    // فحص استباقي لنواقص الخامات في المخزن
+    const checkLowMaterialsStock = async () => {
+      try {
+        const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
+        if (!tenantId) return;
+
+        const rawMaterials = (await tenantStorage.getRawMaterials(tenantId).catch(() => [])) as any[];
+        const depleting = rawMaterials.filter((m: any) => {
+          const stock = Number(m.currentStock ?? m.quantity ?? 0);
+          const minThreshold = Number(m.minAlertThreshold ?? m.min_quantity ?? m.minimumStock ?? 2);
+          return stock <= minThreshold && m.isActive !== false;
+        });
+
+        if (depleting.length > 0) {
+          const target = depleting[0];
+          const stock = Number(target.currentStock ?? target.quantity ?? 0);
+          const matName = target.materialName || target.name || 'خامة أساسية';
+          const unit = target.unit || 'وحدة';
+          const alertId = `alert_low_stock_${target.id || matName}`;
+
+          const alertMsg: ShamousaMessage = {
+            id: alertId,
+            role: 'assistant',
+            content: `⚠️ يا فنان، رصيد خامة [${matName}] قرب يخلص ومتبقي منه [${stock} ${unit}] بس!`,
+            actionChips: [
+              {
+                id: `chip_buy_${target.id}`,
+                label: 'طلب توريد سريع 🛒',
+                action: 'quick_purchase',
+                materialPayload: {
+                  materialId: target.id,
+                  materialName: matName,
+                  unitCost: Number(target.costPrice || target.unitPrice || 0),
+                  unitName: unit,
+                },
+              },
+              { id: 'chip_mats', label: 'المخزن وإدارة الخامات 🧶', view: 'materials' },
+            ],
+          };
+
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === alertId)) return prev;
+            return [alertMsg, ...prev];
+          });
+        }
+      } catch (err) {
+        console.warn('Error checking materials stock in Shamousa:', err);
+      }
+    };
+
+    checkStoreOrdersDelivery();
+    checkLowMaterialsStock();
+  }, [profile.tenantId, profile.workshopId, profile.id]);
+
   useEffect(() => {
     if (isOpen) {
       listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
@@ -658,6 +771,11 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   };
 
   const handleActionChipClick = (chip: SmartActionChip) => {
+    if (chip.action === 'quick_purchase' && chip.materialPayload) {
+      window.dispatchEvent(new CustomEvent('alshams_quick_purchase', { detail: chip.materialPayload }));
+      setIsOpen(false);
+      return;
+    }
     if (chip.action === 'open_agenda') {
       setActiveTab('tasks_agenda');
       return;
@@ -708,7 +826,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         const { data: supaTreasuries } = await getTreasuryBalancesFromSupabase(workshopId);
         if (supaTreasuries && supaTreasuries.length > 0) {
           treasuriesList = supaTreasuries;
-          currentTreasury = supaTreasuries.reduce((sum, t) => sum + (Number(t.balance) || 0), 0);
+          currentTreasury = supaTreasuries.reduce((sum: number, t: any) => sum + (Number(t.balance) || 0), 0);
         } else {
           const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
           currentTreasury = (safe.mainSafe || 0) + (safe.subSafe || 0);

@@ -181,7 +181,7 @@ export const ProductArchive: React.FC<ProductArchiveProps> = ({
             <div
               key={rec.id}
               onClick={() => onSelectRecordToLoad(rec)}
-              className="group cursor-pointer rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/90 dark:border-stone-800 hover:border-amber-400 dark:hover:border-amber-600 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden flex flex-col justify-between text-right p-5 relative"
+              className="group cursor-pointer rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/90 dark:border-stone-800 hover:border-amber-400 dark:hover:border-amber-600 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden flex flex-col justify-between text-right p-5 relative artisan-card-hover"
             >
               <div>
                 {/* Header tags */}

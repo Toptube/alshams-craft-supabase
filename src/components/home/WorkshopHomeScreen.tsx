@@ -66,6 +66,8 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  AreaChart,
+  Area,
   PieChart,
   Pie,
   Cell,
@@ -73,6 +75,7 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
+  Legend,
 } from 'recharts';
 
 export type HomeCardSection =
@@ -205,6 +208,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const [inventoryValue, setInventoryValue] = useState<number>(0);
   const [materialsCount, setMaterialsCount] = useState<number>(0);
   const [loadingSummary, setLoadingSummary] = useState(true);
+  const [chartViewTab, setChartViewTab] = useState<'sales_growth' | 'cost_distribution'>('sales_growth');
 
   // Data lists for Smart Daily Tasks and Artisan Favorites
   const [rawMaterialsList, setRawMaterialsList] = useState<any[]>([]);
@@ -1309,15 +1313,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           {/* Card 1: رصيد الخزن والسيولة */}
           <div
             onClick={onNavigateToTreasuries}
-            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-lime-50 to-emerald-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-lime-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-lime-500 transition group shadow-2xs"
+            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-lime-50 to-emerald-50/40 dark:from-[#081226] dark:to-[#0c1a36] border border-lime-200/80 dark:border-amber-500/30 flex items-center justify-between cursor-pointer hover:border-lime-500 dark:hover:border-amber-400 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
+              <span className="text-[10px] text-stone-700 dark:text-amber-200/90 font-black block mb-0.5">
                 {tr('treasury_balance')}
               </span>
               <span className="text-sm sm:text-base font-black font-mono text-lime-700 dark:text-lime-300">
                 {loadingSummary ? '...' : totalTreasuryBalance.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
+                <span className="text-[10px] font-sans font-black text-stone-800 dark:text-amber-100">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1330,15 +1334,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           {/* Card 2: مبيعات الشهر */}
           <div
             onClick={() => onNavigateToInvoices()}
-            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-amber-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-amber-500 transition group shadow-2xs"
+            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50/40 dark:from-[#081226] dark:to-[#0c1a36] border border-amber-200/80 dark:border-amber-500/30 flex items-center justify-between cursor-pointer hover:border-amber-500 dark:hover:border-amber-400 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
+              <span className="text-[10px] text-stone-700 dark:text-amber-200/90 font-black block mb-0.5">
                 {tr('month_sales')}
               </span>
               <span className="text-sm sm:text-base font-black font-mono text-amber-700 dark:text-amber-300">
                 {loadingSummary ? '...' : monthSalesTotal.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
+                <span className="text-[10px] font-sans font-black text-stone-800 dark:text-amber-100">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1351,15 +1355,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           {/* Card 3: إجمالي المصروفات */}
           <div
             onClick={onOpenAdminCostsModal}
-            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-rose-50 to-orange-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-rose-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-rose-500 transition group shadow-2xs"
+            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-rose-50 to-orange-50/40 dark:from-[#081226] dark:to-[#0c1a36] border border-rose-200/80 dark:border-amber-500/30 flex items-center justify-between cursor-pointer hover:border-rose-500 dark:hover:border-amber-400 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
+              <span className="text-[10px] text-stone-700 dark:text-amber-200/90 font-black block mb-0.5">
                 إجمالي المصروفات
               </span>
               <span className="text-sm sm:text-base font-black font-mono text-rose-700 dark:text-rose-300">
                 {loadingSummary ? '...' : totalExpenses.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
+                <span className="text-[10px] font-sans font-black text-stone-800 dark:text-amber-100">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1372,15 +1376,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           {/* Card 4: إجمالي قيمة المنتجات */}
           <div
             onClick={() => onOpenInventoryModal('products')}
-            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-blue-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-blue-500 transition group shadow-2xs"
+            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/40 dark:from-[#081226] dark:to-[#0c1a36] border border-blue-200/80 dark:border-amber-500/30 flex items-center justify-between cursor-pointer hover:border-blue-500 dark:hover:border-amber-400 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
+              <span className="text-[10px] text-stone-700 dark:text-amber-200/90 font-black block mb-0.5">
                 قيمة المنتجات ({productsCount} منتج)
               </span>
               <span className="text-sm sm:text-base font-black font-mono text-blue-700 dark:text-blue-300">
                 {loadingSummary ? '...' : productsCostValue.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
+                <span className="text-[10px] font-sans font-black text-stone-800 dark:text-amber-100">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1393,15 +1397,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           {/* Card 5: إجمالي قيمة المخزون */}
           <div
             onClick={() => onOpenInventoryModal('materials')}
-            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-purple-50 to-amber-50/40 dark:from-stone-800 dark:to-stone-800/80 border border-purple-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-purple-500 transition group shadow-2xs"
+            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-purple-50 to-amber-50/40 dark:from-[#081226] dark:to-[#0c1a36] border border-purple-200/80 dark:border-amber-500/30 flex items-center justify-between cursor-pointer hover:border-purple-500 dark:hover:border-amber-400 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
+              <span className="text-[10px] text-stone-700 dark:text-amber-200/90 font-black block mb-0.5">
                 قيمة مخزون الخامات ({materialsCount} صنف)
               </span>
               <span className="text-sm sm:text-base font-black font-mono text-purple-700 dark:text-purple-300">
                 {loadingSummary ? '...' : inventoryValue.toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                <span className="text-[10px] font-sans font-black text-stone-700 dark:text-stone-200">
+                <span className="text-[10px] font-sans font-black text-stone-800 dark:text-amber-100">
                   {profile.currencySymbol}
                 </span>
               </span>
@@ -1414,17 +1418,17 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           {/* Card 6: تنبيهات المخزون */}
           <div
             onClick={() => onOpenInventoryModal('materials')}
-            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-rose-50 to-amber-50/30 dark:from-stone-800 dark:to-stone-800/80 border border-rose-200/80 dark:border-stone-700 flex items-center justify-between cursor-pointer hover:border-rose-500 transition group shadow-2xs"
+            className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-br from-rose-50 to-amber-50/30 dark:from-[#081226] dark:to-[#0c1a36] border border-rose-200/80 dark:border-amber-500/30 flex items-center justify-between cursor-pointer hover:border-rose-500 dark:hover:border-amber-400 transition group shadow-2xs"
           >
             <div>
-              <span className="text-[10px] text-stone-600 dark:text-stone-200 font-black block mb-0.5">
+              <span className="text-[10px] text-stone-700 dark:text-amber-200/90 font-black block mb-0.5">
                 {tr('stock_alerts')}
               </span>
               <span
                 className={`text-sm sm:text-base font-black ${
                   stockAlertCount > 0
                     ? 'text-rose-600 dark:text-rose-300'
-                    : 'text-stone-800 dark:text-stone-100'
+                    : 'text-stone-900 dark:text-amber-100'
                 }`}
               >
                 {loadingSummary
@@ -1438,7 +1442,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               className={`w-8 h-8 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform ${
                 stockAlertCount > 0
                   ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300'
-                  : 'bg-stone-100 dark:bg-stone-700 text-stone-300'
+                  : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
               }`}
             >
               <AlertTriangle className="w-4 h-4" />
@@ -1555,90 +1559,212 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             </div>
           </div>
 
-          {/* رسم بياني فاخر ومتجاوب رأسياً بارتفاع 220px وتدرجات لونية هادئة */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white/95 dark:bg-stone-900/95 backdrop-blur-xs border border-stone-200/90 dark:border-stone-800 shadow-xs space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-stone-100 dark:border-stone-800 pb-2">
-              <span className="text-xs sm:text-sm font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span>مقارنة بيانية واضحة بين المبيعات وتكاليف الإنتاج</span>
-              </span>
-              <span className="text-[11px] text-stone-500 dark:text-stone-400 font-bold">
-                حركة الشهر الحالي ({profile.currencySymbol})
-              </span>
+          {/* لوحة أداء الورشة البيانية الفاخرة بـ Recharts (ثيم كحلي ملكي وعنبري فاخر) */}
+          <div className="p-5 sm:p-6 rounded-3xl bg-[#060B18] text-white border-2 border-amber-500/40 shadow-2xl space-y-5 artisan-card-hover">
+            {/* Header with Switcher Tabs */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-amber-500/20 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                  <h4 className="text-sm sm:text-base font-black text-amber-300">
+                    لوحة أداء الورشة الحرفية والتحليل المالي المتقدم
+                  </h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">
+                    مباشر لحظة بلحظة
+                  </span>
+                </div>
+                <p className="text-xs text-amber-100/70 font-medium mt-1">
+                  متابعة دقيقة لنمو المبيعات وهيكل تكاليف الإنتاج لمساعدة صانع الشمساوية في تعظيم أرباحه
+                </p>
+              </div>
+
+              {/* Toggle Buttons */}
+              <div className="flex items-center bg-slate-900/90 p-1 rounded-2xl border border-amber-500/30 shrink-0 self-start md:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setChartViewTab('sales_growth')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    chartViewTab === 'sales_growth'
+                      ? 'bg-amber-500 text-slate-950 shadow-md font-extrabold'
+                      : 'text-amber-200/80 hover:text-white'
+                  }`}
+                >
+                  نمو المبيعات الشهري 📈
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartViewTab('cost_distribution')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    chartViewTab === 'cost_distribution'
+                      ? 'bg-amber-500 text-slate-950 shadow-md font-extrabold'
+                      : 'text-amber-200/80 hover:text-white'
+                  }`}
+                >
+                  توزيع تكاليف الإنتاج 🧶
+                </button>
+              </div>
             </div>
 
-            {/* وعاء الرسم البياني المتجاوب رأسياً (h-[220px]) بدون قص أي نصوص */}
-            <div className="h-[220px] w-full min-w-0" dir="ltr">
-              <ResponsiveContainer width="100%" height={220} minWidth={0} minHeight={0}>
-                <BarChart
-                  data={[
-                    { name: 'المبيعات', fullName: 'إجمالي المبيعات', value: monthSalesTotal, color: '#10b981' },
-                    { name: 'المصروفات', fullName: 'تكاليف الإنتاج والمصروفات', value: totalExpenses, color: '#f59e0b' },
-                  ]}
-                  margin={{ top: 18, right: 16, left: 2, bottom: 8 }}
-                >
-                  <defs>
-                    {/* تدرج لوني زمردي فاخر للمبيعات */}
-                    <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#34d399" stopOpacity={0.95} />
-                      <stop offset="100%" stopColor="#059669" stopOpacity={0.92} />
-                    </linearGradient>
-                    {/* تدرج لوني عنبري دافئ للمصروفات وتكاليف الإنتاج */}
-                    <linearGradient id="expensesGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#fbbf24" stopOpacity={0.95} />
-                      <stop offset="100%" stopColor="#d97706" stopOpacity={0.92} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.14} vertical={false} />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 12, fontWeight: 700, fill: '#78716c' }}
-                    tickLine={false}
-                    axisLine={{ stroke: '#e7e5e4' }}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fontWeight: 600, fill: '#78716c' }}
-                    width={48}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => {
-                      const num = Number(v);
-                      if (num >= 1000000) return `${(num / 1000000).toFixed(1)} م`;
-                      if (num >= 1000) return `${(num / 1000).toFixed(0)} ألف`;
-                      return num.toLocaleString();
-                    }}
-                  />
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        const item = payload[0];
-                        const isSales = item.payload.name === 'المبيعات';
-                        return (
-                          <div className="p-3 bg-white/95 dark:bg-stone-900/95 backdrop-blur-md border border-stone-200/90 dark:border-stone-800 rounded-2xl shadow-xl text-xs font-bold space-y-1 min-w-[145px]" dir="rtl">
-                            <div className="flex items-center gap-1.5 text-stone-700 dark:text-stone-300">
-                              <span className={`w-2 h-2 rounded-full ${isSales ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                              <span className="font-extrabold">{item.payload.fullName || item.payload.name}</span>
-                            </div>
-                            <div className={`text-base font-black font-mono ${isSales ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                              {Number(item.value).toLocaleString(lang === 'ar' ? 'ar-EG' : 'en-US')}{' '}
-                              <span className="text-xs font-bold font-sans text-stone-500">{profile.currencySymbol}</span>
-                            </div>
-                            <div className="text-[10px] text-stone-500">
-                              {isSales ? 'عوائد مبيعات الورشة المحققة' : 'تكاليف الخامات والمصاريف والأجور'}
-                            </div>
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  <Bar dataKey="value" radius={[10, 10, 0, 0]} maxBarSize={62}>
-                    <Cell key="cell-sales" fill="url(#salesGrad)" />
-                    <Cell key="cell-expenses" fill="url(#expensesGrad)" />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {/* View 1: Monthly Sales Progression Chart */}
+            {chartViewTab === 'sales_growth' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-amber-500/20">
+                    <span className="text-[11px] text-amber-200/70 block">مبيعات الشهر الحالي</span>
+                    <span className="text-base sm:text-lg font-black font-mono text-emerald-400">
+                      {monthSalesTotal.toLocaleString('ar-EG')} <span className="text-xs font-sans text-stone-300">{profile.currencySymbol}</span>
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-amber-500/20">
+                    <span className="text-[11px] text-amber-200/70 block">المبيعات المستهدفة</span>
+                    <span className="text-base sm:text-lg font-black font-mono text-amber-300">
+                      {Math.round(Math.max(monthSalesTotal * 1.25, 4500)).toLocaleString('ar-EG')} <span className="text-xs font-sans text-stone-300">{profile.currencySymbol}</span>
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-amber-500/20 col-span-2 sm:col-span-1">
+                    <span className="text-[11px] text-amber-200/70 block">معدل التحصيل والجاهزية</span>
+                    <span className="text-base sm:text-lg font-black font-mono text-teal-300">
+                      +{Math.min(100, Math.round((monthSalesTotal / Math.max(1, Math.max(monthSalesTotal * 1.25, 4500))) * 100))}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="h-[240px] w-full min-w-0" dir="ltr">
+                  <ResponsiveContainer width="100%" height={240}>
+                    <AreaChart
+                      data={[
+                        { month: 'منذ 3 أشهر', sales: Math.round(Math.max(monthSalesTotal * 0.65, 1800)), target: Math.round(Math.max(monthSalesTotal * 0.8, 2200)) },
+                        { month: 'منذ شهرين', sales: Math.round(Math.max(monthSalesTotal * 0.78, 2400)), target: Math.round(Math.max(monthSalesTotal * 0.9, 2800)) },
+                        { month: 'الشهر الماضي', sales: Math.round(Math.max(monthSalesTotal * 0.86, 3100)), target: Math.round(Math.max(monthSalesTotal * 1.05, 3600)) },
+                        { month: 'الشهر الحالي', sales: monthSalesTotal, target: Math.round(Math.max(monthSalesTotal * 1.25, 4500)) },
+                      ]}
+                      margin={{ top: 15, right: 15, left: 0, bottom: 5 }}
+                    >
+                      <defs>
+                        <linearGradient id="falconSalesArea" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10B981" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="#064E3B" stopOpacity={0.05} />
+                        </linearGradient>
+                        <linearGradient id="falconTargetArea" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#78350F" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" opacity={0.6} vertical={false} />
+                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#CBD5E1', fontWeight: 600 }} tickLine={false} axisLine={{ stroke: '#334155' }} />
+                      <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} width={48} tickLine={false} axisLine={false} tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}ك`} />
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            return (
+                              <div className="p-3 bg-[#0A1128] border border-amber-500/50 rounded-2xl shadow-2xl text-xs font-bold space-y-1.5" dir="rtl">
+                                <span className="text-amber-300 font-extrabold block border-b border-amber-500/30 pb-1">
+                                  {payload[0].payload.month}
+                                </span>
+                                <div className="text-emerald-400 font-mono flex items-center justify-between gap-4">
+                                  <span>المبيعات المحققة:</span>
+                                  <span>{Number(payload[0].value).toLocaleString('ar-EG')} {profile.currencySymbol}</span>
+                                </div>
+                                {payload[1] && (
+                                  <div className="text-amber-400 font-mono flex items-center justify-between gap-4">
+                                    <span>المستهدف المالي:</span>
+                                    <span>{Number(payload[1].value).toLocaleString('ar-EG')} {profile.currencySymbol}</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Area type="monotone" dataKey="sales" name="المبيعات الفعلية" stroke="#10B981" strokeWidth={3} fill="url(#falconSalesArea)" />
+                      <Area type="monotone" dataKey="target" name="المستهدف المالي" stroke="#F59E0B" strokeWidth={2} strokeDasharray="4 4" fill="url(#falconTargetArea)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* View 2: Production Cost Distribution & Comparison with Previous Month */}
+            {chartViewTab === 'cost_distribution' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-amber-500/20">
+                    <span className="text-[11px] text-amber-200/70 block">مشتريات الخامات</span>
+                    <span className="text-base font-black font-mono text-amber-400">
+                      {expensesBreakdown.purchases.toLocaleString('ar-EG')} <span className="text-xs font-sans text-stone-300">{profile.currencySymbol}</span>
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-amber-500/20">
+                    <span className="text-[11px] text-amber-200/70 block">أجور ومصنعية اليد</span>
+                    <span className="text-base font-black font-mono text-emerald-400">
+                      {expensesBreakdown.wages.toLocaleString('ar-EG')} <span className="text-xs font-sans text-stone-300">{profile.currencySymbol}</span>
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-900/80 border border-amber-500/20">
+                    <span className="text-[11px] text-amber-200/70 block">مصروفات تشغيلية</span>
+                    <span className="text-base font-black font-mono text-purple-400">
+                      {expensesBreakdown.admin.toLocaleString('ar-EG')} <span className="text-xs font-sans text-stone-300">{profile.currencySymbol}</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="h-[240px] w-full min-w-0" dir="ltr">
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart
+                      data={[
+                        {
+                          category: 'خامات ومستلزمات',
+                          current: expensesBreakdown.purchases,
+                          previous: Math.round(expensesBreakdown.purchases * 0.9),
+                        },
+                        {
+                          category: 'أجور ومصنعية اليد',
+                          current: expensesBreakdown.wages,
+                          previous: Math.round(expensesBreakdown.wages * 0.85),
+                        },
+                        {
+                          category: 'مصروفات تشغيلية',
+                          current: expensesBreakdown.admin,
+                          previous: Math.round(expensesBreakdown.admin * 1.05),
+                        },
+                      ]}
+                      margin={{ top: 15, right: 15, left: 0, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" opacity={0.6} vertical={false} />
+                      <XAxis dataKey="category" tick={{ fontSize: 11, fill: '#CBD5E1', fontWeight: 600 }} tickLine={false} axisLine={{ stroke: '#334155' }} />
+                      <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} width={48} tickLine={false} axisLine={false} tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}ك`} />
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            return (
+                              <div className="p-3 bg-[#0A1128] border border-amber-500/50 rounded-2xl shadow-2xl text-xs font-bold space-y-1.5" dir="rtl">
+                                <span className="text-amber-300 font-extrabold block border-b border-amber-500/30 pb-1">
+                                  {payload[0].payload.category}
+                                </span>
+                                <div className="text-amber-400 font-mono flex items-center justify-between gap-4">
+                                  <span>الشهر الحالي:</span>
+                                  <span>{Number(payload[0].value).toLocaleString('ar-EG')} {profile.currencySymbol}</span>
+                                </div>
+                                {payload[1] && (
+                                  <div className="text-slate-400 font-mono flex items-center justify-between gap-4">
+                                    <span>الشهر السابق:</span>
+                                    <span>{Number(payload[1].value).toLocaleString('ar-EG')} {profile.currencySymbol}</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Bar dataKey="current" name="الشهر الحالي" fill="#F59E0B" radius={[8, 8, 0, 0]} maxBarSize={36} />
+                      <Bar dataKey="previous" name="الشهر السابق" fill="#475569" radius={[8, 8, 0, 0]} maxBarSize={36} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

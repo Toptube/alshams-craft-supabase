@@ -870,14 +870,18 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     );
   }, [suppliers, supplierSearch]);
 
-  // Filtered Materials list
-  const lowStockCount = useMemo(() => {
+  // Filtered Materials list & Low stock items
+  const lowStockMaterials = useMemo(() => {
     return materials.filter((m) => {
       const stock = stockData[m.id]?.currentStock ?? 0;
       const threshold = stockData[m.id]?.minAlertThreshold ?? 5;
       return stock <= threshold;
-    }).length;
+    });
   }, [materials, stockData]);
+
+  const lowStockCount = useMemo(() => {
+    return lowStockMaterials.length;
+  }, [lowStockMaterials]);
 
   const filteredMaterials = useMemo(() => {
     let list = materials.filter((m) => {
@@ -965,6 +969,133 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
 
   return (
     <div className="space-y-5 text-right animate-in fade-in duration-200">
+      {/* شريط التنبيه البصري الفاخر لنواقص الخامات (MaterialsView Alert Banner) */}
+      {lowStockMaterials.length > 0 && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-red-950 via-[#1C0D0D] to-amber-950 border-2 border-red-500/70 shadow-2xl text-white space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-red-500/30 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-red-600/30 border border-red-400 flex items-center justify-center shrink-0 shadow-xs">
+                <AlertTriangle className="w-5 h-5 text-red-300 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm sm:text-base font-black text-red-200">
+                    تنبيه أمان المخزون: ({lowStockMaterials.length}) خامات وصلت أو تجاوزت حد الأمان الأدنى!
+                  </h3>
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-red-600 text-white font-black shadow-xs">
+                    يلزم اتخاذ إجراء
+                  </span>
+                </div>
+                <p className="text-xs text-amber-100/80 font-medium mt-0.5">
+                  يرجى تحديث الرصيد الفعلي أو طلب توريد فوري للمخزن لتفادي تعطيل خطوط الإنتاج وأوامر الشغل.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setOnlyLowStock((prev) => !prev)}
+              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold text-amber-200 transition cursor-pointer self-start sm:self-auto shrink-0 shadow-xs"
+            >
+              {onlyLowStock ? 'إلغاء تصفية النواقص' : 'تصفية الجدول للنواقص فقط 🔍'}
+            </button>
+          </div>
+
+          {/* قائمة كروت الخامات الناقصة مع أزرار الإجراء الفوري */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {lowStockMaterials.slice(0, 6).map((m) => {
+              const unt = unitsMap.get(m.unit_id);
+              const current = stockData[m.id]?.currentStock ?? 0;
+              const threshold = stockData[m.id]?.minAlertThreshold ?? 5;
+              const unitName = unt?.name || 'وحدة';
+
+              return (
+                <div
+                  key={m.id}
+                  className="p-3.5 rounded-2xl bg-black/50 border border-red-500/40 flex flex-col justify-between gap-2.5 shadow-sm hover:border-amber-400 transition"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-xs sm:text-sm font-black text-white block truncate">
+                        {m.name}
+                      </span>
+                      <div className="text-[11px] font-mono mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-red-400 font-black">
+                          المتبقي: {current} {unitName}
+                        </span>
+                        <span className="text-stone-400">•</span>
+                        <span className="text-amber-300 font-bold">
+                          حد الأمان: {threshold}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-red-500/20">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingStockItem({
+                          id: m.id,
+                          name: m.name,
+                          currentStock: current,
+                          minAlertThreshold: threshold,
+                          unitName,
+                        })
+                      }
+                      className="flex-1 py-1.5 px-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition shadow-xs cursor-pointer active:scale-95 flex items-center justify-center gap-1"
+                      title="تحديث الرصيد الفعلي في المخزن"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>تحديث المخزون ➕</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onNavigateToPurchases) {
+                          onNavigateToPurchases({
+                            materialId: m.id,
+                            materialName: m.name,
+                            supplierId: m.supplier_id || undefined,
+                            unitCost: Number(m.purchase_price || 0),
+                            unitName,
+                          });
+                        } else {
+                          window.dispatchEvent(
+                            new CustomEvent('alshams_quick_purchase', {
+                              detail: {
+                                materialId: m.id,
+                                materialName: m.name,
+                                supplierId: m.supplier_id || undefined,
+                                unitCost: Number(m.purchase_price || 0),
+                                unitName,
+                              },
+                            })
+                          );
+                        }
+                      }}
+                      className="flex-1 py-1.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition shadow-xs cursor-pointer active:scale-95 flex items-center justify-center gap-1"
+                      title="فتح فاتورة شراء فورية لهذه الخامة"
+                    >
+                      <span>طلب توريد 🛒</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {lowStockMaterials.length > 6 && (
+            <div className="text-center pt-1 border-t border-red-500/20">
+              <span className="text-[11px] text-amber-200/90 font-bold">
+                يوجد {lowStockMaterials.length - 6} خامات ناقصة أخرى.. انقر على زر "تصفية الجدول للنواقص فقط" لعرض كافة الخامات.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Notice Banner */}
       {notice && (
         <div

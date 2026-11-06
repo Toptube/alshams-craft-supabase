@@ -53,6 +53,7 @@ import {
   FileSpreadsheet,
   UserCheck,
   Volume2,
+  Store,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -70,7 +71,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 
-export type ExecutiveTab = 'materials' | 'products' | 'contacts' | 'treasuries' | 'orders' | 'appeals' | 'messaging';
+export type ExecutiveTab = 'materials' | 'products' | 'contacts' | 'treasuries' | 'orders' | 'appeals' | 'messaging' | 'marketplace';
 
 export interface AdminDashboardProps {
   profile: UserProfile;
@@ -213,6 +214,14 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   // Master ERP Workshop Switcher State
   const [selectedWorkshopId, setSelectedWorkshopId] = useState<string>(profile.id);
   const [activeExecutiveTab, setActiveExecutiveTab] = useState<ExecutiveTab>(initialTab);
+  const [centralShippingPrivacy, setCentralShippingPrivacy] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('alshams_central_shipping_privacy') === 'true';
+    }
+    return false;
+  });
+  const [rejectingProduct, setRejectingProduct] = useState<any | null>(null);
+  const [rejectReason, setRejectReason] = useState<string>('');
   const [deepDataLoading, setDeepDataLoading] = useState(false);
   const [deepData, setDeepData] = useState<{
     materials: any[];
@@ -1955,6 +1964,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               </span>
             )}
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveExecutiveTab('marketplace')}
+            className={`flex-1 min-w-[150px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+              activeExecutiveTab === 'marketplace'
+                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
+                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+            }`}
+          >
+            <Store size={15} />
+            <span>إدارة سوق الشمساوية 🏪</span>
+          </button>
         </div>
 
         {/* Tab 1: Materials */}
@@ -2678,6 +2700,187 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Tab 7: Marketplace & Stores Control (إدارة متاجر وسوق الشمساوية) */}
+        {activeExecutiveTab === 'marketplace' && (
+          <div className="space-y-6 animate-in fade-in">
+            {/* 1. Global Logistics & Privacy Switch */}
+            <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border-2 border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                  <h4 className="font-black text-sm text-stone-900 dark:text-white">
+                    حجب أرقام تواصل العملاء وتفعيل الشحن المركزي للمنظومة
+                  </h4>
+                </div>
+                <p className="text-xs text-stone-600 dark:text-[#EADBC8] max-w-xl">
+                  عند تفعيل هذا الخيار، يتم إخفاء أرقام وبيانات اتصال المشترين المباشرة عن ورش الإنتاج، وتتولى إدارة الشمساوية المركزية التنسيق والشحن لضمان الجودة وأمان الطرفين.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const updated = !centralShippingPrivacy;
+                  setCentralShippingPrivacy(updated);
+                  localStorage.setItem('alshams_central_shipping_privacy', String(updated));
+                  playSuccessSound();
+                  setSuccessNotice(updated ? '✓ تم تفعيل الشحن المركزي وحجب بيانات العملاء بنجاح' : 'تم تعطيل الشحن المركزي وإتاحة التواصل المباشر للورش');
+                }}
+                className={`px-4 py-2.5 rounded-2xl font-black text-xs transition flex items-center gap-2 cursor-pointer shadow-md ${
+                  centralShippingPrivacy
+                    ? 'bg-emerald-600 text-white border-2 border-emerald-400'
+                    : 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700'
+                }`}
+              >
+                <span>{centralShippingPrivacy ? 'مفعل (شحن مركزي محمي 🛡️)' : 'معطل (تواصل مباشر 📱)'}</span>
+              </button>
+            </div>
+
+            {/* 2. Products Approval & Quality Moderation */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-black text-sm text-stone-900 dark:text-white flex items-center gap-2">
+                  <Package className="w-4 h-4 text-amber-600" />
+                  <span>اعتماد وجودة المشغولات المعروضة في سوق الشمساوية ({deepData?.products?.length || 0})</span>
+                </h4>
+                <span className="text-xs text-stone-500 font-bold">
+                  فحص الصور، دقة المواصفات، والأسعار العادلة
+                </span>
+              </div>
+
+              {!deepData?.products || deepData.products.length === 0 ? (
+                <div className="p-8 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 text-xs text-stone-500">
+                  لا توجد منتجات معروضة حالياً من هذه الورشة للفحص.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {deepData.products.map((p) => {
+                    const isApproved = p.isMarketplaceApproved !== false;
+                    return (
+                      <div
+                        key={p.id}
+                        className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 flex items-start justify-between gap-3 shadow-xs"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-14 h-14 rounded-xl overflow-hidden bg-stone-100 dark:bg-stone-800 shrink-0 border border-amber-500/20">
+                            {p.imageUrl ? (
+                              <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-stone-400">
+                                <Package className="w-6 h-6" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 space-y-1">
+                            <h5 className="font-black text-xs text-stone-900 dark:text-white truncate">
+                              {p.productName}
+                            </h5>
+                            <div className="flex items-center gap-2 text-[11px] font-mono text-stone-500">
+                              <span>كود: {p.productCode || '---'}</span>
+                              <span>•</span>
+                              <span className="font-bold text-amber-600 dark:text-amber-400">
+                                {p.retailPrice || 0} ج.م
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-stone-400 block truncate">
+                              {p.storeDescription || p.category || 'مشغولة يدوية'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex flex-col items-end gap-1.5 shrink-0">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                              isApproved
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                            }`}
+                          >
+                            {isApproved ? 'معتمد بالسوق ✓' : 'مرفوض ❌'}
+                          </span>
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                p.isMarketplaceApproved = true;
+                                await tenantStorage.mutateProduct(p);
+                                playSuccessSound();
+                                setSuccessNotice(`✓ تم اعتماد المشغولة "${p.productName}" ونشرها بالسوق المركزي بنجاح!`);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] cursor-pointer"
+                              title="اعتماد المشغولة"
+                            >
+                              قبول
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRejectingProduct(p);
+                                setRejectReason('يرجى تحسين ووضوح الصورة وتحديد الأبعاد بدقة.');
+                              }}
+                              className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer"
+                              title="رفض مع سبب"
+                            >
+                              رفض مع سبب
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal for Reject Reason */}
+            {rejectingProduct && (
+              <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+                <div className="bg-[#0C1427] border-2 border-rose-500 rounded-3xl p-5 max-w-md w-full space-y-4 text-right text-white">
+                  <h4 className="font-black text-sm text-rose-300 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>سبب رفض مشغولة "{rejectingProduct.productName}"</span>
+                  </h4>
+                  <p className="text-xs text-[#EADBC8]">
+                    اكتب الملاحظات والتوجيهات للفنان لتعديلها وإعادة إرسالها:
+                  </p>
+                  <textarea
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    rows={3}
+                    className="w-full p-3 rounded-xl bg-[#131E38] border border-rose-500/40 text-white text-xs font-bold outline-none resize-none"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRejectingProduct(null)}
+                      className="px-3 py-1.5 rounded-xl text-xs text-stone-400 hover:text-white"
+                    >
+                      إلغاء
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        rejectingProduct.isMarketplaceApproved = false;
+                        rejectingProduct.rejectReason = rejectReason;
+                        await tenantStorage.mutateProduct(rejectingProduct);
+                        playAlertSound();
+                        setSuccessNotice(`✓ تم رفض المشغولة وإرسال السبب لورشة الفنان: "${rejectReason}"`);
+                        setRejectingProduct(null);
+                      }}
+                      className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs"
+                    >
+                      تأكيد الرفض وإخطار الفنان ✉️
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
