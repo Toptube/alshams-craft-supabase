@@ -58,12 +58,15 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   const craftsList = [
     { id: 'all', nameAr: 'كافة الحرف اليدوية (الكل)', icon: '🌟' },
     { id: 'macrame', nameAr: 'المكرمية والعقد اليدوي', icon: '🪢' },
+    { id: 'crochet', nameAr: 'الكروشيه المنزلي والمشغولات', icon: '🧶' },
+    { id: 'zigzag', nameAr: 'حبال الزجزاج وخياطة الماكينة', icon: '🧵' },
+    { id: 'kilim', nameAr: 'الكليم والنسيج اليدوي', icon: '🪡' },
+    { id: 'punch_needle', nameAr: 'البانش نيدل / الإبرة الشرقية', icon: '🎨' },
+    { id: 'tufting', nameAr: 'مسدس التافت وصناعة السجاد', icon: '🔫' },
     { id: 'palm_wicker', nameAr: 'الخوص والمشغولات النخيلية', icon: '🧺' },
     { id: 'pottery', nameAr: 'الفخار والخزف والصلصال', icon: '🏺' },
-    { id: 'crochet', nameAr: 'الكروشيه والتريكو والنسيج', icon: '🧶' },
-    { id: 'leather', nameAr: 'الجلود الطبيعية الحرفية', icon: '👜' },
     { id: 'resin', nameAr: 'الريزن والأشغال الفنية', icon: '✨' },
-    { id: 'copper_metal', nameAr: 'النحاس والمعادن والأرابيسك', icon: '🪙' },
+    { id: 'leather', nameAr: 'الجلود الطبيعية الحرفية', icon: '👜' },
   ];
 
   useEffect(() => {

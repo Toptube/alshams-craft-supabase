@@ -817,6 +817,41 @@ export interface CalculationInput {
   manualOverrideTotalWeightKg?: number;
   personalNotes: string;
   productImageUrl?: string;
+  // Multi-Craft Specialized Inputs (الحبال والنسيج)
+  craftId?: string;
+  craftType?: string;
+  // 1. Crochet specific inputs
+  crochetBaseType?: 'yarn' | 'wooden' | 'leather';
+  crochetBaseHolesCount?: number;
+  crochetBaseIncreasesRate?: number;
+  crochetBaseWeightGrams?: number;
+  crochetWallHeightCm?: number;
+  crochetYarnWeightGrams?: number;
+  crochetWoodenBaseCost?: number;
+  // 2. Zigzag specific inputs
+  zigzagBaseType?: 'circle' | 'oval' | 'rectangle';
+  zigzagRopeDiameterMm?: number;
+  zigzagHandlesCount?: number;
+  zigzagHandleLengthCm?: number;
+  zigzagThreadBobbins?: number;
+  // 3. Kilim specific inputs
+  kilimEpiDensity?: number;
+  kilimLoomWasteCm?: number;
+  kilimShrinkageFactor?: number;
+  kilimWeftWoolKgPerSqM?: number;
+  // 4. Punch Needle specific inputs
+  punchMonksClothMarginCm?: number;
+  punchLoopHeightMm?: number;
+  punchLatexGramsPerSqM?: number;
+  punchMonksClothCost?: number;
+  // 5. Tufting Gun specific inputs
+  tuftingPileType?: 'cut' | 'loop' | 'mixed';
+  tuftingPileHeightMm?: number;
+  tuftingPrimaryClothMarginM?: number;
+  tuftingLatexGlueKgPerSqM?: number;
+  tuftingPrimaryClothCost?: number;
+  tuftingBackingClothCost?: number;
+  tuftingLatexCost?: number;
 }
 
 export interface CalculationOutput {
@@ -839,6 +874,46 @@ export interface CalculationOutput {
     strands: boolean;
     strandLength: boolean;
     weight: boolean;
+  };
+  // Specific Craft Technical Outputs
+  craftMetrics?: {
+    craftId: string;
+    craftNameAr: string;
+    // Crochet
+    baseWeightGrams?: number;
+    wallWeightGrams?: number;
+    totalYarnGrams?: number;
+    woodenBaseCost?: number;
+    // Zigzag
+    totalRopeMeters?: number;
+    baseRopeMeters?: number;
+    wallRopeMeters?: number;
+    handlesRopeMeters?: number;
+    sewingThreadMeters?: number;
+    sewingThreadBobbins?: number;
+    // Kilim
+    warpThreadsCount?: number;
+    totalWarpLengthMeters?: number;
+    warpWeightKg?: number;
+    weftWoolWeightKg?: number;
+    totalWoolWeightKg?: number;
+    // Punch Needle
+    monksClothAreaSqM?: number;
+    monksClothCost?: number;
+    punchYarnLengthMeters?: number;
+    punchYarnWeightKg?: number;
+    latexGlueKg?: number;
+    latexCost?: number;
+    // Tufting
+    primaryClothAreaSqM?: number;
+    backingClothAreaSqM?: number;
+    clothTotalCost?: number;
+    tuftingYarnWeightKg?: number;
+    tuftingLatexKg?: number;
+    tuftingLatexCost?: number;
+    // Waste
+    wasteFactorPercent?: number;
+    wasteAmount?: number;
   };
 }
 

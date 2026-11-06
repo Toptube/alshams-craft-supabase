@@ -1,0 +1,597 @@
+import {
+  CalculationInput,
+  CalculationOutput,
+  ExtraMaterialRow,
+} from '../types';
+import { calculateMacrame } from './macrameMath';
+
+export interface CraftEngineResult extends CalculationOutput {}
+
+/**
+ * 1. حاسبة الكروشيه المنزلي والمشغولات (Crochet Math Engine)
+ * تحسب استهلاك خيوط الكليم/المكرمية/القطن بناءً على مساحة القاعدة وجسم المشغولة ونوع القاعدة وهالك 5%
+ */
+export function calculateCrochet(input: CalculationInput): CalculationOutput {
+  const isCircle = input.shape3D === 'circle' || input.shape3D === 'cylinder';
+  const diameter = Number(input.diameterCm) || Number(input.baseDiameterCm) || 20;
+  const width = Number(input.widthCm) || 20;
+  const length = Number(input.totalLengthCm) || width;
+  const height = Number(input.sideHeightCm) || 15;
+  const baseType = input.crochetBaseType || 'wooden';
+  const woodenBaseCost = Number(input.crochetWoodenBaseCost) || (baseType === 'wooden' ? 35 : 0);
+  const pricePerKg = Number(input.pricePerKg) || 160;
+
+  // 1. حساب مساحة القاعدة
+  let baseAreaCm2 = 0;
+  let basePerimeterCm = 0;
+  if (isCircle) {
+    const r = diameter / 2;
+    baseAreaCm2 = Math.PI * r * r;
+    basePerimeterCm = Math.PI * diameter;
+  } else {
+    baseAreaCm2 = width * length;
+    basePerimeterCm = 2 * (width + length);
+  }
+
+  // 2. وزن القاعدة
+  let baseWeightGrams = 0;
+  if (baseType === 'yarn') {
+    // كثافة خيط الكروشيه السميك للقاعدة ~ 0.40 جم/سم²
+    baseWeightGrams = Math.round(baseAreaCm2 * 0.40);
+  } else {
+    // قاعدة خشبية أو جلدية مثقوبة: استهلاك خيط بسيط لتثبيت الحواف فقط
+    const holes = Number(input.crochetBaseHolesCount) || Math.round(basePerimeterCm / 1.5);
+    const increaseRate = Number(input.crochetBaseIncreasesRate) || 1.5;
+    baseWeightGrams = Math.round(holes * increaseRate * 0.8);
+  }
+
+  // 3. وزن جدران المشغولة (الارتفاع)
+  const wallAreaCm2 = basePerimeterCm * height;
+  const wallWeightGrams = Math.round(wallAreaCm2 * 0.38);
+
+  // 4. إجمالي وزن الخيط الصافي وهالك 5%
+  const netWeightGrams = baseWeightGrams + wallWeightGrams;
+  const wasteFactor = 1.05; // 5% هالك
+  const totalWeightGrams = Math.round(netWeightGrams * wasteFactor);
+  const totalWeightKg = Number((totalWeightGrams / 1000).toFixed(2));
+
+  // تقدير طول الخيط بالأمتار (خيط كليم/مكرمية قطن 4 مم ~ 350 جم لكل 100 متر)
+  const totalYarnLengthMeters = Math.round((totalWeightGrams / 3.5));
+
+  // 5. تكلفة الخيط
+  const yarnCost = Math.round(totalWeightKg * pricePerKg);
+
+  // 6. الخامات الإضافية (تشمل القاعدة الخشبية إذا وجدت)
+  const dynamicExtraCost = (input.extraMaterials || []).reduce((sum, row) => {
+    const cost = Number(row.totalCost) || (Number(row.quantity) * Number(row.unitPrice)) || 0;
+    return sum + cost;
+  }, 0);
+
+  const extraMaterialsTotalCost = Math.round(
+    woodenBaseCost +
+    (Number(input.bagAccessoriesCost) || 0) +
+    dynamicExtraCost
+  );
+
+  const totalDirectMaterialsCost = yarnCost + extraMaterialsTotalCost;
+
+  // 7. هامش الربح المعزول على الخامات
+  const profitMarginPercent = Number(input.profitMarginPercent) || 80;
+  const insulatedProfitAmount = Math.round(totalDirectMaterialsCost * (profitMarginPercent / 100));
+
+  const laborWage = Math.round(Number(input.laborWage) || 90);
+  const packagingCost = Math.round(Number(input.packagingCost) || 20);
+  const transitFees = Math.round(Number(input.transitFees) || 0);
+  const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 25);
+
+  const finalSellingPrice = Math.round(
+    totalDirectMaterialsCost +
+    insulatedProfitAmount +
+    laborWage +
+    packagingCost +
+    transitFees +
+    adminExpensesShare
+  );
+
+  return {
+    baseStrandsCount: baseType === 'wooden' ? (input.crochetBaseHolesCount || Math.round(basePerimeterCm / 1.5)) : 1,
+    workingCordsCount: Math.round(basePerimeterCm),
+    singleStrandLengthCm: Math.round(totalYarnLengthMeters * 100),
+    totalYarnLengthMeters,
+    totalWeightKg,
+    totalWeightGrams,
+    yarnCost,
+    extraMaterialsTotalCost,
+    totalDirectMaterialsCost,
+    insulatedProfitAmount,
+    laborWage,
+    packagingCost,
+    transitFees,
+    adminExpensesShare,
+    finalSellingPrice,
+    isOverridden: {
+      strands: false,
+      strandLength: false,
+      weight: false,
+    },
+    craftMetrics: {
+      craftId: 'crochet',
+      craftNameAr: 'كروشيه منزلي ومشغولات',
+      baseWeightGrams,
+      wallWeightGrams,
+      totalYarnGrams: totalWeightGrams,
+      woodenBaseCost,
+      wasteFactorPercent: 5,
+      wasteAmount: Math.round(netWeightGrams * 0.05),
+    },
+  };
+}
+
+/**
+ * 2. حاسبة حبال الزجزاج وخياطة الماكينة (Woven Ropes / Zigzag Machine Math Engine)
+ * تحسب أمتار حبل القطن المحشي/الكتان عبر معادلة الحلزون (Area/t) والجدران والأيادي وخيط المكوك وهالك 7%
+ */
+export function calculateZigzag(input: CalculationInput): CalculationOutput {
+  const isCircle = input.shape3D === 'circle' || input.shape3D === 'cylinder';
+  const diameter = Number(input.diameterCm) || Number(input.baseDiameterCm) || 25;
+  const width = Number(input.widthCm) || 25;
+  const length = Number(input.totalLengthCm) || 30;
+  const height = Number(input.sideHeightCm) || 12;
+  const ropeDiameterMm = Number(input.zigzagRopeDiameterMm) || 8;
+  const ropeDiameterCm = ropeDiameterMm / 10;
+  const handlesCount = Number(input.zigzagHandlesCount) ?? 2;
+  const handleLengthCm = Number(input.zigzagHandleLengthCm) || 35;
+  const pricePerKg = Number(input.pricePerKg) || 165;
+
+  // 1. أمتار حبل القاعدة بالمعادلة الحلزونية: L_base = Area / t
+  let baseRopeMeters = 0;
+  let basePerimeterCm = 0;
+
+  if (isCircle) {
+    const r = diameter / 2;
+    const baseAreaCm2 = Math.PI * r * r;
+    // طول الحبل الحلزوني بالسنتيمتر = المساحة ÷ قطر الحبل
+    const baseRopeLengthCm = baseAreaCm2 / ropeDiameterCm;
+    baseRopeMeters = baseRopeLengthCm / 100;
+    basePerimeterCm = Math.PI * diameter;
+  } else {
+    // بيضاوي أو مستطيل حلزوني
+    const baseAreaCm2 = Math.PI * (width / 2) * (length / 2);
+    const baseRopeLengthCm = baseAreaCm2 / ropeDiameterCm;
+    baseRopeMeters = baseRopeLengthCm / 100;
+    basePerimeterCm = Math.PI * (3 * (width / 2 + length / 2) - Math.sqrt((3 * (width / 2) + length / 2) * (width / 2 + 3 * (length / 2))));
+  }
+
+  // 2. أمتار حبل الجدران: عدد لفات الارتفاع × المحيط
+  const wallRings = height / ropeDiameterCm;
+  const wallRopeMeters = (wallRings * basePerimeterCm) / 100;
+
+  // 3. أمتار حبل الأيادي
+  const handlesRopeMeters = (handlesCount * handleLengthCm) / 100;
+
+  // 4. معامل التقويس والحياكة 1.08 + هالك 7%
+  const netRopeMeters = (baseRopeMeters + wallRopeMeters + handlesRopeMeters) * 1.08;
+  const wasteFactor = 1.07; // 7% هالك
+  const totalRopeMeters = Number((netRopeMeters * wasteFactor).toFixed(1));
+
+  // 5. وزن حبل القطن المحشي (حبل 8 مم يزن حوالي 48 جم لكل متر)
+  const gramsPerMeter = Math.pow(ropeDiameterMm, 1.8) * 1.15;
+  const totalWeightGrams = Math.round(totalRopeMeters * gramsPerMeter);
+  const totalWeightKg = Number((totalWeightGrams / 1000).toFixed(2));
+
+  // 6. خيط المكوك والخياطة (كل متر حبل يستهلك 3.5 إلى 4 أمتار خيط زجزاج)
+  const sewingThreadMeters = Math.round(totalRopeMeters * 3.8);
+  const sewingThreadBobbins = Number((sewingThreadMeters / 1000).toFixed(2));
+  const sewingThreadCost = Math.round(sewingThreadBobbins * 25); // بكرة خيط 1000م بـ 25 ج
+
+  // 7. تكلفة الحبل والخامات
+  const ropeCost = Math.round(totalWeightKg * pricePerKg);
+
+  const dynamicExtraCost = (input.extraMaterials || []).reduce((sum, row) => {
+    const cost = Number(row.totalCost) || (Number(row.quantity) * Number(row.unitPrice)) || 0;
+    return sum + cost;
+  }, 0);
+
+  const extraMaterialsTotalCost = Math.round(
+    sewingThreadCost +
+    (Number(input.bagAccessoriesCost) || 0) +
+    dynamicExtraCost
+  );
+
+  const totalDirectMaterialsCost = ropeCost + extraMaterialsTotalCost;
+
+  const profitMarginPercent = Number(input.profitMarginPercent) || 75;
+  const insulatedProfitAmount = Math.round(totalDirectMaterialsCost * (profitMarginPercent / 100));
+
+  const laborWage = Math.round(Number(input.laborWage) || 80);
+  const packagingCost = Math.round(Number(input.packagingCost) || 25);
+  const transitFees = Math.round(Number(input.transitFees) || 0);
+  const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 20);
+
+  const finalSellingPrice = Math.round(
+    totalDirectMaterialsCost +
+    insulatedProfitAmount +
+    laborWage +
+    packagingCost +
+    transitFees +
+    adminExpensesShare
+  );
+
+  return {
+    baseStrandsCount: 1,
+    workingCordsCount: Math.round(wallRings),
+    singleStrandLengthCm: Math.round(totalRopeMeters * 100),
+    totalYarnLengthMeters: Math.round(totalRopeMeters),
+    totalWeightKg,
+    totalWeightGrams,
+    yarnCost: ropeCost,
+    extraMaterialsTotalCost,
+    totalDirectMaterialsCost,
+    insulatedProfitAmount,
+    laborWage,
+    packagingCost,
+    transitFees,
+    adminExpensesShare,
+    finalSellingPrice,
+    isOverridden: {
+      strands: false,
+      strandLength: false,
+      weight: false,
+    },
+    craftMetrics: {
+      craftId: 'zigzag',
+      craftNameAr: 'حبال الزجزاج وخياطة الماكينة',
+      totalRopeMeters,
+      baseRopeMeters: Number(baseRopeMeters.toFixed(1)),
+      wallRopeMeters: Number(wallRopeMeters.toFixed(1)),
+      handlesRopeMeters: Number(handlesRopeMeters.toFixed(1)),
+      sewingThreadMeters,
+      sewingThreadBobbins,
+      wasteFactorPercent: 7,
+      wasteAmount: Number((netRopeMeters * 0.07).toFixed(1)),
+    },
+  };
+}
+
+/**
+ * 3. حاسبة الكليم والنسيج اليدوي (Kilim & Tapestry Math Engine)
+ * تحسب خيوط السداء (EPI)، فاقد النول 40 سم، انكماش الشد 10%، صوف اللحمة 1.4 كجم/م²، وهالك 15%
+ */
+export function calculateKilim(input: CalculationInput): CalculationOutput {
+  const widthCm = Number(input.widthCm) || 80;
+  const lengthCm = Number(input.totalLengthCm) || 120;
+  const epiDensity = Number(input.kilimEpiDensity) || 4; // 4 خيوط سداء لكل سنتيمتر
+  const loomWasteCm = Number(input.kilimLoomWasteCm) || 40; // فاقد ربط النول
+  const shrinkageFactor = Number(input.kilimShrinkageFactor) || 0.10; // 10% انكماش شد
+  const weftWoolKgPerSqM = Number(input.kilimWeftWoolKgPerSqM) || 1.4; // 1.4 كجم صوف لكل متر مربع
+  const pricePerKg = Number(input.pricePerKg) || 220; // سعر صوف الكليم
+
+  // 1. حساب السداء (Warp)
+  const warpThreadsCount = Math.round(widthCm * epiDensity);
+  const singleWarpLengthCm = Math.round((lengthCm + loomWasteCm) * (1 + shrinkageFactor));
+  const totalWarpLengthMeters = Math.round((warpThreadsCount * singleWarpLengthCm) / 100);
+
+  // وزن خيوط قطن السداء (المتر ~ 2.4 جرام)
+  const warpWeightKg = Number(((totalWarpLengthMeters * 2.4) / 1000).toFixed(2));
+  const warpCost = Math.round(warpWeightKg * 180); // سعر قطن السداء ~ 180 ج/كجم
+
+  // 2. حساب اللحمة الصوف (Weft)
+  const netAreaSqM = (widthCm * lengthCm) / 10000;
+  const netWoolKg = netAreaSqM * weftWoolKgPerSqM;
+  const woolWasteFactor = 1.15; // 15% هالك عقد وتغيير ألوان
+  const weftWoolWeightKg = Number((netWoolKg * woolWasteFactor).toFixed(2));
+  const woolCost = Math.round(weftWoolWeightKg * pricePerKg);
+
+  // إجمالي الأوزان والتكاليف
+  const totalWeightKg = Number((warpWeightKg + weftWoolWeightKg).toFixed(2));
+  const totalWeightGrams = Math.round(totalWeightKg * 1000);
+  const totalDirectYarnCost = woolCost + warpCost;
+
+  const dynamicExtraCost = (input.extraMaterials || []).reduce((sum, row) => {
+    const cost = Number(row.totalCost) || (Number(row.quantity) * Number(row.unitPrice)) || 0;
+    return sum + cost;
+  }, 0);
+
+  const extraMaterialsTotalCost = Math.round(
+    (Number(input.fringeLengthCm) ? 30 : 0) +
+    dynamicExtraCost
+  );
+
+  const totalDirectMaterialsCost = totalDirectYarnCost + extraMaterialsTotalCost;
+
+  const profitMarginPercent = Number(input.profitMarginPercent) || 85;
+  const insulatedProfitAmount = Math.round(totalDirectMaterialsCost * (profitMarginPercent / 100));
+
+  const laborWage = Math.round(Number(input.laborWage) || 250);
+  const packagingCost = Math.round(Number(input.packagingCost) || 35);
+  const transitFees = Math.round(Number(input.transitFees) || 0);
+  const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 40);
+
+  const finalSellingPrice = Math.round(
+    totalDirectMaterialsCost +
+    insulatedProfitAmount +
+    laborWage +
+    packagingCost +
+    transitFees +
+    adminExpensesShare
+  );
+
+  return {
+    baseStrandsCount: warpThreadsCount,
+    workingCordsCount: warpThreadsCount,
+    singleStrandLengthCm: singleWarpLengthCm,
+    totalYarnLengthMeters: totalWarpLengthMeters,
+    totalWeightKg,
+    totalWeightGrams,
+    yarnCost: totalDirectYarnCost,
+    extraMaterialsTotalCost,
+    totalDirectMaterialsCost,
+    insulatedProfitAmount,
+    laborWage,
+    packagingCost,
+    transitFees,
+    adminExpensesShare,
+    finalSellingPrice,
+    isOverridden: {
+      strands: false,
+      strandLength: false,
+      weight: false,
+    },
+    craftMetrics: {
+      craftId: 'kilim',
+      craftNameAr: 'الكليم والنسيج اليدوي',
+      warpThreadsCount,
+      totalWarpLengthMeters,
+      warpWeightKg,
+      weftWoolWeightKg,
+      totalWoolWeightKg: totalWeightKg,
+      wasteFactorPercent: 15,
+      wasteAmount: Number((netWoolKg * 0.15).toFixed(2)),
+    },
+  };
+}
+
+/**
+ * 4. حاسبة البانش نيدل / الإبرة الشرقية (Punch Needle Math Engine)
+ * قماش الرهبان الأصلي (+10 سم حواف للطارة)، طول خيط الصوف بناءً على ارتفاع الغرزة، غراء اللاتكس 250 جم/م²، وهالك 5%
+ */
+export function calculatePunchNeedle(input: CalculationInput): CalculationOutput {
+  const widthCm = Number(input.widthCm) || 40;
+  const heightCm = Number(input.sideHeightCm) || Number(input.totalLengthCm) || 40;
+  const marginCm = Number(input.punchMonksClothMarginCm) || 10;
+  const loopHeightMm = Number(input.punchLoopHeightMm) || 5;
+  const latexGramsPerSqM = Number(input.punchLatexGramsPerSqM) || 250;
+  const pricePerKg = Number(input.pricePerKg) || 190;
+
+  // 1. مساحة وتكلفة قماش الرهبان (مع زيادة 10 سم من كل جانب للشد على الطارة)
+  const cutWidthCm = widthCm + 2 * marginCm;
+  const cutHeightCm = heightCm + 2 * marginCm;
+  const monksClothAreaSqM = Number(((cutWidthCm * cutHeightCm) / 10000).toFixed(2));
+  const monksClothPricePerSqM = Number(input.punchMonksClothCost) || 140; // 140 ج/م² قماش رهبان مستورد
+  const monksClothTotalCost = Math.round(monksClothAreaSqM * monksClothPricePerSqM);
+
+  // 2. مساحة التصميم واستهلاك الخيط
+  const designAreaCm2 = widthCm * heightCm;
+  const designAreaSqM = designAreaCm2 / 10000;
+
+  // استهلاك الخيط: 30 متر لكل 10×10 سم (100 سم²) عند غرزة 5 مم
+  const loopFactor = loopHeightMm / 5;
+  const netYarnLengthMeters = Math.round((designAreaCm2 / 100) * 30 * loopFactor);
+  const yarnWasteFactor = 1.05; // 5% هالك
+  const totalYarnLengthMeters = Math.round(netYarnLengthMeters * yarnWasteFactor);
+
+  // وزن صوف البانش نيدل (~ 0.95 كجم لكل متر مربع)
+  const totalWeightKg = Number((designAreaSqM * 0.95 * yarnWasteFactor).toFixed(2));
+  const totalWeightGrams = Math.round(totalWeightKg * 1000);
+  const yarnCost = Math.round(totalWeightKg * pricePerKg);
+
+  // 3. غراء اللاتكس السائل لتثبيت الظهر (250 جم لكل م² تصميم)
+  const latexGlueKg = Number(((designAreaSqM * latexGramsPerSqM) / 1000).toFixed(2));
+  const latexCost = Math.round(latexGlueKg * 120); // 120 ج/كجم لاتكس سائل نقي
+
+  const dynamicExtraCost = (input.extraMaterials || []).reduce((sum, row) => {
+    const cost = Number(row.totalCost) || (Number(row.quantity) * Number(row.unitPrice)) || 0;
+    return sum + cost;
+  }, 0);
+
+  const extraMaterialsTotalCost = Math.round(
+    monksClothTotalCost +
+    latexCost +
+    dynamicExtraCost
+  );
+
+  const totalDirectMaterialsCost = yarnCost + extraMaterialsTotalCost;
+
+  const profitMarginPercent = Number(input.profitMarginPercent) || 80;
+  const insulatedProfitAmount = Math.round(totalDirectMaterialsCost * (profitMarginPercent / 100));
+
+  const laborWage = Math.round(Number(input.laborWage) || 120);
+  const packagingCost = Math.round(Number(input.packagingCost) || 25);
+  const transitFees = Math.round(Number(input.transitFees) || 0);
+  const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 25);
+
+  const finalSellingPrice = Math.round(
+    totalDirectMaterialsCost +
+    insulatedProfitAmount +
+    laborWage +
+    packagingCost +
+    transitFees +
+    adminExpensesShare
+  );
+
+  return {
+    baseStrandsCount: 1,
+    workingCordsCount: Math.round(totalYarnLengthMeters / 10),
+    singleStrandLengthCm: totalYarnLengthMeters * 100,
+    totalYarnLengthMeters,
+    totalWeightKg,
+    totalWeightGrams,
+    yarnCost,
+    extraMaterialsTotalCost,
+    totalDirectMaterialsCost,
+    insulatedProfitAmount,
+    laborWage,
+    packagingCost,
+    transitFees,
+    adminExpensesShare,
+    finalSellingPrice,
+    isOverridden: {
+      strands: false,
+      strandLength: false,
+      weight: false,
+    },
+    craftMetrics: {
+      craftId: 'punch_needle',
+      craftNameAr: 'البانش نيدل / الإبرة الشرقية',
+      monksClothAreaSqM,
+      monksClothCost: monksClothTotalCost,
+      punchYarnLengthMeters: totalYarnLengthMeters,
+      punchYarnWeightKg: totalWeightKg,
+      latexGlueKg,
+      latexCost,
+      wasteFactorPercent: 5,
+      wasteAmount: Math.round(netYarnLengthMeters * 0.05),
+    },
+  };
+}
+
+/**
+ * 5. حاسبة مسدس التافت وصناعة السجاد (Tufting Gun Math Engine)
+ * قماش التافت الأساسي وقماش الظهر المقاوم للانزلاق (+0.20م زيادة للفريم)، استهلاك خيط الوبرة 2.1 كجم/م²، غراء اللاتكس 1.1 كجم/م²، وهالك 10%
+ */
+export function calculateTufting(input: CalculationInput): CalculationOutput {
+  const widthM = (Number(input.widthCm) || 70) / 100;
+  const lengthM = (Number(input.totalLengthCm) || 90) / 100;
+  const netAreaSqM = Number((widthM * lengthM).toFixed(2));
+  const pileType = input.tuftingPileType || 'cut';
+  const pricePerKg = Number(input.pricePerKg) || 195;
+
+  // 1. قماش التافت الأساسي (زيادة 20 سم من كل طرف للشد على الفريم)
+  const frameMarginM = Number(input.tuftingPrimaryClothMarginM) || 0.20;
+  const primaryClothWidthM = widthM + 2 * frameMarginM;
+  const primaryClothLengthM = lengthM + 2 * frameMarginM;
+  const primaryClothAreaSqM = Number((primaryClothWidthM * primaryClothLengthM).toFixed(2));
+  const primaryClothCost = Math.round(primaryClothAreaSqM * 115); // 115 ج/م² قماش تافت مسطر
+
+  // 2. قماش الظهر المقاوم للانزلاق (شاش تافت قطني مانع للانزلاق)
+  const backingClothAreaSqM = Number((netAreaSqM * 1.10).toFixed(2));
+  const backingClothCost = Math.round(backingClothAreaSqM * 80); // 80 ج/م²
+
+  // 3. خيوط الوبرة (الأكريليك أو الصوف)
+  // Cut pile = 2.1 كجم/م²، Loop pile = 1.8 كجم/م²
+  const yarnPerSqM = pileType === 'loop' ? 1.8 : 2.1;
+  const netYarnWeightKg = netAreaSqM * yarnPerSqM;
+  const yarnWasteFactor = 1.10; // 10% هالك نحت وقص الحواف
+  const tuftingYarnWeightKg = Number((netYarnWeightKg * yarnWasteFactor).toFixed(2));
+  const totalWeightGrams = Math.round(tuftingYarnWeightKg * 1000);
+  const yarnCost = Math.round(tuftingYarnWeightKg * pricePerKg);
+
+  // 4. غراء اللاتكس السجاد (1.1 كجم لكل م²)
+  const latexPerSqM = Number(input.tuftingLatexGlueKgPerSqM) || 1.1;
+  const tuftingLatexKg = Number((netAreaSqM * latexPerSqM).toFixed(2));
+  const tuftingLatexCost = Math.round(tuftingLatexKg * 95); // 95 ج/كجم لاتكس سجاد
+
+  // 5. شريط التنسيل وحواف السجاد (Twill Tape)
+  const perimeterM = 2 * (widthM + lengthM);
+  const twillTapeCost = Math.round(perimeterM * 15); // 15 ج/متر
+
+  const dynamicExtraCost = (input.extraMaterials || []).reduce((sum, row) => {
+    const cost = Number(row.totalCost) || (Number(row.quantity) * Number(row.unitPrice)) || 0;
+    return sum + cost;
+  }, 0);
+
+  const extraMaterialsTotalCost = Math.round(
+    primaryClothCost +
+    backingClothCost +
+    tuftingLatexCost +
+    twillTapeCost +
+    dynamicExtraCost
+  );
+
+  const totalDirectMaterialsCost = yarnCost + extraMaterialsTotalCost;
+
+  const profitMarginPercent = Number(input.profitMarginPercent) || 85;
+  const insulatedProfitAmount = Math.round(totalDirectMaterialsCost * (profitMarginPercent / 100));
+
+  const laborWage = Math.round(Number(input.laborWage) || 220); // تشمل الضرب والنحت بالمقص وماكينة التنعيم
+  const packagingCost = Math.round(Number(input.packagingCost) || 40);
+  const transitFees = Math.round(Number(input.transitFees) || 0);
+  const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 35);
+
+  const finalSellingPrice = Math.round(
+    totalDirectMaterialsCost +
+    insulatedProfitAmount +
+    laborWage +
+    packagingCost +
+    transitFees +
+    adminExpensesShare
+  );
+
+  return {
+    baseStrandsCount: 1,
+    workingCordsCount: Math.round(perimeterM * 10),
+    singleStrandLengthCm: Math.round(perimeterM * 100),
+    totalYarnLengthMeters: Math.round(tuftingYarnWeightKg * 300), // تقدير أمتار الخيط
+    totalWeightKg: tuftingYarnWeightKg,
+    totalWeightGrams,
+    yarnCost,
+    extraMaterialsTotalCost,
+    totalDirectMaterialsCost,
+    insulatedProfitAmount,
+    laborWage,
+    packagingCost,
+    transitFees,
+    adminExpensesShare,
+    finalSellingPrice,
+    isOverridden: {
+      strands: false,
+      strandLength: false,
+      weight: false,
+    },
+    craftMetrics: {
+      craftId: 'tufting',
+      craftNameAr: 'مسدس التافت وصناعة السجاد',
+      primaryClothAreaSqM,
+      backingClothAreaSqM,
+      clothTotalCost: primaryClothCost + backingClothCost,
+      tuftingYarnWeightKg,
+      tuftingLatexKg,
+      tuftingLatexCost,
+      wasteFactorPercent: 10,
+      wasteAmount: Number((netYarnWeightKg * 0.10).toFixed(2)),
+    },
+  };
+}
+
+/**
+ * Dispatcher الرئيسي لقسم [الحبال والنسيج]:
+ * يوجّه المدخلات تلقائياً إلى المحرك الرياضي المتخصص
+ */
+export function calculateTextileCraft(craftId: string, input: CalculationInput): CalculationOutput {
+  const normId = (craftId || '').toLowerCase().trim();
+
+  switch (normId) {
+    case 'macrame':
+      return calculateMacrame(input);
+
+    case 'crochet':
+      return calculateCrochet(input);
+
+    case 'zigzag':
+      return calculateZigzag(input);
+
+    case 'kilim':
+    case 'kelim':
+      return calculateKilim(input);
+
+    case 'punch_needle':
+      return calculatePunchNeedle(input);
+
+    case 'tufting':
+    case 'tufting_gun':
+      return calculateTufting(input);
+
+    default:
+      return calculateMacrame(input);
+  }
+}

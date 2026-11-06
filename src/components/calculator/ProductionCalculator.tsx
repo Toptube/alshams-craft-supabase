@@ -28,11 +28,13 @@ import {
   MAIN_SECTIONS,
   SUB_CRAFTS_REGISTRY,
   MainSectionId,
+  executeCraftCalculation,
 } from '../../registry/craftsRegistry';
 import { playSuccessSound, playErrorSound } from '../../lib/sounds';
 import { useTranslation } from '../../lib/i18n';
 import {
   Calculator,
+  Scroll,
   Pencil,
   Plus,
   Trash2,
@@ -100,7 +102,17 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   const [dbMaterials, setDbMaterials] = useState<RawMaterialItem[]>([]);
   const [dbEmployees, setDbEmployees] = useState<EmployeeProfile[]>([]);
 
-  // 1. User selected crafts & sequential dropdowns
+  // 1. Specialized Textile Workshops list for quick switching
+  const TEXTILE_WORKSHOPS = useMemo(() => [
+    { id: 'macrame', nameAr: 'المكرمية والعقد اليدوي', shortName: 'المكرمية', icon: '🪢', defaultCat: 'جدارية' },
+    { id: 'crochet', nameAr: 'الكروشيه المنزلي والمشغولات', shortName: 'الكروشيه', icon: '🧶', defaultCat: 'باسكت كروشيه' },
+    { id: 'zigzag', nameAr: 'حبال الزجزاج وخياطة الماكينة', shortName: 'الزجزاج', icon: '🧵', defaultCat: 'باسكت حلزوني' },
+    { id: 'kilim', nameAr: 'الكليم والنسيج اليدوي', shortName: 'الكليم', icon: '🪡', defaultCat: 'كليم نول أرضي' },
+    { id: 'punch_needle', nameAr: 'إبرة النقاش (بانش نيدل)', shortName: 'بانش نيدل', icon: '🎨', defaultCat: 'تابلوه حائطي' },
+    { id: 'tufting_gun', nameAr: 'مسدس التافت وصناعة السجاد', shortName: 'التافتنج', icon: '🔫', defaultCat: 'سجادة فنية أرضية' },
+  ], []);
+
+  // User selected crafts & sequential dropdowns
   const userCraftIds = useMemo(() => {
     return profile.selectedCrafts && profile.selectedCrafts.length > 0
       ? profile.selectedCrafts
@@ -113,15 +125,14 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     return list.length > 0 ? list : SUB_CRAFTS_REGISTRY.filter((sc) => sc.id === 'macrame');
   }, [userCraftIds]);
 
-  // Available main sections for the artisan (only sections that have selected crafts)
+  // Available main sections for the artisan (always includes ropes_textiles)
   const availableMainSections = useMemo(() => {
-    const activeSecIds = new Set(userSubCrafts.map((sc) => sc.mainSectionId));
-    return MAIN_SECTIONS.filter((sec) => activeSecIds.has(sec.id));
-  }, [userSubCrafts]);
+    return MAIN_SECTIONS;
+  }, []);
 
   const [selectedSectionId, setSelectedSectionId] = useState<string>(() => {
     if (initialRecord?.mainSectionId) return initialRecord.mainSectionId;
-    return availableMainSections.length > 0 ? availableMainSections[0].id : 'ropes_textiles';
+    return 'ropes_textiles';
   });
 
   // Keep selectedSectionId in sync if availableMainSections change
@@ -133,18 +144,19 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     }
   }, [availableMainSections, selectedSectionId]);
 
-  // Sub-crafts under selected main section
+  // Sub-crafts under selected main section (all 6 crafts always available under ropes_textiles)
   const availableSubCrafts = useMemo(() => {
     if (!selectedSectionId) return [];
-    return userSubCrafts.filter((sc) => sc.mainSectionId === selectedSectionId);
+    if (selectedSectionId === 'ropes_textiles') {
+      return SUB_CRAFTS_REGISTRY.filter((sc) => sc.mainSectionId === 'ropes_textiles');
+    }
+    const filtered = userSubCrafts.filter((sc) => sc.mainSectionId === selectedSectionId);
+    return filtered.length > 0 ? filtered : SUB_CRAFTS_REGISTRY.filter((sc) => sc.mainSectionId === selectedSectionId);
   }, [userSubCrafts, selectedSectionId]);
 
   const [selectedCraftId, setSelectedCraftId] = useState<string>(() => {
     if (initialRecord?.craftId) return initialRecord.craftId;
-    const initialAvailable = userSubCrafts.filter(
-      (sc) => sc.mainSectionId === (initialRecord?.mainSectionId || availableMainSections[0]?.id)
-    );
-    return initialAvailable.length > 0 ? initialAvailable[0].id : 'macrame';
+    return 'macrame';
   });
 
   // Keep selectedCraftId in sync when availableSubCrafts change
@@ -155,6 +167,71 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       }
     }
   }, [availableSubCrafts, selectedCraftId]);
+
+  // Specialized State for the 5 New Textile Crafts
+  // 1. Crochet
+  const [crochetBaseType, setCrochetBaseType] = useState<'yarn' | 'wooden' | 'leather'>(
+    initialRecord?.input?.crochetBaseType || 'wooden'
+  );
+  const [crochetBaseHolesCount, setCrochetBaseHolesCount] = useState<number>(
+    initialRecord?.input?.crochetBaseHolesCount ?? 45
+  );
+  const [crochetBaseIncreasesRate, setCrochetBaseIncreasesRate] = useState<number>(
+    initialRecord?.input?.crochetBaseIncreasesRate ?? 1.5
+  );
+  const [crochetWoodenBaseCost, setCrochetWoodenBaseCost] = useState<number>(
+    initialRecord?.input?.crochetWoodenBaseCost ?? 35
+  );
+
+  // 2. Zigzag
+  const [zigzagRopeDiameterMm, setZigzagRopeDiameterMm] = useState<number>(
+    initialRecord?.input?.zigzagRopeDiameterMm ?? 8
+  );
+  const [zigzagHandlesCount, setZigzagHandlesCount] = useState<number>(
+    initialRecord?.input?.zigzagHandlesCount ?? 2
+  );
+  const [zigzagHandleLengthCm, setZigzagHandleLengthCm] = useState<number>(
+    initialRecord?.input?.zigzagHandleLengthCm ?? 35
+  );
+
+  // 3. Kilim
+  const [kilimEpiDensity, setKilimEpiDensity] = useState<number>(
+    initialRecord?.input?.kilimEpiDensity ?? 4
+  );
+  const [kilimLoomWasteCm, setKilimLoomWasteCm] = useState<number>(
+    initialRecord?.input?.kilimLoomWasteCm ?? 40
+  );
+  const [kilimShrinkageFactor, setKilimShrinkageFactor] = useState<number>(
+    initialRecord?.input?.kilimShrinkageFactor ?? 0.10
+  );
+  const [kilimWeftWoolKgPerSqM, setKilimWeftWoolKgPerSqM] = useState<number>(
+    initialRecord?.input?.kilimWeftWoolKgPerSqM ?? 1.4
+  );
+
+  // 4. Punch Needle
+  const [punchMonksClothMarginCm, setPunchMonksClothMarginCm] = useState<number>(
+    initialRecord?.input?.punchMonksClothMarginCm ?? 10
+  );
+  const [punchLoopHeightMm, setPunchLoopHeightMm] = useState<number>(
+    initialRecord?.input?.punchLoopHeightMm ?? 5
+  );
+  const [punchLatexGramsPerSqM, setPunchLatexGramsPerSqM] = useState<number>(
+    initialRecord?.input?.punchLatexGramsPerSqM ?? 250
+  );
+  const [punchMonksClothCost, setPunchMonksClothCost] = useState<number>(
+    initialRecord?.input?.punchMonksClothCost ?? 140
+  );
+
+  // 5. Tufting
+  const [tuftingPileType, setTuftingPileType] = useState<'cut' | 'loop'>(
+    (initialRecord?.input?.tuftingPileType as any) || 'cut'
+  );
+  const [tuftingPrimaryClothMarginM, setTuftingPrimaryClothMarginM] = useState<number>(
+    initialRecord?.input?.tuftingPrimaryClothMarginM ?? 0.20
+  );
+  const [tuftingLatexGlueKgPerSqM, setTuftingLatexGlueKgPerSqM] = useState<number>(
+    initialRecord?.input?.tuftingLatexGlueKgPerSqM ?? 1.1
+  );
 
   // Current craft definition
   const currentCraftDef = useMemo(() => {
@@ -851,6 +928,27 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         overrideWeightActive && manualWeightKg ? Number(manualWeightKg) : undefined,
       personalNotes,
       productImageUrl,
+      // Specialized Textile Inputs
+      craftId: selectedCraftId,
+      craftType: selectedCraftId,
+      crochetBaseType,
+      crochetBaseHolesCount,
+      crochetBaseIncreasesRate,
+      crochetWoodenBaseCost,
+      zigzagRopeDiameterMm,
+      zigzagHandlesCount,
+      zigzagHandleLengthCm,
+      kilimEpiDensity,
+      kilimLoomWasteCm,
+      kilimShrinkageFactor,
+      kilimWeftWoolKgPerSqM,
+      punchMonksClothMarginCm,
+      punchLoopHeightMm,
+      punchLatexGramsPerSqM,
+      punchMonksClothCost,
+      tuftingPileType,
+      tuftingPrimaryClothMarginM,
+      tuftingLatexGlueKgPerSqM,
     };
   }, [
     category,
@@ -884,12 +982,31 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     manualWeightKg,
     personalNotes,
     productImageUrl,
+    selectedCraftId,
+    crochetBaseType,
+    crochetBaseHolesCount,
+    crochetBaseIncreasesRate,
+    crochetWoodenBaseCost,
+    zigzagRopeDiameterMm,
+    zigzagHandlesCount,
+    zigzagHandleLengthCm,
+    kilimEpiDensity,
+    kilimLoomWasteCm,
+    kilimShrinkageFactor,
+    kilimWeftWoolKgPerSqM,
+    punchMonksClothMarginCm,
+    punchLoopHeightMm,
+    punchLatexGramsPerSqM,
+    punchMonksClothCost,
+    tuftingPileType,
+    tuftingPrimaryClothMarginM,
+    tuftingLatexGlueKgPerSqM,
   ]);
 
-  // Execute Macramé & 3D Math Engine (includes / 2 divider for strands)
+  // Execute Specialized Math Engine according to active craft
   const output: CalculationOutput = useMemo(() => {
-    return calculateMacrame(calculationInput);
-  }, [calculationInput]);
+    return executeCraftCalculation(selectedCraftId, calculationInput);
+  }, [selectedCraftId, calculationInput]);
 
   // 1. Cost Price (إجمالي الخامات المباشرة + المصنعية + التغليف + النقل + المصاريف الإدارية)
   const costPrice = useMemo(() => {
@@ -1176,6 +1293,52 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         </div>
       )}
 
+      {/* 0. Quick Craft Switcher Bar for Ropes & Textiles (ورش قسم الحبال والنسيج الـ 6) */}
+      <div className="p-3.5 sm:p-4 rounded-3xl bg-slate-900 border border-amber-500/30 shadow-lg space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 border-b border-slate-800 pb-2.5">
+          <div className="flex items-center gap-2">
+            <Scroll className="w-4 h-4 text-amber-400" />
+            <h3 className="text-xs sm:text-sm font-black text-amber-300">
+              ورش قسم [الحبال والنسيج] — التبديل السريع لمحركات الحساب المتخصصة
+            </h3>
+          </div>
+          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+            الورشة النشطة: {TEXTILE_WORKSHOPS.find((w) => w.id === selectedCraftId || (selectedCraftId === 'kelim' && w.id === 'kilim'))?.shortName || currentCraftDef?.nameAr || 'المكرمية'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          {TEXTILE_WORKSHOPS.map((workshop) => {
+            const isSelected = selectedCraftId === workshop.id || (selectedCraftId === 'kelim' && workshop.id === 'kilim');
+            return (
+              <button
+                key={workshop.id}
+                type="button"
+                onClick={() => {
+                  setSelectedSectionId('ropes_textiles');
+                  setSelectedCraftId(workshop.id);
+                  const craftDef = SUB_CRAFTS_REGISTRY.find((c) => c.id === workshop.id || (workshop.id === 'kilim' && c.id === 'kelim'));
+                  if (craftDef?.sampleCategories && craftDef.sampleCategories.length > 0) {
+                    setCategory(craftDef.sampleCategories[0] as any);
+                  }
+                }}
+                className={`p-2.5 rounded-2xl flex flex-col items-center gap-1.5 transition-all text-xs font-bold border cursor-pointer ${
+                  isSelected
+                    ? 'bg-gradient-to-b from-amber-500 to-amber-600 text-stone-950 border-amber-300 shadow-md scale-[1.02] ring-2 ring-amber-400/50'
+                    : 'bg-slate-800/80 hover:bg-slate-800 text-slate-200 border-slate-700/80 hover:border-amber-500/50 hover:text-white'
+                }`}
+              >
+                <span className="text-xl">{workshop.icon}</span>
+                <span className="text-center font-black truncate w-full">{workshop.shortName}</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-amber-950/30 text-amber-950 font-black' : 'bg-slate-700 text-amber-300/80'}`}>
+                  {workshop.nameAr.split(' ')[0]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* 1. Three Sequential Dropdowns: (أ) القسم الرئيسي (ب) الحرفة الفرعية (ج) نوع المنتج */}
       {(showSectionDropdown || showCraftDropdown || showProductTypeDropdown) && (
         <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-3">
@@ -1347,138 +1510,274 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </h3>
             </div>
 
-            {/* 1. Base Strands (With Divider / 2 and Pencil Override) */}
-            <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200/80 dark:border-stone-700/60 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleTogglePencil('strands')}
-                  title="تعديل يدوي (تفعيل القلم)"
-                  className={`p-1.5 rounded-lg transition ${
-                    overrideStrandsActive
-                      ? 'bg-amber-500 text-white shadow-sm'
-                      : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-700'
-                  }`}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <div className="text-right">
-                  <p className="text-xs font-bold text-stone-700 dark:text-stone-300">
-                    عدد الفتلات الأساسية (مضاعفات 4)
-                  </p>
-                  <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                    يعطي الضعف ({output.workingCordsCount}) خيوطاً شغالة على العصا
-                  </p>
+            {output.craftMetrics && output.craftMetrics.craftId !== 'macrame' ? (
+              /* Specialized Craft Metrics Output */
+              <div className="space-y-3">
+                <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between">
+                  <span className="text-xs font-black text-amber-900 dark:text-amber-200">
+                    {output.craftMetrics.craftNameAr}
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-stone-950">
+                    نسبة الهالك المعتمدة: {output.craftMetrics.wasteFactorPercent}%
+                  </span>
                 </div>
+
+                {output.craftMetrics.craftId === 'crochet' && (
+                  <div className="space-y-2 text-xs">
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">وزن خيط القاعدة (Base Yarn):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.baseWeightGrams || 0} جم</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">وزن خيط الجدران (Walls Yarn):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.wallWeightGrams || 0} جم</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">هالك التشغيل المحسوب (5%):</span>
+                      <span className="font-mono font-bold text-amber-600 dark:text-amber-400">+{output.craftMetrics.wasteAmount || 0} جم</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex justify-between items-center">
+                      <span className="font-bold text-stone-800 dark:text-stone-200">إجمالي وزن الخيط المطلوب:</span>
+                      <span className="font-mono font-black text-base text-amber-700 dark:text-amber-300">
+                        {output.totalWeightKg} كجم ({output.totalWeightGrams} جم)
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {output.craftMetrics.craftId === 'zigzag' && (
+                  <div className="space-y-2 text-xs">
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">حبل القاعدة الحلزونية (Area/t):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.baseRopeMeters || 0} متر</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">حبل الجدران والأيادي:</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                        {((output.craftMetrics.wallRopeMeters || 0) + (output.craftMetrics.handlesRopeMeters || 0)).toFixed(1)} متر
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">خيط المكوك والخياطة (زجزاج 3.8x):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                        {output.craftMetrics.sewingThreadMeters || 0} متر ({output.craftMetrics.sewingThreadBobbins || 0} بكرة)
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex justify-between items-center">
+                      <span className="font-bold text-stone-800 dark:text-stone-200">إجمالي أمتار الحبل (بهالك 7%):</span>
+                      <span className="font-mono font-black text-base text-amber-700 dark:text-amber-300">
+                        {output.craftMetrics.totalRopeMeters} متر ({output.totalWeightKg} كجم)
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {output.craftMetrics.craftId === 'kilim' && (
+                  <div className="space-y-2 text-xs">
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">عدد خيوط السداء المشدودة:</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.warpThreadsCount || 0} فتلة سداء</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">طول السداء بفاقد النول 40سم والانكماش:</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.totalWarpLengthMeters || 0} متر ({output.craftMetrics.warpWeightKg || 0} كجم)</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">صوف اللحمة (بهالك 15%):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.weftWoolWeightKg || 0} كجم صوف</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex justify-between items-center">
+                      <span className="font-bold text-stone-800 dark:text-stone-200">الوزن الإجمالي للكليم:</span>
+                      <span className="font-mono font-black text-base text-amber-700 dark:text-amber-300">
+                        {output.totalWeightKg} كجم
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {output.craftMetrics.craftId === 'punch_needle' && (
+                  <div className="space-y-2 text-xs">
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">قماش الرهبان (بزيادة 10سم للطارة):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                        {output.craftMetrics.monksClothAreaSqM || 0} م² ({output.craftMetrics.monksClothCost || 0} ج)
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">أمتار صوف البانش نيدل (بهالك 5%):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                        {output.craftMetrics.punchYarnLengthMeters || 0} متر ({output.totalWeightKg} كجم)
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">غراء اللاتكس السائل لتثبيت الظهر:</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                        {output.craftMetrics.latexGlueKg || 0} كجم ({output.craftMetrics.latexCost || 0} ج)
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {(output.craftMetrics.craftId === 'tufting_gun' || output.craftMetrics.craftId === 'tufting') && (
+                  <div className="space-y-2 text-xs">
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">قماش التافت الأساسي (+0.20م للفريم):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                        {output.craftMetrics.primaryClothAreaSqM || 0} م²
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">صوف/أكريليك الوبرة (بهالك نحت 10%):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                        {output.craftMetrics.tuftingYarnWeightKg || 0} كجم
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">غراء اللاتكس السجاد (1.1 كجم/م²):</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                        {output.craftMetrics.tuftingLatexKg || 0} كجم ({output.craftMetrics.tuftingLatexCost || 0} ج)
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
+            ) : (
+              /* Macrame Default Output */
+              <>
+                {/* 1. Base Strands (With Divider / 2 and Pencil Override) */}
+                <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200/80 dark:border-stone-700/60 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePencil('strands')}
+                      title="تعديل يدوي (تفعيل القلم)"
+                      className={`p-1.5 rounded-lg transition ${
+                        overrideStrandsActive
+                          ? 'bg-amber-500 text-white shadow-sm'
+                          : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-700'
+                      }`}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="text-right">
+                      <p className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                        عدد الفتلات الأساسية (مضاعفات 4)
+                      </p>
+                      <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                        يعطي الضعف ({output.workingCordsCount}) خيوطاً شغالة على العصا
+                      </p>
+                    </div>
+                  </div>
 
-              {overrideStrandsActive ? (
-                <NumberInput
-                  value={manualStrands}
-                  onChange={(val) => setManualStrands(String(val))}
-                  className="w-20 px-2 py-1 text-center rounded-lg border-2 border-amber-500 bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-300 font-bold text-sm outline-none font-mono"
-                />
-              ) : (
-                <div className="text-left font-mono">
-                  <span className="text-lg font-black text-stone-900 dark:text-stone-100">
-                    {output.baseStrandsCount}
+                  {overrideStrandsActive ? (
+                    <NumberInput
+                      value={manualStrands}
+                      onChange={(val) => setManualStrands(String(val))}
+                      className="w-20 px-2 py-1 text-center rounded-lg border-2 border-amber-500 bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-300 font-bold text-sm outline-none font-mono"
+                    />
+                  ) : (
+                    <div className="text-left font-mono">
+                      <span className="text-lg font-black text-stone-900 dark:text-stone-100">
+                        {output.baseStrandsCount}
+                      </span>
+                      <span className="text-xs text-stone-500 mr-1">فتلة</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Single Strand Cut Length (With Pencil Override) */}
+                <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200/80 dark:border-stone-700/60 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePencil('length')}
+                      title="تعديل يدوي (تفعيل القلم)"
+                      className={`p-1.5 rounded-lg transition ${
+                        overrideLengthActive
+                          ? 'bg-amber-500 text-white shadow-sm'
+                          : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-700'
+                      }`}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="text-right">
+                      <p className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                        طول الفتلة الواحدة المقصوصة
+                      </p>
+                      <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                        بناءً على سمك الخيط ({calculationInput.cordThicknessMm} مم)
+                      </p>
+                    </div>
+                  </div>
+
+                  {overrideLengthActive ? (
+                    <NumberInput
+                      value={manualLength}
+                      onChange={(val) => setManualLength(String(val))}
+                      className="w-20 px-2 py-1 text-center rounded-lg border-2 border-amber-500 bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-300 font-bold text-sm outline-none font-mono"
+                    />
+                  ) : (
+                    <div className="text-left font-mono">
+                      <span className="text-lg font-black text-stone-900 dark:text-stone-100">
+                        {output.singleStrandLengthCm}
+                      </span>
+                      <span className="text-xs text-stone-500 mr-1">سم</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Total Weight in Kilograms (Strictly display in KG) */}
+                <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200/80 dark:border-stone-700/60 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePencil('weight')}
+                      title="تعديل يدوي (تفعيل القلم)"
+                      className={`p-1.5 rounded-lg transition ${
+                        overrideWeightActive
+                          ? 'bg-amber-500 text-white shadow-sm'
+                          : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-700'
+                      }`}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="text-right">
+                      <p className="text-xs font-bold text-stone-700 dark:text-stone-300">
+                        الوزن الإجمالي بالكيلو جرام
+                      </p>
+                      <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                        يعادل {output.totalWeightGrams} جرام خيط
+                      </p>
+                    </div>
+                  </div>
+
+                  {overrideWeightActive ? (
+                    <NumberInput
+                      step="0.05"
+                      value={manualWeightKg}
+                      onChange={(val) => setManualWeightKg(String(val))}
+                      className="w-24 px-2 py-1 text-center rounded-lg border-2 border-amber-500 bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-300 font-bold text-sm outline-none font-mono"
+                    />
+                  ) : (
+                    <div className="text-left font-mono">
+                      <span className="text-xl font-black text-amber-600 dark:text-amber-400">
+                        {output.totalWeightKg.toFixed(2)}
+                      </span>
+                      <span className="text-xs text-stone-600 dark:text-stone-400 mr-1 font-bold">
+                        كجم
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-[11px] text-stone-500 dark:text-stone-400 px-1 flex items-center justify-between">
+                  <span>إجمالي أمتار الخيط:</span>
+                  <span className="font-mono font-bold text-stone-700 dark:text-stone-300">
+                    {output.totalYarnLengthMeters} متر
                   </span>
-                  <span className="text-xs text-stone-500 mr-1">فتلة</span>
                 </div>
-              )}
-            </div>
-
-            {/* 2. Single Strand Cut Length (With Pencil Override) */}
-            <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200/80 dark:border-stone-700/60 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleTogglePencil('length')}
-                  title="تعديل يدوي (تفعيل القلم)"
-                  className={`p-1.5 rounded-lg transition ${
-                    overrideLengthActive
-                      ? 'bg-amber-500 text-white shadow-sm'
-                      : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-700'
-                  }`}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <div className="text-right">
-                  <p className="text-xs font-bold text-stone-700 dark:text-stone-300">
-                    طول الفتلة الواحدة المقصوصة
-                  </p>
-                  <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                    بناءً على سمك الخيط ({calculationInput.cordThicknessMm} مم)
-                  </p>
-                </div>
-              </div>
-
-              {overrideLengthActive ? (
-                <NumberInput
-                  value={manualLength}
-                  onChange={(val) => setManualLength(String(val))}
-                  className="w-20 px-2 py-1 text-center rounded-lg border-2 border-amber-500 bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-300 font-bold text-sm outline-none font-mono"
-                />
-              ) : (
-                <div className="text-left font-mono">
-                  <span className="text-lg font-black text-stone-900 dark:text-stone-100">
-                    {output.singleStrandLengthCm}
-                  </span>
-                  <span className="text-xs text-stone-500 mr-1">سم</span>
-                </div>
-              )}
-            </div>
-
-            {/* 3. Total Weight in Kilograms (Strictly display in KG) */}
-            <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200/80 dark:border-stone-700/60 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleTogglePencil('weight')}
-                  title="تعديل يدوي (تفعيل القلم)"
-                  className={`p-1.5 rounded-lg transition ${
-                    overrideWeightActive
-                      ? 'bg-amber-500 text-white shadow-sm'
-                      : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-700'
-                  }`}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <div className="text-right">
-                  <p className="text-xs font-bold text-stone-700 dark:text-stone-300">
-                    الوزن الإجمالي بالكيلو جرام
-                  </p>
-                  <p className="text-[10px] text-stone-500 dark:text-stone-400">
-                    يعادل {output.totalWeightGrams} جرام خيط
-                  </p>
-                </div>
-              </div>
-
-              {overrideWeightActive ? (
-                <NumberInput
-                  step="0.05"
-                  value={manualWeightKg}
-                  onChange={(val) => setManualWeightKg(String(val))}
-                  className="w-24 px-2 py-1 text-center rounded-lg border-2 border-amber-500 bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-300 font-bold text-sm outline-none font-mono"
-                />
-              ) : (
-                <div className="text-left font-mono">
-                  <span className="text-xl font-black text-amber-600 dark:text-amber-400">
-                    {output.totalWeightKg.toFixed(2)}
-                  </span>
-                  <span className="text-xs text-stone-600 dark:text-stone-400 mr-1 font-bold">
-                    كجم
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="text-[11px] text-stone-500 dark:text-stone-400 px-1 flex items-center justify-between">
-              <span>إجمالي أمتار الخيط:</span>
-              <span className="font-mono font-bold text-stone-700 dark:text-stone-300">
-                {output.totalYarnLengthMeters} متر
-              </span>
-            </div>
+              </>
+            )}
           </div>
 
           {/* Interactive Cost Breakdown Donut Chart */}
@@ -1934,6 +2233,315 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </div>
             )}
           </div>
+
+          {/* Card: 2.1 Specialized Craft Parameters for the 5 New Textile Workshops */}
+          {selectedCraftId === 'crochet' && (
+            <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
+                  محرك كروشيه هالك 5%
+                </span>
+                <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
+                  <span>🧶</span>
+                  <span>مواصفات ورشة الكروشيه المنزلي والمشغولات</span>
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    نوع قاعدة المشغولة *
+                  </label>
+                  <select
+                    value={crochetBaseType}
+                    onChange={(e) => setCrochetBaseType(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="wooden">قاعدة خشبية مثقوبة ليزر</option>
+                    <option value="yarn">قاعدة كروشيه مشغولة بالخيط</option>
+                    <option value="leather">قاعدة جلد طبيعي مثقوبة</option>
+                  </select>
+                </div>
+
+                {crochetBaseType !== 'yarn' ? (
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                      تكلفة القاعدة الخشبية/الجلدية (ج.م) *
+                    </label>
+                    <NumberInput
+                      value={crochetWoodenBaseCost}
+                      onChange={setCrochetWoodenBaseCost}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                      كثافة الخيط المعتمدة للقاعدة
+                    </label>
+                    <div className="px-3.5 py-2.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-xs font-bold text-stone-600 dark:text-stone-300">
+                      0.40 جم / سم² (محسوبة آلياً من المساحة)
+                    </div>
+                  </div>
+                )}
+
+                {crochetBaseType !== 'yarn' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                        عدد ثقوب القاعدة (Holes)
+                      </label>
+                      <NumberInput
+                        value={crochetBaseHolesCount}
+                        onChange={setCrochetBaseHolesCount}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                        معدل تزايد السطر الأول لكل ثقب
+                      </label>
+                      <select
+                        value={crochetBaseIncreasesRate}
+                        onChange={(e) => setCrochetBaseIncreasesRate(Number(e.target.value))}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none"
+                      >
+                        <option value={1}>غرزة واحدة (1x)</option>
+                        <option value={1.5}>غرزة ونصف بالتناوب (1x/2x)</option>
+                        <option value={2}>غرزتين في كل ثقب (2x)</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {selectedCraftId === 'zigzag' && (
+            <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
+                  معادلة حلزون Area/t وهالك 7%
+                </span>
+                <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
+                  <span>🧵</span>
+                  <span>مواصفات ورشة حبال الزجزاج وخياطة الماكينة</span>
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    قطر حبل الزجزاج (مم) *
+                  </label>
+                  <select
+                    value={zigzagRopeDiameterMm}
+                    onChange={(e) => setZigzagRopeDiameterMm(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none"
+                  >
+                    <option value={6}>6 مم (حبل رفيع مرن)</option>
+                    <option value={8}>8 مم (حبل قياسي للباسكت)</option>
+                    <option value={10}>10 مم (حبل سميك متين)</option>
+                    <option value={12}>12 مم (شغل جامبو كبير)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    عدد أيادي الحبال
+                  </label>
+                  <select
+                    value={zigzagHandlesCount}
+                    onChange={(e) => setZigzagHandlesCount(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none"
+                  >
+                    <option value={0}>بدون أيدي (صينية أو كوستر)</option>
+                    <option value={1}>يد واحدة رأسية (علاقة)</option>
+                    <option value={2}>يدين جانبيتين (باسكت)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    طول اليد الواحدة (سم)
+                  </label>
+                  <NumberInput
+                    value={zigzagHandleLengthCm}
+                    onChange={setZigzagHandleLengthCm}
+                    disabled={zigzagHandlesCount === 0}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              <p className="text-[11px] text-amber-800 dark:text-amber-300 font-medium">
+                * يتم آلياً حساب استهلاك خيط المكوك والخياطة بمعدل 3.8 متر خيط مكوك لكل متر حبل مع إضافة هالك 7% ومعامل التقويس 1.08.
+              </p>
+            </div>
+          )}
+
+          {(selectedCraftId === 'kilim' || selectedCraftId === 'kelim') && (
+            <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
+                  حساب السداء واللحمة وهالك 15%
+                </span>
+                <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
+                  <span>🪡</span>
+                  <span>مواصفات ورشة الكليم والنسيج اليدوي</span>
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    كثافة السداء (خيط لكل سم) *
+                  </label>
+                  <select
+                    value={kilimEpiDensity}
+                    onChange={(e) => setKilimEpiDensity(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none"
+                  >
+                    <option value={3}>3 خيوط/سم (كليم ريفي خشن)</option>
+                    <option value={4}>4 خيوط/سم (كليم قياسي متوازن)</option>
+                    <option value={5}>5 خيوط/سم (نسيج ناعم دقيق)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    فاقد ربط النول (سم)
+                  </label>
+                  <NumberInput
+                    value={kilimLoomWasteCm}
+                    onChange={setKilimLoomWasteCm}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    صوف اللحمة (كجم / م²)
+                  </label>
+                  <NumberInput
+                    step="0.1"
+                    value={kilimWeftWoolKgPerSqM}
+                    onChange={setKilimWeftWoolKgPerSqM}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedCraftId === 'punch_needle' && (
+            <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
+                  قماش الرهبان الأصلي وهالك 5%
+                </span>
+                <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
+                  <span>🎨</span>
+                  <span>مواصفات ورشة البانش نيدل / الإبرة الشرقية</span>
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    هامش شد الطارة (سم) *
+                  </label>
+                  <NumberInput
+                    value={punchMonksClothMarginCm}
+                    onChange={setPunchMonksClothMarginCm}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    سعر متر قماش الرهبان (ج.م/م²)
+                  </label>
+                  <NumberInput
+                    value={punchMonksClothCost}
+                    onChange={setPunchMonksClothCost}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    ارتفاع غرزة الصوف (مم)
+                  </label>
+                  <select
+                    value={punchLoopHeightMm}
+                    onChange={(e) => setPunchLoopHeightMm(Number(e.target.value))}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none"
+                  >
+                    <option value={3}>3 مم (غرزة مسطحة ناعمة)</option>
+                    <option value={5}>5 مم (غرزة قياسية)</option>
+                    <option value={8}>8 مم (غرزة بارزة)</option>
+                    <option value={12}>12 مم (غرزة طويلة منفوشة)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(selectedCraftId === 'tufting_gun' || selectedCraftId === 'tufting') && (
+            <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
+                  سجاد التافت، اللاتكس وهالك 10%
+                </span>
+                <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
+                  <span>🔫</span>
+                  <span>مواصفات ورشة مسدس التافت وصناعة السجاد</span>
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    نوع الوبرة (Pile Type) *
+                  </label>
+                  <select
+                    value={tuftingPileType}
+                    onChange={(e) => setTuftingPileType(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none"
+                  >
+                    <option value="cut">وبرة مقصوصة (Cut Pile - 2.1 كجم/م²)</option>
+                    <option value="loop">وبرة ملفوفة (Loop Pile - 1.8 كجم/م²)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    هامش قماش التافت للفريم (متر)
+                  </label>
+                  <NumberInput
+                    step="0.05"
+                    value={tuftingPrimaryClothMarginM}
+                    onChange={setTuftingPrimaryClothMarginM}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    استهلاك غراء اللاتكس (كجم/م²)
+                  </label>
+                  <NumberInput
+                    step="0.1"
+                    value={tuftingLatexGlueKgPerSqM}
+                    onChange={setTuftingLatexGlueKgPerSqM}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Card: 3. Cord Specification & Live Raw Materials Feeding */}
           <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">

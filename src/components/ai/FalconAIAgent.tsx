@@ -33,6 +33,8 @@ import {
 export interface StructuredCalculatorExport {
   productName?: string;
   category?: CraftCategory | string;
+  craftId?: string;
+  mainSectionId?: string;
   laborWage?: number;
   hours?: number;
   minMarketPrice?: number;
@@ -642,6 +644,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
       onExportStructuredToCalculator({
         productName: pName,
         category: (vData.detectedCategory as CraftCategory) || currentCategory,
+        craftId: (vData as any).craftType || 'macrame',
+        mainSectionId: 'ropes_textiles',
         laborWage: wage,
         hours,
         minMarketPrice: minP,

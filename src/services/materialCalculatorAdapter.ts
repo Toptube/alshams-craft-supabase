@@ -62,6 +62,54 @@ export const DEFAULT_BASIC_YARNS: DefaultYarnSpec[] = [
     densityFactor: 1.3,
     defaultThicknessMm: 5,
   },
+  {
+    name: 'حبل قطن محشي زجزاج (8 مم)',
+    defaultPricePerKg: 165,
+    densityFactor: 1.2,
+    defaultThicknessMm: 8,
+  },
+  {
+    name: 'خيوط سداء نول قطن فاخر',
+    defaultPricePerKg: 180,
+    densityFactor: 1.0,
+    defaultThicknessMm: 3,
+  },
+  {
+    name: 'صوف كليم مصبوغ طبيعي',
+    defaultPricePerKg: 220,
+    densityFactor: 1.15,
+    defaultThicknessMm: 4,
+  },
+  {
+    name: 'صوف بانش نيدل تركي',
+    defaultPricePerKg: 190,
+    densityFactor: 1.05,
+    defaultThicknessMm: 4,
+  },
+  {
+    name: 'خيوط تافتنج أكريليك وبرة',
+    defaultPricePerKg: 195,
+    densityFactor: 1.25,
+    defaultThicknessMm: 5,
+  },
+  {
+    name: 'قماش رهبان مستورد أصلي',
+    defaultPricePerKg: 140,
+    densityFactor: 0.9,
+    defaultThicknessMm: 2,
+  },
+  {
+    name: 'قماش تافت أساسي مسطر',
+    defaultPricePerKg: 115,
+    densityFactor: 0.9,
+    defaultThicknessMm: 2,
+  },
+  {
+    name: 'غراء لاتكس سائل نقي',
+    defaultPricePerKg: 120,
+    densityFactor: 1.0,
+    defaultThicknessMm: 1,
+  },
 ];
 
 /**

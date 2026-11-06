@@ -166,8 +166,11 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
 
   // Sub-crafts options for dropdown
   const subCraftOptions = useMemo(() => {
-    if (selectedMainSection === 'all') {
-      return userCrafts;
+    if (selectedMainSection === 'ropes_textiles' || selectedMainSection === 'all') {
+      const textile = SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === 'ropes_textiles');
+      const map = new Map<string, any>();
+      [...textile, ...userCrafts].forEach((c) => map.set(c.id, c));
+      return Array.from(map.values());
     }
     return userCrafts.filter((c) => c.mainSectionId === selectedMainSection);
   }, [userCrafts, selectedMainSection]);

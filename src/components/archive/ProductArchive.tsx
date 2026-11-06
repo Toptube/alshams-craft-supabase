@@ -45,13 +45,24 @@ export const ProductArchive: React.FC<ProductArchiveProps> = ({
 
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
 
-  // Crafts selected by artisan in profile
+  // Crafts available in archive (Includes all 6 crafts under ropes & textiles)
   const userCrafts = useMemo(() => {
-    const craftIds = profile.selectedCrafts && profile.selectedCrafts.length > 0
-      ? profile.selectedCrafts
-      : ['macrame'];
-    return SUB_CRAFTS_REGISTRY.filter((c) => craftIds.includes(c.id));
+    const textileCrafts = SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === 'ropes_textiles');
+    const userSelected = SUB_CRAFTS_REGISTRY.filter((c) => profile.selectedCrafts?.includes(c.id));
+    const map = new Map<string, any>();
+    [...textileCrafts, ...userSelected].forEach((c) => map.set(c.id, c));
+    return Array.from(map.values());
   }, [profile.selectedCrafts]);
+
+  const QUICK_TEXTILE_TABS = [
+    { id: 'all', nameAr: 'كافة المشغولات (الكل)', icon: '🌟' },
+    { id: 'macrame', nameAr: 'المكرمية والعقد', icon: '🪢' },
+    { id: 'crochet', nameAr: 'الكروشيه المنزلي', icon: '🧶' },
+    { id: 'zigzag', nameAr: 'حبال الزجزاج', icon: '🧵' },
+    { id: 'kilim', nameAr: 'الكليم والنسيج', icon: '🪡' },
+    { id: 'punch_needle', nameAr: 'البانش نيدل', icon: '🎨' },
+    { id: 'tufting_gun', nameAr: 'مسدس التافت', icon: '🔫' },
+  ];
 
   const loadRecords = async () => {
     setLoading(true);
@@ -108,6 +119,28 @@ export const ProductArchive: React.FC<ProductArchiveProps> = ({
       <div className="flex justify-end">
         <ProductSyncBadge workshopId={tenantId} />
       </div>
+      {/* Quick Craft Filter Tabs (الحبال والنسيج) */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+        {QUICK_TEXTILE_TABS.map((tab) => {
+          const isSelected = selectedCraftFilter === tab.id || (tab.id === 'kilim' && selectedCraftFilter === 'kelim');
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setSelectedCraftFilter(tab.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition cursor-pointer border ${
+                isSelected
+                  ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-xs'
+                  : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-800 hover:border-amber-400/50'
+              }`}
+            >
+              <span>{tab.icon}</span>
+              <span>{tab.nameAr}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Search & Category & Craft Filter Bar */}
       <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-center gap-3">
         {/* 1. Craft Filter Dropdown - فلتر بالحِرف المختارة */}

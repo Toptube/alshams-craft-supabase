@@ -1,5 +1,6 @@
 import { CalculationInput, CalculationOutput } from '../types';
 import { calculateMacrame } from '../utils/macrameMath';
+import { calculateTextileCraft } from '../utils/textileCraftsMath';
 
 export type MainSectionId = 'ropes_textiles' | 'beads_embroidery' | 'clays_composites' | 'woods';
 
@@ -14,7 +15,7 @@ export interface SubCraftDefinition {
   id: string;
   nameAr: string;
   mainSectionId: MainSectionId;
-  calcEngine: 'macrame' | 'generic' | 'fusion';
+  calcEngine: 'macrame' | 'textile' | 'generic' | 'fusion';
   status: 'active' | 'coming_soon';
   badge?: string;
   description: string;
@@ -64,50 +65,50 @@ export const SUB_CRAFTS_REGISTRY: SubCraftDefinition[] = [
     id: 'crochet',
     nameAr: 'كروشيه',
     mainSectionId: 'ropes_textiles',
-    calcEngine: 'generic',
+    calcEngine: 'textile',
     status: 'active',
-    badge: 'محرك حساب التكاليف مفعّل',
-    description: 'أشغال السنارة، شيلان، مفارش، ودمى أميجورومي',
-    sampleCategories: ['شال', 'مفرش', 'بطانية أطفال', 'شنطة كروشيه', 'أميجورومي'],
+    badge: 'المحرك المتخصص مفعّل',
+    description: 'أشغال السنارة، شيلان، مفارش، ودمى أميجورومي مع حساب القواعد وهالك 5%',
+    sampleCategories: ['باسكت كروشيه', 'شال', 'مفرش', 'بطانية أطفال', 'شنطة كروشيه', 'أميجورومي'],
   },
   {
     id: 'zigzag',
     nameAr: 'زجزاج',
     mainSectionId: 'ropes_textiles',
-    calcEngine: 'generic',
+    calcEngine: 'textile',
     status: 'active',
-    badge: 'محرك حساب التكاليف مفعّل',
-    description: 'حياكة حبال القطن بماكينات الزجزاج لصناعة السلات والشنط',
-    sampleCategories: ['باسكت', 'صينية حبال', 'شنطة زجزاج', 'كوستر حبال'],
+    badge: 'المحرك المتخصص مفعّل',
+    description: 'حياكة حبال القطن بماكينات الزجزاج، حساب معادلة الحلزون وخيط المكوك وهالك 7%',
+    sampleCategories: ['باسكت حلزوني', 'صينية حبال', 'شنطة زجزاج', 'كوستر حبال', 'سبت تخزين'],
   },
   {
     id: 'punch_needle',
     nameAr: 'إبرة النقاش (بانش نيدل)',
     mainSectionId: 'ropes_textiles',
-    calcEngine: 'generic',
+    calcEngine: 'textile',
     status: 'active',
-    badge: 'محرك حساب التكاليف مفعّل',
-    description: 'تطريز بارز بحلقات الصوف والغرز المرتفعة على القماش',
+    badge: 'المحرك المتخصص مفعّل',
+    description: 'تطريز بارز على قماش الرهبان الأصلي، حساب أمتار الصوف وغراء اللاتكس وهالك 5%',
     sampleCategories: ['تابلوه حائطي', 'كوشن بارز', 'كوستر صوف', 'مرآة مؤطرة'],
   },
   {
     id: 'tufting_gun',
     nameAr: 'مسدس التافت',
     mainSectionId: 'ropes_textiles',
-    calcEngine: 'generic',
+    calcEngine: 'textile',
     status: 'active',
-    badge: 'محرك حساب التكاليف مفعّل',
-    description: 'صناعة السجاد الفني المعلق والأرضي بخيوط الأكريليك والصوف',
+    badge: 'المحرك المتخصص مفعّل',
+    description: 'صناعة السجاد الفني، حساب قماش التافت والشاش المانع للانزلاق والوبرة وغراء السجاد وهالك 10%',
     sampleCategories: ['سجادة فنية أرضية', 'لوحة جدارية تافتنج', 'مخدة بارزة'],
   },
   {
     id: 'kelim',
     nameAr: 'كليم',
     mainSectionId: 'ropes_textiles',
-    calcEngine: 'generic',
+    calcEngine: 'textile',
     status: 'active',
-    badge: 'محرك حساب التكاليف مفعّل',
-    description: 'نسيج يدوي على النول التقليدي بنقوش تراثية ومودرن',
+    badge: 'المحرك المتخصص مفعّل',
+    description: 'نسيج يدوي على النول، حساب خيوط السداء (EPI) وفاقد النول وصوف اللحمة وهالك 15%',
     sampleCategories: ['كليم نول أرضي', 'رانر صوف', 'معلقة نسيج'],
   },
   {
@@ -390,9 +391,17 @@ export function calculateFusionCraftCost(
  * Dispatcher: يشغل المحرك الحسابي المناسب بناءً على معرّف الحرفة
  */
 export function executeCraftCalculation(craftId: string, input: CalculationInput): CalculationOutput {
-  const craft = SUB_CRAFTS_REGISTRY.find((c) => c.id === craftId);
-  if (craft && craft.calcEngine === 'macrame') {
-    return calculateMacrame(input);
+  const normId = (craftId || '').toLowerCase().trim();
+  const craft = SUB_CRAFTS_REGISTRY.find(
+    (c) =>
+      c.id === normId ||
+      (normId === 'kilim' && c.id === 'kelim') ||
+      (normId === 'tufting' && c.id === 'tufting_gun')
+  );
+
+  if (craft?.calcEngine === 'textile' || craft?.calcEngine === 'macrame' || craft?.mainSectionId === 'ropes_textiles') {
+    return calculateTextileCraft(normId, input);
   }
+
   return calculateGenericCraftCost(input);
 }

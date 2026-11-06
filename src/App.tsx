@@ -783,6 +783,8 @@ export const App: React.FC = () => {
       tenantId: (profile as any)?.tenantId || undefined,
       productName: prodName,
       productCode: 'SH-' + Math.floor(1000 + Math.random() * 9000),
+      mainSectionId: 'ropes_textiles',
+      craftId: (data as any).craftId || 'macrame',
       category: safeCategory,
       costPrice,
       retailPrice,

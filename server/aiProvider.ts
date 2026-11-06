@@ -322,6 +322,7 @@ export class GeminiAIProvider {
 أخرج النتيجة بصيغة JSON نظيفة فقط:
 {
   "detectedCategory": "string",
+  "craftType": "macrame" | "crochet" | "zigzag" | "kilim" | "punch_needle" | "tufting",
   "estimatedHours": number,
   "suggestedDimensions": { "width": number, "totalLength": number, "fringeLength": number, "cordThickness": number, "shape": "flat" },
   "productionGuide": ["string"],
@@ -357,6 +358,10 @@ export class GeminiAIProvider {
     parsedData.estimatedHours = hours;
     parsedData.estimatedLaborWage = Math.round(hours * hourlyRate);
 
+    if (!parsedData.craftType) {
+      parsedData.craftType = 'macrame';
+    }
+
     if (!parsedData.competitionPricing) {
       const avgPrice = Math.max(120, Math.round(parsedData.estimatedLaborWage * 2.2));
       parsedData.competitionPricing = {
@@ -382,12 +387,26 @@ export class GeminiAIProvider {
   const wholesaleMatch = reply.match(/(?:سعر الجملة|الجملة)[\s:*-]*([0-9]+(?:\.[0-9]+)?)/i);
   const retailMatch = reply.match(/(?:سعر القطاعي|القطاعي|سعر البيع)[\s:*-]*([0-9]+(?:\.[0-9]+)?)/i);
 
-  const minMarket = wholesaleMatch ? parseFloat(wholesaleMatch[1]) : Math.round(estCost * 1.3);
-  const avgMarket = retailMatch ? parseFloat(retailMatch[1]) : Math.round(estCost * 1.6);
+  const minMarket = wholesaleMatch ? parseFloat(wholesaleMatch[1]) : Math.round(estCost * 1.25);
+  const avgMarket = retailMatch ? parseFloat(retailMatch[1]) : Math.round(estCost * 1.60);
   const maxMarket = Math.round(avgMarket * 1.25);
+
+  const isCrochet = /كروشيه|سنارة|خيط كليم|قاعدة خشب/i.test(reply);
+  const isZigzag = /زجزاج|حلزون|حبل قطن محشي|ماكينة/i.test(reply);
+  const isKilim = /كليم|نول|سداء|لحمة/i.test(reply);
+  const isPunch = /بانش|رهبان|طارة|إبرة الشرقية/i.test(reply);
+  const isTufting = /تافت|سجاد|مسدس|وبرة/i.test(reply);
+
+  let craftType = 'macrame';
+  if (isCrochet) craftType = 'crochet';
+  else if (isZigzag) craftType = 'zigzag';
+  else if (isKilim) craftType = 'kilim';
+  else if (isPunch) craftType = 'punch_needle';
+  else if (isTufting) craftType = 'tufting_gun';
 
   return {
     detectedCategory: category || 'مشغولات يدوية',
+    craftType,
     estimatedHours: hours,
     estimatedLaborWage: Math.round(hours * hourlyRate),
     competitionPricing: {
@@ -461,24 +480,27 @@ export class GeminiAIProvider {
    - تتذكر وتراعي كامل سياق الحوار من أوله لآخره حتى تكون إجاباتك متسلسلة ومنطقية ودقيقة هندسياً.
 
 التحليل الهندسي التلقائي للصور وحساب التكاليف داخل رسالة الشات (In-Chat Vision Analysis):
-عند استقبال صورة مشغولة يدوية (مثل أطقم البوكسات، منتجات المكرمية، المشغولات الخشبية، الكروشيه، الجداريات، الشنط، الإضاءات، أو غيرها) أو طلب حساب تكلفة:
-1. فحص وقراءة الأبعاد:
+عند استقبال صورة مشغولة يدوية أو طلب حساب تكلفة لأي من ورش [الحبال والنسيج]:
+1. تمييز نوع الورشة الحرفية وتطبيق معادلتها الهندسية المعتمدة:
+   * 🪢 المكرمية (Macrame): مضاعفات الـ 4، طول الفتلة = الطول × 4.8 + الشراشيب + 20 سم، هالك 10%.
+   * 🧶 الكروشيه (Crochet): نوع القاعدة (خشبية مثقوبة ليزر وتكلفتها وثقوبها / خيط 0.40 جم/سم²)، جدران الارتفاع (المحيط × الارتفاع × 0.38 جم/سم²)، هالك 5%.
+   * 🧵 الزجزاج (Zigzag): حبل قطن محشي 6-10 مم، معادلة الحلزون للقاعدة L_base = Area / t، حبل الجدران والأيادي، خيط المكوك والخياطة = أمتار الحبل × 3.8م، هالك 7%.
+   * 🪡 الكليم (Kilim): سداء النول EPI = 4 خيوط/سم، فاقد النول 40 سم + انكماش 10%، صوف اللحمة 1.4 كجم/م²، هالك 15%.
+   * 🎨 البانش نيدل (Punch Needle): قماش الرهبان الأصلي (+10 سم للطارة)، أمتار الصوف (30م لكل 10×10 سم)، غراء اللاتكس السائل للظهر 250 جم/م²، هالك 5%.
+   * 🔫 مسدس التافت (Tufting): قماش التافت المسطر (+0.20م للفريم)، وبرة Cut Pile (2.1 كجم/م²) أو Loop Pile (1.8 كجم/م²)، غراء اللاتكس السجاد 1.1 كجم/م²، هالك نحت 10%.
+
+2. فحص وقراءة الأبعاد:
    - افحص فوراً الأبعاد والمقاسات المكتوبة داخل الصورة أو المذكورة في نص الرسالة بدقة (مثلاً: أطقم بوكسات 4 مقاسات من 40×30×15 حتى 20×15×10 سم).
    - إذا لم تكن الأبعاد مكتوبة أو مذكورة، قدّر الأبعاد هندسياً كنسبة وتناسب تقريبية وواقعية من واقع شكل وتناسق القطعة في الصورة.
-2. تفنيد مستلزمات الإنتاج وخامات التشغيل تفصيلياً داخل رسالة الشات:
-   - خامات الهيكل (شاسيه حديد، خشب، قواعد خشبية أو أكريليك، إكسسوارات).
-   - أطوال وأوزان الخيوط المطلوبة بدقة ونوع الغرز المستخدمة.
-   - حساب نسبة هالك التشغيل الفعلي (10% إلى 15%) وإضافتها للحساب.
-3. حساب إجمالي التكلفة التقديرية بدقة:
-   - تكلفة الخامات الإجمالية.
-   - ساعات العمل اليدوي ومصنعية اليد العادلة (بناءً على أجر ساعة الورشة: ${hourlyRate} ${safeCurrency}).
-   - مصاريف التشغيل غير المباشرة والتغليف وهالك التشغيل.
-   - إجمالي التكلفة التقديرية بدقة.
-4. تحديد واقتراح سعر البيع العادل في مصر:
-   - اقتراح سعر الجملة العادل للمشغولة.
-   - اقتراح سعر القطاعي العادل للمستهلك.
-   - مقارنة سريعة بمتوسط أسعار السوق الحرفي في مصر لنفس المستوى من الجودة.
-5. الالتزام الصارم والنهائي:
+
+3. حساب التكاليف والتسعير العادل:
+   - تكلفة الخامات المباشرة الإجمالية مع احتساب نسبة الهالك المحددة للحرفة.
+   - ساعات العمل ومصنعية اليد العادلة (بناءً على أجر ساعة الورشة: ${hourlyRate} ${safeCurrency}).
+   - مصاريف التغليف والشحن والمصاريف الإدارية.
+   - سعر الجملة المقترح للمشغولة (هامش 25% فوق التكلفة).
+   - سعر القطاعي المقترح للمستهلك (هامش 60% فوق التكلفة).
+
+4. الالتزام الصارم والنهائي:
    - اكتب كامل التحليل الهندسي والتسعير بوضوح وتفصيل منسق وجميل داخل رسالة الشات الحالية أولاً.
    - لا تحل المستخدم إلى شاشة الحاسبة أو تجبره على مغادرة الشات، فالتحليل يُكتب بالكامل هنا أولاً، وزر التصدير للحاسبة يظل خياراً يدوياً للمستخدم.
 
