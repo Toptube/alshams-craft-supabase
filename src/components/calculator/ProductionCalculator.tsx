@@ -9,6 +9,7 @@ import {
   SavedProductRecord,
   RawMaterialItem,
   EmployeeProfile,
+  FixedAsset,
 } from '../../types';
 import {
   CRAFT_CATEGORIES,
@@ -67,6 +68,9 @@ import {
   FileText,
   Settings,
   Edit2,
+  Wrench,
+  Target,
+  TrendingUp,
 } from 'lucide-react';
 import {
   generateArtisanQuotationPDF,
@@ -525,6 +529,15 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     initialRecord?.input?.adminExpensesShare ?? 30
   );
 
+  // Tool Depreciation Recovery (احتساب إهلاك الماكينات والعدد في التكلفة)
+  const [workshopAssets, setWorkshopAssets] = useState<FixedAsset[]>([]);
+  const [toolDepreciationRatePercent, setToolDepreciationRatePercent] = useState<number>(
+    initialRecord?.input?.toolDepreciationRatePercent ?? 3
+  );
+  const [enableToolDepreciation, setEnableToolDepreciation] = useState<boolean>(
+    initialRecord?.input?.toolDepreciationRatePercent !== undefined ? (initialRecord.input.toolDepreciationRatePercent > 0) : true
+  );
+
   // Insulated profit margin (0 - 500%)
   const [profitMarginPercent, setProfitMarginPercent] = useState<number>(
     initialRecord?.input?.profitMarginPercent ?? 80
@@ -608,6 +621,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         if (typeof d.packagingCost === 'number') setPackagingCost(d.packagingCost);
         if (typeof d.transitFees === 'number') setTransitFees(d.transitFees);
         if (typeof d.adminExpensesShare === 'number') setAdminExpensesShare(d.adminExpensesShare);
+        if (typeof d.toolDepreciationRatePercent === 'number') setToolDepreciationRatePercent(d.toolDepreciationRatePercent);
+        if (typeof d.enableToolDepreciation === 'boolean') setEnableToolDepreciation(d.enableToolDepreciation);
         if (typeof d.profitMarginPercent === 'number') setProfitMarginPercent(d.profitMarginPercent);
         if (d.personalNotes) setPersonalNotes(d.personalNotes);
         if (d.productImageUrl) setProductImageUrl(d.productImageUrl);
@@ -796,12 +811,14 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
       if (!tenantId) return;
 
-      const [supMats, untsRes, allLocalMats, emps] = await Promise.all([
+      const [supMats, untsRes, allLocalMats, emps, assets] = await Promise.all([
         ensureDefaultMaterialsInSupabase(tenantId),
         getUnitsFromSupabase(tenantId),
         ensureDefaultBasicYarns(tenantId),
         tenantStorage.getEmployees(tenantId).catch(() => []),
+        tenantStorage.ensureDefaultFixedAssets(tenantId).catch(() => []),
       ]);
+      setWorkshopAssets(assets || []);
 
       const unitsMap = new Map<string, any>();
       (untsRes.data || []).forEach((u) => unitsMap.set(u.id, u));
@@ -925,6 +942,19 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
 
   useEffect(() => {
     loadDatabaseMaterialsAndStaff();
+
+    const handleAssetsChanged = async () => {
+      const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
+      if (!tenantId) return;
+      try {
+        const assets = await tenantStorage.ensureDefaultFixedAssets(tenantId);
+        setWorkshopAssets(assets || []);
+      } catch (err) {
+        console.error('Failed to reload fixed assets in calculator:', err);
+      }
+    };
+    window.addEventListener('alshams_fixed_assets_changed', handleAssetsChanged);
+    return () => window.removeEventListener('alshams_fixed_assets_changed', handleAssetsChanged);
   }, [profile.tenantId, profile.workshopId, profile.id]);
 
   // Basic materials for cord dropdown & Extra materials for dynamic rows
@@ -1105,6 +1135,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       packagingCost: Number(packagingCost) || 0,
       transitFees: Number(transitFees) || 0,
       adminExpensesShare: Number(adminExpensesShare) || 0,
+      toolDepreciationRatePercent: enableToolDepreciation ? Number(toolDepreciationRatePercent) || 0 : 0,
       profitMarginPercent: Number(profitMarginPercent) || 0,
       manualOverrideStrands:
         overrideStrandsActive && manualStrands ? Number(manualStrands) : undefined,
@@ -1174,6 +1205,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     packagingCost,
     transitFees,
     adminExpensesShare,
+    enableToolDepreciation,
+    toolDepreciationRatePercent,
     profitMarginPercent,
     overrideStrandsActive,
     manualStrands,
@@ -1223,14 +1256,15 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     return executeCraftCalculation(selectedCraftId, calculationInput);
   }, [selectedCraftId, calculationInput]);
 
-  // 1. Cost Price (إجمالي الخامات المباشرة + المصنعية + التغليف + النقل + المصاريف الإدارية)
+  // 1. Cost Price (إجمالي الخامات المباشرة + المصنعية + التغليف + النقل + المصاريف الإدارية + مصاريف تشغيل وإهلاك الآلات)
   const costPrice = useMemo(() => {
     return Math.round(
       (output.totalDirectMaterialsCost || 0) +
       (output.laborWage || 0) +
       (output.packagingCost || 0) +
       (output.transitFees || 0) +
-      (output.adminExpensesShare || 0)
+      (output.adminExpensesShare || 0) +
+      (output.toolDepreciationCost || 0)
     );
   }, [output]);
 
@@ -1245,6 +1279,25 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     );
     return Math.max(costPrice, retailPrice - profitMarginDiscount);
   }, [output.insulatedProfitAmount, wholesaleMarginDiscountPercent, costPrice, retailPrice]);
+
+  // Dynamic Real-time Profit & Market Benchmark Metrics (مؤشر صافي الربح الحي ومطابقة السوق)
+  const netProfitAmount = Math.max(0, retailPrice - costPrice);
+  const netProfitRatioPercent = retailPrice > 0 ? (netProfitAmount / retailPrice) * 100 : 0;
+  const markupPercent = costPrice > 0 ? (netProfitAmount / costPrice) * 100 : 0;
+  const totalArtistIncome = (output.laborWage || 0) + netProfitAmount;
+
+  // Market Benchmark Tier: 🟡 Amber (<20%), 🟢 Green (20% - 42%), 🔵 Blue (>42%)
+  const marketBenchmarkTier = useMemo<'amber' | 'green' | 'blue'>(() => {
+    if (netProfitRatioPercent < 20) return 'amber';
+    if (netProfitRatioPercent <= 42) return 'green';
+    return 'blue';
+  }, [netProfitRatioPercent]);
+
+  // Needle position along 0% - 60% range (clamped between 4% and 96%)
+  const gaugeNeedlePositionPercent = useMemo(() => {
+    const clamped = Math.min(Math.max(netProfitRatioPercent, 0), 60);
+    return Math.max(4, Math.min(96, (clamped / 60) * 100));
+  }, [netProfitRatioPercent]);
 
   // Handle Pencil Override toggles
   const handleTogglePencil = (field: 'strands' | 'length' | 'weight') => {
@@ -2173,7 +2226,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             directMaterialsCost={output.totalDirectMaterialsCost || 0}
             laborWage={output.laborWage || 0}
             profitAmount={output.insulatedProfitAmount || 0}
-            indirectCosts={(output.packagingCost || 0) + (output.transitFees || 0) + (output.adminExpensesShare || 0)}
+            indirectCosts={(output.packagingCost || 0) + (output.transitFees || 0) + (output.adminExpensesShare || 0) + (output.toolDepreciationCost || 0)}
             totalSellingPrice={retailPrice || 0}
             currencySymbol={profile.currencySymbol}
           />
@@ -2262,6 +2315,18 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   +{output.adminExpensesShare} {profile.currencySymbol}
                 </span>
               </div>
+
+              {(output.toolDepreciationCost || 0) > 0 && (
+                <div className="flex justify-between items-center bg-white/10 px-2.5 py-1.5 rounded-xl border border-white/15">
+                  <span className="flex items-center gap-1.5">
+                    <span className="font-bold text-amber-200">مصاريف تشغيل وإهلاك الآلات ({output.toolDepreciationRatePercent}%):</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-200 font-bold">صندوق الصيانة ⚙️</span>
+                  </span>
+                  <span className="font-mono font-bold text-amber-300">
+                    +{output.toolDepreciationCost} {profile.currencySymbol}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Total Cost of Production */}
@@ -2349,6 +2414,176 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                 <Share2 className="w-4 h-4" />
                 <span>إنشاء عرض سعر واتساب فوري للعميل</span>
               </button>
+            </div>
+          </div>
+
+          {/* Dynamic Profit Gauge & Market Benchmark (مؤشر صافي الربح الحي ومطابقة السوق) */}
+          <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-stone-200 dark:border-stone-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-sm shadow-sm ${
+                  marketBenchmarkTier === 'green'
+                    ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                    : marketBenchmarkTier === 'amber'
+                    ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                    : 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30'
+                }`}>
+                  <Target className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                    <span>مؤشر صافي الربح ومطابقة السوق</span>
+                  </h4>
+                  <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                    تحليل فوري للتسعير مقارنة بمتوسط أسواق المشغولات
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Badge */}
+              <span className={`text-[11px] font-extrabold px-2.5 py-1 rounded-full border flex items-center gap-1.5 shadow-sm ${
+                marketBenchmarkTier === 'green'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                : marketBenchmarkTier === 'amber'
+                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                  : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700'
+              }`}>
+                {marketBenchmarkTier === 'green' && <><span>🟢</span><span>سعر متزن وعادل</span></>}
+                {marketBenchmarkTier === 'amber' && <><span>🟡</span><span>هامش ربح ضئيل</span></>}
+                {marketBenchmarkTier === 'blue' && <><span>🔵</span><span>تسعير معارض فاخر</span></>}
+              </span>
+            </div>
+
+            {/* Real Expected Net Profit Numbers Card */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/60 text-right">
+                <span className="text-[10px] text-stone-500 dark:text-stone-400 font-bold block mb-1">
+                  صافي الربح الحقيقي المتوقع
+                </span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">
+                    +{netProfitAmount.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] font-bold text-stone-500">{profile.currencySymbol}</span>
+                </div>
+                <span className="text-[10px] text-stone-400 font-mono block mt-0.5">
+                  {netProfitRatioPercent.toFixed(1)}% من سعر البيع
+                </span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-right">
+                <span className="text-[10px] text-amber-700 dark:text-amber-300 font-bold block mb-1">
+                  إجمالي دخل الفنان (المصنعية + الربح)
+                </span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-lg font-black font-mono text-amber-600 dark:text-amber-400">
+                    +{totalArtistIncome.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400">{profile.currencySymbol}</span>
+                </div>
+                <span className="text-[10px] text-amber-700/80 dark:text-amber-400/80 font-mono block mt-0.5">
+                  عائد التكلفة {markupPercent.toFixed(1)}%
+                </span>
+              </div>
+            </div>
+
+            {/* Visual Flexible Color Gradient Gauge (شريط التدرج البصري) */}
+            <div className="space-y-1.5 pt-1">
+              <div className="flex justify-between items-center text-[10px] font-bold text-stone-500 dark:text-stone-400 px-1">
+                <span className="text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
+                  <span>🟡</span> ضئيل (&lt;20%)
+                </span>
+                <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                  <span>🟢</span> متزن (20%-42%)
+                </span>
+                <span className="text-blue-600 dark:text-blue-400 flex items-center gap-0.5">
+                  <span>🔵</span> فاخر (&gt;42%)
+                </span>
+              </div>
+
+              {/* Gradient Track with Sliding Needle Indicator */}
+              <div className="relative pt-6 pb-1">
+                {/* Sliding Marker Needle */}
+                <div
+                  className="absolute top-0 -translate-x-1/2 flex flex-col items-center transition-all duration-300 pointer-events-none z-10"
+                  style={{ left: `${gaugeNeedlePositionPercent}%` }}
+                >
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full shadow-md font-mono ${
+                    marketBenchmarkTier === 'green'
+                      ? 'bg-emerald-600 text-white shadow-emerald-600/40'
+                      : marketBenchmarkTier === 'amber'
+                      ? 'bg-amber-600 text-white shadow-amber-600/40'
+                      : 'bg-blue-600 text-white shadow-blue-600/40'
+                  }`}>
+                    {netProfitRatioPercent.toFixed(1)}%
+                  </span>
+                  <div className={`w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent ${
+                    marketBenchmarkTier === 'green'
+                      ? 'border-t-[5px] border-t-emerald-600'
+                      : marketBenchmarkTier === 'amber'
+                      ? 'border-t-[5px] border-t-amber-600'
+                      : 'border-t-[5px] border-t-blue-600'
+                  }`} />
+                </div>
+
+                {/* The 3-Zone Gradient Bar */}
+                <div className="h-3.5 w-full rounded-full p-0.5 bg-stone-200 dark:bg-stone-800 shadow-inner overflow-hidden flex">
+                  {/* Zone 1: Amber (<20% = 33% of 60% range) */}
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-r-full"
+                    style={{ width: '33.33%' }}
+                    title="نطاق الربح الضئيل (<20%)"
+                  />
+                  {/* Zone 2: Emerald (20% - 42% = 36.67% of 60% range) */}
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400"
+                    style={{ width: '36.67%' }}
+                    title="نطاق متوسط السوق المتزن (20% - 42%)"
+                  />
+                  {/* Zone 3: Blue (>42% = 30% of 60% range) */}
+                  <div
+                    className="h-full bg-gradient-to-r from-sky-500 to-indigo-600 rounded-l-full"
+                    style={{ width: '30%' }}
+                    title="نطاق المعارض والقطع الفنية الفاخرة (>42%)"
+                  />
+                </div>
+
+                {/* Milestone ticks */}
+                <div className="relative w-full h-3 text-[9px] font-mono text-stone-400 dark:text-stone-500 mt-0.5">
+                  <span className="absolute left-0">0%</span>
+                  <span className="absolute left-[33.33%] -translate-x-1/2">20%</span>
+                  <span className="absolute left-[70%] -translate-x-1/2">42%</span>
+                  <span className="absolute right-0">60%+</span>
+                </div>
+              </div>
+
+              {/* Contextual Market Advice Message Box */}
+              <div className={`p-2.5 rounded-2xl border text-xs leading-relaxed flex items-start gap-2 ${
+                marketBenchmarkTier === 'green'
+                  ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-200'
+                  : marketBenchmarkTier === 'amber'
+                  ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200'
+                  : 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800/50 text-blue-800 dark:text-blue-200'
+              }`}>
+                <span className="text-base shrink-0 mt-0.5">
+                  {marketBenchmarkTier === 'green' ? '🟢' : marketBenchmarkTier === 'amber' ? '🟡' : '🔵'}
+                </span>
+                <div>
+                  <p className="font-bold text-[11px] mb-0.5">
+                    {marketBenchmarkTier === 'green' && 'السعر متزن ومطابق لمتوسط السوق الحرفي ويحقق هامش ربح عادل ومستدام.'}
+                    {marketBenchmarkTier === 'amber' && 'هامش ربح ضئيل يغطي التكلفة بصعوبة ولا يكافئ مجهود الساعات الحرفية.'}
+                    {marketBenchmarkTier === 'blue' && 'تسعير لقطع فنية نادرة وفاخرة بنسب ربح مرتفعة للمعارض.'}
+                  </p>
+                  <p className="text-[10px] opacity-80 leading-normal">
+                    {marketBenchmarkTier === 'green' &&
+                      'يحقق التوازن المثالي بين سرعة البيع وتغطية كافة مصاريف الإنتاج وصندوق صيانة الماكينات مع عائد عادل.'}
+                    {marketBenchmarkTier === 'amber' &&
+                      'يُنصح بزيادة نسبة هامش الربح المعزول (من شريط التحكم بالخطوة 4) أو ترشيد الخامات لضمان استدامة ورشتك.'}
+                    {marketBenchmarkTier === 'blue' &&
+                      'مناسب للمشغولات اليدوية الحصرية والمصممة للمعارض النخبوية والعملاء المهتمين بالأعمال الفنية المميزة.'}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -3984,6 +4219,124 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                 <span>250%</span>
                 <span>500% (أعلى تصدير)</span>
               </div>
+            </div>
+
+            {/* Tool Depreciation Recovery Card (احتساب إهلاك الماكينات والعدد في التكلفة) */}
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/20 shadow-sm">
+                    <Wrench className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                      <span>احتساب إهلاك الماكينات والعدد في التكلفة</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-700">
+                        سجل الأصول
+                      </span>
+                    </h4>
+                    <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                      إضافة نسبة مرنة (2% - 4%) لتغذية صندوق صيانة وتجديد معدات الورشة دون مساس بدخل الفنان
+                    </p>
+                  </div>
+                </div>
+
+                {/* Enable/Disable Toggle */}
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enableToolDepreciation}
+                    onChange={(e) => setEnableToolDepreciation(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5 bg-stone-300 peer-focus:outline-none rounded-full peer dark:bg-stone-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                </label>
+              </div>
+
+              {enableToolDepreciation && (
+                <div className="space-y-3 pt-2 border-t border-stone-200 dark:border-stone-700">
+                  {/* Preset Buttons & Current Percentage */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold text-stone-700 dark:text-stone-300">
+                      نسبة إهلاك المعدات المضافة:
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {[
+                        { pct: 2, label: '2% خفيف' },
+                        { pct: 3, label: '3% موصى به ⭐' },
+                        { pct: 4, label: '4% معدات ثقيلة' },
+                      ].map((item) => (
+                        <button
+                          key={item.pct}
+                          type="button"
+                          onClick={() => setToolDepreciationRatePercent(item.pct)}
+                          className={`text-xs px-2.5 py-1 rounded-xl font-bold transition cursor-pointer ${
+                            toolDepreciationRatePercent === item.pct
+                              ? 'bg-amber-600 text-white shadow-sm'
+                              : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Range Slider for Fine Adjustment */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-xs font-mono font-bold text-amber-600 dark:text-amber-400">
+                      <span>{toolDepreciationRatePercent}% من تكلفة التشغيل المباشرة</span>
+                      <span className="text-stone-700 dark:text-stone-300 text-xs font-bold font-mono">
+                        نصيب القطعة: +{output.toolDepreciationCost || 0} {profile.currencySymbol}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="6"
+                      step="0.5"
+                      value={toolDepreciationRatePercent}
+                      onChange={(e) => setToolDepreciationRatePercent(Number(e.target.value))}
+                      className="w-full accent-amber-600 cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[9px] text-stone-400 font-mono">
+                      <span>1% (رمزي)</span>
+                      <span>2% (أدوات يدوية)</span>
+                      <span>3% (متوسط المعدات)</span>
+                      <span>4% (ماكينات وتافتنج)</span>
+                      <span>6% (أقصى تشغيل)</span>
+                    </div>
+                  </div>
+
+                  {/* Linked Workshop Machinery Chips from FixedAssetsView */}
+                  <div className="p-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
+                        <Settings className="w-3.5 h-3.5 text-amber-600" />
+                        <span>المعدات المسجلة بورشتك ({workshopAssets.length} أصول نشطة):</span>
+                      </span>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">
+                        صندوق الصيانة محمي 🛡️
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {workshopAssets.slice(0, 5).map((ast) => (
+                        <span
+                          key={ast.id}
+                          className="text-[10px] px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 flex items-center gap-1.5"
+                        >
+                          <span>⚙️</span>
+                          <span className="font-medium">{ast.assetName || ast.name}</span>
+                          <span className="font-mono text-stone-400">({ast.purchaseCost?.toLocaleString()} ج)</span>
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-stone-500 dark:text-stone-400 leading-relaxed pt-1 border-t border-stone-100 dark:border-stone-800">
+                      💡 <strong>المعادلة الهندسية:</strong> ({toolDepreciationRatePercent}% × تكلفة التشغيل المباشرة {output.totalDirectMaterialsCost + output.laborWage} ج = {output.toolDepreciationCost || 0} {profile.currencySymbol}) تُضاف تلقائياً لسعر البيع لضمان تجديد وصيانة الآلات دون أي اقتطاع من أجرة يد الفنان.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Labor Wage & Employee Assignment */}

@@ -313,11 +313,13 @@ export function calculateMacrame(input: CalculationInput): CalculationOutput {
   const profitMarginPercent = Number(input.profitMarginPercent) || 0;
   const insulatedProfitAmount = Math.round(totalDirectMaterialsCost * (profitMarginPercent / 100));
 
-  // 7. Labor, Packaging, Shipping & Overheads
+  // 7. Labor, Packaging, Shipping, Overheads & Tool Depreciation Recovery
   const laborWage = Math.round(Number(input.laborWage) || 0);
   const packagingCost = Math.round(Number(input.packagingCost) || 0);
   const transitFees = Math.round(Number(input.transitFees) || 0);
   const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 0);
+  const toolDepreciationRate = Number(input.toolDepreciationRatePercent) || 0;
+  const toolDepreciationCost = Math.round(((totalDirectMaterialsCost + laborWage) * toolDepreciationRate) / 100);
 
   // 8. Final Selling Price
   const finalSellingPrice = Math.round(
@@ -326,7 +328,8 @@ export function calculateMacrame(input: CalculationInput): CalculationOutput {
     laborWage +
     packagingCost +
     transitFees +
-    adminExpensesShare
+    adminExpensesShare +
+    toolDepreciationCost
   );
 
   return {
@@ -344,6 +347,8 @@ export function calculateMacrame(input: CalculationInput): CalculationOutput {
     packagingCost,
     transitFees,
     adminExpensesShare,
+    toolDepreciationRatePercent: toolDepreciationRate,
+    toolDepreciationCost,
     finalSellingPrice,
     isOverridden: {
       strands: isOverriddenStrands,

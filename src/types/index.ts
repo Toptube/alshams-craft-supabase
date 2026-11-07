@@ -830,6 +830,8 @@ export interface CalculationInput {
   packagingCost: number;
   transitFees: number;
   adminExpensesShare: number;
+  toolDepreciationRatePercent?: number;
+  toolDepreciationCost?: number;
   profitMarginPercent: number;
   manualOverrideStrands?: number;
   manualOverrideStrandLength?: number;
@@ -905,6 +907,8 @@ export interface CalculationOutput {
   packagingCost: number;
   transitFees: number;
   adminExpensesShare: number;
+  toolDepreciationRatePercent?: number;
+  toolDepreciationCost?: number;
   finalSellingPrice: number;
   isOverridden: {
     strands: boolean;

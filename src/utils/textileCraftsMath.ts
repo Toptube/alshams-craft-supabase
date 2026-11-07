@@ -131,13 +131,17 @@ export function calculateCrochet(input: CalculationInput): CalculationOutput {
   const transitFees = Math.round(Number(input.transitFees) || 0);
   const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 25);
 
+  const toolDepreciationRate = Number(input.toolDepreciationRatePercent) || 0;
+  const toolDepreciationCost = Math.round(((totalDirectMaterialsCost + laborWage) * toolDepreciationRate) / 100);
+
   const finalSellingPrice = Math.round(
     totalDirectMaterialsCost +
     insulatedProfitAmount +
     laborWage +
     packagingCost +
     transitFees +
-    adminExpensesShare
+    adminExpensesShare +
+    toolDepreciationCost
   );
 
   return {
@@ -155,6 +159,8 @@ export function calculateCrochet(input: CalculationInput): CalculationOutput {
     packagingCost,
     transitFees,
     adminExpensesShare,
+    toolDepreciationRatePercent: toolDepreciationRate,
+    toolDepreciationCost,
     finalSellingPrice,
     isOverridden: {
       strands: false,
@@ -321,13 +327,17 @@ export function calculateZigzag(input: CalculationInput): CalculationOutput {
   const transitFees = Math.round(Number(input.transitFees) || 0);
   const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 20);
 
+  const toolDepreciationRate = Number(input.toolDepreciationRatePercent) || 0;
+  const toolDepreciationCost = Math.round(((totalDirectMaterialsCost + laborWage) * toolDepreciationRate) / 100);
+
   const finalSellingPrice = Math.round(
     totalDirectMaterialsCost +
     insulatedProfitAmount +
     laborWage +
     packagingCost +
     transitFees +
-    adminExpensesShare
+    adminExpensesShare +
+    toolDepreciationCost
   );
 
   return {
@@ -345,6 +355,8 @@ export function calculateZigzag(input: CalculationInput): CalculationOutput {
     packagingCost,
     transitFees,
     adminExpensesShare,
+    toolDepreciationRatePercent: toolDepreciationRate,
+    toolDepreciationCost,
     finalSellingPrice,
     isOverridden: {
       strands: false,
@@ -431,13 +443,17 @@ export function calculateKilim(input: CalculationInput): CalculationOutput {
   const transitFees = Math.round(Number(input.transitFees) || 0);
   const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 40);
 
+  const toolDepreciationRate = Number(input.toolDepreciationRatePercent) || 0;
+  const toolDepreciationCost = Math.round(((totalDirectMaterialsCost + laborWage) * toolDepreciationRate) / 100);
+
   const finalSellingPrice = Math.round(
     totalDirectMaterialsCost +
     insulatedProfitAmount +
     laborWage +
     packagingCost +
     transitFees +
-    adminExpensesShare
+    adminExpensesShare +
+    toolDepreciationCost
   );
 
   return {
@@ -455,6 +471,8 @@ export function calculateKilim(input: CalculationInput): CalculationOutput {
     packagingCost,
     transitFees,
     adminExpensesShare,
+    toolDepreciationRatePercent: toolDepreciationRate,
+    toolDepreciationCost,
     finalSellingPrice,
     isOverridden: {
       strands: false,
@@ -547,13 +565,17 @@ export function calculatePunchNeedle(input: CalculationInput): CalculationOutput
   const transitFees = Math.round(Number(input.transitFees) || 0);
   const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 25);
 
+  const toolDepreciationRate = Number(input.toolDepreciationRatePercent) || 0;
+  const toolDepreciationCost = Math.round(((totalDirectMaterialsCost + laborWage) * toolDepreciationRate) / 100);
+
   const finalSellingPrice = Math.round(
     totalDirectMaterialsCost +
     insulatedProfitAmount +
     laborWage +
     packagingCost +
     transitFees +
-    adminExpensesShare
+    adminExpensesShare +
+    toolDepreciationCost
   );
 
   return {
@@ -571,6 +593,8 @@ export function calculatePunchNeedle(input: CalculationInput): CalculationOutput
     packagingCost,
     transitFees,
     adminExpensesShare,
+    toolDepreciationRatePercent: toolDepreciationRate,
+    toolDepreciationCost,
     finalSellingPrice,
     isOverridden: {
       strands: false,
@@ -658,13 +682,17 @@ export function calculateTufting(input: CalculationInput): CalculationOutput {
   const transitFees = Math.round(Number(input.transitFees) || 0);
   const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 35);
 
+  const toolDepreciationRate = Number(input.toolDepreciationRatePercent) || 0;
+  const toolDepreciationCost = Math.round(((totalDirectMaterialsCost + laborWage) * toolDepreciationRate) / 100);
+
   const finalSellingPrice = Math.round(
     totalDirectMaterialsCost +
     insulatedProfitAmount +
     laborWage +
     packagingCost +
     transitFees +
-    adminExpensesShare
+    adminExpensesShare +
+    toolDepreciationCost
   );
 
   return {
@@ -682,6 +710,8 @@ export function calculateTufting(input: CalculationInput): CalculationOutput {
     packagingCost,
     transitFees,
     adminExpensesShare,
+    toolDepreciationRatePercent: toolDepreciationRate,
+    toolDepreciationCost,
     finalSellingPrice,
     isOverridden: {
       strands: false,

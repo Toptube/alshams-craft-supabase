@@ -174,7 +174,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
   const loadAssets = async () => {
     setLoading(true);
     try {
-      const data = await tenantStorage.getFixedAssets(tenantId);
+      const data = await tenantStorage.ensureDefaultFixedAssets(tenantId);
       // Recalculate dynamic accumulated depreciation based on current date
       const updated = data.map((a) => calculateAssetCurrentValues(a));
       setAssets(updated);

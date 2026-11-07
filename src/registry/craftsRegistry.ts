@@ -296,6 +296,8 @@ export function calculateGenericCraftCost(input: CalculationInput): CalculationO
   const packagingCost = Math.round(Number(input.packagingCost) || 0);
   const transitFees = Math.round(Number(input.transitFees) || 0);
   const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 0);
+  const toolDepreciationRate = Number(input.toolDepreciationRatePercent) || 0;
+  const toolDepreciationCost = Math.round(((materialsCost + laborWage) * toolDepreciationRate) / 100);
 
   const finalSellingPrice = Math.round(
     materialsCost +
@@ -303,7 +305,8 @@ export function calculateGenericCraftCost(input: CalculationInput): CalculationO
     laborWage +
     packagingCost +
     transitFees +
-    adminExpensesShare
+    adminExpensesShare +
+    toolDepreciationCost
   );
 
   return {
@@ -321,6 +324,8 @@ export function calculateGenericCraftCost(input: CalculationInput): CalculationO
     packagingCost,
     transitFees,
     adminExpensesShare,
+    toolDepreciationRatePercent: toolDepreciationRate,
+    toolDepreciationCost,
     finalSellingPrice,
     isOverridden: {
       strands: false,
@@ -353,6 +358,8 @@ export function calculateFusionCraftCost(
   const packagingCost = Math.round(Number(fusionOverhead.packagingCost) || 0);
   const transitFees = Math.round(Number(fusionOverhead.transitFees) || 0);
   const adminExpensesShare = Math.round(Number(fusionOverhead.adminExpensesShare) || 0);
+  const toolDepreciationCost =
+    (firstCalculation.toolDepreciationCost || 0) + (secondCalculation.toolDepreciationCost || 0);
 
   const finalSellingPrice = Math.round(
     totalDirectMaterialsCost +
@@ -360,7 +367,8 @@ export function calculateFusionCraftCost(
     laborWage +
     packagingCost +
     transitFees +
-    adminExpensesShare
+    adminExpensesShare +
+    toolDepreciationCost
   );
 
   return {
@@ -378,6 +386,8 @@ export function calculateFusionCraftCost(
     packagingCost,
     transitFees,
     adminExpensesShare,
+    toolDepreciationRatePercent: firstCalculation.toolDepreciationRatePercent || secondCalculation.toolDepreciationRatePercent || 0,
+    toolDepreciationCost,
     finalSellingPrice,
     isOverridden: {
       strands: false,
