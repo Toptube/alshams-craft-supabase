@@ -113,7 +113,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   // 1. Specialized Textile Workshops list for quick switching
   const TEXTILE_WORKSHOPS = useMemo(() => [
     { id: 'macrame', nameAr: 'المكرمية والعقد اليدوي', shortName: 'المكرمية', icon: '🪢', defaultCat: 'جدارية' },
-    { id: 'crochet', nameAr: 'الكروشيه المنزلي والمشغولات', shortName: 'الكروشيه', icon: '🧶', defaultCat: 'باسكت كروشيه' },
+    { id: 'crochet', nameAr: 'كروشيه', shortName: 'كروشيه', icon: '🧶', defaultCat: 'باسكت كروشيه' },
     { id: 'zigzag', nameAr: 'حبال الزجزاج وخياطة الماكينة', shortName: 'الزجزاج', icon: '🧵', defaultCat: 'باسكت حلزوني' },
     { id: 'kilim', nameAr: 'الكليم والنسيج اليدوي', shortName: 'الكليم', icon: '🪡', defaultCat: 'كليم نول أرضي' },
     { id: 'punch_needle', nameAr: 'إبرة النقاش (بانش نيدل)', shortName: 'بانش نيدل', icon: '🎨', defaultCat: 'تابلوه حائطي' },

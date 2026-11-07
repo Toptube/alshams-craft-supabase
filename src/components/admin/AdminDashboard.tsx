@@ -5,6 +5,15 @@ import { supabase } from '../../lib/supabase';
 import { playSuccessSound, playErrorSound, playAlertSound, playPostaNotificationSound } from '../../lib/sounds';
 import { COUNTRIES_CONFIG } from '../../utils/macrameMath';
 import {
+  getShippingConfig,
+  saveShippingConfig,
+  getCentralMarketplaceOrders,
+  updateCentralMarketplaceOrderStatus,
+  setClientPrivacyActive,
+  getClientPrivacyActive,
+  GovernoratesShippingConfig,
+} from '../../services/marketplaceCartService';
+import {
   ShieldAlert,
   ShieldCheck,
   Building2,
@@ -54,6 +63,7 @@ import {
   UserCheck,
   Volume2,
   Store,
+  Truck,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -214,12 +224,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   // Master ERP Workshop Switcher State
   const [selectedWorkshopId, setSelectedWorkshopId] = useState<string>(profile.id);
   const [activeExecutiveTab, setActiveExecutiveTab] = useState<ExecutiveTab>(initialTab);
-  const [centralShippingPrivacy, setCentralShippingPrivacy] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('alshams_central_shipping_privacy') === 'true';
-    }
-    return false;
-  });
+  const [centralShippingPrivacy, setCentralShippingPrivacy] = useState<boolean>(() => getClientPrivacyActive());
+  const [shippingConfig, setShippingConfig] = useState<GovernoratesShippingConfig>(() => getShippingConfig());
+  const [marketplaceOrdersList, setMarketplaceOrdersList] = useState<any[]>(() => getCentralMarketplaceOrders());
+  const [editingGovRates, setEditingGovRates] = useState<boolean>(false);
+  const [initialRatingForApprove, setInitialRatingForApprove] = useState<number>(5);
   const [rejectingProduct, setRejectingProduct] = useState<any | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('');
   const [deepDataLoading, setDeepDataLoading] = useState(false);
@@ -2703,20 +2712,20 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* Tab 7: Marketplace & Stores Control (إدارة متاجر وسوق الشمساوية) */}
+        {/* Tab 7: Marketplace & Stores Control (مقصورة السوبر أدمن المركزية وإدارة الماركت بليس) */}
         {activeExecutiveTab === 'marketplace' && (
           <div className="space-y-6 animate-in fade-in">
-            {/* 1. Global Logistics & Privacy Switch */}
+            {/* 1. Global Logistics & Client Privacy Switch */}
             <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border-2 border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                   <h4 className="font-black text-sm text-stone-900 dark:text-white">
-                    حجب أرقام تواصل العملاء وتفعيل الشحن المركزي للمنظومة
+                    مفتاح أمان بيانات العملاء (Client Privacy Toggle)
                   </h4>
                 </div>
-                <p className="text-xs text-stone-600 dark:text-[#EADBC8] max-w-xl">
-                  عند تفعيل هذا الخيار، يتم إخفاء أرقام وبيانات اتصال المشترين المباشرة عن ورش الإنتاج، وتتولى إدارة الشمساوية المركزية التنسيق والشحن لضمان الجودة وأمان الطرفين.
+                <p className="text-xs text-stone-600 dark:text-[#EADBC8] max-w-2xl leading-relaxed">
+                  الوضع الافتراضي (معطل): يستلم الفنان الطلبية بتفاصيل المشغولة فقط، واسم العميل يظهر كـ "عميل متجر عائلة الشمساوية" مع حجب هاتفه وعنوانه تماماً، حيث تتولى شركة "الشمس كرافت" الفحص والشحن والتسليم. عند التفعيل: تظهر بيانات العميل كاملة للورشة للشحن المباشر.
                 </p>
               </div>
 
@@ -2725,30 +2734,53 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 onClick={() => {
                   const updated = !centralShippingPrivacy;
                   setCentralShippingPrivacy(updated);
-                  localStorage.setItem('alshams_central_shipping_privacy', String(updated));
+                  setClientPrivacyActive(updated);
                   playSuccessSound();
-                  setSuccessNotice(updated ? '✓ تم تفعيل الشحن المركزي وحجب بيانات العملاء بنجاح' : 'تم تعطيل الشحن المركزي وإتاحة التواصل المباشر للورش');
+                  setSuccessNotice(
+                    updated
+                      ? '✓ تم تفعيل حجب بيانات العملاء والشحن المركزي عبر شركة الشمس كرافت 🛡️'
+                      : 'تم تفعيل إظهار بيانات العملاء (الاسم والهاتف والعنوان) لورش الفنانين 📱'
+                  );
                 }}
-                className={`px-4 py-2.5 rounded-2xl font-black text-xs transition flex items-center gap-2 cursor-pointer shadow-md ${
+                className={`px-4 py-2.5 rounded-2xl font-black text-xs transition flex items-center gap-2 cursor-pointer shadow-md shrink-0 ${
                   centralShippingPrivacy
                     ? 'bg-emerald-600 text-white border-2 border-emerald-400'
-                    : 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700'
+                    : 'bg-amber-600 text-white border-2 border-amber-400'
                 }`}
               >
-                <span>{centralShippingPrivacy ? 'مفعل (شحن مركزي محمي 🛡️)' : 'معطل (تواصل مباشر 📱)'}</span>
+                <span>{centralShippingPrivacy ? 'بيانات العملاء محجوبة عن الورش (الوضع الآمن 🛡️)' : 'إظهار بيانات العميل للورش (مفعل 📱)'}</span>
               </button>
             </div>
 
             {/* 2. Products Approval & Quality Moderation */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="font-black text-sm text-stone-900 dark:text-white flex items-center gap-2">
-                  <Package className="w-4 h-4 text-amber-600" />
-                  <span>اعتماد وجودة المشغولات المعروضة في سوق الشمساوية ({deepData?.products?.length || 0})</span>
-                </h4>
-                <span className="text-xs text-stone-500 font-bold">
-                  فحص الصور، دقة المواصفات، والأسعار العادلة
-                </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="font-black text-sm text-stone-900 dark:text-white flex items-center gap-2">
+                    <Package className="w-4 h-4 text-amber-600" />
+                    <span>اعتماد وجودة المشغولات المعروضة في سوق الشمساوية ({deepData?.products?.length || 0})</span>
+                  </h4>
+                  <span className="text-xs text-stone-500 font-bold">
+                    فحص الصور، دقة المواصفات، الفنش، وتحديد التقييم المبدئي
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-stone-500 font-bold">التقييم المبدئي عند الاعتماد:</span>
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setInitialRatingForApprove(s)}
+                        className="cursor-pointer"
+                        title={`${s} نجوم`}
+                      >
+                        <Star className={`w-4 h-4 ${initialRatingForApprove >= s ? 'fill-amber-500 text-amber-500' : 'text-stone-300 dark:text-stone-700'}`} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {!deepData?.products || deepData.products.length === 0 ? (
@@ -2765,7 +2797,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                         className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 flex items-start justify-between gap-3 shadow-xs"
                       >
                         <div className="flex items-start gap-3 min-w-0">
-                          <div className="w-14 h-14 rounded-xl overflow-hidden bg-stone-100 dark:bg-stone-800 shrink-0 border border-amber-500/20">
+                          <div className="w-16 h-16 rounded-xl overflow-hidden bg-stone-100 dark:bg-stone-800 shrink-0 border border-amber-500/20">
                             {p.imageUrl ? (
                               <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
                             ) : (
@@ -2783,6 +2815,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                               <span>•</span>
                               <span className="font-bold text-amber-600 dark:text-amber-400">
                                 {p.retailPrice || 0} ج.م
+                              </span>
+                              <span>•</span>
+                              <span className="flex items-center gap-0.5 text-amber-500">
+                                <Star className="w-3 h-3 fill-amber-500" />
+                                <span>{p.rating || initialRatingForApprove}</span>
                               </span>
                             </div>
                             <span className="text-[10px] text-stone-400 block truncate">
@@ -2808,14 +2845,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                               type="button"
                               onClick={async () => {
                                 p.isMarketplaceApproved = true;
+                                p.rating = initialRatingForApprove;
                                 await tenantStorage.mutateProduct(p);
                                 playSuccessSound();
-                                setSuccessNotice(`✓ تم اعتماد المشغولة "${p.productName}" ونشرها بالسوق المركزي بنجاح!`);
+                                setSuccessNotice(`✓ تم اعتماد المشغولة "${p.productName}" بتقييم ${initialRatingForApprove} نجوم ونشرها بنجاح!`);
                               }}
-                              className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] cursor-pointer"
-                              title="اعتماد المشغولة"
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] cursor-pointer"
+                              title="اعتماد المشغولة وتحديد التقييم"
                             >
-                              قبول
+                              قبول ({initialRatingForApprove}★)
                             </button>
 
                             <button
@@ -2824,11 +2862,327 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                                 setRejectingProduct(p);
                                 setRejectReason('يرجى تحسين ووضوح الصورة وتحديد الأبعاد بدقة.');
                               }}
-                              className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer"
+                              className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer"
                               title="رفض مع سبب"
                             >
                               رفض مع سبب
                             </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 3. Shipping & Storage Pricing Panel */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-amber-600" />
+                  <h4 className="font-black text-sm text-stone-900 dark:text-white">
+                    إدارة تسعير الشحن والعمولات ومصاريف التخزين والتغليف
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingGovRates(!editingGovRates)}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>{editingGovRates ? 'إغلاق جدول المحافظات' : 'تعديل أسعار المحافظات'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 space-y-1">
+                  <span className="text-stone-500 font-bold block">مصاريف التغليف والحفظ:</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={shippingConfig.packagingFee}
+                      onChange={(e) => {
+                        const updated = { ...shippingConfig, packagingFee: Number(e.target.value) || 0 };
+                        setShippingConfig(updated);
+                        saveShippingConfig(updated);
+                      }}
+                      className="w-24 px-2 py-1 rounded-lg bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-white font-mono font-bold"
+                    />
+                    <span className="text-stone-500 font-bold">ج.م / شحنة</span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 space-y-1">
+                  <span className="text-stone-500 font-bold block">مصاريف الفحص والمناولة المركزية:</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={shippingConfig.storageAndHandlingFee}
+                      onChange={(e) => {
+                        const updated = { ...shippingConfig, storageAndHandlingFee: Number(e.target.value) || 0 };
+                        setShippingConfig(updated);
+                        saveShippingConfig(updated);
+                      }}
+                      className="w-24 px-2 py-1 rounded-lg bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-white font-mono font-bold"
+                    />
+                    <span className="text-stone-500 font-bold">ج.م / قطعة</span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 space-y-1">
+                  <span className="text-stone-500 font-bold block">عمولة المنظومة للمبيعات:</span>
+                  <span className="font-mono text-base font-black text-amber-600 dark:text-amber-400 block pt-1">
+                    10% (تشمل الفحص وضمان الجودة)
+                  </span>
+                </div>
+              </div>
+
+              {/* Governorates Rates Table */}
+              {editingGovRates && (
+                <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-3">
+                  <span className="text-xs font-bold text-stone-700 dark:text-stone-300 block">
+                    تسعير الشحن حسب المحافظات (ج.م):
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2 text-xs">
+                    {Object.entries(shippingConfig.governorateRates).map(([gov, rate]) => (
+                      <div key={gov} className="p-2 rounded-xl bg-stone-100 dark:bg-stone-800 flex items-center justify-between gap-1">
+                        <span className="font-bold text-stone-800 dark:text-stone-200 truncate">{gov}</span>
+                        <input
+                          type="number"
+                          value={rate}
+                          onChange={(e) => {
+                            const updated = {
+                              ...shippingConfig,
+                              governorateRates: {
+                                ...shippingConfig.governorateRates,
+                                [gov]: Number(e.target.value) || 0,
+                              },
+                            };
+                            setShippingConfig(updated);
+                            saveShippingConfig(updated);
+                          }}
+                          className="w-14 px-1 py-0.5 rounded bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 font-mono text-center font-bold text-amber-600"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 4. Central Orders Monitoring & Live Countdown Timer */}
+            <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                  <h4 className="font-black text-sm text-stone-900 dark:text-white">
+                    شاشة متابعة تصنيع طلبيات السوق والعداد التنازلي للتسليم ({marketplaceOrdersList.length})
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMarketplaceOrdersList(getCentralMarketplaceOrders())}
+                  className="p-1.5 rounded-lg text-stone-400 hover:text-amber-600 transition"
+                  title="تحديث قائمة الطلبيات"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+
+              {marketplaceOrdersList.length === 0 ? (
+                <div className="p-8 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 text-xs text-stone-500">
+                  لا توجد طلبيات سوق مسجلة حالياً. عند إتمام المشترين لطلبات السلة ستظهر هنا فورياً لبدء التحقق من دفعة الجدية.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {marketplaceOrdersList.map((order) => {
+                    const targetDelivery = order.targetDeliveryDate || (order as any).dueDate || order.deliveryDate;
+                    const daysRemaining = targetDelivery
+                      ? Math.ceil((new Date(targetDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                      : null;
+
+                    const isClientHidden = order.isClientDataHiddenFromArtisan !== false;
+
+                    return (
+                      <div
+                        key={order.id}
+                        className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-3 text-xs"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-200 dark:border-stone-750 pb-2">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-xs font-mono">
+                              #{order.invoiceNumber}
+                            </span>
+                            <div>
+                              <h5 className="font-black text-sm text-stone-900 dark:text-white">
+                                {order.customerName} ({order.customerPhone})
+                              </h5>
+                              <span className="text-[11px] text-stone-500">
+                                {order.governorate} • {order.detailedAddress}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Countdown Timer Badge */}
+                          <div className="flex items-center gap-2">
+                            {daysRemaining !== null && order.status !== 'completed' && order.status !== 'cancelled' && (
+                              <span
+                                className={`px-3 py-1 rounded-full text-xs font-mono font-black flex items-center gap-1.5 ${
+                                  daysRemaining > 2
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-400'
+                                    : daysRemaining > 0
+                                    ? 'bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300 border border-orange-400 animate-pulse'
+                                    : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-400'
+                                }`}
+                              >
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>
+                                  {daysRemaining > 0
+                                    ? `باقي ${daysRemaining} يوم للتسليم`
+                                    : daysRemaining === 0
+                                    ? 'ميعاد التسليم اليوم!'
+                                    : `متأخر ${Math.abs(daysRemaining)} يوم`}
+                                </span>
+                              </span>
+                            )}
+
+                            <span
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                order.status === 'in_progress'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                  : order.status === 'shipped'
+                                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
+                                  : order.status === 'completed'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  : 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300'
+                              }`}
+                            >
+                              {order.status === 'in_progress'
+                                ? 'جاري التصنيع 🔨'
+                                : order.status === 'shipped'
+                                ? 'جاري الشحن والتسليم 🚚'
+                                : order.status === 'completed'
+                                ? 'تم التسليم بنجاح ✓'
+                                : 'بانتظار تأكيد الجدية ⏳'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Items & Financials */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="p-2.5 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
+                            <span className="text-[10px] text-stone-500 block mb-0.5">المشغولات المطلوبة:</span>
+                            <span className="font-bold text-stone-900 dark:text-white line-clamp-1">
+                              {order.items?.map((i: any) => `${i.productName} (${i.quantity})`).join('، ') || 'مشغولة يدوية'}
+                            </span>
+                          </div>
+
+                          <div className="p-2.5 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
+                            <span className="text-[10px] text-stone-500 block mb-0.5">دفعة الجدية (33%):</span>
+                            <span className="font-bold font-mono text-amber-600 dark:text-amber-400">
+                              {order.advancePaymentAmount || Math.round((order.finalTotal || 0) * 0.33)} ج.م ({order.paymentMethod || 'إنستاباي'})
+                            </span>
+                            {order.advancePaymentTransactionId && (
+                              <span className="text-[9px] text-stone-400 block truncate">
+                                مرجع: {order.advancePaymentTransactionId}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="p-2.5 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
+                            <span className="text-[10px] text-stone-500 block mb-0.5">إجمالي الفاتورة والباقي:</span>
+                            <span className="font-mono font-black text-stone-900 dark:text-white">
+                              إجمالي: {order.finalTotal} ج.م | متبقي: {order.remainingAmount || 0} ج.م
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Operational Actions */}
+                        <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 dark:border-stone-750">
+                          {/* Privacy Toggle per order */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updatedPrivacy = !isClientHidden;
+                              updateCentralMarketplaceOrderStatus(order.id, {
+                                isClientDataHiddenFromArtisan: updatedPrivacy,
+                              });
+                              setMarketplaceOrdersList(getCentralMarketplaceOrders());
+                              playSuccessSound();
+                              setSuccessNotice(
+                                updatedPrivacy
+                                  ? '✓ تم حجب بيانات العميل عن الورشة لهذا الأوردر'
+                                  : 'تم إظهار بيانات العميل للورشة للشحن المباشر'
+                              );
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1 ${
+                              isClientHidden
+                                ? 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-400'
+                            }`}
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>{isClientHidden ? 'بيانات العميل محجوبة عن الفنان' : 'بيانات العميل ظاهرة للفنان للشحن المباشر'}</span>
+                          </button>
+
+                          {/* Lifecycle action buttons */}
+                          <div className="flex items-center gap-2">
+                            {order.status === 'pending' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateCentralMarketplaceOrderStatus(order.id, {
+                                    status: 'in_progress',
+                                    marketplaceStatus: 'in_production',
+                                    advancePaymentConfirmed: true,
+                                  });
+                                  setMarketplaceOrdersList(getCentralMarketplaceOrders());
+                                  playSuccessSound();
+                                  setSuccessNotice(`✓ تم اعتماد دفعة الجدية للطلب #${order.invoiceNumber} وبدء التصنيع بالورشة!`);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-md"
+                              >
+                                <span>اعتماد دفعة الجدية وبدء التصنيع 🔨</span>
+                              </button>
+                            )}
+
+                            {order.status === 'in_progress' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateCentralMarketplaceOrderStatus(order.id, {
+                                    status: 'shipped',
+                                    marketplaceStatus: 'shipped',
+                                  });
+                                  setMarketplaceOrdersList(getCentralMarketplaceOrders());
+                                  playSuccessSound();
+                                  setSuccessNotice(`✓ تم فحص القطعة بنجاح وتحويل الطلب #${order.invoiceNumber} للشحن والتوصيل!`);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-md"
+                              >
+                                <span>فحص الجودة والشحن للتسليم 🚚</span>
+                              </button>
+                            )}
+
+                            {order.status === 'shipped' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateCentralMarketplaceOrderStatus(order.id, {
+                                    status: 'completed',
+                                    marketplaceStatus: 'delivered',
+                                    remainingAmount: 0,
+                                  });
+                                  setMarketplaceOrdersList(getCentralMarketplaceOrders());
+                                  playSuccessSound();
+                                  setSuccessNotice(`✓ تم تأكيد استلام العميل للطلب #${order.invoiceNumber} وتصفية الحساب كاملاً!`);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-md"
+                              >
+                                <span>تم التسليم بنجاح وتصفية الحساب ✓</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2859,7 +3213,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                     <button
                       type="button"
                       onClick={() => setRejectingProduct(null)}
-                      className="px-3 py-1.5 rounded-xl text-xs text-stone-400 hover:text-white"
+                      className="px-3 py-1.5 rounded-xl text-xs text-stone-400 hover:text-white cursor-pointer"
                     >
                       إلغاء
                     </button>
@@ -2873,7 +3227,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                         setSuccessNotice(`✓ تم رفض المشغولة وإرسال السبب لورشة الفنان: "${rejectReason}"`);
                         setRejectingProduct(null);
                       }}
-                      className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs"
+                      className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
                     >
                       تأكيد الرفض وإخطار الفنان ✉️
                     </button>

@@ -394,6 +394,25 @@ export interface InvoiceRecord {
   exchangeRate?: number;
   baseCurrencyAmount?: number;
   originalAmount?: number;
+  advancePaymentAmount?: number;
+  advancePaymentMethod?: string;
+  advancePaymentTransactionId?: string;
+  advancePaymentReceiptUrl?: string;
+  advancePaymentConfirmed?: boolean;
+  governorate?: string;
+  alternatePhone?: string;
+  detailedAddress?: string;
+  alternateAddress?: string;
+  notesOrCustomDimensions?: string;
+  selectedColor?: string;
+  selectedSize?: string;
+  isGuest?: boolean;
+  loyaltyPointsEarned?: number;
+  couponApplied?: string;
+  isClientDataHiddenFromArtisan?: boolean;
+  targetDeliveryDate?: string;
+  productionDaysRemaining?: number;
+  marketplaceStatus?: 'pending_approval' | 'in_production' | 'quality_check' | 'shipped' | 'delivered' | 'cancelled';
   date?: string;
   createdAt?: number;
   updatedAt?: number;
@@ -977,9 +996,44 @@ export interface SavedProductRecord {
   isPublishedInStore?: boolean; // مفتاح "نشر في المتجر"
   storePrice?: number; // السعر التسويقي في المتجر
   storeDescription?: string; // وصف العرض في المتجر
+  isMarketplaceApproved?: boolean;
+  rejectReason?: string;
+  rating?: number;
+  reviewsCount?: number;
+  availableColors?: string[];
+  availableSizes?: string[];
+  decorCategory?: string;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface MarketplaceCartItem {
+  id: string; // unique item in cart
+  productId: string;
+  productName: string;
+  price: number;
+  quantity: number;
+  imageUrl?: string;
+  craftName?: string;
+  workshopId?: string;
+  artistName?: string;
+  selectedColor?: string;
+  selectedSize?: string;
+  customNotes?: string;
+}
+
+export interface CustomerAuthUser {
+  id: string;
+  name: string;
+  phone: string;
+  alternatePhone?: string;
+  email?: string;
+  governorate: string;
+  detailedAddress: string;
+  alternateAddress?: string;
+  loyaltyPoints: number;
+  firstOrderDiscountUsed?: boolean;
 }
 
 export type InventoryStockItem = RawMaterialItem;

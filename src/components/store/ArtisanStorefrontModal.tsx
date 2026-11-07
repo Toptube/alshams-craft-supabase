@@ -30,7 +30,9 @@ import {
   Calendar,
   Eye,
   ShoppingBag,
+  ShieldCheck,
 } from 'lucide-react';
+import { getClientPrivacyActive } from '../../services/marketplaceCartService';
 
 interface TreasuryAccountOption {
   id: string;
@@ -433,6 +435,17 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
         {/* Tab 1: Products in Storefront */}
         {activeTab === 'storefront' && (
           <div className="p-5 flex-1 overflow-y-auto space-y-4">
+            {/* Operational Quality Notice */}
+            <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-400/40 text-xs leading-relaxed space-y-1">
+              <div className="flex items-center gap-2 text-amber-300 font-black">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>تنبيه تشغيلي وسياسة فحص الجودة المعتمدة في شركة الشمس كرافت:</span>
+              </div>
+              <p className="text-[#EADBC8] font-medium">
+                "تنبيه تشغيلي: يلتزم الفنان بتحمل مصاريف الشحن الداخلي إلى مخازن شركة الشمس كرافت وتكاليف الفحص والتغليف. تخضع كافة المشغولات للفحص الفني اليدوي، ويحق للمنظومة رفض أي قطعة غير مطابقة للصور أو معايير الفنش والجودة؛ للحفاظ على ثقة عملاء عائلة الشمساوية وقيمة منتجك".
+              </p>
+            </div>
+
             {/* Quick Share Bar */}
             <div className="p-3.5 rounded-2xl bg-[#131E38] border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 text-xs">
@@ -570,6 +583,15 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
               <div className="space-y-3">
                 {orders.map((order) => {
                   const remaining = Math.max(0, (order.finalTotal || 0) - (order.paidAmount || 0));
+                  const isPrivacyActive = getClientPrivacyActive() && order.isClientDataHiddenFromArtisan !== false;
+                  const displayName = isPrivacyActive ? 'عميل متجر عائلة الشمساوية' : (order.customerName || 'عميل المتجر');
+                  const displayPhone = isPrivacyActive ? 'بيانات التواصل والعنوان محجوبة (الشحن عبر شركة الشمس كرافت 🛡️)' : (order.customerPhone || 'بدون هاتف');
+                  
+                  const targetDelivery = order.targetDeliveryDate || (order as any).dueDate || order.deliveryDate;
+                  const daysRemaining = targetDelivery
+                    ? Math.ceil((new Date(targetDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                    : null;
+
                   return (
                     <div
                       key={order.id}
@@ -581,13 +603,39 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                             #{order.invoiceNumber}
                           </span>
                           <div>
-                            <h5 className="font-black text-sm text-white">{order.customerName || 'عميل المتجر'}</h5>
-                            <span className="text-[11px] text-[#EADBC8] font-mono">{order.customerPhone || 'بدون هاتف'}</span>
+                            <div className="flex items-center gap-2">
+                              <h5 className="font-black text-sm text-white">{displayName}</h5>
+                              {isPrivacyActive && (
+                                <span className="px-2 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-bold">
+                                  خصوصية مفعلة 🛡️
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-[#EADBC8] font-mono">{displayPhone}</span>
                           </div>
                         </div>
 
-                        {/* Status Badge */}
-                        <div className="flex items-center gap-2">
+                        {/* Status & Live Countdown Badge */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {daysRemaining !== null && order.status !== 'completed' && order.status !== 'cancelled' && (
+                            <span className={`px-2.5 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 font-mono ${
+                              daysRemaining > 2
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                : daysRemaining > 0
+                                ? 'bg-orange-500/20 text-orange-300 border-orange-500/40 animate-pulse'
+                                : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            }`}>
+                              <Clock className="w-3 h-3" />
+                              <span>
+                                {daysRemaining > 0
+                                  ? `باقي ${daysRemaining} يوم للتسليم`
+                                  : daysRemaining === 0
+                                  ? 'ميعاد التسليم اليوم!'
+                                  : `متأخر ${Math.abs(daysRemaining)} يوم`}
+                              </span>
+                            </span>
+                          )}
+
                           {order.status === 'pending' && (
                             <span className="px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/40 text-xs font-black">
                               أوردر جديد 🆕
@@ -595,7 +643,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                           )}
                           {order.status === 'in_progress' && (
                             <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40 text-xs font-black">
-                              جاري التنفيذ 🔨 {((order as any).dueDate || order.deliveryDate) ? `(تسليم: ${(order as any).dueDate || order.deliveryDate})` : ''}
+                              جاري التصنيع 🔨
                             </span>
                           )}
                           {order.status === 'shipped' && (

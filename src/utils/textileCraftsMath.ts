@@ -8,7 +8,7 @@ import { calculateMacrame } from './macrameMath';
 export interface CraftEngineResult extends CalculationOutput {}
 
 /**
- * 1. حاسبة الكروشيه المنزلي والمشغولات (Crochet Math Engine)
+ * 1. حاسبة كروشيه (Crochet Math Engine)
  * ضبط هندسي متقدم: أبعاد مجسمة 3D مع عمق الجانب، قاعدة صلبة اختيارية، وتوزيع غرز مرجح بمعاملات السحب
  */
 export const CROCHET_STITCH_FACTORS: Record<string, { label: string; factor: number }> = {
