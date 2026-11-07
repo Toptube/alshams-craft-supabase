@@ -65,6 +65,8 @@ import {
   X,
   CheckCircle2,
   FileText,
+  Settings,
+  Edit2,
 } from 'lucide-react';
 import {
   generateArtisanQuotationPDF,
@@ -204,6 +206,15 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   );
 
   // 2. Zigzag
+  const [zigzagPieceType, setZigzagPieceType] = useState<'flat' | '3d' | 'clutch'>(
+    initialRecord?.input?.zigzagPieceType || (initialRecord?.input?.sideHeightCm && initialRecord.input.sideHeightCm > 0 ? '3d' : '3d')
+  );
+  const [zigzagBaseShape, setZigzagBaseShape] = useState<'circle' | 'oval' | 'rectangle'>(
+    initialRecord?.input?.zigzagBaseShape || (initialRecord?.input?.shape3D === 'circle' ? 'circle' : 'circle')
+  );
+  const [zigzagRopeType, setZigzagRopeType] = useState<'cotton_padded' | 'polyester'>(
+    initialRecord?.input?.zigzagRopeType || 'cotton_padded'
+  );
   const [zigzagRopeDiameterMm, setZigzagRopeDiameterMm] = useState<number>(
     initialRecord?.input?.zigzagRopeDiameterMm ?? 8
   );
@@ -212,6 +223,24 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   );
   const [zigzagHandleLengthCm, setZigzagHandleLengthCm] = useState<number>(
     initialRecord?.input?.zigzagHandleLengthCm ?? 35
+  );
+  const [zigzagHasLining, setZigzagHasLining] = useState<boolean>(
+    initialRecord?.input?.zigzagHasLining ?? false
+  );
+  const [zigzagHasZipper, setZigzagHasZipper] = useState<boolean>(
+    initialRecord?.input?.zigzagHasZipper ?? false
+  );
+  const [zigzagHasHandles, setZigzagHasHandles] = useState<boolean>(
+    initialRecord?.input?.zigzagHasHandles ?? true
+  );
+  const [zigzagLiningCost, setZigzagLiningCost] = useState<number>(
+    initialRecord?.input?.zigzagLiningCost ?? 45
+  );
+  const [zigzagZipperCost, setZigzagZipperCost] = useState<number>(
+    initialRecord?.input?.zigzagZipperCost ?? 20
+  );
+  const [zigzagAccessoriesCost, setZigzagAccessoriesCost] = useState<number>(
+    initialRecord?.input?.zigzagAccessoriesCost ?? 35
   );
 
   // 3. Kilim
@@ -229,6 +258,12 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   );
 
   // 4. Punch Needle
+  const [punchFabricType, setPunchFabricType] = useState<'cotton_canvas' | 'duck_fabric' | 'linen'>(
+    (initialRecord?.input?.punchFabricType as any) || 'cotton_canvas'
+  );
+  const [punchFabricCost, setPunchFabricCost] = useState<number>(
+    initialRecord?.input?.punchFabricCost ?? (initialRecord?.input?.punchMonksClothCost ?? 130)
+  );
   const [punchMonksClothMarginCm, setPunchMonksClothMarginCm] = useState<number>(
     initialRecord?.input?.punchMonksClothMarginCm ?? 10
   );
@@ -239,7 +274,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     initialRecord?.input?.punchLatexGramsPerSqM ?? 250
   );
   const [punchMonksClothCost, setPunchMonksClothCost] = useState<number>(
-    initialRecord?.input?.punchMonksClothCost ?? 140
+    initialRecord?.input?.punchMonksClothCost ?? 130
   );
 
   // 5. Tufting
@@ -261,20 +296,105 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     );
   }, [availableSubCrafts, selectedCraftId]);
 
-  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  // Craft customized product categories (persisted in localStorage per craft)
+  const [craftCategoriesMap, setCraftCategoriesMap] = useState<Record<string, string[]>>(() => {
+    try {
+      const stored = localStorage.getItem('alshams_all_craft_categories');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return {};
+  });
+
   const [isAddingNewCategory, setIsAddingNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [isManagingCategories, setIsManagingCategories] = useState(false);
+  const [editingCatOld, setEditingCatOld] = useState<string | null>(null);
+  const [editingCatNew, setEditingCatNew] = useState('');
 
   // Available product types under selected craft
   const availableProductTypes = useMemo(() => {
+    if (craftCategoriesMap[selectedCraftId] && craftCategoriesMap[selectedCraftId].length > 0) {
+      return craftCategoriesMap[selectedCraftId];
+    }
+    const baseTypes =
+      currentCraftDef?.sampleCategories && currentCraftDef.sampleCategories.length > 0
+        ? currentCraftDef.sampleCategories
+        : selectedCraftId === 'macrame'
+        ? CRAFT_CATEGORIES
+        : ['مشغولة عامة'];
+    return baseTypes;
+  }, [currentCraftDef, selectedCraftId, craftCategoriesMap]);
+
+  const updateCraftCategoriesList = (newList: string[]) => {
+    const updated = { ...craftCategoriesMap, [selectedCraftId]: newList };
+    setCraftCategoriesMap(updated);
+    try {
+      localStorage.setItem('alshams_all_craft_categories', JSON.stringify(updated));
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const handleAddCategoryItem = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const current = [...availableProductTypes];
+    if (!current.includes(trimmed)) {
+      current.push(trimmed);
+      updateCraftCategoriesList(current);
+      setCategory(trimmed as any);
+    }
+    setNewCategoryName('');
+    setIsAddingNewCategory(false);
+  };
+
+  const handleDeleteCategoryItem = (catToDelete: string) => {
+    const current = availableProductTypes.filter((c) => c !== catToDelete);
+    const updated = current.length > 0 ? current : ['مشغولة جديدة'];
+    updateCraftCategoriesList(updated);
+    if (category === catToDelete) {
+      setCategory(updated[0] as any);
+    }
+  };
+
+  const handleRenameCategoryItem = (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) {
+      setEditingCatOld(null);
+      return;
+    }
+    const current = availableProductTypes.map((c) => (c === oldName ? trimmed : c));
+    updateCraftCategoriesList(current);
+    if (category === oldName) {
+      setCategory(trimmed as any);
+    }
+    setEditingCatOld(null);
+  };
+
+  const handleResetCraftCategories = () => {
     const baseTypes =
       currentCraftDef?.sampleCategories && currentCraftDef.sampleCategories.length > 0
         ? currentCraftDef.sampleCategories
         : selectedCraftId === 'macrame'
         ? CRAFT_CATEGORIES
         : [];
-    return Array.from(new Set([...baseTypes, ...customCategories]));
-  }, [currentCraftDef, selectedCraftId, customCategories]);
+    const updated = { ...craftCategoriesMap };
+    delete updated[selectedCraftId];
+    setCraftCategoriesMap(updated);
+    try {
+      localStorage.setItem('alshams_all_craft_categories', JSON.stringify(updated));
+    } catch (e) {
+      // ignore
+    }
+    if (baseTypes.length > 0) {
+      setCategory(baseTypes[0] as any);
+    }
+  };
 
   // Workflow sequence: Category / Product type
   const [category, setCategory] = useState<CraftCategory>(
@@ -958,17 +1078,29 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       crochetBaseHolesCount,
       crochetBaseIncreasesRate,
       crochetWoodenBaseCost,
+      zigzagPieceType,
+      zigzagBaseShape,
+      zigzagBaseType: zigzagBaseShape,
+      zigzagRopeType,
       zigzagRopeDiameterMm,
       zigzagHandlesCount,
       zigzagHandleLengthCm,
+      zigzagHasLining,
+      zigzagHasZipper,
+      zigzagHasHandles,
+      zigzagLiningCost,
+      zigzagZipperCost,
+      zigzagAccessoriesCost,
       kilimEpiDensity,
       kilimLoomWasteCm,
       kilimShrinkageFactor,
       kilimWeftWoolKgPerSqM,
+      punchFabricType,
+      punchFabricCost,
       punchMonksClothMarginCm,
       punchLoopHeightMm,
       punchLatexGramsPerSqM,
-      punchMonksClothCost,
+      punchMonksClothCost: punchFabricCost,
       tuftingPileType,
       tuftingPrimaryClothMarginM,
       tuftingLatexGlueKgPerSqM,
@@ -1013,13 +1145,24 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     crochetBaseHolesCount,
     crochetBaseIncreasesRate,
     crochetWoodenBaseCost,
+    zigzagPieceType,
+    zigzagBaseShape,
+    zigzagRopeType,
     zigzagRopeDiameterMm,
     zigzagHandlesCount,
     zigzagHandleLengthCm,
+    zigzagHasLining,
+    zigzagHasZipper,
+    zigzagHasHandles,
+    zigzagLiningCost,
+    zigzagZipperCost,
+    zigzagAccessoriesCost,
     kilimEpiDensity,
     kilimLoomWasteCm,
     kilimShrinkageFactor,
     kilimWeftWoolKgPerSqM,
+    punchFabricType,
+    punchFabricCost,
     punchMonksClothMarginCm,
     punchLoopHeightMm,
     punchLatexGramsPerSqM,
@@ -1542,14 +1685,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={() => {
-                        if (newCategoryName.trim()) {
-                          setCustomCategories([...customCategories, newCategoryName.trim()]);
-                          setCategory(newCategoryName.trim() as any);
-                          setNewCategoryName('');
-                          setIsAddingNewCategory(false);
-                        }
-                      }}
+                      onClick={() => handleAddCategoryItem(newCategoryName)}
                       className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-bold text-xs"
                     >
                       إضافة
@@ -1644,23 +1780,43 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                 {output.craftMetrics.craftId === 'zigzag' && (
                   <div className="space-y-2 text-xs">
                     <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
-                      <span className="text-stone-600 dark:text-stone-400">حبل القاعدة الحلزونية (Area/t):</span>
-                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.baseRopeMeters || 0} متر</span>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
-                      <span className="text-stone-600 dark:text-stone-400">حبل الجدران والأيادي:</span>
+                      <span className="text-stone-600 dark:text-stone-400">إجمالي المساحة السطحية:</span>
                       <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
-                        {((output.craftMetrics.wallRopeMeters || 0) + (output.craftMetrics.handlesRopeMeters || 0)).toFixed(1)} متر
+                        {output.craftMetrics.totalSurfaceAreaCm2 || 0} سم² (قاعدة {output.craftMetrics.baseAreaCm2 || 0} + جدران {output.craftMetrics.wallAreaCm2 || 0})
                       </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
-                      <span className="text-stone-600 dark:text-stone-400">خيط المكوك والخياطة (زجزاج 3.8x):</span>
+                      <span className="text-stone-600 dark:text-stone-400">محيط القاعدة الصافي:</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.perimeterCm || 0} سم</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">حبل القاعدة المنفرد:</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.baseRopeMeters || 0} متر</span>
+                    </div>
+                    {Boolean(output.craftMetrics.wallRopeMeters || output.craftMetrics.handlesRopeMeters) && (
+                      <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                        <span className="text-stone-600 dark:text-stone-400">حبل الجدران والأيادي:</span>
+                        <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                          {((output.craftMetrics.wallRopeMeters || 0) + (output.craftMetrics.handlesRopeMeters || 0)).toFixed(1)} متر
+                        </span>
+                      </div>
+                    )}
+                    <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                      <span className="text-stone-600 dark:text-stone-400">خيط المكوك والخياطة (3.6x):</span>
                       <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
                         {output.craftMetrics.sewingThreadMeters || 0} متر ({output.craftMetrics.sewingThreadBobbins || 0} بكرة)
                       </span>
                     </div>
+                    {Boolean((output.craftMetrics.liningCost || 0) + (output.craftMetrics.zipperCost || 0) + (output.craftMetrics.accessoriesCost || 0)) && (
+                      <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                        <span className="text-stone-600 dark:text-stone-400">تكلفة البطانة والسوست والإكسسوار:</span>
+                        <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                          {((output.craftMetrics.liningCost || 0) + (output.craftMetrics.zipperCost || 0) + (output.craftMetrics.accessoriesCost || 0))} ج
+                        </span>
+                      </div>
+                    )}
                     <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex justify-between items-center">
-                      <span className="font-bold text-stone-800 dark:text-stone-200">إجمالي أمتار الحبل (بهالك 7%):</span>
+                      <span className="font-bold text-stone-800 dark:text-stone-200">إجمالي الحبل المطلوب ({output.craftMetrics.ropeType || 'حبل زجزاج'}):</span>
                       <span className="font-mono font-black text-base text-amber-700 dark:text-amber-300">
                         {output.craftMetrics.totalRopeMeters} متر ({output.totalWeightKg} كجم)
                       </span>
@@ -1694,9 +1850,9 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                 {output.craftMetrics.craftId === 'punch_needle' && (
                   <div className="space-y-2 text-xs">
                     <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
-                      <span className="text-stone-600 dark:text-stone-400">قماش الرهبان (بزيادة 10سم للطارة):</span>
+                      <span className="text-stone-600 dark:text-stone-400">قماش كانفاه مخرم / دك قطني (+10سم للطارة):</span>
                       <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
-                        {output.craftMetrics.monksClothAreaSqM || 0} م² ({output.craftMetrics.monksClothCost || 0} ج)
+                        {output.craftMetrics.fabricAreaSqM || output.craftMetrics.monksClothAreaSqM || 0} م² ({output.craftMetrics.fabricCost || output.craftMetrics.monksClothCost || 0} ج)
                       </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
@@ -2075,14 +2231,24 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             {/* WORKFLOW RULE: Category dropdown MUST appear FIRST strictly BEFORE image upload */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <button
-                  type="button"
-                  onClick={() => setIsAddingNewCategory(!isAddingNewCategory)}
-                  className="text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  <span>+ إضافة تصنيف جديد</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingNewCategory(!isAddingNewCategory)}
+                    className="text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>+ إضافة تصنيف</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsManagingCategories(!isManagingCategories)}
+                    className="text-xs font-bold text-stone-500 hover:text-stone-700 dark:hover:text-stone-300 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>{isManagingCategories ? 'إغلاق إدارة الأصناف' : 'إدارة الأصناف (تعديل/حذف)'}</span>
+                  </button>
+                </div>
                 <label className="block text-xs font-bold text-stone-700 dark:text-stone-300">
                   التصنيف الفني الأساسي (يحدد مسار الحسابات والشكل) *
                 </label>
@@ -2094,23 +2260,123 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                     type="text"
                     value={newCategoryName}
                     onChange={(e) => setNewCategoryName(e.target.value)}
-                    placeholder="اكتب اسم التصنيف الجديد (مثال: مفرش سرير، حزام، معلقة مفاتيح)"
+                    placeholder="اكتب اسم الصنف أو التصنيف الجديد (مثال: منظم أدراج، كلاتش حبال، سبت فاكهة)"
                     className="flex-1 px-3 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleAddCategoryItem(newCategoryName);
+                    }}
                   />
                   <button
                     type="button"
-                    onClick={() => {
-                      if (newCategoryName.trim()) {
-                        setCustomCategories([...customCategories, newCategoryName.trim()]);
-                        setCategory(newCategoryName.trim() as any);
-                        setNewCategoryName('');
-                        setIsAddingNewCategory(false);
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-bold text-xs cursor-pointer hover:bg-amber-700"
+                    onClick={() => handleAddCategoryItem(newCategoryName)}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-bold text-xs cursor-pointer hover:bg-amber-700 transition"
                   >
-                    إضافة
+                    حفظ وإضافة
                   </button>
+                </div>
+              )}
+
+              {/* Category Management Drawer */}
+              {isManagingCategories && (
+                <div className="mb-3 p-3 rounded-2xl bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 space-y-2.5 animate-in fade-in">
+                  <div className="flex items-center justify-between text-xs font-bold text-stone-700 dark:text-stone-300">
+                    <button
+                      type="button"
+                      onClick={handleResetCraftCategories}
+                      className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>استعادة الأصناف القياسية للورشة</span>
+                    </button>
+                    <span>أصناف وتصنيفات هذه الورشة (قابلة للتعديل والحذف بالكامل):</span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto p-1">
+                    {availableProductTypes.map((catItem) => {
+                      const isEditing = editingCatOld === catItem;
+                      const isSelected = category === catItem;
+
+                      if (isEditing) {
+                        return (
+                          <div key={catItem} className="flex items-center gap-1 bg-white dark:bg-stone-900 p-1 rounded-xl border border-amber-500 shadow-sm">
+                            <input
+                              type="text"
+                              value={editingCatNew}
+                              onChange={(e) => setEditingCatNew(e.target.value)}
+                              className="px-2 py-1 text-xs font-bold outline-none rounded bg-transparent w-28"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleRenameCategoryItem(catItem, editingCatNew);
+                                if (e.key === 'Escape') setEditingCatOld(null);
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRenameCategoryItem(catItem, editingCatNew)}
+                              className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded cursor-pointer"
+                              title="حفظ التعديل"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCatOld(null)}
+                              className="p-1 text-stone-400 hover:bg-stone-200 rounded cursor-pointer"
+                              title="إلغاء"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={catItem}
+                          className={`group flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition border ${
+                            isSelected
+                              ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                              : 'bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-200 border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                          }`}
+                        >
+                          <span
+                            onClick={() => setCategory(catItem as any)}
+                            className="cursor-pointer"
+                            title="تحديد هذا الصنف"
+                          >
+                            {catItem}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCatOld(catItem);
+                              setEditingCatNew(catItem);
+                            }}
+                            className={`p-0.5 rounded opacity-60 hover:opacity-100 transition cursor-pointer ${
+                              isSelected ? 'text-white hover:bg-amber-700' : 'text-stone-500 hover:text-amber-600'
+                            }`}
+                            title="تعديل اسم الصنف"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+
+                          {availableProductTypes.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCategoryItem(catItem)}
+                              className={`p-0.5 rounded opacity-60 hover:opacity-100 transition cursor-pointer ${
+                                isSelected ? 'text-white hover:bg-amber-700' : 'text-stone-500 hover:text-rose-600'
+                              }`}
+                              title="حذف هذا الصنف من الورشة"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -2180,8 +2446,203 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </h3>
             </div>
 
-            {/* 3D Shape Selection (Displayed if 3D category or selectable) */}
-            {is3D ? (
+            {selectedCraftId === 'zigzag' ? (
+              <div className="space-y-4">
+                {/* 1. طبيعة المشغولة */}
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-2">
+                    طبيعة المشغولة ومسار التشغيل *
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setZigzagPieceType('flat');
+                        setSideHeightCm(0);
+                      }}
+                      className={`p-3 rounded-2xl border text-right transition cursor-pointer ${
+                        zigzagPieceType === 'flat'
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                          : 'bg-stone-50 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                      }`}
+                    >
+                      <p className="text-xs font-black">مشغولة مسطحة (Flat)</p>
+                      <p className={`text-[10px] mt-0.5 ${zigzagPieceType === 'flat' ? 'text-amber-100' : 'text-stone-500'}`}>
+                        مفرش، كوستر، سجادة، صينية بدون حواف (الجدران = 0)
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setZigzagPieceType('3d');
+                        if (!sideHeightCm || sideHeightCm <= 0) setSideHeightCm(12);
+                      }}
+                      className={`p-3 rounded-2xl border text-right transition cursor-pointer ${
+                        zigzagPieceType === '3d'
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                          : 'bg-stone-50 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                      }`}
+                    >
+                      <p className="text-xs font-black">مشغولة مجسمة 3D</p>
+                      <p className={`text-[10px] mt-0.5 ${zigzagPieceType === '3d' ? 'text-amber-100' : 'text-stone-500'}`}>
+                        سلة، منظم، شنطة، بوكس (ارتفاع الأجناب إجباري)
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setZigzagPieceType('clutch');
+                        setSideHeightCm(0);
+                        setZigzagHasLining(true);
+                        setZigzagHasZipper(true);
+                        setZigzagHasHandles(true);
+                      }}
+                      className={`p-3 rounded-2xl border text-right transition cursor-pointer ${
+                        zigzagPieceType === 'clutch'
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                          : 'bg-stone-50 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                      }`}
+                    >
+                      <p className="text-xs font-black">كلاتش / محفظة مسطحة</p>
+                      <p className={`text-[10px] mt-0.5 ${zigzagPieceType === 'clutch' ? 'text-amber-100' : 'text-stone-500'}`}>
+                        مسطحة وتدخل البطانة والسوستة والأيدي مباشرة في التكلفة
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. شكل القاعدة والهندسة */}
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-2">
+                    شكل القاعدة والهندسة الفيزيائية *
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setZigzagBaseShape('circle')}
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                        zigzagBaseShape === 'circle'
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                          : 'bg-stone-50 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                      }`}
+                    >
+                      دائرية ⭕
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setZigzagBaseShape('oval')}
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                        zigzagBaseShape === 'oval'
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                          : 'bg-stone-50 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                      }`}
+                    >
+                      بيضاوية (رامانوجان) 🥚
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setZigzagBaseShape('rectangle')}
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                        zigzagBaseShape === 'rectangle'
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                          : 'bg-stone-50 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-amber-400'
+                      }`}
+                    >
+                      مستطيلة / مربعة 🔲
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. مدخلات الأبعاد */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {zigzagBaseShape === 'circle' ? (
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                        قطر القاعدة (سم) *
+                      </label>
+                      <NumberInput
+                        value={diameterCm}
+                        onChange={(v) => {
+                          setDiameterCm(v);
+                          setBaseDiameterCm(v);
+                        }}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                          طول القاعدة (سم) *
+                        </label>
+                        <NumberInput
+                          value={totalLengthCm}
+                          onChange={setTotalLengthCm}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                          عرض القاعدة (سم) *
+                        </label>
+                        <NumberInput
+                          value={widthCm}
+                          onChange={setWidthCm}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {zigzagPieceType === '3d' ? (
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                        ارتفاع الأجناب/الجدران (سم) *
+                      </label>
+                      <NumberInput
+                        value={sideHeightCm}
+                        onChange={setSideHeightCm}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center sm:col-span-1">
+                      <div className="w-full p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-[11px] font-medium leading-relaxed">
+                        ✓ مشغولة مسطحة: مساحة الجدران = 0 سم²، ويتم حساب الحبل بالكامل لتغطية مساحة القاعدة.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. كارت الحسابات الفيزيائية اللحظية */}
+                {output.craftMetrics?.craftId === 'zigzag' && (
+                  <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs space-y-1.5 text-stone-800 dark:text-stone-200">
+                    <div className="flex items-center justify-between font-bold text-amber-900 dark:text-amber-200">
+                      <span>مساحة سطح القاعدة ({zigzagBaseShape === 'oval' ? 'بيضاوية' : zigzagBaseShape === 'circle' ? 'دائرية' : 'مستطيلة'}):</span>
+                      <span className="font-mono">{output.craftMetrics.baseAreaCm2 || 0} سم²</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-stone-600 dark:text-stone-400">
+                      <span>محيط القاعدة {zigzagBaseShape === 'oval' ? '(معادلة رامانوجان الدقيقة)': ''}:</span>
+                      <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.perimeterCm || 0} سم</span>
+                    </div>
+                    {zigzagPieceType === '3d' && (
+                      <div className="flex items-center justify-between text-[11px] text-stone-600 dark:text-stone-400">
+                        <span>مساحة الجدران الرأسية (المحيط × الارتفاع):</span>
+                        <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.wallAreaCm2 || 0} سم²</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between pt-1 border-t border-amber-300 dark:border-amber-800 font-black text-amber-950 dark:text-amber-100">
+                      <span>إجمالي المساحة السطحية للمشغولة:</span>
+                      <span className="font-mono text-sm">{output.craftMetrics.totalSurfaceAreaCm2 || 0} سم²</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : is3D ? (
               <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-600 text-white">
@@ -2297,8 +2758,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </div>
             )}
 
-            {/* Length Constraints: Hidden if cylinder, because cylinder uses Side Height exclusively */}
-            {shape3D !== 'cylinder' ? (
+            {/* Length Constraints: Hidden if cylinder or zigzag, because cylinder uses Side Height and zigzag has its own dimensions */}
+            {shape3D !== 'cylinder' && selectedCraftId !== 'zigzag' ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
@@ -2322,7 +2783,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   />
                 </div>
               </div>
-            ) : (
+            ) : selectedCraftId !== 'zigzag' ? (
               <div>
                 <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
                   طول الشراشيب السفلية إن وجدت (سم) (اختياري)
@@ -2333,7 +2794,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none focus:ring-2 focus:ring-amber-500"
                 />
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Card: 2.1 Specialized Craft Parameters for the 5 New Textile Workshops */}
@@ -2589,13 +3050,36 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           {selectedCraftId === 'zigzag' && (
             <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
+                <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                  {zigzagPieceType === 'clutch' ? 'كلاتش حبال ومحفظة' : zigzagPieceType === 'flat' ? 'مشغولة مسطحة' : 'مشغولة مجسمة 3D'}
+                </span>
                 <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
                   <span>🧵</span>
-                  <span>مواصفات المشغولة</span>
+                  <span>مواصفات حبال الزجزاج والخامات التكميلية</span>
                 </h3>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* 1. نوع الحبل والقطر */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    نوع حبل الزجزاج الدارج *
+                  </label>
+                  <select
+                    value={zigzagRopeType}
+                    onChange={(e) => {
+                      const val = e.target.value as 'cotton_padded' | 'polyester';
+                      setZigzagRopeType(val);
+                      if (val === 'cotton_padded' && pricePerKg === 140) setPricePerKg(165);
+                      if (val === 'polyester' && pricePerKg === 165) setPricePerKg(140);
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="cotton_padded">حبل قطن زجزاج محشي (الدارج والأكثر متانة)</option>
+                    <option value="polyester">حبل زجزاج بوليستر (خفيف وناعم)</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
                     قطر حبل الزجزاج (مم) *
@@ -2603,15 +3087,19 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   <select
                     value={zigzagRopeDiameterMm}
                     onChange={(e) => setZigzagRopeDiameterMm(Number(e.target.value))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
                   >
-                    <option value={6}>6 مم (حبل رفيع مرن)</option>
-                    <option value={8}>8 مم (حبل قياسي للباسكت)</option>
-                    <option value={10}>10 مم (حبل سميك متين)</option>
-                    <option value={12}>12 مم (شغل جامبو كبير)</option>
+                    <option value={5}>5 مم (حبل رفيع مرن جداً)</option>
+                    <option value={6}>6 مم (حبل رفيع للمفارش والكلاتشات)</option>
+                    <option value={8}>8 مم (المعيار القياسي للباسكت والصواني)</option>
+                    <option value={10}>10 مم (حبل سميك متين للمنظمات)</option>
+                    <option value={12}>12 مم (شغل جامبو كبير وسلال غسيل)</option>
                   </select>
                 </div>
+              </div>
 
+              {/* 2. أيادي الحبال */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
                     عدد أيادي الحبال
@@ -2619,11 +3107,11 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   <select
                     value={zigzagHandlesCount}
                     onChange={(e) => setZigzagHandlesCount(Number(e.target.value))}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
                   >
-                    <option value={0}>بدون أيدي (صينية أو كوستر)</option>
-                    <option value={1}>يد واحدة رأسية (علاقة)</option>
-                    <option value={2}>يدين جانبيتين (باسكت)</option>
+                    <option value={0}>بدون أيدي حبال</option>
+                    <option value={1}>يد واحدة (علاقة أو يد كلاتش)</option>
+                    <option value={2}>يدين جانبيتين (باسكت ومنظم)</option>
                   </select>
                 </div>
 
@@ -2640,8 +3128,86 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                 </div>
               </div>
 
+              {/* 3. الخامات التكميلية (بطانة، سوست، إكسسوارات) */}
+              <div className="pt-2 border-t border-amber-500/20 space-y-3">
+                <p className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                  الخامات التكميلية والإكسسوارات المباشرة:
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Lining */}
+                  <div className={`p-3 rounded-2xl border transition ${zigzagHasLining ? 'bg-white dark:bg-stone-900 border-amber-500/50 shadow-xs' : 'bg-stone-50/50 dark:bg-stone-800/40 border-stone-200 dark:border-stone-700'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer mb-2">
+                      <input
+                        type="checkbox"
+                        checked={zigzagHasLining}
+                        onChange={(e) => setZigzagHasLining(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="text-xs font-bold text-stone-800 dark:text-stone-200">قماش بطانة ستان/سالسا/دك</span>
+                    </label>
+                    {zigzagHasLining && (
+                      <div>
+                        <span className="text-[10px] text-stone-500 block mb-1">تكلفة قماش البطانة ({profile.currencySymbol})</span>
+                        <NumberInput
+                          value={zigzagLiningCost}
+                          onChange={setZigzagLiningCost}
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-mono font-bold outline-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Zipper */}
+                  <div className={`p-3 rounded-2xl border transition ${zigzagHasZipper ? 'bg-white dark:bg-stone-900 border-amber-500/50 shadow-xs' : 'bg-stone-50/50 dark:bg-stone-800/40 border-stone-200 dark:border-stone-700'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer mb-2">
+                      <input
+                        type="checkbox"
+                        checked={zigzagHasZipper}
+                        onChange={(e) => setZigzagHasZipper(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="text-xs font-bold text-stone-800 dark:text-stone-200">سوستة وجرار عضم</span>
+                    </label>
+                    {zigzagHasZipper && (
+                      <div>
+                        <span className="text-[10px] text-stone-500 block mb-1">تكلفة السوستة والجرار ({profile.currencySymbol})</span>
+                        <NumberInput
+                          value={zigzagZipperCost}
+                          onChange={setZigzagZipperCost}
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-mono font-bold outline-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Handles / Hardware */}
+                  <div className={`p-3 rounded-2xl border transition ${zigzagHasHandles ? 'bg-white dark:bg-stone-900 border-amber-500/50 shadow-xs' : 'bg-stone-50/50 dark:bg-stone-800/40 border-stone-200 dark:border-stone-700'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer mb-2">
+                      <input
+                        type="checkbox"
+                        checked={zigzagHasHandles}
+                        onChange={(e) => setZigzagHasHandles(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="text-xs font-bold text-stone-800 dark:text-stone-200">أيدي جلد وحلقات ميتاليك</span>
+                    </label>
+                    {zigzagHasHandles && (
+                      <div>
+                        <span className="text-[10px] text-stone-500 block mb-1">تكلفة الجلد والحلقات ({profile.currencySymbol})</span>
+                        <NumberInput
+                          value={zigzagAccessoriesCost}
+                          onChange={setZigzagAccessoriesCost}
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-mono font-bold outline-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <p className="text-[11px] text-amber-800 dark:text-amber-300 font-medium">
-                * يتم آلياً حساب استهلاك خيط المكوك والخياطة بحسب أطوال الحبل والأبعاد المطلوبة.
+                * يتم آلياً حساب استهلاك خيط المكوك والخياطة بمعدل 3.6 أمتار خيط لكل متر حبل زجزاج.
               </p>
             </div>
           )}
@@ -2702,11 +3268,44 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
                 <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
                   <span>🎨</span>
-                  <span>مواصفات المشغولة</span>
+                  <span>مواصفات قماش وتطريز البانش نيدل</span>
                 </h3>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    نوع قماش التطريز المصري *
+                  </label>
+                  <select
+                    value={punchFabricType}
+                    onChange={(e) => {
+                      const val = e.target.value as 'cotton_canvas' | 'duck_fabric' | 'linen';
+                      setPunchFabricType(val);
+                      const p = val === 'duck_fabric' ? 110 : val === 'linen' ? 160 : 130;
+                      setPunchFabricCost(p);
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="cotton_canvas">قماش كانفاه مخرم عالي الجودة (130 ج.م/م²)</option>
+                    <option value="duck_fabric">قماش دك قطن مصري متين (110 ج.م/م²)</option>
+                    <option value="linen">قماش كتان مخصص للتطريز (160 ج.م/م²)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    سعر متر قماش التطريز ({profile.currencySymbol}/م²)
+                  </label>
+                  <NumberInput
+                    value={punchFabricCost}
+                    onChange={setPunchFabricCost}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
                     هامش شد الطارة (سم) *
@@ -2714,17 +3313,6 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   <NumberInput
                     value={punchMonksClothMarginCm}
                     onChange={setPunchMonksClothMarginCm}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
-                    سعر متر قماش الرهبان (ج.م/م²)
-                  </label>
-                  <NumberInput
-                    value={punchMonksClothCost}
-                    onChange={setPunchMonksClothCost}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
                   />
                 </div>

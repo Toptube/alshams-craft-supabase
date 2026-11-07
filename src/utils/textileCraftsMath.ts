@@ -179,64 +179,124 @@ export function calculateCrochet(input: CalculationInput): CalculationOutput {
 
 /**
  * 2. حاسبة حبال الزجزاج وخياطة الماكينة (Woven Ropes / Zigzag Machine Math Engine)
- * تحسب أمتار حبل القطن المحشي/الكتان عبر معادلة الحلزون (Area/t) والجدران والأيادي وخيط المكوك وهالك 7%
+ * ضبط هندسي فيزيائي دقيق:
+ * - طبيعة المشغولة: مسطحة (Flat)، مجسمة (3D)، أو كلاتش/محفظة مسطحة
+ * - شكل القاعدة: دائرية، مستطيلة/مربعة، أو بيضاوية بمعادلة رامانوجان الدقيقة
+ * - المساحة السطحية المتكاملة (قاعدة + جدران) لحساب أمتار الحبل الصافية (Area / Diameter)
+ * - خامات السوق المصري: حبل قطن زجزاج محشي أو بوليستر، خيط مكوك 3.6م/م، وبطانة وسوست وإكسسوارات
  */
 export function calculateZigzag(input: CalculationInput): CalculationOutput {
-  const isCircle = input.shape3D === 'circle' || input.shape3D === 'cylinder';
-  const diameter = Number(input.diameterCm) || Number(input.baseDiameterCm) || 25;
-  const width = Number(input.widthCm) || 25;
-  const length = Number(input.totalLengthCm) || 30;
-  const height = Number(input.sideHeightCm) || 12;
-  const ropeDiameterMm = Number(input.zigzagRopeDiameterMm) || 8;
-  const ropeDiameterCm = ropeDiameterMm / 10;
-  const handlesCount = Number(input.zigzagHandlesCount) ?? 2;
-  const handleLengthCm = Number(input.zigzagHandleLengthCm) || 35;
-  const pricePerKg = Number(input.pricePerKg) || 165;
+  // 1. طبيعة المشغولة (Piece Nature)
+  const pieceType = input.zigzagPieceType || (input.sideHeightCm && input.sideHeightCm > 0 ? '3d' : 'flat');
+  const is3D = pieceType === '3d';
+  const isClutch = pieceType === 'clutch';
 
-  // 1. أمتار حبل القاعدة بالمعادلة الحلزونية: L_base = Area / t
-  let baseRopeMeters = 0;
-  let basePerimeterCm = 0;
-
-  if (isCircle) {
-    const r = diameter / 2;
-    const baseAreaCm2 = Math.PI * r * r;
-    // طول الحبل الحلزوني بالسنتيمتر = المساحة ÷ قطر الحبل
-    const baseRopeLengthCm = baseAreaCm2 / ropeDiameterCm;
-    baseRopeMeters = baseRopeLengthCm / 100;
-    basePerimeterCm = Math.PI * diameter;
-  } else {
-    // بيضاوي أو مستطيل حلزوني
-    const baseAreaCm2 = Math.PI * (width / 2) * (length / 2);
-    const baseRopeLengthCm = baseAreaCm2 / ropeDiameterCm;
-    baseRopeMeters = baseRopeLengthCm / 100;
-    basePerimeterCm = Math.PI * (3 * (width / 2 + length / 2) - Math.sqrt((3 * (width / 2) + length / 2) * (width / 2 + 3 * (length / 2))));
+  // 2. شكل القاعدة والهندسة (Base Shape & Geometry)
+  // Base shape fallback
+  let baseShape = input.zigzagBaseShape || input.zigzagBaseType;
+  if (!baseShape) {
+    if (input.shape3D === 'circle') baseShape = 'circle';
+    else if (input.shape3D === 'square' || input.shape3D === 'rectangle') baseShape = 'rectangle';
+    else baseShape = 'oval';
   }
 
-  // 2. أمتار حبل الجدران: عدد لفات الارتفاع × المحيط
-  const wallRings = height / ropeDiameterCm;
-  const wallRopeMeters = (wallRings * basePerimeterCm) / 100;
+  const diameterCm = Number(input.diameterCm) || Number(input.baseDiameterCm) || 25;
+  const widthCm = Number(input.widthCm) || 20;
+  const lengthCm = Number(input.totalLengthCm) || 30;
+  // الارتفاع: إجباري إذا كانت 3D، ويلغى تماماً إذا كانت مسطحة أو كلاتش
+  const sideHeightCm = is3D ? Math.max(1, Number(input.sideHeightCm) || 12) : 0;
 
-  // 3. أمتار حبل الأيادي
+  // 3. حساب مساحة القاعدة ومحيطها الفيزيائي الدقيق
+  let baseAreaCm2 = 0;
+  let basePerimeterCm = 0;
+
+  if (baseShape === 'circle') {
+    const r = diameterCm / 2;
+    baseAreaCm2 = Math.PI * r * r;
+    basePerimeterCm = Math.PI * diameterCm;
+  } else if (baseShape === 'rectangle') {
+    baseAreaCm2 = widthCm * lengthCm;
+    basePerimeterCm = 2 * (widthCm + lengthCm);
+  } else {
+    // بيضاوية (Oval) - أنصاف الأقطار a و b
+    const a = Math.max(0.1, lengthCm / 2);
+    const b = Math.max(0.1, widthCm / 2);
+    // مساحة البيضاوي: π × a × b
+    baseAreaCm2 = Math.PI * a * b;
+    // محيط البيضاوي الهندسي الدقيق بمعادلة رامانوجان (Ramanujan):
+    // P ≈ π [ 3(a + b) - √((3a + b)(a + 3b)) ]
+    basePerimeterCm = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+  }
+
+  // 4. مساحة الجدران الرأسية وإجمالي مساحة السطح
+  // مساحة الجدران = المحيط × الارتفاع (صفر للمسطح والكلاتش)
+  const wallAreaCm2 = is3D ? basePerimeterCm * sideHeightCm : 0;
+  const totalSurfaceAreaCm2 = baseAreaCm2 + wallAreaCm2;
+
+  // 5. قطر الحبل والأمتار الصافية بالمعادلة الفيزيائية: L_raw = Total Area / Diameter
+  const ropeDiameterMm = Number(input.zigzagRopeDiameterMm) || 8;
+  const ropeDiameterCm = ropeDiameterMm / 10;
+  // أمتار الحبل من المساحة السطحية = مساحة سم² ÷ (قطر سم × 100)
+  const surfaceRopeMeters = totalSurfaceAreaCm2 / (ropeDiameterCm * 100);
+
+  // أمتار حبل الأيادي (إن وجدت)
+  const handlesCount = isClutch ? 1 : (Number(input.zigzagHandlesCount) ?? (is3D ? 2 : 0));
+  const handleLengthCm = Number(input.zigzagHandleLengthCm) || 35;
   const handlesRopeMeters = (handlesCount * handleLengthCm) / 100;
 
-  // 4. معامل التقويس والحياكة 1.08 + هالك 7%
-  const netRopeMeters = (baseRopeMeters + wallRopeMeters + handlesRopeMeters) * 1.08;
-  const wasteFactor = 1.07; // 7% هالك
-  const totalRopeMeters = Number((netRopeMeters * wasteFactor).toFixed(1));
+  // أمتار حبل القاعدة المنفردة وجدران المشغولة للتقارير
+  const baseRopeMeters = baseAreaCm2 / (ropeDiameterCm * 100);
+  const wallRopeMeters = wallAreaCm2 / (ropeDiameterCm * 100);
 
-  // 5. وزن حبل القطن المحشي (حبل 8 مم يزن حوالي 48 جم لكل متر)
-  const gramsPerMeter = Math.pow(ropeDiameterMm, 1.8) * 1.15;
-  const totalWeightGrams = Math.round(totalRopeMeters * gramsPerMeter);
+  // 6. معامل اللف والدوران والانحناءات (+8%) + هالك الحياكة والتشغيل (+7%)
+  const rawRopeMeters = surfaceRopeMeters + handlesRopeMeters;
+  const netWithCurves = rawRopeMeters * 1.08; // 8% معامل دوران وانحناء الحبل
+  const wasteFactor = 1.07; // 7% هالك تشغيل وتشذيب
+  const totalRopeMeters = Number((netWithCurves * wasteFactor).toFixed(1));
+
+  // 7. وزن الحبل بالكيلوجرام بناءً على الوزن الخطي
+  // (حبل قطن زجزاج محشي 5-8 مم يزن 45-55 جم/م، بينما البوليستر أخف بنسبة 25%)
+  const ropeType = input.zigzagRopeType || 'cotton_padded';
+  const isPolyester = ropeType === 'polyester';
+  // معادلة الوزن الخطي الدقيق للقطن المحشي (جم / متر)
+  const cottonLinearGramsPerMeter = Math.pow(ropeDiameterMm, 1.82) * 1.22;
+  const linearGramsPerMeter = isPolyester ? cottonLinearGramsPerMeter * 0.72 : cottonLinearGramsPerMeter;
+  const totalWeightGrams = Math.round(totalRopeMeters * linearGramsPerMeter);
   const totalWeightKg = Number((totalWeightGrams / 1000).toFixed(2));
 
-  // 6. خيط المكوك والخياطة (كل متر حبل يستهلك 3.5 إلى 4 أمتار خيط زجزاج)
-  const sewingThreadMeters = Math.round(totalRopeMeters * 3.8);
+  // 8. استهلاك خيط المكوك والماكينة (كل متر حبل يستهلك 3.6 أمتار خيط زجزاج)
+  const sewingThreadMeters = Math.round(totalRopeMeters * 3.6);
   const sewingThreadBobbins = Number((sewingThreadMeters / 1000).toFixed(2));
-  const sewingThreadCost = Math.round(sewingThreadBobbins * 25); // بكرة خيط 1000م بـ 25 ج
+  const sewingThreadCost = Math.round(sewingThreadBobbins * 25); // بكرة خيط مكوك متين 1000م بـ 25 ج
 
-  // 7. تكلفة الحبل والخامات
+  // 9. تكلفة الحبل الأساسي
+  const pricePerKg = Number(input.pricePerKg) || (isPolyester ? 140 : 165);
   const ropeCost = Math.round(totalWeightKg * pricePerKg);
 
+  // 10. الإكسسوارات والخامات التكميلية (بطانة، سوستة، أيدي جلد، حلقات ميتاليك)
+  const hasLining = input.zigzagHasLining !== undefined ? input.zigzagHasLining : isClutch;
+  const hasZipper = input.zigzagHasZipper !== undefined ? input.zigzagHasZipper : isClutch;
+  const hasHandlesAccessories = input.zigzagHasHandles !== undefined ? input.zigzagHasHandles : (isClutch || handlesCount > 0);
+
+  // تكلفة البطانة (قماش ستان / سالسا / دك حسب مساحة المشغولة)
+  let liningCost = 0;
+  if (hasLining) {
+    liningCost = Number(input.zigzagLiningCost) || Math.round((totalSurfaceAreaCm2 / 10000) * 85 + 20);
+  }
+
+  // تكلفة السوستة والجرارات
+  let zipperCost = 0;
+  if (hasZipper) {
+    zipperCost = Number(input.zigzagZipperCost) || (isClutch ? 20 : 25);
+  }
+
+  // تكلفة الأيدي الجلد والحلقات الميتاليك
+  let accessoriesCost = 0;
+  if (hasHandlesAccessories) {
+    accessoriesCost = Number(input.zigzagAccessoriesCost) || (Number(input.bagAccessoriesCost) || (isClutch ? 45 : 30));
+  }
+
+  // الخامات الإضافية الديناميكية
   const dynamicExtraCost = (input.extraMaterials || []).reduce((sum, row) => {
     const cost = Number(row.totalCost) || (Number(row.quantity) * Number(row.unitPrice)) || 0;
     return sum + cost;
@@ -244,16 +304,19 @@ export function calculateZigzag(input: CalculationInput): CalculationOutput {
 
   const extraMaterialsTotalCost = Math.round(
     sewingThreadCost +
-    (Number(input.bagAccessoriesCost) || 0) +
+    liningCost +
+    zipperCost +
+    accessoriesCost +
     dynamicExtraCost
   );
 
   const totalDirectMaterialsCost = ropeCost + extraMaterialsTotalCost;
 
+  // 11. هامش الربح المعزول والتسعير النهائي
   const profitMarginPercent = Number(input.profitMarginPercent) || 75;
   const insulatedProfitAmount = Math.round(totalDirectMaterialsCost * (profitMarginPercent / 100));
 
-  const laborWage = Math.round(Number(input.laborWage) || 80);
+  const laborWage = Math.round(Number(input.laborWage) || (isClutch ? 95 : 85));
   const packagingCost = Math.round(Number(input.packagingCost) || 25);
   const transitFees = Math.round(Number(input.transitFees) || 0);
   const adminExpensesShare = Math.round(Number(input.adminExpensesShare) || 20);
@@ -269,7 +332,7 @@ export function calculateZigzag(input: CalculationInput): CalculationOutput {
 
   return {
     baseStrandsCount: 1,
-    workingCordsCount: Math.round(wallRings),
+    workingCordsCount: is3D ? Math.round(sideHeightCm / ropeDiameterCm) : 1,
     singleStrandLengthCm: Math.round(totalRopeMeters * 100),
     totalYarnLengthMeters: Math.round(totalRopeMeters),
     totalWeightKg,
@@ -291,14 +354,25 @@ export function calculateZigzag(input: CalculationInput): CalculationOutput {
     craftMetrics: {
       craftId: 'zigzag',
       craftNameAr: 'حبال الزجزاج وخياطة الماكينة',
+      pieceType,
+      baseShape,
+      baseAreaCm2: Math.round(baseAreaCm2),
+      wallAreaCm2: Math.round(wallAreaCm2),
+      totalSurfaceAreaCm2: Math.round(totalSurfaceAreaCm2),
+      perimeterCm: Math.round(basePerimeterCm),
       totalRopeMeters,
       baseRopeMeters: Number(baseRopeMeters.toFixed(1)),
       wallRopeMeters: Number(wallRopeMeters.toFixed(1)),
       handlesRopeMeters: Number(handlesRopeMeters.toFixed(1)),
+      ropeWeightKg: totalWeightKg,
+      ropeType: isPolyester ? 'حبل زجزاج بوليستر' : 'حبل قطن زجزاج محشي',
       sewingThreadMeters,
       sewingThreadBobbins,
+      liningCost,
+      zipperCost,
+      accessoriesCost,
       wasteFactorPercent: 7,
-      wasteAmount: Number((netRopeMeters * 0.07).toFixed(1)),
+      wasteAmount: Number((rawRopeMeters * 0.07).toFixed(1)),
     },
   };
 }
@@ -403,7 +477,7 @@ export function calculateKilim(input: CalculationInput): CalculationOutput {
 
 /**
  * 4. حاسبة البانش نيدل / الإبرة الشرقية (Punch Needle Math Engine)
- * قماش الرهبان الأصلي (+10 سم حواف للطارة)، طول خيط الصوف بناءً على ارتفاع الغرزة، غراء اللاتكس 250 جم/م²، وهالك 5%
+ * قماش الكانفاه المخرم أو الدك القطني المصري (+10 سم حواف للطارة)، طول خيط الصوف بناءً على ارتفاع الغرزة، غراء اللاتكس 250 جم/م²، وهالك 5%
  */
 export function calculatePunchNeedle(input: CalculationInput): CalculationOutput {
   const widthCm = Number(input.widthCm) || 40;
@@ -413,12 +487,25 @@ export function calculatePunchNeedle(input: CalculationInput): CalculationOutput
   const latexGramsPerSqM = Number(input.punchLatexGramsPerSqM) || 250;
   const pricePerKg = Number(input.pricePerKg) || 190;
 
-  // 1. مساحة وتكلفة قماش الرهبان (مع زيادة 10 سم من كل جانب للشد على الطارة)
+  // 1. مساحة وتكلفة قماش التطريز المصري (مع زيادة 10 سم من كل جانب للشد على الطارة)
+  // أنواع الأقمشة الدارجة في السوق المصري: كانفاه مخرم، دك قطن مصري، كتان تطريز
   const cutWidthCm = widthCm + 2 * marginCm;
   const cutHeightCm = heightCm + 2 * marginCm;
-  const monksClothAreaSqM = Number(((cutWidthCm * cutHeightCm) / 10000).toFixed(2));
-  const monksClothPricePerSqM = Number(input.punchMonksClothCost) || 140; // 140 ج/م² قماش رهبان مستورد
-  const monksClothTotalCost = Math.round(monksClothAreaSqM * monksClothPricePerSqM);
+  const fabricAreaSqM = Number(((cutWidthCm * cutHeightCm) / 10000).toFixed(2));
+
+  const fabricType = input.punchFabricType || 'cotton_canvas';
+  const fabricDefaultPrice =
+    fabricType === 'duck_fabric' ? 110 : fabricType === 'linen' ? 160 : 130;
+  const fabricPricePerSqM = Number(input.punchFabricCost) || Number(input.punchMonksClothCost) || fabricDefaultPrice;
+  const fabricTotalCost = Math.round(fabricAreaSqM * fabricPricePerSqM);
+
+  const fabricTypeLabels: Record<string, string> = {
+    cotton_canvas: 'قماش كانفاه مخرم عالي الجودة',
+    duck_fabric: 'قماش دك قطن مصري متين',
+    linen: 'قماش كتان مخصص للتطريز',
+    monks_cloth: 'قماش كانفاه مخرم أصلي',
+  };
+  const fabricTypeName = fabricTypeLabels[fabricType] || 'قماش كانفاه مخرم';
 
   // 2. مساحة التصميم واستهلاك الخيط
   const designAreaCm2 = widthCm * heightCm;
@@ -445,7 +532,7 @@ export function calculatePunchNeedle(input: CalculationInput): CalculationOutput
   }, 0);
 
   const extraMaterialsTotalCost = Math.round(
-    monksClothTotalCost +
+    fabricTotalCost +
     latexCost +
     dynamicExtraCost
   );
@@ -493,8 +580,11 @@ export function calculatePunchNeedle(input: CalculationInput): CalculationOutput
     craftMetrics: {
       craftId: 'punch_needle',
       craftNameAr: 'البانش نيدل / الإبرة الشرقية',
-      monksClothAreaSqM,
-      monksClothCost: monksClothTotalCost,
+      fabricAreaSqM,
+      fabricCost: fabricTotalCost,
+      fabricTypeName,
+      monksClothAreaSqM: fabricAreaSqM,
+      monksClothCost: fabricTotalCost,
       punchYarnLengthMeters: totalYarnLengthMeters,
       punchYarnWeightKg: totalWeightKg,
       latexGlueKg,

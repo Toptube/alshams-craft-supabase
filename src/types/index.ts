@@ -835,17 +835,28 @@ export interface CalculationInput {
     percentage: number;
   }>;
   // 2. Zigzag specific inputs
+  zigzagPieceType?: 'flat' | '3d' | 'clutch';
+  zigzagBaseShape?: 'circle' | 'oval' | 'rectangle';
   zigzagBaseType?: 'circle' | 'oval' | 'rectangle';
+  zigzagRopeType?: 'cotton_padded' | 'polyester';
   zigzagRopeDiameterMm?: number;
   zigzagHandlesCount?: number;
   zigzagHandleLengthCm?: number;
   zigzagThreadBobbins?: number;
+  zigzagHasLining?: boolean;
+  zigzagHasZipper?: boolean;
+  zigzagHasHandles?: boolean;
+  zigzagLiningCost?: number;
+  zigzagZipperCost?: number;
+  zigzagAccessoriesCost?: number;
   // 3. Kilim specific inputs
   kilimEpiDensity?: number;
   kilimLoomWasteCm?: number;
   kilimShrinkageFactor?: number;
   kilimWeftWoolKgPerSqM?: number;
   // 4. Punch Needle specific inputs
+  punchFabricType?: 'cotton_canvas' | 'duck_fabric' | 'linen' | 'monks_cloth';
+  punchFabricCost?: number;
   punchMonksClothMarginCm?: number;
   punchLoopHeightMm?: number;
   punchLatexGramsPerSqM?: number;
@@ -885,6 +896,13 @@ export interface CalculationOutput {
   craftMetrics?: {
     craftId: string;
     craftNameAr: string;
+    // Common Geometry Outputs
+    pieceType?: string;
+    baseShape?: string;
+    baseAreaCm2?: number;
+    wallAreaCm2?: number;
+    totalSurfaceAreaCm2?: number;
+    perimeterCm?: number;
     // Crochet
     baseWeightGrams?: number;
     wallWeightGrams?: number;
@@ -898,8 +916,13 @@ export interface CalculationOutput {
     baseRopeMeters?: number;
     wallRopeMeters?: number;
     handlesRopeMeters?: number;
+    ropeWeightKg?: number;
+    ropeType?: string;
     sewingThreadMeters?: number;
     sewingThreadBobbins?: number;
+    liningCost?: number;
+    zipperCost?: number;
+    accessoriesCost?: number;
     // Kilim
     warpThreadsCount?: number;
     totalWarpLengthMeters?: number;
@@ -907,6 +930,9 @@ export interface CalculationOutput {
     weftWoolWeightKg?: number;
     totalWoolWeightKg?: number;
     // Punch Needle
+    fabricAreaSqM?: number;
+    fabricCost?: number;
+    fabricTypeName?: string;
     monksClothAreaSqM?: number;
     monksClothCost?: number;
     punchYarnLengthMeters?: number;
