@@ -1664,6 +1664,46 @@ app.delete('/api/ai/session', requireAuth, (req: AuthenticatedRequest, res: Resp
 });
 
 // -------------------------------------------------------------
+// Real Social Preview & Dynamic Open Graph Meta for Artisan Stores
+// -------------------------------------------------------------
+app.get(['/store/:slug', '/s/:slug'], (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const slug = req.params.slug;
+    const workshops = loadPersistentWorkshops();
+    const cleanSlug = decodeURIComponent(slug).toLowerCase().trim();
+    const ws = workshops.find((w: any) => {
+      const nameSlug = (w.brandName || '').toLowerCase().replace(/\s+/g, '-');
+      const artistSlug = (w.artistName || '').toLowerCase().replace(/\s+/g, '-');
+      const idMatch = (w.id || '').toLowerCase();
+      return nameSlug === cleanSlug || artistSlug === cleanSlug || idMatch === cleanSlug;
+    });
+
+    const workshopName = ws?.brandName || ws?.artistName || decodeURIComponent(slug).replace(/-/g, ' ');
+    const pageTitle = `متجر ${workshopName} | عائلة الشمساوية`;
+    const pageDesc = `تصفح أرقى المشغولات اليدوية والديكورات الحرفية بضمان شركة الشمس كرافت.`;
+    const pageImage = ws?.logoUrl || '/alshams_falcon_emblem.png';
+    const storeUrl = `${req.protocol}://${req.get('host')}/store/${encodeURIComponent(slug)}`;
+
+    const indexPath = path.resolve(__dirname, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      let html = fs.readFileSync(indexPath, 'utf-8');
+      html = html.replace(/<title>.*?<\/title>/, `<title>${pageTitle}</title>`);
+      html = html.replace(/<meta name="description" content=".*?" \/>/, `<meta name="description" content="${pageDesc}" />`);
+      html = html.replace(/<meta property="og:title" content=".*?" \/>/, `<meta property="og:title" content="${pageTitle}" />`);
+      html = html.replace(/<meta property="og:description" content=".*?" \/>/, `<meta property="og:description" content="${pageDesc}" />`);
+      html = html.replace(/<meta property="og:image" content=".*?" \/>/, `<meta property="og:image" content="${pageImage}" />`);
+      html = html.replace(/<meta name="twitter:title" content=".*?" \/>/, `<meta name="twitter:title" content="${pageTitle}" />`);
+      html = html.replace(/<meta name="twitter:description" content=".*?" \/>/, `<meta name="twitter:description" content="${pageDesc}" />`);
+      html = html.replace(/<meta name="twitter:image" content=".*?" \/>/, `<meta name="twitter:image" content="${pageImage}" />`);
+      return res.send(html);
+    }
+  } catch (err) {
+    console.warn('[Store OG Render Error]:', err);
+  }
+  next();
+});
+
+// -------------------------------------------------------------
 // Start Server (Vite in Dev, Static in Prod)
 // -------------------------------------------------------------
 async function startServer() {

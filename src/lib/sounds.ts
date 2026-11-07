@@ -132,10 +132,70 @@ function playTone(
 }
 
 /**
+ * اهتزاز لمسي خفيف للهواتف الذكية (Tactile Haptic Feedback)
+ */
+export function triggerHaptic(durationMs: number = 15): void {
+  try {
+    if (typeof window !== 'undefined' && 'navigator' in window && 'vibrate' in navigator) {
+      navigator.vibrate(durationMs);
+    }
+  } catch {}
+}
+
+/**
+ * صوت نقر ميكانيكي ناعم (Soft Mechanical Click / Tap):
+ * نقرة فيزيائية مريحة وممتعة عند لمس الأزرار والتفاعل مع الواجهة
+ */
+export function playTapSound(): void {
+  triggerHaptic(12);
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1800, now);
+    osc.frequency.exponentialRampToValueAtTime(320, now + 0.025);
+
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.12, now + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.03);
+  } catch {}
+}
+
+/**
+ * نغمة لطيفة لإضافة المنتج للسلة (Add To Cart Chime):
+ * نغمة إنجاز خفيفة ثنائية النبرة مع كليك لمسي
+ */
+export function playAddToCartSound(): void {
+  triggerHaptic(20);
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    playTone(ctx, 880.0, now, 0.12, 0.12, 'sine');
+    playTone(ctx, 1318.5, now + 0.07, 0.22, 0.14, 'triangle');
+  } catch {}
+}
+
+/**
  * 1. صوت الضغط على الأزرار (Tactile Click Tone):
  * نغمة كليك مميزة، حيوية، نقية وسريعة تُعطي إحساساً فيزيائياً فخماً وملموساً عند الضغط
  */
 export function playButtonClickSound(): void {
+  triggerHaptic(15);
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;

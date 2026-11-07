@@ -1,8 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { UserProfile, SavedProductRecord, InvoiceRecord } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
-import { playSuccessSound, playAlertSound } from '../../lib/sounds';
+import {
+  playSuccessSound,
+  playAlertSound,
+  playTapSound,
+  playAddToCartSound,
+  triggerHaptic,
+} from '../../lib/sounds';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
+import { QRCodeCanvas } from 'qrcode.react';
+import { motion } from 'motion/react';
 import {
   Store,
   QrCode,
@@ -31,8 +39,9 @@ import {
   Eye,
   ShoppingBag,
   ShieldCheck,
+  Check,
 } from 'lucide-react';
-import { getClientPrivacyActive } from '../../services/marketplaceCartService';
+import { getClientPrivacyActive, addToCart } from '../../services/marketplaceCartService';
 
 interface TreasuryAccountOption {
   id: string;
@@ -85,12 +94,8 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
     .replace(/[^\w\u0621-\u064A-]/g, '');
 
   const storeUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/#store-${artisanSlug}`
+    ? `${window.location.origin}/store/${encodeURIComponent(artisanSlug)}`
     : `https://alshams-craft.com/store/${artisanSlug}`;
-
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=${encodeURIComponent(
-    storeUrl
-  )}&color=0a1128&bgcolor=fdfbf7`;
 
   useEffect(() => {
     if (!isOpen || !tenantId) return;
@@ -158,6 +163,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
   // Copy Store Link
   const handleCopyStoreLink = () => {
+    playTapSound();
     navigator.clipboard.writeText(storeUrl);
     playSuccessSound();
     showNotice('✓ تم نسخ رابط متجرك المباشر للمشاركة مع الزبائن!');
@@ -165,26 +171,129 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
   // WhatsApp Share Store Link
   const handleShareStoreWhatsApp = () => {
-    const text = `أهلاً بحضرتك في متجر "${profile.brandName || profile.artistName}" على منظومة الشمساوية 🦅☀️\nاستعرض كافة منتجاتنا ومشغولاتنا اليدوية المصنوعة بحب وعناية، واطلب قطعتك المخصصة من هنا:\n${storeUrl}`;
+    playTapSound();
+    const text = `أهلاً بحضرتك في متجر "${profile.brandName || profile.artistName}" على منظومة الشمساوية 🦅☀️\nاستعرض كافة منتجاتنا ومشغولاتنا اليدوية المصنوعة بحب وعناية، واطلب قطعتك المخصصة بضمان شركة الشمس كرافت من هنا:\n${storeUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
-  // Download QR Code
-  const handleDownloadQR = async () => {
+  // Download Pure QR Code Canvas
+  const handleDownloadQR = () => {
+    playTapSound();
+    const qrCanvas = document.getElementById('workshop-qr-canvas') as HTMLCanvasElement;
+    if (!qrCanvas) return;
     try {
-      const res = await fetch(qrImageUrl);
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `QR_Store_${artisanSlug}.png`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      const link = document.createElement('a');
+      link.download = `QR_Store_${artisanSlug}.png`;
+      link.href = qrCanvas.toDataURL('image/png', 1.0);
+      link.click();
       playSuccessSound();
-      showNotice('✓ تم تنزيل كود QR الخاص بمتجرك بنجاح!');
+      showNotice('✓ تم تنزيل كود QR بدقة فائقة!');
     } catch {
-      window.open(qrImageUrl, '_blank');
+      showNotice('تعذر تنزيل كود QR.');
     }
+  };
+
+  // High-Resolution Printable Workshop Poster (1200 x 1600)
+  const handleDownloadHighResPoster = () => {
+    playTapSound();
+    const qrCanvas = document.getElementById('workshop-qr-canvas') as HTMLCanvasElement;
+    if (!qrCanvas) return;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1200;
+      canvas.height = 1600;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Background - Deep Royal Navy
+      ctx.fillStyle = '#070E1E';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Outer Golden Border
+      ctx.strokeStyle = '#D97706';
+      ctx.lineWidth = 16;
+      ctx.strokeRect(36, 36, canvas.width - 72, canvas.height - 72);
+
+      // Inner Golden Border
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(54, 54, canvas.width - 108, canvas.height - 108);
+
+      // Header
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#F59E0B';
+      ctx.font = 'bold 36px Cairo, sans-serif';
+      ctx.fillText('☀️ عائلة الشمساوية • شركة الشمس كرافت 🦅', 600, 160);
+
+      // Workshop Brand
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 64px Cairo, sans-serif';
+      ctx.fillText(profile.brandName || profile.artistName || 'ورشة الشمساوية', 600, 270);
+
+      // Subtitle
+      ctx.fillStyle = '#EADBC8';
+      ctx.font = '500 32px Cairo, sans-serif';
+      ctx.fillText('أرقى المشغولات اليدوية والديكورات الحرفية الفاخرة', 600, 340);
+
+      // QR Container Card
+      ctx.fillStyle = '#FFFFFF';
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(260, 430, 680, 720, 32);
+        ctx.fill();
+      } else {
+        ctx.fillRect(260, 430, 680, 720);
+      }
+
+      // Draw QR code centered inside white card
+      ctx.drawImage(qrCanvas, 320, 480, 560, 560);
+
+      // Text inside card
+      ctx.fillStyle = '#070E1E';
+      ctx.font = 'bold 28px Cairo, sans-serif';
+      ctx.fillText('امسح الكود بكاميرا الموبايل لزيارة المتجر والطلب', 600, 1090);
+
+      // URL
+      ctx.fillStyle = '#D97706';
+      ctx.font = 'bold 24px monospace';
+      ctx.fillText(storeUrl, 600, 1130);
+
+      // Guarantee Seal & Footer
+      ctx.fillStyle = '#10B981';
+      ctx.font = 'bold 34px Cairo, sans-serif';
+      ctx.fillText('🛡️ مشغولات أصلية 100% بضمان شركة الشمس كرافت', 600, 1300);
+
+      ctx.fillStyle = '#CBD5E1';
+      ctx.font = '400 24px Cairo, sans-serif';
+      ctx.fillText('شحن وتوصيل آمن لكافة المحافظات • فحص واستلام بأعلى معايير الجودة', 600, 1360);
+
+      const link = document.createElement('a');
+      link.download = `بوستر_متجر_${artisanSlug}_عالي_الدقة.png`;
+      link.href = canvas.toDataURL('image/png', 1.0);
+      link.click();
+      playSuccessSound();
+      showNotice('✓ تم تنزيل بوستر الورشة عالي الدقة (1200x1600) للطباعة بنجاح! 🖼️');
+    } catch {
+      showNotice('تعذر توليد البوستر.');
+    }
+  };
+
+  // Quick Add To Cart
+  const handleQuickAddToCart = (p: SavedProductRecord) => {
+    playAddToCartSound();
+    addToCart({
+      id: `cart_${p.id}_${Date.now()}`,
+      productId: p.id,
+      productName: p.productName,
+      imageUrl: p.imageUrl || '',
+      workshopId: tenantId,
+      artistName: profile.brandName || profile.artistName || 'ورشة الشمساوية',
+      quantity: 1,
+      price: p.storePrice || p.retailPrice || 0,
+      craftName: p.category || 'مشغولة يدوية',
+    });
+    showNotice(`✓ تمت إضافة "${p.productName}" إلى سلة المتجر بنجاح ✨`);
   };
 
   // Print Store Poster
@@ -387,166 +496,206 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
           </div>
         )}
 
-        {/* Navigation Tabs */}
-        <div className="px-5 pt-3 bg-[#080F1E] border-b border-amber-900/30 flex items-center gap-2 overflow-x-auto">
-          <button
+        {/* Navigation Tabs (Responsive & Touch-Friendly) */}
+        <div className="px-3 sm:px-5 pt-3 bg-[#080F1E] border-b border-amber-900/30 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
+          <motion.button
+            whileTap={{ scale: 0.96 }}
             type="button"
-            onClick={() => setActiveTab('storefront')}
-            className={`px-4 py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-2 cursor-pointer ${
+            onClick={() => {
+              playTapSound();
+              setActiveTab('storefront');
+            }}
+            className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
               activeTab === 'storefront'
-                ? 'bg-[#0C1427] text-amber-300 border-t-2 border-x-2 border-amber-500/50'
+                ? 'bg-[#0C1427] text-amber-300 border-t-2 border-x-2 border-amber-500/50 shadow-sm'
                 : 'text-stone-400 hover:text-white'
             }`}
           >
-            <ShoppingBag className="w-4 h-4" />
+            <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
             <span>منتجات المتجر والمخزون ({products.length})</span>
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.96 }}
             type="button"
-            onClick={() => setActiveTab('orders')}
-            className={`px-4 py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-2 cursor-pointer ${
+            onClick={() => {
+              playTapSound();
+              setActiveTab('orders');
+            }}
+            className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
               activeTab === 'orders'
-                ? 'bg-[#0C1427] text-amber-300 border-t-2 border-x-2 border-amber-500/50'
+                ? 'bg-[#0C1427] text-amber-300 border-t-2 border-x-2 border-amber-500/50 shadow-sm'
                 : 'text-stone-400 hover:text-white'
             }`}
           >
-            <Package className="w-4 h-4" />
+            <Package className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" />
             <span>طلبيات المتجر والتحصيل ({orders.length})</span>
             {orders.filter((o) => o.status === 'pending' || o.status === 'in_progress').length > 0 && (
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
             )}
-          </button>
+          </motion.button>
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.96 }}
             type="button"
-            onClick={() => setActiveTab('qr')}
-            className={`px-4 py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-2 cursor-pointer ${
+            onClick={() => {
+              playTapSound();
+              setActiveTab('qr');
+            }}
+            className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
               activeTab === 'qr'
-                ? 'bg-[#0C1427] text-amber-300 border-t-2 border-x-2 border-amber-500/50'
+                ? 'bg-[#0C1427] text-amber-300 border-t-2 border-x-2 border-amber-500/50 shadow-sm'
                 : 'text-stone-400 hover:text-white'
             }`}
           >
-            <QrCode className="w-4 h-4" />
-            <span>كود QR وبوستر الورشة</span>
-          </button>
+            <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300" />
+            <span>كود QR والبوستر 🖼️</span>
+          </motion.button>
         </div>
 
         {/* Tab 1: Products in Storefront */}
         {activeTab === 'storefront' && (
-          <div className="p-5 flex-1 overflow-y-auto space-y-4">
+          <div className="p-3 sm:p-5 flex-1 overflow-y-auto space-y-3 sm:space-y-4">
             {/* Operational Quality Notice */}
-            <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-400/40 text-xs leading-relaxed space-y-1">
+            <div className="p-3 sm:p-4 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-xs leading-relaxed space-y-1">
               <div className="flex items-center gap-2 text-amber-300 font-black">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>تنبيه تشغيلي وسياسة فحص الجودة المعتمدة في شركة الشمس كرافت:</span>
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>سياسة فحص الجودة المعتمدة في شركة الشمس كرافت:</span>
               </div>
-              <p className="text-[#EADBC8] font-medium">
-                "تنبيه تشغيلي: يلتزم الفنان بتحمل مصاريف الشحن الداخلي إلى مخازن شركة الشمس كرافت وتكاليف الفحص والتغليف. تخضع كافة المشغولات للفحص الفني اليدوي، ويحق للمنظومة رفض أي قطعة غير مطابقة للصور أو معايير الفنش والجودة؛ للحفاظ على ثقة عملاء عائلة الشمساوية وقيمة منتجك".
+              <p className="text-[#EADBC8] text-[11px] sm:text-xs font-medium">
+                "تخضع كافة المشغولات للفحص الفني اليدوي لضمان معايير الفنش والجودة؛ للحفاظ على ثقة عملاء عائلة الشمساوية وقيمة منتجك الحرفي".
               </p>
             </div>
 
             {/* Quick Share Bar */}
-            <div className="p-3.5 rounded-2xl bg-[#131E38] border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 text-xs">
-                <span className="text-amber-300 font-bold">رابط متجرك المباشر:</span>
-                <span className="font-mono text-emerald-300 text-[11px] bg-black/40 px-2.5 py-1 rounded-lg border border-emerald-500/30 truncate max-w-[260px] sm:max-w-md" dir="ltr">
+            <div className="p-3 sm:p-3.5 rounded-2xl bg-[#131E38] border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 text-xs w-full sm:w-auto min-w-0">
+                <span className="text-amber-300 font-bold shrink-0">رابط متجرك:</span>
+                <span className="font-mono text-emerald-300 text-[11px] bg-black/40 px-2 py-1 rounded-lg border border-emerald-500/30 truncate flex-1 sm:max-w-md" dir="ltr">
                   {storeUrl}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <button
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <motion.button
+                  whileTap={{ scale: 0.94 }}
                   type="button"
                   onClick={handleCopyStoreLink}
-                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 transition"
+                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>نسخ الرابط</span>
-                </button>
-                <button
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.94 }}
                   type="button"
                   onClick={handleShareStoreWhatsApp}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 transition"
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition"
                 >
                   <Share2 className="w-3.5 h-3.5" />
                   <span>مشاركة واتساب</span>
-                </button>
+                </motion.button>
               </div>
             </div>
 
-            {/* Products Grid */}
+            {/* Products Grid: 2-Columns on Mobile, 3-Columns on Desktop */}
             {products.length === 0 ? (
-              <div className="p-12 text-center rounded-3xl bg-[#080F1E] border border-amber-500/20 space-y-3">
+              <div className="p-10 text-center rounded-3xl bg-[#080F1E] border border-amber-500/20 space-y-3">
                 <Store className="w-12 h-12 mx-auto text-amber-500/60" />
                 <h4 className="text-sm font-black text-amber-200">لا توجد منتجات معروضة بمتجرك حالياً</h4>
                 <p className="text-xs text-[#EADBC8] max-w-md mx-auto">
-                  يمكنك حفظ أي مشغولة من حاسبة التكاليف وسيتم إدراجها هنا فورياً، أو التحديد من كتالوج المشغولات والضغط على "تصدير إلى متجري 🏪".
+                  يمكنك حفظ أي مشغولة من حاسبة التكاليف وسيتم إدراجها هنا فورياً بضمان شركة الشمس كرافت.
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-4">
                 {products.map((p) => {
                   const hasStock = (p.currentStock || 0) > 0;
                   const price = p.storePrice || p.retailPrice || 0;
                   return (
                     <div
                       key={p.id}
-                      className="rounded-2xl bg-[#080F1E] border border-amber-500/30 p-3.5 flex flex-col justify-between hover:border-amber-400 transition shadow-lg group"
+                      className="rounded-2xl bg-[#080F1E] border border-amber-500/30 p-2 sm:p-3.5 flex flex-col justify-between hover:border-amber-400 transition shadow-lg group relative"
                     >
                       <div>
                         {/* Image & Badges */}
-                        <div className="relative w-full h-44 rounded-xl overflow-hidden bg-black/40 mb-3 border border-amber-500/20">
+                        <div className="relative w-full h-28 sm:h-44 rounded-xl overflow-hidden bg-black/40 mb-2 sm:mb-3 border border-amber-500/20">
                           {p.imageUrl ? (
-                            <img src={p.imageUrl} alt={p.productName} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                            <img
+                              src={p.imageUrl}
+                              alt={p.productName}
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                              loading="lazy"
+                            />
                           ) : (
                             <div className="w-full h-full flex flex-col items-center justify-center text-amber-400/50">
-                              <ShoppingBag className="w-10 h-10 mb-1" />
-                              <span className="text-[10px]">لا توجد صورة</span>
+                              <ShoppingBag className="w-8 h-8 sm:w-10 sm:h-10 mb-1" />
+                              <span className="text-[9px] sm:text-[10px]">مشغولة يدوية</span>
                             </div>
                           )}
 
-                          {/* Stock status badge */}
-                          <div className="absolute top-2 right-2">
+                          {/* Guarantee Badge */}
+                          <div className="absolute top-1.5 right-1.5">
+                            <span className="px-1.5 sm:px-2 py-0.5 rounded-md bg-stone-900/85 text-amber-300 text-[8px] sm:text-[10px] font-black border border-amber-400/50 shadow-xs flex items-center gap-1">
+                              <ShieldCheck className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                              <span className="hidden xs:inline">بضمان</span>
+                              <span>الشمس كرافت</span>
+                            </span>
+                          </div>
+
+                          {/* Stock Status */}
+                          <div className="absolute top-1.5 left-1.5">
                             {hasStock ? (
-                              <span className="px-2.5 py-1 rounded-full bg-emerald-600/90 text-white font-black text-[10px] shadow-md flex items-center gap-1 border border-emerald-400">
-                                <span>متاح للتسليم الفوري ({p.currentStock} قطعة)</span>
+                              <span className="px-1.5 py-0.5 rounded-md bg-emerald-600/90 text-white font-black text-[8px] sm:text-[9px] shadow-xs">
+                                فوري ({p.currentStock})
                               </span>
                             ) : (
-                              <span className="px-2.5 py-1 rounded-full bg-amber-600/90 text-white font-black text-[10px] shadow-md flex items-center gap-1 border border-amber-400">
-                                <span>يُصنع عند الطلب (3-5 أيام) ⏳</span>
+                              <span className="px-1.5 py-0.5 rounded-md bg-amber-600/90 text-white font-black text-[8px] sm:text-[9px] shadow-xs">
+                                عند الطلب
                               </span>
                             )}
                           </div>
 
-                          <div className="absolute bottom-2 left-2">
-                            <span className="px-2 py-0.5 rounded-lg bg-black/80 text-amber-300 font-mono text-xs font-bold border border-amber-500/30">
+                          {/* Price Tag */}
+                          <div className="absolute bottom-1.5 left-1.5">
+                            <span className="px-1.5 sm:px-2 py-0.5 rounded-lg bg-black/85 text-amber-300 font-mono text-[10px] sm:text-xs font-bold border border-amber-500/30">
                               {price} {profile.currencySymbol || 'ج.م'}
                             </span>
                           </div>
                         </div>
 
-                        {/* Title & Code */}
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <h4 className="font-black text-sm text-white truncate">{p.productName}</h4>
-                          <span className="text-[10px] font-mono text-stone-400 shrink-0">{p.productCode || ''}</span>
+                        {/* Title & Category */}
+                        <div className="mb-1">
+                          <h4 className="font-black text-xs sm:text-sm text-white truncate" title={p.productName}>
+                            {p.productName}
+                          </h4>
+                          <span className="text-[9px] sm:text-[10px] text-amber-200/80 line-clamp-1">
+                            {p.category || 'مشغولة يدوية'}
+                          </span>
                         </div>
-                        <p className="text-[11px] text-[#EADBC8] line-clamp-2 mb-2 font-medium">
-                          {p.storeDescription || p.input?.personalNotes || `مشغولة يدوية فاخرة مصنوعة بحب في ورشة ${profile.brandName || profile.artistName}`}
-                        </p>
                       </div>
 
-                      {/* Card Footer Actions */}
-                      <div className="pt-2 border-t border-amber-500/20 flex items-center justify-between text-xs">
-                        <span className="text-[10px] text-amber-200">
-                          {p.category}
-                        </span>
+                      {/* Card Actions: Quick Add to Cart + Calculator Link */}
+                      <div className="pt-2 border-t border-amber-500/20 space-y-1.5">
+                        <motion.button
+                          whileTap={{ scale: 0.94 }}
+                          type="button"
+                          onClick={() => handleQuickAddToCart(p)}
+                          className="w-full py-1.5 px-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black text-[10px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition"
+                        >
+                          <ShoppingBag className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-200" />
+                          <span>أضف للسلة 🛒</span>
+                        </motion.button>
+
                         {onOpenCalculatorForRecord && (
                           <button
                             type="button"
-                            onClick={() => onOpenCalculatorForRecord(p)}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                            onClick={() => {
+                              playTapSound();
+                              onOpenCalculatorForRecord(p);
+                            }}
+                            className="w-full py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-[9px] sm:text-[10px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
                           >
-                            <span>فتح بالحاسبة 🧮</span>
+                            <span>عرض بالحاسبة 🧮</span>
                           </button>
                         )}
                       </div>
@@ -752,59 +901,91 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
         {/* Tab 3: Workshop QR Code & Marketing Poster */}
         {activeTab === 'qr' && (
-          <div className="p-6 flex-1 overflow-y-auto flex flex-col items-center justify-center text-center space-y-5">
+          <div className="p-4 sm:p-6 flex-1 overflow-y-auto flex flex-col items-center justify-center text-center space-y-5">
             {/* Printable Frame */}
-            <div className="p-6 rounded-3xl bg-[#FDFBF7] text-[#0A1128] border-4 border-amber-500 shadow-2xl max-w-sm w-full space-y-4">
+            <div className="p-5 sm:p-6 rounded-3xl bg-[#FDFBF7] text-[#0A1128] border-4 border-amber-500 shadow-2xl max-w-sm w-full space-y-4">
               <div className="space-y-1">
                 <span className="text-[10px] font-black uppercase tracking-widest text-amber-700">
-                  منظومة الشمساوية • هاند ميد مصر
+                  منظومة الشمساوية • هاند ميد مصر ☀️
                 </span>
-                <h3 className="text-xl font-black text-[#0A1128]">
+                <h3 className="text-lg sm:text-xl font-black text-[#0A1128]">
                   {profile.brandName || profile.artistName}
                 </h3>
                 <p className="text-xs text-stone-600 font-bold">
-                  امسح الكود لزيارة متجرنا وطلب القطع المصنوعة بحب وعناية ✨
+                  امسح الكود بكاميرا الموبايل لزيارة متجرنا وطلب القطع المصنوعة بحب وعناية ✨
                 </p>
               </div>
 
-              {/* QR Image */}
+              {/* Native High-Resolution QR Canvas */}
               <div className="w-56 h-56 mx-auto rounded-2xl overflow-hidden border-2 border-[#0A1128] p-2 bg-white shadow-inner flex items-center justify-center">
-                <img src={qrImageUrl} alt="QR Code" className="w-full h-full object-contain" />
+                <QRCodeCanvas
+                  id="workshop-qr-canvas"
+                  value={storeUrl}
+                  size={216}
+                  level="H"
+                  includeMargin={true}
+                  imageSettings={{
+                    src: '/alshams_falcon_emblem.png',
+                    x: undefined,
+                    y: undefined,
+                    height: 40,
+                    width: 40,
+                    excavate: true,
+                  }}
+                />
               </div>
 
-              <div className="text-[11px] font-mono text-stone-700 border-t border-stone-200 pt-2 truncate" dir="ltr">
-                {storeUrl}
+              <div className="space-y-1 border-t border-stone-200 pt-2">
+                <span className="text-[10px] font-bold text-emerald-700 block">
+                  🛡️ مشغولات أصلية 100% بضمان شركة الشمس كرافت
+                </span>
+                <div className="text-[10px] sm:text-[11px] font-mono text-stone-700 truncate" dir="ltr">
+                  {storeUrl}
+                </div>
               </div>
             </div>
 
             {/* Actions */}
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
+            <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 max-w-lg">
+              <motion.button
+                whileTap={{ scale: 0.94 }}
+                type="button"
+                onClick={handleDownloadHighResPoster}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black text-xs flex items-center gap-2 cursor-pointer shadow-lg transition"
+              >
+                <span>🖼️</span>
+                <span>تحميل بوستر الورشة عالي الدقة للطباعة</span>
+              </motion.button>
+
+              <motion.button
+                whileTap={{ scale: 0.94 }}
                 type="button"
                 onClick={handleDownloadQR}
-                className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 transition"
+                className="px-3.5 py-2.5 rounded-xl bg-[#131E38] hover:bg-[#1D2F57] border border-amber-500/40 text-amber-300 font-black text-xs flex items-center gap-2 cursor-pointer transition shadow-xs"
               >
-                <Download className="w-4 h-4" />
-                <span>تحميل صورة كود QR 💾</span>
-              </button>
+                <Download className="w-4 h-4 text-amber-400" />
+                <span>تحميل كود QR 💾</span>
+              </motion.button>
 
-              <button
+              <motion.button
+                whileTap={{ scale: 0.94 }}
                 type="button"
                 onClick={handlePrintPoster}
-                className="px-4 py-2.5 rounded-xl bg-[#131E38] hover:bg-[#1D2F57] border border-amber-500/40 text-amber-300 font-black text-xs flex items-center gap-2 cursor-pointer transition"
+                className="px-3.5 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-black text-xs flex items-center gap-2 cursor-pointer transition"
               >
                 <Printer className="w-4 h-4" />
-                <span>طباعة بوستر الورشة 🖨️</span>
-              </button>
+                <span>طباعة 🖨️</span>
+              </motion.button>
 
-              <button
+              <motion.button
+                whileTap={{ scale: 0.94 }}
                 type="button"
                 onClick={handleShareStoreWhatsApp}
-                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-2 cursor-pointer transition"
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-2 cursor-pointer shadow-md transition"
               >
                 <Share2 className="w-4 h-4" />
                 <span>مشاركة كارت المتجر واتساب 📲</span>
-              </button>
+              </motion.button>
             </div>
           </div>
         )}
