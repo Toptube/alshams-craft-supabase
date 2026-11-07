@@ -63,7 +63,13 @@ import {
   Search,
   ChevronDown,
   X,
+  CheckCircle2,
+  FileText,
 } from 'lucide-react';
+import {
+  generateArtisanQuotationPDF,
+  extractQuotationDataFromRecord,
+} from '../../services/quotationPdfGenerator';
 import { CostBreakdownDonutChart } from './CostBreakdownDonutChart';
 import { NumberInput } from '../ui/NumberInput';
 import {
@@ -170,6 +176,20 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
 
   // Specialized State for the 5 New Textile Crafts
   // 1. Crochet
+  const [hasSolidBase, setHasSolidBase] = useState<boolean>(
+    initialRecord?.input?.hasSolidBase ?? false
+  );
+  const [crochetDepthCm, setCrochetDepthCm] = useState<number>(
+    initialRecord?.input?.crochetDepthCm ?? 0
+  );
+  const [crochetStitchDistributions, setCrochetStitchDistributions] = useState<
+    Array<{ stitchType: 'sc' | 'slst' | 'hdc' | 'dc' | 'tr' | 'puff'; percentage: number }>
+  >(
+    initialRecord?.input?.crochetStitchDistributions && initialRecord.input.crochetStitchDistributions.length > 0
+      ? initialRecord.input.crochetStitchDistributions
+      : [{ stitchType: 'sc', percentage: 100 }]
+  );
+  const [stitchToast, setStitchToast] = useState<string>('');
   const [crochetBaseType, setCrochetBaseType] = useState<'yarn' | 'wooden' | 'leather'>(
     initialRecord?.input?.crochetBaseType || 'wooden'
   );
@@ -931,7 +951,10 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       // Specialized Textile Inputs
       craftId: selectedCraftId,
       craftType: selectedCraftId,
-      crochetBaseType,
+      hasSolidBase,
+      crochetDepthCm,
+      crochetStitchDistributions,
+      crochetBaseType: hasSolidBase ? crochetBaseType : 'yarn',
       crochetBaseHolesCount,
       crochetBaseIncreasesRate,
       crochetWoodenBaseCost,
@@ -983,6 +1006,9 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     personalNotes,
     productImageUrl,
     selectedCraftId,
+    hasSolidBase,
+    crochetDepthCm,
+    crochetStitchDistributions,
     crochetBaseType,
     crochetBaseHolesCount,
     crochetBaseIncreasesRate,
@@ -1077,8 +1103,78 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   const savingProductRef = useRef(false);
   const pendingNewIdRef = useRef<string | null>(null);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [isExportingQuotation, setIsExportingQuotation] = useState(false);
+  const [validationWarning, setValidationWarning] = useState<string>('');
+
+  const handleExportQuotation = async () => {
+    if (costPrice <= 0 || retailPrice <= 0) {
+      setValidationWarning('⚠️ تنبيه أمان: لا يمكن تصدير عرض سعر لمنتج تكلفته أو سعره صفر! يرجى إدخال أبعاد المشغولة وتحديد الخامات أولاً.');
+      playErrorSound();
+      return;
+    }
+    setValidationWarning('');
+    setIsExportingQuotation(true);
+    try {
+      const selectedSection = MAIN_SECTIONS.find((s) => s.id === selectedSectionId);
+      const selectedCraft = SUB_CRAFTS_REGISTRY.find((c) => c.id === selectedCraftId);
+      const record: SavedProductRecord = {
+        id: existingRecordId || `prod_${Date.now()}`,
+        tenantId: profile.tenantId || '',
+        workshopId: profile.tenantId || '',
+        productName: productName.trim() || `منتج ${category}`,
+        productSerialNumber: initialRecord?.productSerialNumber,
+        productCode: initialRecord?.productCode,
+        mainSectionId: selectedSectionId,
+        mainSectionName: selectedSection?.nameAr || selectedSectionId,
+        craftId: selectedCraftId,
+        craftName: selectedCraft?.nameAr || selectedCraftId,
+        productType: category,
+        category,
+        costPrice,
+        retailPrice,
+        wholesalePrice,
+        wholesaleMarginDiscountPercent,
+        input: calculationInput,
+        output,
+        imageUrl: productImageUrl,
+        isActive: true,
+        createdAt: initialRecord?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+      const qData = extractQuotationDataFromRecord(record);
+      await generateArtisanQuotationPDF(qData, profile);
+    } catch (e) {
+      console.error('Failed to export quotation:', e);
+    } finally {
+      setIsExportingQuotation(false);
+    }
+  };
 
   const handleSaveProduct = async () => {
+    // 1. فحص الأبعاد الأساسية والتحقق المالي الحي
+    if (!is3D && (!widthCm || widthCm <= 0)) {
+      setValidationWarning('يرجى كتابة أبعاد المشغولة لحساب وزن الخيط');
+      playErrorSound();
+      return;
+    }
+    if (shape3D === 'circle' && (!diameterCm || diameterCm <= 0)) {
+      setValidationWarning('يرجى إدخال قطر المشغولة الدائرية لحساب المساحة والخيط');
+      playErrorSound();
+      return;
+    }
+    if (shape3D === 'cylinder' && ((!baseDiameterCm || baseDiameterCm <= 0) || (!sideHeightCm || sideHeightCm <= 0))) {
+      setValidationWarning('يرجى إدخال قطر القاعدة وارتفاع الجدران للمجسم الاسطواني');
+      playErrorSound();
+      return;
+    }
+    // 2. منع حفظ منتج ناتج تكلفته أو سعره صفر لحماية هوامش أرباح الفنان
+    if (costPrice <= 0 || retailPrice <= 0) {
+      setValidationWarning('⚠️ تنبيه أمان: لا يمكن حفظ أو تصدير منتج تكلفته أو سعره صفر! يرجى إدخال أبعاد المشغولة وتحديد خاماتها لضمان حساب أرباحك بدقة.');
+      playErrorSound();
+      return;
+    }
+
+    setValidationWarning('');
     if (savingProductRef.current) return;
     savingProductRef.current = true;
     setIsSavingProduct(true);
@@ -2192,6 +2288,12 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   placeholder="مثال: 60"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none focus:ring-2 focus:ring-amber-500"
                 />
+                {(!widthCm || widthCm <= 0) && (
+                  <p className="text-[11px] font-bold text-amber-700 dark:text-amber-400 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>يرجى كتابة أبعاد المشغولة لحساب وزن الخيط</span>
+                  </p>
+                )}
               </div>
             )}
 
@@ -2238,58 +2340,100 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           {selectedCraftId === 'crochet' && (
             <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
-                  محرك كروشيه هالك 5%
-                </span>
                 <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
                   <span>🧶</span>
-                  <span>مواصفات ورشة الكروشيه المنزلي والمشغولات</span>
+                  <span>مواصفات المشغولة</span>
                 </h3>
+                {stitchToast && (
+                  <div className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-600 text-white shadow-sm animate-fade-in flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{stitchToast}</span>
+                  </div>
+                )}
               </div>
 
+              {/* 3D Depth Input */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
-                    نوع قاعدة المشغولة *
+                    عمق / عرض الجانب (سم)
                   </label>
-                  <select
-                    value={crochetBaseType}
-                    onChange={(e) => setCrochetBaseType(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
-                  >
-                    <option value="wooden">قاعدة خشبية مثقوبة ليزر</option>
-                    <option value="yarn">قاعدة كروشيه مشغولة بالخيط</option>
-                    <option value="leather">قاعدة جلد طبيعي مثقوبة</option>
-                  </select>
+                  <NumberInput
+                    value={crochetDepthCm}
+                    onChange={setCrochetDepthCm}
+                    placeholder="مثال: 10 للشنط والعلب المجسمة، 0 للمسطح"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <p className="text-[10px] text-stone-500 dark:text-stone-400 mt-1">
+                    يُستخدم لحساب استهلاك أجناب المشغولات ثلاثية الأبعاد (شنط، بوكسات).
+                  </p>
                 </div>
 
-                {crochetBaseType !== 'yarn' ? (
-                  <div>
-                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
-                      تكلفة القاعدة الخشبية/الجلدية (ج.م) *
-                    </label>
-                    <NumberInput
-                      value={crochetWoodenBaseCost}
-                      onChange={setCrochetWoodenBaseCost}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
-                      كثافة الخيط المعتمدة للقاعدة
-                    </label>
-                    <div className="px-3.5 py-2.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-xs font-bold text-stone-600 dark:text-stone-300">
-                      0.40 جم / سم² (محسوبة آلياً من المساحة)
-                    </div>
-                  </div>
-                )}
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                    ارتفاع جدار المشغولة (سم)
+                  </label>
+                  <NumberInput
+                    value={sideHeightCm}
+                    onChange={setSideHeightCm}
+                    placeholder="ارتفاع جوانب الشنطة أو البوكس"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <p className="text-[10px] text-stone-500 dark:text-stone-400 mt-1">
+                    ارتفاع الأجناب الرأسية للمشغولة.
+                  </p>
+                </div>
+              </div>
 
-                {crochetBaseType !== 'yarn' && (
-                  <>
+              {/* Solid Base Checkbox */}
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-800/80 border border-amber-500/20">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={hasSolidBase}
+                    onChange={(e) => setHasSolidBase(e.target.checked)}
+                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-stone-300 dark:border-stone-600 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-stone-900 dark:text-stone-100 block">
+                      المشغولة تحتوي على قاعدة صلبة (خشب / جلد)
+                    </span>
+                    <span className="text-[10px] text-stone-500 dark:text-stone-400 block">
+                      في حال عدم التحديد، يتم احتساب كامل المشغولة وقاعدتها كنسيج خيط متصل
+                    </span>
+                  </div>
+                </label>
+
+                {hasSolidBase && (
+                  <div className="mt-4 pt-3 border-t border-amber-500/20 grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
-                        عدد ثقوب القاعدة (Holes)
+                        نوع القاعدة الصلبة *
+                      </label>
+                      <select
+                        value={crochetBaseType === 'yarn' ? 'wooden' : crochetBaseType}
+                        onChange={(e) => setCrochetBaseType(e.target.value as any)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                      >
+                        <option value="wooden">قاعدة خشبية مثقوبة ليزر</option>
+                        <option value="leather">قاعدة جلد طبيعي مثقوبة</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                        تكلفة القاعدة الصلبة ({profile.currencySymbol}) *
+                      </label>
+                      <NumberInput
+                        value={crochetWoodenBaseCost}
+                        onChange={setCrochetWoodenBaseCost}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-sm font-bold font-mono outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                        عدد ثقوب القاعدة
                       </label>
                       <NumberInput
                         value={crochetBaseHolesCount}
@@ -2300,7 +2444,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
 
                     <div>
                       <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
-                        معدل تزايد السطر الأول لكل ثقب
+                        معدل تزايد السطر الأول
                       </label>
                       <select
                         value={crochetBaseIncreasesRate}
@@ -2312,8 +2456,132 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                         <option value={2}>غرزتين في كل ثقب (2x)</option>
                       </select>
                     </div>
-                  </>
+                  </div>
                 )}
+              </div>
+
+              {/* Dynamic Multi-Stitch Selector with % Logic */}
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-800/80 border border-amber-500/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="block text-xs font-bold text-stone-900 dark:text-stone-100">
+                      توزيع أنواع الغرز في المشغولة (نسبة مئوية %)
+                    </label>
+                    <span className="text-[10px] text-stone-500 dark:text-stone-400">
+                      تطبيق معامل سحب الخيط لكل غرزة لحساب الوزن بدقة هندسية
+                    </span>
+                  </div>
+                  {(() => {
+                    const total = crochetStitchDistributions.reduce((s, r) => s + (Number(r.percentage) || 0), 0);
+                    return (
+                      <span
+                        className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-full ${
+                          total === 100
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                            : total > 100
+                            ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                        }`}
+                      >
+                        المجموع: {total}%
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                <div className="space-y-2.5">
+                  {crochetStitchDistributions.map((stitchItem, idx) => {
+                    return (
+                      <div key={idx} className="flex items-center gap-2">
+                        <select
+                          value={stitchItem.stitchType}
+                          onChange={(e) => {
+                            const next = [...crochetStitchDistributions];
+                            next[idx] = { ...next[idx], stitchType: e.target.value as any };
+                            setCrochetStitchDistributions(next);
+                          }}
+                          className="flex-1 px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-stone-100 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                        >
+                          <option value="sc">غرزة حشو (معامل 1.0)</option>
+                          <option value="slst">غرزة منزلقة (معامل 0.6)</option>
+                          <option value="hdc">نصف عمود (معامل 1.25)</option>
+                          <option value="dc">عمود بلفة (معامل 1.5)</option>
+                          <option value="tr">عمود بلفتين (معامل 1.85)</option>
+                          <option value="puff">غرز منتفخة / باف / بوبل / ياسمين (معامل 2.5)</option>
+                        </select>
+
+                        <div className="w-28 relative">
+                          <input
+                            type="number"
+                            min="1"
+                            max="100"
+                            value={stitchItem.percentage}
+                            onChange={(e) => {
+                              const val = Number(e.target.value) || 0;
+                              const next = [...crochetStitchDistributions];
+                              next[idx] = { ...next[idx], percentage: val };
+                              setCrochetStitchDistributions(next);
+                              const total = next.reduce((s, r) => s + (Number(r.percentage) || 0), 0);
+                              if (total === 100) {
+                                setStitchToast('تم اكتمال 100% من توزيع غرز المشغولة بنجاح ✨');
+                                setTimeout(() => setStitchToast(''), 2500);
+                              }
+                            }}
+                            className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-stone-100 text-xs font-mono font-bold text-center outline-none focus:ring-2 focus:ring-amber-500"
+                          />
+                          <span className="absolute left-2.5 top-2 text-xs text-stone-400 font-bold pointer-events-none">
+                            %
+                          </span>
+                        </div>
+
+                        {crochetStitchDistributions.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = crochetStitchDistributions.filter((_, i) => i !== idx);
+                              setCrochetStitchDistributions(next);
+                            }}
+                            className="p-2 rounded-xl text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                            title="حذف الغرزة"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {(() => {
+                  const total = crochetStitchDistributions.reduce((s, r) => s + (Number(r.percentage) || 0), 0);
+                  if (total < 100) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentTotal = crochetStitchDistributions.reduce((s, r) => s + (Number(r.percentage) || 0), 0);
+                          const remaining = Math.max(0, 100 - currentTotal);
+                          if (remaining <= 0) return;
+                          const used = crochetStitchDistributions.map((d) => d.stitchType);
+                          const candidates: Array<'sc' | 'slst' | 'hdc' | 'dc' | 'tr' | 'puff'> = ['dc', 'hdc', 'tr', 'puff', 'slst', 'sc'];
+                          const nextStitch = candidates.find((c) => !used.includes(c)) || 'dc';
+                          const next = [...crochetStitchDistributions, { stitchType: nextStitch, percentage: remaining }];
+                          setCrochetStitchDistributions(next);
+                          const newTotal = next.reduce((s, r) => s + (Number(r.percentage) || 0), 0);
+                          if (newTotal === 100) {
+                            setStitchToast('تم اكتمال 100% من توزيع غرز المشغولة بنجاح ✨');
+                            setTimeout(() => setStitchToast(''), 2500);
+                          }
+                        }}
+                        className="w-full py-2 px-3 rounded-xl border border-dashed border-amber-500/50 hover:bg-amber-500/10 text-amber-800 dark:text-amber-300 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <PlusCircle className="w-3.5 h-3.5" />
+                        <span>إضافة غرزة أخرى (المتبقي: {100 - total}%)</span>
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             </div>
           )}
@@ -2321,12 +2589,9 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           {selectedCraftId === 'zigzag' && (
             <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
-                  معادلة حلزون Area/t وهالك 7%
-                </span>
                 <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
                   <span>🧵</span>
-                  <span>مواصفات ورشة حبال الزجزاج وخياطة الماكينة</span>
+                  <span>مواصفات المشغولة</span>
                 </h3>
               </div>
 
@@ -2376,7 +2641,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </div>
 
               <p className="text-[11px] text-amber-800 dark:text-amber-300 font-medium">
-                * يتم آلياً حساب استهلاك خيط المكوك والخياطة بمعدل 3.8 متر خيط مكوك لكل متر حبل مع إضافة هالك 7% ومعامل التقويس 1.08.
+                * يتم آلياً حساب استهلاك خيط المكوك والخياطة بحسب أطوال الحبل والأبعاد المطلوبة.
               </p>
             </div>
           )}
@@ -2384,12 +2649,9 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           {(selectedCraftId === 'kilim' || selectedCraftId === 'kelim') && (
             <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
-                  حساب السداء واللحمة وهالك 15%
-                </span>
                 <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
                   <span>🪡</span>
-                  <span>مواصفات ورشة الكليم والنسيج اليدوي</span>
+                  <span>مواصفات المشغولة</span>
                 </h3>
               </div>
 
@@ -2438,12 +2700,9 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           {selectedCraftId === 'punch_needle' && (
             <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
-                  قماش الرهبان الأصلي وهالك 5%
-                </span>
                 <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
                   <span>🎨</span>
-                  <span>مواصفات ورشة البانش نيدل / الإبرة الشرقية</span>
+                  <span>مواصفات المشغولة</span>
                 </h3>
               </div>
 
@@ -2492,12 +2751,9 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           {(selectedCraftId === 'tufting_gun' || selectedCraftId === 'tufting') && (
             <div className="p-5 sm:p-6 rounded-3xl bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/30 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500 text-stone-950">
-                  سجاد التافت، اللاتكس وهالك 10%
-                </span>
                 <h3 className="text-sm font-black text-amber-950 dark:text-amber-200 flex items-center gap-2">
                   <span>🔫</span>
-                  <span>مواصفات ورشة مسدس التافت وصناعة السجاد</span>
+                  <span>مواصفات المشغولة</span>
                 </h3>
               </div>
 
@@ -3088,6 +3344,23 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         </div>
       </div>
 
+      {/* Validation & Safety Warning Banner */}
+      {validationWarning && (
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200 text-xs font-bold flex items-center justify-between gap-3 animate-fade-in shadow-md">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+            <span>{validationWarning}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setValidationWarning('')}
+            className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 text-xs font-bold px-2 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 cursor-pointer"
+          >
+            إغلاق ✕
+          </button>
+        </div>
+      )}
+
       {/* CORE FUNCTIONAL ACTIONS DIRECTLY AT THE BOTTOM VIEW */}
       <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 mt-8">
         <div>
@@ -3095,7 +3368,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             تأكيد واعتماد بطاقة تسعير المنتج
           </h4>
           <p className="text-xs text-stone-500">
-            حفظ الحسابات في الأرشيف أو تحديث السجل المفتوح أو إنشاء عرض سعر واتساب فوري للعميل
+            حفظ الحسابات في الأرشيف أو تحديث السجل المفتوح أو تصدير عرض سعر رسمي PDF أو عبر واتساب
           </p>
         </div>
 
@@ -3129,6 +3402,21 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               <span>{isSavingProduct ? 'جاري الحفظ...' : tr('catalog_export_from_calc')}</span>
             </button>
           )}
+
+          {/* زر تصدير عرض سعر رسمي PDF */}
+          <button
+            type="button"
+            disabled={isExportingQuotation}
+            onClick={handleExportQuotation}
+            className="flex-1 md:flex-none px-5 py-3 rounded-2xl font-black text-xs text-amber-900 dark:text-amber-100 bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/60 transition flex items-center justify-center gap-2 cursor-pointer border border-amber-300 dark:border-amber-800 shadow-sm disabled:opacity-50"
+          >
+            {isExportingQuotation ? (
+              <RefreshCw className="w-4 h-4 animate-spin text-amber-700" />
+            ) : (
+              <FileText className="w-4 h-4 text-amber-700" />
+            )}
+            <span>تصدير عرض سعر رسمي 📄✨</span>
+          </button>
 
           {/* أيقونة الحالة بجوار زر الحفظ مباشرة تعتمد على DexieDB ومزامنة Supabase */}
           <div

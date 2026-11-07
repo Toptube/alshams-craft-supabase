@@ -49,7 +49,7 @@ import { LandingPage } from './components/landing/LandingPage';
 
 // Modals & Drawers
 import { GlobalSearchModal, GlobalSearchDataCache } from './components/search/GlobalSearchModal';
-import { NotificationDrawer } from './components/notifications/NotificationDrawer';
+import { UnifiedAlertsModal } from './components/notifications/UnifiedAlertsModal';
 import { ProfileSettingsModal } from './components/profile/ProfileSettingsModal';
 import { CraftsSelectorModal } from './components/onboarding/CraftsSelectorModal';
 import { UserGuideModal } from './components/guide/UserGuideModal';
@@ -77,7 +77,11 @@ import { UnifiedAICommandCenter } from './components/ai/UnifiedAICommandCenter';
 import { ExecutiveTab } from './components/admin/AdminDashboard';
 import { MarketplaceView } from './components/marketplace/MarketplaceView';
 import { ArtisanStorefrontModal } from './components/store/ArtisanStorefrontModal';
-import { registerServiceWorker } from './lib/pushNotifications';
+import {
+  registerServiceWorker,
+  checkAndDispatchEquipmentMaintenanceAlerts,
+} from './lib/pushNotifications';
+import { PermissionsOnboardingModal } from './components/permissions/PermissionsOnboardingModal';
 
 // Icons for the sub-page navigation bar
 import { ArrowRight, Home, Sparkles, X } from 'lucide-react';
@@ -265,6 +269,10 @@ export const App: React.FC = () => {
 
   // Messaging Hub (بوسطة) & Announcements state
   const [isMessagesHubOpen, setIsMessagesHubOpen] = useState<boolean>(false);
+  const [isPermissionsModalOpen, setIsPermissionsModalOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return !localStorage.getItem('alshams_permissions_prompted');
+  });
   const [announcements, setAnnouncements] = useState<(AdminAnnouncement & { receipt?: WorkshopMessageReceipt })[]>([]);
 
   // Super Admin Multi-Tenant Workshop Switcher Context
@@ -591,9 +599,22 @@ export const App: React.FC = () => {
     (a) => !a.receipt || !a.receipt.read_at
   ).length;
 
-  // Register Web Push Service Worker for real-time background workshop alerts
+  // Register Web Push Service Worker for real-time background workshop alerts & equipment maintenance checks
   useEffect(() => {
     registerServiceWorker().catch(() => {});
+    const tenant = profile?.tenantId || profile?.workshopId || profile?.id;
+    if (tenant) {
+      checkAndDispatchEquipmentMaintenanceAlerts(tenant).catch(() => {});
+    }
+  }, [profile?.tenantId, profile?.workshopId, profile?.id]);
+
+  // Listen to open permissions modal event
+  useEffect(() => {
+    const handleOpenPermissions = () => {
+      setIsPermissionsModalOpen(true);
+    };
+    window.addEventListener('alshams_open_permissions_modal', handleOpenPermissions);
+    return () => window.removeEventListener('alshams_open_permissions_modal', handleOpenPermissions);
   }, []);
 
   // Listen to store opening events (with optional targeted order ID)
@@ -1435,6 +1456,7 @@ export const App: React.FC = () => {
           onOpenCloudMigration={() => setIsCloudMigrationOpen(true)}
           onOpenSupport={() => setIsSupportOpen(true)}
           onStartTour={() => setIsTourOpen(true)}
+          onOpenPermissionsModal={() => setIsPermissionsModalOpen(true)}
           onToggleDarkMode={() => setThemeMode((prev: ThemeMode) => prev === 'dark' || prev === 'night_focus' ? 'light' : 'dark')}
           isDarkMode={isDarkMode}
           themeMode={themeMode}
@@ -1464,16 +1486,22 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Notifications Drawer */}
-      {isNotificationsOpen && (
-        <NotificationDrawer
-          isOpen={isNotificationsOpen}
-          onClose={() => setIsNotificationsOpen(false)}
+      {/* Unified Alerts & Messages Modal (مركز التنبيهات الموحد) */}
+      {(isNotificationsOpen || isMessagesHubOpen) && (
+        <UnifiedAlertsModal
+          isOpen={isNotificationsOpen || isMessagesHubOpen}
+          onClose={() => {
+            setIsNotificationsOpen(false);
+            setIsMessagesHubOpen(false);
+          }}
+          initialTab={isMessagesHubOpen ? 'messages' : 'notifications'}
           notifications={notifications}
           profile={profile}
+          unreadMessagesCount={unreadMessagesCount}
           onRefreshNotifications={loadSearchCacheAndNotifications}
           onNavigateToOrder={() => navigateTo('sales')}
           onNavigateToInventory={() => navigateTo('materials')}
+          onReceiptUpdate={loadAnnouncements}
         />
       )}
 
@@ -1654,19 +1682,6 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Messages Hub Modal (مركز المراسلات - بوسطة) */}
-      {isMessagesHubOpen && profile && (
-        <MessagesHubModal
-          isOpen={isMessagesHubOpen}
-          onClose={() => setIsMessagesHubOpen(false)}
-          profile={profile}
-          workshopId={profile.workshopId || profile.id}
-          workshopName={profile.brandName || profile.artistName || 'ورشة الشمساوية'}
-          announcements={announcements}
-          onRefreshAnnouncements={loadAnnouncements}
-          onReceiptUpdate={loadAnnouncements}
-        />
-      )}
 
       {/* Artisan Storefront Modal & Order Lifecycle */}
       <ArtisanStorefrontModal
@@ -1677,11 +1692,18 @@ export const App: React.FC = () => {
         }}
         profile={profile}
         initialOrderId={selectedStoreOrderId}
-        onOpenCalculatorForRecord={(rec) => {
+        onOpenCalculatorForRecord={(rec: any) => {
           setCalculatorInitialRecord(rec);
           navigateTo('calculator');
           setIsArtisanStoreModalOpen(false);
         }}
+      />
+
+      {/* Permissions & Background Onboarding Modal */}
+      <PermissionsOnboardingModal
+        isOpen={isPermissionsModalOpen}
+        onClose={() => setIsPermissionsModalOpen(false)}
+        isInitialOnboarding={typeof window !== 'undefined' && !localStorage.getItem('alshams_permissions_prompted')}
       />
     </div>
   );

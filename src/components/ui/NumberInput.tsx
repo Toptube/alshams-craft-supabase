@@ -17,12 +17,14 @@ export interface NumberInputProps {
   onFocus?: (e: React.FocusEvent<HTMLInputElement>) => void;
   required?: boolean;
   title?: string;
+  allowNegative?: boolean;
 }
 
 /**
  * تحويل الأرقام العربية الهندية والفاصلة إلى أرقام إنجليزية مع نقطة عشرية
+ * ومنع الأرقام السالبة تلقائياً لحماية مدخلات الحسابات
  */
-export function normalizeNumericString(input: string): string {
+export function normalizeNumericString(input: string, allowNegative: boolean = false): string {
   const arabicIndicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
   const easternArabicDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
 
@@ -37,14 +39,14 @@ export function normalizeNumericString(input: string): string {
   normalized = normalized.replace(/[,،٫\u066B]/g, '.');
   normalized = normalized.replace(/[\u066C]/g, ''); // إزالة فواصل الآلاف
 
-  // تصفية المحارف غير الصالحة والسماح بنقطة عشرية واحدة وإشارة سالب واحدة في البداية
+  // تصفية المحارف غير الصالحة والسماح بنقطة عشرية واحدة، وإشارة سالب فقط إذا كان مسموحاً
   let clean = '';
   let hasDot = false;
   let hasMinus = false;
 
   for (let i = 0; i < normalized.length; i++) {
     const char = normalized[i];
-    if (char === '-' && i === 0 && !hasMinus) {
+    if (char === '-' && i === 0 && !hasMinus && allowNegative) {
       hasMinus = true;
       clean += char;
     } else if (char === '.' && !hasDot) {
@@ -74,6 +76,7 @@ export const NumberInput: React.FC<NumberInputProps> = ({
   onFocus,
   required,
   title,
+  allowNegative = false,
 }) => {
   const formatIncoming = (val: number | string | undefined): string => {
     if (val === undefined || val === null || val === '') return '';
@@ -109,7 +112,7 @@ export const NumberInput: React.FC<NumberInputProps> = ({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
-    const clean = normalizeNumericString(raw);
+    const clean = normalizeNumericString(raw, allowNegative);
 
     setText(clean);
 
@@ -118,8 +121,11 @@ export const NumberInput: React.FC<NumberInputProps> = ({
       return;
     }
 
-    const parsed = parseFloat(clean);
+    let parsed = parseFloat(clean);
     if (!isNaN(parsed)) {
+      if (!allowNegative && parsed < 0) parsed = 0;
+      if (min !== undefined && parsed < min) parsed = min;
+      if (max !== undefined && parsed > max) parsed = max;
       onChange(parsed);
     }
   };

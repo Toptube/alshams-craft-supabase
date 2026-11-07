@@ -45,10 +45,12 @@ import {
   ShoppingBag,
   PackagePlus,
   Zap,
+  Globe,
 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 import { tenantStorage } from '../../db/dexieDB';
 import { playSuccessSound, playErrorSound } from '../../lib/sounds';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -66,6 +68,7 @@ interface SidebarDrawerProps {
   onOpenCloudMigration: () => void;
   onOpenSupport?: () => void;
   onStartTour?: () => void;
+  onOpenPermissionsModal?: () => void;
   onToggleDarkMode: () => void;
   isDarkMode: boolean;
   themeMode?: ThemeMode;
@@ -91,6 +94,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onOpenCloudMigration,
   onOpenSupport,
   onStartTour,
+  onOpenPermissionsModal,
   onToggleDarkMode,
   isDarkMode,
   themeMode = 'light',
@@ -1077,6 +1081,26 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   <ChevronLeft className="w-3.5 h-3.5 text-stone-300" />
                 </button>
 
+                {/* قسم اختيار لغة المنظومة (Language Switcher) */}
+                <div className="p-3 rounded-2xl bg-[#0C1427] border-2 border-amber-500/40 shadow-xl space-y-2">
+                  <div className="flex items-center justify-between text-xs font-black text-white">
+                    <span className="flex items-center gap-1.5 text-amber-300">
+                      <Globe className="w-3.5 h-3.5 text-amber-400" />
+                      <span>لغة المنظومة</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenProfileSettings()}
+                      className="text-[10px] text-amber-400 hover:underline cursor-pointer"
+                    >
+                      تخصيص اللغات
+                    </button>
+                  </div>
+                  <div className="pt-0.5">
+                    <LanguageSwitcher onOpenSettingsModal={onOpenProfileSettings} />
+                  </div>
+                </div>
+
                 {/* وضع السهر الحرفي المريح للعين ومظهر الورشة (تباين حاد وألوان حرفية ناصعة) */}
                 {onSelectThemeMode && (
                   <div className="p-3 rounded-2xl bg-[#0C1427] border-2 border-amber-500/40 shadow-xl space-y-2.5">
@@ -1216,6 +1240,23 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               <span>{tr('mod_tour')}</span>
             </button>
           )}
+
+          {/* فحص أذونات وتنبيهات المنظومة */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenPermissionsModal) {
+                onOpenPermissionsModal();
+              } else {
+                window.dispatchEvent(new CustomEvent('alshams_open_permissions_modal'));
+              }
+              onClose();
+            }}
+            className="w-full py-2 px-3 rounded-xl border border-blue-300 dark:border-blue-700/80 bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 flex items-center justify-center gap-2 cursor-pointer shadow-2xs text-xs font-black transition active:scale-95"
+          >
+            <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>فحص أذونات وتنبيهات المنظومة 🛡️</span>
+          </button>
 
           <div className="grid grid-cols-3 gap-1.5 text-xs font-bold">
             <button

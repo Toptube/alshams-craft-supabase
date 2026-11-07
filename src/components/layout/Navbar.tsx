@@ -12,14 +12,10 @@ import {
   ShoppingCart,
   UserPlus,
   Users2,
-  ChevronDown,
-  Sun,
-  Moon,
   Sparkles,
   Wallet,
 } from 'lucide-react';
 import { ConnectionStatus } from './ConnectionStatus';
-import { LanguageSwitcher } from './LanguageSwitcher';
 import { useTranslation } from '../../lib/i18n';
 import { tenantStorage } from '../../db/dexieDB';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
@@ -74,17 +70,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isQuickCreateMenuOpen, setIsQuickCreateMenuOpen] = useState(false);
   const quickCreateRef = useRef<HTMLDivElement>(null);
 
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
-  const themeMenuRef = useRef<HTMLDivElement>(null);
-
   // Close menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (quickCreateRef.current && !quickCreateRef.current.contains(event.target as Node)) {
         setIsQuickCreateMenuOpen(false);
-      }
-      if (themeMenuRef.current && !themeMenuRef.current.contains(event.target as Node)) {
-        setIsThemeMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -197,35 +187,44 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </button>
 
-          {/* 3. علامة الإشعارات كأيقونة أنيقة ونقية مع مؤشر التنبيه */}
+          {/* 3. مركز التنبيهات الموحد (Unified Bell with Dual Badges for Operational & Store Messages) */}
           <button
             type="button"
             onClick={onOpenNotifications}
             className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-2xl text-stone-700 dark:text-stone-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-700 dark:hover:text-amber-400 border border-stone-200 dark:border-stone-700/80 transition-all duration-150 cursor-pointer flex items-center justify-center shadow-xs active:scale-95 shrink-0"
-            title={tr('notifications_alerts')}
-            aria-label={tr('notifications')}
+            title="مركز التنبيهات والمراسلات الموحد (إشعارات تشغيلية ورسائل العملاء)"
+            aria-label="مركز التنبيهات"
           >
             <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-stone-700 dark:text-stone-300" />
-            {unreadNotificationsCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] sm:min-w-[18px] h-[16px] sm:h-[18px] px-1 bg-rose-600 text-white text-[9px] sm:text-[10px] font-black rounded-full flex items-center justify-center shadow-xs animate-pulse">
+
+            {/* Badges: Orange for Operational Notifications, Emerald for Customer/Store Messages */}
+            {unreadNotificationsCount > 0 && unreadMessagesCount === 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] sm:min-w-[18px] h-[16px] sm:h-[18px] px-1 bg-amber-600 text-white text-[9px] sm:text-[10px] font-black rounded-full flex items-center justify-center shadow-xs animate-pulse">
                 {unreadNotificationsCount > 99 ? '+99' : unreadNotificationsCount}
               </span>
             )}
-          </button>
 
-          {/* 3.5. علامة الرسائل والمراسلات (Messages Hub) مع مؤشر الرسائل غير المقروءة */}
-          <button
-            type="button"
-            onClick={onOpenMessagesHub}
-            className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-2xl text-stone-700 dark:text-stone-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-700 dark:hover:text-amber-400 border border-stone-200 dark:border-stone-700/80 transition-all duration-150 cursor-pointer flex items-center justify-center shadow-xs active:scale-95 shrink-0"
-            title="الرسائل والمراسلات (Messages Hub)"
-            aria-label="الرسائل"
-          >
-            <Mail className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-stone-700 dark:text-stone-300" />
-            {unreadMessagesCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] sm:min-w-[18px] h-[16px] sm:h-[18px] px-1 bg-amber-600 text-white text-[9px] sm:text-[10px] font-black rounded-full flex items-center justify-center shadow-xs animate-pulse">
+            {unreadMessagesCount > 0 && unreadNotificationsCount === 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] sm:min-w-[18px] h-[16px] sm:h-[18px] px-1 bg-emerald-600 text-white text-[9px] sm:text-[10px] font-black rounded-full flex items-center justify-center shadow-xs animate-pulse">
                 {unreadMessagesCount > 99 ? '+99' : unreadMessagesCount}
               </span>
+            )}
+
+            {unreadNotificationsCount > 0 && unreadMessagesCount > 0 && (
+              <div className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5">
+                <span
+                  className="min-w-[14px] h-[14px] px-0.5 bg-amber-600 text-white text-[8px] font-black rounded-full flex items-center justify-center shadow-xs"
+                  title="إشعارات تشغيلية"
+                >
+                  {unreadNotificationsCount}
+                </span>
+                <span
+                  className="min-w-[14px] h-[14px] px-0.5 bg-emerald-600 text-white text-[8px] font-black rounded-full flex items-center justify-center shadow-xs"
+                  title="رسائل العملاء"
+                >
+                  {unreadMessagesCount}
+                </span>
+              </div>
             )}
           </button>
 
@@ -346,7 +345,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* مكون حالة الاتصال بنبضات بصرية ملونة */}
           <ConnectionStatus hasActiveSession={hasActiveSession} />
 
-          {/* البحث الموحد (أيقونة فقط مع تلميح وراحة بصرية) */}
+          {/* البحث الموحد الخفيف */}
           <button
             type="button"
             onClick={onOpenGlobalSearch}
@@ -356,107 +355,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Search className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-600 dark:text-amber-400" />
           </button>
-
-          {/* زر تبديل المظهر ووضع السهر الحرفي المريح للعين */}
-          {onSelectThemeMode && (
-            <div className="relative shrink-0" ref={themeMenuRef}>
-              <button
-                type="button"
-                onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}
-                className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl border transition-all cursor-pointer flex items-center justify-center shadow-xs active:scale-95 ${
-                  themeMode === 'night_focus'
-                    ? 'bg-amber-950/80 text-amber-300 border-amber-600/70 shadow-amber-900/30 ring-1 ring-amber-500/30'
-                    : themeMode === 'dark'
-                    ? 'bg-stone-850 text-stone-200 border-stone-700'
-                    : 'bg-white text-amber-700 border-stone-200 hover:bg-amber-50'
-                }`}
-                title={
-                  themeMode === 'night_focus'
-                    ? 'وضع السهر الهادئ (كهرمان مريح للعين)'
-                    : themeMode === 'dark'
-                    ? 'الوضع الليلي'
-                    : 'الوضع النهاري'
-                }
-                aria-label="تبديل مظهر الورشة"
-              >
-                {themeMode === 'night_focus' ? (
-                  <Sparkles className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-400 animate-pulse-subtle" />
-                ) : themeMode === 'dark' ? (
-                  <Moon className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-stone-300" />
-                ) : (
-                  <Sun className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-600" />
-                )}
-              </button>
-
-              {isThemeMenuOpen && (
-                <div className="absolute top-full mt-2 left-0 w-52 bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl p-2 shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 space-y-1">
-                  <div className="px-2.5 py-1.5 border-b border-stone-100 dark:border-stone-800 text-[11px] font-black text-stone-500 dark:text-stone-400">
-                    مظهر ورشة الشمساوية
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectThemeMode('light');
-                      setIsThemeMenuOpen(false);
-                    }}
-                    className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-right transition cursor-pointer text-xs font-black ${
-                      themeMode === 'light'
-                        ? 'bg-amber-50 text-amber-900 dark:bg-stone-800 dark:text-amber-300 font-extrabold'
-                        : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Sun className="w-4 h-4 text-amber-600" />
-                      <span>الوضع النهاري</span>
-                    </span>
-                    {themeMode === 'light' && <span className="text-amber-600">✓</span>}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectThemeMode('night_focus');
-                      setIsThemeMenuOpen(false);
-                    }}
-                    className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-right transition cursor-pointer text-xs font-black ${
-                      themeMode === 'night_focus'
-                        ? 'bg-amber-900/40 text-amber-300 border border-amber-600/50 shadow-xs'
-                        : 'text-stone-700 dark:text-stone-300 hover:bg-amber-950/30 hover:text-amber-400'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-amber-400" />
-                      <div>
-                        <span className="block leading-tight">وضع السهر الهادئ</span>
-                        <span className="text-[9px] text-amber-400/80 font-normal">كهرمان مريح للعين</span>
-                      </div>
-                    </span>
-                    {themeMode === 'night_focus' && <span className="text-amber-400">✓</span>}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectThemeMode('dark');
-                      setIsThemeMenuOpen(false);
-                    }}
-                    className={`w-full px-3 py-2 rounded-xl flex items-center justify-between text-right transition cursor-pointer text-xs font-black ${
-                      themeMode === 'dark'
-                        ? 'bg-stone-800 text-stone-200 font-extrabold'
-                        : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Moon className="w-4 h-4 text-stone-400" />
-                      <span>الوضع الليلي</span>
-                    </span>
-                    {themeMode === 'dark' && <span className="text-stone-300">✓</span>}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* محول اللغات وتعدد اللغات بجوار البحث الموحد */}
-          <LanguageSwitcher />
         </div>
       </div>
     </header>

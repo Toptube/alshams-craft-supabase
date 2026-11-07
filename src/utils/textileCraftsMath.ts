@@ -9,59 +9,106 @@ export interface CraftEngineResult extends CalculationOutput {}
 
 /**
  * 1. حاسبة الكروشيه المنزلي والمشغولات (Crochet Math Engine)
- * تحسب استهلاك خيوط الكليم/المكرمية/القطن بناءً على مساحة القاعدة وجسم المشغولة ونوع القاعدة وهالك 5%
+ * ضبط هندسي متقدم: أبعاد مجسمة 3D مع عمق الجانب، قاعدة صلبة اختيارية، وتوزيع غرز مرجح بمعاملات السحب
  */
+export const CROCHET_STITCH_FACTORS: Record<string, { label: string; factor: number }> = {
+  sc: { label: 'غرزة حشو (Single Crochet - SC)', factor: 1.0 },
+  slst: { label: 'منزلقة (Slip Stitch)', factor: 0.6 },
+  hdc: { label: 'نصف عمود (Half Double - HDC)', factor: 1.25 },
+  dc: { label: 'عمود بلفة (Double Crochet - DC)', factor: 1.5 },
+  tr: { label: 'عمود بلفتين (Treble - TR)', factor: 1.85 },
+  puff: { label: 'غرز منتفخة/باف/جراني/ياسمينة (Puff/Bobble)', factor: 2.5 },
+};
+
 export function calculateCrochet(input: CalculationInput): CalculationOutput {
   const isCircle = input.shape3D === 'circle' || input.shape3D === 'cylinder';
   const diameter = Number(input.diameterCm) || Number(input.baseDiameterCm) || 20;
   const width = Number(input.widthCm) || 20;
   const length = Number(input.totalLengthCm) || width;
-  const height = Number(input.sideHeightCm) || 15;
-  const baseType = input.crochetBaseType || 'wooden';
-  const woodenBaseCost = Number(input.crochetWoodenBaseCost) || (baseType === 'wooden' ? 35 : 0);
+  const height = Number(input.sideHeightCm) || Number(input.crochetWallHeightCm) || 15;
+  const depth = Number(input.crochetDepthCm) || 0;
   const pricePerKg = Number(input.pricePerKg) || 160;
+  const cordThicknessMm = Number(input.cordThicknessMm) || 4;
+  const thicknessFactor = Math.max(0.6, cordThicknessMm / 4);
 
-  // 1. حساب مساحة القاعدة
+  // 1. معامل سحب الغرز المرجح (Weighted Stitch Factor)
+  let weightedStitchFactor = 1.0;
+  const distributions = input.crochetStitchDistributions;
+  if (Array.isArray(distributions) && distributions.length > 0) {
+    let totalPct = 0;
+    let sumWeight = 0;
+    distributions.forEach((d) => {
+      const pct = Math.max(0, Math.min(100, Number(d.percentage) || 0));
+      const factor = CROCHET_STITCH_FACTORS[d.stitchType]?.factor || 1.0;
+      sumWeight += (pct / 100) * factor;
+      totalPct += pct;
+    });
+    if (totalPct < 100) {
+      // المتبقي يُحسب بغرزة الحشو الأساسية 1.0
+      const remainingPct = 100 - totalPct;
+      sumWeight += (remainingPct / 100) * 1.0;
+    }
+    weightedStitchFactor = Math.max(0.6, Math.min(3.0, sumWeight));
+  }
+
+  // 2. هندسة الأبعاد ثلاثية الأبعاد (3D Depth) وحساب المساحة والمحيط
   let baseAreaCm2 = 0;
   let basePerimeterCm = 0;
+  let wallAreaCm2 = 0;
+
   if (isCircle) {
     const r = diameter / 2;
     baseAreaCm2 = Math.PI * r * r;
     basePerimeterCm = Math.PI * diameter;
+    wallAreaCm2 = basePerimeterCm * height;
   } else {
-    baseAreaCm2 = width * length;
-    basePerimeterCm = 2 * (width + length);
+    if (depth > 0) {
+      // شنطة أو بوكس مجسم 3D بوجود عمق/عرض جانب
+      baseAreaCm2 = width * depth;
+      basePerimeterCm = 2 * (width + depth);
+      // مساحة الجدران: واجهتين أمامية وخلفية + جانبان
+      wallAreaCm2 = 2 * (width + depth) * height;
+    } else {
+      // مشغولة مسطحة كشال، مفرش، أو قطعة مستطيلة
+      baseAreaCm2 = width * length;
+      basePerimeterCm = 2 * (width + length);
+      wallAreaCm2 = height > 0 ? basePerimeterCm * height : 0;
+    }
   }
 
-  // 2. وزن القاعدة
+  // 3. احتساب القاعدة (اختيارية كقاعدة صلبة خشب/جلد أو نسيج خيط متصل)
+  const hasSolidBase = !!input.hasSolidBase;
+  const baseType = hasSolidBase ? (input.crochetBaseType || 'wooden') : 'yarn';
+  let woodenBaseCost = 0;
   let baseWeightGrams = 0;
-  if (baseType === 'yarn') {
-    // كثافة خيط الكروشيه السميك للقاعدة ~ 0.40 جم/سم²
-    baseWeightGrams = Math.round(baseAreaCm2 * 0.40);
-  } else {
-    // قاعدة خشبية أو جلدية مثقوبة: استهلاك خيط بسيط لتثبيت الحواف فقط
+
+  if (hasSolidBase && baseType !== 'yarn') {
+    // قاعدة صلبة خشبية أو جلدية مثقوبة ليزر
+    woodenBaseCost = Number(input.crochetWoodenBaseCost) || (baseType === 'wooden' ? 35 : 50);
     const holes = Number(input.crochetBaseHolesCount) || Math.round(basePerimeterCm / 1.5);
     const increaseRate = Number(input.crochetBaseIncreasesRate) || 1.5;
-    baseWeightGrams = Math.round(holes * increaseRate * 0.8);
+    // استهلاك خيط الغرز في الثقوب وحافة التثبيت
+    baseWeightGrams = Math.round(holes * increaseRate * 0.85 * weightedStitchFactor * thicknessFactor);
+  } else {
+    // قطعة نسيجية متصلة بالكامل من خيط الكروشيه (أو مفرش/شال بدون قاعدة صلبة)
+    baseWeightGrams = Math.round(baseAreaCm2 * 0.40 * weightedStitchFactor * thicknessFactor);
   }
 
-  // 3. وزن جدران المشغولة (الارتفاع)
-  const wallAreaCm2 = basePerimeterCm * height;
-  const wallWeightGrams = Math.round(wallAreaCm2 * 0.38);
+  // 4. استهلاك خيط جدران المشغولة (أو جسم المشغولة)
+  const wallWeightGrams = Math.round(wallAreaCm2 * 0.38 * weightedStitchFactor * thicknessFactor);
 
-  // 4. إجمالي وزن الخيط الصافي وهالك 5%
+  // 5. إجمالي الوزن الصافي مع تطبيق هالك التشغيل 5% برمجياً في الخلفية
   const netWeightGrams = baseWeightGrams + wallWeightGrams;
   const wasteFactor = 1.05; // 5% هالك
   const totalWeightGrams = Math.round(netWeightGrams * wasteFactor);
   const totalWeightKg = Number((totalWeightGrams / 1000).toFixed(2));
 
-  // تقدير طول الخيط بالأمتار (خيط كليم/مكرمية قطن 4 مم ~ 350 جم لكل 100 متر)
-  const totalYarnLengthMeters = Math.round((totalWeightGrams / 3.5));
+  // تقدير طول الخيط بالأمتار
+  const totalYarnLengthMeters = Math.round(totalWeightGrams / (3.5 * thicknessFactor));
 
-  // 5. تكلفة الخيط
+  // 6. تكلفة الخيط والمواد المباشرة
   const yarnCost = Math.round(totalWeightKg * pricePerKg);
 
-  // 6. الخامات الإضافية (تشمل القاعدة الخشبية إذا وجدت)
   const dynamicExtraCost = (input.extraMaterials || []).reduce((sum, row) => {
     const cost = Number(row.totalCost) || (Number(row.quantity) * Number(row.unitPrice)) || 0;
     return sum + cost;
@@ -75,7 +122,7 @@ export function calculateCrochet(input: CalculationInput): CalculationOutput {
 
   const totalDirectMaterialsCost = yarnCost + extraMaterialsTotalCost;
 
-  // 7. هامش الربح المعزول على الخامات
+  // 7. هامش الربح المعزول على الخامات والتسعير النهائي
   const profitMarginPercent = Number(input.profitMarginPercent) || 80;
   const insulatedProfitAmount = Math.round(totalDirectMaterialsCost * (profitMarginPercent / 100));
 
@@ -94,7 +141,7 @@ export function calculateCrochet(input: CalculationInput): CalculationOutput {
   );
 
   return {
-    baseStrandsCount: baseType === 'wooden' ? (input.crochetBaseHolesCount || Math.round(basePerimeterCm / 1.5)) : 1,
+    baseStrandsCount: hasSolidBase ? (input.crochetBaseHolesCount || Math.round(basePerimeterCm / 1.5)) : 1,
     workingCordsCount: Math.round(basePerimeterCm),
     singleStrandLengthCm: Math.round(totalYarnLengthMeters * 100),
     totalYarnLengthMeters,
@@ -123,6 +170,9 @@ export function calculateCrochet(input: CalculationInput): CalculationOutput {
       woodenBaseCost,
       wasteFactorPercent: 5,
       wasteAmount: Math.round(netWeightGrams * 0.05),
+      weightedStitchFactor: Math.round(weightedStitchFactor * 100) / 100,
+      depthCm: depth,
+      hasSolidBase,
     },
   };
 }

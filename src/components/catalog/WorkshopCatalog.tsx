@@ -43,6 +43,10 @@ import {
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import {
+  generateArtisanQuotationPDF,
+  extractQuotationDataFromRecord,
+} from '../../services/quotationPdfGenerator';
 
 interface WorkshopCatalogProps {
   profile: UserProfile;
@@ -564,6 +568,22 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       setTimeout(() => setNotice(''), 3000);
     } catch (err: any) {
       console.error('Failed to remove from store:', err);
+    }
+  };
+
+  // Export official PDF quotation for a specific product
+  const [exportingQuoteId, setExportingQuoteId] = useState<string | null>(null);
+  const handleExportProductQuotation = async (p: SavedProductRecord) => {
+    setExportingQuoteId(p.id);
+    try {
+      const qData = extractQuotationDataFromRecord(p);
+      await generateArtisanQuotationPDF(qData, profile);
+      setNotice(`تم توليد وتحميل عرض السعر الرسمي لـ "${p.productName}" بنجاح 📄✨`);
+      setTimeout(() => setNotice(''), 4000);
+    } catch (err) {
+      console.error('Failed to export product quotation:', err);
+    } finally {
+      setExportingQuoteId(null);
     }
   };
 
@@ -1260,6 +1280,19 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                             </button>
                             <button
                               type="button"
+                              disabled={exportingQuoteId === p.id}
+                              onClick={() => handleExportProductQuotation(p)}
+                              title="تصدير عرض سعر رسمي PDF 📄✨"
+                              className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 transition cursor-pointer"
+                            >
+                              {exportingQuoteId === p.id ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <FileText className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => onOpenWhatsAppShare(p)}
                               title="مشاركة عرض سعر واتساب"
                               className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition cursor-pointer"
@@ -1422,7 +1455,8 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                       <button
                         type="button"
                         onClick={() => onSelectRecordToLoad(p)}
-                        className="px-2 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center gap-1 text-xs"
+                        className="px-2 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center gap-1 text-xs cursor-pointer hover:bg-stone-200"
+                        title="فتح في الحاسبة للتسعير"
                       >
                         <Calculator className="w-3.5 h-3.5" />
                         <span>الحاسبة</span>
@@ -1430,8 +1464,24 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
 
                       <button
                         type="button"
+                        disabled={exportingQuoteId === p.id}
+                        onClick={() => handleExportProductQuotation(p)}
+                        className="px-2 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-bold flex items-center gap-1 border border-amber-300/40 text-xs cursor-pointer hover:bg-amber-100 disabled:opacity-50"
+                        title="تصدير عرض سعر رسمي PDF 📄✨"
+                      >
+                        {exportingQuoteId === p.id ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5" />
+                        )}
+                        <span>عرض سعر</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => onOpenWhatsAppShare(p)}
-                        className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1 border border-emerald-300/40 text-xs"
+                        className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1 border border-emerald-300/40 text-xs cursor-pointer hover:bg-emerald-100"
+                        title="مشاركة عرض سعر واتساب"
                       >
                         <Share2 className="w-3.5 h-3.5" />
                         <span>واتساب</span>

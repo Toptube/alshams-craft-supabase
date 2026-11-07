@@ -26,7 +26,9 @@ import {
   Wrench,
   Clock,
   AlertTriangle,
+  Bell,
 } from 'lucide-react';
+import { checkAndDispatchEquipmentMaintenanceAlerts } from '../../lib/pushNotifications';
 
 export interface FixedAssetsViewProps {
   profile?: UserProfile;
@@ -176,6 +178,7 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
       // Recalculate dynamic accumulated depreciation based on current date
       const updated = data.map((a) => calculateAssetCurrentValues(a));
       setAssets(updated);
+      checkAndDispatchEquipmentMaintenanceAlerts(tenantId).catch(() => {});
     } catch (err) {
       console.error(err);
     } finally {
@@ -512,6 +515,24 @@ export const FixedAssetsView: React.FC<FixedAssetsViewProps> = ({ profile: propP
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                const count = await checkAndDispatchEquipmentMaintenanceAlerts(tenantId);
+                playSuccessSound();
+                setSuccessNotice(
+                  count > 0
+                    ? `تم إرسال ${count} تنبيه صيانة بنجاح للمتصفح!`
+                    : 'كافة معدات الورشة مستقرة ولا توجد صيانة متأخرة أو مستحقة خلال 3 أيام ✅'
+                );
+                setTimeout(() => setSuccessNotice(''), 4500);
+              }}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300/60 hover:bg-amber-100 flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
+              title="فحص وإرسال تنبيهات الصيانة لشاشة القفل وسطح المكتب"
+            >
+              <Bell className="w-3.5 h-3.5 text-amber-600" />
+              <span>فحص وإرسال تنبيهات الصيانة</span>
+            </button>
             <span className="text-[11px] font-bold px-2.5 py-1 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400">
               {assets.filter((a) => a.category === 'machinery' || a.category === 'equipment' || a.category === 'tools').length} آلة ومعدة حرفية
             </span>

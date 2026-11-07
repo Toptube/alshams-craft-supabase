@@ -821,6 +821,8 @@ export interface CalculationInput {
   craftId?: string;
   craftType?: string;
   // 1. Crochet specific inputs
+  hasSolidBase?: boolean;
+  crochetDepthCm?: number;
   crochetBaseType?: 'yarn' | 'wooden' | 'leather';
   crochetBaseHolesCount?: number;
   crochetBaseIncreasesRate?: number;
@@ -828,6 +830,10 @@ export interface CalculationInput {
   crochetWallHeightCm?: number;
   crochetYarnWeightGrams?: number;
   crochetWoodenBaseCost?: number;
+  crochetStitchDistributions?: Array<{
+    stitchType: 'sc' | 'slst' | 'hdc' | 'dc' | 'tr' | 'puff';
+    percentage: number;
+  }>;
   // 2. Zigzag specific inputs
   zigzagBaseType?: 'circle' | 'oval' | 'rectangle';
   zigzagRopeDiameterMm?: number;
@@ -884,6 +890,9 @@ export interface CalculationOutput {
     wallWeightGrams?: number;
     totalYarnGrams?: number;
     woodenBaseCost?: number;
+    weightedStitchFactor?: number;
+    depthCm?: number;
+    hasSolidBase?: boolean;
     // Zigzag
     totalRopeMeters?: number;
     baseRopeMeters?: number;

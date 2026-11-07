@@ -1,5 +1,7 @@
 // Service Worker for Al-Shams Craft ERP / SaaS
-const CACHE_NAME = 'alshams-v1';
+// محرك الإشعارات والتشغيل في الخلفية لمنظومة الشمساوية
+
+const CACHE_NAME = 'alshams-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -14,8 +16,8 @@ self.addEventListener('push', (event) => {
   let data = {
     title: 'منظومة الشمساوية 🦅☀️',
     body: 'لديك تنبيه تشغيلي جديد من ورشتك!',
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
+    icon: '/alshams_falcon_emblem.png',
+    badge: '/alshams_falcon_emblem.png',
     tag: 'alshams-notification',
     data: { url: '/' }
   };
@@ -33,15 +35,15 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: data.body,
-    icon: data.icon || '/favicon.ico',
-    badge: data.badge || '/favicon.ico',
-    vibrate: [200, 100, 200],
+    icon: data.icon || '/alshams_falcon_emblem.png',
+    badge: data.badge || '/alshams_falcon_emblem.png',
+    vibrate: [250, 100, 250, 100, 250],
     tag: data.tag || 'alshams-alert',
     renotify: true,
     data: data.data || { url: '/' },
     actions: [
       { action: 'open', title: 'فتح المنظومة 🚪' },
-      { action: 'dismiss', title: 'إغلاق' }
+      { action: 'dismiss', title: 'إغلاق ✕' }
     ]
   };
 
@@ -50,6 +52,7 @@ self.addEventListener('push', (event) => {
   );
 });
 
+// التعامل مع النقر على الإشعار من شاشة القفل أو شريط النظام
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
@@ -59,14 +62,34 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // إذا كان هناك تبويب مفتوح للمنظومة، نركز عليه ونوجهه للصفحة المطلوبة
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
+          if ('navigate' in client && targetUrl !== '/') {
+            client.navigate(targetUrl);
+          }
           return client.focus();
         }
       }
+      // إذا لم يكن هناك أي تبويب مفتوح، نفتح نافذة جديدة بالرابط المحدد
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }
     })
   );
+});
+
+// استقبال الرسائل المباشرة من التطبيق لإظهار إشعارات الخلفية المجدولة
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    const { title, options } = event.data;
+    self.registration.showNotification(title || 'منظومة الشمساوية', {
+      body: options?.body || 'تنبيه ورشة جديد',
+      icon: options?.icon || '/alshams_falcon_emblem.png',
+      badge: '/alshams_falcon_emblem.png',
+      tag: options?.tag || 'artisan-local-alert',
+      data: options?.data || { url: '/' },
+      vibrate: [200, 100, 200],
+    });
+  }
 });
