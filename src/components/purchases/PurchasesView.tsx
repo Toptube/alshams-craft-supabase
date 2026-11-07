@@ -41,6 +41,7 @@ export interface InitialPurchaseMaterial {
   supplierId?: string;
   unitCost?: number;
   unitName?: string;
+  quantity?: number;
 }
 
 interface PurchasesViewProps {
@@ -159,17 +160,18 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
       if (initialMaterial.supplierId) {
         setSelectedSupplierId(initialMaterial.supplierId);
       }
+      const recQty = Number(initialMaterial.quantity) > 0 ? Number(initialMaterial.quantity) : 10;
       setPurchasedItems([
         {
           materialId: initialMaterial.materialId,
           materialName: initialMaterial.materialName || 'خامة مطلوبة',
-          quantity: 10,
+          quantity: recQty,
           unitCost: Number(initialMaterial.unitCost) || 50,
           unit: initialMaterial.unitName || 'وحدة',
         },
       ]);
       setNotice({
-        text: `تم تجهيز فاتورة شراء جديدة للخامة: "${initialMaterial.materialName || ''}" - حدد الكمية والمورد لتأكيد الشراء والتوريد للمخزن.`,
+        text: `تم تجهيز فاتورة شراء جديدة للخامة: "${initialMaterial.materialName || ''}" بالكمية الموصى بها (${recQty} ${initialMaterial.unitName || ''}) لسد احتياج أوامر الشغل وتأمين المخزون.`,
       });
       onClearInitialMaterial?.();
     }

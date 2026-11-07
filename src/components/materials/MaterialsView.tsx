@@ -90,6 +90,7 @@ interface MaterialsViewProps {
     supplierId?: string;
     unitCost?: number;
     unitName?: string;
+    quantity?: number;
   }) => void;
 }
 
@@ -1027,6 +1028,10 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                         <span className="text-amber-300 font-bold">
                           حد الأمان: {threshold}
                         </span>
+                        <span className="text-stone-400">•</span>
+                        <span className="text-emerald-300 font-bold">
+                          الموصى به: +{Math.max(1, Math.ceil((threshold * 2) - current))} {unitName}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1050,36 +1055,43 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                       <span>تحديث المخزون ➕</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onNavigateToPurchases) {
-                          onNavigateToPurchases({
-                            materialId: m.id,
-                            materialName: m.name,
-                            supplierId: m.supplier_id || undefined,
-                            unitCost: Number(m.purchase_price || 0),
-                            unitName,
-                          });
-                        } else {
-                          window.dispatchEvent(
-                            new CustomEvent('alshams_quick_purchase', {
-                              detail: {
+                    {(() => {
+                      const recommendedQty = Math.max(1, Math.ceil((threshold * 2) - current));
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onNavigateToPurchases) {
+                              onNavigateToPurchases({
                                 materialId: m.id,
                                 materialName: m.name,
                                 supplierId: m.supplier_id || undefined,
                                 unitCost: Number(m.purchase_price || 0),
                                 unitName,
-                              },
-                            })
-                          );
-                        }
-                      }}
-                      className="flex-1 py-1.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition shadow-xs cursor-pointer active:scale-95 flex items-center justify-center gap-1"
-                      title="فتح فاتورة شراء فورية لهذه الخامة"
-                    >
-                      <span>طلب توريد 🛒</span>
-                    </button>
+                                quantity: recommendedQty,
+                              });
+                            } else {
+                              window.dispatchEvent(
+                                new CustomEvent('alshams_quick_purchase', {
+                                  detail: {
+                                    materialId: m.id,
+                                    materialName: m.name,
+                                    supplierId: m.supplier_id || undefined,
+                                    unitCost: Number(m.purchase_price || 0),
+                                    unitName,
+                                    quantity: recommendedQty,
+                                  },
+                                })
+                              );
+                            }
+                          }}
+                          className="flex-1 py-1.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition shadow-xs cursor-pointer active:scale-95 flex items-center justify-center gap-1"
+                          title="فتح نموذج الشراء بالكمية الموصى بها لسد احتياج خطط التشغيل"
+                        >
+                          <span>طلب توريد فوري 📦🛒</span>
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               );

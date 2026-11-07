@@ -109,6 +109,16 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   // Live Raw Materials & Employees from Database
   const [dbMaterials, setDbMaterials] = useState<RawMaterialItem[]>([]);
   const [dbEmployees, setDbEmployees] = useState<EmployeeProfile[]>([]);
+  const [lowStockMaterialsList, setLowStockMaterialsList] = useState<Array<{
+    id: string;
+    name: string;
+    currentStock: number;
+    minAlertThreshold: number;
+    unit: string;
+    costPerUnit: number;
+    supplierId?: string;
+  }>>([]);
+  const [isRestockAlertDismissed, setIsRestockAlertDismissed] = useState(false);
 
   // 1. Specialized Textile Workshops list for quick switching
   const TEXTILE_WORKSHOPS = useMemo(() => [
@@ -847,6 +857,42 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       setDbMaterials(combined);
       setDbEmployees(emps);
 
+      // Check materials stock for smart inventory restock alert
+      try {
+        const rawStocks = typeof window !== 'undefined' ? localStorage.getItem('alshams_mat_stock_' + tenantId) : null;
+        const stockMap: Record<string, { currentStock: number; minAlertThreshold: number }> = rawStocks ? JSON.parse(rawStocks) : {};
+
+        const lowList: Array<{
+          id: string;
+          name: string;
+          currentStock: number;
+          minAlertThreshold: number;
+          unit: string;
+          costPerUnit: number;
+          supplierId?: string;
+        }> = [];
+
+        for (const sm of supMats) {
+          const cur = stockMap[sm.id]?.currentStock ?? 0;
+          const th = stockMap[sm.id]?.minAlertThreshold ?? 5;
+          if (cur <= th) {
+            const u = unitsMap.get(sm.unit_id);
+            lowList.push({
+              id: sm.id,
+              name: sm.name,
+              currentStock: cur,
+              minAlertThreshold: th,
+              unit: u?.name || 'وحدة',
+              costPerUnit: Number(sm.purchase_price) || 0,
+              supplierId: sm.supplier_id || undefined,
+            });
+          }
+        }
+        setLowStockMaterialsList(lowList);
+      } catch (err) {
+        console.warn('Could not check stock for calculator alert:', err);
+      }
+
       const basicMats = combined.filter(isBasicMaterial);
 
       // If no initial record, sync cordTypeId and pricePerKg from basic materials
@@ -1529,6 +1575,96 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
           <CheckCircle className="w-4 h-4 flex-shrink-0" />
           <span>{saveStatus}</span>
+        </div>
+      )}
+
+      {/* تنبيه ذكي لنواقص الخامات وطلب التوريد السريع في مقدمة الحاسبة */}
+      {!isRestockAlertDismissed && lowStockMaterialsList.length > 0 && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-red-950 via-[#1C0D0D] to-amber-950 border-2 border-red-500/70 shadow-2xl text-white space-y-3.5 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-red-500/30 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-red-600/30 border border-red-400 flex items-center justify-center shrink-0 shadow-xs">
+                <AlertTriangle className="w-5 h-5 text-red-300 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-xs sm:text-sm font-black text-red-200">
+                    تنبيه أمان المخزون: ({lowStockMaterialsList.length}) خامات أساسية أوشكت على النفاد في الورشة!
+                  </h3>
+                  <span className="text-[9px] px-2.5 py-0.5 rounded-full bg-red-600 text-white font-black shadow-xs">
+                    مخزون حرج ⚠️
+                  </span>
+                </div>
+                <p className="text-xs text-amber-100/80 mt-0.5 font-medium">
+                  رصيد الخامات أدناه تجاوز حد الأمان الأدنى. اطلب توريداً فورياً لسد احتياج أوامر الشغل الحالية قبل البدء في الإنتاج.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsRestockAlertDismissed(true)}
+              className="text-xs text-stone-400 hover:text-white transition px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 cursor-pointer self-start sm:self-auto shrink-0"
+              title="إخفاء التنبيه مؤقتاً"
+            >
+              إخفاء التنبيه ✕
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {lowStockMaterialsList.slice(0, 3).map((item) => {
+              const recommendedQty = Math.max(1, Math.ceil((item.minAlertThreshold * 2) - item.currentStock));
+              return (
+                <div
+                  key={item.id}
+                  className="p-3.5 rounded-2xl bg-black/55 border border-red-500/40 flex flex-col justify-between gap-2.5 shadow-sm hover:border-amber-400 transition"
+                >
+                  <div>
+                    <span className="text-xs sm:text-sm font-black text-white block truncate">
+                      {item.name}
+                    </span>
+                    <div className="text-[11px] font-mono mt-1 flex items-center gap-1.5 flex-wrap">
+                      <span className="text-red-400 font-black">المتبقي: {item.currentStock} {item.unit}</span>
+                      <span className="text-stone-400">•</span>
+                      <span className="text-amber-300 font-bold">حد الأمان: {item.minAlertThreshold}</span>
+                      <span className="text-stone-400">•</span>
+                      <span className="text-emerald-300 font-bold">الموصى به: +{recommendedQty}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.dispatchEvent(
+                        new CustomEvent('alshams_quick_purchase', {
+                          detail: {
+                            materialId: item.id,
+                            materialName: item.name,
+                            supplierId: item.supplierId,
+                            unitCost: item.costPerUnit,
+                            unitName: item.unit,
+                            quantity: recommendedQty,
+                          },
+                        })
+                      );
+                    }}
+                    className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs transition shadow-md cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+                    title="فتح نموذج الشراء بالكمية الموصى بها لسد احتياج خطط التشغيل"
+                  >
+                    <span>طلب توريد فوري 📦🛒</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {lowStockMaterialsList.length > 3 && (
+            <div className="text-center pt-1 border-t border-red-500/20">
+              <span className="text-[11px] text-amber-200/90 font-bold">
+                يوجد {lowStockMaterialsList.length - 3} خامات أخرى منخفضة المخزون.. يمكنك مراجعة شاشة الخامات لطلب توريدها دفعة واحدة.
+              </span>
+            </div>
+          )}
         </div>
       )}
 

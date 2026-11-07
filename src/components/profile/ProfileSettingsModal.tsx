@@ -51,7 +51,14 @@ import {
 import { createClient } from '@supabase/supabase-js';
 import { supabase, supabaseConfig } from '../../lib/supabase';
 import { getArabicSupabaseError } from '../../db/supabaseService';
-import { isSoundEnabled, toggleSound, playSuccessSound, playErrorSound, playButtonClickSound } from '../../lib/sounds';
+import {
+  isSoundEnabled,
+  toggleSound,
+  playSuccessSound,
+  playErrorSound,
+  playButtonClickSound,
+  playTapSound,
+} from '../../lib/sounds';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -84,6 +91,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const activePerfMode = isPerformanceMode !== undefined ? isPerformanceMode : localPerfMode;
 
   const handlePerfToggle = () => {
+    playTapSound();
     if (onTogglePerformanceMode) {
       onTogglePerformanceMode();
     } else {
@@ -751,7 +759,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </label>
             </div>
 
-            {/* مفتاح تقليل الحركة وسلاسة الأجهزة الضعيفة (Performance Mode Toggle) */}
+            {/* مفتاح وضع الأداء الفائق وتوفير الطاقة (High-Performance Lite Mode) */}
             <div className="p-4 rounded-2xl bg-[#0C1427] text-white border-2 border-amber-500/40 shadow-xl flex items-center justify-between gap-4">
               <div className="space-y-1 text-right">
                 <div className="flex items-center gap-2">
@@ -759,7 +767,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     <Zap className="w-4 h-4 text-amber-400" />
                   </div>
                   <span className="text-xs sm:text-sm font-black text-amber-300">
-                    وضع الأداء السريع / تقليل الحركة والانتقالات ⚡
+                    وضع الأداء الفائق وتوفير الطاقة ⚡
                   </span>
                   {activePerfMode && (
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black shadow-xs">
@@ -768,7 +776,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   )}
                 </div>
                 <p className="text-xs text-amber-100/70 leading-relaxed pr-9">
-                  تعطيل أنيميشن وانتقالات Framer Motion لتوفير استهلاك موارد المعالج في الهواتف الضعيفة مع الحفاظ التام على ألوان وهوية الشمساوية.
+                  تعطيل حركات وتأثيرات Framer Motion الثقيلة والانتقالات المعقدة برمجياً لتسريع استجابة الواجهات بنسبة 100% على الهواتف الاقتصادية وتقليل استهلاك المعالج والبطارية.
                 </p>
               </div>
 

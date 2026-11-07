@@ -214,6 +214,7 @@ export const App: React.FC = () => {
     supplierId?: string;
     unitCost?: number;
     unitName?: string;
+    quantity?: number;
   } | null>(null);
 
   const handleOpenPurchaseForMaterial = useCallback((mat: {
@@ -222,6 +223,7 @@ export const App: React.FC = () => {
     supplierId?: string;
     unitCost?: number;
     unitName?: string;
+    quantity?: number;
   }) => {
     setPurchaseInitialMaterial(mat);
     setIsMaterialsModalOpen(false);
@@ -662,6 +664,7 @@ export const App: React.FC = () => {
         supplierId?: string;
         unitCost?: number;
         unitName?: string;
+        quantity?: number;
       }>;
       if (customEvent.detail) {
         handleOpenPurchaseForMaterial(customEvent.detail);
