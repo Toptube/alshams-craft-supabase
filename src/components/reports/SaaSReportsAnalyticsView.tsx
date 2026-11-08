@@ -15,6 +15,7 @@ import {
 import { tenantStorage } from '../../db/dexieDB';
 import { getTreasuryBalancesFromSupabase, SupabaseTreasuryBalance } from '../../db/supabaseService';
 import { supabase } from '../../lib/supabase';
+import * as XLSX from 'xlsx';
 import {
   BarChart3,
   FileSpreadsheet,
@@ -93,6 +94,7 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
   const [employeePayouts, setEmployeePayouts] = useState<EmployeePayoutRecord[]>([]);
   const [activityLogs, setActivityLogs] = useState<SystemActivityLog[]>([]);
   const [materials, setMaterials] = useState<RawMaterialItem[]>([]);
+  const [savedProducts, setSavedProducts] = useState<any[]>([]);
   const [fixedAssets, setFixedAssets] = useState<FixedAsset[]>([]);
   const [auditFilterStatus, setAuditFilterStatus] = useState<string>('all');
 
@@ -143,6 +145,8 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
       const logs = await tenantStorage.getActivityLogs(tenantId);
       const mats = await tenantStorage.getRawMaterials(tenantId);
       const assets = await tenantStorage.getFixedAssets(tenantId);
+      const prods = await tenantStorage.getProducts(tenantId);
+      setSavedProducts(prods || []);
 
       let effectiveBalances = {
         mainSafe: balances.mainSafe || 0,
@@ -534,6 +538,271 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
     exportToExcelCSV('سجل_المبيعات_الشمس_كرافت', [headers, ...rows]);
   };
 
+  const handleExportComprehensiveExcel = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+
+      // ==========================================
+      // SHEET 1: المبيعات_والفواتير
+      // ==========================================
+      const sheet1Headers = [
+        'رقم الطلبية',
+        'تاريخ الطلب',
+        'اسم العميل',
+        'رقم هاتف العميل',
+        'المنتجات والكميات',
+        'إجمالي القيمة (ج.م)',
+        'المدفوع / العربون (ج.م)',
+        'المتبقي الآجل (ج.م)',
+        'الخزينة المورد إليها',
+        'حالة السداد',
+        'حالة التنفيذ والتسليم',
+      ];
+
+      const sheet1Rows = (orders || []).map((o) => {
+        const itemsSummary = (o.items || [])
+          .map((it: any) => `${it.productName || it.name || 'مشغولة'} (×${it.quantity || 1})`)
+          .join(' + ') || 'طلب مخصص';
+        const total = Number(o.finalTotal || o.totalAmount || 0);
+        const paid = Number(o.amountPaid || o.paidAmount || 0);
+        const remaining = Number(o.remainingAmount !== undefined ? o.remainingAmount : (total - paid));
+        const safeName = (o.safeType || 'main') === 'main' ? 'خزينة رئيسية (نقدية/انستاباي)' : 'خزينة فرعية';
+
+        let paymentStatus = 'غير مسدد ❌';
+        if (remaining <= 0 && total > 0) paymentStatus = 'مسدد بالكامل ✅';
+        else if (paid > 0) paymentStatus = `عربون مسدد (${Math.round((paid / total) * 100)}%) ⏳`;
+
+        return [
+          o.id,
+          o.date || '',
+          o.customerName || 'عميل نقدي',
+          o.customerPhone || '—',
+          itemsSummary,
+          total,
+          paid,
+          remaining,
+          safeName,
+          paymentStatus,
+          o.status === 'delivered' ? 'تم التسليم 🚚' : o.status === 'in_progress' ? 'قيد التنفيذ ⚙️' : 'جديد 📥',
+        ];
+      });
+
+      const ws1 = XLSX.utils.aoa_to_sheet([sheet1Headers, ...sheet1Rows]);
+      ws1['!cols'] = [
+        { wch: 18 }, { wch: 14 }, { wch: 22 }, { wch: 16 }, { wch: 36 },
+        { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 24 }, { wch: 22 }, { wch: 20 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws1, '1_المبيعات_والفواتير');
+
+      // ==========================================
+      // SHEET 2: تكلفة_الخامات_المباشرة
+      // ==========================================
+      const sheet2Headers = [
+        'اسم المنتج / المشغولة',
+        'القسم / الحرفة',
+        'تكلفة الخامات المباشرة (ج.م)',
+        'تكلفة العمالة والهالك (ج.م)',
+        'إجمالي تكلفة الإنتاج (ج.م)',
+        'سعر البيع المقترح / القطاعي (ج.م)',
+        'نسبة تكلفة الخامات من السعر %',
+        'صافي الربح المتوقع (ج.م)',
+        'المخزون الفعلي المتاح',
+      ];
+
+      const productSource = savedProducts.length > 0 ? savedProducts : materials;
+      const sheet2Rows = productSource.map((item: any) => {
+        if (item.productName) {
+          const rawCost = Number(item.output?.rawMaterialCost || (item.costPrice ? item.costPrice * 0.6 : 0));
+          const laborAndWaste = Number((item.output?.laborCost || 0) + (item.output?.wasteCost || 0));
+          const totalCost = Number(item.costPrice || (rawCost + laborAndWaste) || 0);
+          const retail = Number(item.retailPrice || (totalCost * 1.4) || 0);
+          const rawRatio = retail > 0 ? Math.round((rawCost / retail) * 100) : 0;
+          const expectedProfit = retail - totalCost;
+
+          return [
+            item.productName,
+            item.craftName || item.category || 'أشغال يدوية',
+            Math.round(rawCost * 10) / 10,
+            Math.round(laborAndWaste * 10) / 10,
+            Math.round(totalCost * 10) / 10,
+            Math.round(retail * 10) / 10,
+            `${rawRatio}%`,
+            Math.round(expectedProfit * 10) / 10,
+            item.currentStock !== undefined ? item.currentStock : 1,
+          ];
+        }
+
+        // Raw materials fallback
+        const unitCost = Number(item.costPerUnit || item.costPrice || 0);
+        return [
+          item.materialName || item.name || 'خامة ورشة',
+          item.category || 'خامات أساسية',
+          unitCost,
+          0,
+          unitCost,
+          Math.round(unitCost * 1.35 * 10) / 10,
+          '74%',
+          Math.round(unitCost * 0.35 * 10) / 10,
+          `${item.currentStock || 0} ${item.unit || ''}`,
+        ];
+      });
+
+      const ws2 = XLSX.utils.aoa_to_sheet([sheet2Headers, ...sheet2Rows]);
+      ws2['!cols'] = [
+        { wch: 28 }, { wch: 20 }, { wch: 24 }, { wch: 22 }, { wch: 22 },
+        { wch: 28 }, { wch: 24 }, { wch: 22 }, { wch: 20 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws2, '2_تكلفة_الخامات_المباشرة');
+
+      // ==========================================
+      // SHEET 3: الأرباح_وهوامش_الربح
+      // ==========================================
+      const totalAdminExpenses = adminCosts.reduce((s, c) => s + Number(c.amount || 0), 0);
+      const totalOrdersRevenue = orders.reduce((s, o) => s + Number(o.finalTotal || o.totalAmount || 0), 0);
+
+      const sheet3Headers = [
+        'رقم المعاملة / الطلبية',
+        'تاريخ المعاملة',
+        'إيراد البيع الإجمالي (ج.م)',
+        'تكلفة الخامات المباشرة التقديرية (ج.م)',
+        'المصروفات التشغيلية الموزعة (ج.م)',
+        'صافي الربح الحقيقي (ج.م)',
+        'هامش الربح الصافي %',
+        'تقييم الربحية ومطابقة السوق',
+      ];
+
+      const sheet3Rows = (orders || []).map((o) => {
+        const rev = Number(o.finalTotal || o.totalAmount || 0);
+        const cogs = Math.round(rev * 0.52);
+        const allocatedOpEx = totalOrdersRevenue > 0
+          ? Math.round((rev / totalOrdersRevenue) * totalAdminExpenses)
+          : Math.round(rev * 0.08);
+        const netProfit = rev - cogs - allocatedOpEx;
+        const marginPct = rev > 0 ? Math.round((netProfit / rev) * 100) : 0;
+
+        let benchmark = '🟢 عادل ومستدام';
+        if (marginPct < 20) benchmark = '🟡 هامش ضئيل يغطي التكلفة بصعوبة';
+        else if (marginPct > 45) benchmark = '🔵 فاخر ومعارض متقدمة';
+
+        return [
+          o.id,
+          o.date || '',
+          rev,
+          cogs,
+          allocatedOpEx,
+          netProfit,
+          `${marginPct}%`,
+          benchmark,
+        ];
+      });
+
+      const ws3 = XLSX.utils.aoa_to_sheet([sheet3Headers, ...sheet3Rows]);
+      ws3['!cols'] = [
+        { wch: 20 }, { wch: 14 }, { wch: 22 }, { wch: 30 },
+        { wch: 28 }, { wch: 20 }, { wch: 18 }, { wch: 32 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws3, '3_الأرباح_وهوامش_الربح');
+
+      // ==========================================
+      // SHEET 4: الملخص_الشهري_الشامل
+      // ==========================================
+      const monthlyMap = new Map<string, {
+        sales: number;
+        materialPurchases: number;
+        adminCosts: number;
+        wages: number;
+      }>();
+
+      const getMonthKey = (dStr?: string) => {
+        if (!dStr) return new Date().toISOString().slice(0, 7);
+        try {
+          const d = new Date(dStr);
+          if (isNaN(d.getTime())) return dStr.slice(0, 7);
+          return d.toISOString().slice(0, 7);
+        } catch {
+          return new Date().toISOString().slice(0, 7);
+        }
+      };
+
+      (orders || []).forEach((o) => {
+        const mKey = getMonthKey(o.date);
+        const cur = monthlyMap.get(mKey) || { sales: 0, materialPurchases: 0, adminCosts: 0, wages: 0 };
+        cur.sales += Number(o.finalTotal || o.totalAmount || 0);
+        monthlyMap.set(mKey, cur);
+      });
+
+      (supplierInvoices || []).forEach((inv) => {
+        const mKey = getMonthKey(inv.date || (inv as any).invoiceDate);
+        const cur = monthlyMap.get(mKey) || { sales: 0, materialPurchases: 0, adminCosts: 0, wages: 0 };
+        cur.materialPurchases += Number(inv.totalAmount || 0);
+        monthlyMap.set(mKey, cur);
+      });
+
+      (adminCosts || []).forEach((ac) => {
+        const mKey = getMonthKey(ac.paymentDate || ac.month || (ac as any).date);
+        const cur = monthlyMap.get(mKey) || { sales: 0, materialPurchases: 0, adminCosts: 0, wages: 0 };
+        cur.adminCosts += Number(ac.amount || 0);
+        monthlyMap.set(mKey, cur);
+      });
+
+      (employeePayouts || []).forEach((ep) => {
+        const mKey = getMonthKey(ep.date || ep.monthYear || (ep as any).payoutDate);
+        const cur = monthlyMap.get(mKey) || { sales: 0, materialPurchases: 0, adminCosts: 0, wages: 0 };
+        cur.wages += Number(ep.paidAmount || ep.amount || 0);
+        monthlyMap.set(mKey, cur);
+      });
+
+      const curMonthKey = new Date().toISOString().slice(0, 7);
+      if (!monthlyMap.has(curMonthKey)) {
+        monthlyMap.set(curMonthKey, { sales: 0, materialPurchases: 0, adminCosts: 0, wages: 0 });
+      }
+
+      const sortedMonths = Array.from(monthlyMap.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+
+      const sheet4Headers = [
+        'الشهر المالي',
+        'إجمالي المبيعات (ج.م)',
+        'مشتريات الخامات والموردين (ج.م)',
+        'المصروفات الإدارية والتشغيلية (ج.م)',
+        'أجور ومسحوبات العمالة (ج.م)',
+        'إجمالي التكاليف والمصروفات (ج.م)',
+        'صافي أرباح الشهر (ج.م)',
+        'نسبة العائد الصافي %',
+      ];
+
+      const sheet4Rows = sortedMonths.map(([mKey, data]) => {
+        const totalExpenses = data.materialPurchases + data.adminCosts + data.wages;
+        const netProfit = data.sales - totalExpenses;
+        const marginPct = data.sales > 0 ? Math.round((netProfit / data.sales) * 100) : 0;
+
+        return [
+          mKey,
+          Math.round(data.sales),
+          Math.round(data.materialPurchases),
+          Math.round(data.adminCosts),
+          Math.round(data.wages),
+          Math.round(totalExpenses),
+          Math.round(netProfit),
+          `${marginPct}%`,
+        ];
+      });
+
+      const ws4 = XLSX.utils.aoa_to_sheet([sheet4Headers, ...sheet4Rows]);
+      ws4['!cols'] = [
+        { wch: 16 }, { wch: 22 }, { wch: 28 }, { wch: 32 },
+        { wch: 24 }, { wch: 28 }, { wch: 22 }, { wch: 18 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws4, '4_الملخص_الشهري_الشامل');
+
+      // Trigger download
+      const filename = `التقرير_المالي_الشامل_شركة_الشمس_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    } catch (err) {
+      console.error('Comprehensive Excel Export Error:', err);
+      alert('حدث خطأ أثناء تصدير ملف الإكسيل. يرجى المحاولة مرة أخرى.');
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -631,6 +900,16 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handleExportComprehensiveExcel}
+            className="px-3.5 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white shadow-md flex items-center gap-1.5 cursor-pointer active:scale-95 transition"
+            title="تصدير شيت إكسيل محاسبي متقدم بـ 4 تبويبات تفصيلية"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+            <span>تصدير التقرير المالي الشامل (Excel) 📊📥</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsClosingModalOpen(true)}

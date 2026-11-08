@@ -28,6 +28,7 @@ import {
   PackagePlus,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
+import { StockLevelProgressBar } from '../materials/StockLevelProgressBar';
 
 interface MaterialsInventoryModalProps {
   isOpen: boolean;
@@ -425,40 +426,49 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
                           </span>
                         </td>
                         <td className="py-3 px-3">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className={`font-black text-xs ${isLow ? 'text-rose-600 dark:text-rose-400' : 'text-stone-900 dark:text-stone-100'}`}>
-                              {item.quantity} {item.unit}
-                            </span>
-                            {isLow && (
-                              <>
-                                <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 bg-rose-100 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800 px-1.5 py-0.5 rounded-md animate-pulse">
-                                  <AlertTriangle size={11} />
-                                  <span>⚠️ يلزم الشراء</span>
-                                </span>
-                                {onOpenPurchaseForMaterial && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onOpenPurchaseForMaterial(item)}
-                                    className="px-2 py-0.5 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black transition active:scale-95 cursor-pointer whitespace-nowrap flex items-center gap-1"
-                                    title="طلب شراء وتوريد فوري"
-                                  >
-                                    <PackagePlus size={11} />
-                                    <span>طلب شراء 🛒</span>
-                                  </button>
-                                )}
-                              </>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAdjustingItem(item);
-                                setAdjustNewStock(item.quantity);
-                              }}
-                              className="p-1 rounded-md text-stone-400 hover:text-amber-600 transition cursor-pointer"
-                              title="تسوية رصيد المخزون"
-                            >
-                              <SlidersHorizontal size={13} />
-                            </button>
+                          <div className="min-w-[160px] space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`font-black text-xs ${isLow ? 'text-rose-600 dark:text-rose-400' : 'text-stone-900 dark:text-stone-100'}`}>
+                                {item.quantity} {item.unit}
+                              </span>
+                              {isLow && (
+                                <>
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 bg-rose-100 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800 px-1.5 py-0.5 rounded-md animate-pulse">
+                                    <AlertTriangle size={11} />
+                                    <span>⚠️ يلزم الشراء</span>
+                                  </span>
+                                  {onOpenPurchaseForMaterial && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenPurchaseForMaterial(item)}
+                                      className="px-2 py-0.5 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black transition active:scale-95 cursor-pointer whitespace-nowrap flex items-center gap-1"
+                                      title="طلب شراء وتوريد فوري"
+                                    >
+                                      <PackagePlus size={11} />
+                                      <span>طلب شراء 🛒</span>
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAdjustingItem(item);
+                                  setAdjustNewStock(item.quantity);
+                                }}
+                                className="p-1 rounded-md text-stone-400 hover:text-amber-600 transition cursor-pointer"
+                                title="تسوية رصيد المخزون"
+                              >
+                                <SlidersHorizontal size={13} />
+                              </button>
+                            </div>
+                            <StockLevelProgressBar
+                              currentStock={Number(item.quantity) || 0}
+                              minThreshold={Number(item.minThreshold) || 1}
+                              unitName={item.unit}
+                              size="sm"
+                              showLabels={false}
+                            />
                           </div>
                         </td>
                         <td className="py-3 px-3 text-stone-600 dark:text-stone-400 font-mono">

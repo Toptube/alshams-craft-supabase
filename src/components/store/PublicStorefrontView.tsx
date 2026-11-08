@@ -199,20 +199,9 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       customNotes: customNotes || undefined,
     });
 
-    setAddedToast(`✓ تم إضافة "${p.product_name}" إلى سلة المشتريات!`);
-    setTimeout(() => setAddedToast(null), 3000);
+    setAddedToast(`✓ تم إضافة "${p.product_name}" إلى سلة المشتريات! يمكنك إتمام الطلب وسداد العربون (33%).`);
+    setTimeout(() => setAddedToast(null), 3500);
     setSelectedProduct(null);
-  };
-
-  const handleDirectWhatsAppOrder = (p: CloudMarketplaceProduct) => {
-    const cleanPhone = phone.replace(/\D/g, '');
-    const targetPhone = cleanPhone.startsWith('0') ? '2' + cleanPhone : cleanPhone;
-    const priceText = `${p.store_price || p.retail_price} ${currencySymbol}`;
-    const storeLink = typeof window !== 'undefined' ? window.location.href : '';
-
-    const text = `السلام عليكم ورحمة الله وبركاته يا فنان ☀️\nأرغب في طلب مشغولة:\n*${p.product_name}*\nالسعر المعروض: ${priceText}\nالكمية المطلوبة: ${selectedQuantity} قطعة\n${selectedColor ? `اللون المفضل: ${selectedColor}\n` : ''}${selectedSize ? `المقاس المفضل: ${selectedSize}\n` : ''}${customNotes ? `ملاحظات إضافية: ${customNotes}\n` : ''}\nرابط المتجر:\n${storeLink}\n\nبرجاء تأكيد الحجز وموعد التسليم وشكراً لك!`;
-
-    window.open(`https://wa.me/${targetPhone}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   return (
@@ -313,17 +302,20 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               استكشف تشكيلتنا الحصرية من المشغولات اليدوية والديكورات العصرية المصنوعة بأعلى معايير الحرفة والدقة من خامات طبيعية مصرية منتقاة.
             </p>
 
-            {/* Direct WhatsApp Callout */}
+            {/* Central Guarantee & Official Support Hotline */}
             <div className="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-3">
               <a
-                href={`https://wa.me/${phone.replace(/\D/g, '').startsWith('0') ? '2' + phone.replace(/\D/g, '') : phone.replace(/\D/g, '')}?text=${encodeURIComponent(`مرحباً يا فنان، أتواصل معك بخصوص متجرك "${brandName}" على عائلة الشمساوية.`)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/20 transition cursor-pointer"
+                href={`tel:${OFFICIAL_SUPPORT_PHONE}`}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer"
               >
-                <Phone className="w-4 h-4" />
-                <span>تواصل مباشر مع الفنان عبر واتساب</span>
+                <Phone className="w-4 h-4 text-stone-950" />
+                <span>خدمة عملاء ودعم شركة الشمس كرافت: {OFFICIAL_SUPPORT_PHONE}</span>
               </a>
+
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>سداد الدفعة المقدمة 33% المركزي بضمان شركة الشمس كرافت</span>
+              </div>
 
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-600 dark:text-stone-400">
                 <Truck className="w-4 h-4 text-amber-500" />
@@ -505,19 +497,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleDirectWhatsAppOrder(p)}
-                          className="p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 transition cursor-pointer"
-                          title="طلب سريع عبر واتساب"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => handleAddToCart(p)}
-                          className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition flex items-center gap-1.5 shadow-sm hover:shadow-md cursor-pointer active:scale-95"
+                          className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition flex items-center gap-1.5 shadow-sm hover:shadow-md cursor-pointer active:scale-95"
                         >
                           <ShoppingBag className="w-3.5 h-3.5" />
-                          <span>أضف للسلة</span>
+                          <span>أضف للسلة (عربون 33%)</span>
                         </button>
                       </div>
                     </div>
@@ -689,24 +673,26 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-stone-200 dark:border-stone-800">
+            {/* Deposit Breakdown Callout */}
+            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                <span>الدفعة المقدمة عند الطلب (33%):</span>
+              </span>
+              <span className="font-black font-mono text-sm text-amber-700 dark:text-amber-300">
+                {Math.round(((selectedProduct.store_price || selectedProduct.retail_price || 0) * selectedQuantity) * 0.33).toLocaleString('ar-EG')} {currencySymbol}
+              </span>
+            </div>
+
+            {/* Actions: Single Cart Action with Al-Shams Central Guarantee */}
+            <div className="pt-2 border-t border-stone-200 dark:border-stone-800">
               <button
                 type="button"
                 onClick={() => handleAddToCart(selectedProduct)}
-                className="py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs sm:text-sm shadow-md shadow-amber-500/20 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                className="w-full py-3.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-sm shadow-md shadow-amber-500/20 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
               >
                 <ShoppingBag className="w-4 h-4" />
-                <span>إضافة إلى سلة المشتريات</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDirectWhatsAppOrder(selectedProduct)}
-                className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-md shadow-emerald-600/20 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>طلب فوري عبر واتساب</span>
+                <span>إضافة إلى سلة المشتريات وتأكيد الطلب بالعربون (33%)</span>
               </button>
             </div>
           </div>
@@ -734,8 +720,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           <Sparkles className="w-4 h-4 text-amber-500" />
           <span>منظومة الشمساوية الذكية | متجر الورش الحرفية المعتمدة</span>
         </div>
+        <div className="flex items-center justify-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-300">
+          <Phone className="w-3.5 h-3.5" />
+          <span>خدمة عملاء ودعم شركة الشمس كرافت: <strong className="font-mono text-sm">01000996059</strong></span>
+        </div>
         <p className="text-xs font-medium text-stone-500 dark:text-stone-400">
-          كافة الحقوق محفوظة لورشة {brandName} وشركة الشمس كرافت للديكور والمشغولات اليدوية © {new Date().getFullYear()}
+          كافة المعاملات المالية محمية ومضمونة مركزياً بنظام الدفعة المقدمة 33% بضمان شركة الشمس كرافت للديكور والمشغولات اليدوية © {new Date().getFullYear()}
         </p>
       </footer>
     </div>

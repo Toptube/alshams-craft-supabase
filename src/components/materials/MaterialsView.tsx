@@ -61,6 +61,7 @@ import {
   Folder,
   RefreshCw,
 } from 'lucide-react';
+import { StockLevelProgressBar } from './StockLevelProgressBar';
 
 export interface MaterialCategoryGroup {
   id: string;
@@ -1033,6 +1034,17 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                           الموصى به: +{Math.max(1, Math.ceil((threshold * 2) - current))} {unitName}
                         </span>
                       </div>
+
+                      {/* Visual Stock Progress Bar */}
+                      <div className="pt-2">
+                        <StockLevelProgressBar
+                          currentStock={current}
+                          minThreshold={threshold}
+                          unitName={unitName}
+                          showLabels={false}
+                          size="sm"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -1778,41 +1790,37 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                       </td>
 
                       {/* Stock & Reorder Threshold Column */}
-                      <td className="p-3.5">
-                        <div className="flex items-center gap-2">
-                          <div>
-                            <div
-                              className={`font-mono font-bold text-xs ${
-                                isLowStock
-                                  ? 'text-rose-600 dark:text-rose-400 font-black'
-                                  : 'text-stone-900 dark:text-stone-100'
-                              }`}
+                      <td className="p-3.5 min-w-[175px]">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-bold text-stone-500">
+                              رصيد المخزن
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditingStockItem({
+                                  id: m.id,
+                                  name: m.name,
+                                  currentStock,
+                                  minAlertThreshold,
+                                  unitName: unt?.name || 'وحدة',
+                                })
+                              }
+                              className="p-1 rounded-lg text-stone-400 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+                              title="تعديل رصيد المخزن وحد الطلب"
                             >
-                              {currentStock}{' '}
-                              <span className="text-[10px] text-stone-500 font-normal">
-                                {unt?.name || 'وحدة'}
-                              </span>
-                            </div>
-                            <div className="text-[10px] text-stone-400">
-                              حد الطلب: {minAlertThreshold} {unt?.name || ''}
-                            </div>
+                              <SlidersHorizontal className="w-3.5 h-3.5" />
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setEditingStockItem({
-                                id: m.id,
-                                name: m.name,
-                                currentStock,
-                                minAlertThreshold,
-                                unitName: unt?.name || 'وحدة',
-                              })
-                            }
-                            className="p-1 rounded-lg text-stone-400 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
-                            title="تعديل رصيد المخزن وحد الطلب"
-                          >
-                            <SlidersHorizontal className="w-3.5 h-3.5" />
-                          </button>
+
+                          <StockLevelProgressBar
+                            currentStock={currentStock}
+                            minThreshold={minAlertThreshold}
+                            unitName={unt?.name || 'وحدة'}
+                            showLabels={true}
+                            size="md"
+                          />
                         </div>
                       </td>
 

@@ -61,7 +61,9 @@ import {
   Award,
   Globe,
   PackageCheck,
+  BellRing,
 } from 'lucide-react';
+import { checkUpcomingRecurringExpenses } from '../../services/recurringExpensesService';
 import {
   ResponsiveContainer,
   BarChart,
@@ -196,6 +198,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const [totalTreasuryBalance, setTotalTreasuryBalance] = useState<number>(0);
   const [monthSalesTotal, setMonthSalesTotal] = useState<number>(0);
   const [stockAlertCount, setStockAlertCount] = useState<number>(0);
+  const [recurringUrgentCount, setRecurringUrgentCount] = useState<number>(0);
+  const [recurringUrgentAmount, setRecurringUrgentAmount] = useState<number>(0);
   const [totalExpenses, setTotalExpenses] = useState<number>(0);
   const [expensesBreakdown, setExpensesBreakdown] = useState<{
     wages: number;
@@ -379,6 +383,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           purchasesSum = supplierInvs.reduce((sum, s) => sum + (Number(s.paidAmount) || 0), 0);
         } catch {}
 
+        // 7. Check recurring expenses 3-day proactive alerts
+        let recUrgentCount = 0;
+        let recUrgentTotal = 0;
+        try {
+          const recCheck = await checkUpcomingRecurringExpenses(workshopId);
+          recUrgentCount = recCheck.urgentCount;
+          recUrgentTotal = recCheck.totalUrgentAmount;
+        } catch {}
+
         if (isMounted) {
           setRawMaterialsList(rawData || []);
           setProductsList(prodsData || []);
@@ -388,6 +401,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           setTotalTreasuryBalance(Math.round(treasuriesSum));
           setMonthSalesTotal(Math.round(salesSum));
           setStockAlertCount(alerts);
+          setRecurringUrgentCount(recUrgentCount);
+          setRecurringUrgentAmount(Math.round(recUrgentTotal));
           setInventoryValue(Math.round(invTotal));
           setMaterialsCount(matsCount);
           setProductsCostValue(Math.round(prodCostSum));
@@ -1307,6 +1322,41 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Proactive 3-Day Recurring Liquidity Alert Banner */}
+        {recurringUrgentCount > 0 && onOpenAdminCostsModal && (
+          <div
+            onClick={onOpenAdminCostsModal}
+            className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-rose-900 via-rose-800 to-amber-900 text-white shadow-lg border border-rose-500/60 cursor-pointer hover:shadow-xl transition active:scale-[0.99] flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 text-rose-200">
+                <BellRing className="w-5 h-5 animate-bounce" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-black text-xs sm:text-sm text-rose-100">
+                    ⚠️ تنبيه سيولة استباقي: لديك {recurringUrgentCount} التزامات دورية مستحقة خلال 3 أيام!
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
+                    مستعجل 🔔
+                  </span>
+                </div>
+                <p className="text-[11px] text-rose-100/90 mt-0.5 font-sans">
+                  إجمالي المبلغ المطلوب تدبيره بالخزينة:{' '}
+                  <span className="font-mono font-black text-amber-300 text-xs">
+                    {recurringUrgentAmount.toLocaleString('ar-EG')} {profile.currencySymbol}
+                  </span>{' '}
+                  (إيجار المشغل / الكهرباء / اشتراك الإنترنت / الصيانة)
+                </p>
+              </div>
+            </div>
+
+            <div className="self-end sm:self-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-black transition">
+              <span>سداد الالتزامات والدورة 🔁</span>
+            </div>
+          </div>
+        )}
 
         {/* 6 Core Financial & Inventory KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 sm:gap-3.5">

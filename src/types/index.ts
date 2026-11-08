@@ -1155,3 +1155,23 @@ export interface FixedAsset {
   updatedAt: number;
 }
 
+export interface RecurringExpenseItem {
+  id: string;
+  workshopId: string;
+  tenantId?: string;
+  title: string;
+  category: 'rent' | 'electricity' | 'water' | 'internet_office' | 'maintenance' | 'other';
+  categoryLabelAr?: string;
+  amount: number;
+  frequency: 'monthly' | 'quarterly' | 'annual';
+  dueDayOfMonth: number; // 1 to 31
+  preferredPaymentChannel?: 'cash' | 'instapay' | 'wallet';
+  notes?: string;
+  isActive: boolean;
+  lastPaidDate?: string; // YYYY-MM-DD
+  lastPaidMonth?: string; // YYYY-MM
+  createdAt: number;
+  updatedAt: number;
+}
+
+
