@@ -50,6 +50,33 @@ function savePersistentWorkshops(list: any[]): void {
   }
 }
 
+const MARKETPLACE_PRODUCTS_FILE = path.resolve(__dirname, 'data/marketplace_products.json');
+
+function loadPersistentMarketplaceProducts(): any[] {
+  try {
+    if (fs.existsSync(MARKETPLACE_PRODUCTS_FILE)) {
+      const raw = fs.readFileSync(MARKETPLACE_PRODUCTS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn('[Marketplace Persistent] Read error:', err);
+  }
+  return [];
+}
+
+function savePersistentMarketplaceProducts(list: any[]): void {
+  try {
+    const dir = path.dirname(MARKETPLACE_PRODUCTS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(MARKETPLACE_PRODUCTS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[Marketplace Persistent] Save error:', err);
+  }
+}
+
+let viteDevServer: any = null;
+
 const app = express();
 const PORT = 3000;
 const HOST = '0.0.0.0';
@@ -1664,9 +1691,335 @@ app.delete('/api/ai/session', requireAuth, (req: AuthenticatedRequest, res: Resp
 });
 
 // -------------------------------------------------------------
+// Marketplace Cloud Endpoints & Super Admin Product Approvals
+// -------------------------------------------------------------
+
+// 1. Get Approved Marketplace Products for Public Shoppers
+app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
+  try {
+    const client = supabaseAdminClient;
+    const persistent = loadPersistentMarketplaceProducts();
+    const approvedMap = new Map<string, any>();
+
+    // Add persistent approved products
+    persistent.forEach((p: any) => {
+      if (p.status === 'approved' || p.isMarketplaceApproved) {
+        approvedMap.set(p.id, { ...p, status: 'approved' });
+      }
+    });
+
+    // Merge Supabase products
+    try {
+      const { data, error } = await client
+        .from('marketplace_products')
+        .select('*')
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        data.forEach((p: any) => {
+          approvedMap.set(p.id, { ...(approvedMap.get(p.id) || {}), ...p, status: 'approved' });
+        });
+      }
+    } catch {}
+
+    const products = Array.from(approvedMap.values());
+    res.json({ success: true, products, count: products.length });
+  } catch (err: any) {
+    res.status(500).json({ error: 'تعذر جلب معروضات سوق الشمساوية' });
+  }
+});
+
+// 2. Publish/Sync Product from Artisan Store to Central Marketplace
+app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
+  try {
+    const product = req.body || {};
+    if (!product.id || !product.product_name && !product.productName) {
+      return res.status(400).json({ error: 'بيانات المنتج غير مكتملة' });
+    }
+
+    const client = supabaseAdminClient;
+    const persistent = loadPersistentMarketplaceProducts();
+    const existingIndex = persistent.findIndex((p: any) => p.id === product.id);
+
+    const initialStatus =
+      product.status === 'approved' && existingIndex >= 0 && persistent[existingIndex].status === 'approved'
+        ? 'approved'
+        : (product.status || 'pending_approval');
+
+    const normalizedRow: any = {
+      id: product.id,
+      workshop_id: product.workshop_id || product.workshopId || '',
+      brand_name: product.brand_name || product.brandName || 'ورشة الشمساوية',
+      artist_name: product.artist_name || product.artistName || 'فنان الشمساوية',
+      phone_number: product.phone_number || product.phoneNumber || '',
+      product_name: product.product_name || product.productName,
+      category: product.category || 'macrame',
+      craft_name: product.craft_name || product.craftName || 'المكرمية',
+      decor_category: product.decor_category || product.decorCategory || 'all',
+      store_price: Number(product.store_price ?? product.storePrice ?? product.retail_price ?? product.retailPrice ?? 0),
+      retail_price: Number(product.retail_price ?? product.retailPrice ?? product.store_price ?? 0),
+      wholesale_price: Number(product.wholesale_price ?? product.wholesalePrice ?? 0),
+      cost_price: Number(product.cost_price ?? product.costPrice ?? 0),
+      current_stock: Number(product.current_stock ?? product.currentStock ?? 1),
+      image_url: product.image_url || product.imageUrl || '/alshams_falcon_emblem.png',
+      store_description: product.store_description || product.storeDescription || '',
+      available_colors: product.available_colors || product.availableColors || [],
+      available_sizes: product.available_sizes || product.availableSizes || [],
+      dimensions: product.dimensions || {},
+      status: initialStatus,
+      rejection_reason: initialStatus === 'pending_approval' ? null : (product.rejection_reason || null),
+      created_at: product.created_at || (existingIndex >= 0 ? persistent[existingIndex].created_at : new Date().toISOString()),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Update persistent list
+    if (existingIndex >= 0) {
+      persistent[existingIndex] = { ...persistent[existingIndex], ...normalizedRow };
+    } else {
+      persistent.unshift(normalizedRow);
+    }
+    savePersistentMarketplaceProducts(persistent);
+
+    // Upsert in Supabase
+    try {
+      await client.from('marketplace_products').upsert(normalizedRow, { onConflict: 'id' });
+    } catch {}
+
+    res.json({
+      success: true,
+      product: normalizedRow,
+      message: initialStatus === 'pending_approval'
+        ? 'تم إرسال القطعة للمراجعة والاعتماد المركزي بنجاح ✨'
+        : 'تم تحديث بيانات المعروضة بنجاح.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'تعذر حفظ ومزامنة المنتج سحابياً' });
+  }
+});
+
+// 3. Super Admin Get Marketplace Products (Pending & All)
+app.get('/api/admin/marketplace/products', async (req: Request, res: Response) => {
+  const userEmail =
+    (req.headers['x-user-email'] as string) ||
+    (req.query?.userEmail as string) ||
+    '';
+
+  if (!isSuperAdmin(userEmail)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية: هذا القسم مخصص لإدارة وسوبر أدمن المنظومة' });
+  }
+
+  const requestedStatus = (req.query.status as string) || '';
+  const client = supabaseAdminClient;
+  const persistent = loadPersistentMarketplaceProducts();
+  const map = new Map<string, any>();
+
+  persistent.forEach((p: any) => {
+    map.set(p.id, p);
+  });
+
+  try {
+    let query = client.from('marketplace_products').select('*').order('updated_at', { ascending: false });
+    if (requestedStatus) {
+      query = query.eq('status', requestedStatus);
+    }
+    const { data, error } = await query;
+    if (!error && Array.isArray(data)) {
+      data.forEach((p: any) => {
+        map.set(p.id, { ...(map.get(p.id) || {}), ...p });
+      });
+    }
+  } catch {}
+
+  let allProducts = Array.from(map.values());
+  if (requestedStatus) {
+    allProducts = allProducts.filter((p) => p.status === requestedStatus);
+  }
+
+  res.json({ success: true, products: allProducts, count: allProducts.length });
+});
+
+// 4. Super Admin Review Action (Approve / Reject)
+app.post('/api/admin/marketplace/review', async (req: Request, res: Response) => {
+  const userEmail =
+    (req.headers['x-user-email'] as string) ||
+    (req.body?.userEmail as string) ||
+    '';
+
+  if (!isSuperAdmin(userEmail)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+
+  const { productId, status, rejectionReason } = req.body || {};
+  if (!productId || !['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: 'معرف المنتج أو حالة القرار غير صالحة' });
+  }
+
+  const client = supabaseAdminClient;
+  const persistent = loadPersistentMarketplaceProducts();
+  const idx = persistent.findIndex((p: any) => p.id === productId);
+
+  const updateData: any = {
+    status,
+    rejection_reason: status === 'rejected' ? (rejectionReason || 'لم يستوفِ معايير العرض الحرفي') : null,
+    updated_at: new Date().toISOString(),
+  };
+
+  let targetProduct = idx >= 0 ? persistent[idx] : null;
+
+  if (idx >= 0) {
+    persistent[idx] = { ...persistent[idx], ...updateData };
+    savePersistentMarketplaceProducts(persistent);
+    targetProduct = persistent[idx];
+  }
+
+  try {
+    await client.from('marketplace_products').update(updateData).eq('id', productId);
+  } catch {}
+
+  // Dispatch In-App Notification / Announcement to Workshop
+  if (targetProduct && targetProduct.workshop_id) {
+    const isApproved = status === 'approved';
+    const annTitle = isApproved
+      ? `✨ مبروك! تم اعتماد مشغولتكم [${targetProduct.product_name}] في سوق الشمساوية`
+      : `⚠️ تنبيه من إدارة المنظومة بخصوص القطعة [${targetProduct.product_name}]`;
+
+    const annContent = isApproved
+      ? `تمت مراجعة واعتماد مشغولتكم الحرفية [${targetProduct.product_name}] بنجاح من كبير عيلة الشمساوية والإدارة. القطعة الآن معروضة ومتاحة للشراء المباشر لكافة زوار سوق الشمساوية المركزي!`
+      : `تحياتنا لكم يا فنان، نأسف لإبلاغكم بأن قطعتكم [${targetProduct.product_name}] لم يتم اعتمادها في العرض المركزي للأسباب التالية:\n"${rejectionReason || 'تحتاج إلى تدقيق المواصفات والصور'}"\nيمكنكم تعديل البيانات وإعادة الإرسال للمراجعة في أي وقت.`;
+
+    const annRow: any = {
+      id: 'ann_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      sender_id: 'super_admin_hossam',
+      sender_name: 'م. حسام بسيوني (كبير عيلة الشمساوية)',
+      recipient_type: 'specific',
+      recipient_workshop_id: targetProduct.workshop_id,
+      recipient_workshop_name: targetProduct.brand_name || 'الورشة الحرفية',
+      title: annTitle,
+      content: annContent,
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      await client.from('admin_announcements').insert(annRow);
+    } catch {}
+    localAnnouncements.unshift(annRow);
+  }
+
+  res.json({
+    success: true,
+    message: status === 'approved' ? 'تم اعتماد المعروضة ونشرها في سوق الشمساوية بنجاح ✨' : 'تم تسجيل الرفض وإبلاغ الورشة ❌',
+    product: targetProduct,
+  });
+});
+
+// 5. Public Storefront Data by Workshop Slug or ID
+app.get('/api/store/:slug', async (req: Request, res: Response) => {
+  try {
+    const slug = decodeURIComponent(req.params.slug).toLowerCase().trim();
+    const workshops = loadPersistentWorkshops();
+    const client = supabaseAdminClient;
+
+    let ws = workshops.find((w: any) => {
+      const nameSlug = (w.brandName || '').toLowerCase().replace(/\s+/g, '-');
+      const artistSlug = (w.artistName || '').toLowerCase().replace(/\s+/g, '-');
+      const idMatch = (w.id || '').toLowerCase();
+      return nameSlug === slug || artistSlug === slug || idMatch === slug;
+    });
+
+    if (!ws) {
+      try {
+        const { data } = await client
+          .from('workshops')
+          .select('*')
+          .or(`id.eq.${slug},brand_name.ilike.%${slug}%`)
+          .maybeSingle();
+        if (data) ws = data;
+      } catch {}
+    }
+
+    if (!ws) {
+      return res.status(404).json({ error: 'الورشة المطلوبة غير مسجلة' });
+    }
+
+    const wid = ws.id || ws.workshopId;
+    const persistent = loadPersistentMarketplaceProducts();
+    const prodsMap = new Map<string, any>();
+
+    persistent.forEach((p: any) => {
+      if (p.workshop_id === wid || p.workshopId === wid) {
+        prodsMap.set(p.id, p);
+      }
+    });
+
+    try {
+      const { data } = await client
+        .from('marketplace_products')
+        .select('*')
+        .eq('workshop_id', wid);
+      if (Array.isArray(data)) {
+        data.forEach((p: any) => {
+          prodsMap.set(p.id, { ...(prodsMap.get(p.id) || {}), ...p });
+        });
+      }
+    } catch {}
+
+    const storeProducts = Array.from(prodsMap.values()).map(normalizeCloudProductRow);
+
+    res.json({
+      success: true,
+      workshop: {
+        id: wid,
+        brandName: ws.brandName || ws.brand_name || 'ورشة الشمساوية',
+        artistName: ws.artistName || ws.artist_name || 'فنان الشمساوية',
+        phoneNumber: ws.phoneNumber || ws.phone_number || '',
+        email: ws.email || '',
+        country: ws.country || 'مصر',
+        currencySymbol: ws.currencySymbol || ws.currency_symbol || 'ج.م',
+        logoUrl: ws.logoUrl || '/alshams_falcon_emblem.png',
+        selectedCrafts: ws.selectedCrafts || ws.selected_crafts || ['macrame'],
+        ratingStars: ws.rating_stars || ws.ratingStars || 5,
+        medal: ws.medal || 'gold',
+      },
+      products: storeProducts,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'تعذر جلب بيانات المتجر' });
+  }
+});
+
+function normalizeCloudProductRow(row: any) {
+  return {
+    id: row.id,
+    workshop_id: row.workshop_id || row.workshopId,
+    brand_name: row.brand_name || row.brandName,
+    artist_name: row.artist_name || row.artistName,
+    phone_number: row.phone_number || row.phoneNumber,
+    product_name: row.product_name || row.productName,
+    category: row.category,
+    craft_name: row.craft_name || row.craftName,
+    decor_category: row.decor_category || row.decorCategory,
+    store_price: Number(row.store_price ?? row.storePrice ?? row.retail_price ?? row.retailPrice ?? 0),
+    retail_price: Number(row.retail_price ?? row.retailPrice ?? row.store_price ?? 0),
+    wholesale_price: Number(row.wholesale_price ?? row.wholesalePrice ?? 0),
+    cost_price: Number(row.cost_price ?? row.costPrice ?? 0),
+    current_stock: Number(row.current_stock ?? row.currentStock ?? 1),
+    image_url: row.image_url || row.imageUrl || '/alshams_falcon_emblem.png',
+    store_description: row.store_description || row.storeDescription || '',
+    available_colors: row.available_colors || row.availableColors || [],
+    available_sizes: row.available_sizes || row.availableSizes || [],
+    dimensions: row.dimensions || {},
+    status: row.status || 'pending_approval',
+    rejection_reason: row.rejection_reason || row.rejectionReason,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+// -------------------------------------------------------------
 // Real Social Preview & Dynamic Open Graph Meta for Artisan Stores
 // -------------------------------------------------------------
-app.get(['/store/:slug', '/s/:slug'], (req: Request, res: Response, next: NextFunction) => {
+app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: NextFunction) => {
   try {
     const slug = req.params.slug;
     const workshops = loadPersistentWorkshops();
@@ -1682,7 +2035,6 @@ app.get(['/store/:slug', '/s/:slug'], (req: Request, res: Response, next: NextFu
     const pageTitle = `متجر ${workshopName} | عائلة الشمساوية`;
     const pageDesc = `تصفح أرقى المشغولات اليدوية والديكورات الحرفية بضمان شركة الشمس كرافت.`;
     const pageImage = ws?.logoUrl || '/alshams_falcon_emblem.png';
-    const storeUrl = `${req.protocol}://${req.get('host')}/store/${encodeURIComponent(slug)}`;
 
     const indexPath = path.resolve(__dirname, 'index.html');
     if (fs.existsSync(indexPath)) {
@@ -1695,6 +2047,10 @@ app.get(['/store/:slug', '/s/:slug'], (req: Request, res: Response, next: NextFu
       html = html.replace(/<meta name="twitter:title" content=".*?" \/>/, `<meta name="twitter:title" content="${pageTitle}" />`);
       html = html.replace(/<meta name="twitter:description" content=".*?" \/>/, `<meta name="twitter:description" content="${pageDesc}" />`);
       html = html.replace(/<meta name="twitter:image" content=".*?" \/>/, `<meta name="twitter:image" content="${pageImage}" />`);
+
+      if (!isProduction && viteDevServer) {
+        html = await viteDevServer.transformIndexHtml(req.originalUrl, html);
+      }
       return res.send(html);
     }
   } catch (err) {
@@ -1709,11 +2065,11 @@ app.get(['/store/:slug', '/s/:slug'], (req: Request, res: Response, next: NextFu
 async function startServer() {
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
+    viteDevServer = await createViteServer({
       server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    app.use(viteDevServer.middlewares);
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
@@ -1727,8 +2083,7 @@ async function startServer() {
     console.log('☀️  [منظومة الشمساوية SaaS] خادم إدارة الورش الحرفية والإدارة العليا');
     console.log(`🔌 حالة ربط قاعدة البيانات (Supabase URL): ${supabaseConfig.url ? 'متصل بنجاح ✅' : 'غير متصل ❌'}`);
     console.log(`🛡️  صلاحيات السوبر أدمن (Service Role): ${process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY ? 'مفعل (تجاوز عزل RLS بالكامل) ✅' : 'قيد العمل بالمفتاح المنشور (Publishable Key) ⚠️'}`);
-    console.log(`🤖 المزود الأول للذكاء الاصطناعي (Groq): ${process.env.GROQ_API_KEY ? 'مفتاح التشغيل نشط ✅' : 'المفتاح غير مضبوط على الخادم ⚠️'}`);
-    console.log(`✨ المزود البديل للذكاء الاصطناعي (Gemini Flash): ${process.env.GEMINI_API_KEY ? 'مفتاح التشغيل نشط (gemini-3.8-flash) ✅' : 'المفتاح غير مضبوط على الخادم ⚠️'}`);
+    console.log(`🛍️  سوق الشمساوية المركزي السحابي: نشط ومتزامن سحابياً بنجاح ✅`);
     console.log(`🌐 خادم الويب يستمع على المنفذ: http://${HOST}:${PORT}`);
     console.log('================================================================');
   });

@@ -14,6 +14,11 @@ import {
   GovernoratesShippingConfig,
 } from '../../services/marketplaceCartService';
 import {
+  reviewMarketplaceProduct,
+  fetchPendingMarketplaceProducts,
+  CloudMarketplaceProduct,
+} from '../../db/marketplaceCloud';
+import {
   ShieldAlert,
   ShieldCheck,
   Building2,
@@ -81,7 +86,16 @@ import {
   CartesianGrid,
 } from 'recharts';
 
-export type ExecutiveTab = 'materials' | 'products' | 'contacts' | 'treasuries' | 'orders' | 'appeals' | 'messaging' | 'marketplace';
+export type ExecutiveTab =
+  | 'materials'
+  | 'products'
+  | 'contacts'
+  | 'treasuries'
+  | 'orders'
+  | 'appeals'
+  | 'messaging'
+  | 'marketplace'
+  | 'product_approvals';
 
 export interface AdminDashboardProps {
   profile: UserProfile;
@@ -231,6 +245,14 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const [initialRatingForApprove, setInitialRatingForApprove] = useState<number>(5);
   const [rejectingProduct, setRejectingProduct] = useState<any | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('');
+
+  // Central Marketplace Cloud Products Review & Super Admin Approvals
+  const [cloudProductsForReview, setCloudProductsForReview] = useState<CloudMarketplaceProduct[]>([]);
+  const [cloudProductsFilter, setCloudProductsFilter] = useState<'pending_approval' | 'approved' | 'rejected' | 'all'>('pending_approval');
+  const [loadingCloudProducts, setLoadingCloudProducts] = useState<boolean>(false);
+  const [cloudRejectingProduct, setCloudRejectingProduct] = useState<CloudMarketplaceProduct | null>(null);
+  const [cloudRejectReason, setCloudRejectReason] = useState<string>('');
+
   const [deepDataLoading, setDeepDataLoading] = useState(false);
   const [deepData, setDeepData] = useState<{
     materials: any[];
@@ -871,13 +893,37 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, profile.email]);
 
+  // Load Central Marketplace Cloud Products for Super Admin Review
+  const loadCloudMarketplaceProducts = useCallback(async () => {
+    if (!isAdmin) return;
+    setLoadingCloudProducts(true);
+    try {
+      const res = await fetch('/api/admin/marketplace/products', {
+        headers: {
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.products)) {
+          setCloudProductsForReview(data.products);
+        }
+      }
+    } catch (e) {
+      console.warn('Load cloud marketplace products warning:', e);
+    } finally {
+      setLoadingCloudProducts(false);
+    }
+  }, [isAdmin, profile.email]);
+
   useEffect(() => {
     if (isAdmin) {
       loadWorkshops();
       loadAppeals();
       loadMessagingHub();
+      loadCloudMarketplaceProducts();
     }
-  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub]);
+  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts]);
 
   // 2. Realtime Subscriptions (Workshops, Announcements, Replies)
   useEffect(() => {
@@ -1985,6 +2031,27 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           >
             <Store size={15} />
             <span>إدارة سوق الشمساوية 🏪</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveExecutiveTab('product_approvals');
+              loadCloudMarketplaceProducts();
+            }}
+            className={`flex-1 min-w-[170px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+              activeExecutiveTab === 'product_approvals'
+                ? 'bg-white dark:bg-stone-900 text-amber-600 dark:text-amber-400 shadow-sm border border-amber-500/30'
+                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+            }`}
+          >
+            <Sparkles size={15} className="text-amber-500" />
+            <span>اعتماد معروضات السوق 🛍️</span>
+            {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length > 0 && (
+              <span className="px-2 py-0.5 bg-amber-500 text-stone-950 rounded-full text-[10px] font-mono font-black animate-pulse">
+                {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -3230,6 +3297,332 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
                     >
                       تأكيد الرفض وإخطار الفنان ✉️
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 8: Super Admin Product Approval Command Center (مقصورة اعتماد معروضات السوق المركزية) */}
+        {activeExecutiveTab === 'product_approvals' && (
+          <div className="space-y-6 animate-in fade-in">
+            {/* Header Banner & Stats */}
+            <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-stone-900 border-2 border-amber-500/40 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500 text-stone-950 flex items-center justify-center shadow-md">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <h4 className="text-base sm:text-lg font-black text-stone-900 dark:text-white">
+                    مقصورة اعتماد معروضات سوق الشمساوية المركزي 🛍️✨
+                  </h4>
+                </div>
+                <p className="text-xs font-medium text-stone-600 dark:text-[#EADBC8] max-w-2xl leading-relaxed">
+                  فحص ومراجعة كافة المشغولات اليدوية المرفوعة من الورش الحرفية للتأكد من استيفائها معايير الفنش والجودة العالية لشركة الشمس كرافت قبل نشرها للجمهور والمتسوقين.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadCloudMarketplaceProducts}
+                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition flex items-center gap-2 shadow-md cursor-pointer active:scale-95"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingCloudProducts ? 'animate-spin' : ''}`} />
+                  <span>تحديث المعروضات</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Metrics Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-center space-y-1 shadow-xs">
+                <span className="text-[11px] font-bold text-stone-500 block">إجمالي المعروضات المرفوعة</span>
+                <span className="text-xl font-black font-mono text-stone-900 dark:text-white">
+                  {cloudProductsForReview.length}
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center space-y-1 shadow-xs">
+                <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 block">بانتظار الاعتماد ⏳</span>
+                <span className="text-xl font-black font-mono text-amber-600 dark:text-amber-400">
+                  {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length}
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center space-y-1 shadow-xs">
+                <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 block">معتمدة ومنشورة بالسوق ✨</span>
+                <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+                  {cloudProductsForReview.filter((p) => p.status === 'approved').length}
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-center space-y-1 shadow-xs">
+                <span className="text-[11px] font-bold text-rose-800 dark:text-rose-300 block">مرفوضة بملاحظات ❌</span>
+                <span className="text-xl font-black font-mono text-rose-600 dark:text-rose-400">
+                  {cloudProductsForReview.filter((p) => p.status === 'rejected').length}
+                </span>
+              </div>
+            </div>
+
+            {/* Filter Pills */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              {[
+                { id: 'pending_approval', label: 'بانتظار الاعتماد ⏳', count: cloudProductsForReview.filter((p) => p.status === 'pending_approval').length },
+                { id: 'approved', label: 'المعتمدة حالياً بالسوق ✨', count: cloudProductsForReview.filter((p) => p.status === 'approved').length },
+                { id: 'rejected', label: 'المرفوضة بملاحظات ❌', count: cloudProductsForReview.filter((p) => p.status === 'rejected').length },
+                { id: 'all', label: 'كافة المعروضات 📋', count: cloudProductsForReview.length },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setCloudProductsFilter(f.id as any)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    cloudProductsFilter === f.id
+                      ? 'bg-amber-500 text-stone-950 shadow-md shadow-amber-500/20'
+                      : 'bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-300 border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800'
+                  }`}
+                >
+                  <span>{f.label}</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-stone-900/15 dark:bg-stone-100/15">
+                    {f.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Products List */}
+            {loadingCloudProducts ? (
+              <div className="p-12 text-center text-xs font-bold text-stone-500 space-y-2">
+                <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                <p>جاري استدعاء المعروضات السحابية للمراجعة...</p>
+              </div>
+            ) : cloudProductsForReview.filter((p) => cloudProductsFilter === 'all' || p.status === cloudProductsFilter).length === 0 ? (
+              <div className="p-12 text-center bg-white dark:bg-stone-900 rounded-3xl border border-dashed border-stone-300 dark:border-stone-800 space-y-3">
+                <Sparkles className="w-10 h-10 text-amber-500 mx-auto" />
+                <h5 className="font-black text-sm text-stone-900 dark:text-white">
+                  {cloudProductsFilter === 'pending_approval'
+                    ? 'ممتاز يا باشمهندس! لا توجد مشغولات معلقة بانتظار الاعتماد حالياً ✨'
+                    : 'لا توجد معروضات مسجلة تحت هذا التبويب.'}
+                </h5>
+                <p className="text-xs text-stone-500 max-w-md mx-auto">
+                  عند قيام أي ورشة بتصدير منتج لمتجرها أو للسوق المركزي، سيظهر هنا فورياً لفحصه واعتماده.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {cloudProductsForReview
+                  .filter((p) => cloudProductsFilter === 'all' || p.status === cloudProductsFilter)
+                  .map((p) => {
+                    const storePrice = p.store_price || p.retail_price || 0;
+                    const costPrice = p.cost_price || 0;
+                    const profit = storePrice - costPrice;
+                    const isPending = p.status === 'pending_approval';
+                    const isApproved = p.status === 'approved';
+                    const isRejected = p.status === 'rejected';
+
+                    return (
+                      <div
+                        key={p.id}
+                        className="rounded-3xl bg-white dark:bg-stone-900 border-2 border-stone-200 dark:border-stone-800 hover:border-amber-500/40 transition shadow-sm hover:shadow-xl flex flex-col justify-between overflow-hidden"
+                      >
+                        {/* Image & Badges */}
+                        <div className="relative w-full aspect-video bg-stone-100 dark:bg-stone-800 overflow-hidden">
+                          <img
+                            src={p.image_url || '/alshams_falcon_emblem.png'}
+                            alt={p.product_name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = '/alshams_falcon_emblem.png';
+                            }}
+                          />
+                          <div className="absolute top-3 right-3 flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-stone-950/80 text-amber-300 backdrop-blur-xs">
+                              {p.craft_name || p.category}
+                            </span>
+                          </div>
+
+                          <div className="absolute bottom-3 right-3">
+                            <span
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black backdrop-blur-xs shadow-md ${
+                                isApproved
+                                  ? 'bg-emerald-600 text-white'
+                                  : isRejected
+                                  ? 'bg-rose-600 text-white'
+                                  : 'bg-amber-500 text-stone-950'
+                              }`}
+                            >
+                              {isApproved ? 'معتمد بالسوق ✓' : isRejected ? 'مرفوض ❌' : 'قيد المراجعة ⏳'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Card Content */}
+                        <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-4">
+                          <div className="space-y-2">
+                            <h5 className="font-black text-sm sm:text-base text-stone-900 dark:text-white leading-tight">
+                              {p.product_name}
+                            </h5>
+
+                            {/* Workshop & Artist Info */}
+                            <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-bold text-stone-700 dark:text-stone-300">
+                                  الورشة: <strong>{p.brand_name || 'الشمساوية'}</strong>
+                                </span>
+                                <span className="text-[11px] text-stone-500">
+                                  الفنان: {p.artist_name || 'فنان'}
+                                </span>
+                              </div>
+
+                              {p.phone_number && (
+                                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-stone-200/60 dark:border-stone-750">
+                                  <span className="text-stone-500 font-mono">{p.phone_number}</span>
+                                  <a
+                                    href={`https://wa.me/${p.phone_number.replace(/\D/g, '').startsWith('0') ? '2' + p.phone_number.replace(/\D/g, '') : p.phone_number.replace(/\D/g, '')}?text=${encodeURIComponent(`تحياتي يا فنان بخصوص معروضتك [${p.product_name}] على منظومة الشمساوية.`)}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Phone className="w-3 h-3" />
+                                    <span>محادثة واتساب</span>
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Description */}
+                            <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
+                              {p.store_description || 'مشغولة يدوية فاخرة مصنوعة بدقة.'}
+                            </p>
+
+                            {/* Rejection Note Box if Rejected */}
+                            {isRejected && p.rejection_reason && (
+                              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-900 text-rose-800 dark:text-rose-200 text-xs font-bold space-y-1">
+                                <span className="block font-black text-[11px]">ملاحظات الرفض السابقة:</span>
+                                <p className="italic">"{p.rejection_reason}"</p>
+                              </div>
+                            )}
+
+                            {/* Pricing & Economics */}
+                            <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/20 text-center">
+                              <div>
+                                <span className="text-[10px] text-stone-500 font-bold block">سعر العرض</span>
+                                <span className="text-xs font-black text-amber-600 dark:text-amber-400">
+                                  {storePrice} ج.م
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-stone-500 font-bold block">التكلفة المقدرة</span>
+                                <span className="text-xs font-black text-stone-700 dark:text-stone-300">
+                                  {costPrice ? `${costPrice} ج.م` : '---'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-stone-500 font-bold block">صافي الربح</span>
+                                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                                  {profit > 0 ? `+${profit} ج.م` : '---'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Variants preview */}
+                            {((p.available_colors && p.available_colors.length > 0) || (p.available_sizes && p.available_sizes.length > 0)) && (
+                              <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-stone-500 font-bold pt-1">
+                                {p.available_colors && p.available_colors.length > 0 && (
+                                  <span>الألوان: {p.available_colors.join('، ')}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Decision Action Bar */}
+                          <div className="pt-3 border-t border-stone-100 dark:border-stone-800 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const res = await reviewMarketplaceProduct(p.id, 'approved', undefined, profile.email);
+                                if (res.success) {
+                                  setCloudProductsForReview((prev) =>
+                                    prev.map((item) => (item.id === p.id ? { ...item, status: 'approved' } : item))
+                                  );
+                                  playSuccessSound();
+                                  setSuccessNotice(`✓ تم اعتماد مشغولة "${p.product_name}" ونشرها في سوق الشمساوية المركزي بنجاح! ✨`);
+                                }
+                              }}
+                              className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer active:scale-95"
+                            >
+                              <Check className="w-4 h-4" />
+                              <span>{isApproved ? 'معتمد (تجديد النشر)' : 'اعتماد ونشر في السوق ✨'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCloudRejectingProduct(p);
+                                setCloudRejectReason('');
+                              }}
+                              className="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-bold text-xs transition flex items-center justify-center gap-1 cursor-pointer"
+                              title="رفض أو إرسال ملاحظات"
+                            >
+                              <X className="w-4 h-4" />
+                              <span>رفض بملاحظات</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
+            {/* Cloud Rejection Reason Modal */}
+            {cloudRejectingProduct && (
+              <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
+                <div className="bg-[#0C1427] border-2 border-rose-500 rounded-3xl p-6 max-w-md w-full space-y-4 text-right text-white shadow-2xl">
+                  <div className="flex items-center gap-2 text-rose-400">
+                    <AlertTriangle className="w-5 h-5 shrink-0" />
+                    <h4 className="font-black text-sm">
+                      رفض مشغولة "{cloudRejectingProduct.product_name}" وإرسال الملاحظات
+                    </h4>
+                  </div>
+                  <p className="text-xs text-[#EADBC8] leading-relaxed">
+                    اكتب التوجيهات الفنية والملاحظات للفنان لضبط المواصفات أو الصور في ورشته:
+                  </p>
+                  <textarea
+                    value={cloudRejectReason}
+                    onChange={(e) => setCloudRejectReason(e.target.value)}
+                    rows={4}
+                    placeholder="مثال: يرجى رفع صورة أكثر وضوحاً بخلفية بيضاء محايدة، وتدقيق مقاسات القطر والأطوال..."
+                    className="w-full p-3 rounded-xl bg-[#131E38] border border-rose-500/40 text-white text-xs font-bold outline-none resize-none focus:border-rose-400"
+                  />
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setCloudRejectingProduct(null)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-stone-400 hover:text-white cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const reason = cloudRejectReason.trim() || 'تحتاج إلى تدقيق المواصفات والصور الفنية.';
+                        const res = await reviewMarketplaceProduct(cloudRejectingProduct.id, 'rejected', reason, profile.email);
+                        if (res.success) {
+                          setCloudProductsForReview((prev) =>
+                            prev.map((item) => (item.id === cloudRejectingProduct.id ? { ...item, status: 'rejected', rejection_reason: reason } : item))
+                          );
+                          playAlertSound();
+                          setSuccessNotice(`✓ تم رفض المشغولة وإخطار ورشة [${cloudRejectingProduct.brand_name || 'الفنان'}] بالملاحظات بنجاح.`);
+                          setCloudRejectingProduct(null);
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs cursor-pointer shadow-md shadow-rose-600/30"
+                    >
+                      تأكيد الرفض وإرسال الملاحظات ✉️
                     </button>
                   </div>
                 </div>

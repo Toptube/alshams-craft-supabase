@@ -77,6 +77,7 @@ import { UnifiedAICommandCenter } from './components/ai/UnifiedAICommandCenter';
 import { ExecutiveTab } from './components/admin/AdminDashboard';
 import { MarketplaceView } from './components/marketplace/MarketplaceView';
 import { ArtisanStorefrontModal } from './components/store/ArtisanStorefrontModal';
+import { PublicStorefrontView } from './components/store/PublicStorefrontView';
 import {
   registerServiceWorker,
   checkAndDispatchEquipmentMaintenanceAlerts,
@@ -876,6 +877,23 @@ export const App: React.FC = () => {
     setActiveView('home');
     setIsSidebarOpen(false);
   };
+
+  // 1. Detect public storefront route (/store/:slug or /s/:slug) for external buyers & customers
+  const storeSlugMatch = typeof window !== 'undefined'
+    ? window.location.pathname.match(/^\/(?:store|s)\/([^/?#]+)/)
+    : null;
+  const publicStoreSlug = storeSlugMatch ? decodeURIComponent(storeSlugMatch[1]) : null;
+
+  if (publicStoreSlug) {
+    return (
+      <PublicStorefrontView
+        slug={publicStoreSlug}
+        onNavigateToApp={() => {
+          window.location.href = '/';
+        }}
+      />
+    );
+  }
 
   if (authChecking) {
     return (

@@ -17,6 +17,7 @@ import {
   getProductReviews,
   ProductReviewItem,
 } from '../../services/marketplaceCartService';
+import { fetchApprovedMarketplaceProducts } from '../../db/marketplaceCloud';
 import { CustomerAuthModal } from './CustomerAuthModal';
 import { MarketplaceCartModal } from './MarketplaceCartModal';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
@@ -348,9 +349,36 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           },
         ];
 
-        // Combine approved local workshop products with samples
+        // 1. Fetch approved products from cloud marketplace
+        const cloudApproved = await fetchApprovedMarketplaceProducts().catch(() => []);
+        const cloudMapped: SavedProductRecord[] = cloudApproved.map((cp) => ({
+          id: cp.id,
+          productName: cp.product_name,
+          category: cp.category as any,
+          craftName: cp.craft_name,
+          decorCategory: cp.decor_category as any,
+          retailPrice: cp.retail_price,
+          storePrice: cp.store_price,
+          wholesalePrice: cp.wholesale_price,
+          costPrice: cp.cost_price,
+          currentStock: cp.current_stock,
+          inStore: true,
+          isPublishedInStore: true,
+          isMarketplaceApproved: true,
+          imageUrl: cp.image_url,
+          storeDescription: cp.store_description,
+          availableColors: cp.available_colors,
+          availableSizes: cp.available_sizes,
+          isActive: true,
+          createdAt: typeof cp.created_at === 'number' ? cp.created_at : Date.now(),
+          updatedAt: typeof cp.updated_at === 'number' ? cp.updated_at : Date.now(),
+          input: {} as any,
+          output: {} as any,
+        }));
+
+        // 2. Combine approved cloud products, approved local workshop products, and samples
         const publishedLocal = localProds.filter((p: SavedProductRecord) => p.inStore && p.isMarketplaceApproved !== false);
-        const combined = [...publishedLocal, ...sampleProducts];
+        const combined = [...cloudMapped, ...publishedLocal, ...sampleProducts];
         const unique = Array.from(new Map(combined.map((p) => [p.id, p])).values());
 
         if (isMounted) {

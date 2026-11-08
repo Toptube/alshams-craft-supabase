@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { publishProductToMarketplace } from '../../db/marketplaceCloud';
 import {
   generateArtisanQuotationPDF,
   extractQuotationDataFromRecord,
@@ -456,7 +457,13 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
 
       await tenantStorage.mutateProduct(updated);
       setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-      setNotice(`تم تصدير "${p.productName}" إلى متجرك بنجاح! يمكنك الآن مراجعة سعر النشر ووصف العرض.`);
+
+      // Sync to cloud marketplace table with status pending_approval
+      publishProductToMarketplace(updated, profile).catch((err) => {
+        console.warn('Marketplace cloud sync notice:', err);
+      });
+
+      setNotice(`تم تصدير "${p.productName}" إلى متجرك بنجاح! تم إرسال القطعة للمراجعة المركزية.`);
       setTimeout(() => setNotice(''), 4000);
     } catch (err: any) {
       console.error('Failed to export product to store:', err);
