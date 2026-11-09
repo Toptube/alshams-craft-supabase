@@ -69,7 +69,11 @@ import {
   Volume2,
   Store,
   Truck,
+  QrCode,
+  Printer,
+  Share2,
 } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -505,6 +509,115 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('تعذر استخراج التقرير: ' + (err?.message || 'خطأ في الاتصال'));
+    }
+  };
+
+  // Central Marketplace QR & Poster Logic
+  const centralMarketUrl = typeof window !== 'undefined' ? `${window.location.origin}/#/market` : '/#/market';
+
+  const handleCopyMarketUrl = () => {
+    navigator.clipboard.writeText(centralMarketUrl);
+    playSuccessSound();
+    setSuccessNotice('✓ تم نسخ رابط سوق الشمساوية المركزي إلى الحافظة!');
+  };
+
+  const handleShareMarketWhatsApp = () => {
+    const text = `تفضلوا بزيارة سوق الشمساوية المركزي 🛍️✨\nأرقى المشغولات اليدوية والديكورات الحرفية بضمان شركة الشمس كرافت وحماية الدفع 33% عربون والتسليم لباب البيت!\n${centralMarketUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const handleDownloadMarketPoster = () => {
+    const qrCanvas = document.getElementById('central-market-qr-canvas') as HTMLCanvasElement | null;
+    if (!qrCanvas) return;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1200;
+      canvas.height = 1600;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Background - Deep Royal Navy
+      ctx.fillStyle = '#070E1E';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Outer Golden Border
+      ctx.strokeStyle = '#D97706';
+      ctx.lineWidth = 16;
+      ctx.strokeRect(36, 36, canvas.width - 72, canvas.height - 72);
+
+      // Inner Golden Border
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(54, 54, canvas.width - 108, canvas.height - 108);
+
+      // Header Emblem and Subtitle
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#F59E0B';
+      ctx.font = 'bold 36px Cairo, sans-serif';
+      ctx.fillText('☀️ عائلة الشمساوية • شركة الشمس كرافت 🦅', 600, 160);
+
+      // Central Title
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 62px Cairo, sans-serif';
+      ctx.fillText('سوق الشمساوية المركزي', 600, 260);
+
+      // Subtitle
+      ctx.fillStyle = '#EADBC8';
+      ctx.font = '500 30px Cairo, sans-serif';
+      ctx.fillText('منصة كبرى تجمع نخبة ورش وحرفيي الهاند ميد والديكور الراقي', 600, 330);
+
+      // QR Card Container (White Card)
+      ctx.fillStyle = '#FFFFFF';
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(260, 410, 680, 740, 32);
+        ctx.fill();
+      } else {
+        ctx.fillRect(260, 410, 680, 740);
+      }
+
+      // Draw QR code centered
+      ctx.drawImage(qrCanvas, 320, 460, 560, 560);
+
+      // Text inside card
+      ctx.fillStyle = '#070E1E';
+      ctx.font = 'bold 28px Cairo, sans-serif';
+      ctx.fillText('امسح الكود بكاميرا الهاتف لتصفح وتسوق كافة المعروضات', 600, 1075);
+
+      // URL inside card
+      ctx.fillStyle = '#D97706';
+      ctx.font = 'bold 22px monospace';
+      ctx.fillText(centralMarketUrl, 600, 1115);
+
+      // Guarantee Badge: 33% deposit
+      ctx.fillStyle = '#10B981';
+      ctx.font = 'bold 34px Cairo, sans-serif';
+      ctx.fillText('🛡️ ضمان شركة الشمس كرافت: 33% عربون والمتبقي عند الاستلام', 600, 1260);
+
+      // Delivery and Quality
+      ctx.fillStyle = '#EADBC8';
+      ctx.font = '500 26px Cairo, sans-serif';
+      ctx.fillText('شحن لكافة محافظات مصر • فحص واستلام بأعلى معايير الجودة اليدوية', 600, 1320);
+
+      // Hotline
+      ctx.fillStyle = '#F59E0B';
+      ctx.font = 'bold 30px Cairo, sans-serif';
+      ctx.fillText('📞 الخط الساخن المركزي وخدمة العملاء: 01000996059', 600, 1400);
+
+      // Footer note
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = '400 20px Cairo, sans-serif';
+      ctx.fillText('منظومة الشمساوية لإدارة الإنتاج والتسويق الحرفي ©', 600, 1480);
+
+      const link = document.createElement('a');
+      link.download = `بوستر_سوق_الشمساوية_المركزي.png`;
+      link.href = canvas.toDataURL('image/png', 1.0);
+      link.click();
+      playSuccessSound();
+      setSuccessNotice('✓ تم تنزيل بوستر سوق الشمساوية المركزي عالي الدقة (1200x1600) للطباعة بنجاح! 🖼️');
+    } catch (err: any) {
+      setErrorMsg('تعذر توليد بوستر السوق.');
     }
   };
 
@@ -2782,6 +2895,125 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         {/* Tab 7: Marketplace & Stores Control (مقصورة السوبر أدمن المركزية وإدارة الماركت بليس) */}
         {activeExecutiveTab === 'marketplace' && (
           <div className="space-y-6 animate-in fade-in">
+            {/* 0. Central Marketplace Link, Dynamic QR Code & Print Poster Card */}
+            <div className="p-6 rounded-3xl bg-gradient-to-br from-[#0C1427] via-[#0E1B38] to-[#142347] border-2 border-amber-500/50 shadow-2xl space-y-5 text-right">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-500/30 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/50 text-amber-300 flex items-center justify-center shadow-lg">
+                    <Store className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-black text-base sm:text-lg text-white">
+                        رابط وكود QR سوق الشمساوية المركزي 🛍️✨
+                      </h3>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-black">
+                        مباشر ومفعّل 🟢
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#EADBC8] font-medium">
+                      بوابة الشراء المركزية العامة لمشغولات عائلة الشمساوية بضمان وحماية شركة الشمس كرافت
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href={centralMarketUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold text-xs flex items-center gap-1.5 transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>معاينة السوق</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* QR and Share Details Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                {/* QR Code Canvas Frame */}
+                <div className="md:col-span-4 flex flex-col items-center justify-center p-4 rounded-2xl bg-[#070E1E] border border-amber-500/30 text-center space-y-3">
+                  <div className="p-2.5 bg-white rounded-2xl shadow-xl border-2 border-amber-400">
+                    <QRCodeCanvas
+                      id="central-market-qr-canvas"
+                      value={centralMarketUrl}
+                      size={180}
+                      level="H"
+                      includeMargin={true}
+                      imageSettings={{
+                        src: '/alshams_falcon_emblem.png',
+                        x: undefined,
+                        y: undefined,
+                        height: 36,
+                        width: 36,
+                        excavate: true,
+                      }}
+                    />
+                  </div>
+                  <span className="text-[11px] font-bold text-[#EADBC8]">
+                    امسح الكود بكاميرا الهاتف لفتح السوق فورياً 📱
+                  </span>
+                </div>
+
+                {/* Info, Live Link & Action Buttons */}
+                <div className="md:col-span-8 space-y-4">
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-bold text-amber-300">الرابط المباشر لسوق الشمساوية:</span>
+                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-black/40 border border-amber-500/30 font-mono text-xs text-emerald-300 select-all" dir="ltr">
+                      <span className="truncate flex-1">{centralMarketUrl}</span>
+                    </div>
+                  </div>
+
+                  {/* Trust & Guarantee Badges */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-center">
+                    <div className="p-2.5 rounded-xl bg-[#070E1E]/80 border border-amber-500/20 space-y-0.5">
+                      <span className="text-[11px] font-black text-amber-300 block">🛡️ حماية مركزية</span>
+                      <span className="text-[10px] text-stone-300">عربون 33% والمتبقي بعد المعاينة</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-[#070E1E]/80 border border-amber-500/20 space-y-0.5">
+                      <span className="text-[11px] font-black text-amber-300 block">🚚 شحن منزلي</span>
+                      <span className="text-[10px] text-stone-300">توصيل لكافة محافظات الجمهورية</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-[#070E1E]/80 border border-amber-500/20 space-y-0.5">
+                      <span className="text-[11px] font-black text-amber-300 block">📞 خط ساخن موحد</span>
+                      <span className="text-[10px] font-mono font-bold text-emerald-300">01000996059</span>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons Row */}
+                  <div className="flex flex-wrap items-center gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleCopyMarketUrl}
+                      className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-2 shadow-lg cursor-pointer transition active:scale-95"
+                    >
+                      <Copy className="w-4 h-4" />
+                      <span>نسخ رابط السوق</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleShareMarketWhatsApp}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-2 shadow-lg cursor-pointer transition active:scale-95"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>مشاركة عبر واتساب</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadMarketPoster}
+                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-700 hover:from-amber-600 hover:to-amber-800 text-white font-black text-xs flex items-center gap-2 shadow-xl cursor-pointer transition active:scale-95 border border-amber-300/40"
+                    >
+                      <Printer className="w-4 h-4 text-amber-200" />
+                      <span>تحميل بوستر السوق بجودة عالية للطباعة (1200x1600) 🖼️📥</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* 1. Global Logistics & Client Privacy Switch */}
             <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border-2 border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">

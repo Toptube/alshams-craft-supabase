@@ -878,18 +878,84 @@ export const App: React.FC = () => {
     setIsSidebarOpen(false);
   };
 
-  // 1. Detect public storefront route (/store/:slug or /s/:slug) for external buyers & customers
-  const storeSlugMatch = typeof window !== 'undefined'
-    ? window.location.pathname.match(/^\/(?:store|s)\/([^/?#]+)/)
-    : null;
-  const publicStoreSlug = storeSlugMatch ? decodeURIComponent(storeSlugMatch[1]) : null;
+  // Comprehensive Hash and Path routing for Public Storefronts and Central Marketplace
+  const parseAppRoute = (): { type: 'app' | 'market' | 'store'; slug?: string } => {
+    if (typeof window === 'undefined') return { type: 'app' };
+    const pathname = window.location.pathname || '';
+    const hash = window.location.hash || '';
 
-  if (publicStoreSlug) {
+    // 1. Central Marketplace (/market, /marketplace, /#/market, #market)
+    if (
+      /^\/(?:market|marketplace)(?:\/|$)/i.test(pathname) ||
+      /^#\/?(?:market|marketplace)(?:\/|$)/i.test(hash)
+    ) {
+      return { type: 'market' };
+    }
+
+    // 2. Individual Artisan Store via Path (/store/:slug or /s/:slug)
+    const pathMatch = pathname.match(/^\/(?:store|s)\/([^/?#]+)/i);
+    if (pathMatch) {
+      try {
+        return { type: 'store', slug: decodeURIComponent(pathMatch[1]) };
+      } catch {
+        return { type: 'store', slug: pathMatch[1] };
+      }
+    }
+
+    // 3. Individual Artisan Store via Hash (/#/store/:slug or #store/:slug)
+    const hashMatch = hash.match(/^#\/?(?:store|s)\/([^/?#]+)/i);
+    if (hashMatch) {
+      try {
+        return { type: 'store', slug: decodeURIComponent(hashMatch[1]) };
+      } catch {
+        return { type: 'store', slug: hashMatch[1] };
+      }
+    }
+
+    return { type: 'app' };
+  };
+
+  const [activeRoute, setActiveRoute] = useState(parseAppRoute);
+
+  useEffect(() => {
+    const handleRouteNav = () => {
+      setActiveRoute(parseAppRoute());
+    };
+    window.addEventListener('hashchange', handleRouteNav);
+    window.addEventListener('popstate', handleRouteNav);
+    return () => {
+      window.removeEventListener('hashchange', handleRouteNav);
+      window.removeEventListener('popstate', handleRouteNav);
+    };
+  }, []);
+
+  // Render Central Marketplace if requested via direct link or hash
+  if (activeRoute.type === 'market') {
+    return (
+      <MarketplaceView
+        profile={profile}
+        onNavigateHome={() => {
+          if (window.location.hash) window.location.hash = '';
+          if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+          setActiveRoute({ type: 'app' });
+        }}
+        onOpenStoreModal={() => {
+          setActiveView('catalog');
+          setActiveRoute({ type: 'app' });
+        }}
+      />
+    );
+  }
+
+  // Render Public Artisan Store if requested via direct link or hash
+  if (activeRoute.type === 'store' && activeRoute.slug) {
     return (
       <PublicStorefrontView
-        slug={publicStoreSlug}
+        slug={activeRoute.slug}
         onNavigateToApp={() => {
-          window.location.href = '/';
+          if (window.location.hash) window.location.hash = '';
+          if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+          setActiveRoute({ type: 'app' });
         }}
       />
     );

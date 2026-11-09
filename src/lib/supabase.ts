@@ -31,12 +31,18 @@ function getStorageAdapter(): SupportedStorage | undefined {
 
 const chosenStorage = getStorageAdapter();
 
-export const supabaseConfig = config;
+const envUrl = typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL;
+const envKey = typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY;
+
+export const supabaseConfig = {
+  url: envUrl || config.url,
+  publishableKey: envKey || config.publishableKey,
+};
 
 /**
  * Single, unified Supabase client for the entire frontend application.
  */
-export const supabase: SupabaseClient = createClient(config.url, config.publishableKey, {
+export const supabase: SupabaseClient = createClient(supabaseConfig.url, supabaseConfig.publishableKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,

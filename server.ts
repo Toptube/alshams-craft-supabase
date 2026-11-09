@@ -86,13 +86,20 @@ const isProduction = process.env.NODE_ENV === 'production';
 app.use(express.json({ limit: '35mb' }));
 app.use(express.urlencoded({ extended: true, limit: '35mb' }));
 
-// Supabase Master / Service Client (uses service role key if available to bypass RLS, else publishableKey)
+// Supabase Master / Service Client (reads from environment VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY, fallback to config)
+const supabaseServerUrl =
+  process.env.VITE_SUPABASE_URL ||
+  process.env.SUPABASE_URL ||
+  supabaseConfig.url;
+
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
   supabaseConfig.publishableKey;
-export const supabaseAuthClient = createClient(supabaseConfig.url, supabaseServiceKey);
-export const supabaseAdminClient = createClient(supabaseConfig.url, supabaseServiceKey, {
+
+export const supabaseAuthClient = createClient(supabaseServerUrl, supabaseServiceKey);
+export const supabaseAdminClient = createClient(supabaseServerUrl, supabaseServiceKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false,
@@ -2017,26 +2024,18 @@ function normalizeCloudProductRow(row: any) {
 }
 
 // -------------------------------------------------------------
-// Real Social Preview & Dynamic Open Graph Meta for Artisan Stores
+// Real Social Preview & Dynamic Open Graph Meta for Central Market & Artisan Stores
 // -------------------------------------------------------------
-app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: NextFunction) => {
+app.get(['/market', '/marketplace'], async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const slug = req.params.slug;
-    const workshops = loadPersistentWorkshops();
-    const cleanSlug = decodeURIComponent(slug).toLowerCase().trim();
-    const ws = workshops.find((w: any) => {
-      const nameSlug = (w.brandName || '').toLowerCase().replace(/\s+/g, '-');
-      const artistSlug = (w.artistName || '').toLowerCase().replace(/\s+/g, '-');
-      const idMatch = (w.id || '').toLowerCase();
-      return nameSlug === cleanSlug || artistSlug === cleanSlug || idMatch === cleanSlug;
-    });
+    const pageTitle = `سوق الشمساوية المركزي | أرقى المشغولات اليدوية والديكورات الحرفية`;
+    const pageDesc = `تسوق مباشرة من كبار فناني المشغولات اليدوية والمكرميات والكروشيه بضمان شركة الشمس كرافت. عاين واستلم بالضمان وعربون 33% فقط.`;
+    const pageImage = '/alshams_falcon_emblem.png';
 
-    const workshopName = ws?.brandName || ws?.artistName || decodeURIComponent(slug).replace(/-/g, ' ');
-    const pageTitle = `متجر ${workshopName} | عائلة الشمساوية`;
-    const pageDesc = `تصفح أرقى المشغولات اليدوية والديكورات الحرفية بضمان شركة الشمس كرافت.`;
-    const pageImage = ws?.logoUrl || '/alshams_falcon_emblem.png';
+    const indexPath = isProduction
+      ? path.resolve(__dirname, 'dist/index.html')
+      : path.resolve(__dirname, 'index.html');
 
-    const indexPath = path.resolve(__dirname, 'index.html');
     if (fs.existsSync(indexPath)) {
       let html = fs.readFileSync(indexPath, 'utf-8');
       html = html.replace(/<title>.*?<\/title>/, `<title>${pageTitle}</title>`);
@@ -2051,7 +2050,56 @@ app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: 
       if (!isProduction && viteDevServer) {
         html = await viteDevServer.transformIndexHtml(req.originalUrl, html);
       }
-      return res.send(html);
+      return res.status(200).set({ 'Content-Type': 'text/html' }).send(html);
+    }
+  } catch (err) {
+    console.warn('[Market OG Render Error]:', err);
+  }
+  next();
+});
+
+app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const slug = req.params.slug;
+    let cleanSlug = '';
+    try {
+      cleanSlug = decodeURIComponent(slug).toLowerCase().trim();
+    } catch {
+      cleanSlug = (slug || '').toLowerCase().trim();
+    }
+
+    const workshops = loadPersistentWorkshops();
+    const ws = workshops.find((w: any) => {
+      const nameSlug = (w.brandName || '').toLowerCase().replace(/\s+/g, '-');
+      const artistSlug = (w.artistName || '').toLowerCase().replace(/\s+/g, '-');
+      const idMatch = (w.id || '').toLowerCase();
+      return nameSlug === cleanSlug || artistSlug === cleanSlug || idMatch === cleanSlug;
+    });
+
+    const workshopName = ws?.brandName || ws?.artistName || cleanSlug.replace(/-/g, ' ');
+    const pageTitle = `متجر ${workshopName} | عائلة الشمساوية`;
+    const pageDesc = `تصفح أرقى المشغولات اليدوية والديكورات الحرفية بضمان شركة الشمس كرافت.`;
+    const pageImage = ws?.logoUrl || '/alshams_falcon_emblem.png';
+
+    const indexPath = isProduction
+      ? path.resolve(__dirname, 'dist/index.html')
+      : path.resolve(__dirname, 'index.html');
+
+    if (fs.existsSync(indexPath)) {
+      let html = fs.readFileSync(indexPath, 'utf-8');
+      html = html.replace(/<title>.*?<\/title>/, `<title>${pageTitle}</title>`);
+      html = html.replace(/<meta name="description" content=".*?" \/>/, `<meta name="description" content="${pageDesc}" />`);
+      html = html.replace(/<meta property="og:title" content=".*?" \/>/, `<meta property="og:title" content="${pageTitle}" />`);
+      html = html.replace(/<meta property="og:description" content=".*?" \/>/, `<meta property="og:description" content="${pageDesc}" />`);
+      html = html.replace(/<meta property="og:image" content=".*?" \/>/, `<meta property="og:image" content="${pageImage}" />`);
+      html = html.replace(/<meta name="twitter:title" content=".*?" \/>/, `<meta name="twitter:title" content="${pageTitle}" />`);
+      html = html.replace(/<meta name="twitter:description" content=".*?" \/>/, `<meta name="twitter:description" content="${pageDesc}" />`);
+      html = html.replace(/<meta name="twitter:image" content=".*?" \/>/, `<meta name="twitter:image" content="${pageImage}" />`);
+
+      if (!isProduction && viteDevServer) {
+        html = await viteDevServer.transformIndexHtml(req.originalUrl, html);
+      }
+      return res.status(200).set({ 'Content-Type': 'text/html' }).send(html);
     }
   } catch (err) {
     console.warn('[Store OG Render Error]:', err);
@@ -2060,7 +2108,7 @@ app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: 
 });
 
 // -------------------------------------------------------------
-// Start Server (Vite in Dev, Static in Prod)
+// Start Server (Vite in Dev with SPA catch-all, Static in Prod)
 // -------------------------------------------------------------
 async function startServer() {
   if (!isProduction) {
@@ -2070,6 +2118,23 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(viteDevServer.middlewares);
+
+    // Explicit SPA Catch-all Fallback for Development:
+    app.use('*', async (req: Request, res: Response, next: NextFunction) => {
+      if (req.originalUrl.startsWith('/api/') || req.originalUrl.includes('.')) {
+        return next();
+      }
+      try {
+        const indexPath = path.resolve(__dirname, 'index.html');
+        if (!fs.existsSync(indexPath)) return next();
+        let html = fs.readFileSync(indexPath, 'utf-8');
+        html = await viteDevServer.transformIndexHtml(req.originalUrl, html);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+      } catch (err: any) {
+        if (viteDevServer) viteDevServer.ssrFixStacktrace(err);
+        next(err);
+      }
+    });
   } else {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
