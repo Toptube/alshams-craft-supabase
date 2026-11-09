@@ -156,26 +156,42 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         const tenantId = profile?.tenantId || profile?.workshopId || profile?.id || 'public';
         const localProds = await tenantStorage.getProducts(tenantId).catch(() => []);
 
-        // 1. Fetch approved products from live Supabase cloud marketplace
-        const cloudApproved = await fetchApprovedMarketplaceProducts().catch(() => []);
-        const cloudMapped: SavedProductRecord[] = cloudApproved.map((cp) => ({
+        // 1. Fetch approved products from live Supabase cloud marketplace directly
+        let cloudApproved: any[] = [];
+        try {
+          const { data, error } = await supabase
+            .from('marketplace_products')
+            .select('*')
+            .eq('status', 'approved')
+            .order('created_at', { ascending: false });
+          if (!error && Array.isArray(data)) {
+            cloudApproved = data;
+          } else {
+            cloudApproved = await fetchApprovedMarketplaceProducts().catch(() => []);
+          }
+        } catch {
+          cloudApproved = await fetchApprovedMarketplaceProducts().catch(() => []);
+        }
+
+        const cloudMapped: SavedProductRecord[] = (cloudApproved || []).map((cp: any) => ({
           id: cp.id,
-          productName: cp.product_name,
+          workshopId: cp.workshop_id || cp.workshopId,
+          productName: cp.product_name || cp.productName || 'مشغولة يدوية فاخرة',
           category: cp.category as any,
-          craftName: cp.craft_name,
+          craftName: cp.craft_name || cp.craftName,
           decorCategory: cp.decor_category as any,
-          retailPrice: cp.retail_price,
-          storePrice: cp.store_price,
-          wholesalePrice: cp.wholesale_price,
-          costPrice: cp.cost_price,
-          currentStock: cp.current_stock,
+          retailPrice: Number(cp.retail_price ?? cp.retailPrice ?? cp.store_price ?? cp.storePrice ?? 0),
+          storePrice: Number(cp.store_price ?? cp.storePrice ?? cp.retail_price ?? cp.retailPrice ?? 0),
+          wholesalePrice: Number(cp.wholesale_price ?? cp.wholesalePrice ?? 0),
+          costPrice: Number(cp.cost_price ?? cp.costPrice ?? 0),
+          currentStock: Number(cp.current_stock ?? cp.currentStock ?? 1),
           inStore: true,
           isPublishedInStore: true,
           isMarketplaceApproved: true,
-          imageUrl: cp.image_url,
-          storeDescription: cp.store_description,
-          availableColors: cp.available_colors,
-          availableSizes: cp.available_sizes,
+          imageUrl: cp.image_url || cp.imageUrl || '/alshams_falcon_emblem.png',
+          storeDescription: cp.store_description || cp.storeDescription || '',
+          availableColors: Array.isArray(cp.available_colors) ? cp.available_colors : [],
+          availableSizes: Array.isArray(cp.available_sizes) ? cp.available_sizes : [],
           isActive: true,
           createdAt: typeof cp.created_at === 'number' ? cp.created_at : Date.now(),
           updatedAt: typeof cp.updated_at === 'number' ? cp.updated_at : Date.now(),
@@ -184,7 +200,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         }));
 
         // 2. Combine approved cloud products with locally approved workshop products (Zero Mock Data)
-        const publishedLocal = localProds.filter((p: SavedProductRecord) => p.inStore && p.isMarketplaceApproved !== false);
+        const publishedLocal = localProds.filter((p: SavedProductRecord) => p && p.inStore && p.isMarketplaceApproved !== false);
         const combined = [...cloudMapped, ...publishedLocal];
         const unique = Array.from(new Map(combined.map((p) => [p.id, p])).values());
 

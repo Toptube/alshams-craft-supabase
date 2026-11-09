@@ -52,7 +52,13 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   onOpenCustomerAuth,
   onOrderSuccess,
 }) => {
-  const [cartItems, setCartItems] = useState<MarketplaceCartItem[]>(getStoredCart());
+  const [cartItems, setCartItems] = useState<MarketplaceCartItem[]>(() => {
+    try {
+      return (getStoredCart() || []).filter((i: any) => i && typeof i === 'object');
+    } catch {
+      return [];
+    }
+  });
   const [governorate, setGovernorate] = useState<string>(customerUser?.governorate || 'القاهرة');
   const [couponCode, setCouponCode] = useState<string>(customerUser ? 'SHAMS5' : '');
   const [isCouponApplied, setIsCouponApplied] = useState<boolean>(!!customerUser);
@@ -76,28 +82,42 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   // Sync state whenever opened
   React.useEffect(() => {
     if (isOpen) {
-      const items = getStoredCart();
-      setCartItems(items);
-      const cust = customerUser || getStoredCustomerSession();
-      if (cust) {
-        setGovernorate(cust.governorate || 'القاهرة');
-        setIsCouponApplied(true);
-        setCouponCode('SHAMS5');
+      try {
+        const rawItems = getStoredCart() || [];
+        const safeItems = Array.isArray(rawItems)
+          ? rawItems.filter((i: any) => i && typeof i === 'object')
+          : [];
+        setCartItems(safeItems);
+        const cust = customerUser || getStoredCustomerSession();
+        if (cust) {
+          setGovernorate(cust.governorate || 'القاهرة');
+          setIsCouponApplied(true);
+          setCouponCode('SHAMS5');
+        }
+      } catch (err) {
+        console.warn('Error reading cart on open:', err);
+        setCartItems([]);
       }
     }
   }, [isOpen, customerUser]);
 
   if (!isOpen) return null;
 
-  // Subtotal
+  // Subtotal (Safe reduce with fallback checks)
   const subtotal = useMemo(() => {
-    return cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+    if (!Array.isArray(cartItems)) return 0;
+    return cartItems.reduce((acc, item: any) => {
+      const price = Number(item?.price ?? item?.storePrice ?? item?.store_price ?? item?.retailPrice ?? item?.retail_price ?? 0);
+      const qty = Math.max(1, Number(item?.quantity) || 1);
+      return acc + (isNaN(price) ? 0 : price * qty);
+    }, 0);
   }, [cartItems]);
 
   // Shipping
   const shippingCost = useMemo(() => {
-    return cartItems.length > 0 ? calculateShippingRate(governorate) : 0;
-  }, [governorate, cartItems.length]);
+    if (!Array.isArray(cartItems) || cartItems.length === 0) return 0;
+    return calculateShippingRate(governorate || 'القاهرة');
+  }, [governorate, cartItems]);
 
   // Discount
   const discountAmount = useMemo(() => {
@@ -411,83 +431,92 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
           <form onSubmit={handleSubmitOrder} className="space-y-5">
             {/* 1. Items List */}
             <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-              {cartItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-3.5 rounded-2xl bg-[#080F1E] border border-amber-500/30 flex items-center justify-between gap-3 text-xs"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-14 h-14 rounded-xl overflow-hidden bg-black/40 border border-amber-500/20 shrink-0">
-                      {item.imageUrl ? (
-                        <img src={item.imageUrl} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-amber-400">
-                          <ShoppingBag className="w-6 h-6" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 space-y-0.5">
-                      <h4 className="font-black text-white truncate text-xs sm:text-sm">
-                        {item.productName}
-                      </h4>
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#EADBC8]">
-                        {item.selectedColor && (
-                          <span className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
-                            اللون: {item.selectedColor}
-                          </span>
+              {cartItems.map((item, idx) => {
+                if (!item) return null;
+                const itemId = item.id || `cart_item_${idx}`;
+                const itemName = item.productName || (item as any).product_name || 'مشغولة يدوية فاخرة';
+                const itemPrice = Number(item.price ?? (item as any).store_price ?? (item as any).storePrice ?? (item as any).retail_price ?? (item as any).retailPrice ?? 0);
+                const itemQty = Math.max(1, Number(item.quantity) || 1);
+                const itemImg = item.imageUrl || (item as any).image_url || null;
+
+                return (
+                  <div
+                    key={itemId}
+                    className="p-3.5 rounded-2xl bg-[#080F1E] border border-amber-500/30 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-14 h-14 rounded-xl overflow-hidden bg-black/40 border border-amber-500/20 shrink-0">
+                        {itemImg ? (
+                          <img src={itemImg} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-amber-400">
+                            <ShoppingBag className="w-6 h-6" />
+                          </div>
                         )}
-                        {item.selectedSize && (
-                          <span className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
-                            المقاس: {item.selectedSize}
-                          </span>
-                        )}
-                        <span className="font-mono text-amber-300 font-bold">
-                          {item.price} ج.م للقطعة
-                        </span>
                       </div>
-                      {item.customNotes && (
-                        <p className="text-[10px] text-stone-400 truncate">
-                          ملاحظات خاصة: {item.customNotes}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Quantity & Delete */}
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-[#0C1427] border border-amber-500/40">
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateQty(item.id, -1)}
-                        className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 text-stone-300 flex items-center justify-center cursor-pointer"
-                        title="تقليل الكمية"
-                      >
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="w-6 text-center font-mono font-black text-amber-300 text-xs">
-                        {item.quantity}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateQty(item.id, 1)}
-                        className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 text-stone-300 flex items-center justify-center cursor-pointer"
-                        title="زيادة الكمية"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="min-w-0 space-y-0.5">
+                        <h4 className="font-black text-white truncate text-xs sm:text-sm">
+                          {itemName}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#EADBC8]">
+                          {item.selectedColor && (
+                            <span className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
+                              اللون: {item.selectedColor}
+                            </span>
+                          )}
+                          {item.selectedSize && (
+                            <span className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20">
+                              المقاس: {item.selectedSize}
+                            </span>
+                          )}
+                          <span className="font-mono text-amber-300 font-bold">
+                            {itemPrice} ج.م للقطعة
+                          </span>
+                        </div>
+                        {item.customNotes && (
+                          <p className="text-[10px] text-stone-400 truncate">
+                            ملاحظات خاصة: {item.customNotes}
+                          </p>
+                        )}
+                      </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveItem(item.id)}
-                      className="p-1.5 rounded-lg text-stone-400 hover:text-rose-400 transition cursor-pointer"
-                      title="حذف القطعة"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {/* Quantity & Delete */}
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-[#0C1427] border border-amber-500/40">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateQty(itemId, -1)}
+                          className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 text-stone-300 flex items-center justify-center cursor-pointer"
+                          title="تقليل الكمية"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="w-6 text-center font-mono font-black text-amber-300 text-xs">
+                          {itemQty}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateQty(itemId, 1)}
+                          className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 text-stone-300 flex items-center justify-center cursor-pointer"
+                          title="زيادة الكمية"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(itemId)}
+                        className="p-1.5 rounded-lg text-stone-400 hover:text-rose-400 transition cursor-pointer"
+                        title="حذف القطعة"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* 2. Customer Auth Banner / Info */}

@@ -942,73 +942,41 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         console.warn('[Admin Dashboard] Server workshops fetch notice:', err?.message);
       }
 
-      // 2. مزامنة مباشرة من جدولي workshops و profiles في Supabase لضمان التحديث اللحظي
+      // 2. مزامنة مباشرة من جدول workshops الحقيقي في Supabase (استعلام Supabase الحقيقي فقط)
       try {
-        const [wsResult, profResult] = await Promise.all([
-          supabase.from('workshops').select('*').order('created_at', { ascending: false }),
-          supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-        ]);
+        const { data: wsRows, error: wsErr } = await supabase
+          .from('workshops')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-        if (!wsResult.error && Array.isArray(wsResult.data)) {
-          directSupaWorkshops = wsResult.data.map((row: any) => ({
+        if (!wsErr && Array.isArray(wsRows)) {
+          directSupaWorkshops = wsRows.map((row: any) => ({
             id: row.id,
             workshopId: row.id,
-            ownerUid: row.owner_uid || row.id,
-            brandName: row.brand_name || 'ورشة ' + (row.artist_name || 'الشمساوية'),
+            ownerUid: row.owner_id || row.owner_uid || row.id,
+            brandName: row.brand_name || 'ورشة الشمساوية',
             artistName: row.artist_name || 'فنان',
             gender: row.gender || 'female',
             email: row.email || '',
-            phoneNumber: row.phone_number || '',
+            phoneNumber: row.phone || row.phone_number || row.phoneNumber || '',
             country: row.country || 'مصر',
             currency: row.currency || 'EGP',
             currencySymbol: row.currency_symbol || 'ج.م',
             callingCode: '+20',
-            selectedCrafts: row.selected_crafts || ['macrame'],
+            selectedCrafts: Array.isArray(row.selected_crafts) ? row.selected_crafts : ['macrame'],
             defaultVatPercent: row.default_vat_percent ?? 14,
             showTaxInfoOnInvoice: false,
             role: row.role || 'artisan',
             status: row.status || (row.is_frozen ? 'suspended' : 'active'),
             isFrozen: Boolean(row.is_frozen || row.status === 'suspended' || row.status === 'banned'),
-            suspension_reason: row.suspension_reason,
+            suspension_reason: row.suspension_reason || row.suspended_reason,
             rating_stars: row.rating_stars || 5,
             ratingStars: row.rating_stars || 5,
             medal: row.medal || null,
             createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
             updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
-            createdBy: row.created_by || row.owner_uid || row.id || 'system',
+            createdBy: row.created_by || row.owner_id || row.id || 'system',
           }));
-        }
-
-        if (!profResult.error && Array.isArray(profResult.data)) {
-          profResult.data.forEach((p: any) => {
-            const wid = p.workshop_id || p.id;
-            if (wid && !directSupaWorkshops.some((w) => w.id === wid)) {
-              directSupaWorkshops.push({
-                id: wid,
-                workshopId: wid,
-                ownerUid: p.id,
-                brandName: p.brand_name || p.brandName || 'ورشة ' + (p.artist_name || p.full_name || 'الشمساوية'),
-                artistName: p.artist_name || p.full_name || p.name || 'فنان',
-                gender: p.gender || 'female',
-                email: p.email || '',
-                phoneNumber: p.phone_number || p.phone || '',
-                country: p.country || 'مصر',
-                currency: p.currency || 'EGP',
-                currencySymbol: p.currency_symbol || 'ج.م',
-                callingCode: p.calling_code || '+20',
-                selectedCrafts: p.selected_crafts || ['macrame'],
-                defaultVatPercent: p.default_vat_percent ?? 14,
-                showTaxInfoOnInvoice: false,
-                role: p.role || 'artisan',
-                status: p.status || 'active',
-                isFrozen: Boolean(p.status === 'suspended' || p.status === 'banned'),
-                welcomeShown: Boolean(p.welcome_shown),
-                createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
-                updatedAt: p.updated_at ? new Date(p.updated_at).getTime() : Date.now(),
-                createdBy: p.created_by || p.id || 'system',
-              });
-            }
-          });
         }
       } catch (supaErr: any) {
         console.warn('[Admin Dashboard] Direct Supabase sync notice:', supaErr?.message);
@@ -1016,31 +984,24 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
       const map = new Map<string, WorkshopProfile>();
 
-      // الدمج مع إعطاء الأولوية للبيانات الحقيقية في Supabase
+      // 1. أولاً: تسجيل الورش الحقيقية من Supabase
       directSupaWorkshops.forEach((w) => {
         if (w.id) map.set(w.id, w);
       });
 
+      // 2. دمج أي بيانات إضافية من السيرفر (تقييمات، تفاصيل) للورش المسجلة فعلياً
       serverWorkshops.forEach((w) => {
-        if (w.id) {
-          const existing = map.get(w.id);
-          map.set(w.id, { ...existing, ...w });
+        if (w.id && map.has(w.id)) {
+          const existing = map.get(w.id)!;
+          map.set(w.id, { ...existing, ...w, phoneNumber: existing.phoneNumber || w.phoneNumber });
         }
       });
 
-      // 3. التطهير الصارم للورش والبيانات الوهمية (حذف a&m handmade وأي عينات تجريبية ثابتة)
+      // 3. تصفية الورش: عرض الورش الحقيقية المسجلة فعلياً (مثل A&M Handmade) وترتيبها
       const list = Array.from(map.values())
         .filter((w) => {
           const id = (w.id || '').toLowerCase();
-          const brand = (w.brandName || '').toLowerCase();
-          const artist = (w.artistName || '').toLowerCase();
-          const isMock =
-            id.includes('demo') ||
-            brand.includes('a&m') ||
-            brand.includes('a & m') ||
-            artist.includes('a&m') ||
-            id === '00000000-0000-0000-0000-000000000000';
-          return !isMock;
+          return id !== '00000000-0000-0000-0000-000000000000';
         })
         .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
@@ -1208,17 +1169,38 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     if (!isAdmin) return;
     setLoadingCloudProducts(true);
     try {
+      let supaProds: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from('marketplace_products')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (!error && Array.isArray(data)) {
+          supaProds = data;
+        }
+      } catch (e) {
+        console.warn('Direct Supabase fetch products warning:', e);
+      }
+
       const res = await fetch('/api/admin/marketplace/products', {
         headers: {
           'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
       });
+      let serverProds: any[] = [];
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.products)) {
-          setCloudProductsForReview(data.products);
+          serverProds = data.products;
         }
       }
+
+      // Merge Supabase and server products
+      const pMap = new Map<string, any>();
+      supaProds.forEach((p) => pMap.set(p.id, p));
+      serverProds.forEach((p) => pMap.set(p.id, { ...(pMap.get(p.id) || {}), ...p }));
+
+      setCloudProductsForReview(Array.from(pMap.values()));
     } catch (e) {
       console.warn('Load cloud marketplace products warning:', e);
     } finally {
@@ -1731,28 +1713,32 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
     setSavingAction(true);
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
-      const res = await fetch(`/api/admin/workshops/${deletingWorkshop.id}/selective-delete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ mode: selectiveDeleteMode }),
-      });
-
-      if (!res.ok) {
-        const errorJson = await res.json().catch(() => ({}));
-        throw new Error(errorJson.error || 'تعذر استكمال عملية التصفير والحذف');
+      // 1. Delete from Supabase workshops and profiles directly
+      try {
+        await supabase.from('workshops').delete().eq('id', deletingWorkshop.id);
+        await supabase.from('profiles').delete().eq('id', deletingWorkshop.id);
+        if (deletingWorkshop.ownerUid) {
+          await supabase.from('profiles').delete().eq('id', deletingWorkshop.ownerUid);
+        }
+      } catch (supaErr) {
+        console.warn('Supabase workshop delete notice:', supaErr);
       }
 
+      // 2. Call backend server endpoint
+      try {
+        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        await fetch(`/api/admin/workshops/${deletingWorkshop.id}/selective-delete`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ mode: selectiveDeleteMode }),
+        });
+      } catch {}
+
       if (selectiveDeleteMode === 'cascade') {
-        try {
-          await supabase.from('profiles').delete().eq('id', deletingWorkshop.id);
-        } catch (supaErr) {
-          console.warn('Supabase profile delete notice:', supaErr);
-        }
         await tenantStorage.deleteProfile(deletingWorkshop.id);
         setWorkshops((prev) => prev.filter((w) => w.id !== deletingWorkshop.id));
         loadWorkshops(true);
@@ -5512,36 +5498,26 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
-                لتأكيد العملية، اكتب اسم الورشة تماماً: (
-                <span className="text-rose-600 select-all font-black">{deletingWorkshop.brandName}</span>)
-              </label>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder="اكتب اسم الورشة هنا..."
-                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
-              />
+              <p className="text-xs text-stone-600 dark:text-stone-300 font-bold">
+                أنت على وشك تنفيذ هذا الإجراء على ورشة: <span className="text-rose-600 font-black">{deletingWorkshop.brandName}</span>
+              </p>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
               <button
                 type="button"
                 onClick={() => setDeletingWorkshop(null)}
-                className="px-4 py-2 rounded-xl border text-xs font-bold"
+                className="px-4 py-2 rounded-xl border text-xs font-bold cursor-pointer"
               >
                 إلغاء
               </button>
               <button
                 type="button"
-                disabled={
-                  savingAction || deleteConfirmText.trim() !== deletingWorkshop.brandName.trim()
-                }
+                disabled={savingAction}
                 onClick={handleSelectiveDeleteWorkshop}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-40"
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-40 cursor-pointer shadow-md"
               >
-                {savingAction ? 'جاري التنفيذ...' : 'تأكيد العملية'}
+                {savingAction ? 'جاري التنفيذ...' : 'تأكيد الحذف النهائي 🗑️'}
               </button>
             </div>
           </div>
