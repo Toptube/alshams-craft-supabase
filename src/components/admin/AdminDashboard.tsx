@@ -99,7 +99,8 @@ export type ExecutiveTab =
   | 'appeals'
   | 'messaging'
   | 'marketplace'
-  | 'product_approvals';
+  | 'product_approvals'
+  | 'applications';
 
 export interface AdminDashboardProps {
   profile: UserProfile;
@@ -256,6 +257,13 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const [loadingCloudProducts, setLoadingCloudProducts] = useState<boolean>(false);
   const [cloudRejectingProduct, setCloudRejectingProduct] = useState<CloudMarketplaceProduct | null>(null);
   const [cloudRejectReason, setCloudRejectReason] = useState<string>('');
+
+  // Live Workshop Join Applications (قراءة حية لطلبات الانضمام من Supabase)
+  const [workshopApplications, setWorkshopApplications] = useState<any[]>([]);
+  const [loadingApplications, setLoadingApplications] = useState<boolean>(false);
+  const [reviewingApp, setReviewingApp] = useState<any | null>(null);
+  const [appReviewNotes, setAppReviewNotes] = useState<string>('');
+  const [appFilter, setAppFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
   const [deepDataLoading, setDeepDataLoading] = useState(false);
   const [deepData, setDeepData] = useState<{
@@ -807,7 +815,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // 1. Dynamic Load All Workshops (Server Super Admin API + Fallback)
+  // 1. Dynamic Load All Real Workshops (Strict Live Supabase Sync - Zero Dummy Workshops)
   const loadWorkshops = useCallback(async (isSilent = false) => {
     if (!isAdmin) return;
     if (!isSilent) setLoading(true);
@@ -817,15 +825,14 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     try {
       let serverWorkshops: WorkshopProfile[] = [];
       let directSupaWorkshops: WorkshopProfile[] = [];
-      let localProfiles: UserProfile[] = [];
 
-      // 1. جلب ورش العمل عبر مسار الخادم المتصل بجدول profiles في Supabase بصلاحيات السوبر أدمن
+      // 1. جلب ورش العمل عبر مسار الخادم المتصل بجدول workshops في Supabase
       try {
         const token = (await supabase.auth.getSession()).data.session?.access_token;
         const res = await fetch('/api/admin/workshops', {
           headers: {
             'Content-Type': 'application/json',
-            'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+            'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
         });
@@ -874,67 +881,83 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         console.warn('[Admin Dashboard] Server workshops fetch notice:', err?.message);
       }
 
-      // 2. مزامنة مباشرة من جدول profiles في Supabase لضمان التحديث اللحظي
+      // 2. مزامنة مباشرة من جدولي workshops و profiles في Supabase لضمان التحديث اللحظي
       try {
-        const { data: supaProfiles, error: supaErr } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false });
+        const [wsResult, profResult] = await Promise.all([
+          supabase.from('workshops').select('*').order('created_at', { ascending: false }),
+          supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+        ]);
 
-        if (!supaErr && Array.isArray(supaProfiles)) {
-          directSupaWorkshops = supaProfiles.map((p: any) => {
+        if (!wsResult.error && Array.isArray(wsResult.data)) {
+          directSupaWorkshops = wsResult.data.map((row: any) => ({
+            id: row.id,
+            workshopId: row.id,
+            ownerUid: row.owner_uid || row.id,
+            brandName: row.brand_name || 'ورشة ' + (row.artist_name || 'الشمساوية'),
+            artistName: row.artist_name || 'فنان',
+            gender: row.gender || 'female',
+            email: row.email || '',
+            phoneNumber: row.phone_number || '',
+            country: row.country || 'مصر',
+            currency: row.currency || 'EGP',
+            currencySymbol: row.currency_symbol || 'ج.م',
+            callingCode: '+20',
+            selectedCrafts: row.selected_crafts || ['macrame'],
+            defaultVatPercent: row.default_vat_percent ?? 14,
+            showTaxInfoOnInvoice: false,
+            role: row.role || 'artisan',
+            status: row.status || (row.is_frozen ? 'suspended' : 'active'),
+            isFrozen: Boolean(row.is_frozen || row.status === 'suspended' || row.status === 'banned'),
+            suspension_reason: row.suspension_reason,
+            rating_stars: row.rating_stars || 5,
+            ratingStars: row.rating_stars || 5,
+            medal: row.medal || null,
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+            updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+            createdBy: row.created_by || row.owner_uid || row.id || 'system',
+          }));
+        }
+
+        if (!profResult.error && Array.isArray(profResult.data)) {
+          profResult.data.forEach((p: any) => {
             const wid = p.workshop_id || p.id;
-            return {
-              id: wid,
-              workshopId: wid,
-              ownerUid: p.id,
-              brandName: p.brand_name || p.brandName || 'ورشة ' + (p.artist_name || p.full_name || 'الشمساوية'),
-              artistName: p.artist_name || p.full_name || p.name || 'فنان',
-              gender: p.gender || 'female',
-              email: p.email || '',
-              phoneNumber: p.phone_number || p.phone || '',
-              country: p.country || 'مصر',
-              currency: p.currency || 'EGP',
-              currencySymbol: p.currency_symbol || 'ج.م',
-              callingCode: p.calling_code || '+20',
-              selectedCrafts: p.selected_crafts || ['macrame'],
-              defaultVatPercent: p.default_vat_percent ?? 14,
-              showTaxInfoOnInvoice: false,
-              role: p.role || 'artisan',
-              status: p.status || 'active',
-              isFrozen: Boolean(p.status === 'suspended' || p.status === 'banned'),
-              welcomeShown: Boolean(p.welcome_shown),
-              createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
-              updatedAt: p.updated_at ? new Date(p.updated_at).getTime() : Date.now(),
-              createdBy: 'supabase',
-            };
+            if (wid && !directSupaWorkshops.some((w) => w.id === wid)) {
+              directSupaWorkshops.push({
+                id: wid,
+                workshopId: wid,
+                ownerUid: p.id,
+                brandName: p.brand_name || p.brandName || 'ورشة ' + (p.artist_name || p.full_name || 'الشمساوية'),
+                artistName: p.artist_name || p.full_name || p.name || 'فنان',
+                gender: p.gender || 'female',
+                email: p.email || '',
+                phoneNumber: p.phone_number || p.phone || '',
+                country: p.country || 'مصر',
+                currency: p.currency || 'EGP',
+                currencySymbol: p.currency_symbol || 'ج.م',
+                callingCode: p.calling_code || '+20',
+                selectedCrafts: p.selected_crafts || ['macrame'],
+                defaultVatPercent: p.default_vat_percent ?? 14,
+                showTaxInfoOnInvoice: false,
+                role: p.role || 'artisan',
+                status: p.status || 'active',
+                isFrozen: Boolean(p.status === 'suspended' || p.status === 'banned'),
+                welcomeShown: Boolean(p.welcome_shown),
+                createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
+                updatedAt: p.updated_at ? new Date(p.updated_at).getTime() : Date.now(),
+                createdBy: p.created_by || p.id || 'system',
+              });
+            }
           });
         }
       } catch (supaErr: any) {
-        console.warn('[Admin Dashboard] Direct Supabase profiles notice:', supaErr?.message);
-      }
-
-      // 3. قراءة البيانات المحلية كطبقة أمان واحتياط دون الاتصال بأي خوادم خارجية
-      try {
-        localProfiles = await tenantStorage.getAllProfiles();
-      } catch (err: any) {
-        console.warn('Dexie getAllProfiles warning:', err?.message);
+        console.warn('[Admin Dashboard] Direct Supabase sync notice:', supaErr?.message);
       }
 
       const map = new Map<string, WorkshopProfile>();
-      if (profile.role !== 'superadmin' && profile.role !== 'admin' && profile.brandName) {
-        map.set(profile.id, profile);
-      }
 
-      localProfiles.forEach((p) => {
-        if (p.id) map.set(p.id, p);
-      });
-
+      // الدمج مع إعطاء الأولوية للبيانات الحقيقية في Supabase
       directSupaWorkshops.forEach((w) => {
-        if (w.id) {
-          const existing = map.get(w.id);
-          map.set(w.id, { ...existing, ...w });
-        }
+        if (w.id) map.set(w.id, w);
       });
 
       serverWorkshops.forEach((w) => {
@@ -944,11 +967,30 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         }
       });
 
-      const list = Array.from(map.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      // 3. التطهير الصارم للورش والبيانات الوهمية (حذف a&m handmade وأي عينات تجريبية ثابتة)
+      const list = Array.from(map.values())
+        .filter((w) => {
+          const id = (w.id || '').toLowerCase();
+          const brand = (w.brandName || '').toLowerCase();
+          const artist = (w.artistName || '').toLowerCase();
+          const isMock =
+            id.includes('demo') ||
+            brand.includes('a&m') ||
+            brand.includes('a & m') ||
+            artist.includes('a&m') ||
+            id === '00000000-0000-0000-0000-000000000000';
+          return !isMock;
+        })
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
       setWorkshops(list);
 
-      if (!selectedWorkshopId && list.length > 0) {
-        setSelectedWorkshopId(list[0].id);
+      if (list.length > 0) {
+        if (!selectedWorkshopId || !list.some((w) => w.id === selectedWorkshopId)) {
+          setSelectedWorkshopId(list[0].id);
+        }
+      } else {
+        setSelectedWorkshopId('');
       }
     } catch (err: any) {
       setErrorMsg('تعذر تحميل قائمة الورش: ' + (err.message || 'خطأ في الاتصال'));
@@ -957,6 +999,100 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setRefreshing(false);
     }
   }, [isAdmin, profile, selectedWorkshopId]);
+
+  // Load Workshop Applications from Supabase
+  const loadWorkshopApplications = useCallback(async () => {
+    if (!isAdmin) return;
+    setLoadingApplications(true);
+    try {
+      const { data, error } = await supabase
+        .from('workshop_applications')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        setWorkshopApplications(data);
+      }
+    } catch (e) {
+      console.warn('Load workshop applications error:', e);
+    } finally {
+      setLoadingApplications(false);
+    }
+  }, [isAdmin]);
+
+  // Approve Workshop Application
+  const handleApproveApplication = async (app: any) => {
+    try {
+      const brand = app.brand_name || app.brandName || 'ورشة الشمساوية';
+      const artist = app.artist_name || app.artistName || 'فنان الشمساوية';
+      const phone = app.phone_number || app.phoneNumber || '';
+      const email = app.email || '';
+      const crafts = Array.isArray(app.crafts) ? app.crafts : typeof app.crafts === 'string' ? app.crafts.split(',') : ['macrame'];
+      const wsId = app.user_id || app.workshop_id || `ws_${Date.now()}`;
+
+      // 1. Update application status
+      await supabase
+        .from('workshop_applications')
+        .update({
+          status: 'approved',
+          reviewed_at: new Date().toISOString(),
+          reviewer_email: profile.email || 'hmb.top.tube@gmail.com',
+          review_notes: appReviewNotes || 'تم الاعتماد الرسمي للورشة في المنظومة',
+        })
+        .eq('id', app.id);
+
+      // 2. Upsert workshop into workshops table
+      await supabase.from('workshops').upsert({
+        id: wsId,
+        brand_name: brand,
+        artist_name: artist,
+        email: email,
+        phone_number: phone,
+        country: app.country || 'مصر',
+        currency_symbol: 'ج.م',
+        selected_crafts: crafts,
+        status: 'active',
+        is_frozen: false,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+
+      setWorkshopApplications((prev) =>
+        prev.map((a) => (a.id === app.id ? { ...a, status: 'approved' } : a))
+      );
+      playSuccessSound();
+      setSuccessNotice(`✓ تم اعتماد ورشة [${brand}] رسمياً وإضافتها لمنظومة الشمساوية! 🏛️`);
+      setReviewingApp(null);
+      setAppReviewNotes('');
+      loadWorkshops();
+    } catch (e: any) {
+      showError('تعذر اعتماد الورشة: ' + (e.message || 'خطأ'));
+    }
+  };
+
+  // Reject Workshop Application
+  const handleRejectApplication = async (app: any, reason: string) => {
+    try {
+      await supabase
+        .from('workshop_applications')
+        .update({
+          status: 'rejected',
+          reviewed_at: new Date().toISOString(),
+          reviewer_email: profile.email || 'hmb.top.tube@gmail.com',
+          review_notes: reason || 'نعتذر، لم يستوفِ الطلب معايير الجودة اليدوية المطلوبة حالياً',
+        })
+        .eq('id', app.id);
+
+      setWorkshopApplications((prev) =>
+        prev.map((a) => (a.id === app.id ? { ...a, status: 'rejected', review_notes: reason } : a))
+      );
+      playAlertSound();
+      setSuccessNotice(`✓ تم رفض طلب الورشة وتسجيل الملاحظات بنجاح.`);
+      setReviewingApp(null);
+      setAppReviewNotes('');
+    } catch (e: any) {
+      showError('تعذر تحديث حالة الطلب: ' + (e.message || 'خطأ'));
+    }
+  };
 
   // Load Appeals
   const loadAppeals = useCallback(async () => {
@@ -1035,10 +1171,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       loadAppeals();
       loadMessagingHub();
       loadCloudMarketplaceProducts();
+      loadWorkshopApplications();
     }
-  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts]);
+  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications]);
 
-  // 2. Realtime Subscriptions (Workshops, Announcements, Replies)
+  // 2. Realtime Subscriptions (Workshops, Marketplace Products, Join Applications, Announcements, Replies)
   useEffect(() => {
     if (!isAdmin) return;
 
@@ -1083,6 +1220,20 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           );
         }
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marketplace_products' }, (payload) => {
+        loadCloudMarketplaceProducts();
+        if (payload.eventType === 'INSERT') {
+          playAlertSound();
+          setRealtimeToast(`🛍️ مشغولة جديدة أضيفت وبانتظار الاعتماد للسوق المركزي: [${(payload.new as any)?.product_name || 'مشغولة'}]`);
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workshop_applications' }, (payload) => {
+        loadWorkshopApplications();
+        if (payload.eventType === 'INSERT') {
+          playPostaNotificationSound();
+          setRealtimeToast(`🏛️ طلب انضمام جديد من ورشة: [${(payload.new as any)?.brand_name || 'ورشة'}]`);
+        }
+      })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'workshop_messages_receipts' }, (payload) => {
         const newReceipt = payload.new as any;
         if (newReceipt?.reply_text) {
@@ -1104,7 +1255,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub]);
+  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications]);
 
   // 3. Load Deep Executive ERP Data
   const loadDeepData = useCallback(async (workshopId: string) => {
@@ -1920,15 +2071,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 onChange={(e) => setSelectedWorkshopId(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-2xl bg-amber-50/70 dark:bg-stone-800 border-2 border-amber-300 dark:border-amber-700/80 text-xs font-black text-stone-900 dark:text-stone-100 outline-none cursor-pointer focus:ring-2 focus:ring-amber-500 shadow-xs"
               >
-                {liveFilteredWorkshops.map((w) => {
-                  const s = w.status || (w.isFrozen ? 'suspended' : 'active');
-                  const badgeIcon = s === 'banned' ? '🔴 [محظورة]' : s === 'suspended' ? '🟡 [موقوفة]' : '🟢';
-                  return (
-                    <option key={w.id} value={w.id}>
-                      {badgeIcon} {w.brandName} — {w.artistName} ({w.country || 'مصر'})
-                    </option>
-                  );
-                })}
+                {liveFilteredWorkshops.length === 0 ? (
+                  <option value="">لا توجد ورش مسجلة</option>
+                ) : (
+                  liveFilteredWorkshops.map((w) => {
+                    const s = w.status || (w.isFrozen ? 'suspended' : 'active');
+                    const badgeIcon = s === 'banned' ? '🔴 [محظورة]' : s === 'suspended' ? '🟡 [موقوفة]' : '🟢';
+                    return (
+                      <option key={w.id} value={w.id}>
+                        {badgeIcon} {w.brandName} — {w.artistName} ({w.country || 'مصر'})
+                      </option>
+                    );
+                  })
+                )}
               </select>
             </div>
 
@@ -1961,8 +2116,59 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
 
+        {/* Empty State Banner when no real workshops are found */}
+        {workshops.length === 0 && (
+          <div className="p-5 rounded-2xl bg-stone-900 border border-amber-500/30 text-stone-200 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="space-y-1 text-right">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-amber-400" />
+                <h3 className="text-sm font-black text-amber-300">
+                  قاعدة البيانات الحقيقية جاهزة ولا تتضمن أي بيانات وهمية
+                </h3>
+              </div>
+              <p className="text-xs text-stone-400">
+                تم تنظيف كافة البيانات التجريبية والوهمية بنجاح. يمكنك استقطاب الورش الحقيقية عبر رابط الانضمام أو مراجعة طلبات الانضمام المعلقة أو إضافة ورشة يدوياً.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  const inviteUrl = `${window.location.origin}/?tab=register`;
+                  navigator.clipboard.writeText(inviteUrl);
+                  playSuccessSound();
+                  setSuccessNotice('✓ تم نسخ رابط انضمام الورش الحرفية بنجاح إلى الحافظة!');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+              >
+                <Copy size={13} />
+                <span>نسخ رابط دعوة انضمام الورش 📋</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveExecutiveTab('applications');
+                  loadWorkshopApplications();
+                }}
+                className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+              >
+                <Sparkles size={13} />
+                <span>طلبات الانضمام ({workshopApplications.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsNewWorkshopModalOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+              >
+                <PlusCircle size={13} />
+                <span>تسجيل ورشة جديدة يدوياً ➕</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Selected Workshop Header Info Card */}
-        {currentSelectedWorkshop && (
+        {workshops.length > 0 && currentSelectedWorkshop && (
           <div className="p-4 rounded-2xl bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-2xl bg-amber-600 text-white font-black flex items-center justify-center text-base shadow-md">
@@ -2163,6 +2369,27 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length > 0 && (
               <span className="px-2 py-0.5 bg-amber-500 text-stone-950 rounded-full text-[10px] font-mono font-black animate-pulse">
                 {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveExecutiveTab('applications');
+              loadWorkshopApplications();
+            }}
+            className={`flex-1 min-w-[170px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+              activeExecutiveTab === 'applications'
+                ? 'bg-white dark:bg-stone-900 text-amber-600 dark:text-amber-400 shadow-sm border border-amber-500/30'
+                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+            }`}
+          >
+            <Building2 size={15} className="text-amber-500" />
+            <span>طلبات انضمام الورش 🏛️</span>
+            {workshopApplications.filter((a) => a.status === 'pending' || !a.status).length > 0 && (
+              <span className="px-2 py-0.5 bg-amber-500 text-stone-950 rounded-full text-[10px] font-mono font-black animate-pulse">
+                {workshopApplications.filter((a) => a.status === 'pending' || !a.status).length}
               </span>
             )}
           </button>
@@ -3855,6 +4082,374 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs cursor-pointer shadow-md shadow-rose-600/30"
                     >
                       تأكيد الرفض وإرسال الملاحظات ✉️
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 10: Workshop Applications (طلبات انضمام الورش الحرفية) */}
+        {activeExecutiveTab === 'applications' && (
+          <div className="space-y-4">
+            {/* Header & Controls Bar */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1 text-right">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-amber-600" />
+                  <h3 className="text-sm font-black text-stone-900 dark:text-stone-100">
+                    مركز مراجعة واعتماد طلبات انضمام الورش الحرفية 🏛️
+                  </h3>
+                </div>
+                <p className="text-xs text-stone-600 dark:text-stone-400">
+                  فحص طلبات انضمام الورش الجديدة الواردة عبر السحابة اللحظية (Supabase Realtime)، والتحقق من التخصص الحرفي وملف الأعمال، والاعتماد الفوري أو إرسال الملاحظات الفنية.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const inviteUrl = `${window.location.origin}/?tab=register`;
+                    navigator.clipboard.writeText(inviteUrl);
+                    playSuccessSound();
+                    setSuccessNotice('✓ تم نسخ رابط تسجيل وانضمام الورش بنجاح إلى الحافظة!');
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-white dark:bg-stone-800 border border-amber-300 dark:border-amber-700/60 text-stone-800 dark:text-stone-200 font-bold text-xs flex items-center gap-1.5 transition shadow-xs hover:bg-amber-50 cursor-pointer"
+                  title="نسخ رابط صفحة تسجيل الورش لمشاركته مع الحرفيين"
+                >
+                  <Copy size={13} className="text-amber-600" />
+                  <span>نسخ رابط التقديم 📋</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsNewWorkshopModalOpen(true)}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                >
+                  <PlusCircle size={13} />
+                  <span>تسجيل ورشة يدوياً ➕</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={loadWorkshopApplications}
+                  disabled={loadingApplications}
+                  className="p-2 rounded-xl bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 text-stone-800 dark:text-stone-200 transition cursor-pointer"
+                  title="تحديث قائمة الطلبات"
+                >
+                  <RefreshCw size={14} className={loadingApplications ? 'animate-spin text-amber-600' : ''} />
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              <button
+                type="button"
+                onClick={() => setAppFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  appFilter === 'all'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                الكل ({workshopApplications.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAppFilter('pending')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  appFilter === 'pending'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                بانتظار المراجعة ({workshopApplications.filter((a) => a.status === 'pending' || !a.status).length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAppFilter('approved')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  appFilter === 'approved'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                معتمدة ({workshopApplications.filter((a) => a.status === 'approved').length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAppFilter('rejected')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  appFilter === 'rejected'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                مرفوضة ({workshopApplications.filter((a) => a.status === 'rejected').length})
+              </button>
+            </div>
+
+            {/* Applications List */}
+            {loadingApplications ? (
+              <div className="p-12 text-center text-stone-500 font-bold text-xs space-y-2">
+                <RefreshCw size={24} className="animate-spin text-amber-500 mx-auto" />
+                <p>جاري استعلام طلبات انضمام الورش من قاعدة البيانات الحقيقية...</p>
+              </div>
+            ) : workshopApplications.filter((a) => {
+                if (appFilter === 'all') return true;
+                if (appFilter === 'pending') return a.status === 'pending' || !a.status;
+                return a.status === appFilter;
+              }).length === 0 ? (
+              <div className="p-10 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 space-y-3">
+                <Building2 className="w-10 h-10 mx-auto text-amber-500/60" />
+                <div className="text-xs font-black text-stone-700 dark:text-stone-300">
+                  {appFilter === 'pending'
+                    ? 'لا توجد طلبات انضمام جديدة بانتظار المراجعة حالياً.'
+                    : 'لا توجد طلبات انضمام تطابق هذا التصفية.'}
+                </div>
+                <p className="text-[11px] text-stone-500 max-w-md mx-auto">
+                  عند قيام أي فنان حرفي بتقديم طلب انضمام لورشته، سيظهر الطلب هنا لحظياً عبر قنوات Supabase Realtime مع إشعار صوتي وتنبيه للسوبر أدمن.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const inviteUrl = `${window.location.origin}/?tab=register`;
+                    navigator.clipboard.writeText(inviteUrl);
+                    playSuccessSound();
+                    setSuccessNotice('✓ تم نسخ رابط انضمام الورش الحرفية بنجاح إلى الحافظة!');
+                  }}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs inline-flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                >
+                  <Copy size={13} />
+                  <span>نسخ رابط دعوة انضمام الورش 📋</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {workshopApplications
+                  .filter((a) => {
+                    if (appFilter === 'all') return true;
+                    if (appFilter === 'pending') return a.status === 'pending' || !a.status;
+                    return a.status === appFilter;
+                  })
+                  .map((app) => {
+                    const st = app.status || 'pending';
+                    const craftsList = Array.isArray(app.crafts)
+                      ? app.crafts
+                      : typeof app.crafts === 'string'
+                      ? app.crafts.split(',').map((c: string) => c.trim())
+                      : [];
+
+                    return (
+                      <div
+                        key={app.id}
+                        className="p-5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs space-y-4 hover:border-amber-400/50 transition text-right"
+                      >
+                        {/* Card Top */}
+                        <div className="flex items-start justify-between gap-3 border-b border-stone-100 dark:border-stone-800 pb-3">
+                          <div className="space-y-0.5">
+                            <h4 className="text-sm font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
+                              <span>{app.brand_name || app.brandName || 'ورشة الشمساوية'}</span>
+                              {st === 'approved' ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-extrabold border border-emerald-300">
+                                  🟢 معتمدة
+                                </span>
+                              ) : st === 'rejected' ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-extrabold border border-rose-300">
+                                  🔴 مرفوضة
+                                </span>
+                              ) : (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 font-extrabold border border-amber-300 animate-pulse">
+                                  🟡 بانتظار الاعتماد
+                                </span>
+                              )}
+                            </h4>
+                            <p className="text-xs text-stone-500 font-bold">
+                              الفنان المسؤول: {app.artist_name || app.artistName || 'فنان'}
+                            </p>
+                          </div>
+
+                          <div className="text-[10px] text-stone-400 font-mono">
+                            {app.created_at ? new Date(app.created_at).toLocaleDateString('ar-EG') : 'حديثاً'}
+                          </div>
+                        </div>
+
+                        {/* Details */}
+                        <div className="space-y-2 text-xs">
+                          {/* Contact Info */}
+                          <div className="flex flex-wrap items-center gap-3 text-stone-700 dark:text-stone-300">
+                            {(app.phone_number || app.phoneNumber) && (
+                              <div className="flex items-center gap-1.5">
+                                <Phone size={13} className="text-amber-600" />
+                                <a
+                                  href={`tel:${app.phone_number || app.phoneNumber}`}
+                                  dir="ltr"
+                                  className="font-mono hover:text-amber-600"
+                                >
+                                  {app.phone_number || app.phoneNumber}
+                                </a>
+                              </div>
+                            )}
+
+                            {app.email && (
+                              <div className="flex items-center gap-1.5">
+                                <Mail size={13} className="text-amber-600" />
+                                <span className="font-mono text-[11px]">{app.email}</span>
+                              </div>
+                            )}
+
+                            {(app.governorate || app.city || app.country) && (
+                              <div className="flex items-center gap-1.5 text-stone-500">
+                                <Globe size={13} className="text-stone-400" />
+                                <span>{app.governorate || app.city || ''} ({app.country || 'مصر'})</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Selected Crafts */}
+                          {craftsList.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                              <span className="text-[11px] font-bold text-stone-500">الحرف:</span>
+                              {craftsList.map((craft: string, idx: number) => (
+                                <span
+                                  key={idx}
+                                  className="text-[10px] px-2 py-0.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 font-bold border border-stone-200 dark:border-stone-700"
+                                >
+                                  {craft}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Portfolio / Social link */}
+                          {(app.portfolio_url || app.social_links) && (
+                            <div className="pt-1 flex items-center gap-2">
+                              <span className="text-[11px] font-bold text-stone-500">معرض الأعمال:</span>
+                              <a
+                                href={app.portfolio_url || app.social_links}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-amber-600 hover:underline flex items-center gap-1 font-bold"
+                              >
+                                <span>استعراض الرابط الحرفي</span>
+                                <ExternalLink size={12} />
+                              </a>
+                            </div>
+                          )}
+
+                          {/* Notes / Bio */}
+                          {(app.notes || app.bio) && (
+                            <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/60 text-[11px] text-stone-600 dark:text-stone-300">
+                              <span className="font-bold text-stone-700 dark:text-stone-200">نبذة وتفاصيل: </span>
+                              {app.notes || app.bio}
+                            </div>
+                          )}
+
+                          {/* Rejection / Review note if present */}
+                          {app.review_notes && (
+                            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-800 dark:text-amber-300">
+                              <span className="font-bold">ملاحظات الإدارة: </span>
+                              {app.review_notes}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="pt-2 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5">
+                            {(app.phone_number || app.phoneNumber) && (
+                              <a
+                                href={`https://wa.me/${(app.phone_number || app.phoneNumber).replace(/\D/g, '')}?text=${encodeURIComponent(`السلام عليكم يا فنان، نتابع معك طلب انضمام ورشة [${app.brand_name || app.brandName}] لمنظومة الشمساوية`)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs"
+                              >
+                                <MessageCircle size={13} />
+                                <span>واتساب الفنان 💬</span>
+                              </a>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {st !== 'approved' && (
+                              <button
+                                type="button"
+                                onClick={() => handleApproveApplication(app)}
+                                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                              >
+                                <Check size={13} />
+                                <span>اعتماد وتفعيل الورشة 🟢</span>
+                              </button>
+                            )}
+
+                            {st !== 'rejected' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReviewingApp(app);
+                                  setAppReviewNotes('');
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-950/60 text-stone-700 dark:text-stone-300 hover:text-rose-700 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <X size={13} />
+                                <span>رفض بملاحظات 🔴</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
+            {/* Application Rejection Modal */}
+            {reviewingApp && (
+              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 p-5 sm:p-6 max-w-lg w-full space-y-4 shadow-2xl text-right">
+                  <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
+                    <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
+                      رفض طلب انضمام ورشة [{reviewingApp.brand_name || reviewingApp.brandName || 'الفنان'}] ✉️
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setReviewingApp(null)}
+                      className="p-1 rounded-lg text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300">
+                      ملاحظات الجودة وأسباب الرفض (لتوجيه الحرفي وتطوير أعماله):
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={appReviewNotes}
+                      onChange={(e) => setAppReviewNotes(e.target.value)}
+                      placeholder="مثال: يرجى تزويدنا بصور عالية الجودة لقطع المكرمية أو استكمال متطلبات التشطيب..."
+                      className="w-full p-3 rounded-2xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-rose-500 text-right font-medium"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100 dark:border-stone-800">
+                    <button
+                      type="button"
+                      onClick={() => setReviewingApp(null)}
+                      className="px-4 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold text-xs hover:bg-stone-200 transition cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRejectApplication(reviewingApp, appReviewNotes)}
+                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition shadow-md shadow-rose-600/30 cursor-pointer"
+                    >
+                      تأكيد الرفض وتسجيل الملاحظات ✉️
                     </button>
                   </div>
                 </div>

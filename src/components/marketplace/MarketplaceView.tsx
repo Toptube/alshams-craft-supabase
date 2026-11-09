@@ -18,6 +18,7 @@ import {
   ProductReviewItem,
 } from '../../services/marketplaceCartService';
 import { fetchApprovedMarketplaceProducts } from '../../db/marketplaceCloud';
+import { supabase } from '../../lib/supabase';
 import { CustomerAuthModal } from './CustomerAuthModal';
 import { MarketplaceCartModal } from './MarketplaceCartModal';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
@@ -133,18 +134,20 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     { id: 'furniture_decor', nameAr: 'قطع أثاث وديكور', icon: '🪑' },
   ];
 
-  // Craft Multi-Filter List
+  // Craft Multi-Filter List (المكرمية، التافت، السجاد، الديكور الخشبي، الكروشيه، الزجزاج، الكليم)
   const craftFiltersList = [
     { id: 'all', nameAr: 'الكل' },
     { id: 'macrame', nameAr: 'المكرمية' },
     { id: 'crochet', nameAr: 'كروشيه' },
     { id: 'zigzag', nameAr: 'حبال الزجزاج' },
-    { id: 'kilim', nameAr: 'الكليم والنسيج' },
-    { id: 'punch_needle', nameAr: 'البانش نيدل' },
     { id: 'tufting', nameAr: 'مسدس التافت' },
+    { id: 'kilim', nameAr: 'الكليم والنسيج' },
+    { id: 'wood', nameAr: 'الديكور الخشبي' },
+    { id: 'resin', nameAr: 'الريزن وفنون الديكور' },
+    { id: 'punch_needle', nameAr: 'البانش نيدل' },
   ];
 
-  // Seed Rich Egyptian Artisan Decor Sample Products
+  // Dynamic Live Load & Realtime Sync for Approved Products
   useEffect(() => {
     let isMounted = true;
     const fetchMarketplace = async () => {
@@ -196,8 +199,26 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     };
 
     fetchMarketplace();
+
+    // 3. Supabase Realtime Sync: Listen to live INSERT, UPDATE, DELETE on marketplace_products
+    const channel = supabase
+      .channel('public_marketplace_realtime_sync')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'marketplace_products',
+        },
+        () => {
+          fetchMarketplace();
+        }
+      )
+      .subscribe();
+
     return () => {
       isMounted = false;
+      supabase.removeChannel(channel);
     };
   }, [profile]);
 
@@ -254,20 +275,26 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     setReviewGuardError('');
   };
 
-  // Add to persistent cart
-  const handleAddToCart = (product: SavedProductRecord) => {
+  // Add to persistent cart (supports direct click from card or modal)
+  const handleAddToCart = (
+    product: SavedProductRecord,
+    qty?: number,
+    color?: string,
+    size?: string
+  ) => {
+    const chosenQty = qty || modalQuantity || 1;
     const item: MarketplaceCartItem = {
       id: 'cart_' + Date.now(),
       productId: product.id,
       productName: product.productName,
       price: product.storePrice || product.retailPrice || 0,
-      quantity: modalQuantity,
+      quantity: chosenQty,
       imageUrl: product.imageUrl,
       craftName: product.craftName,
       workshopId: product.workshopId || product.tenantId || 'central',
       artistName: (product as any).artistName || 'فنان الشمساوية',
-      selectedColor: modalSelectedColor,
-      selectedSize: modalSelectedSize,
+      selectedColor: color || modalSelectedColor || product.availableColors?.[0] || 'اللون الأصلي',
+      selectedSize: size || modalSelectedSize || product.availableSizes?.[0] || 'المقاس القياسي',
       customNotes: modalCustomNotes.trim() || undefined,
     };
 
@@ -333,11 +360,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             <button
               type="button"
               onClick={onNavigateHome}
-              className="p-2 sm:px-3 sm:py-2 rounded-xl bg-white/5 hover:bg-white/10 text-stone-300 hover:text-white transition flex items-center gap-1.5 text-xs font-bold cursor-pointer shrink-0"
-              title="العودة للورشة"
+              className="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-white transition flex items-center gap-1.5 text-xs font-black border border-amber-500/30 cursor-pointer shrink-0 shadow-sm active:scale-95"
+              title="العودة للرئيسية"
             >
               <ArrowRight className="w-4 h-4" />
-              <span className="hidden sm:inline">العودة للورشة</span>
+              <span>الرئيسية 🏠</span>
             </button>
 
             <div className="flex items-center gap-2 min-w-0">
@@ -635,22 +662,37 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Card Footer */}
-                  <div className="p-4 pt-2 border-t border-amber-500/20 flex items-center justify-between">
-                    <span className="text-[11px] text-stone-400 flex items-center gap-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>ضمان الفنش 🛡️</span>
-                    </span>
+                  {/* Card Footer with Direct Controls */}
+                  <div className="p-3 sm:p-4 pt-2 border-t border-amber-500/20 flex flex-col gap-2">
+                    <div className="flex items-center justify-between text-[11px] text-stone-400">
+                      <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>عربون 33% واستلام آمن 🛡️</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenProductDetails(p);
+                        }}
+                        className="text-amber-400 hover:text-amber-300 font-bold text-xs flex items-center gap-1 cursor-pointer transition"
+                      >
+                        <span>تفاصيل ومقاسات</span>
+                        <ArrowRight className="w-3 h-3 rotate-180" />
+                      </button>
+                    </div>
+
+                    {/* Direct Add to Cart Button */}
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleOpenProductDetails(p);
+                        handleAddToCart(p, 1);
                       }}
-                      className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1 shadow-md transition cursor-pointer"
+                      className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-600 via-amber-700 to-amber-600 hover:from-amber-500 hover:to-amber-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow-md active:scale-95 transition cursor-pointer border border-amber-400/30"
                     >
-                      <span>تحديد وتفاصيل</span>
-                      <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+                      <ShoppingBag className="w-4 h-4 text-amber-200" />
+                      <span>أضف للسلة (عربون 33%) 🛒</span>
                     </button>
                   </div>
                 </div>
@@ -954,6 +996,22 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           setTimeout(() => setFeedback(''), 4000);
         }}
       />
+      {/* 10. Persistent Floating Cart Badge Button (Always Accessible on Mobile & Desktop) */}
+      <div className="fixed bottom-5 left-5 z-40">
+        <button
+          type="button"
+          onClick={() => setIsCartOpen(true)}
+          className="relative flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-black text-xs sm:text-sm shadow-2xl border-2 border-amber-400 active:scale-95 transition cursor-pointer"
+        >
+          <ShoppingBag className="w-5 h-5 text-amber-200" />
+          <span>سلة المشتريات (عربون 33%) 🛒</span>
+          {cartItemsCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-mono text-xs font-black animate-bounce shadow-md">
+              {cartItemsCount}
+            </span>
+          )}
+        </button>
+      </div>
     </div>
   );
 };
