@@ -1,5 +1,8 @@
 import { MarketplaceCartItem, CustomerAuthUser, InvoiceRecord } from '../types';
 import { tenantStorage } from '../db/dexieDB';
+import { supabase } from '../lib/supabase';
+import { dispatchArtisanNotification } from '../lib/pushNotifications';
+import { playPostaNotificationSound } from '../lib/sounds';
 
 const CART_STORAGE_KEY = 'alshams_marketplace_cart';
 const CUSTOMER_STORAGE_KEY = 'alshams_customer_session';
@@ -246,6 +249,35 @@ export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
     // Also persist to Dexie tenant storage under the order's workshopId or 'central'
     const workshopId = order.workshopId || order.tenantId || 'central';
     tenantStorage.saveOrder(order).catch((err) => console.warn('Dexie save order error:', err));
+
+    // 1. Instant Artisan & Workshop Notification in Dexie
+    const notifItem = {
+      id: 'notif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      tenantId: workshopId,
+      title: `🛍️ طلبية جديدة برقم #${order.invoiceNumber}!`,
+      message: `تم استلام طلبية جديدة بقيمة ${order.finalTotal} ج.م (عربون: ${order.advancePaymentAmount} ج.م) من العميل: ${order.customerName}`,
+      type: 'order' as const,
+      isRead: false,
+      timestamp: Date.now(),
+      createdAt: Date.now(),
+    };
+    tenantStorage.putNotification(notifItem).catch(() => {});
+
+    // 2. Play Audio Alert
+    try {
+      playPostaNotificationSound();
+    } catch {}
+
+    // 3. Web Push Notification
+    dispatchArtisanNotification(`🛍️ طلبية شراء جديدة #${order.invoiceNumber}`, {
+      body: `طلب جديد بقيمة ${order.finalTotal} ج.م - مطلوب تجهيز المشغولات لشركة الشمس كرافت.`,
+      tag: `order-${order.id}`,
+    }).catch(() => {});
+
+    // 4. Broadcast global event for live panels
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_new_order_received', { detail: order }));
+    }
   } catch (e) {
     console.warn('Failed saving central order:', e);
   }

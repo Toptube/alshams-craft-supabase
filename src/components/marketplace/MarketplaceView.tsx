@@ -1012,22 +1012,6 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           setTimeout(() => setFeedback(''), 4000);
         }}
       />
-      {/* 10. Persistent Floating Cart Badge Button (Always Accessible on Mobile & Desktop) */}
-      <div className="fixed bottom-5 left-5 z-40">
-        <button
-          type="button"
-          onClick={() => setIsCartOpen(true)}
-          className="relative flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-black text-xs sm:text-sm shadow-2xl border-2 border-amber-400 active:scale-95 transition cursor-pointer"
-        >
-          <ShoppingBag className="w-5 h-5 text-amber-200" />
-          <span>سلة المشتريات (عربون 33%) 🛒</span>
-          {cartItemsCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-mono text-xs font-black animate-bounce shadow-md">
-              {cartItemsCount}
-            </span>
-          )}
-        </button>
-      </div>
     </div>
   );
 };

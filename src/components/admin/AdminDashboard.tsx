@@ -837,6 +837,14 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         const data = await res.json();
         setAuditData(data);
       } else {
+        // Fallback: Query live Supabase counts directly
+        const [matsRes, prodsRes, mktRes, ordRes] = await Promise.all([
+          supabase.from('materials').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
+          supabase.from('products').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
+          supabase.from('marketplace_products').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
+          supabase.from('orders').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
+        ]);
+
         setAuditData({
           workshopId: ws.id,
           brandName: ws.brandName,
@@ -844,12 +852,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           email: ws.email,
           phoneNumber: ws.phoneNumber,
           lastActiveDate: ws.updatedAt ? new Date(ws.updatedAt).toLocaleDateString('ar-EG', { dateStyle: 'full' }) : 'نشط مؤخراً',
-          operationsCount: 38,
-          catalogUsagePercent: '72%',
-          totalInvoicesAmount: 48500,
-          productsCount: 8,
-          materialsCount: 14,
-          ordersCount: 22,
+          productsCount: prodsRes.count || 0,
+          marketplaceProductsCount: mktRes.count || 0,
+          materialsCount: matsRes.count || 0,
+          ordersCount: ordRes.count || 0,
           rating_stars: ws.rating_stars || 5,
           medal: ws.medal || null,
         });
@@ -862,12 +868,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         email: ws.email,
         phoneNumber: ws.phoneNumber,
         lastActiveDate: ws.updatedAt ? new Date(ws.updatedAt).toLocaleDateString('ar-EG', { dateStyle: 'full' }) : 'نشط مؤخراً',
-        operationsCount: 38,
-        catalogUsagePercent: '72%',
-        totalInvoicesAmount: 48500,
-        productsCount: 8,
-        materialsCount: 14,
-        ordersCount: 22,
+        productsCount: 0,
+        marketplaceProductsCount: 0,
+        materialsCount: 0,
+        ordersCount: 0,
         rating_stars: ws.rating_stars || 5,
         medal: ws.medal || null,
       });
@@ -6042,61 +6046,110 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   )}
                 </div>
 
-                {/* Metrics 2x4 Grid */}
+                {/* Executive Command Hub Buttons for Super Admin */}
+                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-500/30 space-y-2">
+                  <span className="text-[11px] font-black text-amber-500 block">
+                    ⚡ أدوات التحكم الإداري والتنفيذي للورشة (صلاحيات السوبر أدمن):
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {/* 1. Enter workshop as admin */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onSelectActiveWorkshop) {
+                          onSelectActiveWorkshop(auditingWorkshop);
+                        }
+                        setSelectedWorkshopId(auditingWorkshop.id);
+                        setAuditingWorkshop(null);
+                        setAuditData(null);
+                        playSuccessSound();
+                      }}
+                      className="px-3 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer active:scale-95"
+                      title="فتح ورشة الفنان بصلاحيات السوبر أدمن كاملة"
+                    >
+                      <Key size={14} />
+                      <span>الدخول للورشة كأدمن 🔑</span>
+                    </button>
+
+                    {/* 2. Open public storefront */}
+                    <a
+                      href={`/#/store/${encodeURIComponent((auditingWorkshop.brandName || auditingWorkshop.id).replace(/\s+/g, '-'))}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition text-center"
+                      title="فتح متجر الفنان في تبويب جديد"
+                    >
+                      <ExternalLink size={14} />
+                      <span>استعراض متجر الورشة 🛍️</span>
+                    </a>
+
+                    {/* 3. Open catalog */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedWorkshopId(auditingWorkshop.id);
+                        setActiveExecutiveTab('products');
+                        loadDeepData(auditingWorkshop.id);
+                        setAuditingWorkshop(null);
+                        setAuditData(null);
+                      }}
+                      className="px-3 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-100 font-black text-xs flex items-center justify-center gap-1.5 border border-stone-700 transition cursor-pointer"
+                      title="عرض كتالوج المشغولات وإدارتها فورياً"
+                    >
+                      <Package size={14} />
+                      <span>كتالوج المشغولات 📦</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Real Verified Metrics Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
                   <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
                     <span className="text-[10px] text-stone-500 font-bold block mb-1">آخر ظهور ونشاط</span>
                     <span className="font-black text-stone-900 dark:text-stone-100 block text-xs truncate">
-                      {auditData.lastActiveDate}
+                      {auditData.lastActiveDate || 'نشط'}
                     </span>
                   </div>
 
                   <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">العمليات المسجلة</span>
+                    <span className="text-[10px] text-stone-500 font-bold block mb-1">معروضات السوق المركزي</span>
                     <span className="font-black text-amber-600 font-mono text-base block">
-                      {auditData.operationsCount} حركة
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">استغلال الكتالوج</span>
-                    <span className="font-black text-emerald-600 font-mono text-base block">
-                      {auditData.catalogUsagePercent}
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">إجمالي الفواتير</span>
-                    <span className="font-black text-stone-900 dark:text-stone-100 font-mono text-xs block">
-                      {(auditData.totalInvoicesAmount || 0).toLocaleString('ar-EG')} ج.م
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">الخامات بالمخزن</span>
-                    <span className="font-black text-stone-900 dark:text-stone-100 font-mono text-base block">
-                      {auditData.materialsCount}
+                      {auditData.marketplaceProductsCount || 0} معروضة
                     </span>
                   </div>
 
                   <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
                     <span className="text-[10px] text-stone-500 font-bold block mb-1">المنتجات بالكتالوج</span>
-                    <span className="font-black text-stone-900 dark:text-stone-100 font-mono text-base block">
-                      {auditData.productsCount}
+                    <span className="font-black text-blue-600 font-mono text-base block">
+                      {auditData.productsCount || 0}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
+                    <span className="text-[10px] text-stone-500 font-bold block mb-1">الخامات بالمخزن</span>
+                    <span className="font-black text-emerald-600 font-mono text-base block">
+                      {auditData.materialsCount || 0}
                     </span>
                   </div>
 
                   <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
                     <span className="text-[10px] text-stone-500 font-bold block mb-1">الطلبيات المسجلة</span>
                     <span className="font-black text-stone-900 dark:text-stone-100 font-mono text-base block">
-                      {auditData.ordersCount}
+                      {auditData.ordersCount || 0}
                     </span>
                   </div>
 
                   <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">التقييم والقلادة</span>
+                    <span className="text-[10px] text-stone-500 font-bold block mb-1">حالة الحساب</span>
+                    <span className={`font-black text-xs block ${auditData.status === 'active' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {auditData.status === 'active' ? 'نشط ومعتمد ✓' : 'موقوف / محظور'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 sm:col-span-2">
+                    <span className="text-[10px] text-stone-500 font-bold block mb-1">التقييم والقلادة الإدارية</span>
                     <span className="font-black text-amber-500 block text-xs">
-                      {auditData.medal === 'diamond' ? '💎 ماسية' : auditData.medal === 'gold' ? '🥇 ذهبية' : auditData.medal === 'silver' ? '🥈 فضية' : auditData.medal === 'bronze' ? '🥉 برونزية' : '🎖️ معتمد'}
+                      {auditData.medal === 'diamond' ? '💎 ماسية' : auditData.medal === 'gold' ? '🥇 ذهبية' : auditData.medal === 'silver' ? '🥈 فضية' : auditData.medal === 'bronze' ? '🥉 برونزية' : '🎖️ معتمد رسمي'}
                       {' '}{'⭐'.repeat(auditData.rating_stars || 5)}
                     </span>
                   </div>
@@ -6139,7 +6192,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       setAuditingWorkshop(null);
                       setAuditData(null);
                     }}
-                    className="px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 text-xs font-bold"
+                    className="px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 text-xs font-bold cursor-pointer"
                   >
                     إغلاق
                   </button>

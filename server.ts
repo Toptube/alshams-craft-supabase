@@ -702,7 +702,6 @@ app.post('/api/admin/workshops/:id/award', requireAuth, async (req: Authenticate
   });
 });
 
-// Activity Audit Endpoint
 app.get('/api/admin/workshops/:id/audit', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const email = req.userEmail || req.user?.email || '';
   if (!isSuperAdmin(email)) {
@@ -710,31 +709,59 @@ app.get('/api/admin/workshops/:id/audit', requireAuth, async (req: Authenticated
   }
 
   const targetWid = req.params.id;
-  const localList = loadPersistentWorkshops();
-  const ws = localList.find((w) => w.id === targetWid || w.workshopId === targetWid);
+  const client = supabaseAdminClient;
+  let ws: any = null;
+
+  try {
+    const { data: supaWs } = await client
+      .from('workshops')
+      .select('*')
+      .eq('id', targetWid)
+      .maybeSingle();
+    if (supaWs) {
+      ws = {
+        id: supaWs.id,
+        brandName: supaWs.brand_name,
+        artistName: supaWs.artist_name,
+        email: supaWs.email || '',
+        phoneNumber: supaWs.phone || supaWs.phone_number || '',
+        country: supaWs.country || 'مصر',
+        currencySymbol: supaWs.currency_symbol || 'ج.م',
+        status: supaWs.status || 'active',
+        rating_stars: supaWs.rating_stars || 5,
+        medal: supaWs.medal || null,
+        updatedAt: supaWs.updated_at,
+      };
+    }
+  } catch {}
+
+  if (!ws) {
+    const localList = loadPersistentWorkshops();
+    ws = localList.find((w) => w.id === targetWid || w.workshopId === targetWid);
+  }
+
   if (!ws) {
     return res.status(404).json({ error: 'الورشة غير موجودة' });
   }
 
-  const client = supabaseAdminClient;
-  let matsCount = 12;
-  let prodsCount = 8;
-  let ordersCount = 15;
+  let matsCount = 0;
+  let prodsCount = 0;
+  let marketplaceCount = 0;
+  let ordersCount = 0;
 
   try {
-    const [matsRes, prodsRes, ordRes] = await Promise.all([
+    const [matsRes, prodsRes, mktRes, ordRes] = await Promise.all([
       client.from('materials').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
       client.from('products').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
+      client.from('marketplace_products').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
       client.from('orders').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
     ]);
     if (typeof matsRes.count === 'number') matsCount = matsRes.count;
     if (typeof prodsRes.count === 'number') prodsCount = prodsRes.count;
+    if (typeof mktRes.count === 'number') marketplaceCount = mktRes.count;
     if (typeof ordRes.count === 'number') ordersCount = ordRes.count;
   } catch {}
 
-  const operationsCount = matsCount * 3 + prodsCount * 4 + ordersCount * 2 + 18;
-  const catalogUsagePercent = Math.min(98, Math.max(35, prodsCount * 7 + 25));
-  const totalInvoicesAmount = (ordersCount * 1450) + (prodsCount * 850);
   const lastActiveDate = ws.updatedAt ? new Date(ws.updatedAt).toLocaleDateString('ar-EG', { dateStyle: 'full' }) : 'نشط مؤخراً';
 
   res.json({
@@ -748,13 +775,9 @@ app.get('/api/admin/workshops/:id/audit', requireAuth, async (req: Authenticated
     status: ws.status || 'active',
     rating_stars: ws.rating_stars || 5,
     medal: ws.medal || null,
-    medal_awarded_at: ws.medal_awarded_at || null,
-    medal_note: ws.medal_note || null,
     lastActiveDate,
-    operationsCount,
-    catalogUsagePercent: `${catalogUsagePercent}%`,
-    totalInvoicesAmount,
     productsCount: prodsCount,
+    marketplaceProductsCount: marketplaceCount,
     materialsCount: matsCount,
     ordersCount: ordersCount,
   });
@@ -1923,26 +1946,44 @@ app.post('/api/admin/marketplace/review', async (req: Request, res: Response) =>
 // 5. Public Storefront Data by Workshop Slug or ID
 app.get('/api/store/:slug', async (req: Request, res: Response) => {
   try {
-    const slug = decodeURIComponent(req.params.slug).toLowerCase().trim();
-    const workshops = loadPersistentWorkshops();
+    const slug = decodeURIComponent(req.params.slug).toLowerCase().trim().replace(/^@/, '');
     const client = supabaseAdminClient;
+    let ws: any = null;
 
-    let ws = workshops.find((w: any) => {
-      const nameSlug = (w.brandName || '').toLowerCase().replace(/\s+/g, '-');
-      const artistSlug = (w.artistName || '').toLowerCase().replace(/\s+/g, '-');
-      const idMatch = (w.id || '').toLowerCase();
-      return nameSlug === slug || artistSlug === slug || idMatch === slug;
-    });
+    try {
+      const { data: supaWorkshops } = await client
+        .from('workshops')
+        .select('*');
+
+      if (Array.isArray(supaWorkshops)) {
+        ws = supaWorkshops.find((w: any) => {
+          const bName = (w.brand_name || '').toLowerCase().trim();
+          const bSlug = bName.replace(/\s+/g, '-');
+          const aName = (w.artist_name || '').toLowerCase().trim();
+          const aSlug = aName.replace(/\s+/g, '-');
+          const idMatch = (w.id || '').toLowerCase().trim();
+
+          return (
+            bSlug === slug ||
+            bName === slug ||
+            aSlug === slug ||
+            aName === slug ||
+            idMatch === slug ||
+            bName.includes(slug) ||
+            slug.includes(bSlug)
+          );
+        });
+      }
+    } catch {}
 
     if (!ws) {
-      try {
-        const { data } = await client
-          .from('workshops')
-          .select('*')
-          .or(`id.eq.${slug},brand_name.ilike.%${slug}%`)
-          .maybeSingle();
-        if (data) ws = data;
-      } catch {}
+      const workshops = loadPersistentWorkshops();
+      ws = workshops.find((w: any) => {
+        const nameSlug = (w.brandName || '').toLowerCase().replace(/\s+/g, '-');
+        const artistSlug = (w.artistName || '').toLowerCase().replace(/\s+/g, '-');
+        const idMatch = (w.id || '').toLowerCase();
+        return nameSlug === slug || artistSlug === slug || idMatch === slug;
+      });
     }
 
     if (!ws) {
@@ -1950,11 +1991,16 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
     }
 
     const wid = ws.id || ws.workshopId;
+    const brandName = ws.brand_name || ws.brandName || 'ورشة الشمساوية';
+    const artistName = ws.artist_name || ws.artistName || 'فنان';
+    const logoUrl = ws.logo_data || ws.logo_url || ws.logoUrl || null;
+    const phone = ws.phone || ws.phone_number || ws.phoneNumber || '';
+
     const persistent = loadPersistentMarketplaceProducts();
     const prodsMap = new Map<string, any>();
 
     persistent.forEach((p: any) => {
-      if (p.workshop_id === wid || p.workshopId === wid) {
+      if (p.workshop_id === wid || p.workshopId === wid || (p.brand_name && p.brand_name.toLowerCase() === brandName.toLowerCase())) {
         prodsMap.set(p.id, p);
       }
     });
@@ -1963,7 +2009,7 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
       const { data } = await client
         .from('marketplace_products')
         .select('*')
-        .eq('workshop_id', wid);
+        .or(`workshop_id.eq.${wid},brand_name.ilike.%${brandName}%`);
       if (Array.isArray(data)) {
         data.forEach((p: any) => {
           prodsMap.set(p.id, { ...(prodsMap.get(p.id) || {}), ...p });
@@ -1977,14 +2023,14 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
       success: true,
       workshop: {
         id: wid,
-        brandName: ws.brandName || ws.brand_name || 'ورشة الشمساوية',
-        artistName: ws.artistName || ws.artist_name || 'فنان الشمساوية',
-        phoneNumber: ws.phoneNumber || ws.phone_number || '',
+        brandName,
+        artistName,
+        phoneNumber: phone,
         email: ws.email || '',
         country: ws.country || 'مصر',
-        currencySymbol: ws.currencySymbol || ws.currency_symbol || 'ج.م',
-        logoUrl: ws.logoUrl || '/alshams_falcon_emblem.png',
-        selectedCrafts: ws.selectedCrafts || ws.selected_crafts || ['macrame'],
+        currencySymbol: ws.currency_symbol || ws.currencySymbol || 'ج.م',
+        logoUrl,
+        selectedCrafts: ws.selected_crafts || ws.selectedCrafts || ['macrame'],
         ratingStars: ws.rating_stars || ws.ratingStars || 5,
         medal: ws.medal || 'gold',
       },

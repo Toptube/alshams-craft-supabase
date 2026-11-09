@@ -318,7 +318,7 @@ export async function reviewMarketplaceProduct(
  * Fetches public workshop storefront info and products by workshop slug or ID
  */
 export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicWorkshopStoreData | null> {
-  const cleanSlug = decodeURIComponent(slug).toLowerCase().trim();
+  const cleanSlug = decodeURIComponent(slug).toLowerCase().trim().replace(/^@/, '');
 
   // 1. Try server API
   try {
@@ -342,32 +342,49 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
 
     if (wsData && Array.isArray(wsData)) {
       const found = wsData.find((w: any) => {
-        const bSlug = (w.brand_name || w.brandName || '').toLowerCase().replace(/\s+/g, '-');
-        const aSlug = (w.artist_name || w.artistName || '').toLowerCase().replace(/\s+/g, '-');
-        const idMatch = (w.id || '').toLowerCase();
-        return bSlug === cleanSlug || aSlug === cleanSlug || idMatch === cleanSlug;
+        const bName = (w.brand_name || w.brandName || '').toLowerCase().trim();
+        const bSlug = bName.replace(/\s+/g, '-');
+        const aName = (w.artist_name || w.artistName || '').toLowerCase().trim();
+        const aSlug = aName.replace(/\s+/g, '-');
+        const idMatch = (w.id || '').toLowerCase().trim();
+
+        return (
+          bSlug === cleanSlug ||
+          bName === cleanSlug ||
+          aSlug === cleanSlug ||
+          aName === cleanSlug ||
+          idMatch === cleanSlug ||
+          bName.includes(cleanSlug) ||
+          cleanSlug.includes(bSlug)
+        );
       });
 
       if (found) {
-        const { data: prodsData } = await supabase
-          .from('marketplace_products')
-          .select('*')
-          .eq('workshop_id', found.id)
-          .eq('status', 'approved');
+        // Query products by workshop_id OR by matching brand_name
+        let prodsData: any[] = [];
+        try {
+          const { data: pData } = await supabase
+            .from('marketplace_products')
+            .select('*')
+            .or(`workshop_id.eq.${found.id},brand_name.ilike.%${found.brand_name || ''}%`);
+          if (Array.isArray(pData)) prodsData = pData;
+        } catch {}
+
+        const logo = found.logo_data || found.logo_url || found.logoUrl || null;
 
         return {
           workshop: {
             id: found.id,
             brandName: found.brand_name || found.brandName || 'ورشة الشمساوية',
-            artistName: found.artist_name || found.artistName || 'فنان الشمساوية',
-            phoneNumber: found.phone_number || found.phoneNumber,
-            email: found.email,
+            artistName: found.artist_name || found.artistName || 'فنان',
+            phoneNumber: found.phone || found.phone_number || found.phoneNumber || '',
+            email: found.email || '',
             country: found.country || 'مصر',
             currencySymbol: found.currency_symbol || found.currencySymbol || 'ج.م',
-            logoUrl: found.logo_url || found.logoUrl,
+            logoUrl: logo,
             ratingStars: found.rating_stars || found.ratingStars || 5,
-            medal: found.medal,
-            selectedCrafts: found.selected_crafts || found.selectedCrafts || [],
+            medal: found.medal || 'gold',
+            selectedCrafts: Array.isArray(found.selected_crafts) ? found.selected_crafts : ['macrame'],
           },
           products: (prodsData || []).map(normalizeCloudProduct),
         };

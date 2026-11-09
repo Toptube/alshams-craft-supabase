@@ -215,38 +215,56 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       )}
 
       {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-white/90 dark:bg-stone-900/90 backdrop-blur-md border-b border-stone-200 dark:border-stone-800 shadow-xs">
+      <header className="sticky top-0 z-30 bg-white/95 dark:bg-stone-900/95 backdrop-blur-md border-b border-stone-200 dark:border-stone-800 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
-          {/* Logo & Artisan Brand */}
+          {/* Logo & Artisan Brand with Link to Central Marketplace */}
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 dark:bg-amber-400/10 border border-amber-500/30 flex items-center justify-center p-2 shadow-inner shrink-0">
-              <img
-                src={workshop?.logoUrl || '/alshams_falcon_emblem.png'}
-                alt={brandName}
-                className="w-full h-full object-contain"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
+            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 dark:bg-amber-400/10 border border-amber-500/30 flex items-center justify-center overflow-hidden p-1 shadow-inner shrink-0">
+              {workshop?.logoUrl ? (
+                <img
+                  src={workshop.logoUrl}
+                  alt={brandName}
+                  className="w-full h-full object-cover rounded-xl"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                <span className="font-black text-sm text-amber-600 dark:text-amber-400">
+                  {brandName.slice(0, 2).toUpperCase()}
+                </span>
+              )}
             </div>
             <div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="font-black text-base sm:text-lg text-stone-900 dark:text-white leading-tight">
                   {brandName}
                 </h1>
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                  <Sparkles className="w-2.5 h-2.5" />
-                  معتمد
-                </span>
+                {/* Central Marketplace Clickable Badge */}
+                <a
+                  href="/#/market"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 hover:bg-amber-500/30 text-amber-800 dark:text-amber-300 border border-amber-500/40 transition cursor-pointer"
+                  title="الانتقال إلى سوق الشمساوية المركزي"
+                >
+                  <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+                  <span>عائلة الشمساوية 🛍️</span>
+                </a>
               </div>
-              <p className="text-xs font-bold text-stone-500 dark:text-stone-400">
-                بأنامل الفنان: <strong className="text-stone-700 dark:text-stone-300">{artistName}</strong>
+              <p className="text-xs font-bold text-stone-600 dark:text-stone-300">
+                بأنامل الفنان: <strong className="text-amber-600 dark:text-amber-400 font-black">{artistName}</strong>
               </p>
             </div>
           </div>
 
-          {/* Right Actions: Cart & Share & Login */}
+          {/* Right Actions: Central Market Button, Cart & Share */}
           <div className="flex items-center gap-2">
+            <a
+              href="/#/market"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-xs font-black border border-amber-500/30 transition cursor-pointer"
+            >
+              <span>السوق المركزي 🌟</span>
+            </a>
+
             <button
               type="button"
               onClick={handleShareStore}
@@ -261,6 +279,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               type="button"
               onClick={() => setIsCartOpen(true)}
               className="relative p-2 sm:px-3.5 sm:py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/20 active:scale-95"
+              title="سلة المشتريات"
             >
               <ShoppingBag className="w-4 h-4" />
               <span className="hidden sm:inline">السلة</span>
@@ -731,19 +750,25 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         />
       )}
 
-      {/* Footer */}
+      {/* Unified Elegant Footer */}
       <footer className="mt-16 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 py-8 px-4 sm:px-6 text-center space-y-3">
-        <div className="flex items-center justify-center gap-2 text-xs font-black text-stone-700 dark:text-stone-300">
-          <Sparkles className="w-4 h-4 text-amber-500" />
-          <span>منظومة الشمساوية الذكية | متجر الورش الحرفية المعتمدة</span>
-        </div>
-        <div className="flex items-center justify-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-300">
-          <Phone className="w-3.5 h-3.5" />
-          <span>خدمة عملاء ودعم شركة الشمس كرافت: <strong className="font-mono text-sm">01000996059</strong></span>
-        </div>
-        <p className="text-xs font-medium text-stone-500 dark:text-stone-400">
-          كافة المعاملات المالية محمية ومضمونة مركزياً بنظام الدفعة المقدمة 33% بضمان شركة الشمس كرافت للديكور والمشغولات اليدوية © {new Date().getFullYear()}
+        {/* Line 1: Orange prominent branding */}
+        <p className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400">
+          منظومة الشمساوية للفنون والأعمال اليدوية
         </p>
+
+        {/* Line 2: Prominent WhatsApp support button */}
+        <div className="flex items-center justify-center pt-1">
+          <a
+            href="https://wa.me/201000996059"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition cursor-pointer active:scale-95"
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span>الدعم الفني للمنظومة 🟢</span>
+          </a>
+        </div>
       </footer>
     </div>
   );
