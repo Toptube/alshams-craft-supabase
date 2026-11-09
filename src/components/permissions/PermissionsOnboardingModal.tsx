@@ -73,13 +73,25 @@ export const PermissionsOnboardingModal: React.FC<PermissionsOnboardingModalProp
 
   const handleGrantNotification = async () => {
     setLoadingKey('notifications');
-    const granted = await requestNotificationPermission();
-    await refreshStatuses();
-    setLoadingKey(null);
-    if (granted) {
-      playSuccessSound();
-      setTestNotice('تم تفعيل إشعارات الخلفية بنجاح! ستصلك التنبيهات حتى عند إغلاق التطبيق.');
-      setTimeout(() => setTestNotice(''), 4000);
+    try {
+      if ('serviceWorker' in navigator) {
+        await navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => null);
+      }
+      const granted = await requestNotificationPermission();
+      if (granted) {
+        setPermissions((prev) => ({ ...prev, notifications: 'granted' }));
+        localStorage.setItem('alshams_notifications_granted', 'true');
+        playSuccessSound();
+        setTestNotice('✓ تم تفعيل إشعارات الويب بنجاح! ستصلك التنبيهات المباشرة حتى عند إغلاق التطبيق.');
+      } else {
+        setTestNotice('⚠️ تم تفعيل التنبيهات الداخلية (In-App) للورشة، ستصلك كافة إشعارات الأوردرات داخل التطبيق.');
+      }
+    } catch {
+      setTestNotice('⚠️ تم اعتماد التنبيهات الداخلية (In-App) للورشة تلقائياً.');
+    } finally {
+      await refreshStatuses();
+      setLoadingKey(null);
+      setTimeout(() => setTestNotice(''), 4500);
     }
   };
 
@@ -137,7 +149,9 @@ export const PermissionsOnboardingModal: React.FC<PermissionsOnboardingModalProp
   };
 
   const isMicGranted = permissions.microphone === 'granted';
-  const isNotifGranted = permissions.notifications === 'granted';
+  const isNotifGranted =
+    permissions.notifications === 'granted' ||
+    (typeof window !== 'undefined' && localStorage.getItem('alshams_notifications_granted') === 'true');
   const isGeoGranted = permissions.geolocation === 'granted' || !!locationDetails;
   const isStorageGranted = permissions.persistentStorage;
 

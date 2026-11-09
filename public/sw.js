@@ -93,3 +93,16 @@ self.addEventListener('message', (event) => {
     });
   }
 });
+
+// المزامنة التلقائية في الخلفية عند عودة الاتصال بالإنترنت (Background Sync)
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'alshams-background-sync' || event.tag === 'sync-products') {
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({ type: 'TRIGGER_OFFLINE_SYNC' });
+        });
+      })
+    );
+  }
+});

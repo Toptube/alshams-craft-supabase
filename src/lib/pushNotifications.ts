@@ -95,9 +95,31 @@ export async function requestNotificationPermission(): Promise<boolean> {
     return false;
   }
 
+  // Ensure Service Worker is registered
+  if ('serviceWorker' in navigator) {
+    registerServiceWorker().catch(() => {});
+  }
+
   try {
-    const perm = await Notification.requestPermission();
-    return perm === 'granted';
+    let perm: NotificationPermission = 'denied';
+    try {
+      const p = Notification.requestPermission();
+      if (p && typeof p.then === 'function') {
+        perm = await p;
+      }
+    } catch {
+      perm = await new Promise((resolve) => {
+        Notification.requestPermission((res) => resolve(res));
+      });
+    }
+
+    if (perm === 'granted') {
+      try {
+        localStorage.setItem('alshams_notifications_granted', 'true');
+      } catch {}
+      return true;
+    }
+    return false;
   } catch (e) {
     console.warn('Error requesting notification permission:', e);
     return false;

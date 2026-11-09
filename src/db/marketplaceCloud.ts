@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { SavedProductRecord, UserProfile } from '../types';
+import { enqueueOfflineMutation } from './offlineMutationQueue';
 
 export interface CloudMarketplaceProduct {
   id: string;
@@ -153,7 +154,17 @@ export async function publishProductToMarketplace(
       updated_at: new Date().toISOString(),
     };
 
-    // 1. First attempt direct Supabase upsert
+    // 1. If offline, enqueue immediately without error
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      enqueueOfflineMutation({
+        workshopId: payload.workshop_id || 'default',
+        type: 'marketplace_publish',
+        payload,
+      });
+      return { success: true, status: payload.status as any };
+    }
+
+    // 2. First attempt direct Supabase upsert
     try {
       const { error } = await supabase
         .from('marketplace_products')
@@ -163,17 +174,26 @@ export async function publishProductToMarketplace(
       }
     } catch {}
 
-    // 2. Fallback to server API endpoint
-    const res = await fetch('/api/marketplace/publish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    // 3. Fallback to server API endpoint
+    try {
+      const res = await fetch('/api/marketplace/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    if (res.ok) {
-      const data = await res.json();
-      return { success: true, status: data.product?.status || 'pending_approval' };
-    }
+      if (res.ok) {
+        const data = await res.json();
+        return { success: true, status: data.product?.status || 'pending_approval' };
+      }
+    } catch {}
+
+    // 4. Fallback: enqueue into offline mutation queue safely
+    enqueueOfflineMutation({
+      workshopId: payload.workshop_id || 'default',
+      type: 'marketplace_publish',
+      payload,
+    });
 
     return { success: true, status: 'pending_approval' };
   } catch (err: any) {
@@ -300,6 +320,7 @@ export async function reviewMarketplaceProduct(
 export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicWorkshopStoreData | null> {
   const cleanSlug = decodeURIComponent(slug).toLowerCase().trim();
 
+  // 1. Try server API
   try {
     const res = await fetch(`/api/store/${encodeURIComponent(cleanSlug)}`);
     if (res.ok) {
@@ -312,6 +333,49 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
       }
     }
   } catch {}
+
+  // 2. Direct Supabase query fallback
+  try {
+    const { data: wsData } = await supabase
+      .from('workshops')
+      .select('*');
+
+    if (wsData && Array.isArray(wsData)) {
+      const found = wsData.find((w: any) => {
+        const bSlug = (w.brand_name || w.brandName || '').toLowerCase().replace(/\s+/g, '-');
+        const aSlug = (w.artist_name || w.artistName || '').toLowerCase().replace(/\s+/g, '-');
+        const idMatch = (w.id || '').toLowerCase();
+        return bSlug === cleanSlug || aSlug === cleanSlug || idMatch === cleanSlug;
+      });
+
+      if (found) {
+        const { data: prodsData } = await supabase
+          .from('marketplace_products')
+          .select('*')
+          .eq('workshop_id', found.id)
+          .eq('status', 'approved');
+
+        return {
+          workshop: {
+            id: found.id,
+            brandName: found.brand_name || found.brandName || 'ورشة الشمساوية',
+            artistName: found.artist_name || found.artistName || 'فنان الشمساوية',
+            phoneNumber: found.phone_number || found.phoneNumber,
+            email: found.email,
+            country: found.country || 'مصر',
+            currencySymbol: found.currency_symbol || found.currencySymbol || 'ج.م',
+            logoUrl: found.logo_url || found.logoUrl,
+            ratingStars: found.rating_stars || found.ratingStars || 5,
+            medal: found.medal,
+            selectedCrafts: found.selected_crafts || found.selectedCrafts || [],
+          },
+          products: (prodsData || []).map(normalizeCloudProduct),
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Direct Supabase storefront fetch notice:', err);
+  }
 
   return null;
 }

@@ -58,7 +58,7 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
     try {
       const res = await fetch('/api/admin/memories', {
         headers: {
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
       });
       if (res.ok) {
@@ -108,11 +108,11 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
         body: JSON.stringify({
           message: msg,
-          userEmail: profile.email || 'hmb.top.tupe@gmail.com',
+          userEmail: profile.email || 'hmb.top.tube@gmail.com',
           workshopId: profile.workshopId || profile.id,
           brandName: profile.brandName,
           artistName: profile.artistName,

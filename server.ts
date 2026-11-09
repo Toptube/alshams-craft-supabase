@@ -2069,12 +2069,34 @@ app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: 
     }
 
     const workshops = loadPersistentWorkshops();
-    const ws = workshops.find((w: any) => {
+    let ws = workshops.find((w: any) => {
       const nameSlug = (w.brandName || '').toLowerCase().replace(/\s+/g, '-');
       const artistSlug = (w.artistName || '').toLowerCase().replace(/\s+/g, '-');
       const idMatch = (w.id || '').toLowerCase();
       return nameSlug === cleanSlug || artistSlug === cleanSlug || idMatch === cleanSlug;
     });
+
+    if (!ws) {
+      try {
+        const { data: dbWs } = await supabaseAdminClient.from('workshops').select('*');
+        if (dbWs && Array.isArray(dbWs)) {
+          const found = dbWs.find((w: any) => {
+            const nameSlug = (w.brand_name || w.brandName || '').toLowerCase().replace(/\s+/g, '-');
+            const artistSlug = (w.artist_name || w.artistName || '').toLowerCase().replace(/\s+/g, '-');
+            const idMatch = (w.id || '').toLowerCase();
+            return nameSlug === cleanSlug || artistSlug === cleanSlug || idMatch === cleanSlug;
+          });
+          if (found) {
+            ws = {
+              id: found.id,
+              brandName: found.brand_name || found.brandName,
+              artistName: found.artist_name || found.artistName,
+              logoUrl: found.logo_url || found.logoUrl,
+            };
+          }
+        }
+      } catch {}
+    }
 
     const workshopName = ws?.brandName || ws?.artistName || cleanSlug.replace(/-/g, ' ');
     const pageTitle = `متجر ${workshopName} | عائلة الشمساوية`;

@@ -454,7 +454,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       const res = await fetch('/api/admin/system-report', {
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
@@ -657,7 +657,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
@@ -697,27 +697,82 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleSaveAward = async () => {
     if (!awardingWorkshop) return;
     setSavingAward(true);
-    try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
-      const res = await fetch(`/api/admin/workshops/${awardingWorkshop.id}/award`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          rating_stars: selectedStars,
-          medal: selectedMedal,
-          custom_note: awardCustomNote,
-        }),
-      });
+    const awardedAt = new Date().toISOString();
+    const medalArabic =
+      selectedMedal === 'diamond'
+        ? 'الماسية 💎'
+        : selectedMedal === 'gold'
+        ? 'الذهبية 🥇'
+        : selectedMedal === 'silver'
+        ? 'الفضية 🥈'
+        : 'البرونزية 🥉';
 
-      if (!res.ok) {
-        throw new Error('فشل حفظ التقييم والتكريم');
+    try {
+      // 1. Direct Supabase update for immediate live persistence across all clients
+      try {
+        await supabase
+          .from('workshops')
+          .update({
+            rating_stars: selectedStars,
+            medal: selectedMedal,
+            medal_awarded_at: awardedAt,
+            medal_note: awardCustomNote || null,
+            updated_at: awardedAt,
+          })
+          .eq('id', awardingWorkshop.id);
+      } catch (supaErr) {
+        console.warn('Direct Supabase workshop award update notice:', supaErr);
       }
 
-      const json = await res.json();
+      // 2. Dispatch official tribute announcement in Supabase
+      try {
+        const tributeTitle = `🎖️ تهنئة رسمية: منح ورشتكم قلادة الشمساوية ${medalArabic}!`;
+        const tributeContent = `تقديراً لتميزكم الحرفي وتفانيكم في جودة المشغولات اليدوية، قررت إدارة منظومة الشمساوية برئاسة كبير العيلة م. حسام بسيوني منح ورشتكم [${awardingWorkshop.brandName}] تقييم [${selectedStars}] نجوم وقلادة [${medalArabic}].${awardCustomNote ? `\n\nكلمة التكريم: "${awardCustomNote}"` : ''}\n\nنبارك لكم هذا التكريم المستحق ونتمنى لكم دوام التألق والإبداع!`;
+
+        await supabase.from('announcements').insert({
+          id: `ann_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          sender_id: profile.id,
+          sender_name: profile.artistName || 'م. حسام بسيوني (سوبر أدمن)',
+          recipient_type: 'specific',
+          recipient_workshop_id: awardingWorkshop.id,
+          recipient_workshop_name: awardingWorkshop.brandName,
+          title: tributeTitle,
+          content: tributeContent,
+          created_at: awardedAt,
+        });
+
+        // Also add local in-app notification if stored on device
+        await tenantStorage.putNotification({
+          id: `notif_${Date.now()}`,
+          tenantId: awardingWorkshop.id,
+          type: 'system',
+          title: tributeTitle,
+          message: tributeContent,
+          isRead: false,
+          createdAt: Date.now(),
+        }).catch(() => null);
+      } catch (annErr) {
+        console.warn('Tribute announcement dispatch notice:', annErr);
+      }
+
+      // 3. Server endpoint sync
+      try {
+        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        await fetch(`/api/admin/workshops/${awardingWorkshop.id}/award`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            rating_stars: selectedStars,
+            medal: selectedMedal,
+            custom_note: awardCustomNote,
+          }),
+        });
+      } catch {}
+
       playSuccessSound();
 
       // Update local workshops state
@@ -729,8 +784,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 rating_stars: selectedStars,
                 ratingStars: selectedStars,
                 medal: selectedMedal,
-                medal_awarded_at: json.workshop?.medal_awarded_at || new Date().toISOString(),
-                medalAwardedAt: json.workshop?.medal_awarded_at || new Date().toISOString(),
+                medal_awarded_at: awardedAt,
+                medalAwardedAt: awardedAt,
                 medal_note: awardCustomNote,
                 medalNote: awardCustomNote,
               }
@@ -738,14 +793,20 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         )
       );
 
-      const medalArabic =
-        selectedMedal === 'diamond'
-          ? 'الماسية 💎'
-          : selectedMedal === 'gold'
-          ? 'الذهبية 🥇'
-          : selectedMedal === 'silver'
-          ? 'الفضية 🥈'
-          : 'البرونزية 🥉';
+      // Update local storage profile if currently logged in workshop
+      try {
+        const localWs = await tenantStorage.getProfile(awardingWorkshop.id);
+        if (localWs) {
+          localWs.rating_stars = selectedStars;
+          localWs.ratingStars = selectedStars;
+          localWs.medal = selectedMedal;
+          localWs.medal_awarded_at = awardedAt;
+          localWs.medalAwardedAt = awardedAt;
+          localWs.medal_note = awardCustomNote;
+          localWs.medalNote = awardCustomNote;
+          await tenantStorage.saveProfile(localWs);
+        }
+      } catch {}
 
       setSuccessNotice(
         `تم منح ورشة "${awardingWorkshop.brandName}" تقييم ${selectedStars} نجوم وقلادة ${medalArabic} وإرسال التهنئة بنجاح!`
@@ -768,7 +829,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       const res = await fetch(`/api/admin/workshops/${ws.id}/audit`, {
         headers: {
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
@@ -1102,7 +1163,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       const res = await fetch('/api/admin/appeals', {
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
       });
       if (res.ok) {
@@ -1122,10 +1183,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     try {
       const [annRes, inboxRes] = await Promise.all([
         fetch('/api/announcements', {
-          headers: { 'x-user-email': profile.email || 'hmb.top.tupe@gmail.com' },
+          headers: { 'x-user-email': profile.email || 'hmb.top.tube@gmail.com' },
         }),
         fetch('/api/admin/inbox', {
-          headers: { 'x-user-email': profile.email || 'hmb.top.tupe@gmail.com' },
+          headers: { 'x-user-email': profile.email || 'hmb.top.tube@gmail.com' },
         }),
       ]);
 
@@ -1267,7 +1328,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       const res = await fetch(`/api/admin/workshops/${workshopId}/deep-data`, {
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
@@ -1384,7 +1445,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+            'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify(updated),
@@ -1435,7 +1496,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
         body: JSON.stringify({
           status: 'suspended',
@@ -1485,7 +1546,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
         body: JSON.stringify({
           status: 'banned',
@@ -1529,7 +1590,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
         body: JSON.stringify({ status: 'active' }),
       });
@@ -1565,7 +1626,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
         body: JSON.stringify({ appeal_status: 'accepted' }),
       });
@@ -1590,7 +1651,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
         body: JSON.stringify({
           appeal_status: 'rejected',
@@ -1630,7 +1691,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
         },
         body: JSON.stringify({
           recipient_type: newAnnRecipientType,
@@ -1675,7 +1736,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tupe@gmail.com',
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ mode: selectiveDeleteMode }),
@@ -1890,7 +1951,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
               <span className="text-xs text-stone-300 font-bold">
                 م. حسام بسيوني (
-                <span className="font-mono text-amber-300">hmb.top.tupe@gmail.com</span>)
+                <span className="font-mono text-amber-300">hmb.top.tube@gmail.com</span>)
               </span>
             </div>
 

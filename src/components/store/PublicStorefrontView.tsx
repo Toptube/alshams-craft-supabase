@@ -538,6 +538,23 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         )}
       </main>
 
+      {/* Floating Cart Button for Instant Mobile Checkout */}
+      {cartItemsCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setIsCartOpen(true)}
+          className="fixed bottom-5 left-5 z-40 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-black text-xs flex items-center gap-2.5 shadow-2xl shadow-amber-500/40 active:scale-95 transition cursor-pointer border-2 border-stone-950/20"
+        >
+          <div className="relative">
+            <ShoppingBag className="w-5 h-5 text-stone-950" />
+            <span className="absolute -top-2 -right-2 px-1.5 py-0.2 rounded-full bg-stone-950 text-amber-300 font-mono text-[10px] font-black">
+              {cartItemsCount}
+            </span>
+          </div>
+          <span>سلة المشتريات (عربون 33%) 🛒</span>
+        </button>
+      )}
+
       {/* Product Details & Ordering Modal */}
       {selectedProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">

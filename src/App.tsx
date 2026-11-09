@@ -83,6 +83,7 @@ import {
   checkAndDispatchEquipmentMaintenanceAlerts,
 } from './lib/pushNotifications';
 import { PermissionsOnboardingModal } from './components/permissions/PermissionsOnboardingModal';
+import { initOfflineSyncListeners } from './db/offlineMutationQueue';
 
 // Icons for the sub-page navigation bar
 import { ArrowRight, Home, Sparkles, X } from 'lucide-react';
@@ -602,13 +603,17 @@ export const App: React.FC = () => {
     (a) => !a.receipt || !a.receipt.read_at
   ).length;
 
-  // Register Web Push Service Worker for real-time background workshop alerts & equipment maintenance checks
+  // Register Web Push Service Worker for real-time background workshop alerts & offline sync
   useEffect(() => {
     registerServiceWorker().catch(() => {});
+    const cleanupSync = initOfflineSyncListeners();
     const tenant = profile?.tenantId || profile?.workshopId || profile?.id;
     if (tenant) {
       checkAndDispatchEquipmentMaintenanceAlerts(tenant).catch(() => {});
     }
+    return () => {
+      cleanupSync();
+    };
   }, [profile?.tenantId, profile?.workshopId, profile?.id]);
 
   // Listen to open permissions modal event
@@ -910,6 +915,25 @@ export const App: React.FC = () => {
       } catch {
         return { type: 'store', slug: hashMatch[1] };
       }
+    }
+
+    // 4. Query Params Support (?market=1, ?tab=market, ?store=...)
+    const search = window.location.search || '';
+    if (search) {
+      try {
+        const params = new URLSearchParams(search);
+        if (params.get('market') === '1' || params.get('tab') === 'market' || params.get('view') === 'market') {
+          return { type: 'market' };
+        }
+        const storeParam = params.get('store') || params.get('artisan');
+        if (storeParam) {
+          try {
+            return { type: 'store', slug: decodeURIComponent(storeParam) };
+          } catch {
+            return { type: 'store', slug: storeParam };
+          }
+        }
+      } catch {}
     }
 
     return { type: 'app' };

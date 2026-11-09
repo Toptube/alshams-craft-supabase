@@ -434,7 +434,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   <span className="text-[8px] px-1.5 py-0.2 rounded bg-amber-500 text-stone-950 font-mono font-black">SUPER</span>
                 </div>
                 <p className="text-[10px] text-stone-300 font-bold font-mono truncate max-w-[170px]" dir="ltr">
-                  {profile.email || 'hmb.top.tupe@gmail.com'}
+                  {profile.email || 'hmb.top.tube@gmail.com'}
                 </p>
               </div>
             </div>
