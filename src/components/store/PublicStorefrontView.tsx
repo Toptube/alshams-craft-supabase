@@ -766,7 +766,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition cursor-pointer active:scale-95"
           >
             <MessageCircle className="w-4 h-4" />
-            <span>الدعم الفني للمنظومة 🟢</span>
+            <span>الدعم الفني 🟢</span>
           </a>
         </div>
       </footer>

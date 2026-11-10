@@ -1105,16 +1105,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       case 'my_platform':
         return {
-          title: 'منصتي (الكتالوج ومتجري)',
+          title: 'منصتي',
           icon: Store,
           items: [
             {
-              label: 'الكتالوج المرجعي للمشغولات',
+              label: 'الكتالوج',
               icon: BookOpen,
               onClick: () => onNavigateToCatalog('catalog'),
             },
             {
-              label: 'متجري الخاص لعرض ونشر المنتجات',
+              label: 'متجري',
               icon: Store,
               onClick: () => onNavigateToCatalog('store'),
             },
@@ -1305,7 +1305,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           <div className="flex items-center gap-2">
             <Coins className="w-4 h-4 text-amber-600 dark:text-amber-400" />
             <h3 className="text-xs sm:text-sm font-black text-stone-800 dark:text-stone-200">
-              {tr('workshop_summary_title')} (التحليل المالي والمخزني)
+              ملخص الورشة
             </h3>
           </div>
           <div className="flex items-center gap-2">
@@ -1315,48 +1315,13 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-xs font-bold hover:bg-amber-100 transition cursor-pointer shadow-2xs"
             >
               <PieChartIcon className="w-3.5 h-3.5 text-amber-600" />
-              <span>الشاشة التعريفية والرسوم البيانية</span>
+              <span>الشاشة التعريفية</span>
             </button>
             <span className="text-[10px] text-stone-400 font-bold hidden sm:inline">
               {tr('updated_live')}
             </span>
           </div>
         </div>
-
-        {/* Proactive 3-Day Recurring Liquidity Alert Banner */}
-        {recurringUrgentCount > 0 && onOpenAdminCostsModal && (
-          <div
-            onClick={onOpenAdminCostsModal}
-            className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-rose-900 via-rose-800 to-amber-900 text-white shadow-lg border border-rose-500/60 cursor-pointer hover:shadow-xl transition active:scale-[0.99] flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 text-rose-200">
-                <BellRing className="w-5 h-5 animate-bounce" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-black text-xs sm:text-sm text-rose-100">
-                    ⚠️ تنبيه سيولة استباقي: لديك {recurringUrgentCount} التزامات دورية مستحقة خلال 3 أيام!
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
-                    مستعجل 🔔
-                  </span>
-                </div>
-                <p className="text-[11px] text-rose-100/90 mt-0.5 font-sans">
-                  إجمالي المبلغ المطلوب تدبيره بالخزينة:{' '}
-                  <span className="font-mono font-black text-amber-300 text-xs">
-                    {recurringUrgentAmount.toLocaleString('ar-EG')} {profile.currencySymbol}
-                  </span>{' '}
-                  (إيجار المشغل / الكهرباء / اشتراك الإنترنت / الصيانة)
-                </p>
-              </div>
-            </div>
-
-            <div className="self-end sm:self-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-black transition">
-              <span>سداد الالتزامات والدورة 🔁</span>
-            </div>
-          </div>
-        )}
 
         {/* 6 Core Financial & Inventory KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 sm:gap-3.5">

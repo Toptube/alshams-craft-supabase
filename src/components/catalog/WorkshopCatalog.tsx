@@ -48,6 +48,10 @@ import {
   generateArtisanQuotationPDF,
   extractQuotationDataFromRecord,
 } from '../../services/quotationPdfGenerator';
+import { flushProductSync } from '../../db/productsCloud';
+import { flushOfflineMutations, getPendingOfflineMutationsCount } from '../../db/offlineMutationQueue';
+import { pendingCount } from '../../db/productSyncQueue';
+import { playSuccessSound, playAlertSound } from '../../lib/sounds';
 
 interface WorkshopCatalogProps {
   profile: UserProfile;
@@ -78,6 +82,24 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [notice, setNotice] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
+
+  useEffect(() => {
+    const wid = profile.id || profile.workshopId || profile.tenantId || '';
+    const updateCount = () => {
+      setPendingSyncCount(pendingCount(wid) + getPendingOfflineMutationsCount(wid));
+    };
+    updateCount();
+    window.addEventListener('alshams:products-dirty', updateCount);
+    window.addEventListener('alshams:products-sync-status', updateCount);
+    window.addEventListener('alshams:offline-queue-changed', updateCount);
+    return () => {
+      window.removeEventListener('alshams:products-dirty', updateCount);
+      window.removeEventListener('alshams:products-sync-status', updateCount);
+      window.removeEventListener('alshams:offline-queue-changed', updateCount);
+    };
+  }, [profile.id, profile.workshopId, profile.tenantId]);
 
   // Store tab state
   const [storeSearchQuery, setStoreSearchQuery] = useState<string>('');
@@ -783,7 +805,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
           }`}
         >
           <BookOpen className="w-4 h-4" />
-          <span>الكتالوج المرجعي للمشغولات</span>
+          <span>الكتالوج</span>
           <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
             {allProducts.length}
           </span>
@@ -799,7 +821,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
           }`}
         >
           <Store className="w-4 h-4" />
-          <span>متجري لعرض ونشر المنتجات</span>
+          <span>متجري</span>
           <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-500 text-white">
             {allProducts.filter((p) => p.inStore).length}
           </span>
@@ -811,25 +833,56 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-400">
             {activeTab === 'catalog' ? <BookOpen className="w-4 h-4" /> : <Store className="w-4 h-4" />}
-            <span>{activeTab === 'catalog' ? tr('catalog_title') : 'متجري الخاص لعرض ونشر المنتجات'}</span>
+            <span>{activeTab === 'catalog' ? 'الكتالوج' : 'متجري'}</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 mt-1">
             {activeTab === 'catalog'
               ? profile.brandName
-                ? `كتالوج ورشة ${profile.brandName}`
-                : tr('catalog_title')
+                ? `كتالوج ${profile.brandName}`
+                : 'الكتالوج'
               : profile.brandName
-              ? `متجر ورشة ${profile.brandName} للعرض والتسويق`
-              : 'متجري لعرض وتسويق المشغولات الحرفية'}
+              ? `متجر ${profile.brandName}`
+              : 'متجري'}
           </h2>
           <p className="text-xs text-stone-500 mt-1">
             {activeTab === 'catalog'
-              ? tr('catalog_subtitle')
-              : 'إدارة عرض وتسويق المشغولات الحرفية للعملاء، ضبط أسعار النشر ووصف العرض مع حماية التكلفة المرجعية الأصلية في الأرشيف'}
+              ? 'أرشيف المشغولات الحرفية، حساب التكاليف، وحماية المواصفات محلياً وسحابياً'
+              : 'إدارة عرض وتسويق المشغولات الحرفية للعملاء برابط متجرك المباشر'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Manual Cloud Sync Button [ مزامنة الآن 🔄 ] */}
+          <button
+            type="button"
+            onClick={async () => {
+              setIsSyncing(true);
+              try {
+                const wid = profile.id || profile.workshopId || profile.tenantId || '';
+                await flushProductSync(wid);
+                await flushOfflineMutations();
+                await loadCatalogData();
+                setPendingSyncCount(0);
+                playSuccessSound();
+                setNotice('تمت المزامنة بنجاح مع السحابة، وكافة المشغولات محفوظة محلياً وسحابياً!');
+                setTimeout(() => setNotice(''), 3000);
+              } catch {
+                playAlertSound();
+              } finally {
+                setIsSyncing(false);
+              }
+            }}
+            disabled={isSyncing}
+            className="px-3 py-2 rounded-2xl border border-amber-400 dark:border-amber-700 bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 text-xs font-black transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs active:scale-95"
+            title="مزامنة فورية للمشغولات مع السحابة"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-amber-600 dark:text-amber-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'جاري المزامنة...' : 'مزامنة الآن 🔄'}</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-600 text-white font-black">
+              {pendingSyncCount} معلق
+            </span>
+          </button>
+
           {/* Refresh data */}
           <button
             type="button"

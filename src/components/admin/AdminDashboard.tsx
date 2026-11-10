@@ -359,6 +359,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     phone: string;
   } | null>(null);
   const [copiedNotice, setCopiedNotice] = useState(false);
+  const [copiedMarketUrl, setCopiedMarketUrl] = useState(false);
 
   // Currently inspected workshop object
   const currentSelectedWorkshop = useMemo(() => {
@@ -3875,6 +3876,81 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${loadingCloudProducts ? 'animate-spin' : ''}`} />
                   <span>تحديث المعروضات</span>
+                </button>
+              </div>
+            </div>
+
+            {/* بطاقة كود QR والرابط الرسمي لسوق الشمساوية المركزي (مخصصة لإدارة وحملات السوبر أدمن) */}
+            <div className="p-5 rounded-3xl bg-[#0c1427] text-white border-2 border-amber-500/50 shadow-xl flex flex-col md:flex-row items-center justify-between gap-5">
+              <div className="space-y-2 text-right flex-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/40">
+                    <QrCode className="w-4 h-4" />
+                  </div>
+                  <h4 className="text-sm font-black text-amber-300">
+                    الرابط الرسمي وكود QR لسوق الشمساوية المركزي 🛍️
+                  </h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-stone-950 font-black">
+                    بوابة المتسوقين
+                  </span>
+                </div>
+                <p className="text-xs text-stone-300 leading-relaxed max-w-xl">
+                  هذا هو الرابط والكود الرسمي لسوق الشمساوية المركزي متعدد التجار؛ يمكنك نسخه ومشاركته في الحملات الإعلانية ومع العملاء لعرض كافة المشغولات المعتمدة.
+                </p>
+                <div className="pt-2 flex flex-wrap items-center gap-2">
+                  <div className="px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-800 text-[11px] font-mono text-amber-200 select-all">
+                    {typeof window !== 'undefined' ? `${window.location.origin}/#/market` : 'https://alshamsawiyah.ai.studio/#/market'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = typeof window !== 'undefined' ? `${window.location.origin}/#/market` : 'https://alshamsawiyah.ai.studio/#/market';
+                      navigator.clipboard.writeText(url);
+                      setCopiedMarketUrl(true);
+                      setTimeout(() => setCopiedMarketUrl(false), 2000);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition active:scale-95"
+                  >
+                    {copiedMarketUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedMarketUrl ? 'تم النسخ' : 'نسخ الرابط'}</span>
+                  </button>
+                  <a
+                    href="/#/market"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-300 font-black text-xs flex items-center gap-1.5 border border-stone-700 transition"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>فتح السوق كزائر</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* QR Code Canvas */}
+              <div className="flex flex-col items-center gap-2 bg-white p-3.5 rounded-2xl shadow-lg shrink-0">
+                <QRCodeCanvas
+                  id="central-marketplace-qr"
+                  value={typeof window !== 'undefined' ? `${window.location.origin}/#/market` : 'https://alshamsawiyah.ai.studio/#/market'}
+                  size={120}
+                  level="H"
+                  includeMargin={true}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const canvas = document.getElementById('central-marketplace-qr') as HTMLCanvasElement;
+                    if (canvas) {
+                      const url = canvas.toDataURL('image/png');
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'alshams-marketplace-qr.png';
+                      a.click();
+                    }
+                  }}
+                  className="px-3 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 text-amber-300 font-bold text-[10px] flex items-center gap-1 cursor-pointer transition active:scale-95"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>تحميل QR</span>
                 </button>
               </div>
             </div>

@@ -355,6 +355,34 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
           if (Array.isArray(pData)) prodsData = pData;
         } catch {}
 
+        if (prodsData.length === 0) {
+          try {
+            const { data: catData } = await supabase
+              .from('products')
+              .select('*')
+              .eq('workshop_id', found.id);
+            if (Array.isArray(catData)) {
+              prodsData = catData.map((p: any) => ({
+                id: p.id,
+                workshop_id: p.workshop_id,
+                brand_name: found.brand_name || 'ورشة الشمساوية',
+                artist_name: found.artist_name || 'فنان',
+                phone_number: found.phone || '',
+                product_name: p.product_name,
+                category: p.category || 'أعمال يدوية',
+                store_price: p.retail_price || 0,
+                retail_price: p.retail_price || 0,
+                wholesale_price: p.wholesale_price || 0,
+                cost_price: p.cost_price || 0,
+                image_url: p.image_url || null,
+                store_description: p.specs?.marketingDescription || p.specs?.materialsDescription || p.product_name,
+                status: 'approved',
+                created_at: p.created_at,
+              }));
+            }
+          } catch {}
+        }
+
         const logo = found.logo_data || found.logo_url || found.logoUrl || null;
 
         return {

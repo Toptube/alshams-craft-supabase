@@ -316,8 +316,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* القسم الأيسر: مؤشر حالة الاتصال السحابي + البحث الموحد + محول اللغات (متباعدة تماماً وبدون أي تداخل) */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {/* زر سوق الشمساوية المركزي */}
-          {onNavigateToMarketplace && (
+          {/* زر سوق الشمساوية المركزي (مخصص حصرياً للسوبر أدمن فقط) */}
+          {isUserAdmin(profile) && onNavigateToMarketplace && (
             <button
               type="button"
               onClick={onNavigateToMarketplace}

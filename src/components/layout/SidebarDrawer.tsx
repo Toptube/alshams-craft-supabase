@@ -354,18 +354,22 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
     },
     {
       id: 'store',
-      label: 'متجر الورشة وكود QR',
-      sublabel: 'إدارة متجري والطلبيات المباشرة وتوليد باركود المشاركة',
+      label: 'متجري',
+      sublabel: 'إدارة متجري والطلبيات المباشرة وتوليد كود QR للمشاركة',
       icon: Store,
       badge: 'متجري',
     },
-    {
-      id: 'marketplace',
-      label: 'سوق الشمساوية المركزي',
-      sublabel: 'سوق الحرفيين المشترك لعرض وبيع المشغولات وتقييمات المشترين',
-      icon: ShoppingBag,
-      badge: 'السوق',
-    },
+    ...(isUserAdmin(profile)
+      ? [
+          {
+            id: 'marketplace',
+            label: 'سوق الشمساوية المركزي',
+            sublabel: 'سوق الحرفيين المشترك لعرض وبيع المشغولات وتقييمات المشترين',
+            icon: ShoppingBag,
+            badge: 'السوق',
+          },
+        ]
+      : []),
   ];
 
   // Section 4: HR (Human Resources)

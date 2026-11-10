@@ -2020,6 +2020,36 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
       }
     } catch {}
 
+    if (prodsMap.size === 0) {
+      try {
+        const { data: catData } = await client
+          .from('products')
+          .select('*')
+          .eq('workshop_id', wid);
+        if (Array.isArray(catData)) {
+          catData.forEach((p: any) => {
+            prodsMap.set(p.id, {
+              id: p.id,
+              workshop_id: p.workshop_id,
+              brand_name: brandName,
+              artist_name: artistName,
+              phone_number: phone,
+              product_name: p.product_name,
+              category: p.category || 'أعمال يدوية',
+              store_price: p.retail_price || 0,
+              retail_price: p.retail_price || 0,
+              wholesale_price: p.wholesale_price || 0,
+              cost_price: p.cost_price || 0,
+              image_url: p.image_url || null,
+              store_description: p.specs?.marketingDescription || p.specs?.materialsDescription || p.product_name,
+              status: 'approved',
+              created_at: p.created_at,
+            });
+          });
+        }
+      } catch {}
+    }
+
     const storeProducts = Array.from(prodsMap.values()).map(normalizeCloudProductRow);
 
     res.json({

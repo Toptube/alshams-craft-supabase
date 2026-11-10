@@ -80,7 +80,7 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     mod_suppliers: 'الموردون وفواتير الشراء',
     mod_work_orders: 'أوامر التشغيل وتتبع الهالك',
     mod_inventory: 'المخازن وكارت الصنف',
-    mod_catalog: 'كتالوج المنتجات والأصول',
+    mod_catalog: 'الكتالوج',
     mod_archive: 'أرشيف المنتجات المسعرة',
     mod_treasuries: 'الخزن والسيولة النقدية',
     mod_sales: 'إدارة المبيعات والطلبيات',
@@ -199,7 +199,7 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     metric_stock_alerts: 'تنبيهات نواقص الخامات',
     section_management: 'إدارة القسم',
     home_screen_btn: 'الشاشة الرئيسية',
-    workshop_summary_title: 'ملخص الورشة المالي والمخزني',
+    workshop_summary_title: 'ملخص الورشة',
     updated_live: 'محدث لحظياً',
     treasury_balance: 'رصيد الخزن',
     month_sales: 'مبيعات الشهر',
@@ -336,7 +336,7 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     falcon_export_success: 'تم تصدير الحسابات والأرقام بنجاح إلى حاسبة التكاليف',
 
     // Catalog & Archive Table
-    catalog_title: 'كتالوج المنتجات والأصول',
+    catalog_title: 'الكتالوج',
     catalog_subtitle: 'عرض وتسعير ومواصفات منتجات الورشة وإدارتها الموحدة',
     catalog_table_type: 'نوع المنتج',
     catalog_table_category: 'التصنيف',
