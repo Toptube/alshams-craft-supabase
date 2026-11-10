@@ -1,26 +1,44 @@
 import React from 'react';
 import falconAvatarImg from '../../assets/falcon_mascot_ai.png';
 import shamousaAvatarImg from '../../assets/shamousa_mascot.png';
-import alshamsFalconEmblemImg from '../../assets/alshams_falcon_emblem.png';
-import alshamsOfficialBannerLogo from '../../assets/alshams_official_banner_logo.png';
-import alshamsFalconArtisanImg from '../../assets/alshams_falcon_artisan.jpg';
+import brandIconLight from '../../assets/brand_icon_light.png';
+import brandIconDark from '../../assets/brand_icon_dark.png';
+import brandLogoLight from '../../assets/brand_logo_light.png';
+import brandLogoDark from '../../assets/brand_logo_dark.png';
 
 export {
   falconAvatarImg,
   shamousaAvatarImg,
-  alshamsFalconEmblemImg,
-  alshamsOfficialBannerLogo,
-  alshamsFalconArtisanImg,
+  brandIconLight,
+  brandIconDark,
+  brandLogoLight,
+  brandLogoDark,
 };
 
+// Aliases for backward compatibility
+export const alshamsFalconEmblemImg = brandIconLight;
+export const alshamsOfficialBannerLogo = brandLogoLight;
+export const alshamsFalconArtisanImg = brandIconLight;
+
+export const AlShamsSunIcon: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 20 }) => (
+  <span className={`inline-flex items-center justify-center select-none ${className}`} style={{ width: size, height: size, fontSize: size * 0.8 }}>
+    ☀️
+  </span>
+);
+
 /**
- * الأيقونة الرسمية لمنظومة الشمس كرافت - الصقر ومونوغرام SH المعتمد بخلفية شفافة
+ * 1. الأيقونة المربعة الرسمية (Al-Shams Falcon Icon)
+ * تبديل تلقائي فوري وسلس بين الوضع الفاتح والوضع الليلي:
+ * - Light Mode: الأيقونة الكلاسيكية بالأزرق الداكن ومونوغرام SH الذهبي (أعلى وضوح وتباين على الأبيض).
+ * - Dark Mode: الأيقونة المتوهجة بالنيون الأزرق والمونوغرام الذهبي المشع (فخامة فائقة على الخلفيات الداكنة).
  */
-export const AlShamsFalconEmblem: React.FC<{
+export const AlShamsBrandIcon: React.FC<{
   className?: string;
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
-}> = ({ className = '', size = 'md' }) => {
-  const sizeMap = {
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | number;
+  isDark?: boolean;
+  alt?: string;
+}> = ({ className = '', size = 'md', isDark, alt = 'أيقونة صقر الشمس كرافت' }) => {
+  const sizeMap: Record<string, string> = {
     xs: 'w-6 h-6',
     sm: 'w-8 h-8',
     md: 'w-10 h-10',
@@ -28,73 +46,126 @@ export const AlShamsFalconEmblem: React.FC<{
     xl: 'w-20 h-20',
   };
 
+  const isNumeric = typeof size === 'number';
+  const dim = isNumeric ? '' : (sizeMap[size] || sizeMap.md);
+  const inlineStyle = isNumeric ? { width: `${size}px`, height: `${size}px` } : undefined;
+
+  if (isDark === true) {
+    return (
+      <img
+        src={brandIconDark}
+        alt={alt}
+        style={inlineStyle}
+        className={`${dim} object-contain select-none shrink-0 drop-shadow-[0_0_12px_rgba(56,189,248,0.4)] ${className}`}
+      />
+    );
+  }
+
+  if (isDark === false) {
+    return (
+      <img
+        src={brandIconLight}
+        alt={alt}
+        style={inlineStyle}
+        className={`${dim} object-contain select-none shrink-0 drop-shadow-xs ${className}`}
+      />
+    );
+  }
+
+  // Automatic CSS-based responsive theme switching (zero JS lag & zero flash)
   return (
-    <img
-      src={alshamsFalconEmblemImg}
-      alt="شعار الشمس كرافت"
-      className={`${sizeMap[size]} object-contain select-none shrink-0 drop-shadow-2xs ${className}`}
-    />
+    <div
+      style={inlineStyle}
+      className={`relative ${dim} select-none shrink-0 inline-flex items-center justify-center ${className}`}
+    >
+      {/* Light Mode Icon */}
+      <img
+        src={brandIconLight}
+        alt={alt}
+        className="w-full h-full object-contain dark:hidden select-none drop-shadow-xs"
+      />
+      {/* Dark / Night Mode Icon with Neon Glow */}
+      <img
+        src={brandIconDark}
+        alt={alt}
+        className="w-full h-full object-contain hidden dark:block select-none drop-shadow-[0_0_12px_rgba(56,189,248,0.4)]"
+      />
+    </div>
   );
 };
 
-/**
- * Geometric Sun SVG Icon for AlShams Craft Platform (Preserved for compatibility)
- */
-export const AlShamsSunIcon: React.FC<{ className?: string }> = ({ className = 'w-full h-full' }) => {
-  return (
-    <img
-      src={alshamsFalconEmblemImg}
-      alt="أيقونة الشمس كرافت"
-      className={`${className} object-contain`}
-    />
-  );
-};
+// Backward-compatible alias for AlShamsFalconEmblem
+export const AlShamsFalconEmblem = AlShamsBrandIcon;
 
 /**
- * OFFICIAL SYSTEM PLATFORM LOGO BANNER (الشمس كرافت / AlShams Craft)
- * Uses the official transparent falcon emblem + Cairo typography.
+ * 2. اللوجو النصي الكامل لمنظومة الشمس كرافت (Al-Shams Craft Brand Logo)
+ * - حجم متناسق ومحدد بدقة لا يتجاوز 180px عرضاً للحفاظ على فخامة المظهر بدون أي تشويه.
+ * - تبديل تلقائي وسلس حسب السمة:
+ *   * في الوضع الفاتح: خط عربي ديواني كحلي غني مع شمس ذهبية (أعلى تباين وأناقة).
+ *   * في الوضع الداكن: خط متوهج بالسيان والأزرق الملكي مع تفاصيل مضيئة وخلفية متناسقة.
  */
 export const AlShamsBrandLogo: React.FC<{
   className?: string;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  maxWidth?: number | string;
+  size?: string;
   showSubtitle?: boolean;
-}> = ({ className = '', size = 'md', showSubtitle = true }) => {
-  const sizeMap = {
-    sm: { icon: 'w-8 h-8', title: 'text-sm', sub: 'text-[8px]', gap: 'gap-2' },
-    md: { icon: 'w-12 h-12', title: 'text-lg sm:text-xl', sub: 'text-[9px]', gap: 'gap-2.5' },
-    lg: { icon: 'w-16 h-16', title: 'text-2xl', sub: 'text-[11px]', gap: 'gap-3' },
-    xl: { icon: 'w-24 h-24', title: 'text-3xl sm:text-4xl', sub: 'text-[13px]', gap: 'gap-4' },
-  };
+  isDark?: boolean;
+  alt?: string;
+}> = ({ className = '', maxWidth = 180, size, showSubtitle: _showSubtitle, isDark, alt = 'لوجو الشمس كرافت الرسمي' }) => {
+  let effectiveMaxWidth = maxWidth;
+  if (size === 'sm') effectiveMaxWidth = 120;
+  else if (size === 'md') effectiveMaxWidth = 150;
+  else if (size === 'lg') effectiveMaxWidth = 180;
+  const maxWStyle = typeof effectiveMaxWidth === 'number' ? `${effectiveMaxWidth}px` : effectiveMaxWidth;
 
-  const currentSize = sizeMap[size];
-
-  return (
-    <div className={`flex items-center ${currentSize.gap} select-none ${className}`}>
-      {/* Official Transparent Falcon Emblem */}
-      <div className={`relative ${currentSize.icon} flex-shrink-0 flex items-center justify-center`}>
+  if (isDark === true) {
+    return (
+      <div
+        className={`inline-flex items-center justify-center select-none ${className}`}
+        style={{ maxWidth: maxWStyle }}
+      >
         <img
-          src={alshamsFalconEmblemImg}
-          alt="شعار الشمس كرافت الرسمي"
-          className="w-full h-full object-contain filter drop-shadow-sm select-none"
+          src={brandLogoDark}
+          alt={alt}
+          className="w-full h-auto max-h-12 object-contain select-none filter drop-shadow-[0_0_14px_rgba(14,165,233,0.35)]"
         />
       </div>
+    );
+  }
 
-      {/* Brand Name Calligraphy & Typography */}
-      <div className="flex flex-col text-right">
-        <div className="flex items-center gap-1.5 leading-none">
-          <span className={`font-[800] ${currentSize.title} tracking-tight text-stone-900 dark:text-amber-300 font-sans`}>
-            منظومة الشمساوية
-          </span>
-          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 font-mono">
-            ERP
-          </span>
-        </div>
-        {showSubtitle && (
-          <span className={`${currentSize.sub} font-mono tracking-widest uppercase text-stone-500 dark:text-stone-400 mt-1`}>
-            EL-SHAMSAWEYA
-          </span>
-        )}
+  if (isDark === false) {
+    return (
+      <div
+        className={`inline-flex items-center justify-center select-none ${className}`}
+        style={{ maxWidth: maxWStyle }}
+      >
+        <img
+          src={brandLogoLight}
+          alt={alt}
+          className="w-full h-auto max-h-12 object-contain select-none filter drop-shadow-2xs"
+        />
       </div>
+    );
+  }
+
+  // Automatic CSS-based responsive theme switching (max width 180px strictly enforced)
+  return (
+    <div
+      className={`inline-flex items-center justify-center select-none shrink-0 ${className}`}
+      style={{ maxWidth: maxWStyle }}
+    >
+      {/* Light Mode Logo */}
+      <img
+        src={brandLogoLight}
+        alt={alt}
+        className="w-full h-auto max-h-12 object-contain dark:hidden select-none filter drop-shadow-2xs"
+      />
+      {/* Dark / Night Mode Logo */}
+      <img
+        src={brandLogoDark}
+        alt={alt}
+        className="w-full h-auto max-h-12 object-contain hidden dark:block select-none filter drop-shadow-[0_0_14px_rgba(14,165,233,0.35)]"
+      />
     </div>
   );
 };

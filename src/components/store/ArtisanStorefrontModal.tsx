@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { getClientPrivacyActive, addToCart } from '../../services/marketplaceCartService';
 import { getWorkshopCleanSlug, getWorkshopStoreUrl } from '../../utils/slugify';
+import { AlShamsBrandLogo, AlShamsBrandIcon } from '../brand/BrandAssets';
 
 interface TreasuryAccountOption {
   id: string;
@@ -475,13 +476,16 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-stone-300 hover:text-white flex items-center justify-center transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-3">
+            <AlShamsBrandLogo maxWidth={125} />
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-stone-300 hover:text-white flex items-center justify-center transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Feedback Alert */}
@@ -899,8 +903,11 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
           <div className="p-4 sm:p-6 flex-1 overflow-y-auto flex flex-col items-center justify-center text-center space-y-5">
             {/* Printable Frame */}
             <div className="p-5 sm:p-6 rounded-3xl bg-[#FDFBF7] text-[#0A1128] border-4 border-amber-500 shadow-2xl max-w-sm w-full space-y-4">
-              <div className="space-y-1">
-                <span className="text-[10px] font-black uppercase tracking-widest text-amber-700">
+              <div className="space-y-2">
+                <div className="flex justify-center">
+                  <AlShamsBrandLogo maxWidth={140} />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-amber-700 block">
                   منظومة الشمساوية • هاند ميد مصر ☀️
                 </span>
                 <h3 className="text-lg sm:text-xl font-black text-[#0A1128]">
@@ -920,11 +927,11 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                   level="H"
                   includeMargin={true}
                   imageSettings={{
-                    src: '/alshams_falcon_emblem.png',
+                    src: '/brand_icon_light.png',
                     x: undefined,
                     y: undefined,
-                    height: 40,
-                    width: 40,
+                    height: 44,
+                    width: 44,
                     excavate: true,
                   }}
                 />

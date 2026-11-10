@@ -33,6 +33,7 @@ import {
 } from '../../services/marketplaceCartService';
 import { MarketplaceCartModal } from '../marketplace/MarketplaceCartModal';
 import { playSuccessSound, playAddToCartSound, triggerHaptic } from '../../lib/sounds';
+import { AlShamsBrandLogo, AlShamsBrandIcon } from '../brand/BrandAssets';
 
 interface PublicStorefrontViewProps {
   slug: string;
@@ -230,9 +231,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   }}
                 />
               ) : (
-                <span className="font-black text-sm text-amber-600 dark:text-amber-400">
-                  {brandName.slice(0, 2).toUpperCase()}
-                </span>
+                <AlShamsBrandIcon size={32} />
               )}
             </div>
             <div>
@@ -256,8 +255,16 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             </div>
           </div>
 
-          {/* Right Actions: Central Market Button, Cart & Share */}
-          <div className="flex items-center gap-2">
+          {/* Right Actions: Central Brand Logo, Central Market Button, Cart & Share */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <a
+              href="/#/market"
+              className="hidden lg:flex items-center hover:opacity-90 transition cursor-pointer"
+              title="سوق الشمساوية المركزي"
+            >
+              <AlShamsBrandLogo maxWidth={130} />
+            </a>
+
             <a
               href="/#/market"
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-xs font-black border border-amber-500/30 transition cursor-pointer"
@@ -752,6 +759,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
       {/* Unified Elegant Footer */}
       <footer className="mt-16 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 py-8 px-4 sm:px-6 text-center space-y-3">
+        {/* Central Logo */}
+        <div className="flex justify-center mb-1">
+          <AlShamsBrandLogo maxWidth={150} />
+        </div>
+
         {/* Line 1: Orange prominent branding */}
         <p className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400">
           منظومة الشمساوية للفنون والأعمال اليدوية

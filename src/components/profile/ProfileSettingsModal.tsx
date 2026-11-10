@@ -60,6 +60,8 @@ import {
   playTapSound,
 } from '../../lib/sounds';
 import { generateCleanStoreSlug, getWorkshopStoreUrl } from '../../utils/slugify';
+import { QRCodeCanvas } from 'qrcode.react';
+import { AlShamsBrandLogo, AlShamsBrandIcon } from '../brand/BrandAssets';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -621,13 +623,16 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           >
             <X className="w-5 h-5" />
           </button>
-          <div>
-            <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100">
-              إعدادات البراند وملف {getGenderArtistTitle(gender)}
-            </h2>
-            <p className="text-[11px] text-stone-500 dark:text-stone-400">
-              تخصيص الهوية التجارية واللوجو الخاص، وإدارة أمان المنظومة
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100">
+                إعدادات البراند وملف {getGenderArtistTitle(gender)}
+              </h2>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                تخصيص الهوية التجارية واللوجو الخاص، وإدارة أمان المنظومة
+              </p>
+            </div>
+            <AlShamsBrandLogo maxWidth={125} />
           </div>
         </div>
 
@@ -740,8 +745,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     className="w-16 h-16 rounded-2xl object-contain bg-stone-100 dark:bg-stone-800 p-1 border-2 border-amber-500 shadow-md"
                   />
                 ) : (
-                  <div className="w-16 h-16 rounded-2xl bg-amber-100 dark:bg-amber-950/60 flex items-center justify-center border-2 border-dashed border-amber-400 text-amber-600 dark:text-amber-400 font-black text-xl">
-                    {artistName.charAt(0) || 'ف'}
+                  <div className="w-16 h-16 rounded-2xl bg-amber-100 dark:bg-amber-950/60 flex items-center justify-center border-2 border-dashed border-amber-400 p-2">
+                    <AlShamsBrandIcon size={44} />
                   </div>
                 )}
                 <div>
@@ -978,6 +983,26 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       <ExternalLink className="w-3.5 h-3.5" />
                       <span>معاينة المتجر</span>
                     </a>
+                  </div>
+                </div>
+
+                {/* Personal Store QR Code Card */}
+                <div className="p-3 rounded-xl bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row items-center gap-3">
+                  <div className="p-1.5 bg-white rounded-lg border border-stone-200 shrink-0 shadow-xs">
+                    <QRCodeCanvas
+                      value={typeof window !== 'undefined' ? `${window.location.origin}/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}` : `https://alshamsawiyah.ai.studio/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`}
+                      size={80}
+                      level="M"
+                      includeMargin={false}
+                    />
+                  </div>
+                  <div className="flex-1 text-right">
+                    <span className="text-xs font-black text-amber-900 dark:text-amber-200 block">
+                      كود QR الخاص بمتجرك الفردي
+                    </span>
+                    <span className="text-[10px] text-stone-500 block leading-tight mt-0.5">
+                      يمكنك طباعة هذا الكود أو إرساله لعملائك لفتح متجرك مباشرة والشراء دون وسيط.
+                    </span>
                   </div>
                 </div>
               </div>

@@ -19,7 +19,7 @@ import { ConnectionStatus } from './ConnectionStatus';
 import { useTranslation } from '../../lib/i18n';
 import { tenantStorage } from '../../db/dexieDB';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
-import alshamsFalconEmblem from '../../assets/alshams_falcon_emblem.png';
+import { AlShamsBrandIcon, AlShamsBrandLogo } from '../brand/BrandAssets';
 
 export interface NavbarProps {
   profile: UserProfile;
@@ -170,21 +170,27 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Menu className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 dark:text-amber-400" />
           </button>
 
-          {/* 2. اللوجو ممثلاً لمنظومة الشمساوية بصورة أيقونية نقية بدون كثرة كتابة */}
+          {/* 2. اللوجو المربع المتجاوب مع السمة (صقر الشمس كرافت) */}
           <button
             type="button"
             onClick={onGoHome}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-850 hover:bg-amber-500/10 dark:hover:bg-stone-800 hover:border-amber-400 transition-all cursor-pointer flex items-center justify-center active:scale-95 group shrink-0 select-none shadow-xs"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-850 hover:bg-amber-500/10 dark:hover:bg-stone-800 hover:border-amber-400 transition-all cursor-pointer flex items-center justify-center active:scale-95 group shrink-0 select-none shadow-xs overflow-hidden"
             title={tr('home_screen')}
             aria-label={tr('app_name')}
           >
             <div className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <img
-                src={alshamsFalconEmblem}
-                alt={tr('app_name')}
-                className="w-full h-full object-contain filter drop-shadow-2xs select-none"
-              />
+              <AlShamsBrandIcon size="sm" />
             </div>
+          </button>
+
+          {/* اللوجو النصي الكامل المتجاوب حسب السمة (لا يتجاوز 150px) */}
+          <button
+            type="button"
+            onClick={onGoHome}
+            className="hidden md:inline-flex items-center cursor-pointer transition hover:opacity-90 active:scale-98 select-none"
+            title={tr('home_screen')}
+          >
+            <AlShamsBrandLogo maxWidth={145} />
           </button>
 
           {/* 3. مركز التنبيهات الموحد (Unified Bell with Dual Badges for Operational & Store Messages) */}
