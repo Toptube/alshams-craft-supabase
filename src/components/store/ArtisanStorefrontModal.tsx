@@ -42,6 +42,7 @@ import {
   Check,
 } from 'lucide-react';
 import { getClientPrivacyActive, addToCart } from '../../services/marketplaceCartService';
+import { getWorkshopCleanSlug, getWorkshopStoreUrl } from '../../utils/slugify';
 
 interface TreasuryAccountOption {
   id: string;
@@ -88,14 +89,8 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   const [scheduledDeliveryDate, setScheduledDeliveryDate] = useState<string>('');
 
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
-  const artisanSlug = (profile.brandName || profile.artistName || 'artisan')
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^\w\u0621-\u064A-]/g, '');
-
-  const storeUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/store/${encodeURIComponent(artisanSlug)}`
-    : `https://alshams-craft.com/store/${artisanSlug}`;
+  const artisanSlug = getWorkshopCleanSlug(profile);
+  const storeUrl = getWorkshopStoreUrl(profile);
 
   useEffect(() => {
     if (!isOpen || !tenantId) return;

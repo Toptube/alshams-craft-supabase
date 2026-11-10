@@ -3,6 +3,7 @@ import { tenantStorage } from '../db/dexieDB';
 import { supabase } from '../lib/supabase';
 import { dispatchArtisanNotification } from '../lib/pushNotifications';
 import { playPostaNotificationSound } from '../lib/sounds';
+import { enqueueOfflineMutation } from '../db/offlineMutationQueue';
 
 const CART_STORAGE_KEY = 'alshams_marketplace_cart';
 const CUSTOMER_STORAGE_KEY = 'alshams_customer_session';
@@ -277,6 +278,42 @@ export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
     // 4. Broadcast global event for live panels
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('alshams_new_order_received', { detail: order }));
+    }
+
+    // 5. Cloud Sync to Supabase marketplace_orders
+    const cloudPayload = {
+      order_number: order.invoiceNumber || `SHAMS-${Date.now().toString().slice(-5)}`,
+      workshop_id: workshopId,
+      customer_name: order.customerName,
+      customer_phone: order.customerPhone,
+      customer_address: order.detailedAddress || '',
+      governorate: order.governorate || 'القاهرة',
+      items: order.items || [],
+      subtotal: order.subtotal || 0,
+      shipping_fee: order.shipping || order.shippingCost || 0,
+      total_amount: order.finalTotal || order.totalAmount || 0,
+      deposit_paid: order.advancePaymentAmount || order.paidAmount || 0,
+      remaining_amount: order.remainingAmount || 0,
+      payment_method: order.paymentMethod || 'vodafone_cash',
+      status: 'pending',
+      notes: order.notes || '',
+      created_at: new Date(order.createdAt || Date.now()).toISOString(),
+      updated_at: new Date(order.updatedAt || Date.now()).toISOString(),
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      Promise.resolve(supabase.from('marketplace_orders').insert(cloudPayload))
+        .then(({ error }: any) => {
+          if (error) {
+            console.warn('[Supabase marketplace_orders] Notice:', error.message);
+            enqueueOfflineMutation({ workshopId, type: 'order_create', payload: cloudPayload });
+          }
+        })
+        .catch(() => {
+          enqueueOfflineMutation({ workshopId, type: 'order_create', payload: cloudPayload });
+        });
+    } else {
+      enqueueOfflineMutation({ workshopId, type: 'order_create', payload: cloudPayload });
     }
   } catch (e) {
     console.warn('Failed saving central order:', e);

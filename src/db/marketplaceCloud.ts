@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { SavedProductRecord, UserProfile } from '../types';
 import { enqueueOfflineMutation } from './offlineMutationQueue';
+import { matchesWorkshopSlug } from '../utils/slugify';
 
 export interface CloudMarketplaceProduct {
   id: string;
@@ -341,23 +342,7 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
       .select('*');
 
     if (wsData && Array.isArray(wsData)) {
-      const found = wsData.find((w: any) => {
-        const bName = (w.brand_name || w.brandName || '').toLowerCase().trim();
-        const bSlug = bName.replace(/\s+/g, '-');
-        const aName = (w.artist_name || w.artistName || '').toLowerCase().trim();
-        const aSlug = aName.replace(/\s+/g, '-');
-        const idMatch = (w.id || '').toLowerCase().trim();
-
-        return (
-          bSlug === cleanSlug ||
-          bName === cleanSlug ||
-          aSlug === cleanSlug ||
-          aName === cleanSlug ||
-          idMatch === cleanSlug ||
-          bName.includes(cleanSlug) ||
-          cleanSlug.includes(bSlug)
-        );
-      });
+      const found = wsData.find((w: any) => matchesWorkshopSlug(w, cleanSlug));
 
       if (found) {
         // Query products by workshop_id OR by matching brand_name

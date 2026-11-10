@@ -370,36 +370,30 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     <div className="min-h-screen bg-[#080F1E] text-white font-sans pb-20 max-w-full overflow-x-hidden" dir="rtl">
       {/* 1. Top Marketplace Navigation Bar */}
       <header className="sticky top-0 z-40 bg-[#0C1427]/95 backdrop-blur-md border-b border-amber-500/30 px-3 sm:px-6 py-3 shadow-xl">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4 flex-wrap">
-          {/* Back & Logo */}
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={onNavigateHome}
-              className="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-white transition flex items-center gap-1.5 text-xs font-black border border-amber-500/30 cursor-pointer shrink-0 shadow-sm active:scale-95"
-              title="العودة للرئيسية"
-            >
-              <ArrowRight className="w-4 h-4" />
-              <span>الرئيسية 🏠</span>
-            </button>
-
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-600 to-amber-400 text-stone-950 flex items-center justify-center font-black shadow-md shrink-0">
-                🛍️
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-sm sm:text-base font-black text-amber-300 flex items-center gap-1.5 truncate">
-                  <span>سوق الشمساوية المركزي</span>
-                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 hidden md:inline-block">
-                    ضمان الشمس كرافت 🛡️
-                  </span>
-                </h1>
-                <p className="text-[10px] text-[#EADBC8] truncate hidden sm:block">
-                  ملتقى أروع المشغولات اليدوية والديكور من ورش وفناني مصر
-                </p>
-              </div>
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+          {/* Logo & Direct Home/Market link */}
+          <button
+            type="button"
+            onClick={() => {
+              if (window.location.hash) window.location.hash = '#/market';
+              setSearchQuery('');
+              setSelectedDecorCategory('all');
+            }}
+            className="flex items-center gap-2.5 cursor-pointer text-right group"
+            title="سوق الشمساوية المركزي"
+          >
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-600 to-amber-400 text-stone-950 flex items-center justify-center font-black shadow-md shrink-0 group-hover:scale-105 transition">
+              🛍️
             </div>
-          </div>
+            <div>
+              <h1 className="text-base sm:text-lg font-black text-amber-300 flex items-center gap-2">
+                <span>سوق الشمساوية 🛍️</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 hidden sm:inline-block font-bold">
+                  ضمان الجودة 🛡️
+                </span>
+              </h1>
+            </div>
+          </button>
 
           {/* Actions: Cart, Customer Profile, Artisan Store */}
           <div className="flex items-center gap-2 shrink-0">
@@ -453,46 +447,8 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         </div>
       </header>
 
-      {/* 2. Brand Identity & Quality Guarantee Hero Banner */}
-      <div className="px-4 pt-6 pb-4 max-w-7xl mx-auto space-y-4">
-        {/* Quality Banner Card */}
-        <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-[#0C1427] via-[#142347] to-[#0C1427] border-2 border-amber-500/40 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          
-          <div className="relative z-10 max-w-3xl mx-auto text-center space-y-3">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-300 text-xs font-bold">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>فحص يدوي متخصص وضمان جودة الفنش الرفيع</span>
-            </div>
-
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white leading-tight">
-              سوق الشمساوية المركزي للديكور والهاند ميد 🦅✨
-            </h2>
-
-            {/* Exact Required Brand Assurance Text */}
-            <p className="text-xs sm:text-sm text-[#EADBC8] leading-relaxed font-medium">
-              "سوق الشمساوية بيتم فيه انتقاء الفنانين على أعلى مستوى وكفاءة.. وأي قطعة بتقتنيها بيتم فحصها ومراجعتها يدوياً من متخصصين لضمان أعلى جودة وفنش قبل ما تخرج لك، وعلشان كده بتستلم قطعتك بضمان رسمي من شركة الشمس كرافت ✨"
-            </p>
-
-            {/* Support and Trust Contact */}
-            <div className="pt-2 flex flex-wrap items-center justify-center gap-3 text-xs">
-              <div className="flex items-center gap-1.5 text-stone-300">
-                <Truck className="w-3.5 h-3.5 text-amber-400" />
-                <span>شحن وتوصيل لجميع محافظات مصر</span>
-              </div>
-              <span className="text-stone-500">•</span>
-              <a
-                href={`https://wa.me/20${OFFICIAL_SUPPORT_PHONE}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300 font-bold underline"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span>الدعم الفني وخدمة العملاء: {OFFICIAL_SUPPORT_PHONE}</span>
-              </a>
-            </div>
-          </div>
-        </div>
+      {/* 2. Streamlined Search and Category Hub (No Lengthy Clutter) */}
+      <div className="px-4 pt-6 pb-2 max-w-7xl mx-auto space-y-4">
 
         {/* Search Bar */}
         <div className="max-w-2xl mx-auto">
@@ -1012,6 +968,23 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           setTimeout(() => setFeedback(''), 4000);
         }}
       />
+      {/* Unified 2-Line Footer */}
+      <footer className="mt-16 bg-[#0C1427] border-t border-amber-500/30 py-8 px-4 sm:px-6 text-center space-y-3">
+        <p className="text-sm sm:text-base font-black text-amber-500">
+          منظومة الشمساوية للفنون والأعمال اليدوية
+        </p>
+        <div className="flex items-center justify-center pt-1">
+          <a
+            href="https://wa.me/201000996059"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition cursor-pointer active:scale-95"
+          >
+            <Phone className="w-4 h-4" />
+            <span>الدعم الفني 🟢</span>
+          </a>
+        </div>
+      </footer>
     </div>
   );
 };

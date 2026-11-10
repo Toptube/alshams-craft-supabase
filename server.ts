@@ -1957,6 +1957,7 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
 
       if (Array.isArray(supaWorkshops)) {
         ws = supaWorkshops.find((w: any) => {
+          const sSlug = (w.store_slug || w.storeSlug || '').toLowerCase().trim();
           const bName = (w.brand_name || '').toLowerCase().trim();
           const bSlug = bName.replace(/\s+/g, '-');
           const aName = (w.artist_name || '').toLowerCase().trim();
@@ -1964,6 +1965,7 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
           const idMatch = (w.id || '').toLowerCase().trim();
 
           return (
+            sSlug === slug ||
             bSlug === slug ||
             bName === slug ||
             aSlug === slug ||
@@ -1979,10 +1981,11 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
     if (!ws) {
       const workshops = loadPersistentWorkshops();
       ws = workshops.find((w: any) => {
+        const sSlug = (w.store_slug || w.storeSlug || '').toLowerCase().trim();
         const nameSlug = (w.brandName || '').toLowerCase().replace(/\s+/g, '-');
         const artistSlug = (w.artistName || '').toLowerCase().replace(/\s+/g, '-');
         const idMatch = (w.id || '').toLowerCase();
-        return nameSlug === slug || artistSlug === slug || idMatch === slug;
+        return sSlug === slug || nameSlug === slug || artistSlug === slug || idMatch === slug;
       });
     }
 

@@ -114,6 +114,9 @@ export interface WorkshopProfile {
   medalAwardedAt?: string | number | null;
   medal_note?: string;
   medalNote?: string;
+  // Store Slug (رابط المتجر النظيف المخصص)
+  storeSlug?: string;
+  store_slug?: string;
   createdAt: number;
   updatedAt: number;
   createdBy: string;

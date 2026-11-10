@@ -344,6 +344,11 @@ export function mapWorkshopRowToUserProfile(row: any, userEmail?: string): UserP
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
     updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
     createdBy: userEmail || row.email || '',
+    store_slug: row.store_slug || row.storeSlug || undefined,
+    storeSlug: row.store_slug || row.storeSlug || undefined,
+    medal: row.medal || undefined,
+    medalNote: row.medal_note || row.medalNote || undefined,
+    ratingStars: row.rating_stars || row.ratingStars || 5,
     socials: row.settings?.socials || undefined,
     defaultWholesaleDiscountPercent: row.settings?.defaultWholesaleDiscountPercent ?? 25,
     enableDailySalesReminder: row.settings?.enableDailySalesReminder ?? true,
@@ -517,6 +522,8 @@ export async function updateWorkshopProfileInSupabase(
     settings?: any;
     logoData?: string;
     welcomeShown?: boolean;
+    storeSlug?: string;
+    store_slug?: string;
   }
 ): Promise<{ updated: UserProfile | null; error: SupabaseErrorResult | null }> {
   try {
@@ -533,6 +540,8 @@ export async function updateWorkshopProfileInSupabase(
     if (fields.settings !== undefined) payload.settings = fields.settings;
     if (fields.logoData !== undefined) payload.logo_data = fields.logoData;
     if (fields.welcomeShown !== undefined) payload.welcome_shown = fields.welcomeShown;
+    const finalSlug = fields.store_slug || fields.storeSlug;
+    if (finalSlug !== undefined) payload.store_slug = finalSlug.trim().toLowerCase().replace(/\s+/g, '-');
 
     const { data, error } = await supabase
       .from('workshops')

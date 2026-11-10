@@ -321,11 +321,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               type="button"
               onClick={onNavigateToMarketplace}
-              className="px-2.5 sm:px-3 py-1.5 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700/80 font-black text-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
-              title="تصفح سوق الشمساوية المركزي متعدد التجار"
+              className="px-2 sm:px-3 py-1.5 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700/80 font-black text-[11px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs shrink-0"
+              title="تصفح سوق الشمساوية المركزي (/#/market)"
+              aria-label="سوق الشمساوية"
             >
-              <span>🛍️</span>
-              <span className="hidden md:inline">سوق الشمساوية</span>
+              <span className="text-sm">🛍️</span>
+              <span className="font-black">سوق الشمساوية</span>
             </button>
           )}
 
@@ -334,11 +335,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               type="button"
               onClick={onOpenArtisanStore}
-              className="px-2.5 sm:px-3 py-1.5 rounded-2xl bg-[#0c1427] hover:bg-[#131e38] text-amber-300 border border-amber-500/40 font-black text-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
-              title="فتح متجر الورشة ومولد كود QR والطلبيات"
+              className="px-2 sm:px-3 py-1.5 rounded-2xl bg-[#0c1427] hover:bg-[#131e38] text-amber-300 border border-amber-500/40 font-black text-[11px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition active:scale-95 cursor-pointer shadow-xs shrink-0"
+              title="فتح متجر الورشة النظيف والطلبيات (/#/store/:cleanSlug)"
+              aria-label="متجري"
             >
-              <span>🏪</span>
-              <span className="hidden md:inline">متجري</span>
+              <span className="text-sm">🏪</span>
+              <span className="font-black">متجري</span>
             </button>
           )}
 

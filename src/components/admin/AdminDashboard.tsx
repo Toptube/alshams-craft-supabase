@@ -18,6 +18,7 @@ import {
   fetchPendingMarketplaceProducts,
   CloudMarketplaceProduct,
 } from '../../db/marketplaceCloud';
+import { getWorkshopCleanSlug } from '../../utils/slugify';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -2532,6 +2533,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       <th className="py-2.5 px-3">تكلفة الإنتاج</th>
                       <th className="py-2.5 px-3">سعر الجملة</th>
                       <th className="py-2.5 px-3">سعر القطاعي</th>
+                      <th className="py-2.5 px-3 text-center">إجراءات اعتماد السوق المركزي</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-semibold">
@@ -2549,6 +2551,37 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                         </td>
                         <td className="py-2.5 px-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
                           {p.retail_price ?? p.price ?? 0} {currentSelectedWorkshop.currencySymbol}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const targetId = p.id || p.product_id;
+                                await reviewMarketplaceProduct(targetId, 'approved', undefined, profile.email);
+                                playSuccessSound();
+                                loadDeepData(selectedWorkshopId);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
+                              title="اعتماد فوري للعرض بالسوق المركزي"
+                            >
+                              <span>اعتماد بالسوق 🟢</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const targetId = p.id || p.product_id;
+                                const reason = window.prompt('يرجى كتابة ملاحظات الإرجاع للفنان:') || 'يرجى مراجعة وتدقيق مواصفات المشغولة';
+                                await reviewMarketplaceProduct(targetId, 'rejected', reason, profile.email);
+                                playAlertSound();
+                                loadDeepData(selectedWorkshopId);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
+                              title="إرجاع المشغولة للفنان بملاحظات"
+                            >
+                              <span>إرجاع بملاحظات 🔴</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -6073,7 +6106,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
                     {/* 2. Open public storefront */}
                     <a
-                      href={`/#/store/${encodeURIComponent((auditingWorkshop.brandName || auditingWorkshop.id).replace(/\s+/g, '-'))}`}
+                      href={`/#/store/${getWorkshopCleanSlug(auditingWorkshop)}`}
                       target="_blank"
                       rel="noreferrer"
                       className="px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition text-center"

@@ -59,6 +59,7 @@ import {
   playButtonClickSound,
   playTapSound,
 } from '../../lib/sounds';
+import { generateCleanStoreSlug, getWorkshopStoreUrl } from '../../utils/slugify';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -143,6 +144,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [workshopClosingHour, setWorkshopClosingHour] = useState<string>(
     profile.workshopClosingHour || '21:00'
   );
+  const [storeSlug, setStoreSlug] = useState<string>(profile.storeSlug || profile.store_slug || '');
+  const [copiedStoreLink, setCopiedStoreLink] = useState<boolean>(false);
   const [testReminderSent, setTestReminderSent] = useState<boolean>(false);
 
   // Data Export state
@@ -422,6 +425,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         settings: settingsPayload,
         logoData: logoUrl || '',
         welcomeShown: profile.welcomeShown,
+        storeSlug: storeSlug.trim() || undefined,
+        store_slug: storeSlug.trim() || undefined,
       });
 
       if (error) {
@@ -435,6 +440,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         updated.dailySalesReminderMode = dailySalesReminderMode;
         updated.dailySalesReminderTime = dailySalesReminderTime;
         updated.workshopClosingHour = workshopClosingHour;
+        updated.storeSlug = storeSlug.trim() || undefined;
+        updated.store_slug = storeSlug.trim() || undefined;
         await tenantStorage.saveProfile(updated);
         await tenantStorage.generateProactiveNotifications(workshopId, updated);
         playSuccessSound();
@@ -892,6 +899,86 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   <span className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
                     * تُخصم هذه النسبة من هامش الربح الصافي فقط عند حساب سعر الجملة مع حماية وضمان تغطية كافة تكاليف الخامات وأجور اليد العاملة.
                   </span>
+                </div>
+              </div>
+
+              {/* رابط متجر الفنان الموحد والنظيف (Clean Store Slug) */}
+              <div className="sm:col-span-2 p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🏪</span>
+                    <div>
+                      <h4 className="text-xs font-black text-amber-950 dark:text-amber-200">
+                        رابط متجر الفنان الموحد (Clean Store Slug)
+                      </h4>
+                      <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
+                        رابط نظيف ومخصص لمتجرك الفردي يمكنك نشره ومشاركته مع عملائك
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold mb-1 text-stone-700 dark:text-stone-300">
+                    معرف المتجر المخصص (Slug)
+                  </label>
+                  <div className="flex items-center gap-2" dir="ltr">
+                    <span className="text-xs font-mono font-bold text-stone-500 shrink-0">
+                      /#/store/
+                    </span>
+                    <input
+                      type="text"
+                      value={storeSlug}
+                      onChange={(e) =>
+                        setStoreSlug(
+                          e.target.value
+                            .toLowerCase()
+                            .replace(/\s+/g, '-')
+                            .replace(/[^\w\u0621-\u064A-]/g, '')
+                        )
+                      }
+                      placeholder={generateCleanStoreSlug(brandName || artistName || 'my-store')}
+                      className="flex-1 px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-white dark:bg-stone-850 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <span className="text-[10px] text-stone-500 mt-1 block" dir="rtl">
+                    إذا تركت الحقل فارغاً، سيتم توليده تلقائياً من اسم البراند (مثال: {generateCleanStoreSlug(brandName || artistName || 'my-store')}).
+                  </span>
+                </div>
+
+                <div className="pt-2 border-t border-amber-200 dark:border-amber-800/60 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-[11px] font-mono font-bold text-amber-900 dark:text-amber-200 break-all select-all">
+                    {typeof window !== 'undefined'
+                      ? `${window.location.origin}/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`
+                      : `/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url =
+                          typeof window !== 'undefined'
+                            ? `${window.location.origin}/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`
+                            : '';
+                        navigator.clipboard.writeText(url);
+                        setCopiedStoreLink(true);
+                        setTimeout(() => setCopiedStoreLink(false), 2000);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-xs"
+                    >
+                      {copiedStoreLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedStoreLink ? 'تم النسخ' : 'نسخ الرابط'}</span>
+                    </button>
+                    <a
+                      href={`/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold flex items-center gap-1.5 transition"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>معاينة المتجر</span>
+                    </a>
+                  </div>
                 </div>
               </div>
 
