@@ -1117,9 +1117,9 @@ export const App: React.FC = () => {
         onNavigateToSales={() => navigateTo('sales')}
         onOpenNewClientModal={() => setIsNewClientOpen(true)}
         onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
-        onNavigateToCatalog={() => navigateTo('catalog')}
+        onNavigateToCatalog={handleNavigateToCatalog}
         onNavigateToMarketplace={() => navigateTo('marketplace')}
-        onOpenArtisanStore={() => setIsArtisanStoreModalOpen(true)}
+        onOpenArtisanStore={() => handleNavigateToCatalog('store')}
         isDarkMode={isDarkMode}
         onToggleTheme={handleToggleTheme}
         themeMode={themeMode}
@@ -1540,6 +1540,8 @@ export const App: React.FC = () => {
           onClose={() => setIsSidebarOpen(false)}
           profile={profile}
           activeView={activeView}
+          onNavigateToCatalog={handleNavigateToCatalog}
+          onOpenArtisanStore={() => handleNavigateToCatalog('store')}
           onSelectView={(v) => {
             if (v === 'appeals') {
               setAdminInitialTab('appeals');
@@ -1568,7 +1570,9 @@ export const App: React.FC = () => {
             } else if (v === 'marketplace') {
               navigateTo('marketplace');
             } else if (v === 'store') {
-              setIsArtisanStoreModalOpen(true);
+              handleNavigateToCatalog('store');
+            } else if (v === 'catalog') {
+              handleNavigateToCatalog('catalog');
             } else {
               navigateTo(v as ActiveView);
             }

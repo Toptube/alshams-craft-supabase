@@ -259,7 +259,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({
               </button>
 
               <a
-                href={`https://wa.me/201000000000?text=${encodeURIComponent(
+                href={`https://wa.me/201000996059?text=${encodeURIComponent(
                   `السلام عليكم يا باشمهندس حسام، بخصوص إيقاف ورشة "${workshop.brandName}" (كود: ${workshop.id.slice(0, 8)}) أود الاستفسار.`
                 )}`}
                 target="_blank"

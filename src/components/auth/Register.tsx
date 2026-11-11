@@ -95,7 +95,7 @@ export const Register: React.FC<RegisterProps> = ({
                 required
                 value={brandName}
                 onChange={(e) => setBrandName(e.target.value)}
-                placeholder="مثال: شمس كرافت"
+                placeholder="مثال: ورشة الإبداع اليدوي"
                 className="w-full px-3 py-2 pr-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
               />
               <Building2 className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />

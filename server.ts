@@ -1473,7 +1473,7 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
       req.user?.user_metadata?.brand_name ||
       req.user?.user_metadata?.brandName ||
       req.body?.brandName ||
-      'ورشة الشمس كرافت';
+      'ورشة الإبداع الحرفي';
 
     const shamousaRunner: any =
       (shamousaModule as any).handleShamousaChat ||
@@ -2108,8 +2108,8 @@ function normalizeCloudProductRow(row: any) {
 app.get(['/market', '/marketplace'], async (req: Request, res: Response, next: NextFunction) => {
   try {
     const pageTitle = `سوق الشمساوية المركزي | أرقى المشغولات اليدوية والديكورات الحرفية`;
-    const pageDesc = `تسوق مباشرة من كبار فناني المشغولات اليدوية والمكرميات والكروشيه بضمان شركة الشمس كرافت. عاين واستلم بالضمان وعربون 33% فقط.`;
-    const pageImage = '/alshams_falcon_emblem.png';
+    const pageDesc = `تسوق مباشرة من كبار فناني المشغولات اليدوية والمكرميات والكروشيه بضمان منظومة الشمساوية للفنون والأعمال اليدوية. عاين واستلم بالضمان وعربون 33% فقط.`;
+    const pageImage = '/brand icon light.png';
 
     const indexPath = isProduction
       ? path.resolve(__dirname, 'dist/index.html')
@@ -2178,9 +2178,9 @@ app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: 
     }
 
     const workshopName = ws?.brandName || ws?.artistName || cleanSlug.replace(/-/g, ' ');
-    const pageTitle = `متجر ${workshopName} | عائلة الشمساوية`;
-    const pageDesc = `تصفح أرقى المشغولات اليدوية والديكورات الحرفية بضمان شركة الشمس كرافت.`;
-    const pageImage = ws?.logoUrl || '/alshams_falcon_emblem.png';
+    const pageTitle = `متجر ${workshopName} | منظومة الشمساوية`;
+    const pageDesc = `تصفح أرقى المشغولات اليدوية والديكورات الحرفية بضمان منظومة الشمساوية للفنون والأعمال اليدوية.`;
+    const pageImage = ws?.logoUrl || '/brand icon light.png';
 
     const indexPath = isProduction
       ? path.resolve(__dirname, 'dist/index.html')

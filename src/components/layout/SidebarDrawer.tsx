@@ -43,6 +43,7 @@ import {
   RefreshCw,
   Store,
   ShoppingBag,
+  Package,
   PackagePlus,
   Zap,
   Globe,
@@ -58,6 +59,8 @@ interface SidebarDrawerProps {
   profile: UserProfile;
   activeView: string;
   onSelectView: (view: string) => void;
+  onNavigateToCatalog?: (tab?: 'catalog' | 'store') => void;
+  onOpenArtisanStore?: () => void;
   unreadNotificationsCount?: number;
   unreadMessagesCount?: number;
   onOpenNotifications: () => void;
@@ -84,6 +87,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   profile,
   activeView,
   onSelectView,
+  onNavigateToCatalog,
+  onOpenArtisanStore,
   unreadNotificationsCount = 0,
   unreadMessagesCount = 0,
   onOpenNotifications,
@@ -408,6 +413,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
     },
   ];
 
+  const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64;
+
   if (!isOpen) return null;
 
   return (
@@ -418,11 +425,30 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="إغلاق القائمة"
             className="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
-          <AlShamsBrandLogo size="sm" showSubtitle={false} />
+          <div className="flex items-center gap-2">
+            {workshopLogo ? (
+              <div className="flex items-center gap-2">
+                <img
+                  src={workshopLogo}
+                  className="h-8 w-8 rounded-xl object-contain border border-amber-500/30 bg-white dark:bg-stone-800 p-0.5 shadow-2xs"
+                  alt={profile.brandName || 'شعار الورشة'}
+                />
+                <span className="text-xs font-black text-stone-900 dark:text-stone-100 max-w-[140px] truncate">
+                  {profile.brandName}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <img src="/platform-logo-light.png" className="h-8 w-auto dark:hidden" alt="منظومة الشمساوية" />
+                <img src="/platform-logo-dark.png" className="h-8 w-auto hidden dark:block" alt="منظومة الشمساوية" />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Artisan / Super Admin Profile Card */}
@@ -485,6 +511,47 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           </div>
         )}
 
+        {/* Core Account Controls: [ إعدادات الورشة والبراند - التبديل بين الورش - تسجيل الخروج ] */}
+        <div className="p-3 bg-stone-100 dark:bg-stone-850 border-b border-stone-200 dark:border-stone-800 space-y-1.5">
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                onOpenProfileSettings();
+                onClose();
+              }}
+              className="px-3 py-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-amber-400 font-bold text-stone-800 dark:text-stone-200 hover:text-amber-600 text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+            >
+              <Settings className="w-3.5 h-3.5 text-amber-500" />
+              <span>إعدادات الورشة والبراند ⚙️</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                onSelectView('admin');
+                onClose();
+              }}
+              className="px-3 py-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-amber-400 font-bold text-stone-800 dark:text-stone-200 hover:text-amber-600 text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+            >
+              <Building className="w-3.5 h-3.5 text-blue-500" />
+              <span>التبديل بين الورش</span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              onLogout();
+              onClose();
+            }}
+            className="w-full py-1.5 px-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 font-bold text-rose-600 dark:text-rose-400 text-xs flex items-center justify-center gap-1.5 hover:bg-rose-100 transition cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>تسجيل الخروج 🚪</span>
+          </button>
+        </div>
+
         {/* Quick Actions Bar (الإشعارات، الدارك مود، حِرف الورشة) */}
         <div className="p-2.5 bg-amber-500/10 dark:bg-amber-950/20 border-b border-amber-200/40 dark:border-amber-900/40 grid grid-cols-3 gap-1.5 text-center text-xs">
           <button
@@ -539,6 +606,93 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         {/* RESTRUCTURED ENTERPRISE NAVIGATION (SaaS Hierarchy) */}
         {/* ========================================================= */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-3">
+          {/* ========================================================= */}
+          {/* المسارات الأساسية الصريحة لمنصتي والمتجر والكتالوج والسوق */}
+          {/* ========================================================= */}
+          <div className="p-2.5 rounded-2xl bg-amber-500/10 dark:bg-amber-950/25 border border-amber-300/80 dark:border-amber-700/50 space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[11px] font-black text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+                <span>🌐</span>
+                <span>منصتي والمسارات المباشرة</span>
+              </span>
+              <span className="text-[8.5px] px-1.5 py-0.5 rounded bg-amber-500 text-stone-950 font-black font-mono">
+                DIRECT
+              </span>
+            </div>
+
+            {/* 1. منصتي (الكتالوج والمتجر) */}
+            <button
+              type="button"
+              onClick={() => {
+                if (onNavigateToCatalog) onNavigateToCatalog('catalog');
+                else onSelectView('catalog');
+                onClose();
+              }}
+              className="w-full p-2.5 rounded-xl bg-white dark:bg-stone-850 border border-amber-300 dark:border-amber-700/60 hover:border-amber-500 font-black text-stone-900 dark:text-stone-100 text-xs flex items-center justify-between transition cursor-pointer shadow-2xs group"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Globe className="w-4 h-4" />
+                </div>
+                <div className="text-right">
+                  <span className="block font-black text-xs text-stone-900 dark:text-stone-100">
+                    منصتي (الكتالوج والمتجر) 🌐
+                  </span>
+                  <span className="block text-[9.5px] text-stone-500 dark:text-stone-400">
+                    الكتالوج الشامل + المتجر الخاص
+                  </span>
+                </div>
+              </div>
+              <ChevronLeft className="w-4 h-4 text-amber-500 group-hover:-translate-x-0.5 transition-transform" />
+            </button>
+
+            {/* 2 & 3: الكتالوج المرجعي ومتجري الخاص */}
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  if (onNavigateToCatalog) onNavigateToCatalog('catalog');
+                  else onSelectView('catalog');
+                  onClose();
+                }}
+                className="p-2 rounded-xl bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-700 hover:border-amber-400 font-bold text-stone-800 dark:text-stone-200 text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+              >
+                <Package className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="text-[11px] truncate">الكتالوج المرجعي 📦</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenArtisanStore) onOpenArtisanStore();
+                  else if (onNavigateToCatalog) onNavigateToCatalog('store');
+                  else onSelectView('store');
+                  onClose();
+                }}
+                className="p-2 rounded-xl bg-[#0c1427] hover:bg-[#131e38] border border-amber-500/40 font-bold text-amber-300 text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+              >
+                <Store className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="text-[11px] truncate">متجري الخاص 🏪</span>
+              </button>
+            </div>
+
+            {/* 4. سوق الشمساوية المركزي */}
+            <button
+              type="button"
+              onClick={() => {
+                onSelectView('marketplace');
+                onClose();
+              }}
+              className="w-full p-2 rounded-xl bg-white dark:bg-stone-850 border border-emerald-200 dark:border-emerald-900/50 hover:border-emerald-400 font-bold text-stone-800 dark:text-stone-200 text-xs flex items-center justify-between transition cursor-pointer shadow-2xs"
+            >
+              <div className="flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs">سوق الشمساوية المركزي 🛍️</span>
+              </div>
+              <ChevronLeft className="w-3.5 h-3.5 text-stone-400" />
+            </button>
+          </div>
+
           {isUserAdmin(profile) ? (
             <div className="space-y-2">
               <div className="p-3 rounded-2xl bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 border border-amber-500/40 text-white space-y-1">

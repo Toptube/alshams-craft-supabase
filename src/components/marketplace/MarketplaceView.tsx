@@ -136,15 +136,15 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
   // Craft Multi-Filter List (المكرمية، التافت، السجاد، الديكور الخشبي، الكروشيه، الزجزاج، الكليم)
   const craftFiltersList = [
-    { id: 'all', nameAr: 'الكل' },
-    { id: 'macrame', nameAr: 'المكرمية' },
-    { id: 'crochet', nameAr: 'كروشيه' },
-    { id: 'zigzag', nameAr: 'حبال الزجزاج' },
-    { id: 'tufting', nameAr: 'مسدس التافت' },
-    { id: 'kilim', nameAr: 'الكليم والنسيج' },
-    { id: 'wood', nameAr: 'الديكور الخشبي' },
-    { id: 'resin', nameAr: 'الريزن وفنون الديكور' },
-    { id: 'punch_needle', nameAr: 'البانش نيدل' },
+    { id: 'all', nameAr: 'الكل', key: 'all' },
+    { id: 'macrame', nameAr: 'المكرمية', key: 'macrame' },
+    { id: 'crochet', nameAr: 'كروشيه', key: 'crochet' },
+    { id: 'zigzag', nameAr: 'حبال الزجزاج', key: 'zigzag' },
+    { id: 'tufting', nameAr: 'مسدس التافت', key: 'tufting' },
+    { id: 'kilim', nameAr: 'الكليم والنسيج', key: 'kilim' },
+    { id: 'wood', nameAr: 'الديكور الخشبي', key: 'wood' },
+    { id: 'resin', nameAr: 'الريزن وفنون الديكور', key: 'resin' },
+    { id: 'punch_needle', nameAr: 'البانش نيدل', key: 'punch_needle' },
   ];
 
   // Dynamic Live Load & Realtime Sync for Approved Products
@@ -269,13 +269,69 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       // 2. Decor Category (Primary horizontal tabs)
       const matchDecor =
         selectedDecorCategory === 'all' ||
+        !p.decorCategory ||
         p.decorCategory === selectedDecorCategory;
 
-      // 3. Craft Multi-Filter (Secondary)
+      // 3. Craft & Category Multi-Filter (Secondary)
       const matchCraft =
         selectedCrafts.includes('all') ||
-        selectedCrafts.includes(p.category) ||
-        (p.craftName && selectedCrafts.some((sc) => p.craftName?.includes(sc)));
+        selectedCrafts.some((sc) => {
+          if (sc === 'all') return true;
+          const craftDef = craftFiltersList.find((c) => c.id === sc || c.nameAr === sc);
+          const selectedCategory = (craftDef ? craftDef.nameAr : sc)?.trim().toLowerCase();
+          const selectedCatKey = (craftDef ? craftDef.key : sc)?.trim().toLowerCase();
+
+          const craftCategory = (p.category || '')?.trim().toLowerCase();
+          const craftName = (p.craftName || '')?.trim().toLowerCase();
+          const productName = (p.productName || '')?.trim().toLowerCase();
+
+          // Explicit requested comparison: craft.category?.trim().toLowerCase() === selectedCategory?.trim().toLowerCase()
+          if (craftCategory === selectedCategory || craftName === selectedCategory) {
+            return true;
+          }
+          if (craftCategory === selectedCatKey || craftName === selectedCatKey) {
+            return true;
+          }
+
+          // Direct matching for "المكرمية" / "macrame" (including Zara bag)
+          if (selectedCategory.includes('مكرم') || selectedCatKey.includes('macrame')) {
+            return (
+              craftCategory.includes('مكرم') ||
+              craftName.includes('مكرم') ||
+              productName.includes('مكرم') ||
+              craftCategory.includes('macrame') ||
+              craftName.includes('macrame')
+            );
+          }
+          if (selectedCategory.includes('كروش') || selectedCatKey.includes('crochet')) {
+            return (
+              craftCategory.includes('كروش') ||
+              craftName.includes('كروش') ||
+              productName.includes('كروش') ||
+              craftCategory.includes('crochet')
+            );
+          }
+          if (selectedCategory.includes('زجزاج') || selectedCatKey.includes('zigzag')) {
+            return craftCategory.includes('زجزاج') || craftName.includes('زجزاج') || productName.includes('زجزاج');
+          }
+          if (selectedCategory.includes('تافت') || selectedCatKey.includes('tufting')) {
+            return craftCategory.includes('تافت') || craftName.includes('تافت') || productName.includes('تافت');
+          }
+          if (selectedCategory.includes('كليم') || selectedCatKey.includes('kilim')) {
+            return craftCategory.includes('كليم') || craftName.includes('كليم') || craftName.includes('نسيج');
+          }
+          if (selectedCategory.includes('خشب') || selectedCatKey.includes('wood')) {
+            return craftCategory.includes('خشب') || craftName.includes('خشب') || productName.includes('خشب');
+          }
+          if (selectedCategory.includes('ريزن') || selectedCatKey.includes('resin')) {
+            return craftCategory.includes('ريزن') || craftName.includes('ريزن') || productName.includes('ريزن');
+          }
+          if (selectedCategory.includes('بانش') || selectedCatKey.includes('punch')) {
+            return craftCategory.includes('بانش') || craftName.includes('بانش') || productName.includes('بانش');
+          }
+
+          return craftCategory.includes(selectedCategory) || craftName.includes(selectedCategory);
+        });
 
       return matchSearch && matchDecor && matchCraft;
     });
@@ -971,7 +1027,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       {/* Unified 2-Line Footer */}
       <footer className="mt-16 bg-[#0C1427] border-t border-amber-500/30 py-8 px-4 sm:px-6 text-center space-y-3">
         <p className="text-sm sm:text-base font-black text-amber-500">
-          منظومة الشمساوية للفنون والأعمال اليدوية
+          منظومة الشمساوية للفنون اليدوية
         </p>
         <div className="flex items-center justify-center pt-1">
           <a

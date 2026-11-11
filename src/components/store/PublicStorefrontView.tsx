@@ -20,12 +20,15 @@ import {
   Copy,
   Check,
   RotateCcw,
+  Store,
 } from 'lucide-react';
 import {
   fetchPublicStorefrontBySlug,
+  normalizeCloudProduct,
   CloudMarketplaceProduct,
   PublicWorkshopStoreData,
 } from '../../db/marketplaceCloud';
+import { supabase } from '../../lib/supabase';
 import {
   addToCart,
   getStoredCart,
@@ -33,7 +36,6 @@ import {
 } from '../../services/marketplaceCartService';
 import { MarketplaceCartModal } from '../marketplace/MarketplaceCartModal';
 import { playSuccessSound, playAddToCartSound, triggerHaptic } from '../../lib/sounds';
-import { AlShamsBrandLogo, AlShamsBrandIcon } from '../brand/BrandAssets';
 
 interface PublicStorefrontViewProps {
   slug: string;
@@ -87,7 +89,46 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         const data = await fetchPublicStorefrontBySlug(slug);
         if (isMounted) {
           if (data && data.workshop) {
-            setStoreData(data);
+            const targetWorkshopId = data.workshop.id;
+            let finalProducts: any[] = [];
+
+            // 1. Direct query crafts table by workshop_id as requested
+            try {
+              const { data: craftsData } = await supabase
+                .from('crafts')
+                .select('*')
+                .eq('workshop_id', targetWorkshopId);
+              if (Array.isArray(craftsData) && craftsData.length > 0) {
+                finalProducts = craftsData;
+              }
+            } catch {}
+
+            // 2. Query marketplace_products table where workshop_id == targetWorkshopId
+            if (finalProducts.length === 0) {
+              try {
+                const { data: marketData } = await supabase
+                  .from('marketplace_products')
+                  .select('*')
+                  .eq('workshop_id', targetWorkshopId);
+                if (Array.isArray(marketData) && marketData.length > 0) {
+                  finalProducts = marketData;
+                }
+              } catch {}
+            }
+
+            // Fallback to data.products strictly filtered by targetWorkshopId
+            if (finalProducts.length === 0 && Array.isArray(data.products)) {
+              finalProducts = data.products.filter(
+                (p: any) => (p.workshop_id || p.workshopId) === targetWorkshopId
+              );
+            }
+
+            setStoreData({
+              workshop: data.workshop,
+              products: finalProducts
+                .filter((p: any) => (p.workshop_id || p.workshopId) === targetWorkshopId)
+                .map(normalizeCloudProduct),
+            });
           } else {
             // Build safe fallback representation from slug
             const decoded = decodeURIComponent(slug).replace(/-/g, ' ');
@@ -101,7 +142,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 currencySymbol: 'ج.م',
                 ratingStars: 5,
                 medal: 'gold',
-                logoUrl: '/alshams_falcon_emblem.png',
+                logoUrl: undefined,
               },
               products: [],
             });
@@ -221,18 +262,14 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           {/* Logo & Artisan Brand with Link to Central Marketplace */}
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-amber-500/10 dark:bg-amber-400/10 border border-amber-500/30 flex items-center justify-center overflow-hidden p-1 shadow-inner shrink-0">
-              {workshop?.logoUrl ? (
-                <img
-                  src={workshop.logoUrl}
-                  alt={brandName}
-                  className="w-full h-full object-cover rounded-xl"
-                  onError={(e) => {
-                    (e.target as HTMLElement).style.display = 'none';
-                  }}
-                />
-              ) : (
-                <AlShamsBrandIcon size={32} />
-              )}
+              <img
+                src={(workshop as any)?.logo_url || workshop?.logoUrl || '/default-store-icon.png'}
+                alt={brandName}
+                className="w-full h-full object-cover rounded-xl"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = '/default-store-icon.png';
+                }}
+              />
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -255,15 +292,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             </div>
           </div>
 
-          {/* Right Actions: Central Brand Logo, Central Market Button, Cart & Share */}
+          {/* Right Actions: Central Market Link, Cart & Share */}
           <div className="flex items-center gap-2 sm:gap-3">
-            <a
-              href="/#/market"
-              className="hidden lg:flex items-center hover:opacity-90 transition cursor-pointer"
-              title="سوق الشمساوية المركزي"
-            >
-              <AlShamsBrandLogo maxWidth={130} />
-            </a>
 
             <a
               href="/#/market"

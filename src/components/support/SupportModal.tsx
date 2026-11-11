@@ -25,7 +25,7 @@ interface SupportModalProps {
   profile: UserProfile;
 }
 
-// الرقم الرسمي المعتمد لمنظومة الشمس كرافت بالكامل
+// الرقم الرسمي المعتمد لمنظومة الشمساوية بالكامل
 export const ALSHAMS_OFFICIAL_PHONE_RAW = '01000996059';
 export const ALSHAMS_OFFICIAL_PHONE_E164 = '201000996059';
 export const ALSHAMS_OFFICIAL_PHONE_DISPLAY = '+20 100 099 6059';

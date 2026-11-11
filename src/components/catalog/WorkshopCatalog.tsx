@@ -621,7 +621,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     const price = p.storePrice || getRetailPrice(p);
     const desc = p.storeDescription || (p as any).marketingDescription || p.productName;
     const craft = getCraftDisplay(p);
-    const brand = profile.brandName ? `ورشة ${profile.brandName}` : 'شمس كرافت';
+    const brand = profile.brandName ? `ورشة ${profile.brandName}` : 'منظومة الشمساوية للفنون والأعمال اليدوية';
 
     let text = `✨ *معروض في متجر ${brand}* ✨\n\n`;
     text += `🏷️ *اسم المشغولة:* ${p.productName}\n`;

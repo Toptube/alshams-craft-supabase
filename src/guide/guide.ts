@@ -91,7 +91,7 @@ export const GUIDE_SECTIONS: GuideSection[] = [
     id: 'calculator',
     title: 'تسعير المنتجات بالحاسبة الحرفية',
     icon: 'Calculator',
-    summary: 'معادلة الشمس كرافت لحساب التكلفة وعزل الربح والمصنعية',
+    summary: 'معادلة منظومة الشمساوية لحساب التكلفة وعزل الربح والمصنعية',
     steps: [
       {
         title: '1. اختيار الحرفة والتصنيف',

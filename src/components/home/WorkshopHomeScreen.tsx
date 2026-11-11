@@ -606,6 +606,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       borderColor: 'border-orange-200/80 dark:border-orange-900/40',
     },
     {
+      id: 'my_platform' as HomeCardSection,
+      label: 'منصتي 🌐',
+      icon: Store,
+      color: 'text-amber-600 dark:text-amber-400',
+      bgColor: 'bg-amber-50 dark:bg-amber-950/40',
+      borderColor: 'border-amber-200/80 dark:border-amber-900/40',
+    },
+    {
       id: 'purchases' as HomeCardSection,
       label: 'المشتريات',
       icon: PackagePlus,
@@ -1272,7 +1280,13 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                 <button
                   key={card.id}
                   type="button"
-                  onClick={() => setActiveSubSection(card.id)}
+                  onClick={() => {
+                    if (card.id === 'my_platform') {
+                      onNavigateToCatalog('catalog');
+                    } else {
+                      setActiveSubSection(card.id);
+                    }
+                  }}
                   className="p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-amber-500 dark:hover:border-amber-500 hover:shadow-md transition-all duration-200 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 cursor-pointer shadow-xs active:scale-95 group min-h-[82px] sm:min-h-[100px]"
                 >
                   <div
