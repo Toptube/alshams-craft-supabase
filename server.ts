@@ -1970,9 +1970,7 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
             bName === slug ||
             aSlug === slug ||
             aName === slug ||
-            idMatch === slug ||
-            bName.includes(slug) ||
-            slug.includes(bSlug)
+            idMatch === slug
           );
         });
       }
@@ -1994,25 +1992,27 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
     }
 
     const wid = ws.id || ws.workshopId;
-    const brandName = ws.brand_name || ws.brandName || 'ورشة الشمساوية';
-    const artistName = ws.artist_name || ws.artistName || 'فنان';
+    const brandName = ws.brand_name || ws.brandName || 'ورشة فنية';
+    const artistName = ws.artist_name || ws.artistName || 'فنان الشمساوية';
     const logoUrl = ws.logo_data || ws.logo_url || ws.logoUrl || null;
     const phone = ws.phone || ws.phone_number || ws.phoneNumber || '';
 
     const persistent = loadPersistentMarketplaceProducts();
     const prodsMap = new Map<string, any>();
 
+    // Strict local isolation by workshop_id ONLY
     persistent.forEach((p: any) => {
-      if (p.workshop_id === wid || p.workshopId === wid || (p.brand_name && p.brand_name.toLowerCase() === brandName.toLowerCase())) {
+      if (p.workshop_id === wid || p.workshopId === wid) {
         prodsMap.set(p.id, p);
       }
     });
 
+    // Strict database isolation by workshop_id ONLY
     try {
       const { data } = await client
         .from('marketplace_products')
         .select('*')
-        .or(`workshop_id.eq.${wid},brand_name.ilike.%${brandName}%`);
+        .eq('workshop_id', wid);
       if (Array.isArray(data)) {
         data.forEach((p: any) => {
           prodsMap.set(p.id, { ...(prodsMap.get(p.id) || {}), ...p });

@@ -345,13 +345,13 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
       const found = wsData.find((w: any) => matchesWorkshopSlug(w, cleanSlug));
 
       if (found) {
-        // Query products by workshop_id OR by matching brand_name
+        // Strict query products by workshop_id ONLY
         let prodsData: any[] = [];
         try {
           const { data: pData } = await supabase
             .from('marketplace_products')
             .select('*')
-            .or(`workshop_id.eq.${found.id},brand_name.ilike.%${found.brand_name || ''}%`);
+            .eq('workshop_id', found.id);
           if (Array.isArray(pData)) prodsData = pData;
         } catch {}
 

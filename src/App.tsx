@@ -1117,6 +1117,7 @@ export const App: React.FC = () => {
         onNavigateToSales={() => navigateTo('sales')}
         onOpenNewClientModal={() => setIsNewClientOpen(true)}
         onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
+        onNavigateToCatalog={() => navigateTo('catalog')}
         onNavigateToMarketplace={() => navigateTo('marketplace')}
         onOpenArtisanStore={() => setIsArtisanStoreModalOpen(true)}
         isDarkMode={isDarkMode}

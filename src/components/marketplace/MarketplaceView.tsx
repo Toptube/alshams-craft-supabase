@@ -691,7 +691,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             {/* Modal Title Bar */}
             <div className="border-b border-amber-500/20 pb-3 pl-10">
               <span className="text-xs font-bold text-amber-400 block mb-0.5">
-                {selectedProductDetails.craftName || selectedProductDetails.category} • ضمان شركة الشمس كرافت
+                {selectedProductDetails.craftName || selectedProductDetails.category} • ضمان جودة منظومة الشمساوية
               </span>
               <h3 className="font-black text-base sm:text-lg text-white">
                 {selectedProductDetails.productName}
@@ -952,7 +952,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         customerUser={customerUser}
         onOpenCustomerAuth={() => setIsCustomerAuthOpen(true)}
         onOrderSuccess={(order) => {
-          setFeedback(`✓ تم تسجيل طلبيتك بنجاح برقم #${order.invoiceNumber}! سيتواصل معك فريق الشمس كرافت لتأكيد الشحن.`);
+          setFeedback(`✓ تم تسجيل طلبيتك بنجاح برقم #${order.invoiceNumber}! سيتواصل معك فريق المنظومة لتأكيد الشحن.`);
         }}
       />
 

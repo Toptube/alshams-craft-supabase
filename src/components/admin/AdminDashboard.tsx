@@ -532,7 +532,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   };
 
   const handleShareMarketWhatsApp = () => {
-    const text = `تفضلوا بزيارة سوق الشمساوية المركزي 🛍️✨\nأرقى المشغولات اليدوية والديكورات الحرفية بضمان شركة الشمس كرافت وحماية الدفع 33% عربون والتسليم لباب البيت!\n${centralMarketUrl}`;
+    const text = `تفضلوا بزيارة سوق الشمساوية المركزي 🛍️✨\nأرقى المشغولات اليدوية والديكورات الحرفية بضمان جودة منظومة الشمساوية والتسليم لباب البيت!\n${centralMarketUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -565,7 +565,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       ctx.textAlign = 'center';
       ctx.fillStyle = '#F59E0B';
       ctx.font = 'bold 36px Cairo, sans-serif';
-      ctx.fillText('☀️ عائلة الشمساوية • شركة الشمس كرافت 🦅', 600, 160);
+      ctx.fillText('☀️ عائلة الشمساوية • منظومة الحرف اليدوية 🦅', 600, 160);
 
       // Central Title
       ctx.fillStyle = '#FFFFFF';
@@ -600,10 +600,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       ctx.font = 'bold 22px monospace';
       ctx.fillText(centralMarketUrl, 600, 1115);
 
-      // Guarantee Badge: 33% deposit
+      // Guarantee Badge
       ctx.fillStyle = '#10B981';
       ctx.font = 'bold 34px Cairo, sans-serif';
-      ctx.fillText('🛡️ ضمان شركة الشمس كرافت: 33% عربون والمتبقي عند الاستلام', 600, 1260);
+      ctx.fillText('🛡️ ضمان جودة منظومة الشمساوية: فحص المشغولات والتسليم لباب البيت', 600, 1260);
 
       // Delivery and Quality
       ctx.fillStyle = '#EADBC8';
@@ -3224,7 +3224,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       </span>
                     </div>
                     <p className="text-xs text-[#EADBC8] font-medium">
-                      بوابة الشراء المركزية العامة لمشغولات عائلة الشمساوية بضمان وحماية شركة الشمس كرافت
+                      بوابة الشراء المركزية العامة لمشغولات عائلة الشمساوية بضمان جودة المنظومة
                     </p>
                   </div>
                 </div>
@@ -3336,7 +3336,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   </h4>
                 </div>
                 <p className="text-xs text-stone-600 dark:text-[#EADBC8] max-w-2xl leading-relaxed">
-                  الوضع الافتراضي (معطل): يستلم الفنان الطلبية بتفاصيل المشغولة فقط، واسم العميل يظهر كـ "عميل متجر عائلة الشمساوية" مع حجب هاتفه وعنوانه تماماً، حيث تتولى شركة "الشمس كرافت" الفحص والشحن والتسليم. عند التفعيل: تظهر بيانات العميل كاملة للورشة للشحن المباشر.
+                  الوضع الافتراضي (معطل): يستلم الفنان الطلبية بتفاصيل المشغولة فقط، واسم العميل يظهر كـ "عميل متجر عائلة الشمساوية" مع حجب هاتفه وعنوانه تماماً، حيث تتولى إدارة المنظومة الفحص والشحن والتسليم. عند التفعيل: تظهر بيانات العميل كاملة للورشة للشحن المباشر.
                 </p>
               </div>
 
@@ -3349,7 +3349,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   playSuccessSound();
                   setSuccessNotice(
                     updated
-                      ? '✓ تم تفعيل حجب بيانات العملاء والشحن المركزي عبر شركة الشمس كرافت 🛡️'
+                      ? '✓ تم تفعيل حجب بيانات العملاء والشحن المركزي عبر إدارة المنظومة 🛡️'
                       : 'تم تفعيل إظهار بيانات العملاء (الاسم والهاتف والعنوان) لورش الفنانين 📱'
                   );
                 }}
@@ -3864,7 +3864,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   </h4>
                 </div>
                 <p className="text-xs font-medium text-stone-600 dark:text-[#EADBC8] max-w-2xl leading-relaxed">
-                  فحص ومراجعة كافة المشغولات اليدوية المرفوعة من الورش الحرفية للتأكد من استيفائها معايير الفنش والجودة العالية لشركة الشمس كرافت قبل نشرها للجمهور والمتسوقين.
+                  فحص ومراجعة كافة المشغولات اليدوية المرفوعة من الورش الحرفية للتأكد من استيفائها معايير الفنش والجودة العالية لمنظومة الشمساوية قبل نشرها للجمهور والمتسوقين.
                 </p>
               </div>
 

@@ -271,7 +271,7 @@ export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
 
     // 3. Web Push Notification
     dispatchArtisanNotification(`🛍️ طلبية شراء جديدة #${order.invoiceNumber}`, {
-      body: `طلب جديد بقيمة ${order.finalTotal} ج.م - مطلوب تجهيز المشغولات لشركة الشمس كرافت.`,
+      body: `طلب جديد بقيمة ${order.finalTotal} ج.م - مطلوب تجهيز المشغولات لتسليم الطلبية.`,
       tag: `order-${order.id}`,
     }).catch(() => {});
 

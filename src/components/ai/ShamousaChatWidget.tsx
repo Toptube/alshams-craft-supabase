@@ -289,7 +289,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const tasksDoneStorageKey = `alshams_shamousa_tasks_done_${workshopId}_${todayDateStr}`;
 
   const firstName = extractUserFirstName((profile as any).fullName || (profile as any).name || profile.artistName || (profile as any).artisanName) || 'صديقي';
-  const brandTitle = profile.brandName ? `ورشة ${profile.brandName}` : 'ورشة الشمس كرافت';
+  const brandTitle = profile.brandName ? `ورشة ${profile.brandName}` : 'الورشة الحرفية';
 
   const welcomeMessage = "أهلاً بيك يا بطل! ☀️ منورة ورشتنا..\nطمني حابب تتابع أوردراتك ولا تراجع الخزينة والمخزن؟";
 
@@ -885,7 +885,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           }] : [],
           history,
           artistName: firstName,
-          brandName: profile.brandName || 'ورشة الشمس كرافت',
+          brandName: profile.brandName || 'الورشة الحرفية',
           workshopId,
           userEmail: profile.email || '',
           clientWorkshopState: {

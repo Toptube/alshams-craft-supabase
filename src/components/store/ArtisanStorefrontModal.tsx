@@ -168,7 +168,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   // WhatsApp Share Store Link
   const handleShareStoreWhatsApp = () => {
     playTapSound();
-    const text = `أهلاً بحضرتك في متجر "${profile.brandName || profile.artistName}" على منظومة الشمساوية 🦅☀️\nاستعرض كافة منتجاتنا ومشغولاتنا اليدوية المصنوعة بحب وعناية، واطلب قطعتك المخصصة بضمان شركة الشمس كرافت من هنا:\n${storeUrl}`;
+    const text = `أهلاً بحضرتك في متجر "${profile.brandName || profile.artistName}" على منظومة الشمساوية 🦅☀️\nاستعرض كافة منتجاتنا ومشغولاتنا اليدوية المصنوعة بحب وعناية، واطلب قطعتك المخصصة بضمان الجودة الحرفية من هنا:\n${storeUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -220,12 +220,12 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
       ctx.textAlign = 'center';
       ctx.fillStyle = '#F59E0B';
       ctx.font = 'bold 36px Cairo, sans-serif';
-      ctx.fillText('☀️ عائلة الشمساوية • شركة الشمس كرافت 🦅', 600, 160);
+      ctx.fillText('☀️ عائلة الشمساوية للفنون اليدوية 🦅', 600, 160);
 
       // Workshop Brand
       ctx.fillStyle = '#FFFFFF';
       ctx.font = '900 64px Cairo, sans-serif';
-      ctx.fillText(profile.brandName || profile.artistName || 'ورشة الشمساوية', 600, 270);
+      ctx.fillText(profile.brandName || profile.artistName || 'ورشة فنية', 600, 270);
 
       // Subtitle
       ctx.fillStyle = '#EADBC8';
@@ -258,7 +258,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
       // Guarantee Seal & Footer
       ctx.fillStyle = '#10B981';
       ctx.font = 'bold 34px Cairo, sans-serif';
-      ctx.fillText('🛡️ مشغولات أصلية 100% بضمان شركة الشمس كرافت', 600, 1300);
+      ctx.fillText('🛡️ مشغولات يدوية أصلية 100% بضمان الجودة العالية', 600, 1300);
 
       ctx.fillStyle = '#CBD5E1';
       ctx.font = '400 24px Cairo, sans-serif';
@@ -559,7 +559,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             <div className="p-3 sm:p-4 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-xs leading-relaxed space-y-1">
               <div className="flex items-center gap-2 text-amber-300 font-black">
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>سياسة فحص الجودة المعتمدة في شركة الشمس كرافت:</span>
+                <span>سياسة فحص الجودة المعتمدة في منظومة الشمساوية:</span>
               </div>
               <p className="text-[#EADBC8] text-[11px] sm:text-xs font-medium">
                 "تخضع كافة المشغولات للفحص الفني اليدوي لضمان معايير الفنش والجودة؛ للحفاظ على ثقة عملاء عائلة الشمساوية وقيمة منتجك الحرفي".
@@ -602,7 +602,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 <Store className="w-12 h-12 mx-auto text-amber-500/60" />
                 <h4 className="text-sm font-black text-amber-200">لا توجد منتجات معروضة بمتجرك حالياً</h4>
                 <p className="text-xs text-[#EADBC8] max-w-md mx-auto">
-                  يمكنك حفظ أي مشغولة من حاسبة التكاليف وسيتم إدراجها هنا فورياً بضمان شركة الشمس كرافت.
+                  يمكنك حفظ أي مشغولة من حاسبة التكاليف وسيتم إدراجها هنا فورياً بمعايير الجودة العالية.
                 </p>
               </div>
             ) : (
@@ -636,8 +636,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                           <div className="absolute top-1.5 right-1.5">
                             <span className="px-1.5 sm:px-2 py-0.5 rounded-md bg-stone-900/85 text-amber-300 text-[8px] sm:text-[10px] font-black border border-amber-400/50 shadow-xs flex items-center gap-1">
                               <ShieldCheck className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
-                              <span className="hidden xs:inline">بضمان</span>
-                              <span>الشمس كرافت</span>
+                              <span>جودة يدوية</span>
                             </span>
                           </div>
 
@@ -731,9 +730,9 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
               <div className="space-y-3">
                 {orders.map((order) => {
                   const remaining = Math.max(0, (order.finalTotal || 0) - (order.paidAmount || 0));
-                  const isPrivacyActive = getClientPrivacyActive() && order.isClientDataHiddenFromArtisan !== false;
-                  const displayName = isPrivacyActive ? 'عميل متجر عائلة الشمساوية' : (order.customerName || 'عميل المتجر');
-                  const displayPhone = isPrivacyActive ? 'بيانات التواصل والعنوان محجوبة (الشحن عبر شركة الشمس كرافت 🛡️)' : (order.customerPhone || 'بدون هاتف');
+                  const displayName = order.customerName || 'عميل المتجر';
+                  const displayPhone = order.customerPhone || 'بدون هاتف';
+                  const displayAddress = (order as any).shippingAddress || (order as any).address || 'تسليم بالورشة';
                   
                   const targetDelivery = order.targetDeliveryDate || (order as any).dueDate || order.deliveryDate;
                   const daysRemaining = targetDelivery
@@ -753,13 +752,18 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                           <div>
                             <div className="flex items-center gap-2">
                               <h5 className="font-black text-sm text-white">{displayName}</h5>
-                              {isPrivacyActive && (
-                                <span className="px-2 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-bold">
-                                  خصوصية مفعلة 🛡️
-                                </span>
-                              )}
+                              <span className="px-2 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-bold">
+                                طلبية متجر 🛍️
+                              </span>
                             </div>
-                            <span className="text-[11px] text-[#EADBC8] font-mono">{displayPhone}</span>
+                            <span className="text-[11px] text-[#EADBC8] font-mono" dir="ltr">
+                              📞 {displayPhone}
+                            </span>
+                            {displayAddress && (
+                              <span className="text-[10px] text-stone-400 block mt-0.5">
+                                📍 {displayAddress}
+                              </span>
+                            )}
                           </div>
                         </div>
 
@@ -939,7 +943,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
               <div className="space-y-1 border-t border-stone-200 pt-2">
                 <span className="text-[10px] font-bold text-emerald-700 block">
-                  🛡️ مشغولات أصلية 100% بضمان شركة الشمس كرافت
+                  🛡️ مشغولات يدوية أصلية 100% بضمان الجودة العالية
                 </span>
                 <div className="text-[10px] sm:text-[11px] font-mono text-stone-700 truncate" dir="ltr">
                   {storeUrl}

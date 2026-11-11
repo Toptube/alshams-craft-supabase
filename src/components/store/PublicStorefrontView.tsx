@@ -311,13 +311,23 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         </div>
       </header>
 
+      {/* Floating explicit close button for returning instantly to workspace */}
+      <a
+        href="/#/"
+        className="fixed top-3 left-3 z-50 w-10 h-10 rounded-full bg-stone-900/90 text-white hover:bg-stone-800 border border-amber-400/50 shadow-xl flex items-center justify-center cursor-pointer transition active:scale-95 group"
+        title="الرجوع للورشة الرئيسية"
+        aria-label="إغلاق والرجوع للورشة"
+      >
+        <X className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
+      </a>
+
       {/* Hero Banner with Workshop Branding */}
       <section className="relative overflow-hidden bg-gradient-to-b from-amber-500/10 via-amber-500/5 to-transparent border-b border-amber-500/20 py-8 sm:py-12 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-3 text-center md:text-right max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/40">
               <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>مشغولات يدوية وديكورات أصلية بضمان شركة الشمس كرافت</span>
+              <span>مشغولات يدوية وديكورات أصلية بضمان الجودة الحرفية العالية</span>
             </div>
 
             <h2 className="text-2xl sm:text-4xl font-black text-stone-950 dark:text-white leading-tight">
@@ -328,19 +338,19 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               استكشف تشكيلتنا الحصرية من المشغولات اليدوية والديكورات العصرية المصنوعة بأعلى معايير الحرفة والدقة من خامات طبيعية مصرية منتقاة.
             </p>
 
-            {/* Central Guarantee & Official Support Hotline */}
+            {/* Central Guarantee & Support Hotline */}
             <div className="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-3">
               <a
                 href={`tel:${OFFICIAL_SUPPORT_PHONE}`}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer"
               >
                 <Phone className="w-4 h-4 text-stone-950" />
-                <span>خدمة عملاء ودعم شركة الشمس كرافت: {OFFICIAL_SUPPORT_PHONE}</span>
+                <span>خدمة العملاء والدعم: {OFFICIAL_SUPPORT_PHONE}</span>
               </a>
 
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 text-xs font-bold text-emerald-800 dark:text-emerald-300">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>سداد الدفعة المقدمة 33% المركزي بضمان شركة الشمس كرافت</span>
+                <span>سداد الدفعة المقدمة 33% بحماية منظومة الشمساوية</span>
               </div>
 
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-600 dark:text-stone-400">
@@ -751,36 +761,33 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           onOpenCustomerAuth={() => {}}
           onOrderSuccess={() => {
             setIsCartOpen(false);
-            setAddedToast('✓ تم تسجيل طلبك بنجاح! سيتواصل معك فريق شركة الشمس كرافت لتأكيد الشحن.');
+            setAddedToast('✓ تم تسجيل طلبك بنجاح! سيتواصل معك فريق العمل لتأكيد الشحن.');
             setTimeout(() => setAddedToast(null), 5000);
           }}
         />
       )}
 
-      {/* Unified Elegant Footer */}
-      <footer className="mt-16 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 py-8 px-4 sm:px-6 text-center space-y-3">
-        {/* Central Logo */}
-        <div className="flex justify-center mb-1">
-          <AlShamsBrandLogo maxWidth={150} />
-        </div>
+      {/* Unified Single-Line Footer */}
+      <footer className="mt-16 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 py-4 px-4 sm:px-8 flex flex-row items-center justify-between gap-4 select-none">
+        {/* Right side: Orange link to Central Marketplace (/#/market) */}
+        <a
+          href="/#/market"
+          className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
+          title="الانتقال إلى سوق الشمساوية المركزي"
+        >
+          منظومة الشمساوية للفنون اليدوية 🛍️
+        </a>
 
-        {/* Line 1: Orange prominent branding */}
-        <p className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400">
-          منظومة الشمساوية للفنون والأعمال اليدوية
-        </p>
-
-        {/* Line 2: Prominent WhatsApp support button */}
-        <div className="flex items-center justify-center pt-1">
-          <a
-            href="https://wa.me/201000996059"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition cursor-pointer active:scale-95"
-          >
-            <MessageCircle className="w-4 h-4" />
-            <span>الدعم الفني 🟢</span>
-          </a>
-        </div>
+        {/* Left side: Direct WhatsApp green button */}
+        <a
+          href="https://wa.me/201000996059"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md shadow-emerald-600/20 transition cursor-pointer active:scale-95 shrink-0"
+        >
+          <MessageCircle className="w-3.5 h-3.5" />
+          <span>الدعم الفني 🟢</span>
+        </a>
       </footer>
     </div>
   );

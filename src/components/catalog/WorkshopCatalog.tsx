@@ -1678,7 +1678,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                 </h3>
                 <p className="text-xs text-stone-500 max-w-md mx-auto leading-relaxed">
                   {allProducts.filter((p) => p.inStore).length === 0
-                    ? 'يمكنك الانتقال إلى تبويب "الكتالوج المرجعي للمشغولات" والضغط على زر "تصدير إلى متجري" لأي مشغولة معتمدة لعرضها وإدارتها هنا.'
+                    ? 'يمكنك الانتقال إلى تبويب "الكتالوج" والضغط على زر "تصدير إلى متجري" لأي مشغولة معتمدة لعرضها وإدارتها هنا.'
                     : 'جرب البحث باسم منتج مختلف أو إلغاء تصفية حالة النشر.'}
                 </p>
               </div>
@@ -1688,7 +1688,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                   onClick={() => setActiveTab('catalog')}
                   className="px-6 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
                 >
-                  الذهاب للكتالوج المرجعي وتصدير أول مشغولة
+                  الذهاب للكتالوج وتصدير أول مشغولة
                 </button>
               )}
             </div>

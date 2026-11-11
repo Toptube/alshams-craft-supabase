@@ -326,7 +326,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                 سلة مشترياتك في سوق الشمساوية
               </h3>
               <p className="text-xs text-[#EADBC8]">
-                {cartItems.length} قطعة مختارة بعناية ومضمونة من شركة الشمس كرافت
+                {cartItems.length} قطعة مختارة بعناية ومضمونة من منظومة الشمساوية
               </p>
             </div>
           </div>
@@ -354,7 +354,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                 رقم الطلبية: #{submittedOrder.invoiceNumber}
               </span>
               <h4 className="text-xl font-black text-white pt-1">
-                تم تسجيل طلبيتك بنجاح بضمان شركة الشمس كرافت! ✨
+                تم تسجيل طلبيتك بنجاح بضمان منظومة الشمساوية! ✨
               </h4>
               <p className="text-xs text-[#EADBC8] max-w-lg mx-auto leading-relaxed">
                 شكراً لثقتك في فناني مصر.. فريق الجودة سيبدأ في فحص مواصفات طلبك وإرساله لخط التصنيع فور التحقق من دفعة الجدية.
@@ -723,7 +723,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                   </button>
                 </div>
                 <p className="text-[11px] text-[#EADBC8]">
-                  مستلم التحويل الرسمي: <strong>شركة الشمس كرافت للتصنيع اليدوي</strong> (إنستاباي وفودافون كاش).
+                  مستلم التحويل الرسمي: <strong>منظومة الشمساوية للدفع المعتمد</strong> (إنستاباي وفودافون كاش).
                 </p>
 
                 <div>

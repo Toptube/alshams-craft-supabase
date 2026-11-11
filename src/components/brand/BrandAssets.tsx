@@ -30,7 +30,7 @@ export const AlShamsBrandIcon: React.FC<{
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | number;
   isDark?: boolean;
   alt?: string;
-}> = ({ className = '', size = 'md', isDark, alt = 'أيقونة صقر الشمس كرافت' }) => {
+}> = ({ className = '', size = 'md', isDark, alt = 'أيقونة صقر الشمساوية' }) => {
   const sizeMap: Record<string, string> = {
     xs: 'w-6 h-6',
     sm: 'w-8 h-8',
@@ -97,7 +97,7 @@ export const AlShamsBrandLogo: React.FC<{
   showSubtitle?: boolean;
   isDark?: boolean;
   alt?: string;
-}> = ({ className = '', maxWidth = 180, size, isDark, alt = 'منظومة الشمساوية - من الشمس كرافت' }) => {
+}> = ({ className = '', maxWidth = 180, size, isDark, alt = 'منظومة الشمساوية' }) => {
   let effectiveMaxWidth = maxWidth;
   if (size === 'sm') effectiveMaxWidth = 130;
   else if (size === 'md') effectiveMaxWidth = 155;
