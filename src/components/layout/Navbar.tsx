@@ -14,6 +14,8 @@ import {
   Users2,
   Sparkles,
   Wallet,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { ConnectionStatus } from './ConnectionStatus';
 import { useTranslation } from '../../lib/i18n';
@@ -39,6 +41,8 @@ export interface NavbarProps {
   onOpenNewClientModal?: () => void;
   onOpenNewEmployeeModal?: () => void;
   // Theme mode
+  isDarkMode?: boolean;
+  onToggleTheme?: () => void;
   themeMode?: ThemeMode;
   onSelectThemeMode?: (mode: ThemeMode) => void;
   onNavigateToMarketplace?: () => void;
@@ -61,6 +65,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateToSales,
   onOpenNewClientModal,
   onOpenNewEmployeeModal,
+  isDarkMode = false,
+  onToggleTheme,
   themeMode = 'light',
   onSelectThemeMode,
   onNavigateToMarketplace,
@@ -363,6 +369,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Search className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-600 dark:text-amber-400" />
           </button>
+
+          {/* زر التبديل المباشر بين الوضع النهاري والليلي */}
+          {onToggleTheme && (
+            <button
+              type="button"
+              onClick={onToggleTheme}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl text-stone-700 dark:text-stone-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-700 dark:hover:text-amber-400 border border-stone-200 dark:border-stone-700/80 transition cursor-pointer flex items-center justify-center shadow-xs active:scale-95 shrink-0"
+              title={isDarkMode ? 'التبديل إلى الوضع النهاري ☀️' : 'التبديل إلى الوضع الليلي 🌙'}
+              aria-label="تبديل مظهر الواجهة"
+            >
+              {isDarkMode ? (
+                <Sun className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-indigo-900" />
+              )}
+            </button>
+          )}
         </div>
       </div>
     </header>

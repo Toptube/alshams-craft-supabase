@@ -694,14 +694,6 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       borderColor: 'border-purple-200/80 dark:border-purple-900/40',
     },
     {
-      id: 'my_platform' as HomeCardSection,
-      label: 'منصتي',
-      icon: Store,
-      color: 'text-pink-600 dark:text-pink-400',
-      bgColor: 'bg-pink-50 dark:bg-pink-950/40',
-      borderColor: 'border-pink-200/80 dark:border-pink-900/40',
-    },
-    {
       id: 'ai_helpers' as HomeCardSection,
       label: 'مساعدو الشمساوية',
       icon: Sparkles,

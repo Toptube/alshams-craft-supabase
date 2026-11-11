@@ -294,31 +294,51 @@ export const App: React.FC = () => {
     employees: [],
   });
 
-  // Theme Mode state: 'light' (نهار مشرق) | 'night_focus' (وضع السهر الهادئ) | 'dark' (ليل داكن)
+  // Theme Mode state: 'light' | 'dark' | 'night_focus'
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('alshams_theme');
-      if (saved === 'night_focus' || saved === 'dark' || saved === 'light') {
-        return saved as ThemeMode;
-      }
-      if (saved === 'true') return 'dark';
+      const saved = localStorage.getItem('theme') || localStorage.getItem('alshams_theme');
+      if (saved === 'dark' || saved === 'night_focus') return 'dark';
+      if (saved === 'light') return 'light';
+      return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
     }
     return 'light';
   });
 
   const isDarkMode = themeMode === 'dark' || themeMode === 'night_focus';
 
+  // Root theme toggle handler: directly toggles document.documentElement.classList and saves in localStorage
+  const handleToggleTheme = useCallback(() => {
+    const root = document.documentElement;
+    const isNowDark = !root.classList.contains('dark');
+    if (isNowDark) {
+      root.classList.add('dark');
+      root.classList.remove('night-focus');
+      localStorage.setItem('theme', 'dark');
+      localStorage.setItem('alshams_theme', 'dark');
+      setThemeMode('dark');
+    } else {
+      root.classList.remove('dark', 'night-focus');
+      localStorage.setItem('theme', 'light');
+      localStorage.setItem('alshams_theme', 'light');
+      setThemeMode('light');
+    }
+  }, []);
+
   useEffect(() => {
     const root = document.documentElement;
     if (themeMode === 'night_focus') {
       root.classList.add('dark', 'night-focus');
+      localStorage.setItem('theme', 'dark');
       localStorage.setItem('alshams_theme', 'night_focus');
     } else if (themeMode === 'dark') {
       root.classList.add('dark');
       root.classList.remove('night-focus');
+      localStorage.setItem('theme', 'dark');
       localStorage.setItem('alshams_theme', 'dark');
     } else {
       root.classList.remove('dark', 'night-focus');
+      localStorage.setItem('theme', 'light');
       localStorage.setItem('alshams_theme', 'light');
     }
   }, [themeMode]);
@@ -1026,7 +1046,7 @@ export const App: React.FC = () => {
           setShowAuthGateway(true);
         }}
         isDarkMode={isDarkMode}
-        onToggleTheme={() => setThemeMode(isDarkMode ? 'light' : 'dark')}
+        onToggleTheme={handleToggleTheme}
       />
     );
   }
@@ -1099,6 +1119,8 @@ export const App: React.FC = () => {
         onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
         onNavigateToMarketplace={() => navigateTo('marketplace')}
         onOpenArtisanStore={() => setIsArtisanStoreModalOpen(true)}
+        isDarkMode={isDarkMode}
+        onToggleTheme={handleToggleTheme}
         themeMode={themeMode}
         onSelectThemeMode={setThemeMode}
       />
@@ -1568,7 +1590,7 @@ export const App: React.FC = () => {
           onOpenSupport={() => setIsSupportOpen(true)}
           onStartTour={() => setIsTourOpen(true)}
           onOpenPermissionsModal={() => setIsPermissionsModalOpen(true)}
-          onToggleDarkMode={() => setThemeMode((prev: ThemeMode) => prev === 'dark' || prev === 'night_focus' ? 'light' : 'dark')}
+          onToggleDarkMode={handleToggleTheme}
           isDarkMode={isDarkMode}
           themeMode={themeMode}
           onSelectThemeMode={setThemeMode}

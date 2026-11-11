@@ -6,6 +6,7 @@ import {
   shamousaAvatarImg,
   alshamsOfficialBannerLogo,
   AlShamsFalconEmblem,
+  AlShamsBrandLogo,
 } from '../brand/BrandAssets';
 
 interface AlShamsWelcomeGateProps {
@@ -132,56 +133,48 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            {/* الشعار المعتمد في الخلفية بإطار ناعم */}
-            <div className="relative mb-5 flex justify-center">
-              <div className="relative p-2 rounded-2xl bg-white/10 backdrop-blur-md border border-amber-400/30 shadow-lg max-w-[280px] sm:max-w-[340px]">
-                <img
-                  src={alshamsOfficialBannerLogo}
-                  alt="شعار الشمس كرافت"
-                  className="w-full h-auto max-h-16 object-contain drop-shadow-md select-none"
-                />
-              </div>
+            {/* الشعار المعتمد للمنظومة بدون أي كروت أو إطارات صلبة */}
+            <div className="relative mb-4 flex justify-center">
+              <AlShamsBrandLogo maxWidth={220} isDark={true} />
             </div>
 
-            {/* ثنائي صقر وشموسة يرحبان بالزائر في الصدارة معاً */}
-            <div className="relative my-4 flex items-center justify-center gap-4 sm:gap-8">
+            {/* ثنائي صقر وشموسة يرحبان بالزائر في الصدارة معاً (Frameless & Seamless) */}
+            <div className="relative my-3 flex items-center justify-center gap-6 sm:gap-10 select-none">
               
               {/* صقر الشمساوية */}
               <div className="flex flex-col items-center group">
-                <div className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-2xl overflow-hidden p-1 bg-gradient-to-b from-amber-400/40 via-amber-500/20 to-transparent border-2 border-amber-400 shadow-xl shadow-amber-500/30 transition-transform duration-300 group-hover:scale-105">
+                <div className="relative w-28 h-28 sm:w-36 sm:h-36 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
                   <img
-                    src={alshamsFalconArtisanImg}
+                    src="/falcon_mascot_transparent.png"
                     alt="صقر الشمساوية"
-                    className="w-full h-full object-contain drop-shadow-md select-none"
+                    className="w-full h-full object-contain filter drop-shadow-2xl select-none"
                   />
-                  <span className="absolute bottom-1.5 inset-x-2 text-center text-[10px] font-black py-0.5 rounded-full bg-stone-950/90 text-amber-300 border border-amber-400/40">
-                    صقر الشمساوية 🦅
-                  </span>
                 </div>
+                <span className="mt-1 px-3 py-0.5 text-center text-[11px] font-black rounded-full bg-stone-950/90 text-amber-300 border border-amber-400/40 shadow-md">
+                  صقر الشمساوية 🦅
+                </span>
               </div>
 
               {/* أيقونة الصقر الذهبي في المنتصف كعنصر رابط بينهما */}
               <div className="relative shrink-0 flex flex-col items-center">
-                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 p-0.5 shadow-lg shadow-amber-500/40 flex items-center justify-center animate-pulse">
-                  <div className="w-full h-full rounded-full bg-[#070e1e] flex items-center justify-center">
-                    <AlShamsFalconEmblem size="sm" />
-                  </div>
+                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-amber-500/20 border border-amber-400/40 p-1 shadow-lg flex items-center justify-center animate-pulse">
+                  <AlShamsFalconEmblem size="sm" />
                 </div>
-                <span className="text-[10px] font-bold text-amber-400/80 mt-1">يد بيد</span>
+                <span className="text-[10px] font-bold text-amber-300/80 mt-1">يد بيد</span>
               </div>
 
               {/* شموسة */}
               <div className="flex flex-col items-center group">
-                <div className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-2xl overflow-hidden p-1 bg-gradient-to-b from-amber-400/40 via-amber-500/20 to-transparent border-2 border-amber-400 shadow-xl shadow-amber-500/30 transition-transform duration-300 group-hover:scale-105">
+                <div className="relative w-28 h-28 sm:w-36 sm:h-36 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
                   <img
-                    src={shamousaAvatarImg}
+                    src="/shamousa_mascot_transparent.png"
                     alt="شموسة"
-                    className="w-full h-full object-contain drop-shadow-md select-none"
+                    className="w-full h-full object-contain filter drop-shadow-2xl select-none"
                   />
-                  <span className="absolute bottom-1.5 inset-x-2 text-center text-[10px] font-black py-0.5 rounded-full bg-stone-950/90 text-amber-300 border border-amber-400/40">
-                    شموسة ☀️
-                  </span>
                 </div>
+                <span className="mt-1 px-3 py-0.5 text-center text-[11px] font-black rounded-full bg-stone-950/90 text-amber-300 border border-amber-400/40 shadow-md">
+                  شموسة ☀️
+                </span>
               </div>
             </div>
 

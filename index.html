@@ -25,6 +25,19 @@
         }
       })();
     </script>
+    <!-- Theme Initializer: Apply dark mode immediately before page renders -->
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('theme') || localStorage.getItem('alshams_theme');
+          if (saved === 'dark' || saved === 'night_focus') {
+            document.documentElement.classList.add('dark');
+          } else if (saved === 'light') {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch(e) {}
+      })();
+    </script>
     <title>منظومة الشمساوية | شمس كرافت لإدارة ورش الحرف اليدوية</title>
     <meta name="description" content="تصفح أرقى المشغولات اليدوية والديكورات الحرفية بضمان شركة الشمس كرافت." />
     <meta property="og:title" content="منظومة الشمساوية | شمس كرافت لإدارة ورش الحرف اليدوية" />

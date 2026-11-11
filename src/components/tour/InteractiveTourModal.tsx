@@ -43,10 +43,10 @@ export const InteractiveTourModal: React.FC<InteractiveTourModalProps> = ({
       subtitle: 'جولة تعريفية سريعة لاكتشاف أدوات ورشتك وإدارة مشغولاتك',
       badge: 'الخطوة الأولى • الترحيب بالمنظومة',
       icon: (
-        <div className="w-14 h-14 flex items-center justify-center">
+        <div className="w-14 h-14 flex items-center justify-center select-none">
           <img
-            src="/alshams_falcon_emblem.png"
-            alt="شعار الشمس كرافت"
+            src="/falcon_mascot_transparent.png"
+            alt="صقر الشمساوية"
             className="w-full h-full object-contain filter drop-shadow-md select-none"
           />
         </div>

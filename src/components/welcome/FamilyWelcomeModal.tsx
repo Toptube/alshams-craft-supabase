@@ -35,20 +35,21 @@ export const FamilyWelcomeModal: React.FC<FamilyWelcomeModalProps> = ({
         <div className="absolute -top-16 -left-16 w-44 h-44 bg-amber-400/25 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-16 -right-16 w-44 h-44 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
 
-        {/* Icon & Badge */}
-        <div className="flex justify-center mb-4">
-          <div className="relative">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center filter drop-shadow-md">
-              <img
-                src="/alshams_falcon_emblem.png"
-                alt="شعار الشمس كرافت"
-                className="w-full h-full object-contain select-none"
-              />
-            </div>
-            <div className="absolute -bottom-1 -right-1 bg-white dark:bg-stone-900 p-1.5 rounded-2xl shadow-md border border-amber-200 dark:border-stone-700">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-            </div>
+        {/* Mascots & Emblem Welcome (Frameless & Seamless) */}
+        <div className="flex justify-center items-center gap-3 mb-4 select-none">
+          <img
+            src="/falcon_mascot_transparent.png"
+            alt="صقر الشمساوية"
+            className="w-16 h-16 sm:w-20 sm:h-20 object-contain filter drop-shadow-md"
+          />
+          <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-400/40 p-1.5 flex items-center justify-center shadow-xs">
+            <img src="/brand_icon_light.png" alt="الشمساوية" className="w-full h-full object-contain" />
           </div>
+          <img
+            src="/shamousa_mascot_transparent.png"
+            alt="شموسة"
+            className="w-16 h-16 sm:w-20 sm:h-20 object-contain filter drop-shadow-md"
+          />
         </div>
 
         {type === 'first_time' ? (

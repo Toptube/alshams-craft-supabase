@@ -5,6 +5,7 @@ import {
   alshamsFalconArtisanImg,
   falconAvatarImg,
   shamousaAvatarImg,
+  AlShamsBrandLogo,
 } from '../brand/BrandAssets';
 import { AlShamsWelcomeGate } from './AlShamsWelcomeGate';
 import { AlShamsAudioPlayer, AlShamsAudioPlayerHandle } from './AlShamsAudioPlayer';
@@ -157,44 +158,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-white/80 dark:bg-[#070e1e]/85 border-b border-amber-500/20 transition-all shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-3 sm:gap-4">
           
-          {/* Logo & Brand identity with Mascot Avatars (Hover tilt & Subtle Glow) */}
-          <div className="flex items-center gap-2.5 sm:gap-3.5 select-none">
-            {/* الشعار المعتمد مع تأثير التوهج الزجاجي */}
-            <div className="relative p-1 rounded-2xl bg-gradient-to-br from-amber-500/15 via-white/50 dark:via-stone-900/50 to-transparent border border-amber-400/40 shadow-xs hover:border-amber-400 transition-colors">
-              <AlShamsFalconEmblem size="md" className="hover:scale-105 transition-transform drop-shadow-sm" />
-            </div>
-
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="font-black text-base sm:text-xl text-stone-900 dark:text-amber-400 tracking-tight">
-                  منظومة الشمساوية
-                </span>
-                <span className="hidden sm:inline-block text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
-                  المنظومة الحرفية المتكاملة
-                </span>
-              </div>
-              <span className="text-[10px] text-stone-500 dark:text-stone-400 font-mono tracking-wider">
-                AlShams Craft Platform
-              </span>
-            </div>
-
-            {/* ثنائي صقر وشموسة المصغر بتفاعل حركي نابض (Hover tilt & Glow) */}
-            <div className="hidden md:flex items-center gap-1.5 mr-2 px-2 py-1 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-400/30 backdrop-blur-xs shadow-2xs">
-              <div
-                className="relative w-8 h-8 rounded-xl overflow-hidden border border-amber-400/60 shadow-xs cursor-pointer transition-all duration-300 hover:scale-115 hover:-rotate-6 hover:shadow-amber-500/40"
-                title="صقر الشمساوية 🦅 (خبيرك الهندسي والتسعير)"
-              >
-                <img src={falconAvatarImg} alt="صقر الشمساوية" className="w-full h-full object-cover" />
-                <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400 border border-stone-900" />
-              </div>
-              <div
-                className="relative w-8 h-8 rounded-xl overflow-hidden border border-amber-400/60 shadow-xs cursor-pointer transition-all duration-300 hover:scale-115 hover:rotate-6 hover:shadow-amber-500/40"
-                title="شموسة ☀️ (مديرة ورشتك وحساباتك)"
-              >
-                <img src={shamousaAvatarImg} alt="شموسة" className="w-full h-full object-cover" />
-                <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400 border border-stone-900" />
-              </div>
-            </div>
+          {/* الشعار المعتمد للمنظومة بعرض لا يتجاوز 180px وبخلفية شفافة تماماً كأنه مدمج في نسيج الصفحة */}
+          <div className="flex items-center gap-2 select-none shrink-0">
+            <AlShamsFalconEmblem size="sm" className="hover:scale-105 transition-transform" />
+            <AlShamsBrandLogo maxWidth={175} />
           </div>
 
           {/* Quick Nav Links (Desktop) */}
@@ -217,39 +184,41 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </a>
           </nav>
 
-          {/* Actions: Audio Player Widget + Welcome Gate Button + Theme Toggle + Login */}
-          <div className="flex items-center gap-2 sm:gap-2.5">
-            {/* مشغل الأوديو الترويجي المدمج (Audio Player Widget) */}
+          {/* Actions: Audio Player (Compact Circle Button) + Welcome Gate + Theme Toggle + [ فتح الورشة ] */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* مشغل النشيد المدمج بزر واحد خفيف */}
             <AlShamsAudioPlayer ref={audioPlayerRef} />
 
             {/* زر إعادة فتح بوابة الترحيب التفاعلية */}
             <button
               type="button"
               onClick={() => setIsWelcomeGateOpen(true)}
-              className="hidden lg:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-amber-500/15 via-yellow-500/15 to-amber-500/10 hover:from-amber-500/25 hover:to-yellow-500/25 text-amber-900 dark:text-amber-200 border border-amber-400/40 transition active:scale-95 cursor-pointer shadow-2xs"
+              className="hidden lg:inline-flex items-center gap-1.5 px-3 py-2 rounded-2xl text-xs font-black bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-400/40 transition active:scale-95 cursor-pointer shadow-2xs shrink-0"
               title="فتح بوابة الترحيب التفاعلية"
             >
-              <span>بوابة الترحيب 🚪✨</span>
+              <span>بوابة الترحيب ✨</span>
             </button>
 
             {onToggleTheme && (
               <button
                 type="button"
                 onClick={onToggleTheme}
-                aria-label="تبديل المظهر"
-                className="p-2 sm:p-2.5 rounded-xl border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-900 text-stone-600 dark:text-stone-300 transition-colors cursor-pointer"
+                aria-label="تبديل مظهر الواجهة"
+                title={isDarkMode ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-900 text-stone-700 dark:text-stone-300 transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-xs"
               >
-                {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-stone-700" />}
+                {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-900" />}
               </button>
             )}
 
+            {/* زر [ فتح الورشة ]: مساحة طبيعية مريحة، بارز، مقروء بوضوح بدون أي قص أو حشر */}
             <button
               type="button"
               onClick={onOpenLogin}
-              className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5 sm:gap-2 border border-amber-400/30 whitespace-nowrap"
+              className="px-4 sm:px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 hover:from-amber-500 hover:to-amber-400 text-white shadow-md shadow-amber-500/25 active:scale-95 transition-all cursor-pointer flex items-center gap-2 border border-amber-300/40 whitespace-nowrap shrink-0"
             >
-              <span>فتح ورشتي</span>
-              <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span>فتح الورشة</span>
+              <ArrowLeft className="w-4 h-4 text-white" />
             </button>
           </div>
         </div>
@@ -265,44 +234,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           
-          {/* Welcome Pill Tag */}
-          <div className="flex justify-center mb-6">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs sm:text-sm font-bold shadow-xs">
-              <Sparkles className="w-4 h-4 text-amber-500 animate-spin-slow" />
-              <span>أول منظومة سحابية متخصصة ومصممة خصيصاً لورش الصناعات اليدوية في مصر والعالم العربي</span>
-            </div>
-          </div>
-
-          {/* Safe Zone Central Branding Showcase (No Distortion, Strict Original Artwork) */}
-          <div className="flex flex-col items-center justify-center text-center mb-8">
+          {/* Safe Zone Central Branding Showcase (Frameless & Seamless) */}
+          <div className="flex flex-col items-center justify-center text-center mb-6">
             
-            {/* The Official Landscape Banner Logo (Preserved 100% Unaltered) */}
-            <div className="w-full max-w-2xl px-2 mb-6">
-              <div className="relative p-2.5 sm:p-4 rounded-3xl bg-white/90 dark:bg-stone-900/90 border-2 border-amber-500/30 shadow-2xl shadow-amber-500/15 backdrop-blur-md overflow-hidden transition-all duration-300 hover:border-amber-500/60 group">
-                <img
-                  src={alshamsOfficialBannerLogo}
-                  alt="شعار الشمس كرافت الرسمي المعتمد"
-                  className="w-full h-auto max-h-[170px] sm:max-h-[220px] md:max-h-[260px] object-contain mx-auto select-none transition-transform duration-300 group-hover:scale-[1.02]"
-                />
-              </div>
+            {/* The Official Landscape Banner Logo (Seamless Calligraphy) */}
+            <div className="w-full max-w-xl px-2 mb-4 flex items-center justify-center">
+              <AlShamsBrandLogo maxWidth={280} />
             </div>
 
             {/* Visual Harmony: Center-Aligned Falcon Artisan Mascot with Hero Pitch */}
-            <div className="relative w-full max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-center gap-8 pt-4">
+            <div className="relative w-full max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-center gap-8 pt-2">
               
-              {/* Full-Body Falcon Artisan Character (Strict Placement in Safe Zone) */}
-              <div className="relative w-48 sm:w-56 md:w-64 shrink-0 flex items-center justify-center">
-                <div className="absolute inset-0 rounded-full bg-amber-500/20 blur-2xl transform scale-110 pointer-events-none" />
-                <div className="relative rounded-2xl p-2 bg-gradient-to-b from-amber-500/20 to-transparent border border-amber-500/40 shadow-xl">
-                  <img
-                    src={alshamsFalconArtisanImg}
-                    alt="صقر الشمساوية الحرفي - شريكك الهندسي"
-                    className="w-full h-auto max-h-[300px] sm:max-h-[340px] object-contain drop-shadow-xl select-none"
-                  />
-                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-stone-900/90 text-amber-300 text-[11px] font-black border border-amber-400/40 whitespace-nowrap shadow-lg flex items-center gap-1.5">
-                    <span>صقر الشمساوية AI 🦅</span>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  </div>
+              {/* Full-Body Falcon Artisan Character (Frameless & Seamless - 100% Transparent) */}
+              <div className="relative w-52 sm:w-64 md:w-72 shrink-0 flex flex-col items-center justify-center select-none">
+                <img
+                  src="/falcon_mascot_transparent.png"
+                  alt="صقر الشمساوية الحرفي"
+                  className="w-full h-auto max-h-[320px] sm:max-h-[360px] object-contain filter drop-shadow-2xl select-none"
+                />
+                <div className="mt-2 px-3.5 py-1 rounded-full bg-stone-900/90 text-amber-300 text-xs font-black border border-amber-400/40 whitespace-nowrap shadow-lg flex items-center gap-1.5 select-none">
+                  <span>صقر الشمساوية AI 🦅</span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                 </div>
               </div>
 
@@ -476,12 +428,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
             
             {/* Saqr The Engineer */}
-            <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-stone-900 border-2 border-amber-500/30 shadow-lg flex flex-col sm:flex-row items-center gap-6">
-              <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0 rounded-2xl overflow-hidden border-2 border-amber-400 bg-stone-950 flex items-center justify-center p-1 shadow-md">
+            <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-lg flex flex-col sm:flex-row items-center gap-6">
+              <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0 flex items-center justify-center select-none">
                 <img
-                  src={alshamsFalconArtisanImg}
+                  src="/falcon_mascot_transparent.png"
                   alt="صقر الشمساوية"
-                  className="w-full h-full object-cover object-top"
+                  className="w-full h-full object-contain filter drop-shadow-md select-none"
                 />
               </div>
               <div className="space-y-2 text-center sm:text-right">
@@ -499,12 +451,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* Shamousa The Operations Buddy */}
-            <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-stone-900 border-2 border-amber-500/30 shadow-lg flex flex-col sm:flex-row items-center gap-6">
-              <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0 rounded-2xl overflow-hidden border-2 border-amber-400 bg-gradient-to-tr from-amber-400 via-orange-400 to-amber-500 flex items-center justify-center p-1 shadow-md">
+            <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-lg flex flex-col sm:flex-row items-center gap-6">
+              <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0 flex items-center justify-center select-none">
                 <img
-                  src="/shamousa_mascot.png"
+                  src="/shamousa_mascot_transparent.png"
                   alt="شموسة مديرة أعمال الورشة"
-                  className="w-full h-full object-cover object-top scale-110 select-none filter drop-shadow-md"
+                  className="w-full h-full object-contain filter drop-shadow-md select-none"
                 />
               </div>
               <div className="space-y-2 text-center sm:text-right">

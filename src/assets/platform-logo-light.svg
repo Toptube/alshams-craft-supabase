@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400">
+  <defs>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&amp;display=swap");
+      .title { font-family: "Cairo", "Traditional Arabic", sans-serif; font-size: 82px; font-weight: 900; fill: #0B2356; letter-spacing: -1px; }
+      .tashkeel { fill: #D97706; font-size: 56px; }
+      .sub { font-family: "Cairo", sans-serif; font-size: 34px; font-weight: 800; fill: #0F2D6B; letter-spacing: 0px; }
+      .brand { font-family: "Cairo", sans-serif; font-size: 38px; font-weight: 900; fill: #B45309; }
+      .line { stroke: #D97706; stroke-width: 2.5; stroke-linecap: round; }
+    </style>
+    <filter id="shadowLight" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0B2356" flood-opacity="0.12" />
+    </filter>
+  </defs>
+
+  <!-- Title Calligraphy -->
+  <g text-anchor="middle" filter="url(#shadowLight)">
+    <text x="450" y="160" class="title">
+      مَنْظُومَـةُ الشَّمْسَـاوِيَّـة
+    </text>
+  </g>
+
+  <!-- Subtitle -->
+  <g text-anchor="middle">
+    <text x="450" y="240" class="sub">
+      منظومة سحابية متكاملة لفناني الحرف اليدوية
+    </text>
+  </g>
+
+  <!-- Elegant Decorative Divider with Brand Accent -->
+  <g text-anchor="middle">
+    <line x1="120" y1="315" x2="310" y2="315" class="line" />
+    <circle cx="310" cy="315" r="4.5" fill="#D97706" />
+    <text x="450" y="328" class="brand">
+      مِنْ الشَّـمْـس كَـرَافْـت
+    </text>
+    <circle cx="590" cy="315" r="4.5" fill="#D97706" />
+    <line x1="590" y1="315" x2="780" y2="315" class="line" />
+  </g>
+</svg>

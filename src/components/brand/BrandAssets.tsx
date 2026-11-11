@@ -1,24 +1,17 @@
-import React from 'react';
-import falconAvatarImg from '../../assets/falcon_mascot_ai.png';
-import shamousaAvatarImg from '../../assets/shamousa_mascot.png';
-import brandIconLight from '../../assets/brand_icon_light.png';
-import brandIconDark from '../../assets/brand_icon_dark.png';
-import brandLogoLight from '../../assets/brand_logo_light.png';
-import brandLogoDark from '../../assets/brand_logo_dark.png';
+// Authentic Mascot Characters (100% Transparent Full-Body Characters)
+export const falconAvatarImg = '/falcon_mascot_transparent.png';
+export const shamousaAvatarImg = '/shamousa_mascot_transparent.png';
+export const alshamsFalconArtisanImg = '/falcon_mascot_transparent.png';
 
-export {
-  falconAvatarImg,
-  shamousaAvatarImg,
-  brandIconLight,
-  brandIconDark,
-  brandLogoLight,
-  brandLogoDark,
-};
-
-// Aliases for backward compatibility
+// Brand & App Icons (The SH Monogram Falcon Icon)
+export const brandIconLight = '/brand_icon_light.png';
+export const brandIconDark = '/brand_icon_dark.png';
 export const alshamsFalconEmblemImg = brandIconLight;
+
+// Platform Calligraphy Logos (Light & Dark)
+export const brandLogoLight = '/platform-logo-light.png';
+export const brandLogoDark = '/platform-logo-dark.png';
 export const alshamsOfficialBannerLogo = brandLogoLight;
-export const alshamsFalconArtisanImg = brandIconLight;
 
 export const AlShamsSunIcon: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 20 }) => (
   <span className={`inline-flex items-center justify-center select-none ${className}`} style={{ width: size, height: size, fontSize: size * 0.8 }}>
@@ -97,13 +90,6 @@ export const AlShamsBrandIcon: React.FC<{
 // Backward-compatible alias for AlShamsFalconEmblem
 export const AlShamsFalconEmblem = AlShamsBrandIcon;
 
-/**
- * 2. اللوجو النصي الكامل لمنظومة الشمس كرافت (Al-Shams Craft Brand Logo)
- * - حجم متناسق ومحدد بدقة لا يتجاوز 180px عرضاً للحفاظ على فخامة المظهر بدون أي تشويه.
- * - تبديل تلقائي وسلس حسب السمة:
- *   * في الوضع الفاتح: خط عربي ديواني كحلي غني مع شمس ذهبية (أعلى تباين وأناقة).
- *   * في الوضع الداكن: خط متوهج بالسيان والأزرق الملكي مع تفاصيل مضيئة وخلفية متناسقة.
- */
 export const AlShamsBrandLogo: React.FC<{
   className?: string;
   maxWidth?: number | string;
@@ -111,72 +97,65 @@ export const AlShamsBrandLogo: React.FC<{
   showSubtitle?: boolean;
   isDark?: boolean;
   alt?: string;
-}> = ({ className = '', maxWidth = 180, size, showSubtitle: _showSubtitle, isDark, alt = 'لوجو الشمس كرافت الرسمي' }) => {
+}> = ({ className = '', maxWidth = 180, size, isDark, alt = 'منظومة الشمساوية - من الشمس كرافت' }) => {
   let effectiveMaxWidth = maxWidth;
-  if (size === 'sm') effectiveMaxWidth = 120;
-  else if (size === 'md') effectiveMaxWidth = 150;
+  if (size === 'sm') effectiveMaxWidth = 130;
+  else if (size === 'md') effectiveMaxWidth = 155;
   else if (size === 'lg') effectiveMaxWidth = 180;
   const maxWStyle = typeof effectiveMaxWidth === 'number' ? `${effectiveMaxWidth}px` : effectiveMaxWidth;
 
   if (isDark === true) {
     return (
-      <div
-        className={`inline-flex items-center justify-center select-none ${className}`}
+      <img
+        src={brandLogoDark}
+        alt={alt}
         style={{ maxWidth: maxWStyle }}
-      >
-        <img
-          src={brandLogoDark}
-          alt={alt}
-          className="w-full h-auto max-h-12 object-contain select-none filter drop-shadow-[0_0_14px_rgba(14,165,233,0.35)]"
-        />
-      </div>
+        className={`w-auto h-auto max-h-11 sm:max-h-12 object-contain select-none shrink-0 drop-shadow-[0_0_12px_rgba(56,189,248,0.4)] ${className}`}
+      />
     );
   }
 
   if (isDark === false) {
     return (
-      <div
-        className={`inline-flex items-center justify-center select-none ${className}`}
-        style={{ maxWidth: maxWStyle }}
-      >
-        <img
-          src={brandLogoLight}
-          alt={alt}
-          className="w-full h-auto max-h-12 object-contain select-none filter drop-shadow-2xs"
-        />
-      </div>
-    );
-  }
-
-  // Automatic CSS-based responsive theme switching (max width 180px strictly enforced)
-  return (
-    <div
-      className={`inline-flex items-center justify-center select-none shrink-0 ${className}`}
-      style={{ maxWidth: maxWStyle }}
-    >
-      {/* Light Mode Logo */}
       <img
         src={brandLogoLight}
         alt={alt}
-        className="w-full h-auto max-h-12 object-contain dark:hidden select-none filter drop-shadow-2xs"
+        style={{ maxWidth: maxWStyle }}
+        className={`w-auto h-auto max-h-11 sm:max-h-12 object-contain select-none shrink-0 ${className}`}
       />
-      {/* Dark / Night Mode Logo */}
+    );
+  }
+
+  return (
+    <div
+      style={{ maxWidth: maxWStyle }}
+      className={`relative inline-flex items-center justify-center select-none shrink-0 ${className}`}
+    >
+      <img
+        src={brandLogoLight}
+        alt={alt}
+        className="w-auto h-auto max-h-11 sm:max-h-12 object-contain dark:hidden select-none"
+      />
       <img
         src={brandLogoDark}
         alt={alt}
-        className="w-full h-auto max-h-12 object-contain hidden dark:block select-none filter drop-shadow-[0_0_14px_rgba(14,165,233,0.35)]"
+        className="w-auto h-auto max-h-11 sm:max-h-12 object-contain hidden dark:block select-none drop-shadow-[0_0_12px_rgba(56,189,248,0.4)]"
       />
     </div>
   );
 };
 
-// EXCLUSIVE FALCON MASCOT AVATAR FOR "صقر الشمساوية AI"
+// Aliases for platform logo
+export const AlShamsPlatformLogo = AlShamsBrandLogo;
+export const PlatformLogo = AlShamsBrandLogo;
+
+// EXCLUSIVE FALCON MASCOT FOR "صقر الشمساوية AI" (Seamless Transparent PNG)
 export const FalconMascotAvatar: React.FC<{
   className?: string;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   statusDot?: boolean;
   fit?: 'contain' | 'cover' | 'top';
-}> = ({ className = '', size = 'md', statusDot = true, fit = 'top' }) => {
+}> = ({ className = '', size = 'md', statusDot = true }) => {
   const sizeMap = {
     xs: 'w-7 h-7',
     sm: 'w-9 h-9',
@@ -186,23 +165,13 @@ export const FalconMascotAvatar: React.FC<{
     '2xl': 'w-32 h-32',
   };
 
-  const fitClass =
-    fit === 'contain'
-      ? 'object-contain scale-95'
-      : fit === 'top'
-      ? 'object-cover object-top scale-110'
-      : 'object-cover';
-
   return (
-    <div className={`relative ${sizeMap[size]} flex-shrink-0 ${className}`}>
-      <div className="w-full h-full rounded-2xl bg-gradient-to-tr from-stone-900 via-amber-950/90 to-stone-800 p-0.5 shadow-md border border-amber-500/40 dark:border-amber-400/60 dark:shadow-[0_0_12px_rgba(245,158,11,0.25)] overflow-hidden flex items-center justify-center transition-all duration-200">
-        <img
-          src={falconAvatarImg}
-          alt="صقر الشمساوية AI"
-          className={`w-full h-full ${fitClass} rounded-2xl select-none filter drop-shadow-sm`}
-        />
-      </div>
-
+    <div className={`relative ${sizeMap[size]} flex-shrink-0 inline-flex items-center justify-center ${className}`}>
+      <img
+        src="/falcon_mascot_transparent.png"
+        alt="صقر الشمساوية AI"
+        className="w-full h-full object-contain select-none filter drop-shadow-md"
+      />
       {statusDot && (
         <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -213,13 +182,13 @@ export const FalconMascotAvatar: React.FC<{
   );
 };
 
-// EXCLUSIVE SHAMOUSA MASCOT AVATAR FOR "شموسة — مديرة أعمال الورشة"
+// EXCLUSIVE SHAMOUSA MASCOT FOR "شموسة — مديرة أعمال الورشة" (Seamless Transparent PNG)
 export const ShamousaMascotAvatar: React.FC<{
   className?: string;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   statusDot?: boolean;
   fit?: 'contain' | 'cover' | 'top';
-}> = ({ className = '', size = 'md', statusDot = true, fit = 'top' }) => {
+}> = ({ className = '', size = 'md', statusDot = true }) => {
   const sizeMap = {
     xs: 'w-7 h-7',
     sm: 'w-9 h-9',
@@ -229,23 +198,13 @@ export const ShamousaMascotAvatar: React.FC<{
     '2xl': 'w-32 h-32',
   };
 
-  const fitClass =
-    fit === 'contain'
-      ? 'object-contain scale-95'
-      : fit === 'top'
-      ? 'object-cover object-top scale-110'
-      : 'object-cover';
-
   return (
-    <div className={`relative ${sizeMap[size]} flex-shrink-0 ${className}`}>
-      <div className="w-full h-full rounded-2xl bg-gradient-to-tr from-amber-500 via-orange-500 to-amber-600 p-0.5 shadow-md border border-amber-300/80 dark:border-amber-400/80 overflow-hidden flex items-center justify-center transition-all duration-200">
-        <img
-          src={shamousaAvatarImg}
-          alt="شموسة مديرة أعمال الورشة"
-          className={`w-full h-full ${fitClass} rounded-2xl select-none filter drop-shadow-sm`}
-        />
-      </div>
-
+    <div className={`relative ${sizeMap[size]} flex-shrink-0 inline-flex items-center justify-center ${className}`}>
+      <img
+        src="/shamousa_mascot_transparent.png"
+        alt="شموسة مديرة أعمال الورشة"
+        className="w-full h-full object-contain select-none filter drop-shadow-md"
+      />
       {statusDot && (
         <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -255,6 +214,33 @@ export const ShamousaMascotAvatar: React.FC<{
     </div>
   );
 };
+
+// Full-length seamless character components
+export const FalconMascotFull: React.FC<{ className?: string; height?: number | string; alt?: string }> = ({
+  className = '',
+  height = 180,
+  alt = 'صقر الشمساوية',
+}) => (
+  <img
+    src="/falcon_mascot_transparent.png"
+    alt={alt}
+    style={{ height }}
+    className={`object-contain select-none filter drop-shadow-xl inline-block ${className}`}
+  />
+);
+
+export const ShamousaMascotFull: React.FC<{ className?: string; height?: number | string; alt?: string }> = ({
+  className = '',
+  height = 180,
+  alt = 'شَمّوسة',
+}) => (
+  <img
+    src="/shamousa_mascot_transparent.png"
+    alt={alt}
+    style={{ height }}
+    className={`object-contain select-none filter drop-shadow-xl inline-block ${className}`}
+  />
+);
 
 // DEDICATED ARTISAN PROFILE PICTURE COMPONENT
 export const ArtisanAvatar: React.FC<{
