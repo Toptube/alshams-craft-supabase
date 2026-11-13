@@ -4,6 +4,7 @@ import {
   SavedProductRecord,
   CustomerAuthUser,
   MarketplaceCartItem,
+  isUserAdmin,
 } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import {
@@ -20,6 +21,7 @@ import { supabase } from '../../lib/supabase';
 import { MAIN_SECTIONS, SUB_CRAFTS_REGISTRY } from '../../registry/craftsRegistry';
 import { CustomerAuthModal } from './CustomerAuthModal';
 import { MarketplaceCartModal } from './MarketplaceCartModal';
+import { AlShamsBrandIcon } from '../brand/BrandAssets';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
 import {
   ShoppingBag,
@@ -28,9 +30,7 @@ import {
   Search,
   Layers,
   Phone,
-  ExternalLink,
   ChevronDown,
-  ShieldCheck,
   User,
   X,
   Plus,
@@ -38,6 +38,8 @@ import {
   Check,
   AlertCircle,
   RotateCcw,
+  ArrowLeft,
+  ArrowUpDown,
 } from 'lucide-react';
 
 interface MarketplaceProductRecord extends SavedProductRecord {
@@ -56,14 +58,14 @@ interface MarketplaceViewProps {
 }
 
 const DECOR_CATEGORIES = [
-  { id: 'all', nameAr: 'كافة المعروضات', icon: '🌟', keywords: [] as string[] },
-  { id: 'wall_hangings', nameAr: 'معلقات جدارية', icon: '🖼️', keywords: ['معلق', 'جدار', 'تابلوه', 'طارة', 'برواز', 'مرآة'] },
-  { id: 'cushions', nameAr: 'كوشن وتكايات', icon: '🛋️', keywords: ['كوشن', 'مخد', 'تكا', 'غطاء'] },
-  { id: 'bags_clutches', nameAr: 'شنط وكلاتشات', icon: '👜', keywords: ['شنط', 'كلاتش', 'حقيب', 'zara'] },
-  { id: 'rugs_runners', nameAr: 'سجاد ورانرات', icon: '🧶', keywords: ['سجاد', 'رانر', 'كليم', 'مفرش'] },
-  { id: 'lighting', nameAr: 'إضاءة وأباجورات', icon: '💡', keywords: ['إضاء', 'أباجور', 'نجف', 'فانوس', 'شمع'] },
-  { id: 'baskets_trays', nameAr: 'صواني وباسكت ومنظمات', icon: '🧺', keywords: ['صين', 'باسكت', 'سبت', 'منظم', 'بوكس', 'سل'] },
-  { id: 'furniture_decor', nameAr: 'قطع أثاث وديكور', icon: '🪑', keywords: ['أثاث', 'كرسي', 'أرجوح', 'طربيز', 'بوف', 'فاز', 'ديكور'] },
+  { id: 'all', nameAr: 'كافة المعروضات', keywords: [] as string[] },
+  { id: 'wall_hangings', nameAr: 'معلقات جدارية', keywords: ['معلق', 'جدار', 'تابلوه', 'طارة', 'برواز', 'مرآة'] },
+  { id: 'cushions', nameAr: 'كوشن وتكايات', keywords: ['كوشن', 'مخد', 'تكا', 'غطاء'] },
+  { id: 'bags_clutches', nameAr: 'شنط وكلاتشات', keywords: ['شنط', 'كلاتش', 'حقيب', 'zara'] },
+  { id: 'rugs_runners', nameAr: 'سجاد ورانرات', keywords: ['سجاد', 'رانر', 'كليم', 'مفرش'] },
+  { id: 'lighting', nameAr: 'إضاءة وأباجورات', keywords: ['إضاء', 'أباجور', 'نجف', 'فانوس', 'شمع'] },
+  { id: 'baskets_trays', nameAr: 'صواني وباسكت', keywords: ['صين', 'باسكت', 'سبت', 'منظم', 'بوكس', 'سل'] },
+  { id: 'furniture_decor', nameAr: 'أثاث وديكور', keywords: ['أثاث', 'كرسي', 'أرجوح', 'طربيز', 'بوف', 'فاز', 'ديكور'] },
 ];
 
 const CRAFT_ALIASES: Record<string, string[]> = {
@@ -117,18 +119,22 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   profile,
   onOpenStoreModal,
 }) => {
+  const isSuperAdmin = useMemo(() => isUserAdmin(profile), [profile]);
+
   const [products, setProducts] = useState<MarketplaceProductRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortBy, setSortBy] = useState<'featured' | 'price_asc' | 'price_desc'>('featured');
 
   // 1. Decor Horizontal Category Tabs
   const [selectedDecorCategory, setSelectedDecorCategory] = useState<string>('all');
 
-  // 2. Linked Multi-Select Dropdowns: القسم (Main Sections) -> الورش (Sub-Crafts)
+  // 2. Linked Multi-Select Dropdowns: القسم (Main Sections) -> الحرفة (Sub-Crafts)
   const [selectedMainSections, setSelectedMainSections] = useState<string[]>([]);
   const [selectedSubCrafts, setSelectedSubCrafts] = useState<string[]>([]);
   const [openDropdown, setOpenDropdown] = useState<'section' | 'craft' | null>(null);
   const filterAreaRef = useRef<HTMLDivElement>(null);
+  const catalogSectionRef = useRef<HTMLElement>(null);
 
   // Selected Product Details Modal
   const [selectedProductDetails, setSelectedProductDetails] = useState<MarketplaceProductRecord | null>(null);
@@ -214,7 +220,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         setSelectedSubCrafts(pruned);
       }
     }
-  }, [selectedMainSections, availableSubCrafts]);
+  }, [selectedMainSections, availableSubCrafts, selectedSubCrafts]);
 
   const toggleMainSection = (sectionId: string) => {
     if (sectionId === 'all') {
@@ -237,7 +243,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     );
   };
 
-  // Load products across ALL workshops (approved + pending_approval provisionally, excluding rejected)
+  // Load approved marketplace products
   useEffect(() => {
     let isMounted = true;
     const fetchMarketplace = async () => {
@@ -280,7 +286,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             output: {} as any,
           }));
 
-        // Local workshop fallback ONLY for offline-approved products (never bypasses Super Admin moderation)
+        // Local workshop fallback ONLY for offline-approved products (never bypasses moderation)
         let publishedLocal: MarketplaceProductRecord[] = [];
         const isCurrentProfileBlocked = Boolean(
           profile && ((profile as any).isFrozen || profile.status === 'banned' || profile.status === 'suspended')
@@ -343,20 +349,22 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     };
   }, [profile]);
 
-  // Filtered Products
+  // Filtered & Sorted Products
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      // 1. Search Query
+    const filtered = products.filter((p) => {
+      // 1. Search Query (Super Admin can also search by brand/artist; shoppers search products & crafts)
       const q = searchQuery.toLowerCase().trim();
       const matchSearch =
         !q ||
         p.productName.toLowerCase().includes(q) ||
         (p.storeDescription || '').toLowerCase().includes(q) ||
         (p.craftName || '').toLowerCase().includes(q) ||
-        (p.brandName || '').toLowerCase().includes(q) ||
-        (p.artistName || '').toLowerCase().includes(q);
+        (p.category || '').toLowerCase().includes(q) ||
+        (isSuperAdmin &&
+          ((p.brandName || '').toLowerCase().includes(q) ||
+            (p.artistName || '').toLowerCase().includes(q)));
 
-      // 2. Decor Category Tabs (المعروضات)
+      // 2. Decor Category Tabs
       let matchDecor = true;
       if (selectedDecorCategory !== 'all') {
         if (p.decorCategory && p.decorCategory !== 'all') {
@@ -368,7 +376,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         }
       }
 
-      // 3. Linked Section & Sub-Craft Filter (القسم -> الورش)
+      // 3. Linked Section & Sub-Craft Filter
       let matchTaxonomy = true;
       if (selectedSubCrafts.length > 0) {
         matchTaxonomy = selectedSubCrafts.some((craftId) => matchesSubCraft(p, craftId));
@@ -389,7 +397,19 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
       return matchSearch && matchDecor && matchTaxonomy;
     });
-  }, [products, searchQuery, selectedDecorCategory, selectedMainSections, selectedSubCrafts]);
+
+    if (sortBy === 'price_asc') {
+      return [...filtered].sort(
+        (a, b) => (a.storePrice || a.retailPrice || 0) - (b.storePrice || b.retailPrice || 0)
+      );
+    }
+    if (sortBy === 'price_desc') {
+      return [...filtered].sort(
+        (a, b) => (b.storePrice || b.retailPrice || 0) - (a.storePrice || a.retailPrice || 0)
+      );
+    }
+    return filtered;
+  }, [products, searchQuery, selectedDecorCategory, selectedMainSections, selectedSubCrafts, sortBy, isSuperAdmin]);
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
@@ -402,6 +422,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     setSelectedDecorCategory('all');
     setSelectedMainSections([]);
     setSelectedSubCrafts([]);
+    setSortBy('featured');
     setOpenDropdown(null);
   };
 
@@ -415,7 +436,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     setReviewGuardError('');
   };
 
-  // Add to persistent cart (unchanged cart mechanism)
+  // Add to persistent cart (preserving silent internal workshop/artist attribution for Super Admin & orders)
   const handleAddToCart = (
     product: MarketplaceProductRecord,
     qty?: number,
@@ -461,13 +482,13 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       return;
     }
     if (!newReviewComment.trim()) {
-      setReviewGuardError('يرجى كتابة تقييمك للمشغولة.');
+      setReviewGuardError('يرجى كتابة تقييمك للمنتج.');
       return;
     }
 
     const check = canCustomerReviewProduct(productId, phone);
     if (!check.allowed) {
-      setReviewGuardError(check.reason || 'التقييم متاح بعد استلام المشغولة.');
+      setReviewGuardError(check.reason || 'التقييم متاح بعد استلام الطلب.');
       playAlertSound();
       return;
     }
@@ -493,48 +514,72 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       const sec = MAIN_SECTIONS.find((s) => s.id === selectedMainSections[0]);
       return `القسم: ${sec?.nameAr || '1'}`;
     }
-    return `القسم (${selectedMainSections.length})`;
+    return `الأقسام (${selectedMainSections.length})`;
   }, [selectedMainSections]);
 
   const craftButtonLabel = useMemo(() => {
-    if (selectedSubCrafts.length === 0) return 'الورش: الكل';
+    if (selectedSubCrafts.length === 0) return 'التخصص: الكل';
     if (selectedSubCrafts.length === 1) {
       const c = SUB_CRAFTS_REGISTRY.find((sc) => sc.id === selectedSubCrafts[0]);
-      return `الورش: ${c?.nameAr || '1'}`;
+      return `التخصص: ${c?.nameAr || '1'}`;
     }
-    return `الورش (${selectedSubCrafts.length})`;
+    return `التخصصات (${selectedSubCrafts.length})`;
   }, [selectedSubCrafts]);
 
+  const scrollToCatalog = () => {
+    catalogSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
-    <div className="min-h-screen bg-[#080F1E] text-white font-sans pb-20 max-w-full overflow-x-hidden" dir="rtl">
-      {/* 1. Top Marketplace Header */}
-      <header className="sticky top-0 z-40 bg-[#0C1427]/95 backdrop-blur-md border-b border-amber-500/30 px-3 sm:px-6 py-3 shadow-xl">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+    <div
+      className="min-h-screen bg-[#FAF5EB] text-[#0C1427] dark:bg-[#060B18] dark:text-[#FAF5EB] font-sans pb-16 max-w-full overflow-x-hidden transition-colors duration-200"
+      dir="rtl"
+    >
+      {/* 1. Unified Clean Top Navigation Header */}
+      <header className="sticky top-0 z-40 bg-[#FFFDF9]/95 dark:bg-[#0B142B]/95 backdrop-blur-md border-b border-[#DEC9A8] dark:border-[#1B2B4B] px-4 sm:px-6 py-3">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 sm:gap-8">
+          {/* Zone 1: Brand Wordmark (single line, zero descriptor clutter) */}
           <button
             type="button"
             onClick={resetAllFilters}
-            className="flex items-center gap-2.5 cursor-pointer text-right group shrink-0"
+            className="flex items-center gap-2.5 cursor-pointer text-right shrink-0 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] rounded-xl"
             title="سوق الشمساوية"
           >
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-600 to-amber-400 text-stone-950 flex items-center justify-center font-black shadow-md shrink-0 group-hover:scale-105 transition">
-              🛍️
-            </div>
-            <div>
-              <h1 className="text-base sm:text-lg font-black text-amber-300 whitespace-nowrap">
-                سوق الشمساوية
-              </h1>
-              <p className="text-[11px] text-stone-400 font-medium hidden sm:block">
-                معروضات جميع ورش وفناني الشمساوية
-              </p>
-            </div>
+            <AlShamsBrandIcon size="sm" />
+            <span className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#FAF5EB] whitespace-nowrap">
+              سوق الشمساوية
+            </span>
           </button>
 
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Zone 2: Integrated Amazon/Noon Desktop Search Bar */}
+          <div className="hidden md:block flex-1 max-w-xl relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="ابحث عن مشغولة يدوية، ديكور، أو حرفة..."
+              className="w-full h-10 pr-10 pl-14 rounded-xl bg-[#F3E9D8] dark:bg-[#060B18] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] placeholder-[#6E6254] dark:placeholder-[#8FA2C2] text-sm font-medium outline-none focus:border-[#EA580C] dark:focus:border-[#FBBF24] transition-colors"
+            />
+            <Search className="w-4 h-4 text-[#6E6254] dark:text-[#8FA2C2] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[#C2410C] dark:text-[#FBBF24] font-bold cursor-pointer"
+              >
+                مسح
+              </button>
+            )}
+          </div>
+
+          {/* Zone 3: Concise Actions */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {customerUser ? (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-xs whitespace-nowrap">
-                <User className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="font-bold text-white truncate max-w-[110px]">{customerUser.name}</span>
-                <span className="text-[11px] font-mono tabular-nums text-amber-300">
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs whitespace-nowrap">
+                <User className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
+                <span className="font-bold truncate max-w-[110px]">{customerUser.name}</span>
+                <span className="text-[#6E6254] dark:text-[#8FA2C2]" aria-hidden="true">·</span>
+                <span className="font-mono tabular-nums text-[#C2410C] dark:text-[#FBBF24] font-bold">
                   {customerUser.loyaltyPoints} نقطة
                 </span>
               </div>
@@ -542,253 +587,344 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCustomerAuthOpen(true)}
-                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-stone-300 hover:text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
+                className="px-3 py-2 rounded-xl text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242] text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0"
               >
-                <User className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden sm:inline">حساب العميل</span>
+                <User className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />
+                <span className="hidden sm:inline">حسابي</span>
+              </button>
+            )}
+
+            {onOpenStoreModal && profile && (
+              <button
+                type="button"
+                onClick={onOpenStoreModal}
+                className="px-3 py-2 rounded-xl border border-[#DEC9A8] dark:border-[#1B2B4B] hover:bg-[#F3E9D8] dark:hover:bg-[#142242] text-[#0C1427] dark:text-[#FAF5EB] font-bold text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+                title="إدارة الكتالوج والمتجر"
+              >
+                <Store className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
+                <span className="hidden lg:inline">متجري</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className="relative px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-2 shadow-lg active:scale-95 transition cursor-pointer whitespace-nowrap"
+              className="relative px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center gap-2 transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
               title="فتح سلة المشتريات"
             >
               <ShoppingBag className="w-4 h-4" />
-              <span className="hidden sm:inline">السلة</span>
+              <span>السلة</span>
               {cartItemsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[10px] font-black">
+                <span className="min-w-5 h-5 px-1.5 rounded-full bg-[#0C1427] text-[#FBBF24] font-mono tabular-nums text-[11px] font-black flex items-center justify-center">
                   {cartItemsCount}
                 </span>
               )}
             </button>
-
-            {onOpenStoreModal && (
-              <button
-                type="button"
-                onClick={onOpenStoreModal}
-                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-amber-300 hover:text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer border border-amber-500/20 whitespace-nowrap"
-                title="متجر ورشتي"
-              >
-                <Store className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">متجري</span>
-              </button>
-            )}
           </div>
         </div>
       </header>
 
-      {/* 2. Search + Linked 2-Dropdown Filter Toolbar */}
-      <section className="px-4 pt-5 pb-3 max-w-7xl mx-auto space-y-4" ref={filterAreaRef}>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
-          {/* Search Input */}
-          <div className="lg:col-span-6 relative">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث باسم القطعة، الحرفة، الورشة أو الفنان..."
-              className="w-full h-11 px-4 pr-11 rounded-2xl bg-[#0C1427] border border-amber-500/35 text-white placeholder-stone-400 text-xs sm:text-sm font-bold outline-none focus:border-amber-400 shadow-lg"
-            />
-            <Search className="w-4 h-4 text-amber-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-            {searchQuery && (
+      {/* 2. Editorial Showcase Hero (Hidden while searching/filtering so results rise straight to top) */}
+      {!hasActiveFilters && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-2">
+          <div className="grid grid-cols-1 lg:grid-cols-12 items-stretch rounded-2xl overflow-hidden bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B]">
+            <div className="lg:col-span-5 p-6 sm:p-8 flex flex-col justify-center gap-4 text-right">
+              <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                مشغولات يدوية · ديكور وأثاث منزلي
+              </p>
+              <h1 className="text-2xl sm:text-3xl font-black leading-tight text-[#0C1427] dark:text-[#FAF5EB] text-balance">
+                اقتنِ قطعاً يدوية أصيلة لمنزلك
+              </h1>
+              <p className="text-sm text-[#5C4E3E] dark:text-[#B6C2D9] leading-relaxed max-w-md">
+                تشكيلة مختارة من الديكورات والمشغولات الحرفية بتصنيع متقن وتوصيل لكافة المحافظات.
+              </p>
+              <div className="pt-1 flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={scrollToCatalog}
+                  className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-sm inline-flex items-center gap-2 transition cursor-pointer active:scale-95 whitespace-nowrap"
+                >
+                  <span>تصفح المعروضات</span>
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2] tabular-nums">
+                  {products.length} قطعة متاحة
+                </span>
+              </div>
+            </div>
+
+            <div className="lg:col-span-7 min-h-[190px] sm:min-h-[250px] bg-gradient-to-br from-[#F3E9D8] to-[#DEC9A8] dark:from-[#0B142B] dark:to-[#132040] relative overflow-hidden">
+              <img
+                src="/src/assets/images/hero_shamsawiyah_market_1794585781201.jpg"
+                alt="تشكيلة مشغولات يدوية وديكور منزلي في سوق الشمساوية"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover lg:absolute lg:inset-0"
+              />
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 3. Categories & Clean Filter Toolbar */}
+      <section
+        ref={(el) => {
+          filterAreaRef.current = el as HTMLDivElement | null;
+          catalogSectionRef.current = el;
+        }}
+        className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 pb-3 space-y-3"
+      >
+        {/* Mobile Search Bar */}
+        <div className="md:hidden relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="ابحث عن مشغولة يدوية أو حرفة..."
+            className="w-full h-11 pr-10 pl-14 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] placeholder-[#6E6254] dark:placeholder-[#8FA2C2] text-sm font-medium outline-none focus:border-[#EA580C]"
+          />
+          <Search className="w-4 h-4 text-[#6E6254] dark:text-[#8FA2C2] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-[#C2410C] dark:text-[#FBBF24] font-bold cursor-pointer"
+            >
+              مسح
+            </button>
+          )}
+        </div>
+
+        {/* Horizontal Category Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          {DECOR_CATEGORIES.map((cat) => {
+            const active = selectedDecorCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setSelectedDecorCategory(cat.id)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer shrink-0 border ${
+                  active
+                    ? 'bg-[#0C1427] text-[#FAF5EB] border-[#0C1427] dark:bg-[#EA580C] dark:text-white dark:border-[#EA580C]'
+                    : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#5C4E3E] dark:text-[#B6C2D9] border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C]/60'
+                }`}
+              >
+                {cat.nameAr}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Linked Section + Craft Filters + Sort + Count */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2.5 flex-1">
+            {/* Dropdown 1: القسم */}
+            <div className="relative sm:w-52">
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-stone-400 hover:text-white font-bold cursor-pointer"
+                onClick={() => setOpenDropdown((prev) => (prev === 'section' ? null : 'section'))}
+                className={`w-full h-10 px-3 rounded-xl border text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer whitespace-nowrap ${
+                  selectedMainSections.length > 0
+                    ? 'bg-[#EA580C]/10 border-[#EA580C] text-[#C2410C] dark:text-[#FBBF24]'
+                    : 'bg-[#FFFDF9] dark:bg-[#0C1427] border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] hover:border-[#EA580C]/60'
+                }`}
               >
-                مسح
+                <span className="flex items-center gap-2 truncate">
+                  <Layers className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24] shrink-0" />
+                  <span className="truncate">{sectionButtonLabel}</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transition-transform ${openDropdown === 'section' ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              {openDropdown === 'section' && (
+                <div className="absolute right-0 left-0 sm:w-64 mt-1.5 z-50 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] shadow-xl p-1.5 space-y-1 max-h-72 overflow-y-auto">
+                  <button
+                    type="button"
+                    onClick={() => toggleMainSection('all')}
+                    className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between transition cursor-pointer ${
+                      selectedMainSections.length === 0
+                        ? 'bg-[#EA580C] text-white'
+                        : 'text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242]'
+                    }`}
+                  >
+                    <span>الكل (كافة الأقسام)</span>
+                    {selectedMainSections.length === 0 && <Check className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {MAIN_SECTIONS.map((sec) => {
+                    const isChecked = selectedMainSections.includes(sec.id);
+                    return (
+                      <button
+                        key={sec.id}
+                        type="button"
+                        onClick={() => toggleMainSection(sec.id)}
+                        className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer text-right ${
+                          isChecked
+                            ? 'bg-[#EA580C]/10 text-[#C2410C] dark:text-[#FBBF24]'
+                            : 'text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242]'
+                        }`}
+                      >
+                        <span className="truncate">{sec.nameAr}</span>
+                        <span
+                          className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                            isChecked
+                              ? 'bg-[#EA580C] border-[#EA580C] text-white'
+                              : 'border-[#DEC9A8] dark:border-[#253B6B]'
+                          }`}
+                        >
+                          {isChecked && <Check className="w-3 h-3" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Dropdown 2: التخصص / الحرفة */}
+            <div className="relative sm:w-52">
+              <button
+                type="button"
+                onClick={() => setOpenDropdown((prev) => (prev === 'craft' ? null : 'craft'))}
+                className={`w-full h-10 px-3 rounded-xl border text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer whitespace-nowrap ${
+                  selectedSubCrafts.length > 0
+                    ? 'bg-[#EA580C]/10 border-[#EA580C] text-[#C2410C] dark:text-[#FBBF24]'
+                    : 'bg-[#FFFDF9] dark:bg-[#0C1427] border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] hover:border-[#EA580C]/60'
+                }`}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <Store className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24] shrink-0" />
+                  <span className="truncate">{craftButtonLabel}</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transition-transform ${openDropdown === 'craft' ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              {openDropdown === 'craft' && (
+                <div className="absolute right-0 left-0 sm:w-64 mt-1.5 z-50 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] shadow-xl p-1.5 space-y-1 max-h-72 overflow-y-auto">
+                  <button
+                    type="button"
+                    onClick={() => toggleSubCraft('all')}
+                    className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between transition cursor-pointer ${
+                      selectedSubCrafts.length === 0
+                        ? 'bg-[#EA580C] text-white'
+                        : 'text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242]'
+                    }`}
+                  >
+                    <span>الكل ({availableSubCrafts.length} تخصص)</span>
+                    {selectedSubCrafts.length === 0 && <Check className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {availableSubCrafts.map((craft) => {
+                    const isChecked = selectedSubCrafts.includes(craft.id);
+                    return (
+                      <button
+                        key={craft.id}
+                        type="button"
+                        onClick={() => toggleSubCraft(craft.id)}
+                        className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer text-right ${
+                          isChecked
+                            ? 'bg-[#EA580C]/10 text-[#C2410C] dark:text-[#FBBF24]'
+                            : 'text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242]'
+                        }`}
+                      >
+                        <span className="truncate">{craft.nameAr}</span>
+                        <span
+                          className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                            isChecked
+                              ? 'bg-[#EA580C] border-[#EA580C] text-white'
+                              : 'border-[#DEC9A8] dark:border-[#253B6B]'
+                          }`}
+                        >
+                          {isChecked && <Check className="w-3 h-3" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                className="h-10 px-3 rounded-xl text-xs font-bold text-[#C2410C] dark:text-[#FBBF24] hover:bg-[#F3E9D8] dark:hover:bg-[#142242] flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>إعادة ضبط</span>
               </button>
             )}
           </div>
 
-          {/* Dropdown 1: القسم (Main Sections Multi-Select) */}
-          <div className="lg:col-span-3 relative">
-            <button
-              type="button"
-              onClick={() => setOpenDropdown((prev) => (prev === 'section' ? null : 'section'))}
-              className={`w-full h-11 px-3.5 rounded-2xl border text-xs font-black flex items-center justify-between gap-2 transition cursor-pointer ${
-                selectedMainSections.length > 0
-                  ? 'bg-amber-600/20 border-amber-400 text-amber-200'
-                  : 'bg-[#0C1427] border-amber-500/35 text-stone-200 hover:border-amber-400'
-              }`}
-            >
-              <span className="flex items-center gap-2 truncate">
-                <Layers className="w-4 h-4 text-amber-400 shrink-0" />
-                <span className="truncate">{sectionButtonLabel}</span>
-              </span>
-              <ChevronDown className={`w-4 h-4 text-amber-400 transition-transform shrink-0 ${openDropdown === 'section' ? 'rotate-180' : ''}`} />
-            </button>
+          {/* Sort + Results Summary */}
+          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+            <span className="text-xs font-medium text-[#6E6254] dark:text-[#8FA2C2] tabular-nums">
+              {filteredProducts.length} منتج
+            </span>
 
-            {openDropdown === 'section' && (
-              <div className="absolute right-0 left-0 mt-2 z-50 rounded-2xl bg-[#0C1427] border border-amber-500/40 shadow-2xl p-2 space-y-1 max-h-72 overflow-y-auto">
-                <button
-                  type="button"
-                  onClick={() => toggleMainSection('all')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer ${
-                    selectedMainSections.length === 0
-                      ? 'bg-amber-500 text-stone-950 font-black'
-                      : 'text-stone-200 hover:bg-white/5'
-                  }`}
-                >
-                  <span>الكل (كافة الأقسام)</span>
-                  {selectedMainSections.length === 0 && <Check className="w-3.5 h-3.5" />}
-                </button>
-
-                {MAIN_SECTIONS.map((sec) => {
-                  const isChecked = selectedMainSections.includes(sec.id);
-                  return (
-                    <button
-                      key={sec.id}
-                      type="button"
-                      onClick={() => toggleMainSection(sec.id)}
-                      className={`w-full px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer text-right ${
-                        isChecked
-                          ? 'bg-amber-500/20 text-amber-200 border border-amber-400/50'
-                          : 'text-stone-200 hover:bg-white/5'
-                      }`}
-                    >
-                      <span className="truncate">{sec.nameAr}</span>
-                      <span
-                        className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
-                          isChecked
-                            ? 'bg-amber-500 border-amber-400 text-stone-950'
-                            : 'border-stone-600'
-                        }`}
-                      >
-                        {isChecked && <Check className="w-3 h-3" />}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <div className="relative flex items-center">
+              <ArrowUpDown className="w-3.5 h-3.5 text-[#6E6254] dark:text-[#8FA2C2] absolute right-3 pointer-events-none" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                aria-label="ترتيب المنتجات"
+                className="h-10 pr-8 pl-3 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs font-bold text-[#0C1427] dark:text-[#FAF5EB] outline-none focus:border-[#EA580C] cursor-pointer"
+              >
+                <option value="featured">الأحدث</option>
+                <option value="price_asc">السعر: الأقل للأعلى</option>
+                <option value="price_desc">السعر: الأعلى للأقل</option>
+              </select>
+            </div>
           </div>
-
-          {/* Dropdown 2: الورش (Dynamic Sub-Crafts Multi-Select) */}
-          <div className="lg:col-span-3 relative">
-            <button
-              type="button"
-              onClick={() => setOpenDropdown((prev) => (prev === 'craft' ? null : 'craft'))}
-              className={`w-full h-11 px-3.5 rounded-2xl border text-xs font-black flex items-center justify-between gap-2 transition cursor-pointer ${
-                selectedSubCrafts.length > 0
-                  ? 'bg-amber-600/20 border-amber-400 text-amber-200'
-                  : 'bg-[#0C1427] border-amber-500/35 text-stone-200 hover:border-amber-400'
-              }`}
-            >
-              <span className="flex items-center gap-2 truncate">
-                <Store className="w-4 h-4 text-amber-400 shrink-0" />
-                <span className="truncate">{craftButtonLabel}</span>
-              </span>
-              <ChevronDown className={`w-4 h-4 text-amber-400 transition-transform shrink-0 ${openDropdown === 'craft' ? 'rotate-180' : ''}`} />
-            </button>
-
-            {openDropdown === 'craft' && (
-              <div className="absolute right-0 left-0 mt-2 z-50 rounded-2xl bg-[#0C1427] border border-amber-500/40 shadow-2xl p-2 space-y-1 max-h-72 overflow-y-auto">
-                <button
-                  type="button"
-                  onClick={() => toggleSubCraft('all')}
-                  className={`w-full px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer ${
-                    selectedSubCrafts.length === 0
-                      ? 'bg-amber-500 text-stone-950 font-black'
-                      : 'text-stone-200 hover:bg-white/5'
-                  }`}
-                >
-                  <span>الكل ({availableSubCrafts.length} ورشة)</span>
-                  {selectedSubCrafts.length === 0 && <Check className="w-3.5 h-3.5" />}
-                </button>
-
-                {availableSubCrafts.map((craft) => {
-                  const isChecked = selectedSubCrafts.includes(craft.id);
-                  return (
-                    <button
-                      key={craft.id}
-                      type="button"
-                      onClick={() => toggleSubCraft(craft.id)}
-                      className={`w-full px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer text-right ${
-                        isChecked
-                          ? 'bg-amber-500/20 text-amber-200 border border-amber-400/50'
-                          : 'text-stone-200 hover:bg-white/5'
-                      }`}
-                    >
-                      <span className="truncate">{craft.nameAr}</span>
-                      <span
-                        className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
-                          isChecked
-                            ? 'bg-amber-500 border-amber-400 text-stone-950'
-                            : 'border-stone-600'
-                        }`}
-                      >
-                        {isChecked && <Check className="w-3 h-3" />}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 3. المعروضات (Horizontal Decor Category Tabs) */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {DECOR_CATEGORIES.map((cat) => (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setSelectedDecorCategory(cat.id)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-black whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                selectedDecorCategory === cat.id
-                  ? 'bg-amber-500 text-stone-950 shadow-md'
-                  : 'bg-[#0C1427] text-stone-300 hover:text-white border border-amber-500/20 hover:border-amber-500/40'
-              }`}
-            >
-              <span>{cat.icon}</span>
-              <span>{cat.nameAr}</span>
-            </button>
-          ))}
-
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={resetAllFilters}
-              className="px-3 py-2 rounded-xl text-xs font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 whitespace-nowrap flex items-center gap-1 cursor-pointer shrink-0"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>إعادة ضبط</span>
-            </button>
-          )}
         </div>
       </section>
 
       {/* Feedback Banner */}
       {feedback && (
         <div className="max-w-xl mx-auto px-4 mb-4">
-          <div className="p-3 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-bold text-center">
+          <div className="p-3 rounded-xl bg-emerald-600 text-white text-xs font-bold text-center shadow-md">
             {feedback}
           </div>
         </div>
       )}
 
-      {/* 4. Products Grid */}
-      <main className="max-w-7xl mx-auto px-4 pt-2">
+      {/* 4. Global E-Commerce Product Grid */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-2">
         {loading ? (
-          <div className="p-16 text-center space-y-3">
-            <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-xs text-amber-200 font-bold">جاري تحميل معروضات سوق الشمساوية...</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div
+                key={i}
+                className="rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] overflow-hidden animate-pulse"
+              >
+                <div className="w-full aspect-[4/3] bg-[#F3E9D8] dark:bg-[#0B142B]" />
+                <div className="p-4 space-y-3">
+                  <div className="h-3 bg-[#F3E9D8] dark:bg-[#142242] rounded w-1/2" />
+                  <div className="h-4 bg-[#F3E9D8] dark:bg-[#142242] rounded w-4/5" />
+                  <div className="h-5 bg-[#F3E9D8] dark:bg-[#142242] rounded w-1/3" />
+                  <div className="h-9 bg-[#F3E9D8] dark:bg-[#142242] rounded-xl w-full" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : filteredProducts.length === 0 ? (
-          <div className="p-14 text-center rounded-3xl bg-[#0C1427] border border-amber-500/20 space-y-3">
-            <ShoppingBag className="w-12 h-12 mx-auto text-amber-500/50" />
-            <h3 className="text-sm font-black text-amber-200">لا توجد مشغولات مطابقة للتصفية الحالية</h3>
-            <p className="text-xs text-stone-400">
-              جرّب تغيير القسم أو الورشة أو مسح كلمات البحث.
+          <div className="p-14 text-center rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-3">
+            <ShoppingBag className="w-10 h-10 mx-auto text-[#C2410C] dark:text-[#FBBF24] opacity-70" />
+            <h3 className="text-base font-black text-[#0C1427] dark:text-[#FAF5EB]">
+              لا توجد منتجات مطابقة لخيارات البحث
+            </h3>
+            <p className="text-xs text-[#6E6254] dark:text-[#8FA2C2]">
+              جرّب تغيير القسم أو التخصص أو مسح كلمات البحث.
             </p>
             {hasActiveFilters && (
               <button
                 type="button"
                 onClick={resetAllFilters}
-                className="px-4 py-2 rounded-xl bg-amber-500 text-stone-950 font-black text-xs cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs cursor-pointer transition"
               >
                 عرض جميع المنتجات
               </button>
@@ -800,20 +936,20 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               const hasStock = (p.currentStock || 0) > 0;
               const price = p.storePrice || p.retailPrice || 0;
               const reviews = getProductReviews(p.id);
-              const avgRating = reviews.length > 0
-                ? (reviews.reduce((a, b) => a + b.rating, 0) / reviews.length).toFixed(1)
-                : '5.0';
-              const storeHref = `/#/store/${encodeURIComponent(p.storeSlug || p.workshopId || '')}`;
+              const avgRating =
+                reviews.length > 0
+                  ? (reviews.reduce((a, b) => a + b.rating, 0) / reviews.length).toFixed(1)
+                  : '5.0';
 
               return (
-                <div
+                <article
                   key={p.id}
                   onClick={() => handleOpenProductDetails(p)}
-                  className="rounded-3xl bg-[#0C1427] border border-amber-500/25 overflow-hidden hover:border-amber-400 transition-all duration-200 shadow-lg flex flex-col justify-between cursor-pointer group hover:-translate-y-0.5"
+                  className="rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] overflow-hidden hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 transition-all duration-200 flex flex-col justify-between cursor-pointer group hover:-translate-y-0.5 hover:shadow-lg"
                 >
                   <div>
-                    {/* Product Image */}
-                    <div className="relative w-full aspect-[4/3] bg-[#080F1E] overflow-hidden">
+                    {/* Product Image (clean photography, no pill overlays) */}
+                    <div className="w-full aspect-[4/3] bg-[#F3E9D8] dark:bg-[#0B142B] overflow-hidden border-b border-[#DEC9A8]/60 dark:border-[#1B2B4B]">
                       <img
                         src={p.imageUrl || '/alshams_falcon_emblem.png'}
                         alt={p.productName}
@@ -824,132 +960,90 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                           (e.target as HTMLImageElement).src = '/alshams_falcon_emblem.png';
                         }}
                       />
-
-                      <div className="absolute bottom-2.5 left-2.5">
-                        <span className="px-2.5 py-1 rounded-xl bg-[#080F1E]/90 text-amber-300 font-mono tabular-nums font-black text-sm border border-amber-500/40 shadow-md">
-                          {price.toLocaleString('ar-EG')} ج.م
-                        </span>
-                      </div>
                     </div>
 
-                    {/* Card Metadata & Details */}
-                    <div className="p-4 space-y-2.5">
-                      {/* Clean typographic metadata row */}
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-stone-400">
-                        <span className="text-amber-400 font-bold truncate">
-                          {p.craftName || p.category} · {hasStock ? `متاح (${p.currentStock})` : 'حسب الطلب'}
+                    {/* Card Details */}
+                    <div className="p-4 space-y-2">
+                      {/* Unboxed Metadata + Rating */}
+                      <div className="flex items-center justify-between gap-2 text-xs text-[#6E6254] dark:text-[#8FA2C2]">
+                        <span className="truncate font-medium">
+                          {p.craftName || p.category} · {hasStock ? 'متوفر' : 'تنفيذ بالطلب'}
                         </span>
-                        <span className="flex items-center gap-1 text-amber-300 font-mono tabular-nums shrink-0">
-                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                        <span className="flex items-center gap-1 font-mono tabular-nums text-[#0C1427] dark:text-[#FAF5EB] font-bold shrink-0">
+                          <Star className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
                           <span>{avgRating}</span>
                         </span>
                       </div>
 
-                      <h3 className="font-black text-sm sm:text-base text-white line-clamp-1 group-hover:text-amber-300 transition-colors">
+                      <h3 className="font-bold text-sm sm:text-base text-[#0C1427] dark:text-[#FAF5EB] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
                         {p.productName}
                       </h3>
 
                       {p.storeDescription && (
-                        <p className="text-xs text-[#EADBC8]/90 line-clamp-2 leading-relaxed">
+                        <p className="text-xs text-[#5C4E3E] dark:text-[#A3B3CE] line-clamp-1">
                           {p.storeDescription}
                         </p>
                       )}
 
-                      {/* Workshop & Artisan Identity + Direct Store Link */}
-                      <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {p.logoUrl ? (
-                            <img
-                              src={p.logoUrl}
-                              alt={p.brandName || 'الورشة'}
-                              className="w-7 h-7 rounded-lg object-cover border border-amber-500/30 bg-white shrink-0"
-                            />
-                          ) : (
-                            <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
-                              <Store className="w-3.5 h-3.5" />
-                            </div>
-                          )}
-                          <div className="min-w-0 text-right">
-                            <p className="text-xs font-black text-white truncate">
-                              {p.brandName || 'ورشة الشمساوية'}
-                            </p>
-                            <p className="text-[11px] text-stone-400 truncate">
-                              الفنان: {p.artistName || 'فنان الشمساوية'}
-                            </p>
-                          </div>
-                        </div>
-
-                        {p.workshopId && (
-                          <a
-                            href={storeHref}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-[11px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 shrink-0"
-                            title="زيارة متجر الورشة"
-                          >
-                            <span>المتجر</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        )}
-                      </div>
-
-                      {p.phoneNumber && (
-                        <div className="text-[11px] text-stone-400 flex items-center gap-1.5 font-mono tabular-nums">
-                          <Phone className="w-3 h-3 text-emerald-400 shrink-0" />
-                          <span dir="ltr">{p.phoneNumber}</span>
-                        </div>
+                      {/* Super Admin ONLY: Quiet internal ownership line (completely hidden from customers) */}
+                      {isSuperAdmin && (
+                        <p className="text-[11px] font-bold text-[#C2410C] dark:text-[#FBBF24] truncate pt-0.5">
+                          الورشة: {p.brandName || 'الشمساوية'} · {p.artistName || 'فنان'}
+                        </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Card Action */}
-                  <div className="px-4 pb-4 pt-1">
+                  {/* Aligned Price & CTA Footer */}
+                  <div className="px-4 pb-4 pt-1 space-y-3">
+                    <div className="flex items-baseline gap-1 font-mono tabular-nums">
+                      <span className="text-lg font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                        {price.toLocaleString('ar-EG')}
+                      </span>
+                      <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2]">ج.م</span>
+                    </div>
+
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleAddToCart(p, 1);
                       }}
-                      className="w-full py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-black text-xs flex items-center justify-center gap-2 shadow-md active:scale-95 transition cursor-pointer"
+                      className="w-full py-2.5 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
                     >
                       <ShoppingBag className="w-4 h-4" />
-                      <span>أضف للسلة (عربون 33%)</span>
+                      <span>أضف للسلة</span>
                     </button>
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>
         )}
       </main>
 
-      {/* 5. Product Details Modal */}
+      {/* 5. Product Details Modal (Contiguous Purchase Module) */}
       {selectedProductDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md" dir="rtl">
-          <div className="bg-[#0C1427] border border-amber-500/40 rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-5 text-white relative">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#05070B]/75 backdrop-blur-sm"
+          dir="rtl"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedProductDetails(null);
+          }}
+        >
+          <div className="bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-6 text-[#0C1427] dark:text-[#FAF5EB] relative">
             <button
               type="button"
               onClick={() => setSelectedProductDetails(null)}
-              className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-stone-300 hover:text-white flex items-center justify-center transition cursor-pointer"
+              className="w-9 h-9 rounded-xl bg-[#F3E9D8] dark:bg-[#142242] hover:bg-[#DEC9A8] dark:hover:bg-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-center transition cursor-pointer absolute top-4 left-4"
               title="إغلاق"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="border-b border-amber-500/20 pb-3 pl-10 space-y-1">
-              <div className="text-xs text-amber-400 font-bold flex flex-wrap items-center gap-2">
-                <span>{selectedProductDetails.craftName || selectedProductDetails.category}</span>
-                <span>·</span>
-                <span>{selectedProductDetails.brandName || 'ورشة الشمساوية'}</span>
-                <span>·</span>
-                <span>الفنان: {selectedProductDetails.artistName || 'فنان الشمساوية'}</span>
-              </div>
-              <h3 className="font-black text-base sm:text-lg text-white">
-                {selectedProductDetails.productName}
-              </h3>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div className="w-full h-64 sm:h-72 rounded-2xl overflow-hidden bg-black/40 border border-amber-500/30">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-1">
+              {/* Product Media */}
+              <div className="w-full aspect-[4/3] md:aspect-square rounded-2xl overflow-hidden bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B]">
                 <img
                   src={selectedProductDetails.imageUrl || '/alshams_falcon_emblem.png'}
                   alt={selectedProductDetails.productName}
@@ -961,124 +1055,131 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 />
               </div>
 
-              <div className="space-y-3 text-xs leading-relaxed">
-                <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#080F1E] border border-amber-500/30">
-                  <span className="text-stone-300 font-bold">السعر:</span>
-                  <span className="font-mono tabular-nums text-xl font-black text-amber-300">
-                    {(selectedProductDetails.storePrice || selectedProductDetails.retailPrice || 0).toLocaleString('ar-EG')} ج.م
-                  </span>
-                </div>
+              {/* Contiguous Purchase Module */}
+              <div className="space-y-4 text-xs leading-relaxed flex flex-col justify-between">
+                <div className="space-y-3 pl-8 md:pl-0">
+                  <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                    {selectedProductDetails.craftName || selectedProductDetails.category} ·{' '}
+                    {(selectedProductDetails.currentStock || 0) > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
+                  </p>
 
-                {/* Artist & Store Contact Card */}
-                <div className="p-3 rounded-2xl bg-[#080F1E] border border-amber-500/30 flex items-center justify-between gap-2">
-                  <div className="space-y-0.5 min-w-0">
-                    <p className="font-black text-white truncate">
-                      {selectedProductDetails.brandName || 'ورشة الشمساوية'}
-                    </p>
-                    <p className="text-stone-400 truncate">
-                      الفنان: {selectedProductDetails.artistName || 'فنان الشمساوية'}
-                    </p>
-                    {selectedProductDetails.phoneNumber && (
-                      <a
-                        href={`tel:${selectedProductDetails.phoneNumber}`}
-                        className="text-emerald-400 hover:text-emerald-300 font-mono tabular-nums flex items-center gap-1"
-                      >
-                        <Phone className="w-3 h-3" />
-                        <span dir="ltr">{selectedProductDetails.phoneNumber}</span>
-                      </a>
-                    )}
+                  <h3 className="font-black text-xl text-[#0C1427] dark:text-[#FAF5EB] leading-snug">
+                    {selectedProductDetails.productName}
+                  </h3>
+
+                  <div className="flex items-baseline gap-1.5 font-mono tabular-nums pt-1">
+                    <span className="text-2xl font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                      {(
+                        selectedProductDetails.storePrice ||
+                        selectedProductDetails.retailPrice ||
+                        0
+                      ).toLocaleString('ar-EG')}
+                    </span>
+                    <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2]">ج.م</span>
                   </div>
-                  {selectedProductDetails.workshopId && (
-                    <a
-                      href={`/#/store/${encodeURIComponent(selectedProductDetails.storeSlug || selectedProductDetails.workshopId)}`}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold flex items-center gap-1 shrink-0"
-                    >
-                      <span>زيارة المتجر</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
-                </div>
 
-                <div className="p-3 rounded-2xl bg-[#080F1E] border border-amber-500/30">
-                  <span className="text-amber-400 font-bold block mb-1">الوصف:</span>
-                  <p className="text-[#EADBC8] text-xs leading-relaxed">
+                  {/* Super Admin ONLY attribution (never visible to customers) */}
+                  {isSuperAdmin && (
+                    <div className="py-2 px-3 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-1">
+                      <p className="font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                        الورشة: {selectedProductDetails.brandName || 'الشمساوية'} · الفنان:{' '}
+                        {selectedProductDetails.artistName || 'غير محدد'}
+                      </p>
+                      {selectedProductDetails.phoneNumber && (
+                        <p className="font-mono tabular-nums text-[#0C1427] dark:text-[#FAF5EB]" dir="ltr">
+                          {selectedProductDetails.phoneNumber}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <p className="text-sm text-[#5C4E3E] dark:text-[#B6C2D9] leading-relaxed">
                     {selectedProductDetails.storeDescription ||
                       selectedProductDetails.input?.personalNotes ||
                       'مشغولة يدوية مصنوعة بإتقان وجودة عالية.'}
                   </p>
+
+                  {selectedProductDetails.availableColors &&
+                    selectedProductDetails.availableColors.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <label className="block font-bold text-[#0C1427] dark:text-[#FAF5EB]">
+                          الألوان المتاحة
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedProductDetails.availableColors.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setModalSelectedColor(color)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                                modalSelectedColor === color
+                                  ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                                  : 'bg-[#F3E9D8] dark:bg-[#0B142B] text-[#0C1427] dark:text-[#FAF5EB] border-[#DEC9A8] dark:border-[#1B2B4B]'
+                              }`}
+                            >
+                              {color}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                  {selectedProductDetails.availableSizes &&
+                    selectedProductDetails.availableSizes.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <label className="block font-bold text-[#0C1427] dark:text-[#FAF5EB]">
+                          المقاسات المتاحة
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedProductDetails.availableSizes.map((size) => (
+                            <button
+                              key={size}
+                              type="button"
+                              onClick={() => setModalSelectedSize(size)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                                modalSelectedSize === size
+                                  ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                                  : 'bg-[#F3E9D8] dark:bg-[#0B142B] text-[#0C1427] dark:text-[#FAF5EB] border-[#DEC9A8] dark:border-[#1B2B4B]'
+                              }`}
+                            >
+                              {size}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                  <div className="pt-1">
+                    <label className="block font-bold text-[#5C4E3E] dark:text-[#B6C2D9] mb-1">
+                      ملاحظات على الطلب (اختياري)
+                    </label>
+                    <input
+                      type="text"
+                      value={modalCustomNotes}
+                      onChange={(e) => setModalCustomNotes(e.target.value)}
+                      placeholder="تخصيص لون أو مقاس..."
+                      className="w-full px-3 py-2 rounded-xl bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] text-xs outline-none focus:border-[#EA580C] font-medium"
+                    />
+                  </div>
                 </div>
 
-                {selectedProductDetails.availableColors && selectedProductDetails.availableColors.length > 0 && (
-                  <div className="space-y-1.5">
-                    <label className="block text-stone-300 font-bold">الألوان المتاحة:</label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedProductDetails.availableColors.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          onClick={() => setModalSelectedColor(color)}
-                          className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
-                            modalSelectedColor === color
-                              ? 'bg-amber-600 text-white border border-amber-400 font-black'
-                              : 'bg-[#080F1E] text-stone-300 hover:text-white border border-amber-500/20'
-                          }`}
-                        >
-                          {color}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {selectedProductDetails.availableSizes && selectedProductDetails.availableSizes.length > 0 && (
-                  <div className="space-y-1.5">
-                    <label className="block text-stone-300 font-bold">المقاسات:</label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedProductDetails.availableSizes.map((size) => (
-                        <button
-                          key={size}
-                          type="button"
-                          onClick={() => setModalSelectedSize(size)}
-                          className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
-                            modalSelectedSize === size
-                              ? 'bg-amber-600 text-white border border-amber-400 font-black'
-                              : 'bg-[#080F1E] text-stone-300 hover:text-white border border-amber-500/20'
-                          }`}
-                        >
-                          {size}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-stone-300 font-bold mb-1">ملاحظات خاصة (اختياري):</label>
-                  <input
-                    type="text"
-                    value={modalCustomNotes}
-                    onChange={(e) => setModalCustomNotes(e.target.value)}
-                    placeholder="تخصيص لون أو مقاس..."
-                    className="w-full px-3 py-1.5 rounded-xl bg-[#080F1E] border border-amber-500/30 text-white text-xs outline-none focus:border-amber-400 font-medium"
-                  />
-                </div>
-
-                <div className="pt-2 flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#080F1E] border border-amber-500/40 shrink-0">
+                {/* Quantity & Buy CTA */}
+                <div className="pt-3 flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] shrink-0">
                     <button
                       type="button"
                       onClick={() => setModalQuantity(Math.max(1, modalQuantity - 1))}
-                      className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-stone-300 flex items-center justify-center cursor-pointer"
+                      className="w-7 h-7 rounded-lg bg-[#FFFDF9] dark:bg-[#142242] text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-center cursor-pointer"
                     >
                       <Minus className="w-3.5 h-3.5" />
                     </button>
-                    <span className="w-8 text-center font-mono tabular-nums font-black text-amber-300 text-sm">
+                    <span className="w-7 text-center font-mono tabular-nums font-black text-sm">
                       {modalQuantity}
                     </span>
                     <button
                       type="button"
                       onClick={() => setModalQuantity(modalQuantity + 1)}
-                      className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-stone-300 flex items-center justify-center cursor-pointer"
+                      className="w-7 h-7 rounded-lg bg-[#FFFDF9] dark:bg-[#142242] text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-center cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
@@ -1087,71 +1188,82 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleAddToCart(selectedProductDetails)}
-                    className="flex-1 py-3 rounded-2xl bg-amber-600 hover:bg-amber-500 text-white font-black text-xs flex items-center justify-center gap-2 shadow-xl transition cursor-pointer"
+                    className="flex-1 py-3 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer active:scale-95"
                   >
                     <ShoppingBag className="w-4 h-4" />
                     <span>
-                      إضافة للسلة ({((selectedProductDetails.storePrice || selectedProductDetails.retailPrice || 0) * modalQuantity).toLocaleString('ar-EG')} ج.م)
+                      أضف للسلة ·{' '}
+                      {(
+                        (selectedProductDetails.storePrice ||
+                          selectedProductDetails.retailPrice ||
+                          0) * modalQuantity
+                      ).toLocaleString('ar-EG')}{' '}
+                      ج.م
                     </span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Verified Reviews */}
-            <div className="border-t border-amber-500/20 pt-4 space-y-3">
+            {/* Verified Reviews Section */}
+            <div className="border-t border-[#DEC9A8] dark:border-[#1B2B4B] pt-5 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-black text-sm text-amber-300 flex items-center gap-2">
-                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  <span>التقييمات</span>
+                <h4 className="font-black text-sm text-[#0C1427] dark:text-[#FAF5EB] flex items-center gap-2">
+                  <Star className="w-4 h-4 fill-[#F59E0B] text-[#F59E0B]" />
+                  <span>تقييمات المشترين</span>
                 </h4>
-                <span className="text-[11px] text-stone-400">متاح بعد استلام الطلب</span>
+                <span className="text-[11px] text-[#6E6254] dark:text-[#8FA2C2]">
+                  متاح بعد استلام الطلب
+                </span>
               </div>
 
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {getProductReviews(selectedProductDetails.id).length === 0 ? (
-                  <div className="p-3 rounded-xl bg-[#080F1E] border border-amber-500/20 text-xs text-stone-400 text-center">
+                  <p className="py-3 text-xs text-[#6E6254] dark:text-[#8FA2C2] text-center">
                     لا توجد تقييمات حتى الآن.
-                  </div>
+                  </p>
                 ) : (
                   getProductReviews(selectedProductDetails.id).map((rev) => (
-                    <div key={rev.id} className="p-3 rounded-xl bg-[#080F1E] border border-amber-500/20 text-xs space-y-1">
+                    <div
+                      key={rev.id}
+                      className="p-3 rounded-xl bg-[#F3E9D8]/60 dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs space-y-1"
+                    >
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-white">{rev.authorName}</span>
-                        <div className="flex items-center gap-0.5 text-amber-400">
+                        <span className="font-bold">{rev.authorName}</span>
+                        <div className="flex items-center gap-0.5 text-[#F59E0B]">
                           {Array.from({ length: rev.rating }).map((_, i) => (
-                            <Star key={i} className="w-3 h-3 fill-amber-400" />
+                            <Star key={i} className="w-3 h-3 fill-[#F59E0B]" />
                           ))}
                         </div>
                       </div>
-                      <p className="text-[#EADBC8] text-xs">{rev.comment}</p>
+                      <p className="text-[#5C4E3E] dark:text-[#B6C2D9] text-xs">{rev.comment}</p>
                     </div>
                   ))
                 )}
               </div>
 
-              <div className="p-3.5 rounded-2xl bg-[#080F1E] border border-amber-500/30 space-y-2">
+              <div className="p-3.5 rounded-xl bg-[#F3E9D8]/50 dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-2.5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                   <input
                     type="text"
                     value={customerUser?.name || newReviewAuthor}
                     onChange={(e) => setNewReviewAuthor(e.target.value)}
-                    placeholder="الاسم..."
+                    placeholder="الاسم"
                     disabled={!!customerUser}
-                    className="px-3 py-2 rounded-xl bg-[#0C1427] border border-amber-500/40 text-white outline-none font-bold disabled:opacity-75"
+                    className="px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] outline-none font-bold disabled:opacity-75"
                   />
                   <input
                     type="tel"
                     value={customerUser?.phone || newReviewPhone}
                     onChange={(e) => setNewReviewPhone(e.target.value)}
-                    placeholder="رقم الهاتف المستخدم في الطلب..."
+                    placeholder="رقم الهاتف المستخدم في الطلب"
                     disabled={!!customerUser}
-                    className="px-3 py-2 rounded-xl bg-[#0C1427] border border-amber-500/40 text-white outline-none font-bold font-mono disabled:opacity-75"
+                    className="px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] outline-none font-bold font-mono disabled:opacity-75"
                   />
                 </div>
 
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="text-stone-300">التقييم:</span>
+                  <span className="text-[#5C4E3E] dark:text-[#B6C2D9] font-bold">التقييم:</span>
                   <div className="flex items-center gap-1">
                     {[1, 2, 3, 4, 5].map((s) => (
                       <button
@@ -1160,7 +1272,13 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         onClick={() => setNewReviewRating(s)}
                         className="cursor-pointer"
                       >
-                        <Star className={`w-4 h-4 ${newReviewRating >= s ? 'fill-amber-400 text-amber-400' : 'text-stone-600'}`} />
+                        <Star
+                          className={`w-4 h-4 ${
+                            newReviewRating >= s
+                              ? 'fill-[#F59E0B] text-[#F59E0B]'
+                              : 'text-[#DEC9A8] dark:text-[#253B6B]'
+                          }`}
+                        />
                       </button>
                     ))}
                   </div>
@@ -1169,14 +1287,14 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 <textarea
                   value={newReviewComment}
                   onChange={(e) => setNewReviewComment(e.target.value)}
-                  placeholder="اكتب رأيك في جودة المشغولة..."
+                  placeholder="اكتب رأيك في المنتج..."
                   rows={2}
-                  className="w-full px-3 py-2 rounded-xl bg-[#0C1427] border border-amber-500/40 text-white outline-none font-medium text-xs resize-none"
+                  className="w-full px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] outline-none font-medium text-xs resize-none"
                 />
 
                 {reviewGuardError && (
-                  <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-200 text-xs font-bold flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
                     <span>{reviewGuardError}</span>
                   </div>
                 )}
@@ -1185,7 +1303,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleAddReview(selectedProductDetails.id)}
-                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs cursor-pointer transition"
+                    className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs cursor-pointer transition"
                   >
                     نشر التقييم
                   </button>
@@ -1196,7 +1314,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         </div>
       )}
 
-      {/* Persistent Cart Modal (Unchanged) */}
+      {/* Persistent Cart Modal (Deposit details appear cleanly inside checkout) */}
       <MarketplaceCartModal
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
@@ -1215,22 +1333,22 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         onSuccessLogin={(user) => {
           setCustomerUser(user);
           setIsCustomerAuthOpen(false);
-          setFeedback(`أهلاً بك يا ${user.name}! تم تفعيل خصم 5%`);
+          setFeedback(`أهلاً بك يا ${user.name}`);
           setTimeout(() => setFeedback(''), 3500);
         }}
       />
 
-      {/* Footer */}
-      <footer className="mt-16 bg-[#0C1427] border-t border-amber-500/30 py-6 px-4 text-center space-y-2.5">
-        <p className="text-sm font-black text-amber-500">
-          منظومة الشمساوية للفنون اليدوية
-        </p>
-        <div className="flex items-center justify-center">
+      {/* Clean Minimal Footer */}
+      <footer className="mt-16 border-t border-[#DEC9A8] dark:border-[#1B2B4B] bg-[#FFFDF9] dark:bg-[#0B142B] py-5 px-4 sm:px-6">
+        <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-4">
+          <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#FAF5EB]">
+            سوق الشمساوية للفنون اليدوية
+          </span>
           <a
             href="https://wa.me/201000996059"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition cursor-pointer"
           >
             <Phone className="w-3.5 h-3.5" />
             <span>الدعم الفني</span>

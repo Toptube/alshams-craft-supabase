@@ -1,26 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Sparkles,
   ShoppingBag,
   Phone,
   Search,
   Star,
-  CheckCircle2,
   ShieldCheck,
   Truck,
   ArrowRight,
   ExternalLink,
   Share2,
-  Layers,
-  Tag,
   X,
   Plus,
   Minus,
   MessageCircle,
-  Copy,
   Check,
-  RotateCcw,
-  Store,
+  ArrowUpDown,
 } from 'lucide-react';
 import {
   fetchPublicStorefrontBySlug,
@@ -32,10 +26,13 @@ import { supabase } from '../../lib/supabase';
 import {
   addToCart,
   getStoredCart,
+  getStoredCustomerSession,
   OFFICIAL_SUPPORT_PHONE,
   syncPlatformSettingsFromCloud,
 } from '../../services/marketplaceCartService';
 import { MarketplaceCartModal } from '../marketplace/MarketplaceCartModal';
+import { CustomerAuthModal } from '../marketplace/CustomerAuthModal';
+import { CustomerAuthUser } from '../../types';
 import { playSuccessSound, playAddToCartSound, triggerHaptic } from '../../lib/sounds';
 import { tenantStorage } from '../../db/dexieDB';
 import { matchesWorkshopSlug } from '../../utils/slugify';
@@ -54,8 +51,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'featured' | 'price_asc' | 'price_desc'>('featured');
   const [cartItemsCount, setCartItemsCount] = useState<number>(0);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+  const [isCustomerAuthOpen, setIsCustomerAuthOpen] = useState<boolean>(false);
+  const [customerUser, setCustomerUser] = useState<CustomerAuthUser | null>(getStoredCustomerSession());
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
   // Selected product modal
@@ -66,7 +66,6 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const [customNotes, setCustomNotes] = useState<string>('');
   const [addedToast, setAddedToast] = useState<string | null>(null);
 
-  // Update cart count from local storage
   const refreshCartCount = () => {
     try {
       const items = getStoredCart();
@@ -78,8 +77,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   useEffect(() => {
     refreshCartCount();
     const handleCartUpdate = () => refreshCartCount();
+    const handleCustUpdate = (e: any) => setCustomerUser(e.detail || null);
     window.addEventListener('alshams_cart_updated', handleCartUpdate);
-    return () => window.removeEventListener('alshams_cart_updated', handleCartUpdate);
+    window.addEventListener('alshams_customer_updated', handleCustUpdate);
+    return () => {
+      window.removeEventListener('alshams_cart_updated', handleCartUpdate);
+      window.removeEventListener('alshams_customer_updated', handleCustUpdate);
+    };
   }, []);
 
   // Fetch Store Data
@@ -100,7 +104,9 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               const localProf = JSON.parse(rawProf);
               if (matchesWorkshopSlug(localProf, slug)) {
                 const wid = localProf.workshopId || localProf.tenantId || localProf.id;
-                const localSuspended = Boolean(localProf.isFrozen || localProf.status === 'banned' || localProf.status === 'suspended');
+                const localSuspended = Boolean(
+                  localProf.isFrozen || localProf.status === 'banned' || localProf.status === 'suspended'
+                );
                 data = {
                   workshop: {
                     id: wid,
@@ -126,7 +132,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
         if (isMounted) {
           if (data && data.workshop) {
-            if (data.workshop.suspended || data.workshop.status === 'banned' || data.workshop.status === 'suspended') {
+            if (
+              data.workshop.suspended ||
+              data.workshop.status === 'banned' ||
+              data.workshop.status === 'suspended'
+            ) {
               setStoreData({
                 workshop: { ...data.workshop, suspended: true },
                 products: [],
@@ -138,7 +148,6 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             const mergedMap = new Map<string, any>();
             const rejectedIds = new Set<string>();
 
-            // 1. Seed from server/API storefront payload (already merged on backend)
             if (Array.isArray(data.products)) {
               data.products.forEach((p: any) => {
                 if ((p.workshop_id || p.workshopId) === targetWorkshopId) {
@@ -148,7 +157,6 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               });
             }
 
-            // 2. Direct Supabase marketplace_products supplement (keeps status/edits freshest)
             if (typeof navigator === 'undefined' || navigator.onLine) {
               try {
                 const { data: marketData } = await supabase
@@ -168,7 +176,6 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               } catch {}
             }
 
-            // 3. Local Dexie supplement ONLY if this browser holds the matching workshop (useful right after offline save)
             if (typeof window !== 'undefined') {
               try {
                 const rawProf = localStorage.getItem('alshams_profile');
@@ -232,7 +239,6 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 ),
             });
           } else {
-            // Unrecognized workshop fallback (strictly no leaked products)
             const decoded = decodeURIComponent(slug).replace(/-/g, ' ');
             setStoreData({
               workshop: {
@@ -250,7 +256,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             });
           }
         }
-      } catch (err: any) {
+      } catch {
         if (isMounted) {
           setErrorNotice('تعذر تحميل معروضات المتجر حالياً.');
         }
@@ -265,7 +271,6 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
     };
   }, [slug]);
 
-  // Available categories
   const categories = useMemo(() => {
     if (!storeData?.products || storeData.products.length === 0) {
       return [{ id: 'all', name: 'كافة المعروضات' }];
@@ -275,16 +280,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       if (p.craft_name) cats.add(p.craft_name);
       else if (p.category) cats.add(p.category);
     });
-    return [
-      { id: 'all', name: 'كافة المعروضات' },
-      ...Array.from(cats).map((c) => ({ id: c, name: c })),
-    ];
+    return [{ id: 'all', name: 'كافة المعروضات' }, ...Array.from(cats).map((c) => ({ id: c, name: c }))];
   }, [storeData]);
 
-  // Filtered products
   const filteredProducts = useMemo(() => {
     if (!storeData?.products) return [];
-    return storeData.products.filter((p) => {
+    const list = storeData.products.filter((p) => {
       const q = searchQuery.toLowerCase().trim();
       const matchSearch =
         !q ||
@@ -299,13 +300,30 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
       return matchSearch && matchCat;
     });
-  }, [storeData, searchQuery, selectedCategory]);
+
+    if (sortBy === 'price_asc') {
+      return [...list].sort(
+        (a, b) => (a.store_price || a.retail_price || 0) - (b.store_price || b.retail_price || 0)
+      );
+    }
+    if (sortBy === 'price_desc') {
+      return [...list].sort(
+        (a, b) => (b.store_price || b.retail_price || 0) - (a.store_price || a.retail_price || 0)
+      );
+    }
+    return list;
+  }, [storeData, searchQuery, selectedCategory, sortBy]);
 
   const workshop = storeData?.workshop;
   const brandName = workshop?.brandName || 'ورشة الشمساوية';
   const artistName = workshop?.artistName || 'فنان الشمساوية';
   const currencySymbol = workshop?.currencySymbol || 'ج.م';
   const phone = workshop?.phoneNumber || OFFICIAL_SUPPORT_PHONE;
+  const whatsappNumber = useMemo(() => {
+    const digits = String(phone).replace(/\D/g, '');
+    if (!digits) return '201000996059';
+    return digits.startsWith('0') ? '2' + digits : digits;
+  }, [phone]);
 
   const handleShareStore = () => {
     if (typeof window !== 'undefined') {
@@ -324,16 +342,17 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
     setCustomNotes('');
   };
 
-  const handleAddToCart = (p: CloudMarketplaceProduct) => {
+  const handleAddToCart = (p: CloudMarketplaceProduct, qtyOverride?: number) => {
     playAddToCartSound();
     triggerHaptic();
 
+    const finalQty = qtyOverride ?? selectedQuantity;
     addToCart({
       id: 'cart_' + Date.now(),
       productId: p.id,
       productName: p.product_name,
       price: p.store_price || p.retail_price || 0,
-      quantity: selectedQuantity,
+      quantity: finalQty,
       imageUrl: p.image_url,
       craftName: p.craft_name,
       workshopId: p.workshop_id || workshop?.id,
@@ -343,257 +362,236 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       customNotes: customNotes || undefined,
     });
 
-    setAddedToast(`تم إضافة "${p.product_name}" إلى السلة.`);
+    setAddedToast(`تم إضافة "${p.product_name}" إلى السلة`);
     setTimeout(() => setAddedToast(null), 3000);
     setSelectedProduct(null);
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans selection:bg-amber-500 selection:text-white" dir="rtl">
+    <div
+      className="min-h-screen bg-[#FAF5EB] text-[#0C1427] dark:bg-[#060B18] dark:text-[#FAF5EB] font-sans selection:bg-[#EA580C] selection:text-white transition-colors duration-200"
+      dir="rtl"
+    >
       {/* Toast Notification */}
       {addedToast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-amber-500 text-stone-950 font-black text-sm shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-200">
-          <Sparkles className="w-4 h-4 text-stone-950" />
-          <span>{addedToast}</span>
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-lg">
+          {addedToast}
         </div>
       )}
 
-      {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-white/95 dark:bg-stone-900/95 backdrop-blur-md border-b border-stone-200 dark:border-stone-800 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
-          {/* Logo & Artisan Brand with Link to Central Marketplace */}
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 dark:bg-amber-400/10 border border-amber-500/30 flex items-center justify-center overflow-hidden p-1 shadow-inner shrink-0">
+      {/* 1. Clean Three-Zone Top Header */}
+      <header className="sticky top-0 z-30 bg-[#FFFDF9]/95 dark:bg-[#0B142B]/95 backdrop-blur-md border-b border-[#DEC9A8] dark:border-[#1B2B4B]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4 sm:gap-8">
+          {/* Zone 1: Workshop Brand (Clean lockup, zero redundant pill clutter) */}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] flex items-center justify-center overflow-hidden p-0.5 shrink-0">
               <img
                 src={(workshop as any)?.logo_url || workshop?.logoUrl || '/default-store-icon.png'}
                 alt={brandName}
-                className="w-full h-full object-cover rounded-xl"
+                className="w-full h-full object-cover rounded-lg"
                 onError={(e) => {
                   (e.target as HTMLImageElement).src = '/default-store-icon.png';
                 }}
               />
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="font-black text-base sm:text-lg text-stone-900 dark:text-white leading-tight">
-                  {brandName}
-                </h1>
-                {/* Central Marketplace Clickable Badge */}
-                <a
-                  href="/#/market"
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 hover:bg-amber-500/30 text-amber-800 dark:text-amber-300 border border-amber-500/40 transition cursor-pointer"
-                  title="الانتقال إلى سوق الشمساوية المركزي"
-                >
-                  <Sparkles className="w-2.5 h-2.5 text-amber-500" />
-                  <span>عائلة الشمساوية 🛍️</span>
-                </a>
-              </div>
-              <p className="text-xs font-bold text-stone-600 dark:text-stone-300">
-                بأنامل الفنان: <strong className="text-amber-600 dark:text-amber-400 font-black">{artistName}</strong>
-              </p>
-            </div>
+            <h1 className="font-black text-base sm:text-lg text-[#0C1427] dark:text-[#FAF5EB] truncate">
+              {brandName}
+            </h1>
           </div>
 
-          {/* Right Actions: Central Market Link, Cart & Share */}
-          <div className="flex items-center gap-2 sm:gap-3">
-
+          {/* Zone 2: Clean Navigation Links */}
+          <nav className="hidden md:flex items-center gap-6 text-xs font-bold text-[#5C4E3E] dark:text-[#B6C2D9]">
             <a
               href="/#/market"
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-xs font-black border border-amber-500/30 transition cursor-pointer"
+              className="hover:text-[#C2410C] dark:hover:text-[#FBBF24] transition-colors whitespace-nowrap shrink-0"
             >
-              <span>السوق المركزي 🌟</span>
+              سوق الشمساوية
             </a>
-
-            <button
-              type="button"
-              onClick={handleShareStore}
-              className="p-2 sm:px-3 sm:py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-750 text-stone-700 dark:text-stone-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-              title="مشاركة رابط المتجر"
-            >
-              {copiedLink ? <Check className="w-4 h-4 text-emerald-500" /> : <Share2 className="w-4 h-4 text-amber-600" />}
-              <span className="hidden sm:inline">{copiedLink ? 'تم النسخ!' : 'مشاركة'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsCartOpen(true)}
-              className="relative p-2 sm:px-3.5 sm:py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/20 active:scale-95"
-              title="سلة المشتريات"
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span className="hidden sm:inline">السلة</span>
-              {cartItemsCount > 0 && (
-                <span className="w-5 h-5 rounded-full bg-stone-950 text-amber-400 text-[11px] font-black flex items-center justify-center">
-                  {cartItemsCount}
-                </span>
-              )}
-            </button>
-
             {onNavigateToApp && (
               <button
                 type="button"
                 onClick={onNavigateToApp}
-                className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-stone-900 hover:bg-stone-850 text-amber-300 text-xs font-bold transition cursor-pointer"
+                className="hover:text-[#C2410C] dark:hover:text-[#FBBF24] transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1"
               >
                 <span>دخول الحرفيين</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
             )}
+          </nav>
+
+          {/* Zone 3: Share & Cart Actions */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleShareStore}
+              className="px-3 py-2 rounded-xl bg-[#F3E9D8] hover:bg-[#DEC9A8]/70 dark:bg-[#142242] dark:hover:bg-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              title="مشاركة رابط المتجر"
+            >
+              {copiedLink ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Share2 className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />}
+              <span className="hidden sm:inline">{copiedLink ? 'تم النسخ' : 'مشاركة'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsCartOpen(true)}
+              className="relative px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs transition flex items-center gap-2 cursor-pointer active:scale-95 whitespace-nowrap"
+              title="سلة المشتريات"
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>السلة</span>
+              {cartItemsCount > 0 && (
+                <span className="min-w-5 h-5 px-1.5 rounded-full bg-[#0C1427] text-[#FBBF24] font-mono tabular-nums text-[11px] font-black flex items-center justify-center">
+                  {cartItemsCount}
+                </span>
+              )}
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Floating explicit close button for returning instantly to workspace */}
-      <a
-        href="/#/"
-        className="fixed top-3 left-3 z-50 w-10 h-10 rounded-full bg-stone-900/90 text-white hover:bg-stone-800 border border-amber-400/50 shadow-xl flex items-center justify-center cursor-pointer transition active:scale-95 group"
-        title="الرجوع للورشة الرئيسية"
-        aria-label="إغلاق والرجوع للورشة"
-      >
-        <X className="w-5 h-5 text-amber-400 group-hover:scale-110 transition-transform" />
-      </a>
-
-      {/* Hero Banner with Workshop Branding */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-amber-500/10 via-amber-500/5 to-transparent border-b border-amber-500/20 py-7 sm:py-10 px-4 sm:px-6">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-3 text-center md:text-right max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/40">
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>مشغولات يدوية أصلية بضمان الجودة</span>
-            </div>
-
-            <h2 className="text-2xl sm:text-4xl font-black text-stone-950 dark:text-white leading-tight">
-              متجر <span className="text-amber-600 dark:text-amber-400">"{brandName}"</span>
-            </h2>
-
-            <p className="text-sm font-medium text-stone-600 dark:text-stone-300 leading-relaxed">
-              تشكيلة قطع يدوية منفذة بعناية بأنامل {artistName}. اختر ما يناسبك واطلب مباشرة.
+      {/* 2. Clean Store Identity Banner (Direct Artist Contact Preserved Here, Excess Fluff Removed) */}
+      <section className="bg-[#FFFDF9] dark:bg-[#0B142B] border-b border-[#DEC9A8] dark:border-[#1B2B4B] py-6 sm:py-8 px-4 sm:px-6">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
+          <div className="space-y-2.5 text-right max-w-2xl">
+            <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
+              بأنامل الفنان: {artistName} · {workshop?.country || 'مصر'}
             </p>
 
-            {/* Artist Contact & Platform Guarantees */}
-            <div className="pt-1 flex flex-wrap items-center justify-center md:justify-start gap-2.5">
+            <h2 className="text-2xl sm:text-3xl font-black text-[#0C1427] dark:text-[#FAF5EB] leading-tight text-balance">
+              {brandName}
+            </h2>
+
+            {/* Direct Contact with the Artisan (Exclusive to Personal Storefronts) */}
+            <div className="pt-1 flex flex-wrap items-center gap-3 text-xs">
               <a
                 href={`tel:${phone}`}
-                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs shadow-md shadow-amber-500/20 transition cursor-pointer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold transition cursor-pointer whitespace-nowrap"
               >
-                <Phone className="w-3.5 h-3.5 text-stone-950" />
-                <span>تواصل: {phone}</span>
+                <Phone className="w-3.5 h-3.5" />
+                <span dir="ltr">{phone}</span>
               </a>
 
-              <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>ضمان الشمساوية (عربون 33%)</span>
-              </div>
+              <a
+                href={`https://wa.me/${whatsappNumber}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition cursor-pointer whitespace-nowrap"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>واتساب الفنان</span>
+              </a>
 
-              <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-600 dark:text-stone-400">
-                <Truck className="w-3.5 h-3.5 text-amber-500" />
-                <span>شحن لجميع المحافظات</span>
-              </div>
+              <span className="inline-flex items-center gap-1.5 text-[#5C4E3E] dark:text-[#B6C2D9] font-medium">
+                <Truck className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />
+                <span>توصيل لجميع المحافظات</span>
+              </span>
             </div>
           </div>
 
-          {/* Quick Workshop Stats Card */}
-          <div className="w-full md:w-auto p-5 rounded-2xl bg-white dark:bg-stone-900 border border-amber-500/30 shadow-xl flex flex-row md:flex-col gap-4 justify-around min-w-[240px]">
+          {/* Clean Rating & Catalog Summary */}
+          <div className="flex items-center gap-6 px-5 py-3.5 rounded-2xl bg-[#FAF5EB] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] shrink-0">
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1 text-amber-500 mb-1">
-                {Array.from({ length: Math.min(5, Math.max(1, Number(workshop?.ratingStars) || 5)) }).map((_, i) => (
-                  <Star key={i} className="w-4 h-4 fill-amber-500 text-amber-500" />
-                ))}
+              <div className="flex items-center justify-center gap-1 text-[#F59E0B] mb-0.5">
+                {Array.from({ length: Math.min(5, Math.max(1, Number(workshop?.ratingStars) || 5)) }).map(
+                  (_, i) => (
+                    <Star key={i} className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
+                  )
+                )}
               </div>
-              <p className="text-xs font-bold text-stone-500 dark:text-stone-400">
-                {workshop?.medal === 'diamond'
-                  ? '💎 القلادة الماسية'
-                  : workshop?.medal === 'gold'
-                  ? '🥇 القلادة الذهبية'
-                  : workshop?.medal === 'silver'
-                  ? '🥈 القلادة الفضية'
-                  : workshop?.medal === 'bronze'
-                  ? '🥉 القلادة البرونزية'
-                  : 'تقييم الجودة والحرفة'}
-              </p>
+              <p className="text-[11px] font-bold text-[#6E6254] dark:text-[#8FA2C2]">تقييم المتجر</p>
             </div>
-            <div className="h-full w-px md:w-full md:h-px bg-stone-200 dark:bg-stone-800" />
+            <div className="w-px h-8 bg-[#DEC9A8] dark:bg-[#1B2B4B]" />
             <div className="text-center">
-              <p className="text-lg font-black text-stone-900 dark:text-white">
+              <p className="text-lg font-black text-[#0C1427] dark:text-[#FAF5EB] tabular-nums">
                 {storeData?.products?.length || 0}
               </p>
-              <p className="text-xs font-bold text-stone-500 dark:text-stone-400">قطعة معروضة للبيع</p>
+              <p className="text-[11px] font-bold text-[#6E6254] dark:text-[#8FA2C2]">منتج متاح</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Main Storefront Body */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      {/* 3. Main Storefront Catalog */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-7 space-y-6">
         {workshop?.suspended && (
-          <div className="p-8 rounded-3xl bg-amber-50 dark:bg-stone-900 border-2 border-amber-500/50 text-center space-y-3 shadow-lg">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-              <ShieldCheck className="w-7 h-7" />
-            </div>
-            <h3 className="text-lg font-black text-stone-900 dark:text-white">
-              هذا المتجر متوقف مؤقتاً للمراجعة الإدارية
+          <div className="p-8 rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#EA580C]/40 text-center space-y-3">
+            <ShieldCheck className="w-9 h-9 mx-auto text-[#C2410C] dark:text-[#FBBF24]" />
+            <h3 className="text-base font-black text-[#0C1427] dark:text-[#FAF5EB]">
+              هذا المتجر متوقف مؤقتاً للمراجعة
             </h3>
-            <p className="text-xs text-stone-600 dark:text-stone-400 max-w-md mx-auto leading-relaxed">
-              توقف عرض منتجات هذا المتجر مؤقتاً بناءً على إجراءات مراجعة الجودة والرقابة في منظومة الشمساوية.
+            <p className="text-xs text-[#5C4E3E] dark:text-[#B6C2D9] max-w-md mx-auto">
+              يمكنك استعراض كافة المنتجات المعتمدة عبر السوق الرئيسي.
             </p>
             <a
               href="/#/market"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs transition"
             >
-              <span>تصفح سوق الشمساوية المركزي</span>
+              <span>تصفح سوق الشمساوية</span>
               <ArrowRight className="w-4 h-4" />
             </a>
           </div>
         )}
-        {/* Search & Category Filter Bar */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white dark:bg-stone-900 p-4 rounded-2xl border border-stone-200 dark:border-stone-800 shadow-xs">
-          {/* Search Box */}
-          <div className="relative w-full sm:w-80">
-            <Search className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث في معروضات الورشة..."
-              className="w-full pr-10 pl-4 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 text-xs sm:text-sm font-bold border-none focus:ring-2 focus:ring-amber-500"
-            />
+
+        {/* Search, Categories & Sort Toolbar */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+            <div className="relative w-full sm:w-72 shrink-0">
+              <Search className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-[#6E6254] dark:text-[#8FA2C2]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ابحث داخل المتجر..."
+                className="w-full h-10 pr-10 pl-4 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs sm:text-sm font-medium outline-none focus:border-[#EA580C]"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+              {categories.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setSelectedCategory(c.id)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer border shrink-0 ${
+                    selectedCategory === c.id
+                      ? 'bg-[#0C1427] text-[#FAF5EB] border-[#0C1427] dark:bg-[#EA580C] dark:text-white dark:border-[#EA580C]'
+                      : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#5C4E3E] dark:text-[#B6C2D9] border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C]/60'
+                  }`}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Categories Pill/Tab Filter */}
-          <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-            {categories.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setSelectedCategory(c.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition cursor-pointer ${
-                  selectedCategory === c.id
-                    ? 'bg-amber-500 text-stone-950 shadow-md shadow-amber-500/20'
-                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-750'
-                }`}
-              >
-                {c.name}
-              </button>
-            ))}
+          <div className="relative flex items-center shrink-0 self-end lg:self-auto">
+            <ArrowUpDown className="w-3.5 h-3.5 text-[#6E6254] dark:text-[#8FA2C2] absolute right-3 pointer-events-none" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              aria-label="ترتيب المنتجات"
+              className="h-10 pr-8 pl-3 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs font-bold text-[#0C1427] dark:text-[#FAF5EB] outline-none focus:border-[#EA580C] cursor-pointer"
+            >
+              <option value="featured">الأحدث</option>
+              <option value="price_asc">السعر: الأقل للأعلى</option>
+              <option value="price_desc">السعر: الأعلى للأقل</option>
+            </select>
           </div>
         </div>
 
-        {/* Loading Artisanal Skeleton Loader */}
+        {/* Loading Skeleton */}
         {loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-4 space-y-4 animate-pulse shadow-sm"
+                className="rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] overflow-hidden animate-pulse"
               >
-                <div className="w-full aspect-square rounded-xl bg-stone-200 dark:bg-stone-800" />
-                <div className="space-y-2">
-                  <div className="h-4 bg-stone-200 dark:bg-stone-800 rounded-md w-3/4" />
-                  <div className="h-3 bg-stone-200 dark:bg-stone-800 rounded-md w-1/2" />
-                </div>
-                <div className="flex items-center justify-between pt-2">
-                  <div className="h-5 bg-stone-200 dark:bg-stone-800 rounded-md w-1/3" />
-                  <div className="h-8 bg-stone-200 dark:bg-stone-800 rounded-xl w-1/3" />
+                <div className="w-full aspect-[4/3] bg-[#F3E9D8] dark:bg-[#0B142B]" />
+                <div className="p-4 space-y-3">
+                  <div className="h-3 bg-[#F3E9D8] dark:bg-[#142242] rounded w-1/2" />
+                  <div className="h-4 bg-[#F3E9D8] dark:bg-[#142242] rounded w-4/5" />
+                  <div className="h-5 bg-[#F3E9D8] dark:bg-[#142242] rounded w-1/3" />
                 </div>
               </div>
             ))}
@@ -602,12 +600,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
         {/* Error Notice */}
         {errorNotice && (
-          <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-900 text-rose-800 dark:text-rose-200 text-xs font-bold text-center">
+          <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-900 text-rose-800 dark:text-rose-200 text-xs font-bold text-center">
             {errorNotice}
           </div>
         )}
 
-        {/* Products Grid */}
+        {/* Clean Products Grid */}
         {!loading && filteredProducts.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
             {filteredProducts.map((p) => {
@@ -615,96 +613,74 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               const hasColors = p.available_colors && p.available_colors.length > 0;
 
               return (
-                <div
+                <article
                   key={p.id}
-                  className="group rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-amber-500/50 transition-all duration-200 shadow-sm hover:shadow-xl flex flex-col justify-between overflow-hidden"
+                  onClick={() => handleOpenProduct(p)}
+                  className="group rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg flex flex-col justify-between overflow-hidden cursor-pointer"
                 >
-                  {/* Image container */}
-                  <div
-                    className="relative w-full aspect-square bg-stone-100 dark:bg-stone-800 overflow-hidden cursor-pointer"
-                    onClick={() => handleOpenProduct(p)}
-                  >
-                    <img
-                      src={p.image_url || '/alshams_falcon_emblem.png'}
-                      alt={p.product_name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = '/alshams_falcon_emblem.png';
-                      }}
-                    />
+                  <div>
+                    {/* Clean Photography (Zero overlay badges) */}
+                    <div className="w-full aspect-[4/3] bg-[#F3E9D8] dark:bg-[#0B142B] overflow-hidden border-b border-[#DEC9A8]/60 dark:border-[#1B2B4B]">
+                      <img
+                        src={p.image_url || '/alshams_falcon_emblem.png'}
+                        alt={p.product_name}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                        loading="lazy"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = '/alshams_falcon_emblem.png';
+                        }}
+                      />
+                    </div>
 
-                    {/* Craft Badge */}
-                    <span className="absolute top-3 right-3 px-2.5 py-1 rounded-lg text-[10px] font-black bg-stone-950/80 text-amber-300 backdrop-blur-xs">
-                      {p.craft_name || p.category}
-                    </span>
+                    <div className="p-4 space-y-2">
+                      {/* Unboxed Metadata */}
+                      <p className="text-xs font-medium text-[#6E6254] dark:text-[#8FA2C2] truncate">
+                        {p.craft_name || p.category} · {p.current_stock > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
+                      </p>
 
-                    {/* Stock Badge */}
-                    {p.current_stock > 0 ? (
-                      <span className="absolute bottom-3 left-3 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-500/90 text-white backdrop-blur-xs">
-                        جاهز للتسليم
-                      </span>
-                    ) : (
-                      <span className="absolute bottom-3 left-3 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-600/90 text-white backdrop-blur-xs">
-                        تنفيذ بالطلب
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Body Content */}
-                  <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-                    <div className="space-y-1">
-                      <h3
-                        onClick={() => handleOpenProduct(p)}
-                        className="font-black text-sm sm:text-base text-stone-900 dark:text-white line-clamp-1 hover:text-amber-600 dark:hover:text-amber-400 transition cursor-pointer"
-                        title={p.product_name}
-                      >
+                      <h3 className="font-bold text-sm sm:text-base text-[#0C1427] dark:text-[#FAF5EB] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
                         {p.product_name}
                       </h3>
-                      <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
-                        {p.store_description || 'مشغولة يدوية متقنة الصنع.'}
-                      </p>
-                    </div>
 
-                    {/* Color indicators if available */}
-                    {hasColors && (
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <span className="text-[10px] font-bold text-stone-400">الألوان:</span>
-                        {p.available_colors!.slice(0, 3).map((col, idx) => (
-                          <span
-                            key={idx}
-                            className="text-[10px] px-1.5 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 font-bold"
-                          >
-                            {col}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                      {p.store_description && (
+                        <p className="text-xs text-[#5C4E3E] dark:text-[#A3B3CE] line-clamp-1">
+                          {p.store_description}
+                        </p>
+                      )}
 
-                    {/* Price and Cart Buttons */}
-                    <div className="pt-2 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2">
-                      <div>
-                        <span className="text-[10px] font-bold text-stone-400 block">السعر</span>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400">
-                            {displayPrice.toLocaleString('ar-EG')}
-                          </span>
-                          <span className="text-xs font-bold text-stone-500">{currencySymbol}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleAddToCart(p)}
-                          className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition flex items-center gap-1.5 shadow-sm hover:shadow-md cursor-pointer active:scale-95"
-                        >
-                          <ShoppingBag className="w-3.5 h-3.5" />
-                          <span>أضف للسلة</span>
-                        </button>
-                      </div>
+                      {hasColors && (
+                        <p className="text-[11px] text-[#6E6254] dark:text-[#8FA2C2] truncate">
+                          الألوان: {p.available_colors!.slice(0, 3).join('، ')}
+                        </p>
+                      )}
                     </div>
                   </div>
-                </div>
+
+                  {/* Price & CTA Baseline */}
+                  <div className="px-4 pb-4 pt-1 space-y-3">
+                    <div className="flex items-baseline gap-1 font-mono tabular-nums">
+                      <span className="text-lg font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                        {displayPrice.toLocaleString('ar-EG')}
+                      </span>
+                      <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2]">
+                        {currencySymbol}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddToCart(p, 1);
+                      }}
+                      className="w-full py-2.5 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                    >
+                      <ShoppingBag className="w-4 h-4" />
+                      <span>أضف للسلة</span>
+                    </button>
+                  </div>
+                </article>
               );
             })}
           </div>
@@ -712,15 +688,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
         {/* Empty State */}
         {!loading && filteredProducts.length === 0 && (
-          <div className="text-center py-16 px-4 bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 space-y-4">
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto text-2xl">
-              🎨
-            </div>
-            <h3 className="text-lg font-black text-stone-900 dark:text-white">
-              لا توجد قطع معروضة مطابقة للبحث
+          <div className="text-center py-14 px-4 bg-[#FFFDF9] dark:bg-[#0C1427] rounded-2xl border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-3">
+            <ShoppingBag className="w-10 h-10 mx-auto text-[#C2410C] dark:text-[#FBBF24] opacity-70" />
+            <h3 className="text-base font-black text-[#0C1427] dark:text-[#FAF5EB]">
+              لا توجد منتجات مطابقة للبحث
             </h3>
-            <p className="text-xs sm:text-sm font-medium text-stone-500 dark:text-stone-400 max-w-md mx-auto">
-              جرب تغيير كلمات البحث أو استعراض تصنيف آخر لرؤية إبداعات الورشة.
+            <p className="text-xs text-[#6E6254] dark:text-[#8FA2C2]">
+              جرّب تغيير كلمات البحث أو استعراض تصنيف آخر.
             </p>
             <button
               type="button"
@@ -728,7 +702,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 setSearchQuery('');
                 setSelectedCategory('all');
               }}
-              className="px-4 py-2 rounded-xl bg-amber-500 text-stone-950 font-black text-xs transition cursor-pointer"
+              className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs transition cursor-pointer"
             >
               عرض كافة المعروضات
             </button>
@@ -736,85 +710,88 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         )}
       </main>
 
-      {/* Floating Cart Button for Instant Mobile Checkout */}
+      {/* Mobile Floating Cart Action (Zero 33% text) */}
       {cartItemsCount > 0 && (
         <button
           type="button"
           onClick={() => setIsCartOpen(true)}
-          className="fixed bottom-5 left-5 z-40 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-black text-xs flex items-center gap-2.5 shadow-2xl shadow-amber-500/40 active:scale-95 transition cursor-pointer border-2 border-stone-950/20"
+          className="fixed bottom-4 left-4 z-40 px-4 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center gap-2 shadow-lg active:scale-95 transition cursor-pointer"
         >
-          <div className="relative">
-            <ShoppingBag className="w-5 h-5 text-stone-950" />
-            <span className="absolute -top-2 -right-2 px-1.5 py-0.2 rounded-full bg-stone-950 text-amber-300 font-mono text-[10px] font-black">
-              {cartItemsCount}
-            </span>
-          </div>
-          <span>سلة المشتريات (عربون 33%) 🛒</span>
+          <ShoppingBag className="w-4 h-4" />
+          <span>عرض السلة ({cartItemsCount})</span>
         </button>
       )}
 
-      {/* Product Details & Ordering Modal */}
+      {/* Product Details Modal (Clean PDP — Deposit calculated only in Cart/Checkout) */}
       {selectedProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-7 space-y-6 shadow-2xl relative text-right">
-            {/* Close Button */}
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#05070B]/75 backdrop-blur-sm"
+          dir="rtl"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedProduct(null);
+          }}
+        >
+          <div className="bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5 shadow-2xl relative text-right text-[#0C1427] dark:text-[#FAF5EB]">
             <button
               type="button"
               onClick={() => setSelectedProduct(null)}
-              className="absolute top-4 left-4 p-2 rounded-full bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-750 text-stone-500 transition cursor-pointer"
+              className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#F3E9D8] dark:bg-[#142242] hover:bg-[#DEC9A8] dark:hover:bg-[#1B2B4B] flex items-center justify-center transition cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
 
-            {/* Modal Product Header */}
-            <div className="flex flex-col sm:flex-row gap-5 items-start">
-              <div className="w-full sm:w-48 aspect-square rounded-2xl overflow-hidden bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 shrink-0">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-start pt-1">
+              <div className="w-full aspect-square rounded-2xl overflow-hidden bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B]">
                 <img
                   src={selectedProduct.image_url || '/alshams_falcon_emblem.png'}
                   alt={selectedProduct.product_name}
+                  referrerPolicy="no-referrer"
                   className="w-full h-full object-cover"
                 />
               </div>
 
-              <div className="space-y-2 flex-1">
-                <span className="inline-block px-2.5 py-1 rounded-md text-[11px] font-black bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                  {selectedProduct.craft_name || selectedProduct.category}
-                </span>
-                <h3 className="text-lg sm:text-xl font-black text-stone-900 dark:text-white">
-                  {selectedProduct.product_name}
-                </h3>
-                <p className="text-xs sm:text-sm font-medium text-stone-600 dark:text-stone-300 leading-relaxed">
-                  {selectedProduct.store_description || 'مشغولة يدوية فاخرة تم تصنيعها بإتقان.'}
+              <div className="space-y-3 pl-8 sm:pl-0">
+                <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                  {selectedProduct.craft_name || selectedProduct.category} ·{' '}
+                  {selectedProduct.current_stock > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
                 </p>
 
-                {/* Price Display */}
-                <div className="pt-2 flex items-baseline gap-1.5">
-                  <span className="text-2xl font-black text-amber-600 dark:text-amber-400">
-                    {(selectedProduct.store_price || selectedProduct.retail_price || 0).toLocaleString('ar-EG')}
+                <h3 className="text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#FAF5EB] leading-snug">
+                  {selectedProduct.product_name}
+                </h3>
+
+                <div className="flex items-baseline gap-1.5 font-mono tabular-nums">
+                  <span className="text-2xl font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                    {(selectedProduct.store_price || selectedProduct.retail_price || 0).toLocaleString(
+                      'ar-EG'
+                    )}
                   </span>
-                  <span className="text-xs font-bold text-stone-500">{currencySymbol}</span>
+                  <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2]">
+                    {currencySymbol}
+                  </span>
                 </div>
+
+                <p className="text-xs sm:text-sm text-[#5C4E3E] dark:text-[#B6C2D9] leading-relaxed">
+                  {selectedProduct.store_description || 'مشغولة يدوية متقنة الصنع.'}
+                </p>
               </div>
             </div>
 
-            {/* Customization Options */}
-            <div className="space-y-4 pt-3 border-t border-stone-200 dark:border-stone-800">
-              {/* Color Selection */}
+            {/* Options */}
+            <div className="space-y-4 pt-4 border-t border-[#DEC9A8] dark:border-[#1B2B4B]">
               {selectedProduct.available_colors && selectedProduct.available_colors.length > 0 && (
                 <div className="space-y-2">
-                  <label className="text-xs font-black text-stone-700 dark:text-stone-300">
-                    اختيار اللون المفضل:
-                  </label>
+                  <label className="text-xs font-bold block">اللون</label>
                   <div className="flex flex-wrap gap-2">
                     {selectedProduct.available_colors.map((c) => (
                       <button
                         key={c}
                         type="button"
                         onClick={() => setSelectedColor(c)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                           selectedColor === c
-                            ? 'bg-amber-500 text-stone-950 font-black shadow-sm'
-                            : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
+                            ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                            : 'bg-[#F3E9D8] dark:bg-[#0B142B] text-[#0C1427] dark:text-[#FAF5EB] border-[#DEC9A8] dark:border-[#1B2B4B]'
                         }`}
                       >
                         {c}
@@ -824,22 +801,19 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 </div>
               )}
 
-              {/* Size Selection */}
               {selectedProduct.available_sizes && selectedProduct.available_sizes.length > 0 && (
                 <div className="space-y-2">
-                  <label className="text-xs font-black text-stone-700 dark:text-stone-300">
-                    اختيار المقاس المفضل:
-                  </label>
+                  <label className="text-xs font-bold block">المقاس</label>
                   <div className="flex flex-wrap gap-2">
                     {selectedProduct.available_sizes.map((s) => (
                       <button
                         key={s}
                         type="button"
                         onClick={() => setSelectedSize(s)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                           selectedSize === s
-                            ? 'bg-amber-500 text-stone-950 font-black shadow-sm'
-                            : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
+                            ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                            : 'bg-[#F3E9D8] dark:bg-[#0B142B] text-[#0C1427] dark:text-[#FAF5EB] border-[#DEC9A8] dark:border-[#1B2B4B]'
                         }`}
                       >
                         {s}
@@ -849,107 +823,105 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 </div>
               )}
 
-              {/* Quantity */}
               <div className="flex items-center justify-between gap-4">
-                <span className="text-xs font-black text-stone-700 dark:text-stone-300">
-                  الكمية المطلوبة:
-                </span>
-                <div className="flex items-center gap-3 bg-stone-100 dark:bg-stone-800 px-3 py-1.5 rounded-xl">
+                <span className="text-xs font-bold">الكمية</span>
+                <div className="flex items-center gap-3 bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] px-3 py-1.5 rounded-xl">
                   <button
                     type="button"
                     onClick={() => setSelectedQuantity((q) => Math.max(1, q - 1))}
-                    className="w-7 h-7 rounded-lg bg-white dark:bg-stone-700 flex items-center justify-center font-bold text-stone-700 dark:text-stone-200 cursor-pointer shadow-xs"
+                    className="w-7 h-7 rounded-lg bg-[#FFFDF9] dark:bg-[#142242] flex items-center justify-center font-bold cursor-pointer"
                   >
                     <Minus className="w-3.5 h-3.5" />
                   </button>
-                  <span className="text-sm font-black w-6 text-center">{selectedQuantity}</span>
+                  <span className="text-sm font-black font-mono tabular-nums w-6 text-center">
+                    {selectedQuantity}
+                  </span>
                   <button
                     type="button"
                     onClick={() => setSelectedQuantity((q) => q + 1)}
-                    className="w-7 h-7 rounded-lg bg-white dark:bg-stone-700 flex items-center justify-center font-bold text-stone-700 dark:text-stone-200 cursor-pointer shadow-xs"
+                    className="w-7 h-7 rounded-lg bg-[#FFFDF9] dark:bg-[#142242] flex items-center justify-center font-bold cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
 
-              {/* Custom Notes */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-600 dark:text-stone-400">
-                  ملاحظات أو تخصيصات خاصة للفنان (اختياري):
+                <label className="text-xs font-bold text-[#5C4E3E] dark:text-[#B6C2D9] block">
+                  ملاحظات على الطلب (اختياري)
                 </label>
                 <textarea
                   value={customNotes}
                   onChange={(e) => setCustomNotes(e.target.value)}
-                  placeholder="مثال: يرجى جعل الحبل أطول 10 سم، أو تفضيل تغليف هدية..."
+                  placeholder="تخصيص لون أو مقاس أو تغليف..."
                   rows={2}
-                  className="w-full p-3 rounded-xl bg-stone-100 dark:bg-stone-800 text-xs font-bold border-none focus:ring-2 focus:ring-amber-500 resize-none"
+                  className="w-full p-3 rounded-xl bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs font-medium outline-none focus:border-[#EA580C] resize-none"
                 />
               </div>
             </div>
 
-            {/* Deposit Breakdown Callout */}
-            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200">
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                <span>الدفعة المقدمة عند الطلب (33%):</span>
-              </span>
-              <span className="font-black font-mono text-sm text-amber-700 dark:text-amber-300">
-                {Math.round(((selectedProduct.store_price || selectedProduct.retail_price || 0) * selectedQuantity) * 0.33).toLocaleString('ar-EG')} {currencySymbol}
-              </span>
-            </div>
-
-            {/* Actions: Single Cart Action with Al-Shams Central Guarantee */}
-            <div className="pt-2 border-t border-stone-200 dark:border-stone-800">
+            <div className="pt-2 border-t border-[#DEC9A8] dark:border-[#1B2B4B]">
               <button
                 type="button"
                 onClick={() => handleAddToCart(selectedProduct)}
-                className="w-full py-3.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-sm shadow-md shadow-amber-500/20 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                className="w-full py-3 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-sm transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
               >
                 <ShoppingBag className="w-4 h-4" />
-                <span>إضافة إلى سلة المشتريات وتأكيد الطلب بالعربون (33%)</span>
+                <span>أضف إلى السلة</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Cart Modal */}
+      {/* Cart Modal (Deposit terms appear here during checkout) */}
       {isCartOpen && (
         <MarketplaceCartModal
           isOpen={isCartOpen}
           onClose={() => setIsCartOpen(false)}
-          customerUser={null}
-          onOpenCustomerAuth={() => {}}
+          customerUser={customerUser}
+          onOpenCustomerAuth={() => setIsCustomerAuthOpen(true)}
           onOrderSuccess={() => {
             setIsCartOpen(false);
-            setAddedToast('✓ تم تسجيل طلبك بنجاح! سيتواصل معك فريق العمل لتأكيد الشحن.');
+            setAddedToast('تم تسجيل طلبك بنجاح! سيتواصل معك فريق العمل لتأكيد الشحن.');
             setTimeout(() => setAddedToast(null), 5000);
           }}
         />
       )}
 
-      {/* Unified Single-Line Footer */}
-      <footer className="mt-16 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 py-4 px-4 sm:px-8 flex flex-row items-center justify-between gap-4 select-none">
-        {/* Right side: Orange link to Central Marketplace (/#/market) */}
-        <a
-          href="/#/market"
-          className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
-          title="الانتقال إلى سوق الشمساوية المركزي"
-        >
-          منظومة الشمساوية للفنون اليدوية 🛍️
-        </a>
+      {/* Customer Auth Modal */}
+      <CustomerAuthModal
+        isOpen={isCustomerAuthOpen}
+        onClose={() => setIsCustomerAuthOpen(false)}
+        onContinueAsGuest={() => setIsCustomerAuthOpen(false)}
+        onSuccessLogin={(user) => {
+          setCustomerUser(user);
+          setIsCustomerAuthOpen(false);
+          setAddedToast(`أهلاً بك يا ${user.name}`);
+          setTimeout(() => setAddedToast(null), 3500);
+        }}
+      />
 
-        {/* Left side: Direct WhatsApp green button */}
-        <a
-          href="https://wa.me/201000996059"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md shadow-emerald-600/20 transition cursor-pointer active:scale-95 shrink-0"
-        >
-          <MessageCircle className="w-3.5 h-3.5" />
-          <span>الدعم الفني 🟢</span>
-        </a>
+      {/* Minimal Unified Footer */}
+      <footer className="mt-16 bg-[#FFFDF9] dark:bg-[#0B142B] border-t border-[#DEC9A8] dark:border-[#1B2B4B] py-5 px-4 sm:px-6">
+        <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-4">
+          <a
+            href="/#/market"
+            className="text-xs sm:text-sm font-black text-[#C2410C] dark:text-[#FBBF24] hover:underline transition-colors"
+          >
+            سوق الشمساوية للفنون اليدوية
+          </a>
+
+          <a
+            href="https://wa.me/201000996059"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition cursor-pointer active:scale-95 shrink-0"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            <span>الدعم الفني</span>
+          </a>
+        </div>
       </footer>
     </div>
   );
