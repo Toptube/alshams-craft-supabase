@@ -48,18 +48,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64;
 
   return (
-    <nav className="flex items-center justify-between w-full px-3 sm:px-4 py-2 bg-transparent z-50">
+    <nav className="sticky top-0 z-40 flex items-center justify-between w-full px-3 sm:px-5 py-2.5 bg-[#FFFDF9]/92 dark:bg-[#0B142B]/92 backdrop-blur-md border-b border-[#DEC9A8]/85 dark:border-[#1B2B4B] shadow-2xs">
       {/* اليمين: شعار الورشة الديناميكي أو شعار المنظومة الرسمي */}
       <div className="flex items-center gap-2 cursor-pointer" onClick={onGoHome} title={profile?.brandName || 'منظومة الشمساوية'}>
         {workshopLogo ? (
           <div className="flex items-center gap-2">
             <img
               src={workshopLogo}
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl object-contain border border-amber-500/30 bg-white dark:bg-stone-900 p-0.5 shadow-xs"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl object-contain border border-[#DEC9A8] dark:border-[#1B2B4B] bg-[#FAF5EB] dark:bg-[#0C1427] p-0.5 shadow-xs"
               alt={profile?.brandName || 'شعار الورشة'}
             />
             {profile?.brandName && (
-              <span className="text-xs sm:text-sm font-black text-stone-900 dark:text-stone-100 hidden sm:inline-block max-w-[130px] truncate">
+              <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#FAF5EB] hidden sm:inline-block max-w-[140px] truncate">
                 {profile.brandName}
               </span>
             )}
@@ -84,9 +84,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               }
             }}
             title="متجري الخاص وطلبات الزبائن"
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-[#0c1427] hover:bg-[#131e38] text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-2xs"
+            className="px-3 sm:px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#EA580C] to-[#F59E0B] hover:from-[#C2410C] hover:to-[#EA580C] text-white border border-[#FDBA74]/50 font-black text-xs flex items-center gap-1.5 transition cursor-pointer shadow-sm"
           >
-            <Store className="w-3.5 h-3.5 text-amber-400" />
+            <Store className="w-3.5 h-3.5 text-amber-100" />
             <span>متجري 🏪</span>
           </button>
         )}
@@ -99,18 +99,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           onClick={onToggleTheme}
           type="button"
           aria-label="تبديل الثيم"
-          className="p-2 rounded-full hover:bg-white/10 text-amber-500 text-lg transition cursor-pointer"
+          className="w-9 h-9 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-[#EA580C] dark:text-amber-300 flex items-center justify-center text-base transition cursor-pointer"
         >
-          {isDarkMode ? '☀️' : '🌙'}
+          {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-[#C2410C]" />}
         </button>
         {/* زر القائمة الجانبية ☰ المنسدلة */}
         <button
           onClick={onToggleSidebar}
           type="button"
           aria-label="القائمة الجانبية"
-          className="p-2 text-2xl text-amber-500 hover:text-amber-600 transition cursor-pointer leading-none active:scale-95"
+          className="w-9 h-9 rounded-xl bg-gradient-to-b from-[#FAF5EB] to-[#EADBC3] dark:from-[#13203E] dark:to-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-[#C2410C] dark:text-amber-400 flex items-center justify-center transition cursor-pointer"
         >
-          ☰
+          <Menu className="w-5 h-5" />
         </button>
       </div>
     </nav>

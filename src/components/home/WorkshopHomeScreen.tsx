@@ -1178,16 +1178,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
       {/* Sub-Screen View (Opens when a card is clicked) */}
       {activeSubSection && currentSubHub ? (
-        <div className="p-4 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border-2 border-amber-300/60 dark:border-amber-800/60 shadow-md space-y-4 animate-in slide-in-from-right-3 duration-200">
+        <div className="p-4 sm:p-6 rounded-3xl bg-[#FFFDF9] dark:bg-[#0C1427] border-2 border-[#DEC9A8] dark:border-[#1B2B4B] shadow-md space-y-4 animate-in slide-in-from-right-3 duration-200">
           {/* Sub-Hub Top Bar */}
-          <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-3">
+          <div className="flex items-center justify-between border-b border-[#DEC9A8]/70 dark:border-[#1B2B4B] pb-3">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center shadow-xs">
+              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-[#FFEDD5] to-[#FED7AA] dark:from-[#1B2B4B] dark:to-[#111E3A] text-[#C2410C] dark:text-amber-300 border border-[#EA580C]/25 flex items-center justify-center shadow-xs">
                 <currentSubHub.icon className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-[10px] text-stone-400 font-bold block">{tr('section_management')}</span>
-                <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100">
+                <span className="text-[10px] text-[#7C5C3E] dark:text-[#EADBC3] font-bold block">{tr('section_management')}</span>
+                <h2 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#FAF5EB]">
                   {currentSubHub.title}
                 </h2>
               </div>
@@ -1196,24 +1196,24 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             <button
               type="button"
               onClick={() => setActiveSubSection(null)}
-              className="px-3.5 py-1.5 rounded-2xl border border-amber-300/80 dark:border-amber-700/80 bg-white dark:bg-stone-800 hover:bg-amber-50 dark:hover:bg-amber-950/40 text-stone-700 dark:text-stone-300 text-xs font-black transition flex items-center gap-2 cursor-pointer shadow-xs active:scale-95 group"
+              className="px-3.5 py-1.5 rounded-2xl border border-[#EA580C]/40 dark:border-[#1B2B4B] bg-gradient-to-b from-[#FFEDD5] to-[#FED7AA]/75 dark:from-[#13203E] dark:to-[#0C1427] text-[#9A3412] dark:text-amber-300 text-xs font-black transition flex items-center gap-2 cursor-pointer group"
               title="الرجوع للبطاقات الرئيسية"
             >
-              <ArrowRight className={`w-3.5 h-3.5 text-amber-600 ${lang === 'ar' ? '' : 'rotate-180'}`} />
+              <ArrowRight className={`w-3.5 h-3.5 text-[#EA580C] dark:text-amber-400 ${lang === 'ar' ? '' : 'rotate-180'}`} />
               <span>الرجوع للبطاقات</span>
             </button>
           </div>
 
           {/* Workforce Tabs Switcher (صناع بالقطعة vs موظفون ورواتب) */}
           {(currentSubHub as any).isWorkforce && (
-            <div className="flex items-center gap-2 bg-stone-100 dark:bg-stone-800/90 p-1.5 rounded-2xl w-full max-w-xl mx-auto border border-stone-200 dark:border-stone-700">
+            <div className="flex items-center gap-2 bg-[#F3E9D8] dark:bg-[#0B142B] p-1.5 rounded-2xl w-full max-w-xl mx-auto border border-[#DEC9A8] dark:border-[#1B2B4B]">
               <button
                 type="button"
                 onClick={() => setWorkforceTab('artisans')}
                 className={`flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer text-center ${
                   workforceTab === 'artisans'
-                    ? 'bg-amber-500 text-white shadow-sm'
-                    : 'text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white'
+                    ? 'bg-gradient-to-r from-[#EA580C] to-[#F59E0B] text-white shadow-sm'
+                    : 'text-[#5C4734] dark:text-[#EADBC3] bg-[#FFFDF9]/60 dark:bg-[#111E3A]/60'
                 }`}
               >
                 صناع وحرفيو الورشة - بالقطعة والإنتاج
@@ -1224,7 +1224,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                 className={`flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer text-center ${
                   workforceTab === 'employees'
                     ? 'bg-violet-600 text-white shadow-sm'
-                    : 'text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white'
+                    : 'text-[#5C4734] dark:text-[#EADBC3] bg-[#FFFDF9]/60 dark:bg-[#111E3A]/60'
                 }`}
               >
                 الموظفون والإدارة - رواتب وسلف
@@ -1243,9 +1243,9 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                   key={idx}
                   type="button"
                   onClick={sub.onClick}
-                  className="p-3.5 sm:p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/70 border border-stone-200/80 dark:border-stone-700 hover:border-amber-500 dark:hover:border-amber-500 hover:bg-amber-500/10 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-95 group text-center min-h-[90px]"
+                  className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-b from-[#FAF5EB] to-[#F3E9D8] dark:from-[#0B142B] dark:to-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] dark:hover:border-[#EA580C] transition-all flex flex-col items-center justify-center gap-2 cursor-pointer group text-center min-h-[90px]"
                 >
-                  <div className="w-9 h-9 rounded-xl bg-transparent text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-none group-hover:scale-110 transition-transform overflow-hidden p-0.5">
+                  <div className="w-9 h-9 rounded-xl bg-transparent text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-none group-hover:scale-110 transition-transform overflow-hidden p-0.5">
                     {isFalcon ? (
                       <img
                         src="/falcon_mascot_ai.png"
@@ -1253,7 +1253,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                         className="w-full h-full object-contain select-none"
                       />
                     ) : isShamousa ? (
-                      <div className="w-8 h-8 rounded-full overflow-hidden border border-amber-400 bg-gradient-to-tr from-amber-400 to-orange-400 flex items-center justify-center shadow-xs">
+                      <div className="w-8 h-8 rounded-full overflow-hidden border border-amber-400 bg-gradient-to-tr from-[#EA580C] to-amber-400 flex items-center justify-center shadow-xs">
                         <img
                           src="/shamousa_mascot.png"
                           alt="شموسة"
@@ -1261,12 +1261,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                         />
                       </div>
                     ) : (
-                      <div className="w-8 h-8 rounded-xl bg-white dark:bg-stone-700 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-2xs p-0.5 border border-stone-200/60 dark:border-stone-600">
+                      <div className="w-8 h-8 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-2xs p-0.5 border border-[#DEC9A8] dark:border-[#1B2B4B]">
                         <SubIcon className="w-4 h-4" />
                       </div>
                     )}
                   </div>
-                  <span className="text-xs font-black text-stone-800 dark:text-stone-200 group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors">
+                  <span className="text-xs font-black text-[#0C1427] dark:text-[#FAF5EB] group-hover:text-[#C2410C] dark:group-hover:text-amber-300 transition-colors">
                     {sub.label}
                   </span>
                 </button>
@@ -1294,14 +1294,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                       setActiveSubSection(card.id);
                     }
                   }}
-                  className="p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-amber-500 dark:hover:border-amber-500 hover:shadow-md transition-all duration-200 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 cursor-pointer shadow-xs active:scale-95 group min-h-[82px] sm:min-h-[100px]"
+                  className="p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#FFFDF9] to-[#FAF5EB] dark:from-[#0C1427] dark:to-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] dark:hover:border-[#EA580C] hover:shadow-md transition-all duration-200 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 cursor-pointer group min-h-[82px] sm:min-h-[100px]"
                 >
                   <div
-                    className={`w-9 h-9 sm:w-11 sm:h-11 rounded-2xl ${card.bgColor} ${card.color} flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform`}
+                    className={`w-9 h-9 sm:w-11 sm:h-11 rounded-2xl ${card.bgColor} ${card.color} border border-[#DEC9A8]/50 dark:border-[#1B2B4B] flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform`}
                   >
                     <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                   </div>
-                  <span className="text-xs sm:text-sm font-black text-stone-800 dark:text-stone-200 tracking-tight block leading-tight">
+                  <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#FAF5EB] tracking-tight block leading-tight">
                     {card.label}
                   </span>
                 </button>
@@ -1313,11 +1313,11 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       )}
 
       {/* 4. Enhanced Workshop Financial & Inventory Summary Widget with Visual Charts */}
-      <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-100 dark:border-stone-800 pb-3">
+      <div className="p-4 sm:p-5 rounded-3xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#DEC9A8]/70 dark:border-[#1B2B4B] pb-3">
           <div className="flex items-center gap-2">
-            <Coins className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            <h3 className="text-xs sm:text-sm font-black text-stone-800 dark:text-stone-200">
+            <Coins className="w-4 h-4 text-[#EA580C] dark:text-amber-400" />
+            <h3 className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#FAF5EB]">
               ملخص الورشة
             </h3>
           </div>
@@ -1325,12 +1325,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             <button
               type="button"
               onClick={() => setIsAnalyticsModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-xs font-bold hover:bg-amber-100 transition cursor-pointer shadow-2xs"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-b from-[#FFEDD5] to-[#FED7AA]/75 dark:from-[#13203E] dark:to-[#0B142B] text-[#9A3412] dark:text-amber-300 border border-[#EA580C]/40 dark:border-[#1B2B4B] text-xs font-black transition cursor-pointer"
             >
-              <PieChartIcon className="w-3.5 h-3.5 text-amber-600" />
+              <PieChartIcon className="w-3.5 h-3.5 text-[#EA580C] dark:text-amber-400" />
               <span>الشاشة التعريفية</span>
             </button>
-            <span className="text-[10px] text-stone-400 font-bold hidden sm:inline">
+            <span className="text-[10px] text-[#7C5C3E] dark:text-[#EADBC3] font-bold hidden sm:inline">
               {tr('updated_live')}
             </span>
           </div>
@@ -1588,33 +1588,32 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           </div>
 
           {/* لوحة أداء الورشة البيانية الفاخرة بـ Recharts (ثيم كحلي ملكي وعنبري فاخر) */}
-          <div className="p-5 sm:p-6 rounded-3xl bg-[#060B18] text-white border-2 border-amber-500/40 shadow-2xl space-y-5 artisan-card-hover">
+          <div className="p-5 sm:p-6 rounded-3xl bg-[#060B18] text-white border-2 border-[#EA580C]/40 shadow-2xl space-y-5 artisan-card-hover">
             {/* Header with Switcher Tabs */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-amber-500/20 pb-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[#1B2B4B] pb-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
                   <h4 className="text-sm sm:text-base font-black text-amber-300">
                     لوحة أداء الورشة الحرفية والتحليل المالي المتقدم
                   </h4>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#EA580C]/20 text-amber-300 font-bold border border-[#EA580C]/40">
                     مباشر لحظة بلحظة
                   </span>
                 </div>
-                <p className="text-xs text-amber-100/70 font-medium mt-1">
+                <p className="text-xs text-[#EADBC3]/85 font-medium mt-1">
                   متابعة دقيقة لنمو المبيعات وهيكل تكاليف الإنتاج لمساعدة صانع الشمساوية في تعظيم أرباحه
                 </p>
               </div>
 
               {/* Toggle Buttons */}
-              <div className="flex items-center bg-slate-900/90 p-1 rounded-2xl border border-amber-500/30 shrink-0 self-start md:self-auto gap-1">
+              <div className="flex items-center bg-[#0B142B] p-1 rounded-2xl border border-[#1B2B4B] shrink-0 self-start md:self-auto gap-1">
                 <button
                   type="button"
                   onClick={() => setChartViewTab('financial_overview')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                     chartViewTab === 'financial_overview'
-                      ? 'bg-amber-500 text-slate-950 shadow-md font-extrabold'
-                      : 'text-amber-200/80 hover:text-white'
+                      ? 'bg-gradient-to-r from-[#EA580C] to-[#F59E0B] text-white shadow-md font-extrabold'
+                      : 'text-[#EADBC3]/80 bg-[#111E3A]/60 hover:text-white'
                   }`}
                 >
                   المقارنة المالية الشهرية 📊
@@ -1624,8 +1623,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                   onClick={() => setChartViewTab('sales_growth')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                     chartViewTab === 'sales_growth'
-                      ? 'bg-amber-500 text-slate-950 shadow-md font-extrabold'
-                      : 'text-amber-200/80 hover:text-white'
+                      ? 'bg-gradient-to-r from-[#EA580C] to-[#F59E0B] text-white shadow-md font-extrabold'
+                      : 'text-[#EADBC3]/80 bg-[#111E3A]/60 hover:text-white'
                   }`}
                 >
                   نمو المبيعات 📈
@@ -1635,8 +1634,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                   onClick={() => setChartViewTab('cost_distribution')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                     chartViewTab === 'cost_distribution'
-                      ? 'bg-amber-500 text-slate-950 shadow-md font-extrabold'
-                      : 'text-amber-200/80 hover:text-white'
+                      ? 'bg-gradient-to-r from-[#EA580C] to-[#F59E0B] text-white shadow-md font-extrabold'
+                      : 'text-[#EADBC3]/80 bg-[#111E3A]/60 hover:text-white'
                   }`}
                 >
                   توزيع التكاليف 🧶
@@ -2375,10 +2374,10 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         <button
           type="button"
           onClick={() => setIsQuickActionsOpen(!isQuickActionsOpen)}
-          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 active:scale-90 cursor-pointer ${
+          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 cursor-pointer ${
             isQuickActionsOpen
-              ? 'bg-stone-800 text-white rotate-45 ring-4 ring-amber-500/30'
-              : 'bg-gradient-to-tr from-amber-600 via-amber-500 to-amber-600 text-white hover:shadow-amber-500/40 hover:scale-105 ring-4 ring-amber-400/20'
+              ? 'bg-[#0C1427] text-white rotate-45 ring-4 ring-[#EA580C]/40 border border-[#EA580C]'
+              : 'bg-gradient-to-tr from-[#C2410C] via-[#EA580C] to-[#F59E0B] text-white hover:shadow-orange-500/40 ring-4 ring-[#FED7AA]/40 dark:ring-[#EA580C]/25'
           }`}
           title="إجراءات سريعة"
           aria-label="قائمة إجراءات الوصول السريع"

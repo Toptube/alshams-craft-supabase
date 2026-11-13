@@ -1058,10 +1058,10 @@ export const App: React.FC = () => {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans" dir="rtl">
+      <div className="min-h-screen flex items-center justify-center bg-[#FAF5EB] dark:bg-[#060B18] text-[#0C1427] dark:text-[#FAF5EB] font-sans" dir="rtl">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-bold text-stone-600 dark:text-stone-400">جاري تشغيل منظومة الشمساوية...</p>
+          <div className="w-10 h-10 border-4 border-[#EA580C] border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm font-bold text-[#5C4734] dark:text-[#EADBC3]">جاري تشغيل منظومة الشمساوية...</p>
         </div>
       </div>
     );
@@ -1144,7 +1144,7 @@ export const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200" dir="rtl">
+    <div className="min-h-screen flex flex-col bg-[#FAF5EB] dark:bg-[#060B18] text-[#0C1427] dark:text-[#FAF5EB] font-sans transition-colors duration-200" dir="rtl">
       {/* Top Navbar */}
       <Navbar
         profile={profile}
@@ -1179,18 +1179,18 @@ export const App: React.FC = () => {
 
       {/* Super Admin Executive Context Mode Banner */}
       {switchedWorkshopContext && (
-        <aside aria-label="شريط وضع الإشراف" className="bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white px-4 py-2 text-xs font-black flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/40 shadow-md">
+        <aside aria-label="شريط وضع الإشراف" className="bg-gradient-to-r from-[#0C1427] via-[#1B2B4B] to-[#9A3412] text-[#FAF5EB] px-4 py-2 text-xs font-black flex flex-wrap items-center justify-between gap-2 border-b border-[#EA580C]/45 shadow-md">
           <div className="flex items-center gap-2">
             <span className="text-sm">👑</span>
             <span>
-              أنت الآن في وضع الإشراف التنفيذي الشامل على ورشة: <strong className="text-amber-300">"{switchedWorkshopContext.brandName}"</strong> (الفنان: {switchedWorkshopContext.artistName})
+              أنت الآن في وضع الإشراف التنفيذي الشامل على ورشة: <strong className="text-[#FDBA74]">"{switchedWorkshopContext.brandName}"</strong> (الفنان: {switchedWorkshopContext.artistName})
             </span>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => navigateTo('admin')}
-              className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold cursor-pointer transition shadow-xs"
+              className="px-3 py-1 rounded-xl bg-gradient-to-r from-[#EA580C] to-[#F59E0B] hover:from-[#C2410C] hover:to-[#EA580C] text-white text-[11px] font-black cursor-pointer transition shadow-xs"
             >
               العودة للوحة الإشراف
             </button>
@@ -1203,7 +1203,7 @@ export const App: React.FC = () => {
                 }
                 setSwitchedWorkshopContext(null);
               }}
-              className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-750 text-stone-300 text-[11px] font-bold cursor-pointer transition"
+              className="px-3 py-1 rounded-xl bg-[#0B142B] hover:bg-[#162447] text-[#EADBC3] border border-[#253860] text-[11px] font-bold cursor-pointer transition"
             >
               إنهاء وضع الإشراف
             </button>
@@ -1213,36 +1213,36 @@ export const App: React.FC = () => {
 
       {/* Welcome Banner: يظهر فقط عند الفتح للترحيب بالفنان وورشته */}
       {showWelcomeBanner && profile && (
-        <aside aria-label="رسالة الترحيب" className="bg-gradient-to-r from-amber-500/15 via-amber-400/10 to-amber-600/15 border-b border-amber-300 dark:border-amber-700/60 px-4 py-2.5 text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-300">
+        <aside aria-label="رسالة الترحيب" className="bg-gradient-to-l from-[#FFFDF9] via-[#F7EFE0] to-[#FFEDD5] dark:from-[#0C1427] dark:via-[#111E3A] dark:to-[#1E130A] border-b border-[#DEC9A8] dark:border-[#EA580C]/35 px-4 py-2.5 text-xs font-bold text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-pulse shrink-0" />
+            <Sparkles className="w-4 h-4 text-[#EA580C] dark:text-amber-400 shrink-0" />
             <span>
-              أهلاً بك يا <strong>{profile.artistName || 'فنان الشمساوية'}</strong> في ورشتك <strong>{profile.brandName || 'الشمساوية هاند ميد'}</strong> ✨ نسعد بوجودك معنا ونتمنى لك يوماً إنتاجياً موفقاً!
+              أهلاً بك يا <strong className="text-[#C2410C] dark:text-amber-300">{profile.artistName || 'فنان الشمساوية'}</strong> في ورشتك <strong>{profile.brandName || 'الشمساوية هاند ميد'}</strong> ✨ نسعد بوجودك معنا ونتمنى لك يوماً إنتاجياً موفقاً!
             </span>
           </div>
           <button
             type="button"
             onClick={() => setShowWelcomeBanner(false)}
-            className="p-1 rounded-lg hover:bg-amber-500/20 text-stone-500 dark:text-stone-300 transition cursor-pointer"
+            className="p-1.5 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] text-[#5C4734] dark:text-[#EADBC3] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] transition cursor-pointer"
             title="إغلاق الترحيب"
           >
-            <X className="w-4 h-4" />
+            <X className="w-3.5 h-3.5" />
           </button>
         </aside>
       )}
 
       {/* Global Sub-Page Bar: زر الرجوع للصفحة السابقة بجوار الخروج للصفحة الرئيسية */}
       {activeView !== 'home' && (
-        <aside aria-label="شريط التنقل السريع" className="sticky top-0 z-30 bg-white/95 dark:bg-stone-900/95 backdrop-blur-md border-b border-amber-200 dark:border-stone-800 px-3 sm:px-6 py-2.5 shadow-xs flex items-center justify-between">
+        <aside aria-label="شريط التنقل السريع" className="sticky top-0 z-30 bg-[#FFFDF9]/95 dark:bg-[#0B142B]/95 backdrop-blur-md border-b border-[#DEC9A8] dark:border-[#1B2B4B] px-3 sm:px-6 py-2.5 shadow-xs flex items-center justify-between">
           <div className="flex items-center gap-2">
             {/* زر الرجوع للصفحة السابقة */}
             <button
               type="button"
               onClick={navigateBack}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800/60 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-b from-[#FFEDD5] to-[#FED7AA]/75 dark:from-[#1A294B] dark:to-[#0C1427] text-[#9A3412] dark:text-[#FDBA74] border border-[#EA580C]/40 dark:border-[#EA580C]/45 hover:border-[#EA580C] text-xs font-black transition cursor-pointer"
               title="الرجوع للصفحة السابقة"
             >
-              <ArrowRight className="w-4 h-4 text-amber-700 dark:text-amber-300" />
+              <ArrowRight className="w-4 h-4 text-[#EA580C] dark:text-amber-400" />
               <span>رجوع</span>
             </button>
 
@@ -1250,20 +1250,19 @@ export const App: React.FC = () => {
             <button
               type="button"
               onClick={goHome}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200 border border-stone-200 dark:border-stone-700 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#FAF5EB] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#FAF5EB] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-xs font-bold transition cursor-pointer"
               title="الخروج للصفحة الرئيسية"
             >
-              <Home className="w-4 h-4 text-stone-600 dark:text-stone-300" />
+              <Home className="w-4 h-4 text-[#C2410C] dark:text-amber-300" />
               <span className="hidden sm:inline">الرئيسية</span>
             </button>
           </div>
 
           {/* Current Page Title */}
           <div className="flex items-center gap-2">
-            <span className="text-xs sm:text-sm font-extrabold text-stone-800 dark:text-stone-100 truncate max-w-[200px] sm:max-w-none">
+            <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#FAF5EB] truncate max-w-[200px] sm:max-w-none px-3 py-1 rounded-xl bg-[#F3E9D8]/80 dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B]">
               {VIEW_TITLES[activeView]}
             </span>
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
           </div>
         </aside>
       )}

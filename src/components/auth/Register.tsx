@@ -242,21 +242,22 @@ export const Register: React.FC<RegisterProps> = ({
         </div>
 
         {/* Mandatory Terms & AI Policy Checkbox */}
-        <div className="p-3 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
+        <div className="p-3 rounded-2xl bg-[#F3E9D8]/85 dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B]">
           <div className="flex items-start gap-2.5">
             <input
               type="checkbox"
               id="agreeTermsCheckbox"
               checked={agreeTerms}
               onChange={(e) => setAgreeTerms(e.target.checked)}
-              className="mt-0.5 w-4 h-4 rounded border-stone-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600 shrink-0"
+              className="mt-0.5 w-4 h-4 rounded border-[#DEC9A8] text-[#EA580C] focus:ring-[#EA580C] cursor-pointer accent-[#EA580C] shrink-0"
             />
-            <label htmlFor="agreeTermsCheckbox" className="text-xs font-bold text-stone-700 dark:text-stone-300 leading-normal select-none">
+            <label htmlFor="agreeTermsCheckbox" className="text-xs font-bold text-[#0C1427] dark:text-[#FAF5EB] leading-normal select-none">
               أوافق على سياسات وشروط وأحكام منظومة الشمساوية{' '}
               <button
                 type="button"
+                data-flat="true"
                 onClick={() => setShowTermsModal(true)}
-                className="text-amber-700 dark:text-amber-400 font-extrabold underline hover:text-amber-800 dark:hover:text-amber-300 cursor-pointer inline-block"
+                className="text-[#C2410C] dark:text-amber-400 font-extrabold underline hover:text-[#EA580C] dark:hover:text-amber-300 cursor-pointer inline-block"
               >
                 [اضغط للاطلاع على الشروط والأحكام]
               </button>
@@ -268,10 +269,10 @@ export const Register: React.FC<RegisterProps> = ({
         <button
           type="submit"
           disabled={!agreeTerms || loading}
-          className={`w-full py-2.5 px-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 transition shadow-md ${
+          className={`w-full py-3 px-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 transition shadow-md ${
             agreeTerms && !loading
-              ? 'bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white shadow-amber-600/20 cursor-pointer'
-              : 'bg-stone-300 dark:bg-stone-800 text-stone-500 dark:text-stone-500 cursor-not-allowed opacity-60'
+              ? 'bg-gradient-to-r from-[#EA580C] via-[#F59E0B] to-[#C2410C] hover:from-[#C2410C] hover:to-[#EA580C] text-white shadow-orange-600/25 cursor-pointer'
+              : 'bg-[#EADBC3] dark:bg-[#111E3A] text-[#7C5C3E] dark:text-[#8E7B64] cursor-not-allowed opacity-70'
           }`}
           title={!agreeTerms ? 'يجب الموافقة على الشروط والأحكام أولاً' : 'إنشاء الورشة'}
         >

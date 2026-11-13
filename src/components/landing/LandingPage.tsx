@@ -141,7 +141,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans selection:bg-amber-500 selection:text-white transition-colors duration-300" dir="rtl">
+    <div className="min-h-screen bg-[#FAF5EB] dark:bg-[#060B18] text-[#0C1427] dark:text-[#FAF5EB] font-sans selection:bg-[#EA580C] selection:text-white transition-colors duration-300" dir="rtl">
       
       {/* ------------------------------------------------------------- */}
       {/* بوابة الاستقبال التفاعلية الفاخرة (Hero Gate / Welcome Modal)   */}
@@ -155,7 +155,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* 1. Header / Navbar (Sticky, Modern Glassmorphism & Audio Widget)*/}
       {/* ------------------------------------------------------------- */}
-      <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-white/80 dark:bg-[#070e1e]/85 border-b border-amber-500/20 transition-all shadow-sm">
+      <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-[#FFFDF9]/90 dark:bg-[#0B142B]/90 border-b border-[#DEC9A8] dark:border-[#1B2B4B] transition-all shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-3 sm:gap-4">
           
           {/* الشعار المعتمد للمنظومة بعرض لا يتجاوز 180px وبخلفية شفافة تماماً كأنه مدمج في نسيج الصفحة */}
@@ -165,21 +165,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           {/* Quick Nav Links (Desktop) */}
-          <nav className="hidden xl:flex items-center gap-6 text-sm font-semibold text-stone-600 dark:text-stone-300">
-            <a href="#safe-accounts" className="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
+          <nav className="hidden xl:flex items-center gap-6 text-sm font-bold text-[#5C4734] dark:text-[#EADBC3]">
+            <a href="#safe-accounts" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors">
               عقلك الحرفي
             </a>
-            <a href="#ai-partners" className="hover:text-amber-600 dark:hover:text-amber-400 transition-colors flex items-center gap-1.5">
+            <a href="#ai-partners" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors flex items-center gap-1.5">
               <span>صقر وشموسة AI</span>
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             </a>
-            <a href="#craft-lifecycle" className="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
+            <a href="#craft-lifecycle" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors">
               رحلة المشغولة
             </a>
-            <a href="#tool-maintenance" className="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
+            <a href="#tool-maintenance" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors">
               صيانة العِدد
             </a>
-            <a href="#reviews" className="hover:text-amber-600 dark:hover:text-amber-400 transition-colors">
+            <a href="#reviews" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors">
               حكايات الورش
             </a>
           </nav>
@@ -193,7 +192,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={() => setIsWelcomeGateOpen(true)}
-              className="hidden lg:inline-flex items-center gap-1.5 px-3 py-2 rounded-2xl text-xs font-black bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-400/40 transition active:scale-95 cursor-pointer shadow-2xs shrink-0"
+              className="hidden lg:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-black bg-[#F3E9D8] dark:bg-[#111E3A] text-[#9A3412] dark:text-amber-200 border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] transition cursor-pointer shrink-0"
               title="فتح بوابة الترحيب التفاعلية"
             >
               <span>بوابة الترحيب ✨</span>
@@ -205,9 +204,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={onToggleTheme}
                 aria-label="تبديل مظهر الواجهة"
                 title={isDarkMode ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-900 text-stone-700 dark:text-stone-300 transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-xs"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-[#0C1427] dark:text-[#FAF5EB] transition-colors cursor-pointer flex items-center justify-center shrink-0"
               >
-                {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-900" />}
+                {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-[#C2410C]" />}
               </button>
             )}
 
@@ -215,7 +214,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={onOpenLogin}
-              className="px-4 sm:px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 hover:from-amber-500 hover:to-amber-400 text-white shadow-md shadow-amber-500/25 active:scale-95 transition-all cursor-pointer flex items-center gap-2 border border-amber-300/40 whitespace-nowrap shrink-0"
+              className="px-4 sm:px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm bg-gradient-to-r from-[#EA580C] via-[#F59E0B] to-[#C2410C] hover:from-[#C2410C] hover:to-[#EA580C] text-white shadow-md shadow-orange-600/25 transition-all cursor-pointer flex items-center gap-2 border border-[#FDBA74]/50 whitespace-nowrap shrink-0"
             >
               <span>فتح الورشة</span>
               <ArrowLeft className="w-4 h-4 text-white" />
@@ -227,10 +226,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* 2. Hero Section & Safe Zone (Strict Branding Placement)       */}
       {/* ------------------------------------------------------------- */}
-      <section className="relative overflow-hidden pt-8 pb-16 md:pt-12 md:pb-24 border-b border-amber-500/20 bg-radial from-amber-500/10 via-stone-100 to-white dark:from-amber-950/30 dark:via-stone-950 dark:to-stone-950">
+      <section className="relative overflow-hidden pt-8 pb-16 md:pt-12 md:pb-24 border-b border-[#DEC9A8] dark:border-[#1B2B4B] bg-gradient-to-b from-[#FAF5EB] via-[#F5EAD8] to-[#FFFDF9] dark:from-[#060B18] dark:via-[#081024] dark:to-[#0C1427]">
         
         {/* Subtle geometric craft background overlay */}
-        <div className="absolute inset-0 pointer-events-none opacity-25 dark:opacity-15 bg-[radial-gradient(#d97706_1px,transparent_1px)] [background-size:24px_24px]" />
+        <div className="absolute inset-0 pointer-events-none opacity-25 dark:opacity-15 bg-[radial-gradient(#ea580c_1px,transparent_1px)] [background-size:24px_24px]" />
         
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           
@@ -252,22 +251,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   alt="صقر الشمساوية الحرفي"
                   className="w-full h-auto max-h-[320px] sm:max-h-[360px] object-contain filter drop-shadow-2xl select-none"
                 />
-                <div className="mt-2 px-3.5 py-1 rounded-full bg-stone-900/90 text-amber-300 text-xs font-black border border-amber-400/40 whitespace-nowrap shadow-lg flex items-center gap-1.5 select-none">
+                <div className="mt-2 px-4 py-1.5 rounded-2xl bg-[#0C1427] text-amber-300 text-xs font-black border border-[#EA580C]/45 whitespace-nowrap shadow-lg flex items-center gap-1.5 select-none">
                   <span>صقر الشمساوية AI 🦅</span>
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                 </div>
               </div>
 
               {/* Main Headline & Storytelling */}
               <div className="flex-1 text-center md:text-right space-y-4">
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-stone-900 dark:text-amber-100 leading-tight">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0C1427] dark:text-[#FAF5EB] leading-tight">
                   عشان إيدك بتتلف في حرير.. <br />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-600 via-amber-500 to-amber-700 dark:from-amber-400 dark:via-amber-300 dark:to-amber-500">
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#F59E0B] dark:from-[#FDBA74] dark:via-amber-300 dark:to-[#FB923C]">
                     ورشتك تستاهل نظام يديرها بضمير!
                   </span>
                 </h1>
 
-                <p className="text-base sm:text-lg text-stone-600 dark:text-stone-300 leading-relaxed font-medium">
+                <p className="text-base sm:text-lg text-[#5C4734] dark:text-[#EADBC3] leading-relaxed font-medium">
                   من أول فتلة خيط وتسعير الخامات بالمليم وحساب الهدر وساعات التعب، لحد أرباحك الصافية وإدارة الخزن والزبائن.. بدون أي كلاكيع حسابية ولا دفاتر بتضيع.
                 </p>
 
@@ -276,18 +274,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <button
                     type="button"
                     onClick={onOpenRegister}
-                    className="px-6 py-3.5 rounded-2xl font-black text-base bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-xl shadow-amber-500/25 hover:shadow-amber-500/40 active:scale-95 transition-all cursor-pointer flex items-center gap-2 border border-amber-300/40"
+                    className="px-6 py-3.5 rounded-2xl font-black text-base bg-gradient-to-r from-[#EA580C] via-[#F59E0B] to-[#C2410C] hover:from-[#C2410C] hover:to-[#EA580C] text-white shadow-xl shadow-orange-600/25 transition-all cursor-pointer flex items-center gap-2 border border-[#FDBA74]/50"
                   >
-                    <Sparkles className="w-5 h-5 text-amber-200" />
+                    <Sparkles className="w-5 h-5 text-amber-100" />
                     <span>افتح ورشتك في ثواني مجاناً 🌟</span>
                   </button>
 
                   <a
                     href="#safe-accounts"
-                    className="px-6 py-3.5 rounded-2xl font-bold text-base bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 hover:border-amber-500 text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 active:scale-95 transition-all flex items-center gap-2"
+                    className="px-6 py-3.5 rounded-2xl font-bold text-base bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-[#0C1427] dark:text-[#FAF5EB] transition-all flex items-center gap-2"
                   >
                     <span>شوف إزاي بتشتغل</span>
-                    <ChevronDown className="w-4 h-4 text-amber-500" />
+                    <ChevronDown className="w-4 h-4 text-[#EA580C]" />
                   </a>
                 </div>
 

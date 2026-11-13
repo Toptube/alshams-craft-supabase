@@ -4,6 +4,27 @@
 @layer base {
   :root {
     --font-sans: 'Cairo', 'IBM Plex Sans Arabic', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --alshams-bg: #FAF5EB;
+    --alshams-surface: #FFFDF9;
+    --alshams-surface-soft: #F3E9D8;
+    --alshams-surface-deep: #EADBC3;
+    --alshams-border: #DEC9A8;
+    --alshams-ink: #0C1427;
+    --alshams-ink-muted: #5C4734;
+    --alshams-apricot: #FED7AA;
+    --alshams-amber: #F59E0B;
+    --alshams-orange: #EA580C;
+    --alshams-orange-deep: #C2410C;
+  }
+
+  html.dark {
+    --alshams-bg: #060B18;
+    --alshams-surface: #0C1427;
+    --alshams-surface-soft: #0B142B;
+    --alshams-surface-deep: #111E3A;
+    --alshams-border: #1B2B4B;
+    --alshams-ink: #FAF5EB;
+    --alshams-ink-muted: #EADBC3;
   }
 
   html, body {
@@ -15,6 +36,9 @@
     font-family: var(--font-sans);
     direction: rtl;
     text-align: right;
+    background: linear-gradient(180deg, #FAF5EB 0%, #F6EDE0 100%);
+    color: #0C1427;
+    transition: background-color 220ms ease, color 220ms ease;
   }
 
   /* Force standard global numbers (1, 2, 3) across all fields and text */
@@ -24,7 +48,7 @@
   }
 }
 
-/* Custom subtle scrollbars */
+/* Custom subtle warm scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -33,11 +57,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(168, 162, 158, 0.4);
+  background: rgba(217, 119, 6, 0.34);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(168, 162, 158, 0.7);
+  background: rgba(234, 88, 12, 0.62);
 }
 
 /* Animations */
@@ -50,94 +74,284 @@
   animation: pulse-subtle 3s infinite ease-in-out;
 }
 
+/* توحيد تدرجات البيج والبرتقالي الدافئة في الوضع النهاري والليلي الكحلي العميق */
+html:not(.dark) .bg-stone-50 {
+  background-color: #FAF5EB;
+}
+html:not(.dark) .bg-stone-100 {
+  background-color: #F3E9D8;
+}
+html:not(.dark) .border-stone-100 {
+  border-color: #EFE4D1;
+}
+html:not(.dark) .border-stone-200 {
+  border-color: #DEC9A8;
+}
+html:not(.dark) .border-stone-300 {
+  border-color: #D2B892;
+}
+
 /* معالجة التباين اللوني التام للوضع الداكن ووضع السهر الحرفي */
 html.dark {
   color-scheme: dark;
 }
 
 html.dark body {
-  color: #f5f5f4;
+  background: linear-gradient(180deg, #060B18 0%, #091226 100%);
+  color: #FAF5EB;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+html.dark .dark\:bg-stone-950 {
+  background-color: #060B18;
+}
+html.dark .dark\:bg-stone-900 {
+  background-color: #0C1427;
+}
+html.dark .dark\:bg-stone-800 {
+  background-color: #111E3A;
+}
+html.dark .dark\:border-stone-800 {
+  border-color: #1B2B4B;
+}
+html.dark .dark\:border-stone-700 {
+  border-color: #253860;
 }
 
 /* رفع تباين النصوص الرمادية الخافتة على الأسطح الداكنة لتكون ناصعة ومقروءة بوضوح */
 html.dark .text-stone-400,
 html.dark .dark\:text-stone-400 {
-  color: #d6d3d1 !important; /* Stone-300 بدلاً من 400 الباهت */
+  color: #D6CBB8 !important;
 }
 
 html.dark .text-stone-500,
 html.dark .dark\:text-stone-500 {
-  color: #a8a29e !important; /* Stone-400 بدلاً من 500 الخافت */
+  color: #BBAE99 !important;
 }
 
 html.dark .text-stone-600 {
-  color: #d6d3d1 !important;
+  color: #DED3C1 !important;
 }
 
 html.dark .text-stone-700,
 html.dark .dark\:text-stone-300 {
-  color: #e7e5e4 !important; /* Stone-200 */
+  color: #EDE3D3 !important;
 }
 
 html.dark .text-stone-800,
 html.dark .text-stone-900,
 html.dark .dark\:text-stone-100,
 html.dark .dark\:text-stone-200 {
-  color: #fafaf9 !important; /* Stone-50 أبيض عاجي ناصع */
+  color: #FAF5EB !important;
 }
 
 /* حقول الإدخال والنصوص البديلة في الوضع الداكن */
 html.dark input,
 html.dark textarea,
 html.dark select {
-  color: #fafaf9 !important;
+  color: #FAF5EB !important;
 }
 
 html.dark input::placeholder,
 html.dark textarea::placeholder {
-  color: #a8a29e !important;
+  color: #BBAE99 !important;
   opacity: 0.9 !important;
 }
 
 /* وضع السهر الحرفي المريح للعين (Night Focus Mode) - كحلي ليلي دافئ وعنبر وذهب فاخر مريح لعين الفنان */
 html.night-focus.dark body {
-  background-color: #060B18 !important;
-  color: #FDFBF7 !important;
+  background: #060B18 !important;
+  color: #FAF5EB !important;
 }
 
 html.night-focus.dark header {
   background-color: rgba(6, 11, 24, 0.98) !important;
-  border-bottom-color: rgba(245, 158, 11, 0.4) !important;
+  border-bottom-color: rgba(234, 88, 12, 0.42) !important;
 }
 
 html.night-focus.dark .dark\:bg-stone-900,
 html.night-focus.dark .dark\:bg-stone-950 {
-  background-color: #0A1128 !important;
+  background-color: #0B142B !important;
 }
 
 html.night-focus.dark .dark\:bg-stone-800 {
-  background-color: #0F172A !important;
+  background-color: #111E3A !important;
 }
 
 html.night-focus.dark .dark\:border-stone-800,
 html.night-focus.dark .dark\:border-stone-700 {
-  border-color: rgba(245, 158, 11, 0.3) !important;
+  border-color: rgba(245, 158, 11, 0.34) !important;
 }
 
 html.night-focus.dark input,
 html.night-focus.dark textarea,
 html.night-focus.dark select {
-  background-color: #0A1128 !important;
-  color: #FDFBF7 !important;
+  background-color: #0B142B !important;
+  color: #FAF5EB !important;
   border-color: rgba(245, 158, 11, 0.4) !important;
 }
 
 html.night-focus.dark input::placeholder,
 html.night-focus.dark textarea::placeholder {
   color: #FCD34D !important;
-  opacity: 0.75 !important;
+  opacity: 0.78 !important;
+}
+
+/* ============================================================================
+ * منظومة الأزرار المجسمة والتفاعل اللوني عند الضغط (3D Sculpted Buttons)
+ * يعطي كل زر بروزاً ثلاثي الأبعاد ولمسة برتقالية واضحة عند الضغط ثم عودة ناعمة
+ * ============================================================================ */
+@layer components {
+  :where(
+    button[class*="rounded-"],
+    button[type="submit"],
+    [role="button"][class*="rounded-"],
+    input[type="submit"],
+    input[type="button"],
+    a[class*="rounded-"][class*="bg-"],
+    a[class*="rounded-"][class*="border"]
+  ):not(:disabled):not([aria-disabled="true"]):not([data-flat="true"]):not(.no-3d) {
+    transform: translateY(0) scale(1);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.42),
+      inset 0 -2px 0 rgba(120, 62, 18, 0.16),
+      0 2.5px 0 0 rgba(180, 120, 55, 0.3),
+      0 5px 12px -4px rgba(12, 20, 39, 0.14);
+    transition:
+      transform 170ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 170ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 220ms ease,
+      border-color 220ms ease,
+      color 220ms ease,
+      filter 190ms ease;
+  }
+
+  html.dark :where(
+    button[class*="rounded-"],
+    button[type="submit"],
+    [role="button"][class*="rounded-"],
+    input[type="submit"],
+    input[type="button"],
+    a[class*="rounded-"][class*="bg-"],
+    a[class*="rounded-"][class*="border"]
+  ):not(:disabled):not([aria-disabled="true"]):not([data-flat="true"]):not(.no-3d) {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 245, 225, 0.16),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.48),
+      0 2.5px 0 0 rgba(2, 6, 23, 0.72),
+      0 6px 14px -4px rgba(0, 0, 0, 0.45);
+  }
+
+  @media (hover: hover) {
+    :where(
+      button[class*="rounded-"],
+      button[type="submit"],
+      [role="button"][class*="rounded-"],
+      input[type="submit"],
+      input[type="button"],
+      a[class*="rounded-"][class*="bg-"],
+      a[class*="rounded-"][class*="border"]
+    ):not(:disabled):not([aria-disabled="true"]):not([data-flat="true"]):not(.no-3d):hover {
+      transform: translateY(-1px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.5),
+        inset 0 -2px 0 rgba(234, 88, 12, 0.24),
+        0 3.5px 0 0 rgba(234, 88, 12, 0.34),
+        0 9px 18px -5px rgba(234, 88, 12, 0.2);
+    }
+
+    html.dark :where(
+      button[class*="rounded-"],
+      button[type="submit"],
+      [role="button"][class*="rounded-"],
+      input[type="submit"],
+      input[type="button"],
+      a[class*="rounded-"][class*="bg-"],
+      a[class*="rounded-"][class*="border"]
+    ):not(:disabled):not([aria-disabled="true"]):not([data-flat="true"]):not(.no-3d):hover {
+      box-shadow:
+        inset 0 1px 0 rgba(251, 191, 36, 0.24),
+        inset 0 -2px 0 rgba(0, 0, 0, 0.55),
+        0 3.5px 0 0 rgba(234, 88, 12, 0.45),
+        0 10px 20px -5px rgba(234, 88, 12, 0.25);
+    }
+  }
+
+  /* تأثير الغطس الميكانيكي والومضة اللونية البرتقالية عند الضغط ثم العودة للون الطبيعي */
+  :where(
+    button[class*="rounded-"],
+    button[type="submit"],
+    [role="button"][class*="rounded-"],
+    input[type="submit"],
+    input[type="button"],
+    a[class*="rounded-"][class*="bg-"],
+    a[class*="rounded-"][class*="border"]
+  ):not(:disabled):not([aria-disabled="true"]):not([data-flat="true"]):not(.no-3d):is(:active, .alshams-btn-pressed) {
+    transform: translateY(2px) scale(0.982) !important;
+    box-shadow:
+      inset 0 2px 5px rgba(124, 45, 18, 0.26),
+      0 1px 0 0 rgba(234, 88, 12, 0.4),
+      0 0 0 2px rgba(251, 146, 60, 0.45) !important;
+  }
+
+  /* تحول لوني واضح للأزرار الفاتحة والمحايدة والبيج نحو المشمشي البرتقالي ثم عودتها للونها الأصلي */
+  html:not(.dark) :where(
+    button[class*="rounded-"],
+    [role="button"][class*="rounded-"],
+    a[class*="rounded-"][class*="bg-"],
+    a[class*="rounded-"][class*="border"]
+  ):not(:disabled):not([aria-disabled="true"]):not([data-flat="true"]):not(.no-3d):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-blue"]):not([class*="bg-indigo"]):not([class*="bg-violet"]):not([class*="bg-purple"]):not([class*="bg-teal"]):not([class*="bg-sky"]):not([class*="bg-cyan"]):not([class*="bg-amber-6"]):not([class*="bg-amber-5"]):not([class*="bg-orange-6"]):not([class*="bg-orange-5"]):not([class*="bg-[#EA580C]"]):not([class*="bg-[#C2410C]"]):not([class*="bg-[#0C1427]"]):not([class*="bg-[#0c1427]"]):not([class*="bg-stone-8"]):not([class*="bg-stone-9"]):not([class*="bg-gradient-"]):is(:active, .alshams-btn-pressed) {
+    background-color: #FED7AA !important;
+    border-color: #EA580C !important;
+    color: #7C2D12 !important;
+  }
+
+  /* تحول لوني دافئ للأزرار الداكنة والمحايدة في الوضع الليلي نحو البرتقالي المحمر ثم العودة */
+  html.dark :where(
+    button[class*="rounded-"],
+    [role="button"][class*="rounded-"],
+    a[class*="rounded-"][class*="bg-"],
+    a[class*="rounded-"][class*="border"]
+  ):not(:disabled):not([aria-disabled="true"]):not([data-flat="true"]):not(.no-3d):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not([class*="bg-blue"]):not([class*="bg-indigo"]):not([class*="bg-violet"]):not([class*="bg-purple"]):not([class*="bg-teal"]):not([class*="bg-sky"]):not([class*="bg-cyan"]):not([class*="bg-amber-6"]):not([class*="bg-amber-5"]):not([class*="bg-orange-6"]):not([class*="bg-orange-5"]):not([class*="bg-[#EA580C]"]):not([class*="bg-[#C2410C]"]):not([class*="bg-gradient-"]):is(:active, .alshams-btn-pressed) {
+    background-color: #C2410C !important;
+    border-color: #FBBF24 !important;
+    color: #FFFDF9 !important;
+  }
+
+  /* تحول لوني ملموس للأزرار البرتقالية والملونة والتدرجات عند الضغط */
+  :where(
+    button[class*="rounded-"],
+    button[type="submit"],
+    [role="button"][class*="rounded-"],
+    a[class*="rounded-"][class*="bg-"],
+    a[class*="rounded-"][class*="border"]
+  ):not(:disabled):not([aria-disabled="true"]):not([data-flat="true"]):not(.no-3d):is(
+    [class*="bg-emerald"],
+    [class*="bg-rose"],
+    [class*="bg-red"],
+    [class*="bg-blue"],
+    [class*="bg-indigo"],
+    [class*="bg-violet"],
+    [class*="bg-purple"],
+    [class*="bg-teal"],
+    [class*="bg-sky"],
+    [class*="bg-cyan"],
+    [class*="bg-amber-6"],
+    [class*="bg-amber-5"],
+    [class*="bg-orange-6"],
+    [class*="bg-orange-5"],
+    [class*="bg-[#EA580C]"],
+    [class*="bg-[#C2410C]"],
+    [class*="bg-[#0C1427]"],
+    [class*="bg-[#0c1427]"],
+    [class*="bg-stone-8"],
+    [class*="bg-stone-9"],
+    [class*="bg-gradient-"]
+  ):is(:active, .alshams-btn-pressed) {
+    filter: brightness(0.9) saturate(1.3);
+    border-color: #FDBA74 !important;
+  }
 }
 
 /* تفاعلية كروت المشغولات والمنتجات (Subtle Hover & Tilt Animation) */
@@ -147,7 +361,7 @@ html.night-focus.dark textarea::placeholder {
 }
 .artisan-card-hover:hover {
   transform: translateY(-3px);
-  box-shadow: 0 10px 25px -5px rgba(245, 158, 11, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 25px -5px rgba(234, 88, 12, 0.16), 0 8px 10px -6px rgba(12, 20, 39, 0.1);
 }
 
 /* وضع الأداء السريع وسلاسة الأجهزة الضعيفة (Performance Mode & Zero Lag) */
@@ -160,6 +374,12 @@ html.performance-mode *::after {
 }
 html.performance-mode .artisan-card-hover:hover {
   transform: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .artisan-card-hover:hover {
+    transform: none !important;
+  }
 }
 
 

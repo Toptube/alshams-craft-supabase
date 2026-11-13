@@ -342,24 +342,24 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-stone-100 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col justify-center items-center p-4 sm:p-6 transition-colors duration-200">
+    <div className="min-h-screen bg-gradient-to-br from-[#FAF5EB] via-[#F7EFE0] to-[#FFEDD5]/65 dark:from-[#060B18] dark:via-[#081024] dark:to-[#0C1427] text-[#0C1427] dark:text-[#FAF5EB] flex flex-col justify-center items-center p-4 sm:p-6 transition-colors duration-200">
       {onBackToLanding && (
         <div className="w-full max-w-md mb-3 flex items-center justify-between">
           <button
             type="button"
             onClick={onBackToLanding}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 transition-colors p-2 rounded-xl hover:bg-stone-200 dark:hover:bg-stone-900 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-black text-[#C2410C] dark:text-amber-300 bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] transition-colors px-3 py-2 rounded-xl cursor-pointer"
           >
             <span>← الرجوع لصفحة المنظومة الرئيسية</span>
           </button>
         </div>
       )}
-      <div className="w-full max-w-md bg-white dark:bg-stone-900 rounded-3xl shadow-2xl border border-amber-200/80 dark:border-stone-800 p-6 sm:p-8 space-y-5 text-right relative overflow-hidden">
+      <div className="w-full max-w-md bg-[#FFFDF9] dark:bg-[#0C1427] rounded-3xl shadow-2xl border border-[#DEC9A8] dark:border-[#1B2B4B] p-6 sm:p-8 space-y-5 text-right relative overflow-hidden">
         {/* Top Decorative Sun Beam */}
-        <div className="absolute -top-16 -right-16 w-36 h-36 bg-amber-400/20 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute -top-16 -right-16 w-40 h-40 bg-gradient-to-br from-[#EA580C]/20 to-[#F59E0B]/10 rounded-full blur-2xl pointer-events-none" />
 
         {/* Tabs: Login / Signup Switcher */}
-        <div className="flex items-center rounded-2xl bg-stone-100 dark:bg-stone-800 p-1 text-xs font-bold">
+        <div className="flex items-center gap-1.5 rounded-2xl bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] p-1.5 text-xs font-black">
           <button
             type="button"
             onClick={() => {
@@ -369,8 +369,8 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             }}
             className={`flex-1 py-2 rounded-xl transition cursor-pointer ${
               mode === 'login'
-                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-xs'
-                : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+                ? 'bg-gradient-to-r from-[#EA580C] to-[#F59E0B] text-white shadow-sm'
+                : 'text-[#5C4734] dark:text-[#EADBC3] bg-[#FFFDF9]/60 dark:bg-[#111E3A]/60'
             }`}
           >
             تسجيل الدخول
@@ -384,8 +384,8 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             }}
             className={`flex-1 py-2 rounded-xl transition cursor-pointer ${
               mode === 'signup'
-                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-xs'
-                : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+                ? 'bg-gradient-to-r from-[#EA580C] to-[#F59E0B] text-white shadow-sm'
+                : 'text-[#5C4734] dark:text-[#EADBC3] bg-[#FFFDF9]/60 dark:bg-[#111E3A]/60'
             }`}
           >
             فتح ورشة جديدة
@@ -439,33 +439,33 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         )}
 
         {/* Footer Guarantee */}
-        <div className="pt-3 border-t border-stone-200 dark:border-stone-800 flex items-center justify-center gap-1.5 text-[10px] text-stone-400">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+        <div className="pt-3 border-t border-[#DEC9A8] dark:border-[#1B2B4B] flex items-center justify-center gap-1.5 text-[10px] text-[#5C4734] dark:text-[#EADBC3]">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
           <span>عزل سحابي كامل ومزامنة مشفرة وآمنة لورشتك الحرفية</span>
         </div>
       </div>
 
       {/* Forgot Password Modal */}
       {showForgotModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-sm bg-white dark:bg-stone-900 rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 p-6 space-y-4 text-right relative">
-            <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-sm bg-[#FFFDF9] dark:bg-[#0C1427] rounded-3xl shadow-2xl border border-[#DEC9A8] dark:border-[#1B2B4B] p-6 space-y-4 text-right relative">
+            <div className="flex items-center justify-between border-b border-[#DEC9A8]/70 dark:border-[#1B2B4B] pb-3">
               <button
                 type="button"
                 onClick={() => setShowForgotModal(false)}
-                className="p-1 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+                className="p-1.5 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] text-[#5C4734] dark:text-[#EADBC3] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] transition cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
               <div className="flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-amber-600" />
-                <h3 className="font-bold text-sm text-stone-900 dark:text-stone-100">
+                <KeyRound className="w-4 h-4 text-[#EA580C] dark:text-amber-400" />
+                <h3 className="font-black text-sm text-[#0C1427] dark:text-[#FAF5EB]">
                   استعادة كلمة المرور
                 </h3>
               </div>
             </div>
 
-            <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed">
+            <p className="text-xs text-[#5C4734] dark:text-[#EADBC3] leading-relaxed">
               أدخل بريدك الإلكتروني وسنرسل لك رابطاً مباشراً لتعيين كلمة مرور جديدة.
             </p>
 
@@ -488,7 +488,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
 
             <form onSubmit={handleSendResetLink} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                <label className="block text-xs font-bold mb-1 text-[#0C1427] dark:text-[#FAF5EB]">
                   البريد الإلكتروني <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
@@ -498,16 +498,16 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
                     placeholder="name@example.com"
-                    className="w-full px-3.5 py-2.5 pr-9 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/60 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                    className="w-full px-3.5 py-2.5 pr-9 rounded-2xl border border-[#DEC9A8] dark:border-[#1B2B4B] bg-[#FAF5EB] dark:bg-[#0B142B] text-xs font-bold outline-none focus:ring-2 focus:ring-[#EA580C] font-mono"
                   />
-                  <Mail className="w-4 h-4 text-stone-400 absolute right-3 top-3 pointer-events-none" />
+                  <Mail className="w-4 h-4 text-[#EA580C]/70 absolute right-3 top-3 pointer-events-none" />
                 </div>
               </div>
 
               <button
                 type="submit"
                 disabled={forgotLoading || forgotCountdown > 0}
-                className="w-full py-2.5 px-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs transition shadow-md cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-r from-[#EA580C] to-[#F59E0B] hover:from-[#C2410C] hover:to-[#EA580C] text-white font-black text-xs transition shadow-md cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {forgotLoading ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

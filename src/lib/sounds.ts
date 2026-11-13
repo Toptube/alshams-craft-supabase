@@ -7,9 +7,22 @@
 // Global AudioContext singleton
 let audioCtx: AudioContext | null = null;
 let hasUserInteracted = false;
+let lastPlayedSoundAt = 0;
 
 // Audio Preference Key in localStorage
 const SOUND_ENABLED_KEY = 'alshams_sound_enabled';
+
+function markSoundPlayed() {
+  if (typeof performance !== 'undefined') {
+    lastPlayedSoundAt = performance.now();
+  } else {
+    lastPlayedSoundAt = Date.now();
+  }
+}
+
+function getNowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
 
 /**
  * فحص هل الصوت مفعل في إعدادات المستخدم
@@ -66,10 +79,6 @@ function initUserInteractionListener() {
   window.addEventListener('pointerdown', handleFirstInteraction, { once: true, passive: true });
   window.addEventListener('keydown', handleFirstInteraction, { once: true, passive: true });
   window.addEventListener('touchstart', handleFirstInteraction, { once: true, passive: true });
-}
-
-if (typeof window !== 'undefined') {
-  initUserInteractionListener();
 }
 
 /**
@@ -143,10 +152,132 @@ export function triggerHaptic(durationMs: number = 15): void {
 }
 
 /**
+ * صوت نقر خفيف جداً وغير مزعج لجميع الأزرار (Soft UI Tactile Micro-Click):
+ * يعطي إحساساً دافئاً باستجابة الزر المجسم بدون أي حدة أو إزعاج للأذن
+ */
+export function playSoftMicroClickSound(): void {
+  if (!isSoundEnabled()) return;
+  hasUserInteracted = true;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(640, now);
+    osc.frequency.exponentialRampToValueAtTime(240, now + 0.024);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.042, now + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.026);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.028);
+    markSoundPlayed();
+  } catch {}
+}
+
+/**
+ * محرك التفاعل الحركي والصوتي الموحد لكافة أزرار منظومة الشمساوية:
+ * يضيف ومضة لونية برتقالية دافئة (.alshams-btn-pressed) ويُشغل نقرة ناعمة غير مزعجة
+ */
+let globalFeedbackInitialized = false;
+const pressedTimers = new WeakMap<Element, number>();
+
+function findTactileElement(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  const el = target.closest(
+    'button, [role="button"], input[type="submit"], input[type="button"], a[class*="rounded-"][class*="bg-"], a[class*="rounded-"][class*="border"]'
+  );
+  if (!(el instanceof HTMLElement)) return null;
+  if (
+    (el as HTMLButtonElement).disabled ||
+    el.getAttribute('aria-disabled') === 'true' ||
+    el.dataset.flat === 'true' ||
+    el.classList.contains('no-3d')
+  ) {
+    return null;
+  }
+  return el;
+}
+
+function flashButtonPressed(el: HTMLElement) {
+  const prevTimer = pressedTimers.get(el);
+  if (prevTimer) {
+    window.clearTimeout(prevTimer);
+  }
+  el.classList.add('alshams-btn-pressed');
+  const timer = window.setTimeout(() => {
+    el.classList.remove('alshams-btn-pressed');
+    pressedTimers.delete(el);
+  }, 240);
+  pressedTimers.set(el, timer);
+}
+
+export function initGlobalButtonFeedback(): void {
+  if (typeof window === 'undefined' || globalFeedbackInitialized) return;
+  globalFeedbackInitialized = true;
+
+  window.addEventListener(
+    'pointerdown',
+    (e) => {
+      hasUserInteracted = true;
+      const el = findTactileElement(e.target);
+      if (el) {
+        flashButtonPressed(el);
+      }
+    },
+    { passive: true, capture: true }
+  );
+
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      hasUserInteracted = true;
+      const el = findTactileElement(e.target);
+      if (el) {
+        flashButtonPressed(el);
+      }
+    },
+    { passive: true, capture: true }
+  );
+
+  window.addEventListener(
+    'click',
+    (e) => {
+      const el = findTactileElement(e.target);
+      if (!el || el.dataset.silent === 'true') return;
+      const clickAt = getNowMs();
+      flashButtonPressed(el);
+      triggerHaptic(6);
+      queueMicrotask(() => {
+        if (lastPlayedSoundAt < clickAt - 10 && getNowMs() - lastPlayedSoundAt > 90) {
+          playSoftMicroClickSound();
+        }
+      });
+    },
+    { passive: true }
+  );
+}
+
+if (typeof window !== 'undefined') {
+  initUserInteractionListener();
+  initGlobalButtonFeedback();
+}
+
+/**
  * صوت نقر ميكانيكي ناعم (Soft Mechanical Click / Tap):
  * نقرة فيزيائية مريحة وممتعة عند لمس الأزرار والتفاعل مع الواجهة
  */
 export function playTapSound(): void {
+  markSoundPlayed();
   triggerHaptic(12);
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
@@ -158,11 +289,11 @@ export function playTapSound(): void {
     const gain = ctx.createGain();
 
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(1800, now);
-    osc.frequency.exponentialRampToValueAtTime(320, now + 0.025);
+    osc.frequency.setValueAtTime(1400, now);
+    osc.frequency.exponentialRampToValueAtTime(300, now + 0.025);
 
     gain.gain.setValueAtTime(0.001, now);
-    gain.gain.exponentialRampToValueAtTime(0.12, now + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.003);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
 
     osc.connect(gain);
@@ -178,6 +309,7 @@ export function playTapSound(): void {
  * نغمة إنجاز خفيفة ثنائية النبرة مع كليك لمسي
  */
 export function playAddToCartSound(): void {
+  markSoundPlayed();
   triggerHaptic(20);
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
@@ -192,9 +324,10 @@ export function playAddToCartSound(): void {
 
 /**
  * 1. صوت الضغط على الأزرار (Tactile Click Tone):
- * نغمة كليك مميزة، حيوية، نقية وسريعة تُعطي إحساساً فيزيائياً فخماً وملموساً عند الضغط
+ * نغمة كليك حيوية، نقية وسريعة تُعطي إحساساً فيزيائياً فخماً وملموساً عند الضغط
  */
 export function playButtonClickSound(): void {
+  markSoundPlayed();
   triggerHaptic(15);
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
@@ -205,13 +338,43 @@ export function playButtonClickSound(): void {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
-    // انزلاق ترددي مجهري مع نغمة هارمونية مميزة تعطي صوت "كليك" ميكانيكي راقي
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(1450, now);
-    osc.frequency.exponentialRampToValueAtTime(520, now + 0.035);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1150, now);
+    osc.frequency.exponentialRampToValueAtTime(420, now + 0.032);
 
     gain.gain.setValueAtTime(0.001, now);
-    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.09, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.04);
+  } catch {}
+}
+
+/**
+ * 2. صوت التنقل بين التابات (Tab Switch / Filter Tone):
+ * نقرة أنعم وأعلى نبرة للانتقال بين أقسام الإشعارات
+ */
+export function playTabSwitchSound(): void {
+  markSoundPlayed();
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(760, now);
+    osc.frequency.exponentialRampToValueAtTime(980, now + 0.03);
+
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.006);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
 
     osc.connect(gain);
@@ -223,40 +386,11 @@ export function playButtonClickSound(): void {
 }
 
 /**
- * 2. صوت التنقل بين التابات (Tab Switch / Filter Tone):
- * نقرة أنعم وأعلى نبرة للانتقال بين أقسام الإشعارات
- */
-export function playTabSwitchSound(): void {
-  if (!isSoundEnabled()) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
-  try {
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, now);
-    osc.frequency.exponentialRampToValueAtTime(1100, now + 0.03);
-
-    gain.gain.setValueAtTime(0.001, now);
-    gain.gain.exponentialRampToValueAtTime(0.14, now + 0.006);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.05);
-  } catch {}
-}
-
-/**
  * 3. رنين الإشعارات العالي والمميز (Vibrant Notification Chime):
  * لحن جرس كريستالي عالي ثلاثي النبرات (A5 -> C#6 -> E6) مسموع ومبهج
  */
 export function playNotificationChimeSound(): void {
+  markSoundPlayed();
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -273,6 +407,7 @@ export function playNotificationChimeSound(): void {
  * تنبيه مزدوج عاجل ونشط يوقظ الانتباه لمواعيد التسليم ونفاد الخامات
  */
 export function playUrgentNotificationSound(): void {
+  markSoundPlayed();
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -288,6 +423,7 @@ export function playUrgentNotificationSound(): void {
  * رنين مزدوج قوي ومميز
  */
 export function playAlertSound(): void {
+  markSoundPlayed();
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -302,6 +438,7 @@ export function playAlertSound(): void {
  * نغمة تصاعدية ثلاثية دافئة ومبهجة
  */
 export function playWelcomeSound(): void {
+  markSoundPlayed();
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -317,6 +454,7 @@ export function playWelcomeSound(): void {
  * نغمة إيجابية واضحة ومريحة تُعزف عند إتمام حفظ المنتج أو الفاتورة أو التصدير
  */
 export function playSuccessSound(): void {
+  markSoundPlayed();
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -331,6 +469,7 @@ export function playSuccessSound(): void {
  * نغمة إنجاز هادئة ومبهجة تشجع الفنان عند إتمام مهمة يومية بتأثير شطب سلس
  */
 export function playTaskDoneSound(): void {
+  markSoundPlayed();
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -347,6 +486,7 @@ export function playTaskDoneSound(): void {
  * نغمة مزدوجة منخفضة ولطيفة
  */
 export function playErrorSound(): void {
+  markSoundPlayed();
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -360,6 +500,7 @@ export function playErrorSound(): void {
  * 9. صوت تقليب الصفحة / التنقل (Page Flip / Navigation Sound):
  */
 export function playPageFlipSound(): void {
+  markSoundPlayed();
   if (!isSoundEnabled()) return;
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -392,6 +533,7 @@ export function playPageFlipSound(): void {
  * باستخدام Web Audio API فقط وبدون نطق أي كلمات أو مؤثرات صوتية خارجية نهائياً.
  */
 export function playPostaNotificationSound(): void {
+  markSoundPlayed();
   if (!isSoundEnabled()) return;
 
   const ctx = getAudioContext();
