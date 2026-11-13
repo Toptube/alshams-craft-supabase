@@ -17,6 +17,7 @@ export interface OfflineMutation {
     | 'order_create'
     | 'workshop_update'
     | 'workshop_order_upsert'
+    | 'unit_upsert'
     | 'material_upsert'
     | 'customer_upsert'
     | 'supplier_upsert'
@@ -134,6 +135,22 @@ export function removeOfflineMutation(id: string): void {
 
 let isFlushing = false;
 
+const MUTATION_PRIORITY: Record<OfflineMutation['type'], number> = {
+  workshop_update: 1,
+  unit_upsert: 2,
+  supplier_upsert: 3,
+  customer_upsert: 3,
+  employee_upsert: 3,
+  material_upsert: 4,
+  product_upsert: 4,
+  work_order_upsert: 5,
+  workshop_order_upsert: 5,
+  supplier_invoice_upsert: 5,
+  expense_upsert: 5,
+  marketplace_publish: 6,
+  order_create: 6,
+};
+
 /**
  * تفريغ الطابور ورفع كافة العمليات المعلقة لسحابة Supabase
  */
@@ -144,7 +161,14 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
   }
 
   const queue = readQueue();
-  const pending = queue.filter((item) => (item.retryCount || 0) < 12);
+  const pending = queue
+    .filter((item) => (item.retryCount || 0) < 12)
+    .sort((a, b) => {
+      const pa = MUTATION_PRIORITY[a.type] ?? 10;
+      const pb = MUTATION_PRIORITY[b.type] ?? 10;
+      if (pa !== pb) return pa - pb;
+      return (a.queuedAt || 0) - (b.queuedAt || 0);
+    });
   if (pending.length === 0) {
     return { synced: 0, remaining: queue.length };
   }
@@ -153,6 +177,15 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
   let synced = 0;
 
   try {
+    // Ensure fresh auth token if available before flushing protected RLS rows
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const exp = sessionData?.session?.expires_at;
+      if (sessionData?.session && exp && exp * 1000 - Date.now() < 60_000) {
+        await supabase.auth.refreshSession().catch(() => {});
+      }
+    } catch {}
+
     window.dispatchEvent(
       new CustomEvent(OFFLINE_SYNC_STATUS_EVENT, {
         detail: { status: 'syncing', pending: pending.length },
@@ -193,6 +226,11 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
         } else if (item.type === 'workshop_order_upsert') {
           const { error } = await supabase
             .from('orders')
+            .upsert(item.payload, { onConflict: 'id' });
+          if (!error) success = true;
+        } else if (item.type === 'unit_upsert') {
+          const { error } = await supabase
+            .from('units')
             .upsert(item.payload, { onConflict: 'id' });
           if (!error) success = true;
         } else if (item.type === 'customer_upsert') {

@@ -16,6 +16,7 @@ import {
   deleteUnitFromSupabase,
   getSuppliersFromSupabase,
   createSupplierInSupabase,
+  generateUuid,
 } from '../../db/supabaseService';
 import { NumberInput } from '../ui/NumberInput';
 import JsBarcode from 'jsbarcode';
@@ -190,14 +191,35 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     if (!workshopId) return;
     setLoading(true);
     try {
-      const [unts, supsRes, matsRes] = await Promise.all([
+      const [unts, supsRes, dexieSups, matsRes] = await Promise.all([
         ensureDefaultUnitsInSupabase(workshopId),
         getSuppliersFromSupabase(workshopId),
+        tenantStorage.getSuppliers(workshopId).catch(() => []),
         ensureDefaultMaterialsInSupabase(workshopId),
       ]);
 
+      const supMap = new Map<string, SupabaseSupplier>();
+      for (const ds of dexieSups || []) {
+        if (ds?.id) {
+          supMap.set(ds.id, {
+            id: ds.id,
+            workshop_id: workshopId,
+            name: (ds as any).name || ds.companyName || 'مورد',
+            phone: ds.phoneNumber || (ds as any).phone || undefined,
+            address: (ds as any).address || undefined,
+            notes: ds.notes || undefined,
+          });
+        }
+      }
+      for (const cs of supsRes.data || []) {
+        if (cs?.id) supMap.set(cs.id, cs);
+      }
+      const mergedSuppliers = Array.from(supMap.values()).sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', 'ar')
+      );
+
       setUnits(unts);
-      setSuppliers(supsRes.data || []);
+      setSuppliers(mergedSuppliers);
       const loadedMats = matsRes || [];
       setMaterials(loadedMats);
 
@@ -353,11 +375,21 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     setNotice(null);
 
     try {
+      const effectiveUnit = currentUnitRecord || units[0] || null;
+      const effectiveUnitId = selectedUnitId || effectiveUnit?.id || '';
+      if (!effectiveUnitId) {
+        setNotice({ text: 'يرجى اختيار وحدة قياس صالحة.', isError: true });
+        setSavingMaterial(false);
+        return;
+      }
+
+      const materialId = editingMaterial?.id || generateUuid();
       const payload = {
+        id: materialId,
         name: materialName.trim(),
         kind: materialKind,
         supplier_id: selectedSupplierId ? selectedSupplierId : null,
-        unit_id: selectedUnitId,
+        unit_id: effectiveUnitId,
         purchase_price: Number(purchasePrice) >= 0 ? Number(purchasePrice) : 0,
         market_name: marketName.trim() ? marketName.trim() : null,
         market_unit_factor: marketName.trim()
@@ -382,8 +414,43 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
           setNotice({ text: res.error.arabicMessage, isError: true });
           return;
         }
-        savedMaterialId = res.data?.id || '';
-        setNotice({ text: 'تمت إضافة الخامة الجديدة بنجاح.', isError: false });
+        savedMaterialId = res.data?.id || materialId;
+        setNotice({
+          text: res.isOfflineQueued
+            ? 'تم حفظ الخامة محلياً وسيتم مزامنتها تلقائياً عند توفر الاتصال.'
+            : 'تمت إضافة الخامة الجديدة بنجاح.',
+          isError: false,
+        });
+      }
+
+      // Mirror material cleanly to Dexie without double-queueing
+      try {
+        const existingStock = stockData[savedMaterialId];
+        await tenantStorage.saveRawMaterial(
+          {
+            id: savedMaterialId,
+            tenantId: workshopId,
+            workshopId,
+            materialName: payload.name,
+            category: (payload.kind === 'extra' ? 'خامة إضافية' : 'خامة أساسية') as any,
+            unit: (effectiveUnit?.name || 'كيلو') as any,
+            unitId: effectiveUnitId,
+            currentStock: existingStock?.currentStock ?? 0,
+            minAlertThreshold: existingStock?.minAlertThreshold ?? 5,
+            costPerUnit: payload.purchase_price,
+            costPerGram:
+              effectiveUnit?.factor && effectiveUnit.factor > 0
+                ? payload.purchase_price / effectiveUnit.factor
+                : payload.purchase_price,
+            supplierId: payload.supplier_id || undefined,
+            supplierName: selectedSupplierName || undefined,
+            isActive: true,
+            updatedAt: Date.now(),
+          } as any,
+          { skipCloudQueue: true }
+        );
+      } catch (dexieErr) {
+        console.warn('Dexie mirror notice in MaterialsView:', dexieErr);
       }
 
       // Persist Category association
@@ -736,7 +803,9 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     setSavingQuickSupplier(true);
     try {
       const supName = quickSupplierName.trim();
+      const supId = generateUuid();
       const res = await createSupplierInSupabase(workshopId, {
+        id: supId,
         name: supName,
         phone: quickSupplierPhone.trim() || undefined,
         address: quickSupplierAddress.trim() || undefined,
@@ -749,6 +818,25 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       }
 
       if (res.data) {
+        try {
+          await tenantStorage.saveSupplier(
+            {
+              id: res.data.id,
+              tenantId: workshopId,
+              workshopId,
+              name: res.data.name,
+              companyName: res.data.name,
+              phoneNumber: res.data.phone || '',
+              address: res.data.address || '',
+              totalPurchases: 0,
+              totalPaid: 0,
+              outstandingBalance: 0,
+              createdAt: Date.now(),
+            } as any,
+            { skipCloudQueue: true }
+          );
+        } catch {}
+
         setSuppliers((prev) => [...prev, res.data!]);
         setSelectedSupplierId(res.data.id);
         setSelectedSupplierName(res.data.name);
@@ -775,7 +863,9 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
 
     setSavingQuickUnit(true);
     try {
+      const unitId = generateUuid();
       const res = await createUnitInSupabase(workshopId, {
+        id: unitId,
         name: quickUnitName.trim(),
         small_unit: quickSubUnit.trim(),
         factor: Number(quickConversionFactor) > 0 ? Number(quickConversionFactor) : 1,

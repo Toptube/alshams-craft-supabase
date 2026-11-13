@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, CraftCategory } from '../../types';
 import { FalconAIAgent, StructuredCalculatorExport } from './FalconAIAgent';
+import { shamousaSearchIconImg } from '../brand/BrandAssets';
 import {
   Sparkles,
   Cpu,
@@ -446,15 +447,19 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
                 type="button"
                 onClick={() => setUseGoogleSearch((v) => !v)}
                 aria-pressed={useGoogleSearch}
-                title="تفعيل بحث جوجل الحي"
-                className={`px-3 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل لشموسة' : 'تفعيل بحث جوجل الحي'}
+                className={`p-1.5 rounded-2xl transition-all flex items-center justify-center cursor-pointer shrink-0 ${
                   useGoogleSearch
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700'
+                    ? 'bg-emerald-500 text-white shadow-[0_0_14px_rgba(16,185,129,0.7)] ring-2 ring-emerald-400/70'
+                    : 'bg-transparent hover:bg-stone-100 dark:hover:bg-stone-800'
                 }`}
               >
-                <Globe size={14} />
-                <span className="hidden sm:inline">بحث جوجل</span>
+                <img
+                  src={shamousaSearchIconImg}
+                  alt="بحث شموسة"
+                  draggable={false}
+                  className="w-7 h-7 object-contain select-none pointer-events-none"
+                />
               </button>
               <input
                 type="text"

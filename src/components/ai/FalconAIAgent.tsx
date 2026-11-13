@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
-import { FalconMascotAvatar, ArtisanAvatar } from '../brand/BrandAssets';
+import { FalconMascotAvatar, ArtisanAvatar, falconSearchIconImg } from '../brand/BrandAssets';
 import { UserProfile, CraftCategory, AIVisionAnalysis, ChatMessage } from '../../types';
 import { authedFetch } from '../../lib/apiClient';
 import {
@@ -1145,20 +1145,24 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           {isRecordingVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
-        {/* زر بحث جوجل الحي 🌐 */}
+        {/* زر بحث جوجل الحي بأيقونة صقر */}
         <button
           type="button"
           onClick={() => setUseGoogleSearch((v) => !v)}
           title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل لهذه المحادثة' : 'تفعيل بحث جوجل الحي للأسعار والموردين'}
           aria-pressed={useGoogleSearch}
-          className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 flex items-center gap-1 text-xs font-bold ${
+          className={`p-1.5 rounded-2xl transition-all cursor-pointer shrink-0 flex items-center justify-center ${
             useGoogleSearch
-              ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/50'
-              : 'text-stone-500 hover:text-emerald-600 hover:bg-stone-100 dark:hover:bg-stone-800'
+              ? 'bg-emerald-500 text-white shadow-[0_0_14px_rgba(16,185,129,0.7)] ring-2 ring-emerald-400/70'
+              : 'bg-transparent hover:bg-stone-100 dark:hover:bg-stone-800'
           }`}
         >
-          <Globe className="w-4 h-4" />
-          <span className="hidden sm:inline text-[11px]">بحث جوجل</span>
+          <img
+            src={falconSearchIconImg}
+            alt="بحث صقر"
+            draggable={false}
+            className="w-7 h-7 object-contain select-none pointer-events-none"
+          />
         </button>
 
         {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}

@@ -13,6 +13,10 @@ export const brandLogoLight = '/assets/aistudio/platform_logo_light_2f80dd76.png
 export const brandLogoDark = '/assets/aistudio/platform_logo_dark_26194bd4.png';
 export const alshamsOfficialBannerLogo = brandLogoLight;
 
+// Search / Thinking Toggle Icons (100% Transparent PNGs)
+export const falconSearchIconImg = '/assets/aistudio/falcon_search.png_8ffa01ac.jpg';
+export const shamousaSearchIconImg = '/assets/aistudio/shamosa_search.png_9e3b8129.jpg';
+
 export const AlShamsSunIcon: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 20 }) => (
   <span className={`inline-flex items-center justify-center select-none ${className}`} style={{ width: size, height: size, fontSize: size * 0.8 }}>
     ☀️

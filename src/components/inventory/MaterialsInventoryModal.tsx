@@ -8,6 +8,7 @@ import {
   updateMaterialInSupabase,
   deleteMaterialFromSupabase,
   ensureDefaultUnitsInSupabase,
+  generateUuid,
   SupabaseMaterial,
   SupabaseUnit,
 } from '../../db/supabaseService';
@@ -175,39 +176,54 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
 
     setSaving(true);
     try {
-      const unitObj = units.find((u) => u.name === formUnit) || units[0];
-      const unitId = unitObj?.id || 'unit_default';
+      const availableUnits = units.length > 0 ? units : await ensureDefaultUnitsInSupabase(workshopId);
+      const unitObj = availableUnits.find((u) => u.name === formUnit) || availableUnits[0];
+      const unitId = unitObj?.id;
+      if (!unitId) {
+        setNotice({ text: 'تعذر تحديد وحدة قياس صالحة.', isError: true });
+        setSaving(false);
+        return;
+      }
 
       if (editingItem) {
         // 1. Update in Supabase
-        await updateMaterialInSupabase(editingItem.id, workshopId, {
+        const res = await updateMaterialInSupabase(editingItem.id, workshopId, {
           name: formName.trim(),
           purchase_price: formCostPrice,
           market_name: formCategory,
           unit_id: unitId,
         });
+        if (res.error) {
+          setNotice({ text: res.error.arabicMessage, isError: true });
+          setSaving(false);
+          return;
+        }
 
         // 2. Update in Dexie
-        await tenantStorage.saveRawMaterial({
-          id: editingItem.id,
-          tenantId: workshopId,
-          workshopId,
-          materialName: formName.trim(),
-          category: formCategory as any,
-          currentStock: formQuantity,
-          minAlertThreshold: formMinThreshold,
-          costPerUnit: formCostPrice,
-          costPerGram: formUnit === 'كيلو' ? formCostPrice / 1000 : formCostPrice,
-          unit: formUnit as any,
-          isActive: true,
-        });
+        await tenantStorage.saveRawMaterial(
+          {
+            id: editingItem.id,
+            tenantId: workshopId,
+            workshopId,
+            materialName: formName.trim(),
+            category: formCategory as any,
+            currentStock: formQuantity,
+            minAlertThreshold: formMinThreshold,
+            costPerUnit: formCostPrice,
+            costPerGram: formUnit === 'كيلو' ? formCostPrice / 1000 : formCostPrice,
+            unit: formUnit as any,
+            unitId,
+            isActive: true,
+          } as any,
+          { skipCloudQueue: true }
+        );
 
         setNotice({ text: `تم تحديث بيانات الخامة "${formName.trim()}" بنجاح!` });
       } else {
-        const newId = 'mat_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+        const newId = generateUuid();
 
-        // 1. Create in Supabase
-        await createMaterialInSupabase(workshopId, {
+        // 1. Create in Supabase (automatically queues offline if network unavailable)
+        const res = await createMaterialInSupabase(workshopId, {
           id: newId,
           name: formName.trim(),
           kind: formCategory === 'خيوط' ? 'primary' : 'extra',
@@ -215,21 +231,32 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
           market_name: formCategory,
           unit_id: unitId,
         });
+        if (res.error) {
+          setNotice({ text: res.error.arabicMessage, isError: true });
+          setSaving(false);
+          return;
+        }
+
+        const savedId = res.data?.id || newId;
 
         // 2. Create in Dexie
-        await tenantStorage.saveRawMaterial({
-          id: newId,
-          tenantId: workshopId,
-          workshopId,
-          materialName: formName.trim(),
-          category: formCategory as any,
-          currentStock: formQuantity,
-          minAlertThreshold: formMinThreshold,
-          costPerUnit: formCostPrice,
-          costPerGram: formUnit === 'كيلو' ? formCostPrice / 1000 : formCostPrice,
-          unit: formUnit as any,
-          isActive: true,
-        });
+        await tenantStorage.saveRawMaterial(
+          {
+            id: savedId,
+            tenantId: workshopId,
+            workshopId,
+            materialName: formName.trim(),
+            category: formCategory as any,
+            currentStock: formQuantity,
+            minAlertThreshold: formMinThreshold,
+            costPerUnit: formCostPrice,
+            costPerGram: formUnit === 'كيلو' ? formCostPrice / 1000 : formCostPrice,
+            unit: formUnit as any,
+            unitId,
+            isActive: true,
+          } as any,
+          { skipCloudQueue: true }
+        );
 
         setNotice({ text: `تم إضافة الخامة الجديدة "${formName.trim()}" إلى مخزن الخامات!` });
       }

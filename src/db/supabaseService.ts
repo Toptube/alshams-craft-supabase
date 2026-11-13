@@ -1,11 +1,62 @@
 import { supabase } from '../lib/supabase';
 import { UserProfile, Gender, getDefaultFamilyNickname } from '../types';
+import { enqueueOfflineMutation, getOfflineMutations } from './offlineMutationQueue';
 
 export interface SupabaseErrorResult {
   code: string;
   message: string;
   arabicMessage: string;
   details?: any;
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isValidUuid(value?: string | null): boolean {
+  return Boolean(value && UUID_REGEX.test(String(value).trim()));
+}
+
+export function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function isNetworkOrOfflineError(err: any): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('network') ||
+    msg.includes('fetcherror') ||
+    msg.includes('load failed') ||
+    msg.includes('connection refused') ||
+    msg.includes('timeout')
+  );
+}
+
+function readLocalCache<T>(key: string): T[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalCache<T>(key: string, items: T[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(items));
+  } catch {
+    // ignore storage quota warnings
+  }
 }
 
 /**
@@ -76,25 +127,44 @@ export function getArabicSupabaseError(error: any): SupabaseErrorResult {
 
   let arabicMessage = '';
 
-  // Auth / JWT / 401 / 42501 (Permission denied / RLS failure due to expired or missing token)
+  // Auth / JWT / 401 (Genuine expired/missing session)
   if (
     code === '401' ||
-    code === '42501' ||
     code === 'PGRST301' ||
     code === 'NO_SESSION' ||
     lowerMsg.includes('jwt') ||
     lowerMsg.includes('token') ||
     lowerMsg.includes('expired') ||
-    lowerMsg.includes('unauthorized') ||
+    lowerMsg.includes('unauthorized')
+  ) {
+    arabicMessage = 'انتهت جلسة الدخول، يرجى تسجيل الخروج ثم تسجيل الدخول من جديد';
+  } else if (
+    code === '42501' ||
+    lowerMsg.includes('row-level security') ||
     lowerMsg.includes('permission denied')
   ) {
-    arabicMessage = 'انتهت جلسة الدخول، سجّل الدخول من جديد';
+    arabicMessage = 'تعذر الحفظ بسبب عدم تطابق صلاحية الورشة في قاعدة البيانات (RLS)؛ يرجى تحديث الصفحة أو إعادة تسجيل الدخول';
+  } else if (
+    code === '22P02' ||
+    lowerMsg.includes('invalid input syntax for type uuid')
+  ) {
+    arabicMessage = 'صيغة المعرف (UUID) غير متوافقة مع جدول قاعدة البيانات';
+  } else if (
+    code === '23502' ||
+    lowerMsg.includes('null value in column')
+  ) {
+    arabicMessage = 'بعض الحقول الأساسية مطلوبة ولا يمكن تركها فارغة';
+  } else if (
+    code === 'PGRST204' ||
+    lowerMsg.includes('could not find the')
+  ) {
+    arabicMessage = 'يوجد حقل غير متطابق مع أعمدة الجدول في قاعدة البيانات';
   } else if (
     code === '23503' ||
     lowerMsg.includes('foreign key') ||
     lowerMsg.includes('violates foreign key constraint')
   ) {
-    arabicMessage = 'لا يمكن حذفه لأنه مرتبط ببيانات أخرى';
+    arabicMessage = 'لا يمكن إتمام العملية لارتباط السجل بوحدة قياس أو مورد أو بيانات غير موجودة في السحابة';
   } else if (
     lowerMsg.includes('already registered') ||
     lowerMsg.includes('user_already_exists')
@@ -360,15 +430,43 @@ export function mapWorkshopRowToUserProfile(row: any, userEmail?: string): UserP
 }
 
 /**
+ * Ensures we have a valid, fresh Supabase session when online.
+ * Attempts refreshSession() automatically if token is missing or near expiry.
+ */
+export async function ensureValidSupabaseSession(): Promise<{
+  session: any | null;
+  user: any | null;
+}> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    let session = data?.session || null;
+
+    const expMs = session?.expires_at ? session.expires_at * 1000 : 0;
+    const isNearExpiry = Boolean(session && expMs > 0 && expMs - Date.now() < 90_000);
+
+    if ((!session || isNearExpiry) && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+      try {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        if (refreshed?.session) {
+          session = refreshed.session;
+        }
+      } catch {
+        // ignore refresh errors when offline or no refresh token
+      }
+    }
+
+    return { session, user: session?.user || null };
+  } catch {
+    return { session: null, user: null };
+  }
+}
+
+/**
  * Quick check if there is an active session
  */
 export async function hasActiveSupabaseSession(): Promise<boolean> {
-  try {
-    const { data } = await supabase.auth.getSession();
-    return !!data?.session?.user;
-  } catch {
-    return false;
-  }
+  const { user } = await ensureValidSupabaseSession();
+  return Boolean(user);
 }
 
 /**
@@ -395,9 +493,29 @@ export function getLocalCachedProfile(): UserProfile | null {
   return null;
 }
 
+function selectBestMatchingWorkshop(rows: any[], user: any): any | null {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const metaWid = (user?.user_metadata as any)?.workshop_id;
+  if (metaWid) {
+    const exactMeta = rows.find((r) => r.id === metaWid || r.workshop_id === metaWid);
+    if (exactMeta) return exactMeta;
+  }
+  return rows[0];
+}
+
+function getValidatedCachedProfileForUser(user: any): UserProfile | null {
+  const cached = getLocalCachedProfile();
+  if (!cached) return null;
+  if (!user) return cached;
+  const sameOwner =
+    cached.ownerUid === user.id ||
+    (user.email && cached.email && cached.email.toLowerCase() === user.email.toLowerCase());
+  return sameOwner ? cached : null;
+}
+
 /**
- * Fetches current user's workshop row directly from Supabase (Supabase client automatically attaches user JWT)
- * Resilient against network drops and 42501 race conditions with automatic offline-first fallback.
+ * Fetches current user's owned workshop row directly from Supabase (strictly filtered by owner_id / owner_uid / user metadata).
+ * Resilient against network drops and 42501 race conditions with automatic owner-verified offline fallback.
  */
 export async function getCurrentWorkshopFromSupabase(): Promise<{
   workshop: UserProfile | null;
@@ -406,8 +524,7 @@ export async function getCurrentWorkshopFromSupabase(): Promise<{
   isOfflineFallback?: boolean;
 }> {
   try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const user = sessionData?.session?.user;
+    const { user } = await ensureValidSupabaseSession();
 
     if (!user) {
       const cached = getLocalCachedProfile();
@@ -417,42 +534,83 @@ export async function getCurrentWorkshopFromSupabase(): Promise<{
       return { workshop: null, rawRow: null, error: null };
     }
 
-    console.log('[SupabaseService] Querying workshops table for user:', user.id);
-    let { data, error } = await supabase
-      .from('workshops')
-      .select('*')
-      .limit(1)
-      .maybeSingle();
+    console.log('[SupabaseService] Querying workshops table strictly for owner:', user.id);
 
-    // If initial query returned 42501 (Permission Denied) due to token settling delay, retry once after 250ms
+    const runOwnerQuery = async () => {
+      // 1. Primary strict lookup by owner_id or owner_uid
+      const primary = await supabase
+        .from('workshops')
+        .select('*')
+        .or(`owner_id.eq.${user.id},owner_uid.eq.${user.id}`)
+        .order('created_at', { ascending: true })
+        .limit(10);
+
+      if (primary.error) return { row: null, error: primary.error };
+      const best = selectBestMatchingWorkshop(primary.data || [], user);
+      if (best) return { row: best, error: null };
+
+      // 2. Secondary lookup by email if legacy row lacked owner_id
+      if (user.email) {
+        const byEmail = await supabase
+          .from('workshops')
+          .select('*')
+          .ilike('email', user.email)
+          .order('created_at', { ascending: true })
+          .limit(5);
+        if (!byEmail.error && byEmail.data && byEmail.data.length > 0) {
+          return { row: selectBestMatchingWorkshop(byEmail.data, user), error: null };
+        }
+      }
+
+      // 3. Tertiary lookup by metadata workshop_id ONLY when unowned or matching
+      const metaWid = (user.user_metadata as any)?.workshop_id;
+      if (metaWid && isValidUuid(metaWid)) {
+        const byMeta = await supabase
+          .from('workshops')
+          .select('*')
+          .eq('id', metaWid)
+          .maybeSingle();
+        if (!byMeta.error && byMeta.data) {
+          if (!byMeta.data.owner_id || byMeta.data.owner_id === user.id) {
+            return { row: byMeta.data, error: null };
+          }
+        }
+      }
+
+      return { row: null, error: null };
+    };
+
+    let { row: data, error } = await runOwnerQuery();
+
+    // Retry once on 42501 settling delay
     if (error && (error.code === '42501' || error.message?.includes('permission denied'))) {
       console.warn('[SupabaseService] 42501 permission notice on first try, retrying after session settling...');
       await new Promise((res) => setTimeout(res, 250));
-      const retry = await supabase.from('workshops').select('*').limit(1).maybeSingle();
-      data = retry.data;
+      const retry = await runOwnerQuery();
+      data = retry.row;
       error = retry.error;
     }
 
     if (error) {
       console.warn('[SupabaseService] Error querying workshops:', error);
-      const cached = getLocalCachedProfile();
+      const cached = getValidatedCachedProfileForUser(user);
       if (cached) {
-        console.log('[SupabaseService] Falling back to offline-first cached profile');
+        console.log('[SupabaseService] Falling back to owner-verified cached profile');
         return { workshop: cached, rawRow: null, error: null, isOfflineFallback: true };
       }
       return { workshop: null, rawRow: null, error: getArabicSupabaseError(error) };
     }
 
     if (!data) {
-      console.log('[SupabaseService] No workshop row found for user');
-      const cached = getLocalCachedProfile();
+      console.log('[SupabaseService] No workshop row found for owner:', user.id);
+      const cached = getValidatedCachedProfileForUser(user);
       if (cached) {
         return { workshop: cached, rawRow: null, error: null, isOfflineFallback: true };
       }
       return { workshop: null, rawRow: null, error: null };
     }
 
-    console.log('[SupabaseService] Workshop row fetched successfully:', data.brand_name || data.id);
+    console.log('[SupabaseService] Owned workshop fetched:', data.brand_name || data.id, 'id:', data.id);
     const userProfile = mapWorkshopRowToUserProfile(data, data.email || user.email);
     return { workshop: userProfile, rawRow: data, error: null };
   } catch (err: any) {
@@ -563,7 +721,7 @@ export async function updateWorkshopProfileInSupabase(
 }
 
 // -------------------------------------------------------------
-// Units (وحدات القياس) Domain Operations
+// Units (وحدات القياس) Domain Operations (Hybrid Cloud + Local Cache)
 // Table: units(id, workshop_id, name, small_unit, factor>0)
 // -------------------------------------------------------------
 
@@ -575,17 +733,68 @@ export interface SupabaseUnit {
   factor: number;
 }
 
+const UNITS_CACHE_PREFIX = 'alshams_units_cache_';
+const SUPPLIERS_CACHE_PREFIX = 'alshams_suppliers_cache_';
+const MATERIALS_CACHE_PREFIX = 'alshams_materials_cache_';
+
+const DEFAULT_UNIT_TEMPLATES = [
+  { name: 'كيلو', small_unit: 'جرام', factor: 1000 },
+  { name: 'متر', small_unit: 'سم', factor: 100 },
+  { name: 'قطعة', small_unit: 'قطعة', factor: 1 },
+  { name: 'لفة', small_unit: 'متر', factor: 100 },
+  { name: 'دستة', small_unit: 'قطعة', factor: 12 },
+  { name: 'لتر', small_unit: 'مل', factor: 1000 },
+];
+
+function buildOrGetCachedDefaultUnits(workshopId: string): SupabaseUnit[] {
+  const existing = readLocalCache<SupabaseUnit>(UNITS_CACHE_PREFIX + workshopId);
+  if (existing.length > 0) return existing;
+  const created: SupabaseUnit[] = DEFAULT_UNIT_TEMPLATES.map((tpl) => ({
+    id: generateUuid(),
+    workshop_id: workshopId,
+    name: tpl.name,
+    small_unit: tpl.small_unit,
+    factor: tpl.factor,
+  }));
+  writeLocalCache(UNITS_CACHE_PREFIX + workshopId, created);
+  return created;
+}
+
+function mergeById<T extends { id: string }>(primary: T[], secondary: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const item of secondary) {
+    if (item?.id) map.set(item.id, item);
+  }
+  for (const item of primary) {
+    if (item?.id) map.set(item.id, item);
+  }
+  return Array.from(map.values());
+}
+
 export async function getUnitsFromSupabase(
   workshopId: string
 ): Promise<{ data: SupabaseUnit[]; error: SupabaseErrorResult | null; isOfflineFallback?: boolean }> {
+  const cachedUnits = readLocalCache<SupabaseUnit>(UNITS_CACHE_PREFIX + workshopId);
+  const pendingUnitPayloads: SupabaseUnit[] = getOfflineMutations(workshopId)
+    .filter((m) => m.type === 'unit_upsert' && m.payload?.id)
+    .map((m) => m.payload as SupabaseUnit);
+
   try {
     if (!workshopId || workshopId === 'workshop_demo' || workshopId === '00000000-0000-0000-0000-000000000000') {
-      return { data: [], error: null, isOfflineFallback: true };
+      const localList = cachedUnits.length > 0 ? cachedUnits : buildOrGetCachedDefaultUnits(workshopId || 'workshop_demo');
+      return { data: localList, error: null, isOfflineFallback: true };
     }
-    const hasSession = await hasActiveSupabaseSession();
-    if (!hasSession) {
-      return { data: [], error: null, isOfflineFallback: true };
+
+    const { user } = await ensureValidSupabaseSession();
+    if (!user || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+      const mergedOffline = mergeById(pendingUnitPayloads, cachedUnits);
+      return {
+        data: mergedOffline.length > 0 ? mergedOffline : buildOrGetCachedDefaultUnits(workshopId),
+        error: null,
+        isOfflineFallback: true,
+      };
     }
+
     const { data, error } = await supabase
       .from('units')
       .select('id, workshop_id, name, small_unit, factor')
@@ -593,15 +802,33 @@ export async function getUnitsFromSupabase(
       .order('name', { ascending: true });
 
     if (error) {
-      if (error.code === '42501' || error.message?.includes('permission denied')) {
-        console.warn('[SupabaseService] units query 42501 notice; offline-first active.');
-        return { data: [], error: null, isOfflineFallback: true };
+      const mergedOffline = mergeById(pendingUnitPayloads, cachedUnits);
+      if (error.code === '42501' || error.message?.includes('permission denied') || isNetworkOrOfflineError(error)) {
+        console.warn('[SupabaseService] units query fallback to local cache:', error.code || error.message);
+        return {
+          data: mergedOffline.length > 0 ? mergedOffline : buildOrGetCachedDefaultUnits(workshopId),
+          error: null,
+          isOfflineFallback: true,
+        };
       }
-      return { data: [], error: getArabicSupabaseError(error) };
+      return { data: mergedOffline, error: getArabicSupabaseError(error) };
     }
 
-    return { data: (data as SupabaseUnit[]) || [], error: null };
+    const cloudUnits = (data as SupabaseUnit[]) || [];
+    const merged = mergeById(pendingUnitPayloads, cloudUnits.length > 0 ? cloudUnits : cachedUnits);
+    if (cloudUnits.length > 0) {
+      writeLocalCache(UNITS_CACHE_PREFIX + workshopId, mergeById(pendingUnitPayloads, cloudUnits));
+    }
+    return { data: merged, error: null };
   } catch (err: any) {
+    const mergedOffline = mergeById(pendingUnitPayloads, cachedUnits);
+    if (mergedOffline.length > 0 || isNetworkOrOfflineError(err)) {
+      return {
+        data: mergedOffline.length > 0 ? mergedOffline : buildOrGetCachedDefaultUnits(workshopId),
+        error: null,
+        isOfflineFallback: true,
+      };
+    }
     return { data: [], error: getArabicSupabaseError(err) };
   }
 }
@@ -609,16 +836,33 @@ export async function getUnitsFromSupabase(
 export async function createUnitInSupabase(
   workshopId: string,
   payload: { name: string; small_unit: string; factor: number; id?: string }
-): Promise<{ data: SupabaseUnit | null; error: SupabaseErrorResult | null }> {
+): Promise<{ data: SupabaseUnit | null; error: SupabaseErrorResult | null; isOfflineQueued?: boolean }> {
+  const unitId = isValidUuid(payload.id) ? payload.id! : generateUuid();
+  const row: SupabaseUnit = {
+    id: unitId,
+    workshop_id: workshopId,
+    name: payload.name.trim(),
+    small_unit: payload.small_unit.trim(),
+    factor: Number(payload.factor) > 0 ? Number(payload.factor) : 1,
+  };
+
+  const cacheUnitLocally = (u: SupabaseUnit, queueForSync: boolean) => {
+    const existing = readLocalCache<SupabaseUnit>(UNITS_CACHE_PREFIX + workshopId);
+    writeLocalCache(UNITS_CACHE_PREFIX + workshopId, mergeById([u], existing));
+    if (queueForSync && isValidUuid(workshopId)) {
+      enqueueOfflineMutation({
+        workshopId,
+        type: 'unit_upsert',
+        payload: u,
+      });
+    }
+  };
+
   try {
-    const row: any = {
-      workshop_id: workshopId,
-      name: payload.name.trim(),
-      small_unit: payload.small_unit.trim(),
-      factor: Number(payload.factor) > 0 ? Number(payload.factor) : 1,
-    };
-    if (payload.id) {
-      row.id = payload.id;
+    const { user } = await ensureValidSupabaseSession();
+    if (!user || (typeof navigator !== 'undefined' && navigator.onLine === false) || !isValidUuid(workshopId)) {
+      cacheUnitLocally(row, true);
+      return { data: row, error: null, isOfflineQueued: true };
     }
 
     const { data, error } = await supabase
@@ -628,11 +872,21 @@ export async function createUnitInSupabase(
       .single();
 
     if (error) {
+      if (isNetworkOrOfflineError(error)) {
+        cacheUnitLocally(row, true);
+        return { data: row, error: null, isOfflineQueued: true };
+      }
       return { data: null, error: getArabicSupabaseError(error) };
     }
 
-    return { data: data as SupabaseUnit, error: null };
+    const saved = data as SupabaseUnit;
+    cacheUnitLocally(saved, false);
+    return { data: saved, error: null };
   } catch (err: any) {
+    if (isNetworkOrOfflineError(err)) {
+      cacheUnitLocally(row, true);
+      return { data: row, error: null, isOfflineQueued: true };
+    }
     return { data: null, error: getArabicSupabaseError(err) };
   }
 }
@@ -648,6 +902,7 @@ export async function updateUnitInSupabase(
     if (payload.small_unit !== undefined) updates.small_unit = payload.small_unit.trim();
     if (payload.factor !== undefined) updates.factor = Number(payload.factor) > 0 ? Number(payload.factor) : 1;
 
+    await ensureValidSupabaseSession();
     const { data, error } = await supabase
       .from('units')
       .update(updates)
@@ -657,10 +912,23 @@ export async function updateUnitInSupabase(
       .single();
 
     if (error) {
+      if (isNetworkOrOfflineError(error)) {
+        const existing = readLocalCache<SupabaseUnit>(UNITS_CACHE_PREFIX + workshopId);
+        const found = existing.find((u) => u.id === unitId);
+        if (found) {
+          const updated = { ...found, ...updates };
+          writeLocalCache(UNITS_CACHE_PREFIX + workshopId, mergeById([updated], existing));
+          enqueueOfflineMutation({ workshopId, type: 'unit_upsert', payload: updated });
+          return { data: updated, error: null };
+        }
+      }
       return { data: null, error: getArabicSupabaseError(error) };
     }
 
-    return { data: data as SupabaseUnit, error: null };
+    const saved = data as SupabaseUnit;
+    const existing = readLocalCache<SupabaseUnit>(UNITS_CACHE_PREFIX + workshopId);
+    writeLocalCache(UNITS_CACHE_PREFIX + workshopId, mergeById([saved], existing));
+    return { data: saved, error: null };
   } catch (err: any) {
     return { data: null, error: getArabicSupabaseError(err) };
   }
@@ -671,6 +939,7 @@ export async function deleteUnitFromSupabase(
   workshopId: string
 ): Promise<{ success: boolean; error: SupabaseErrorResult | null }> {
   try {
+    await ensureValidSupabaseSession();
     const { error } = await supabase
       .from('units')
       .delete()
@@ -681,6 +950,8 @@ export async function deleteUnitFromSupabase(
       return { success: false, error: getArabicSupabaseError(error) };
     }
 
+    const existing = readLocalCache<SupabaseUnit>(UNITS_CACHE_PREFIX + workshopId);
+    writeLocalCache(UNITS_CACHE_PREFIX + workshopId, existing.filter((u) => u.id !== unitId));
     return { success: true, error: null };
   } catch (err: any) {
     return { success: false, error: getArabicSupabaseError(err) };
@@ -688,43 +959,48 @@ export async function deleteUnitFromSupabase(
 }
 
 /**
- * إنشاء الوحدات الافتراضية للورشة إذا كانت فارغة
+ * إنشاء الوحدات الافتراضية للورشة إذا كانت فارغة مع ضمان توفرها محلياً في كل الأحوال
  */
 export async function ensureDefaultUnitsInSupabase(
   workshopId: string
 ): Promise<SupabaseUnit[]> {
   try {
     const existing = await getUnitsFromSupabase(workshopId);
-    if (!existing.error && existing.data.length > 0) {
+    if (existing.data.length > 0 && !existing.isOfflineFallback) {
       return existing.data;
     }
 
-    const defaultUnits = [
-      { workshop_id: workshopId, name: 'كيلو', small_unit: 'جرام', factor: 1000 },
-      { workshop_id: workshopId, name: 'متر', small_unit: 'سم', factor: 100 },
-      { workshop_id: workshopId, name: 'قطعة', small_unit: 'قطعة', factor: 1 },
-      { workshop_id: workshopId, name: 'لفة', small_unit: 'متر', factor: 100 },
-      { workshop_id: workshopId, name: 'دستة', small_unit: 'قطعة', factor: 12 },
-      { workshop_id: workshopId, name: 'لتر', small_unit: 'مل', factor: 1000 },
-    ];
+    const { user } = await ensureValidSupabaseSession();
+    if (user && isValidUuid(workshopId) && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+      const defaultUnits = DEFAULT_UNIT_TEMPLATES.map((tpl) => ({
+        id: generateUuid(),
+        workshop_id: workshopId,
+        name: tpl.name,
+        small_unit: tpl.small_unit,
+        factor: tpl.factor,
+      }));
 
-    const { data, error } = await supabase
-      .from('units')
-      .insert(defaultUnits)
-      .select('id, workshop_id, name, small_unit, factor');
+      const { data, error } = await supabase
+        .from('units')
+        .insert(defaultUnits)
+        .select('id, workshop_id, name, small_unit, factor');
 
-    if (!error && data) {
-      return data as SupabaseUnit[];
+      if (!error && data && data.length > 0) {
+        const saved = data as SupabaseUnit[];
+        writeLocalCache(UNITS_CACHE_PREFIX + workshopId, saved);
+        return saved;
+      }
     }
-    return existing.data || [];
+
+    return existing.data.length > 0 ? existing.data : buildOrGetCachedDefaultUnits(workshopId);
   } catch (err) {
     console.error('Error ensuring default units:', err);
-    return [];
+    return buildOrGetCachedDefaultUnits(workshopId);
   }
 }
 
 // -------------------------------------------------------------
-// Suppliers (الموردين) Domain Operations
+// Suppliers (الموردين) Domain Operations (Hybrid Cloud + Local Cache)
 // Table: suppliers(id, workshop_id, name, phone, address, notes)
 // -------------------------------------------------------------
 
@@ -740,14 +1016,27 @@ export interface SupabaseSupplier {
 export async function getSuppliersFromSupabase(
   workshopId: string
 ): Promise<{ data: SupabaseSupplier[]; error: SupabaseErrorResult | null; isOfflineFallback?: boolean }> {
+  const cached = readLocalCache<SupabaseSupplier>(SUPPLIERS_CACHE_PREFIX + workshopId);
+  const pending = getOfflineMutations(workshopId)
+    .filter((m) => m.type === 'supplier_upsert' && m.payload?.id)
+    .map((m) => ({
+      id: m.payload.id,
+      workshop_id: workshopId,
+      name: m.payload.name || m.payload.company_name || 'مورد',
+      phone: m.payload.phone || m.payload.phone_number || undefined,
+      address: m.payload.address || undefined,
+      notes: m.payload.notes || undefined,
+    })) as SupabaseSupplier[];
+
   try {
     if (!workshopId || workshopId === 'workshop_demo' || workshopId === '00000000-0000-0000-0000-000000000000') {
-      return { data: [], error: null, isOfflineFallback: true };
+      return { data: mergeById(pending, cached), error: null, isOfflineFallback: true };
     }
-    const hasSession = await hasActiveSupabaseSession();
-    if (!hasSession) {
-      return { data: [], error: null, isOfflineFallback: true };
+    const { user } = await ensureValidSupabaseSession();
+    if (!user || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+      return { data: mergeById(pending, cached), error: null, isOfflineFallback: true };
     }
+
     const { data, error } = await supabase
       .from('suppliers')
       .select('id, workshop_id, name, phone, address, notes')
@@ -755,15 +1044,23 @@ export async function getSuppliersFromSupabase(
       .order('name', { ascending: true });
 
     if (error) {
-      if (error.code === '42501' || error.message?.includes('permission denied')) {
-        console.warn('[SupabaseService] suppliers query 42501 notice; offline-first active.');
-        return { data: [], error: null, isOfflineFallback: true };
+      const localList = mergeById(pending, cached);
+      if (error.code === '42501' || error.message?.includes('permission denied') || isNetworkOrOfflineError(error)) {
+        console.warn('[SupabaseService] suppliers query fallback to local cache:', error.code || error.message);
+        return { data: localList, error: null, isOfflineFallback: true };
       }
-      return { data: [], error: getArabicSupabaseError(error) };
+      return { data: localList, error: getArabicSupabaseError(error) };
     }
 
-    return { data: (data as SupabaseSupplier[]) || [], error: null };
+    const cloudList = (data as SupabaseSupplier[]) || [];
+    const merged = mergeById(pending, cloudList);
+    writeLocalCache(SUPPLIERS_CACHE_PREFIX + workshopId, merged);
+    return { data: merged, error: null };
   } catch (err: any) {
+    const localList = mergeById(pending, cached);
+    if (localList.length > 0 || isNetworkOrOfflineError(err)) {
+      return { data: localList, error: null, isOfflineFallback: true };
+    }
     return { data: [], error: getArabicSupabaseError(err) };
   }
 }
@@ -771,17 +1068,34 @@ export async function getSuppliersFromSupabase(
 export async function createSupplierInSupabase(
   workshopId: string,
   payload: { name: string; phone?: string; address?: string; notes?: string; id?: string }
-): Promise<{ data: SupabaseSupplier | null; error: SupabaseErrorResult | null }> {
+): Promise<{ data: SupabaseSupplier | null; error: SupabaseErrorResult | null; isOfflineQueued?: boolean }> {
+  const supId = isValidUuid(payload.id) ? payload.id! : generateUuid();
+  const row: any = {
+    id: supId,
+    workshop_id: workshopId,
+    name: payload.name.trim(),
+    phone: payload.phone ? payload.phone.trim() : null,
+    address: payload.address ? payload.address.trim() : null,
+    notes: payload.notes ? payload.notes.trim() : null,
+  };
+
+  const cacheSupplierLocally = (s: SupabaseSupplier, queueForSync: boolean) => {
+    const existing = readLocalCache<SupabaseSupplier>(SUPPLIERS_CACHE_PREFIX + workshopId);
+    writeLocalCache(SUPPLIERS_CACHE_PREFIX + workshopId, mergeById([s], existing));
+    if (queueForSync && isValidUuid(workshopId)) {
+      enqueueOfflineMutation({
+        workshopId,
+        type: 'supplier_upsert',
+        payload: row,
+      });
+    }
+  };
+
   try {
-    const row: any = {
-      workshop_id: workshopId,
-      name: payload.name.trim(),
-      phone: payload.phone ? payload.phone.trim() : null,
-      address: payload.address ? payload.address.trim() : null,
-      notes: payload.notes ? payload.notes.trim() : null,
-    };
-    if (payload.id) {
-      row.id = payload.id;
+    const { user } = await ensureValidSupabaseSession();
+    if (!user || (typeof navigator !== 'undefined' && navigator.onLine === false) || !isValidUuid(workshopId)) {
+      cacheSupplierLocally(row as SupabaseSupplier, true);
+      return { data: row as SupabaseSupplier, error: null, isOfflineQueued: true };
     }
 
     const { data, error } = await supabase
@@ -791,11 +1105,21 @@ export async function createSupplierInSupabase(
       .single();
 
     if (error) {
+      if (isNetworkOrOfflineError(error)) {
+        cacheSupplierLocally(row as SupabaseSupplier, true);
+        return { data: row as SupabaseSupplier, error: null, isOfflineQueued: true };
+      }
       return { data: null, error: getArabicSupabaseError(error) };
     }
 
-    return { data: data as SupabaseSupplier, error: null };
+    const saved = data as SupabaseSupplier;
+    cacheSupplierLocally(saved, false);
+    return { data: saved, error: null };
   } catch (err: any) {
+    if (isNetworkOrOfflineError(err)) {
+      cacheSupplierLocally(row as SupabaseSupplier, true);
+      return { data: row as SupabaseSupplier, error: null, isOfflineQueued: true };
+    }
     return { data: null, error: getArabicSupabaseError(err) };
   }
 }
@@ -812,6 +1136,7 @@ export async function updateSupplierInSupabase(
     if (payload.address !== undefined) updates.address = payload.address.trim() || null;
     if (payload.notes !== undefined) updates.notes = payload.notes.trim() || null;
 
+    await ensureValidSupabaseSession();
     const { data, error } = await supabase
       .from('suppliers')
       .update(updates)
@@ -824,7 +1149,10 @@ export async function updateSupplierInSupabase(
       return { data: null, error: getArabicSupabaseError(error) };
     }
 
-    return { data: data as SupabaseSupplier, error: null };
+    const saved = data as SupabaseSupplier;
+    const existing = readLocalCache<SupabaseSupplier>(SUPPLIERS_CACHE_PREFIX + workshopId);
+    writeLocalCache(SUPPLIERS_CACHE_PREFIX + workshopId, mergeById([saved], existing));
+    return { data: saved, error: null };
   } catch (err: any) {
     return { data: null, error: getArabicSupabaseError(err) };
   }
@@ -835,6 +1163,7 @@ export async function deleteSupplierInSupabase(
   workshopId: string
 ): Promise<{ success: boolean; error: SupabaseErrorResult | null }> {
   try {
+    await ensureValidSupabaseSession();
     const { error } = await supabase
       .from('suppliers')
       .delete()
@@ -845,6 +1174,8 @@ export async function deleteSupplierInSupabase(
       return { success: false, error: getArabicSupabaseError(error) };
     }
 
+    const existing = readLocalCache<SupabaseSupplier>(SUPPLIERS_CACHE_PREFIX + workshopId);
+    writeLocalCache(SUPPLIERS_CACHE_PREFIX + workshopId, existing.filter((s) => s.id !== id));
     return { success: true, error: null };
   } catch (err: any) {
     return { success: false, error: getArabicSupabaseError(err) };
@@ -872,8 +1203,8 @@ export async function getCustomersFromSupabase(
     if (!workshopId || workshopId === 'workshop_demo' || workshopId === '00000000-0000-0000-0000-000000000000') {
       return { data: [], error: null, isOfflineFallback: true };
     }
-    const hasSession = await hasActiveSupabaseSession();
-    if (!hasSession) {
+    const { user } = await ensureValidSupabaseSession();
+    if (!user) {
       return { data: [], error: null, isOfflineFallback: true };
     }
     const { data, error } = await supabase
@@ -901,16 +1232,15 @@ export async function createCustomerInSupabase(
   payload: { name: string; phone?: string; address?: string; notes?: string; id?: string }
 ): Promise<{ data: SupabaseCustomer | null; error: SupabaseErrorResult | null }> {
   try {
+    await ensureValidSupabaseSession();
     const row: any = {
+      id: isValidUuid(payload.id) ? payload.id : generateUuid(),
       workshop_id: workshopId,
       name: payload.name.trim(),
       phone: payload.phone ? payload.phone.trim() : null,
       address: payload.address ? payload.address.trim() : null,
       notes: payload.notes ? payload.notes.trim() : null,
     };
-    if (payload.id) {
-      row.id = payload.id;
-    }
 
     const { data, error } = await supabase
       .from('customers')
@@ -934,6 +1264,7 @@ export async function updateCustomerInSupabase(
   payload: { name?: string; phone?: string; address?: string; notes?: string }
 ): Promise<{ data: SupabaseCustomer | null; error: SupabaseErrorResult | null }> {
   try {
+    await ensureValidSupabaseSession();
     const updates: any = {};
     if (payload.name !== undefined) updates.name = payload.name.trim();
     if (payload.phone !== undefined) updates.phone = payload.phone.trim() || null;
@@ -963,6 +1294,7 @@ export async function deleteCustomerInSupabase(
   workshopId: string
 ): Promise<{ success: boolean; error: SupabaseErrorResult | null }> {
   try {
+    await ensureValidSupabaseSession();
     const { error } = await supabase
       .from('customers')
       .delete()
@@ -980,7 +1312,7 @@ export async function deleteCustomerInSupabase(
 }
 
 // -------------------------------------------------------------
-// Materials (الخامات) Domain Operations
+// Materials (الخامات) Domain Operations (Hybrid Cloud + Local Cache)
 // Table: materials(id, workshop_id, name, kind:'primary'|'extra', supplier_id, unit_id, purchase_price>=0, market_name, market_unit_factor>0)
 // -------------------------------------------------------------
 
@@ -998,8 +1330,19 @@ export interface SupabaseMaterial {
 
 export async function getMaterialsFromSupabase(
   workshopId: string
-): Promise<{ data: SupabaseMaterial[]; error: SupabaseErrorResult | null }> {
+): Promise<{ data: SupabaseMaterial[]; error: SupabaseErrorResult | null; isOfflineFallback?: boolean }> {
+  const cached = readLocalCache<SupabaseMaterial>(MATERIALS_CACHE_PREFIX + workshopId);
+  const pending = getOfflineMutations(workshopId)
+    .filter((m) => m.type === 'material_upsert' && m.payload?.id && m.payload?.unit_id)
+    .map((m) => m.payload as SupabaseMaterial);
+
   try {
+    if (!workshopId || workshopId === 'workshop_demo' || workshopId === '00000000-0000-0000-0000-000000000000') {
+      return { data: mergeById(pending, cached), error: null, isOfflineFallback: true };
+    }
+
+    await ensureValidSupabaseSession();
+
     // نلتزم بقراءة الأعمدة المحددة فقط دون أي أعمدة صور Base64
     const { data, error } = await supabase
       .from('materials')
@@ -1008,11 +1351,22 @@ export async function getMaterialsFromSupabase(
       .order('name', { ascending: true });
 
     if (error) {
+      const localList = mergeById(pending, cached);
+      if (isNetworkOrOfflineError(error) || localList.length > 0) {
+        return { data: localList, error: null, isOfflineFallback: true };
+      }
       return { data: [], error: getArabicSupabaseError(error) };
     }
 
-    return { data: (data as SupabaseMaterial[]) || [], error: null };
+    const cloudList = (data as SupabaseMaterial[]) || [];
+    const merged = mergeById(pending, cloudList);
+    writeLocalCache(MATERIALS_CACHE_PREFIX + workshopId, merged);
+    return { data: merged, error: null };
   } catch (err: any) {
+    const localList = mergeById(pending, cached);
+    if (localList.length > 0 || isNetworkOrOfflineError(err)) {
+      return { data: localList, error: null, isOfflineFallback: true };
+    }
     return { data: [], error: getArabicSupabaseError(err) };
   }
 }
@@ -1029,20 +1383,55 @@ export async function createMaterialInSupabase(
     market_unit_factor?: number;
     id?: string;
   }
-): Promise<{ data: SupabaseMaterial | null; error: SupabaseErrorResult | null }> {
+): Promise<{ data: SupabaseMaterial | null; error: SupabaseErrorResult | null; isOfflineQueued?: boolean }> {
+  // Ensure unit_id is always a valid UUID from cached/default units if needed
+  let resolvedUnitId = payload.unit_id;
+  if (!isValidUuid(resolvedUnitId)) {
+    const fallbackUnits = await ensureDefaultUnitsInSupabase(workshopId);
+    if (fallbackUnits[0]?.id && isValidUuid(fallbackUnits[0].id)) {
+      resolvedUnitId = fallbackUnits[0].id;
+    }
+  }
+
+  const matId = isValidUuid(payload.id) ? payload.id! : generateUuid();
+  const row: SupabaseMaterial = {
+    id: matId,
+    workshop_id: workshopId,
+    name: payload.name.trim(),
+    kind: payload.kind === 'extra' ? 'extra' : 'primary',
+    supplier_id: payload.supplier_id && isValidUuid(payload.supplier_id) ? payload.supplier_id : null,
+    unit_id: resolvedUnitId,
+    purchase_price: Number(payload.purchase_price) >= 0 ? Number(payload.purchase_price) : 0,
+    market_name: payload.market_name ? payload.market_name.trim() : null,
+    market_unit_factor: Number(payload.market_unit_factor) > 0 ? Number(payload.market_unit_factor) : 1,
+  };
+
+  const cacheMaterialLocally = (m: SupabaseMaterial, queueForSync: boolean) => {
+    const existing = readLocalCache<SupabaseMaterial>(MATERIALS_CACHE_PREFIX + workshopId);
+    writeLocalCache(MATERIALS_CACHE_PREFIX + workshopId, mergeById([m], existing));
+    if (queueForSync && isValidUuid(workshopId)) {
+      const unitsCache = readLocalCache<SupabaseUnit>(UNITS_CACHE_PREFIX + workshopId);
+      const usedUnit = unitsCache.find((u) => u.id === m.unit_id);
+      if (usedUnit) {
+        enqueueOfflineMutation({
+          workshopId,
+          type: 'unit_upsert',
+          payload: usedUnit,
+        });
+      }
+      enqueueOfflineMutation({
+        workshopId,
+        type: 'material_upsert',
+        payload: m,
+      });
+    }
+  };
+
   try {
-    const row: any = {
-      workshop_id: workshopId,
-      name: payload.name.trim(),
-      kind: payload.kind === 'extra' ? 'extra' : 'primary',
-      supplier_id: payload.supplier_id || null,
-      unit_id: payload.unit_id,
-      purchase_price: Number(payload.purchase_price) >= 0 ? Number(payload.purchase_price) : 0,
-      market_name: payload.market_name ? payload.market_name.trim() : null,
-      market_unit_factor: Number(payload.market_unit_factor) > 0 ? Number(payload.market_unit_factor) : 1,
-    };
-    if (payload.id) {
-      row.id = payload.id;
+    const { user } = await ensureValidSupabaseSession();
+    if (!user || (typeof navigator !== 'undefined' && navigator.onLine === false) || !isValidUuid(workshopId)) {
+      cacheMaterialLocally(row, true);
+      return { data: row, error: null, isOfflineQueued: true };
     }
 
     const { data, error } = await supabase
@@ -1052,11 +1441,21 @@ export async function createMaterialInSupabase(
       .single();
 
     if (error) {
+      if (isNetworkOrOfflineError(error)) {
+        cacheMaterialLocally(row, true);
+        return { data: row, error: null, isOfflineQueued: true };
+      }
       return { data: null, error: getArabicSupabaseError(error) };
     }
 
-    return { data: data as SupabaseMaterial, error: null };
+    const saved = data as SupabaseMaterial;
+    cacheMaterialLocally(saved, false);
+    return { data: saved, error: null };
   } catch (err: any) {
+    if (isNetworkOrOfflineError(err)) {
+      cacheMaterialLocally(row, true);
+      return { data: row, error: null, isOfflineQueued: true };
+    }
     return { data: null, error: getArabicSupabaseError(err) };
   }
 }
@@ -1075,11 +1474,14 @@ export async function updateMaterialInSupabase(
   }
 ): Promise<{ data: SupabaseMaterial | null; error: SupabaseErrorResult | null }> {
   try {
+    await ensureValidSupabaseSession();
     const updates: any = {};
     if (payload.name !== undefined) updates.name = payload.name.trim();
     if (payload.kind !== undefined) updates.kind = payload.kind === 'extra' ? 'extra' : 'primary';
-    if (payload.supplier_id !== undefined) updates.supplier_id = payload.supplier_id || null;
-    if (payload.unit_id !== undefined) updates.unit_id = payload.unit_id;
+    if (payload.supplier_id !== undefined) {
+      updates.supplier_id = payload.supplier_id && isValidUuid(payload.supplier_id) ? payload.supplier_id : null;
+    }
+    if (payload.unit_id !== undefined && isValidUuid(payload.unit_id)) updates.unit_id = payload.unit_id;
     if (payload.purchase_price !== undefined) {
       updates.purchase_price = Number(payload.purchase_price) >= 0 ? Number(payload.purchase_price) : 0;
     }
@@ -1102,7 +1504,10 @@ export async function updateMaterialInSupabase(
       return { data: null, error: getArabicSupabaseError(error) };
     }
 
-    return { data: data as SupabaseMaterial, error: null };
+    const saved = data as SupabaseMaterial;
+    const existing = readLocalCache<SupabaseMaterial>(MATERIALS_CACHE_PREFIX + workshopId);
+    writeLocalCache(MATERIALS_CACHE_PREFIX + workshopId, mergeById([saved], existing));
+    return { data: saved, error: null };
   } catch (err: any) {
     return { data: null, error: getArabicSupabaseError(err) };
   }
@@ -1113,6 +1518,7 @@ export async function deleteMaterialFromSupabase(
   workshopId: string
 ): Promise<{ success: boolean; error: SupabaseErrorResult | null }> {
   try {
+    await ensureValidSupabaseSession();
     const { error } = await supabase
       .from('materials')
       .delete()
@@ -1123,6 +1529,8 @@ export async function deleteMaterialFromSupabase(
       return { success: false, error: getArabicSupabaseError(error) };
     }
 
+    const existing = readLocalCache<SupabaseMaterial>(MATERIALS_CACHE_PREFIX + workshopId);
+    writeLocalCache(MATERIALS_CACHE_PREFIX + workshopId, existing.filter((m) => m.id !== materialId));
     return { success: true, error: null };
   } catch (err: any) {
     return { success: false, error: getArabicSupabaseError(err) };

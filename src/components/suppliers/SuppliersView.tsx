@@ -6,7 +6,9 @@ import {
   createSupplierInSupabase,
   updateSupplierInSupabase,
   deleteSupplierInSupabase,
+  generateUuid,
 } from '../../db/supabaseService';
+import { tenantStorage } from '../../db/dexieDB';
 import {
   Truck,
   Plus,
@@ -71,12 +73,32 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
     if (!workshopId) return;
     setLoading(true);
     try {
-      const res = await getSuppliersFromSupabase(workshopId);
+      const [res, dexieSups] = await Promise.all([
+        getSuppliersFromSupabase(workshopId),
+        tenantStorage.getSuppliers(workshopId).catch(() => []),
+      ]);
       if (res.error) {
         setNotice({ text: res.error.arabicMessage, isError: true });
-      } else {
-        setSuppliers(res.data);
       }
+      const supMap = new Map<string, SupabaseSupplier>();
+      for (const ds of dexieSups || []) {
+        if (ds?.id) {
+          supMap.set(ds.id, {
+            id: ds.id,
+            workshop_id: workshopId,
+            name: (ds as any).name || ds.companyName || 'مورد',
+            phone: ds.phoneNumber || (ds as any).phone || undefined,
+            address: (ds as any).address || undefined,
+            notes: ds.notes || undefined,
+          });
+        }
+      }
+      for (const cs of res.data || []) {
+        if (cs?.id) supMap.set(cs.id, cs);
+      }
+      setSuppliers(
+        Array.from(supMap.values()).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'))
+      );
     } catch (err: any) {
       setNotice({ text: err.message || 'فشل تحميل بيانات الموردين', isError: true });
     } finally {
@@ -140,7 +162,9 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
           loadSuppliers();
         }
       } else {
+        const supId = generateUuid();
         const res = await createSupplierInSupabase(workshopId, {
+          id: supId,
           name: formData.name.trim(),
           phone: formData.phone.trim(),
           address: formData.address.trim(),
@@ -149,7 +173,26 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
         if (res.error) {
           setNotice({ text: res.error.arabicMessage, isError: true });
         } else {
-          setNotice({ text: `تم تسجيل المورد "${formData.name.trim()}" بنجاح في قاعدة البيانات!` });
+          try {
+            await tenantStorage.saveSupplier(
+              {
+                id: res.data?.id || supId,
+                tenantId: workshopId,
+                workshopId,
+                name: formData.name.trim(),
+                companyName: formData.name.trim(),
+                phoneNumber: formData.phone.trim(),
+                address: formData.address.trim(),
+                notes: formData.notes.trim(),
+                totalPurchases: 0,
+                totalPaid: 0,
+                outstandingBalance: 0,
+                createdAt: Date.now(),
+              } as any,
+              { skipCloudQueue: true }
+            );
+          } catch {}
+          setNotice({ text: `تم تسجيل المورد "${formData.name.trim()}" بنجاح!` });
           handleCloseModal();
           loadSuppliers();
         }

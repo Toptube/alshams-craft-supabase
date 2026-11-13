@@ -469,13 +469,22 @@ export const App: React.FC = () => {
       if (isChecking) return;
       isChecking = true;
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        let { data: { session } } = await supabase.auth.getSession();
+        if (!session && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+          try {
+            const { data: refreshed } = await supabase.auth.refreshSession();
+            if (refreshed?.session) {
+              session = refreshed.session;
+            }
+          } catch {}
+        }
+
         if (session?.user && mounted) {
           // فحص حالة الحساب في profiles و workshops
           try {
             const [pCheck, wCheck] = await Promise.all([
               supabase.from('profiles').select('status').eq('id', session.user.id).maybeSingle(),
-              supabase.from('workshops').select('status, is_frozen').eq('id', (session.user.user_metadata as any)?.workshop_id || session.user.id).maybeSingle(),
+              supabase.from('workshops').select('status, is_frozen').or(`owner_id.eq.${session.user.id},owner_uid.eq.${session.user.id}`).limit(1).maybeSingle(),
             ]);
             const profStatus = pCheck.data?.status;
             const wsStatus = wCheck.data?.status;
@@ -493,7 +502,7 @@ export const App: React.FC = () => {
             }
           } catch {}
 
-          // Fetch the real workshop profile from Supabase
+          // Fetch the real workshop profile strictly owned by current user from Supabase
           const { workshop } = await getCurrentWorkshopFromSupabase();
           if (workshop && mounted) {
             if (workshop.status === 'suspended' || (workshop as any).isFrozen) {

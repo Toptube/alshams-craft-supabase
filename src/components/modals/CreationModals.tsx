@@ -25,6 +25,7 @@ import {
   getSuppliersFromSupabase,
   createSupplierInSupabase,
   createCustomerInSupabase,
+  generateUuid,
 } from '../../db/supabaseService';
 import { NumberInput } from '../ui/NumberInput';
 import {
@@ -100,16 +101,44 @@ export const NewMaterialModal: React.FC<{
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isOpen || !workshopId) return;
+    let active = true;
     async function loadData() {
-      if (!workshopId) return;
+      setErrorMessage(null);
       try {
-        const [unts, supsRes] = await Promise.all([
+        const [unts, supsRes, dexieSups] = await Promise.all([
           ensureDefaultUnitsInSupabase(workshopId),
           getSuppliersFromSupabase(workshopId),
+          tenantStorage.getSuppliers(workshopId).catch(() => [] as SupplierProfile[]),
         ]);
+        if (!active) return;
+
+        // Merge cloud suppliers + local Dexie suppliers deduplicated by ID & name
+        const supMap = new Map<string, SupabaseSupplier>();
+        for (const ds of dexieSups || []) {
+          if (ds?.id) {
+            supMap.set(ds.id, {
+              id: ds.id,
+              workshop_id: workshopId,
+              name: (ds as any).name || ds.companyName || 'مورد',
+              phone: ds.phoneNumber || (ds as any).phone || undefined,
+              address: (ds as any).address || undefined,
+              notes: ds.notes || undefined,
+            });
+          }
+        }
+        for (const cs of supsRes.data || []) {
+          if (cs?.id) {
+            supMap.set(cs.id, cs);
+          }
+        }
+        const mergedSuppliers = Array.from(supMap.values()).sort((a, b) =>
+          (a.name || '').localeCompare(b.name || '', 'ar')
+        );
+
         setUnits(unts);
-        setSuppliers(supsRes.data || []);
-        if (unts.length > 0) {
+        setSuppliers(mergedSuppliers);
+        if (unts.length > 0 && (!selectedUnitId || !unts.some((u) => u.id === selectedUnitId))) {
           setSelectedUnitId(unts[0].id);
         }
       } catch (err) {
@@ -117,7 +146,10 @@ export const NewMaterialModal: React.FC<{
       }
     }
     loadData();
-  }, [workshopId]);
+    return () => {
+      active = false;
+    };
+  }, [workshopId, isOpen]);
 
   const selectedUnit = useMemo(() => {
     return units.find((u) => u.id === selectedUnitId) || units[0] || null;
@@ -139,7 +171,8 @@ export const NewMaterialModal: React.FC<{
       setErrorMessage('يرجى إدخال اسم الخامة.');
       return;
     }
-    if (!selectedUnitId) {
+    const effectiveUnit = selectedUnit || units[0] || null;
+    if (!effectiveUnit?.id) {
       setErrorMessage('يرجى اختيار وحدة قياس صالحة.');
       return;
     }
@@ -148,11 +181,13 @@ export const NewMaterialModal: React.FC<{
     setErrorMessage(null);
 
     try {
+      const materialId = generateUuid();
       const payload = {
+        id: materialId,
         name: name.trim(),
         kind,
         supplier_id: selectedSupplierId || null,
-        unit_id: selectedUnitId,
+        unit_id: effectiveUnit.id,
         purchase_price: Number(purchasePrice) >= 0 ? Number(purchasePrice) : 0,
         market_name: marketName.trim() ? marketName.trim() : null,
         market_unit_factor: marketName.trim()
@@ -168,6 +203,36 @@ export const NewMaterialModal: React.FC<{
         return;
       }
 
+      const savedId = res.data?.id || materialId;
+      // Mirror to local Dexie storage cleanly without duplicate cloud enqueue
+      try {
+        await tenantStorage.saveRawMaterial(
+          {
+            id: savedId,
+            tenantId: workshopId,
+            workshopId,
+            materialName: payload.name,
+            category: (kind === 'extra' ? 'خامة إضافية' : 'خامة أساسية') as any,
+            unit: (effectiveUnit.name || 'كيلو') as any,
+            unitId: effectiveUnit.id,
+            currentStock: 0,
+            minAlertThreshold: 5,
+            costPerUnit: payload.purchase_price,
+            costPerGram:
+              effectiveUnit.factor && effectiveUnit.factor > 0
+                ? payload.purchase_price / effectiveUnit.factor
+                : payload.purchase_price,
+            supplierId: payload.supplier_id || undefined,
+            supplierName: selectedSupplierName || undefined,
+            isActive: true,
+            updatedAt: Date.now(),
+          } as any,
+          { skipCloudQueue: true }
+        );
+      } catch (dexieErr) {
+        console.warn('Dexie mirror warning in NewMaterialModal:', dexieErr);
+      }
+
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -181,8 +246,11 @@ export const NewMaterialModal: React.FC<{
     e.preventDefault();
     if (!quickSupplierName.trim()) return;
     setSavingQuickSupplier(true);
+    setErrorMessage(null);
     try {
+      const supId = generateUuid();
       const res = await createSupplierInSupabase(workshopId, {
+        id: supId,
         name: quickSupplierName.trim(),
         phone: quickSupplierPhone.trim() || undefined,
         address: quickSupplierAddress.trim() || undefined,
@@ -192,6 +260,25 @@ export const NewMaterialModal: React.FC<{
         return;
       }
       if (res.data) {
+        try {
+          await tenantStorage.saveSupplier(
+            {
+              id: res.data.id,
+              tenantId: workshopId,
+              workshopId,
+              name: res.data.name,
+              companyName: res.data.name,
+              phoneNumber: res.data.phone || '',
+              address: res.data.address || '',
+              totalPurchases: 0,
+              totalPaid: 0,
+              outstandingBalance: 0,
+              createdAt: Date.now(),
+            } as any,
+            { skipCloudQueue: true }
+          );
+        } catch {}
+
         setSuppliers((prev) => [...prev, res.data!]);
         setSelectedSupplierId(res.data.id);
         setSelectedSupplierName(res.data.name);
@@ -209,8 +296,11 @@ export const NewMaterialModal: React.FC<{
     e.preventDefault();
     if (!quickUnitName.trim() || !quickSubUnit.trim()) return;
     setSavingQuickUnit(true);
+    setErrorMessage(null);
     try {
+      const unitId = generateUuid();
       const res = await createUnitInSupabase(workshopId, {
+        id: unitId,
         name: quickUnitName.trim(),
         small_unit: quickSubUnit.trim(),
         factor: Number(quickConversionFactor) > 0 ? Number(quickConversionFactor) : 1,
@@ -938,10 +1028,37 @@ export const NewSupplierModal: React.FC<{
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
 
   React.useEffect(() => {
-    tenantStorage.getSuppliers(tenantId).then((sups) => {
-      setSuppliersList(sups);
-      if (sups.length > 0) setSelectedSupplierId(sups[0].id);
+    if (!isOpen || !tenantId) return;
+    Promise.all([
+      getSuppliersFromSupabase(tenantId).catch(() => ({ data: [] as SupabaseSupplier[] })),
+      tenantStorage.getSuppliers(tenantId).catch(() => [] as SupplierProfile[]),
+    ]).then(([sbRes, dexieSups]) => {
+      const map = new Map<string, SupplierProfile>();
+      for (const ds of dexieSups || []) {
+        if (ds?.id) map.set(ds.id, ds);
+      }
+      for (const cs of sbRes.data || []) {
+        if (cs?.id && !map.has(cs.id)) {
+          map.set(cs.id, {
+            id: cs.id,
+            tenantId,
+            workshopId: tenantId,
+            name: cs.name,
+            companyName: cs.notes || cs.name,
+            phoneNumber: cs.phone || '',
+            address: cs.address || '',
+            totalPurchases: 0,
+            totalPaid: 0,
+            outstandingBalance: 0,
+            createdAt: Date.now(),
+          });
+        }
+      }
+      const list = Array.from(map.values());
+      setSuppliersList(list);
+      if (list.length > 0 && !selectedSupplierId) setSelectedSupplierId(list[0].id);
     });
+
     tenantStorage.getRawMaterials(tenantId).then((mats) => {
       setRawMaterialsList(mats);
       if (mats.length > 0) {
@@ -950,7 +1067,7 @@ export const NewSupplierModal: React.FC<{
       }
     });
     tenantStorage.getSupplierInvoices(tenantId).then(setInvoicesList);
-  }, [tenantId]);
+  }, [tenantId, isOpen]);
 
   const [savingSupplier, setSavingSupplier] = useState(false);
   const [supplierError, setSupplierError] = useState('');
@@ -962,7 +1079,9 @@ export const NewSupplierModal: React.FC<{
     setSavingSupplier(true);
     setSupplierError('');
     try {
+      const supId = generateUuid();
       const res = await createSupplierInSupabase(tenantId, {
+        id: supId,
         name: name.trim(),
         phone: phone.trim() || undefined,
         address: address.trim() || undefined,
@@ -977,18 +1096,22 @@ export const NewSupplierModal: React.FC<{
 
       // Also persist to Dexie tenantStorage
       try {
-        await tenantStorage.saveSupplier({
-          id: res.data?.id || 'sup_' + Date.now(),
-          tenantId,
-          name: name.trim(),
-          companyName: companyName.trim() || 'مغزل / متجر خامات',
-          phoneNumber: phone.trim() || '01000000000',
-          address: address.trim(),
-          totalPurchases: 0,
-          totalPaid: 0,
-          outstandingBalance: 0,
-          createdAt: Date.now(),
-        });
+        await tenantStorage.saveSupplier(
+          {
+            id: res.data?.id || supId,
+            tenantId,
+            workshopId: tenantId,
+            name: name.trim(),
+            companyName: companyName.trim() || 'مغزل / متجر خامات',
+            phoneNumber: phone.trim() || '01000000000',
+            address: address.trim(),
+            totalPurchases: 0,
+            totalPaid: 0,
+            outstandingBalance: 0,
+            createdAt: Date.now(),
+          } as any,
+          { skipCloudQueue: true }
+        );
       } catch {}
 
       onSuccess();

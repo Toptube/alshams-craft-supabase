@@ -208,7 +208,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         try {
           const [profileStatusRes, wsStatusRes] = await Promise.all([
             supabase.from('profiles').select('status').eq('id', signInData.user!.id).maybeSingle(),
-            supabase.from('workshops').select('status, is_frozen').eq('id', (signInData.user?.user_metadata as any)?.workshop_id || signInData.user!.id).maybeSingle(),
+            supabase.from('workshops').select('status, is_frozen').or(`owner_id.eq.${signInData.user!.id},owner_uid.eq.${signInData.user!.id}`).limit(1).maybeSingle(),
           ]);
 
           const profStatus = profileStatusRes.data?.status;
