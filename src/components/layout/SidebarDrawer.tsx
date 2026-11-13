@@ -18,6 +18,7 @@ import {
   Globe,
   Sparkles,
   Zap,
+  Bell,
 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
 import { LanguageSwitcher } from './LanguageSwitcher';
@@ -57,6 +58,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   activeView,
   onSelectView,
   onNavigateToCatalog,
+  unreadNotificationsCount = 0,
+  unreadMessagesCount = 0,
+  onOpenNotifications,
   onOpenProfileSettings,
   onOpenCraftsSelector,
   onOpenUserGuide,
@@ -279,13 +283,13 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 <ShoppingBag className="w-5 h-5" />
               </div>
               <div>
-                <span className="text-sm font-black block">سوق الشمساوية المركزي 🛍️</span>
+                <span className="text-sm font-black block">سوق الشمساوية 🛍️</span>
                 <span
                   className={`text-[11px] block ${
                     activeView === 'marketplace' ? 'text-emerald-100' : 'text-stone-500 dark:text-stone-400'
                   }`}
                 >
-                  تصفح المشغولات الحرفية المعتمدة في السوق
+                  عرض منتجات جميع الورش الحرفية
                 </span>
               </div>
             </div>
@@ -294,6 +298,34 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 activeView === 'marketplace' ? 'text-white' : 'text-stone-400'
               }`}
             />
+          </button>
+
+          {/* مركز الإشعارات والرسائل */}
+          <button
+            type="button"
+            onClick={() => {
+              onOpenNotifications();
+              onClose();
+            }}
+            className="w-full p-3.5 rounded-2xl border border-stone-200 dark:border-stone-800 hover:border-amber-400 bg-white dark:bg-stone-850 text-stone-900 dark:text-stone-100 transition-all flex items-center justify-between text-right cursor-pointer shadow-2xs group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="relative w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400">
+                <Bell className="w-5 h-5" />
+                {unreadNotificationsCount + unreadMessagesCount > 0 && (
+                  <span className="absolute -top-1 -left-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center">
+                    {unreadNotificationsCount + unreadMessagesCount}
+                  </span>
+                )}
+              </div>
+              <div>
+                <span className="text-sm font-black block">الإشعارات والتنبيهات 🔔</span>
+                <span className="text-[11px] block text-stone-500 dark:text-stone-400">
+                  تنبيهات الطلبات والمخزون ورسائل الإدارة
+                </span>
+              </div>
+            </div>
+            <ChevronLeft className="w-4 h-4 text-stone-400 transition-transform group-hover:-translate-x-0.5" />
           </button>
         </nav>
 

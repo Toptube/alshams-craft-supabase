@@ -503,6 +503,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     if (targets.length === 0) return;
 
     try {
+      const updatedRecords: SavedProductRecord[] = [];
       for (const p of targets) {
         const defaultPrice = p.storePrice || getRetailPrice(p);
         const defaultDesc =
@@ -520,13 +521,15 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
           updatedAt: Date.now(),
         };
         await tenantStorage.mutateProduct(updated);
+        updatedRecords.push(updated);
+        publishProductToMarketplace(updated, profile).catch(() => {});
       }
 
-      const updatedMap = new Map(targets.map((t) => [t.id, true]));
+      const updatedMap = new Map(updatedRecords.map((t) => [t.id, t]));
       setAllProducts((prev) =>
-        prev.map((item) => (updatedMap.has(item.id) ? { ...item, inStore: true, isPublishedInStore: true } : item))
+        prev.map((item) => updatedMap.get(item.id) || item)
       );
-      setNotice(`✓ تم تصدير (${targets.length}) مشغولة إلى متجرك دفعة واحدة بنجاح! 🏪`);
+      setNotice(`✓ تم تصدير (${targets.length}) مشغولة إلى متجرك وسوق الشمساوية بنجاح 🏪`);
       setTimeout(() => setNotice(''), 4500);
       setSelectedIds(new Set());
     } catch (err: any) {
@@ -545,6 +548,9 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         updatedAt: Date.now(),
       };
       await tenantStorage.mutateProduct(updated);
+      if (updated.inStore && updated.isPublishedInStore) {
+        publishProductToMarketplace(updated, profile).catch(() => {});
+      }
       setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       setNotice(
         !current
@@ -572,6 +578,9 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       };
       // Original p.costPrice remains completely intact and protected!
       await tenantStorage.mutateProduct(updated);
+      if (updated.inStore) {
+        publishProductToMarketplace(updated, profile).catch(() => {});
+      }
       setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       setNotice(`تم حفظ تعديلات العرض في المتجر لمشغولة "${p.productName}" بنجاح!`);
       setTimeout(() => setNotice(''), 3500);

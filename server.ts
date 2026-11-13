@@ -423,15 +423,17 @@ app.get('/api/admin/system-report', requireAuth, async (req: AuthenticatedReques
         let transactionsTotal = productsCount * 1450 + 2800;
 
         try {
-          const [pRes, oRes] = await Promise.all([
+          const [pRes, oRes, mRes] = await Promise.all([
             client.from('products').select('id', { count: 'exact', head: true }).eq('workshop_id', wid),
             client.from('orders').select('id, total_amount').eq('workshop_id', wid),
+            client.from('marketplace_orders').select('id, total_amount').eq('workshop_id', wid),
           ]);
           if (typeof pRes.count === 'number' && pRes.count > 0) {
             productsCount = pRes.count;
           }
-          if (oRes.data && Array.isArray(oRes.data) && oRes.data.length > 0) {
-            const sum = oRes.data.reduce((acc: number, cur: any) => acc + (Number(cur.total_amount) || 0), 0);
+          const ordRows = (oRes.data && oRes.data.length > 0) ? oRes.data : (mRes.data || []);
+          if (Array.isArray(ordRows) && ordRows.length > 0) {
+            const sum = ordRows.reduce((acc: number, cur: any) => acc + (Number(cur.total_amount) || 0), 0);
             if (sum > 0) transactionsTotal = sum;
           }
         } catch {}
@@ -499,17 +501,19 @@ app.post('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, 
 
   try {
     const client = supabaseAdminClient;
-    await client.from('workshops').insert({
+    const { error: wsInsErr } = await client.from('workshops').insert({
       id: newWs.id,
       brand_name: newWs.brandName,
       artist_name: newWs.artistName,
       email: newWs.email,
-      phone_number: newWs.phoneNumber,
+      phone: newWs.phoneNumber,
       country: newWs.country,
       currency: newWs.currency,
-      role: newWs.role,
       status: 'active',
     });
+    if (wsInsErr) {
+      console.warn('[Admin Create Workshop] Supabase notice:', wsInsErr.message);
+    }
   } catch {}
 
   res.json({ success: true, workshop: newWs });
@@ -534,24 +538,21 @@ app.put('/api/admin/workshops/:id', requireAuth, async (req: AuthenticatedReques
 
   try {
     const client = supabaseAdminClient;
+    const nowIso = new Date().toISOString();
     await Promise.allSettled([
       client.from('workshops').update({
         brand_name: updates.brandName,
         artist_name: updates.artistName,
         email: updates.email,
-        phone_number: updates.phoneNumber,
+        phone: updates.phoneNumber,
         country: updates.country,
         currency: updates.currency,
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso,
       }).eq('id', targetWid),
       client.from('profiles').update({
-        brand_name: updates.brandName,
-        artist_name: updates.artistName,
+        name: updates.artistName || updates.brandName,
         email: updates.email,
-        phone_number: updates.phoneNumber,
-        country: updates.country,
-        currency: updates.currency,
-        updated_at: new Date().toISOString(),
+        phone: updates.phoneNumber,
       }).eq('id', targetWid),
     ]);
   } catch {}
@@ -607,7 +608,7 @@ app.post('/api/admin/workshops/:id/credentials', requireAuth, async (req: Authen
       brand_name: updatedRow.brandName,
       artist_name: updatedRow.artistName,
       email: updatedRow.email,
-      phone_number: updatedRow.phoneNumber,
+      phone: updatedRow.phoneNumber,
       updated_at: new Date().toISOString(),
     }).eq('id', targetWid);
   } catch {}
@@ -754,16 +755,17 @@ app.get('/api/admin/workshops/:id/audit', requireAuth, async (req: Authenticated
   let ordersCount = 0;
 
   try {
-    const [matsRes, prodsRes, mktRes, ordRes] = await Promise.all([
+    const [matsRes, prodsRes, mktRes, ordRes, mktOrdRes] = await Promise.all([
       client.from('materials').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
       client.from('products').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
       client.from('marketplace_products').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
       client.from('orders').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
+      client.from('marketplace_orders').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
     ]);
     if (typeof matsRes.count === 'number') matsCount = matsRes.count;
     if (typeof prodsRes.count === 'number') prodsCount = prodsRes.count;
     if (typeof mktRes.count === 'number') marketplaceCount = mktRes.count;
-    if (typeof ordRes.count === 'number') ordersCount = ordRes.count;
+    ordersCount = (typeof ordRes.count === 'number' ? ordRes.count : 0) + (typeof mktOrdRes.count === 'number' ? mktOrdRes.count : 0);
   } catch {}
 
   const lastActiveDate = ws.updatedAt ? new Date(ws.updatedAt).toLocaleDateString('ar-EG', { dateStyle: 'full' }) : 'نشط مؤخراً';
@@ -797,21 +799,27 @@ app.get('/api/admin/workshops/:id/deep-data', requireAuth, async (req: Authentic
   const client = supabaseAdminClient;
 
   try {
-    const [matsRes, prodsRes, treasRes, ordersRes, custsRes, supsRes, empsRes] = await Promise.all([
+    const [matsRes, prodsRes, treasRes, ordersRes, mktOrdersRes, custsRes, supsRes, empsRes] = await Promise.all([
       client.from('materials').select('*').eq('workshop_id', targetWid),
       client.from('products').select('*').eq('workshop_id', targetWid),
       client.from('treasuries').select('*').eq('workshop_id', targetWid),
       client.from('orders').select('*').eq('workshop_id', targetWid),
+      client.from('marketplace_orders').select('*').eq('workshop_id', targetWid),
       client.from('customers').select('*').eq('workshop_id', targetWid),
       client.from('suppliers').select('*').eq('workshop_id', targetWid),
       client.from('employees').select('*').eq('workshop_id', targetWid),
     ]);
 
+    const combinedOrders = [
+      ...(Array.isArray(ordersRes.data) ? ordersRes.data : []),
+      ...(Array.isArray(mktOrdersRes.data) ? mktOrdersRes.data : []),
+    ];
+
     res.json({
       materials: matsRes.data || [],
       products: prodsRes.data || [],
       treasuries: treasRes.data || [],
-      orders: ordersRes.data || [],
+      orders: combinedOrders,
       customers: custsRes.data || [],
       suppliers: supsRes.data || [],
       employees: empsRes.data || [],
@@ -905,11 +913,22 @@ async function checkWorkshopStatusAndAutoUnfreeze(
   const local = localWorkshopStatusMap.get(workshopId);
 
   try {
-    const { data, error } = await client
+    let { data, error } = await client
       .from('workshops')
-      .select('id, status, is_frozen, suspension_reason, suspension_duration, suspended_until, appeal_status, appeal_message, rejection_reason, appeal_submitted_at')
+      .select('id, status, is_frozen, suspended_reason, suspension_reason, suspension_duration, suspended_until, appeal_status, appeal_message, rejection_reason, appeal_submitted_at')
       .eq('id', workshopId)
       .maybeSingle();
+
+    if (error) {
+      // Fallback to live columns if migration columns are pending
+      const fb = await client
+        .from('workshops')
+        .select('id, status, is_frozen, suspended_reason')
+        .eq('id', workshopId)
+        .maybeSingle();
+      data = fb.data as any;
+      error = fb.error;
+    }
 
     if (!error && data) {
       let curStatus: 'active' | 'suspended' | 'banned' =
@@ -920,23 +939,30 @@ async function checkWorkshopStatusAndAutoUnfreeze(
         const untilTime = new Date(data.suspended_until).getTime();
         if (!isNaN(untilTime) && Date.now() > untilTime) {
           curStatus = 'active';
-          await client
+          const { error: unfreezeErr } = await client
             .from('workshops')
             .update({
               status: 'active',
               is_frozen: false,
+              suspended_reason: null,
               suspension_reason: null,
               suspension_duration: null,
               suspended_until: null,
             })
-            .eq('id', workshopId)
-            .catch(() => {});
+            .eq('id', workshopId);
+          if (unfreezeErr) {
+            await client
+              .from('workshops')
+              .update({ status: 'active', is_frozen: false, suspended_reason: null })
+              .eq('id', workshopId)
+              .catch(() => {});
+          }
         }
       }
 
       const rec: WorkshopStatusRecord = {
         status: curStatus,
-        suspension_reason: data.suspension_reason,
+        suspension_reason: data.suspension_reason || data.suspended_reason,
         suspension_duration: data.suspension_duration,
         suspended_until: data.suspended_until,
         appeal_status: (data.appeal_status as any) || 'none',
@@ -1048,24 +1074,29 @@ app.post('/api/admin/workshops/:id/status', requireAuth, async (req: Authenticat
   const isFrozen = status !== 'active';
   const client = supabaseAdminClient;
 
+  const reasonText = isFrozen ? suspension_reason || 'إجراء إداري' : null;
+  const nowIso = new Date().toISOString();
   const updateData: any = {
     status,
     is_frozen: isFrozen,
-    suspension_reason: isFrozen ? suspension_reason || 'إجراء إداري' : null,
+    suspended_reason: reasonText,
+    suspension_reason: reasonText,
     suspension_duration: isFrozen ? suspension_duration || null : null,
     suspended_until: status === 'suspended' ? suspended_until || null : null,
-    frozen_reason: isFrozen ? suspension_reason || 'إجراء إداري' : null,
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso,
   };
 
   try {
-    await Promise.allSettled([
-      client.from('workshops').update(updateData).eq('id', targetWid),
-      client.from('profiles').update({
+    const { error: stErr } = await client.from('workshops').update(updateData).eq('id', targetWid);
+    if (stErr) {
+      await client.from('workshops').update({
         status,
-        updated_at: updateData.updated_at,
-      }).eq('id', targetWid),
-    ]);
+        is_frozen: isFrozen,
+        suspended_reason: reasonText,
+        updated_at: nowIso,
+      }).eq('id', targetWid);
+    }
+    await client.from('profiles').update({ status }).eq('id', targetWid);
   } catch (dbErr) {
     console.warn('[Admin Status] Supabase update warning:', dbErr);
   }
@@ -1119,10 +1150,10 @@ app.post('/api/admin/workshops/:id/appeal', requireAuth, async (req: Authenticat
         status: 'active',
         is_frozen: false,
         appeal_status: 'accepted',
+        suspended_reason: null,
         suspension_reason: null,
         suspension_duration: null,
         suspended_until: null,
-        frozen_reason: null,
       }
     : {
         appeal_status: 'rejected',
@@ -1130,10 +1161,13 @@ app.post('/api/admin/workshops/:id/appeal', requireAuth, async (req: Authenticat
       };
 
   try {
-    await Promise.allSettled([
-      client.from('workshops').update(updateData).eq('id', targetWid),
-      client.from('profiles').update(updateData).eq('id', targetWid),
-    ]);
+    const { error: wsAppErr } = await client.from('workshops').update(updateData).eq('id', targetWid);
+    if (wsAppErr && isAccepted) {
+      await client.from('workshops').update({ status: 'active', is_frozen: false, suspended_reason: null }).eq('id', targetWid);
+    }
+    if (isAccepted) {
+      await client.from('profiles').update({ status: 'active' }).eq('id', targetWid);
+    }
   } catch {}
 
   const existing = localWorkshopStatusMap.get(targetWid) || { status: 'suspended' };
@@ -1168,7 +1202,7 @@ app.get('/api/admin/appeals', requireAuth, async (req: AuthenticatedRequest, res
   try {
     const { data, error } = await client
       .from('workshops')
-      .select('id, brand_name, artist_name, phone_number, email, status, suspension_reason, appeal_status, appeal_message, rejection_reason, appeal_submitted_at')
+      .select('id, brand_name, artist_name, phone, email, status, suspended_reason, appeal_status, appeal_message, rejection_reason, appeal_submitted_at')
       .not('appeal_status', 'is', null)
       .neq('appeal_status', 'none')
       .order('appeal_submitted_at', { ascending: false });
@@ -1265,10 +1299,13 @@ app.post('/api/admin/announcements', requireAuth, async (req: AuthenticatedReque
   const client = supabaseAdminClient;
   try {
     await client.from('admin_announcements').insert({
+      id: newAnn.id,
+      sender_id: newAnn.sender_id,
       recipient_type: newAnn.recipient_type,
       recipient_workshop_id: newAnn.recipient_workshop_id,
       title: newAnn.title,
       content: newAnn.content,
+      created_at: newAnn.created_at,
     });
   } catch {
     // fallback
@@ -1335,7 +1372,7 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
   try {
     const { data: receipts } = await client
       .from('workshop_messages_receipts')
-      .select('*, admin_announcements(*), workshops(id, brand_name, artist_name, phone_number, email)')
+      .select('*, admin_announcements(*), workshops(id, brand_name, artist_name, phone, email)')
       .not('reply_text', 'is', null)
       .order('replied_at', { ascending: false });
 
@@ -1764,36 +1801,72 @@ app.get('/api/ai/status', (_req: Request, res: Response) => {
 // Marketplace Cloud Endpoints & Super Admin Product Approvals
 // -------------------------------------------------------------
 
-// 1. Get Approved Marketplace Products for Public Shoppers
+// 1. Get Marketplace Products for Public Shoppers (Approved + Pending Approval provisionally, excluding Rejected)
 app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
   try {
     const client = supabaseAdminClient;
     const persistent = loadPersistentMarketplaceProducts();
-    const approvedMap = new Map<string, any>();
+    const productsMap = new Map<string, any>();
 
-    // Add persistent approved products
-    persistent.forEach((p: any) => {
-      if (p.status === 'approved' || p.isMarketplaceApproved) {
-        approvedMap.set(p.id, { ...p, status: 'approved' });
-      }
-    });
-
-    // Merge Supabase products
+    // Build workshops lookup map to enrich brand, artist, phone, logo, slug
+    const workshopLookup = new Map<string, any>();
     try {
-      const { data, error } = await client
-        .from('marketplace_products')
-        .select('*')
-        .eq('status', 'approved')
-        .order('created_at', { ascending: false });
+      const persistentWorkshops = loadPersistentWorkshops();
+      persistentWorkshops.forEach((w: any) => {
+        const wid = w.id || w.workshopId || w.workshop_id;
+        if (wid) workshopLookup.set(wid, w);
+      });
+    } catch {}
 
-      if (!error && Array.isArray(data)) {
-        data.forEach((p: any) => {
-          approvedMap.set(p.id, { ...(approvedMap.get(p.id) || {}), ...p, status: 'approved' });
+    try {
+      const { data: wsRows } = await client.from('workshops').select('*');
+      if (Array.isArray(wsRows)) {
+        wsRows.forEach((w: any) => {
+          const wid = w.id || w.workshop_id;
+          if (wid) workshopLookup.set(wid, { ...(workshopLookup.get(wid) || {}), ...w });
         });
       }
     } catch {}
 
-    const products = Array.from(approvedMap.values());
+    // Add persistent products (exclude rejected)
+    persistent.forEach((p: any) => {
+      if (p.status !== 'rejected') {
+        productsMap.set(p.id, { ...p, status: p.status || 'pending_approval' });
+      }
+    });
+
+    // Merge Supabase products (approved + pending_approval, excluding rejected)
+    try {
+      const { data, error } = await client
+        .from('marketplace_products')
+        .select('*')
+        .in('status', ['approved', 'pending_approval'])
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        data.forEach((p: any) => {
+          productsMap.set(p.id, { ...(productsMap.get(p.id) || {}), ...p });
+        });
+      }
+    } catch {}
+
+    // Enrich workshop details on every product
+    const products = Array.from(productsMap.values())
+      .filter((p: any) => p.status !== 'rejected')
+      .map((p: any) => {
+        const wid = p.workshop_id || p.workshopId || '';
+        const ws = workshopLookup.get(wid);
+        const enriched = {
+          ...p,
+          brand_name: p.brand_name || p.brandName || ws?.brand_name || ws?.brandName || 'ورشة الشمساوية',
+          artist_name: p.artist_name || p.artistName || ws?.artist_name || ws?.artistName || 'فنان الشمساوية',
+          phone_number: p.phone_number || p.phoneNumber || ws?.phone_number || ws?.phone || ws?.phoneNumber || '',
+          logo_url: p.logo_url || p.logoUrl || ws?.logo_data || ws?.logo_url || ws?.logoUrl || null,
+          store_slug: p.store_slug || p.storeSlug || ws?.store_slug || ws?.storeSlug || wid,
+        };
+        return normalizeCloudProductRow(enriched);
+      });
+
     res.json({ success: true, products, count: products.length });
   } catch (err: any) {
     res.status(500).json({ error: 'تعذر جلب معروضات سوق الشمساوية' });
@@ -2035,14 +2108,15 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
     const brandName = ws.brand_name || ws.brandName || 'ورشة فنية';
     const artistName = ws.artist_name || ws.artistName || 'فنان الشمساوية';
     const logoUrl = ws.logo_data || ws.logo_url || ws.logoUrl || null;
-    const phone = ws.phone || ws.phone_number || ws.phoneNumber || '';
+    const phone = ws.phone_number || ws.phone || ws.phoneNumber || '';
+    const storeSlug = ws.store_slug || ws.storeSlug || wid;
 
     const persistent = loadPersistentMarketplaceProducts();
     const prodsMap = new Map<string, any>();
 
-    // Strict local isolation by workshop_id ONLY
+    // Strict local isolation by workshop_id ONLY (exclude rejected)
     persistent.forEach((p: any) => {
-      if (p.workshop_id === wid || p.workshopId === wid) {
+      if ((p.workshop_id === wid || p.workshopId === wid) && p.status !== 'rejected') {
         prodsMap.set(p.id, p);
       }
     });
@@ -2052,7 +2126,8 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
       const { data } = await client
         .from('marketplace_products')
         .select('*')
-        .eq('workshop_id', wid);
+        .eq('workshop_id', wid)
+        .neq('status', 'rejected');
       if (Array.isArray(data)) {
         data.forEach((p: any) => {
           prodsMap.set(p.id, { ...(prodsMap.get(p.id) || {}), ...p });
@@ -2074,15 +2149,18 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
               brand_name: brandName,
               artist_name: artistName,
               phone_number: phone,
+              logo_url: logoUrl,
+              store_slug: storeSlug,
               product_name: p.product_name,
               category: p.category || 'أعمال يدوية',
+              craft_name: p.craft_name || p.category || 'أعمال يدوية',
               store_price: p.retail_price || 0,
               retail_price: p.retail_price || 0,
               wholesale_price: p.wholesale_price || 0,
               cost_price: p.cost_price || 0,
               image_url: p.image_url || null,
               store_description: p.specs?.marketingDescription || p.specs?.materialsDescription || p.product_name,
-              status: 'approved',
+              status: 'pending_approval',
               created_at: p.created_at,
             });
           });
@@ -2090,7 +2168,18 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
       } catch {}
     }
 
-    const storeProducts = Array.from(prodsMap.values()).map(normalizeCloudProductRow);
+    const storeProducts = Array.from(prodsMap.values())
+      .filter((p: any) => p.status !== 'rejected' && (p.workshop_id === wid || p.workshopId === wid))
+      .map((p: any) =>
+        normalizeCloudProductRow({
+          ...p,
+          brand_name: brandName,
+          artist_name: artistName,
+          phone_number: p.phone_number || phone,
+          logo_url: p.logo_url || logoUrl,
+          store_slug: storeSlug,
+        })
+      );
 
     res.json({
       success: true,
@@ -2103,6 +2192,7 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
         country: ws.country || 'مصر',
         currencySymbol: ws.currency_symbol || ws.currencySymbol || 'ج.م',
         logoUrl,
+        storeSlug,
         selectedCrafts: ws.selected_crafts || ws.selectedCrafts || ['macrame'],
         ratingStars: ws.rating_stars || ws.ratingStars || 5,
         medal: ws.medal || 'gold',
@@ -2121,6 +2211,8 @@ function normalizeCloudProductRow(row: any) {
     brand_name: row.brand_name || row.brandName,
     artist_name: row.artist_name || row.artistName,
     phone_number: row.phone_number || row.phoneNumber,
+    logo_url: row.logo_url || row.logoUrl || null,
+    store_slug: row.store_slug || row.storeSlug || row.workshop_id || row.workshopId || '',
     product_name: row.product_name || row.productName,
     category: row.category,
     craft_name: row.craft_name || row.craftName,
@@ -2210,7 +2302,7 @@ app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: 
               id: found.id,
               brandName: found.brand_name || found.brandName,
               artistName: found.artist_name || found.artistName,
-              logoUrl: found.logo_url || found.logoUrl,
+              logoUrl: found.logo_data || found.logo_url || found.logoUrl,
             };
           }
         }

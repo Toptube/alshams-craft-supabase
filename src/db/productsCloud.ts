@@ -274,17 +274,29 @@ async function doPull(workshopId: string): Promise<number> {
   let changed = 0;
   let maxSynced = cursor;
 
+  let useUpdatedAtFallback = false;
+
   for (;;) {
     let q = supabase
       .from('products')
       .select('*')
-      .eq('workshop_id', workshopId)
-      .order('synced_at', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (since) q = q.gt('synced_at', since);
+      .eq('workshop_id', workshopId);
+
+    if (useUpdatedAtFallback) {
+      q = q.order('updated_at', { ascending: true }).order('id', { ascending: true }).range(from, from + PAGE - 1);
+      if (since) q = q.gt('updated_at', since);
+    } else {
+      q = q.order('synced_at', { ascending: true }).order('id', { ascending: true }).range(from, from + PAGE - 1);
+      if (since) q = q.gt('synced_at', since);
+    }
+
     const { data: rows, error } = await q;
     if (error) {
+      if (!useUpdatedAtFallback && (error.code === '42703' || error.message?.includes('synced_at'))) {
+        useUpdatedAtFallback = true;
+        from = 0;
+        continue;
+      }
       console.warn('[productsCloud] pull failed:', error.message);
       break;
     }
@@ -294,7 +306,8 @@ async function doPull(workshopId: string): Promise<number> {
       } catch (err) {
         console.warn('[productsCloud] apply failed for', row.id, err);
       }
-      if (row.synced_at && (!maxSynced || Date.parse(row.synced_at) > Date.parse(maxSynced))) maxSynced = row.synced_at;
+      const syncStamp = row.synced_at || row.updated_at;
+      if (syncStamp && (!maxSynced || Date.parse(syncStamp) > Date.parse(maxSynced))) maxSynced = syncStamp;
     }
     if (!rows || rows.length < PAGE) break;
     from += PAGE;

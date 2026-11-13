@@ -36,6 +36,8 @@ import {
 } from '../../services/marketplaceCartService';
 import { MarketplaceCartModal } from '../marketplace/MarketplaceCartModal';
 import { playSuccessSound, playAddToCartSound, triggerHaptic } from '../../lib/sounds';
+import { tenantStorage } from '../../db/dexieDB';
+import { matchesWorkshopSlug } from '../../utils/slugify';
 
 interface PublicStorefrontViewProps {
   slug: string;
@@ -86,56 +88,120 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       setLoading(true);
       setErrorNotice(null);
       try {
-        const data = await fetchPublicStorefrontBySlug(slug);
+        let data = await fetchPublicStorefrontBySlug(slug);
+
+        // Fallback to local profile ONLY if offline/unavailable AND slug strictly matches this artist's workshop
+        if ((!data || !data.workshop) && typeof window !== 'undefined') {
+          try {
+            const rawProf = localStorage.getItem('alshams_profile');
+            if (rawProf) {
+              const localProf = JSON.parse(rawProf);
+              if (matchesWorkshopSlug(localProf, slug)) {
+                const wid = localProf.workshopId || localProf.tenantId || localProf.id;
+                data = {
+                  workshop: {
+                    id: wid,
+                    brandName: localProf.brandName || 'ورشة الشمساوية',
+                    artistName: localProf.artistName || 'فنان الشمساوية',
+                    phoneNumber: localProf.phoneNumber || OFFICIAL_SUPPORT_PHONE,
+                    country: localProf.country || 'مصر',
+                    currencySymbol: localProf.currencySymbol || 'ج.م',
+                    logoUrl: localProf.logo_url || localProf.logoUrl || localProf.logoBase64,
+                    storeSlug: localProf.store_slug || localProf.storeSlug || wid,
+                    ratingStars: localProf.ratingStars || 5,
+                    medal: localProf.medal || 'gold',
+                  },
+                  products: [],
+                };
+              }
+            }
+          } catch {}
+        }
+
         if (isMounted) {
           if (data && data.workshop) {
             const targetWorkshopId = data.workshop.id;
             let finalProducts: any[] = [];
 
-            // 1. Direct query crafts table by workshop_id as requested
-            try {
-              const { data: craftsData } = await supabase
-                .from('crafts')
-                .select('*')
-                .eq('workshop_id', targetWorkshopId);
-              if (Array.isArray(craftsData) && craftsData.length > 0) {
-                finalProducts = craftsData;
-              }
-            } catch {}
-
-            // 2. Query marketplace_products table where workshop_id == targetWorkshopId
-            if (finalProducts.length === 0) {
+            // 1. Strict marketplace_products query by workshop_id (excluding rejected)
+            if (typeof navigator === 'undefined' || navigator.onLine) {
               try {
                 const { data: marketData } = await supabase
                   .from('marketplace_products')
                   .select('*')
-                  .eq('workshop_id', targetWorkshopId);
+                  .eq('workshop_id', targetWorkshopId)
+                  .neq('status', 'rejected');
                 if (Array.isArray(marketData) && marketData.length > 0) {
                   finalProducts = marketData;
                 }
               } catch {}
             }
 
-            // Fallback to data.products strictly filtered by targetWorkshopId
-            if (finalProducts.length === 0 && Array.isArray(data.products)) {
+            // 2. Fallback to API/storefront payload strictly filtered by workshop_id
+            if (finalProducts.length === 0 && Array.isArray(data.products) && data.products.length > 0) {
               finalProducts = data.products.filter(
-                (p: any) => (p.workshop_id || p.workshopId) === targetWorkshopId
+                (p: any) => p.status !== 'rejected' && (p.workshop_id || p.workshopId) === targetWorkshopId
               );
+            }
+
+            // 3. Offline / local Dexie fallback strictly for targetWorkshopId
+            if (finalProducts.length === 0) {
+              try {
+                const localProds = await tenantStorage.getProducts(targetWorkshopId);
+                finalProducts = localProds
+                  .filter((p) => p.inStore && p.isPublishedInStore !== false)
+                  .map((p) => ({
+                    id: p.id,
+                    workshop_id: targetWorkshopId,
+                    brand_name: data!.workshop.brandName,
+                    artist_name: data!.workshop.artistName,
+                    phone_number: data!.workshop.phoneNumber,
+                    logo_url: data!.workshop.logoUrl,
+                    store_slug: data!.workshop.storeSlug,
+                    product_name: p.productName,
+                    category: p.category || p.craftName || 'أعمال يدوية',
+                    craft_name: p.craftName || p.category || 'أعمال يدوية',
+                    decor_category: p.decorCategory || 'all',
+                    store_price: p.storePrice || p.retailPrice || 0,
+                    retail_price: p.retailPrice || p.storePrice || 0,
+                    wholesale_price: p.wholesalePrice || 0,
+                    cost_price: p.costPrice || 0,
+                    current_stock: p.currentStock ?? 1,
+                    image_url: p.imageUrl || '/alshams_falcon_emblem.png',
+                    store_description: p.storeDescription || (p as any).notes || '',
+                    available_colors: p.availableColors || [],
+                    available_sizes: p.availableSizes || [],
+                    status: p.isMarketplaceApproved ? 'approved' : 'pending_approval',
+                  }));
+              } catch {}
             }
 
             setStoreData({
               workshop: data.workshop,
               products: finalProducts
-                .filter((p: any) => (p.workshop_id || p.workshopId) === targetWorkshopId)
-                .map(normalizeCloudProduct),
+                .filter(
+                  (p: any) =>
+                    p.status !== 'rejected' &&
+                    (p.workshop_id || p.workshopId) === targetWorkshopId
+                )
+                .map((p: any) =>
+                  normalizeCloudProduct({
+                    ...p,
+                    brand_name: data!.workshop.brandName,
+                    artist_name: data!.workshop.artistName,
+                    phone_number: p.phone_number || data!.workshop.phoneNumber,
+                    logo_url: p.logo_url || data!.workshop.logoUrl,
+                    store_slug: data!.workshop.storeSlug,
+                  })
+                ),
             });
           } else {
-            // Build safe fallback representation from slug
+            // Unrecognized workshop fallback (strictly no leaked products)
             const decoded = decodeURIComponent(slug).replace(/-/g, ' ');
             setStoreData({
               workshop: {
                 id: slug,
-                brandName: decoded || 'ورشة الشمساوية الحرفية',
+                brandName: decoded || 'متجر حرفي',
                 artistName: 'فنان الشمساوية',
                 phoneNumber: OFFICIAL_SUPPORT_PHONE,
                 country: 'مصر',
@@ -150,7 +216,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         }
       } catch (err: any) {
         if (isMounted) {
-          setErrorNotice('تعذر جلب معروضات المتجر حالياً، يرجى إعادة المحاولة.');
+          setErrorNotice('تعذر تحميل معروضات المتجر حالياً.');
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -241,8 +307,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       customNotes: customNotes || undefined,
     });
 
-    setAddedToast(`✓ تم إضافة "${p.product_name}" إلى سلة المشتريات! يمكنك إتمام الطلب وسداد العربون (33%).`);
-    setTimeout(() => setAddedToast(null), 3500);
+    setAddedToast(`تم إضافة "${p.product_name}" إلى السلة.`);
+    setTimeout(() => setAddedToast(null), 3000);
     setSelectedProduct(null);
   };
 
@@ -352,40 +418,40 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       </a>
 
       {/* Hero Banner with Workshop Branding */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-amber-500/10 via-amber-500/5 to-transparent border-b border-amber-500/20 py-8 sm:py-12 px-4 sm:px-6">
+      <section className="relative overflow-hidden bg-gradient-to-b from-amber-500/10 via-amber-500/5 to-transparent border-b border-amber-500/20 py-7 sm:py-10 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-3 text-center md:text-right max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/40">
               <ShieldCheck className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>مشغولات يدوية وديكورات أصلية بضمان الجودة الحرفية العالية</span>
+              <span>مشغولات يدوية أصلية بضمان الجودة</span>
             </div>
 
             <h2 className="text-2xl sm:text-4xl font-black text-stone-950 dark:text-white leading-tight">
-              أهلاً بكم في متجر <span className="text-amber-600 dark:text-amber-400">"{brandName}"</span>
+              متجر <span className="text-amber-600 dark:text-amber-400">"{brandName}"</span>
             </h2>
 
-            <p className="text-sm sm:text-base font-medium text-stone-600 dark:text-stone-300 leading-relaxed">
-              استكشف تشكيلتنا الحصرية من المشغولات اليدوية والديكورات العصرية المصنوعة بأعلى معايير الحرفة والدقة من خامات طبيعية مصرية منتقاة.
+            <p className="text-sm font-medium text-stone-600 dark:text-stone-300 leading-relaxed">
+              تشكيلة قطع يدوية منفذة بعناية بأنامل {artistName}. اختر ما يناسبك واطلب مباشرة.
             </p>
 
-            {/* Central Guarantee & Support Hotline */}
-            <div className="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-3">
+            {/* Artist Contact & Platform Guarantees */}
+            <div className="pt-1 flex flex-wrap items-center justify-center md:justify-start gap-2.5">
               <a
-                href={`tel:${OFFICIAL_SUPPORT_PHONE}`}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer"
+                href={`tel:${phone}`}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs shadow-md shadow-amber-500/20 transition cursor-pointer"
               >
-                <Phone className="w-4 h-4 text-stone-950" />
-                <span>خدمة العملاء والدعم: {OFFICIAL_SUPPORT_PHONE}</span>
+                <Phone className="w-3.5 h-3.5 text-stone-950" />
+                <span>تواصل: {phone}</span>
               </a>
 
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>سداد الدفعة المقدمة 33% بحماية منظومة الشمساوية</span>
+              <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/30 text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>ضمان الشمساوية (عربون 33%)</span>
               </div>
 
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-600 dark:text-stone-400">
-                <Truck className="w-4 h-4 text-amber-500" />
-                <span>شحن وتوصيل آمن لباب البيت</span>
+              <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs font-bold text-stone-600 dark:text-stone-400">
+                <Truck className="w-3.5 h-3.5 text-amber-500" />
+                <span>شحن لجميع المحافظات</span>
               </div>
             </div>
           </div>
@@ -529,7 +595,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         {p.product_name}
                       </h3>
                       <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
-                        {p.store_description || 'مشغولة يدوية فاخرة مصنوعة بدقة وعناية واهتمام بأدق التفاصيل.'}
+                        {p.store_description || 'مشغولة يدوية متقنة الصنع.'}
                       </p>
                     </div>
 
@@ -567,7 +633,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition flex items-center gap-1.5 shadow-sm hover:shadow-md cursor-pointer active:scale-95"
                         >
                           <ShoppingBag className="w-3.5 h-3.5" />
-                          <span>أضف للسلة (عربون 33%)</span>
+                          <span>أضف للسلة</span>
                         </button>
                       </div>
                     </div>

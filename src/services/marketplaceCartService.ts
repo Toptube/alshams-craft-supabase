@@ -282,6 +282,7 @@ export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
 
     // 5. Cloud Sync to Supabase marketplace_orders
     const cloudPayload = {
+      id: order.id,
       order_number: order.invoiceNumber || `SHAMS-${Date.now().toString().slice(-5)}`,
       workshop_id: workshopId,
       customer_name: order.customerName,

@@ -252,12 +252,12 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         console.warn('Could not read dexie raw materials:', e);
       }
 
-      // Initialize defaults for any materials without stock data
-      for (const m of loadedMats) {
+      // Hydrate missing stock entries from Supabase materials row & initialize defaults
+      for (const m of loadedMats as any[]) {
         if (!stocks[m.id]) {
           stocks[m.id] = {
-            currentStock: 0,
-            minAlertThreshold: 5,
+            currentStock: Number(m.current_stock ?? 0),
+            minAlertThreshold: Number(m.min_limit ?? 5),
           };
         }
       }
@@ -686,6 +686,12 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
           isActive: true,
           updatedAt: Date.now(),
         });
+
+        // Silent cloud stock sync to Supabase materials row
+        await updateMaterialInSupabase(mat.id, workshopId, {
+          current_stock: validStock,
+          min_limit: validThreshold,
+        } as any).catch(() => {});
       }
     } catch (e) {
       console.warn('Dexie save error:', e);

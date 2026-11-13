@@ -731,7 +731,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         const tributeTitle = `🎖️ تهنئة رسمية: منح ورشتكم قلادة الشمساوية ${medalArabic}!`;
         const tributeContent = `تقديراً لتميزكم الحرفي وتفانيكم في جودة المشغولات اليدوية، قررت إدارة منظومة الشمساوية برئاسة كبير العيلة م. حسام بسيوني منح ورشتكم [${awardingWorkshop.brandName}] تقييم [${selectedStars}] نجوم وقلادة [${medalArabic}].${awardCustomNote ? `\n\nكلمة التكريم: "${awardCustomNote}"` : ''}\n\nنبارك لكم هذا التكريم المستحق ونتمنى لكم دوام التألق والإبداع!`;
 
-        await supabase.from('announcements').insert({
+        await supabase.from('admin_announcements').insert({
           id: `ann_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
           sender_id: profile.id,
           sender_name: profile.artistName || 'م. حسام بسيوني (سوبر أدمن)',
@@ -840,11 +840,12 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         setAuditData(data);
       } else {
         // Fallback: Query live Supabase counts directly
-        const [matsRes, prodsRes, mktRes, ordRes] = await Promise.all([
+        const [matsRes, prodsRes, mktRes, ordRes, mktOrdRes] = await Promise.all([
           supabase.from('materials').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
           supabase.from('products').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
           supabase.from('marketplace_products').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
           supabase.from('orders').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
+          supabase.from('marketplace_orders').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
         ]);
 
         setAuditData({
@@ -857,7 +858,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           productsCount: prodsRes.count || 0,
           marketplaceProductsCount: mktRes.count || 0,
           materialsCount: matsRes.count || 0,
-          ordersCount: ordRes.count || 0,
+          ordersCount: (ordRes.count || 0) + (mktOrdRes.count || 0),
           rating_stars: ws.rating_stars || 5,
           medal: ws.medal || null,
         });
@@ -1075,9 +1076,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         brand_name: brand,
         artist_name: artist,
         email: email,
-        phone_number: phone,
+        phone: phone,
         country: app.country || 'مصر',
-        currency_symbol: 'ج.م',
+        currency: 'EGP',
         selected_crafts: crafts,
         status: 'active',
         is_frozen: false,
@@ -1415,16 +1416,24 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       };
 
       try {
-        await supabase.from('profiles').update({
-          brand_name: updated.brandName,
-          artist_name: updated.artistName,
-          phone_number: updated.phoneNumber,
-          status: updated.status,
-          role: updated.role,
-          updated_at: new Date().toISOString(),
-        }).eq('id', updated.id);
+        const nowIso = new Date().toISOString();
+        await Promise.allSettled([
+          supabase.from('workshops').update({
+            brand_name: updated.brandName,
+            artist_name: updated.artistName,
+            phone: updated.phoneNumber,
+            status: updated.status || 'active',
+            updated_at: nowIso,
+          }).eq('id', updated.id),
+          supabase.from('profiles').update({
+            name: updated.artistName || updated.brandName,
+            phone: updated.phoneNumber,
+            status: updated.status || 'active',
+            role: updated.role || 'artisan',
+          }).eq('id', updated.id),
+        ]);
       } catch (supaErr) {
-        console.warn('Supabase profile update notice:', supaErr);
+        console.warn('Supabase workshop/profile update notice:', supaErr);
       }
 
       try {
@@ -1812,23 +1821,34 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       };
 
       try {
-        await supabase.from('profiles').upsert({
-          id: newWs.id,
-          brand_name: newWs.brandName,
-          artist_name: newWs.artistName,
-          email: newWs.email,
-          phone_number: newWs.phoneNumber,
-          country: newWs.country,
-          currency: newWs.currency,
-          currency_symbol: newWs.currencySymbol,
-          calling_code: newWs.callingCode,
-          role: newWs.role,
-          status: 'active',
-          created_at: new Date(newWs.createdAt).toISOString(),
-          updated_at: new Date(newWs.updatedAt).toISOString(),
-        });
+        const nowIso = new Date(newWs.createdAt).toISOString();
+        await Promise.allSettled([
+          supabase.from('workshops').upsert({
+            id: newWs.id,
+            brand_name: newWs.brandName,
+            artist_name: newWs.artistName,
+            email: newWs.email,
+            phone: newWs.phoneNumber,
+            country: newWs.country,
+            currency: newWs.currency,
+            selected_crafts: newWs.selectedCrafts,
+            status: 'active',
+            is_frozen: false,
+            created_at: nowIso,
+            updated_at: nowIso,
+          }, { onConflict: 'id' }),
+          supabase.from('profiles').upsert({
+            id: newWs.id,
+            name: newWs.artistName || newWs.brandName,
+            email: newWs.email,
+            phone: newWs.phoneNumber,
+            role: newWs.role,
+            status: 'active',
+            created_at: nowIso,
+          }, { onConflict: 'id' }),
+        ]);
       } catch (supaErr) {
-        console.warn('Supabase profile upsert notice:', supaErr);
+        console.warn('Supabase workshop/profile upsert notice:', supaErr);
       }
 
       await tenantStorage.saveProfile(newWs);

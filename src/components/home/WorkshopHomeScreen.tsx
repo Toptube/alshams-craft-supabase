@@ -365,7 +365,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         // 5. Work Orders
         let workOrdersData: any[] = [];
         try {
-          workOrdersData = await firestoreService.getWorkOrders(workshopId).catch(() => []);
+          const [dexieWo, fsWo] = await Promise.all([
+            tenantStorage.getWorkOrders(workshopId).catch(() => []),
+            firestoreService.getWorkOrders(workshopId).catch(() => []),
+          ]);
+          const woMap = new Map<string, any>();
+          for (const w of fsWo || []) woMap.set(w.id, w);
+          for (const w of dexieWo || []) woMap.set(w.id, w);
+          workOrdersData = Array.from(woMap.values());
         } catch {}
 
         // 6. Expenses Breakdown (Admin Costs, Wages, Supplier Purchases)

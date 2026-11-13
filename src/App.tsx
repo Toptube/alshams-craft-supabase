@@ -83,7 +83,7 @@ import {
   checkAndDispatchEquipmentMaintenanceAlerts,
 } from './lib/pushNotifications';
 import { PermissionsOnboardingModal } from './components/permissions/PermissionsOnboardingModal';
-import { initOfflineSyncListeners } from './db/offlineMutationQueue';
+import { initOfflineSyncListeners, flushOfflineMutations } from './db/offlineMutationQueue';
 
 // Icons for the sub-page navigation bar
 import { ArrowRight, Home, Sparkles, X } from 'lucide-react';
@@ -415,6 +415,43 @@ export const App: React.FC = () => {
   useEffect(() => {
     loadSearchCacheAndNotifications();
   }, [loadSearchCacheAndNotifications]);
+
+  // تشغيل الفحص الوقائي للتنبيهات والاستماع للتحديثات الفورية وعودة الإنترنت
+  useEffect(() => {
+    if (!profile) return;
+    const tid = profile.tenantId || profile.workshopId || profile.id;
+
+    tenantStorage
+      .generateProactiveNotifications(tid, profile)
+      .then(() => loadSearchCacheAndNotifications())
+      .catch(() => {});
+
+    const handleRefreshNotifications = () => {
+      loadSearchCacheAndNotifications();
+    };
+
+    const handleNewOrder = () => {
+      tenantStorage
+        .generateProactiveNotifications(tid, profile)
+        .then(() => loadSearchCacheAndNotifications())
+        .catch(() => {});
+    };
+
+    const handleOnlineReconnect = () => {
+      flushOfflineMutations().catch(() => {});
+      loadSearchCacheAndNotifications();
+    };
+
+    window.addEventListener('alshams_notifications_updated', handleRefreshNotifications);
+    window.addEventListener('alshams_new_order_received', handleNewOrder);
+    window.addEventListener('online', handleOnlineReconnect);
+
+    return () => {
+      window.removeEventListener('alshams_notifications_updated', handleRefreshNotifications);
+      window.removeEventListener('alshams_new_order_received', handleNewOrder);
+      window.removeEventListener('online', handleOnlineReconnect);
+    };
+  }, [profile?.tenantId, profile?.workshopId, profile?.id, loadSearchCacheAndNotifications]);
 
   // آلية المزامنة الدورية الهادئة في الخلفية كل 30 دقيقة لمطابقة الخامات والمنتجات والمبيعات
   useEffect(() => {

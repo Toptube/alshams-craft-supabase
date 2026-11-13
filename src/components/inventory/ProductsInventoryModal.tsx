@@ -49,7 +49,7 @@ export const ProductsInventoryModal: React.FC<ProductsInventoryModalProps> = ({
 
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const workshopId = profile?.workshop_id || profile?.id;
+  const workshopId = profile?.workshopId || profile?.tenantId || profile?.workshop_id || profile?.id || '';
 
   // Load products
   const loadProducts = async () => {
@@ -67,37 +67,41 @@ export const ProductsInventoryModal: React.FC<ProductsInventoryModalProps> = ({
           .order('created_at', { ascending: false });
 
         if (!error && data) {
-          list = data.map((d: any) => ({
-            id: d.id,
-            workshop_id: d.workshop_id,
-            product_name: d.product_name || d.name || 'منتج غير مسمى',
-            category: d.category || 'عام',
-            cost_price: Number(d.cost_price || 0),
-            wholesale_price: Number(d.wholesale_price || 0),
-            retail_price: Number(d.retail_price || 0),
-            stock_quantity: Number(d.stock_quantity ?? d.specs?.stockQuantity ?? d.specs?.quantity ?? 0),
-            is_active: d.is_active ?? true,
-            created_at: d.created_at
-          }));
+          list = data
+            .filter((d: any) => d.is_active !== false)
+            .map((d: any) => ({
+              id: d.id,
+              workshop_id: d.workshop_id,
+              product_name: d.product_name || d.name || d.local_record?.productName || 'منتج غير مسمى',
+              category: d.category || d.specs?.category || d.main_section || 'عام',
+              cost_price: Number(d.cost_price ?? d.local_record?.costPrice ?? 0),
+              wholesale_price: Number(d.wholesale_price ?? d.local_record?.wholesalePrice ?? 0),
+              retail_price: Number(d.retail_price ?? d.local_record?.retailPrice ?? 0),
+              stock_quantity: Number(d.stock_quantity ?? d.specs?.stockQuantity ?? d.specs?.quantity ?? d.local_record?.currentStock ?? 0),
+              is_active: d.is_active ?? true,
+              created_at: d.created_at
+            }));
         }
       }
 
-      // 2. Fallback to local Dexie / IndexedDB if offline or empty
-      if (list.length === 0) {
-        const local = await (db.products as any).toArray();
+      // 2. Fallback to tenant-scoped local Dexie / IndexedDB if offline or empty
+      if (list.length === 0 && workshopId) {
+        const local = await db.products.where('tenantId').equals(workshopId).toArray();
         if (local && local.length > 0) {
-          list = local.map((d: any) => ({
-            id: d.id,
-            workshop_id: d.workshop_id || workshopId,
-            product_name: d.product_name || d.name || 'منتج محلي',
-            category: d.category || 'عام',
-            cost_price: Number(d.cost_price || 0),
-            wholesale_price: Number(d.wholesale_price || 0),
-            retail_price: Number(d.retail_price || 0),
-            stock_quantity: Number(d.stock_quantity ?? d.specs?.stockQuantity ?? d.specs?.quantity ?? 0),
-            is_active: d.is_active ?? true,
-            created_at: d.created_at
-          }));
+          list = local
+            .filter((d: any) => d.isActive !== false && d.is_active !== false)
+            .map((d: any) => ({
+              id: d.id,
+              workshop_id: d.tenantId || d.workshopId || d.workshop_id || workshopId,
+              product_name: d.productName || d.product_name || d.name || 'منتج محلي',
+              category: d.category || d.craftType || 'عام',
+              cost_price: Number(d.costPrice ?? d.cost_price ?? 0),
+              wholesale_price: Number(d.wholesalePrice ?? d.wholesale_price ?? 0),
+              retail_price: Number(d.retailPrice ?? d.sellingPrice ?? d.retail_price ?? 0),
+              stock_quantity: Number(d.currentStock ?? d.stock_quantity ?? d.specs?.stockQuantity ?? d.specs?.quantity ?? 0),
+              is_active: d.isActive ?? d.is_active ?? true,
+              created_at: d.createdAt ? new Date(d.createdAt).toISOString() : d.created_at
+            }));
         }
       }
 
@@ -161,51 +165,96 @@ export const ProductsInventoryModal: React.FC<ProductsInventoryModalProps> = ({
     }
 
     try {
-      const payload: any = {
+      const now = Date.now();
+      const nowIso = new Date(now).toISOString();
+      const stockQty = Number(formData.stock_quantity) || 0;
+      const cleanName = formData.product_name.trim();
+      const cleanCategory = formData.category.trim() || 'عام';
+      const costVal = Number(formData.cost_price) || 0;
+      const wholesaleVal = Number(formData.wholesale_price) || 0;
+      const retailVal = Number(formData.retail_price) || 0;
+
+      const targetId = editingId || crypto.randomUUID();
+      const existingDexie = editingId ? await db.products.get(editingId) : undefined;
+
+      const localRecord: any = {
+        ...(existingDexie || {}),
+        id: targetId,
+        tenantId: workshopId,
+        workshopId,
+        productName: cleanName,
+        category: cleanCategory,
+        craftType: cleanCategory,
+        costPrice: costVal,
+        wholesalePrice: wholesaleVal,
+        retailPrice: retailVal,
+        sellingPrice: retailVal,
+        currentStock: stockQty,
+        isActive: true,
+        createdAt: existingDexie?.createdAt || now,
+        updatedAt: now,
+      };
+
+      // Persist in tenant-scoped Dexie first so local + offline sync remain valid
+      await db.products.put(localRecord);
+
+      const cloudPayload: any = {
+        id: targetId,
         workshop_id: workshopId,
-        product_name: formData.product_name.trim(),
-        category: formData.category.trim() || 'عام',
-        cost_price: Number(formData.cost_price) || 0,
-        wholesale_price: Number(formData.wholesale_price) || 0,
-        retail_price: Number(formData.retail_price) || 0,
-        specs: { stockQuantity: Number(formData.stock_quantity) || 0 }
+        name: cleanName,
+        product_name: cleanName,
+        category: cleanCategory,
+        cost_price: costVal,
+        wholesale_price: wholesaleVal,
+        retail_price: retailVal,
+        stock_quantity: stockQty,
+        specs: { stockQuantity: stockQty, category: cleanCategory },
+        is_active: true,
+        local_record: localRecord,
+        updated_at: nowIso,
       };
 
       if (editingId) {
-        // Update
         const { error } = await supabase
           .from('products')
-          .update(payload)
+          .update(cloudPayload)
           .eq('id', editingId);
 
         if (error) {
-          // fallback update local
-          await (db.products as any).update(editingId, {
-            ...payload,
-            stock_quantity: Number(formData.stock_quantity) || 0
-          });
+          // Fallback payload compatible with minimal legacy schema
+          await supabase
+            .from('products')
+            .update({
+              name: cleanName,
+              cost_price: costVal,
+              wholesale_price: wholesaleVal,
+              retail_price: retailVal,
+              updated_at: nowIso,
+              data: cloudPayload,
+            })
+            .eq('id', editingId);
         }
         setFeedback({ type: 'success', message: 'تم تحديث بيانات المنتج بنجاح' });
       } else {
-        // Insert
-        const newId = crypto.randomUUID();
-        const fullNewItem = {
-          id: newId,
-          ...payload,
-          is_active: true,
-          created_at: new Date().toISOString()
-        };
-
+        cloudPayload.created_at = nowIso;
         const { error } = await supabase
           .from('products')
-          .insert([fullNewItem]);
+          .insert([cloudPayload]);
 
         if (error) {
-          // fallback insert local
-          await (db.products as any).add({
-            ...fullNewItem,
-            stock_quantity: Number(formData.stock_quantity) || 0
-          });
+          await supabase
+            .from('products')
+            .insert([{
+              id: targetId,
+              workshop_id: workshopId,
+              name: cleanName,
+              cost_price: costVal,
+              wholesale_price: wholesaleVal,
+              retail_price: retailVal,
+              created_at: nowIso,
+              updated_at: nowIso,
+              data: cloudPayload,
+            }]);
         }
         setFeedback({ type: 'success', message: 'تمت إضافة المنتج الجديد بنجاح إلى المخزن' });
       }
@@ -220,10 +269,8 @@ export const ProductsInventoryModal: React.FC<ProductsInventoryModalProps> = ({
   const handleDelete = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذا المنتج نهائياً من المخزن؟')) return;
     try {
-      const { error } = await supabase.from('products').delete().eq('id', id);
-      if (error) {
-        await (db.products as any).delete(id);
-      }
+      await supabase.from('products').delete().eq('id', id).eq('workshop_id', workshopId);
+      await db.products.delete(id).catch(() => {});
       setProducts(prev => prev.filter(p => p.id !== id));
       setFeedback({ type: 'success', message: 'تم حذف المنتج بنجاح' });
     } catch (err: any) {
@@ -235,20 +282,28 @@ export const ProductsInventoryModal: React.FC<ProductsInventoryModalProps> = ({
     const item = products.find(p => p.id === id);
     if (!item) return;
     const newQty = Math.max(0, item.stock_quantity + delta);
+    const now = Date.now();
 
     try {
+      const existingDexie = await db.products.get(id);
+      if (existingDexie) {
+        await db.products.update(id, { currentStock: newQty, updatedAt: now });
+      }
+
       const { error } = await supabase
         .from('products')
         .update({
-          specs: { stockQuantity: newQty }
+          stock_quantity: newQty,
+          specs: { stockQuantity: newQty },
+          updated_at: new Date(now).toISOString(),
         })
         .eq('id', id);
 
       if (error) {
-        await (db.products as any).update(id, {
-          stock_quantity: newQty,
-          specs: { stockQuantity: newQty }
-        });
+        await supabase
+          .from('products')
+          .update({ updated_at: new Date(now).toISOString(), data: { stockQuantity: newQty } })
+          .eq('id', id);
       }
 
       setProducts(prev => prev.map(p => p.id === id ? { ...p, stock_quantity: newQty } : p));

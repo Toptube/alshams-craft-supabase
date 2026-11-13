@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { markProductDirty } from './productSyncQueue';
+import { enqueueOfflineMutation, flushOfflineMutations } from './offlineMutationQueue';
 import {
   UserProfile,
   SavedProductRecord,
@@ -352,12 +353,34 @@ export const tenantStorage = {
     return items;
   },
 
-  async saveRawMaterial(material: RawMaterialItem): Promise<void> {
+  async saveRawMaterial(material: RawMaterialItem, options?: { skipCloudQueue?: boolean }): Promise<void> {
     material.costPerGram = material.unit === 'كيلو' ? material.costPerUnit / 1000 : material.costPerUnit;
     material.isActive = material.isActive !== false;
     material.minAlertThreshold = Number(material.minAlertThreshold ?? material.reorderLevel ?? 5);
     await db.rawMaterials.put(material);
     await this.generateProactiveNotifications(material.tenantId || material.workshopId || 'default');
+
+    if (!options?.skipCloudQueue) {
+      const wid = material.workshopId || material.tenantId || '';
+      if (wid && wid !== 'default' && wid !== 'workshop_demo') {
+        enqueueOfflineMutation({
+          workshopId: wid,
+          type: 'material_upsert',
+          payload: {
+            id: material.id,
+            workshop_id: wid,
+            name: material.materialName,
+            purchase_price: Number(material.costPerUnit) || 0,
+            current_stock: Number(material.currentStock) || 0,
+            min_limit: Number(material.minAlertThreshold) || 5,
+            ...((material as any).unitId ? { unit_id: (material as any).unitId, kind: material.category === 'خامة إضافية' ? 'extra' : 'primary' } : {}),
+          },
+        });
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          flushOfflineMutations().catch(() => {});
+        }
+      }
+    }
   },
 
   async deactivateRawMaterial(tenantId: string, id: string, reason: string, userEmail: string): Promise<void> {
@@ -386,17 +409,69 @@ export const tenantStorage = {
     return db.suppliers.where('tenantId').equals(tenantId).toArray();
   },
 
-  async saveSupplier(supplier: SupplierProfile): Promise<void> {
+  async saveSupplier(supplier: SupplierProfile, options?: { skipCloudQueue?: boolean }): Promise<void> {
     await db.suppliers.put(supplier);
+    if (!options?.skipCloudQueue) {
+      const wid = supplier.workshopId || supplier.tenantId || '';
+      if (wid && wid !== 'default' && wid !== 'workshop_demo') {
+        enqueueOfflineMutation({
+          workshopId: wid,
+          type: 'supplier_upsert',
+          payload: {
+            id: supplier.id,
+            workshop_id: wid,
+            name: (supplier as any).name || supplier.companyName || 'مورد',
+            company_name: supplier.companyName || (supplier as any).name || '',
+            phone: supplier.phoneNumber || (supplier as any).phone || null,
+            phone_number: supplier.phoneNumber || (supplier as any).phone || null,
+            address: (supplier as any).address || null,
+            material_specialty: supplier.materialSpecialty || null,
+            outstanding_balance: Number(supplier.outstandingBalance || 0),
+            notes: supplier.notes || null,
+          },
+        });
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          flushOfflineMutations().catch(() => {});
+        }
+      }
+    }
   },
 
-  async recordSupplierPurchaseInvoice(invoice: SupplierPurchaseInvoice): Promise<void> {
+  async recordSupplierPurchaseInvoice(
+    invoice: SupplierPurchaseInvoice,
+    options?: { skipCloudQueue?: boolean }
+  ): Promise<void> {
     await db.supplierInvoices.put(invoice);
+
+    const targetTenantId = invoice.tenantId || invoice.workshopId || 'default';
+    if (!options?.skipCloudQueue && targetTenantId !== 'default' && targetTenantId !== 'workshop_demo') {
+      enqueueOfflineMutation({
+        workshopId: targetTenantId,
+        type: 'supplier_invoice_upsert',
+        payload: {
+          id: invoice.id,
+          workshop_id: targetTenantId,
+          invoice_number: invoice.invoiceNumber || `PUR-${invoice.id.slice(-4)}`,
+          supplier_id: invoice.supplierId || null,
+          supplier_name: invoice.supplierName || '',
+          total_amount: Number(invoice.totalAmount || 0),
+          paid_amount: Number(invoice.paidAmount || 0),
+          remaining_amount: Number(invoice.remainingAmount || 0),
+          status: invoice.status || 'unpaid',
+          items: invoice.items || [],
+          date: invoice.date || new Date().toISOString().split('T')[0],
+          notes: invoice.notes || '',
+          created_at: new Date(invoice.createdAt || Date.now()).toISOString(),
+        },
+      });
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        flushOfflineMutations().catch(() => {});
+      }
+    }
 
     // Update material stocks & unit prices dynamically
     for (const line of invoice.items) {
       if (!line.materialId) continue;
-      const targetTenantId = invoice.tenantId || invoice.workshopId;
       let material = await db.rawMaterials.get(line.materialId);
       if (material && (material.tenantId === targetTenantId || material.workshopId === targetTenantId)) {
         material.currentStock = Number((material.currentStock + line.quantity).toFixed(3));
@@ -405,7 +480,7 @@ export const tenantStorage = {
         material.lastPurchaseDate = invoice.date;
         material.supplierId = invoice.supplierId;
         material.supplierName = invoice.supplierName;
-        await db.rawMaterials.put(material);
+        await this.saveRawMaterial(material);
 
         // Inventory log
         await db.inventoryTransactions.add({
@@ -418,7 +493,7 @@ export const tenantStorage = {
           unitCost: line.unitCost,
           totalCost: line.totalCost,
           notes: `فاتورة مشتريات رقم #${invoice.invoiceNumber || invoice.id.slice(-4)} من ${invoice.supplierName}`,
-          date: invoice.date,
+          date: invoice.date || new Date().toISOString().split('T')[0],
         });
       }
     }
@@ -429,7 +504,7 @@ export const tenantStorage = {
       supplier.totalPurchases = (supplier.totalPurchases || 0) + invoice.totalAmount;
       supplier.totalPaid = (supplier.totalPaid || 0) + invoice.paidAmount;
       supplier.outstandingBalance = Math.max(0, supplier.totalPurchases - supplier.totalPaid);
-      await db.suppliers.put(supplier);
+      await this.saveSupplier(supplier, options);
     }
 
     // Deduct paid amount from selected Safe
@@ -466,16 +541,74 @@ export const tenantStorage = {
     return db.customers.where('tenantId').equals(tenantId).toArray();
   },
 
-  async saveCustomer(customer: CustomerProfile): Promise<void> {
+  async saveCustomer(customer: CustomerProfile, options?: { skipCloudQueue?: boolean }): Promise<void> {
     await db.customers.put(customer);
+    if (!options?.skipCloudQueue) {
+      const wid = customer.workshopId || customer.tenantId || '';
+      if (wid && wid !== 'default' && wid !== 'workshop_demo') {
+        enqueueOfflineMutation({
+          workshopId: wid,
+          type: 'customer_upsert',
+          payload: {
+            id: customer.id,
+            workshop_id: wid,
+            name: customer.fullName || (customer as any).name || 'عميل',
+            full_name: customer.fullName || (customer as any).name || 'عميل',
+            phone: customer.phoneNumber || (customer as any).phone || null,
+            phone_number: customer.phoneNumber || (customer as any).phone || null,
+            city: customer.city || null,
+            address: (customer as any).address || customer.city || null,
+            total_purchases: Number(customer.totalPurchases || 0),
+            outstanding_balance: Number(customer.outstandingBalance || 0),
+            notes: customer.notes || null,
+          },
+        });
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          flushOfflineMutations().catch(() => {});
+        }
+      }
+    }
   },
 
   async getOrders(tenantId: string): Promise<CustomerOrder[]> {
     return db.orders.where('tenantId').equals(tenantId).reverse().sortBy('date');
   },
 
-  async recordSalesOrder(order: CustomerOrder): Promise<void> {
+  async recordSalesOrder(order: CustomerOrder, options?: { skipCloudQueue?: boolean }): Promise<void> {
     await db.orders.put(order);
+
+    const wid = order.workshopId || order.tenantId || '';
+    if (!options?.skipCloudQueue && wid && wid !== 'default' && wid !== 'workshop_demo' && wid !== 'central') {
+      enqueueOfflineMutation({
+        workshopId: wid,
+        type: 'workshop_order_upsert',
+        payload: {
+          id: order.id,
+          workshop_id: wid,
+          order_number: (order as any).invoiceNumber || (order as any).orderNumber || `ORD-${order.id.slice(-4)}`,
+          customer_id: order.customerId || null,
+          customer_name: order.customerName || 'عميل',
+          customer_phone: order.customerPhone || '',
+          product_name: order.productName || order.items?.[0]?.productName || '',
+          items: order.items || [],
+          subtotal: Number(order.subtotal || 0),
+          discount: Number(order.discount || 0),
+          shipping: Number(order.shipping || 0),
+          total_amount: Number(order.totalAmount || order.finalTotal || 0),
+          final_total: Number(order.finalTotal || order.totalAmount || 0),
+          paid_amount: Number(order.paidAmount || order.amountPaid || 0),
+          amount_paid: Number(order.amountPaid || order.paidAmount || 0),
+          remaining_amount: Number(order.remainingAmount || 0),
+          status: order.status || 'pending',
+          delivery_date: order.deliveryDate || null,
+          notes: order.notes || '',
+          updated_at: new Date().toISOString(),
+        },
+      });
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        flushOfflineMutations().catch(() => {});
+      }
+    }
 
     // Update customer stats
     if (order.customerId) {
@@ -486,7 +619,7 @@ export const tenantStorage = {
         const totalPaid = orders.reduce((sum, o) => sum + (o.amountPaid || o.paidAmount || 0), 0);
         customer.totalPurchases = totalPurchases;
         customer.outstandingBalance = Math.max(0, totalPurchases - totalPaid);
-        await db.customers.put(customer);
+        await this.saveCustomer(customer, options);
       }
     }
 
@@ -522,6 +655,7 @@ export const tenantStorage = {
               p.currentStock = Math.max(0, (Number(p.currentStock) || 0) - qty);
               p.updatedAt = Date.now();
               await db.products.put(p);
+              if (p.tenantId) markProductDirty(p.tenantId, p.id);
             }
           } catch {}
         }
@@ -537,7 +671,7 @@ export const tenantStorage = {
       if (employee && (employee.tenantId === order.tenantId || employee.workshopId === order.workshopId)) {
         employee.totalEarned = (employee.totalEarned || 0) + order.assignedEmployeeWage;
         employee.currentBalance = (employee.totalEarned || 0) - (employee.totalPaid || 0);
-        await db.employees.put(employee);
+        await this.saveEmployee(employee, options);
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('alshams_employees_changed', { detail: { tenantId: order.tenantId } }));
         }
@@ -554,9 +688,37 @@ export const tenantStorage = {
     return db.employees.get(id);
   },
 
-  async saveEmployee(employee: EmployeeProfile): Promise<void> {
+  async saveEmployee(employee: EmployeeProfile, options?: { skipCloudQueue?: boolean }): Promise<void> {
     employee.isActive = employee.isActive !== false;
     await db.employees.put(employee);
+    if (!options?.skipCloudQueue) {
+      const wid = employee.workshopId || employee.tenantId || '';
+      if (wid && wid !== 'default' && wid !== 'workshop_demo') {
+        enqueueOfflineMutation({
+          workshopId: wid,
+          type: 'employee_upsert',
+          payload: {
+            id: employee.id,
+            workshop_id: wid,
+            full_name: employee.fullName || 'عامل',
+            role: employee.role || 'artisan',
+            phone: (employee as any).phone || employee.phoneNumber || null,
+            phone_number: employee.phoneNumber || (employee as any).phone || null,
+            base_wage: Number((employee as any).baseWage || 0),
+            wage_type: (employee as any).wageType || 'piece_rate',
+            current_balance: Number(employee.currentBalance || 0),
+            total_earned: Number(employee.totalEarned || 0),
+            total_paid: Number(employee.totalPaid || 0),
+            is_active: employee.isActive !== false,
+            notes: (employee as any).notes || null,
+            updated_at: new Date().toISOString(),
+          },
+        });
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          flushOfflineMutations().catch(() => {});
+        }
+      }
+    }
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('alshams_employees_changed', { detail: { tenantId: employee.tenantId } }));
     }
@@ -705,8 +867,31 @@ export const tenantStorage = {
     return items.sort((a, b) => (b.paymentDate || b.date || '').localeCompare(a.paymentDate || a.date || ''));
   },
 
-  async addAdminCost(cost: AdminCostRecord): Promise<void> {
+  async addAdminCost(cost: AdminCostRecord, options?: { skipCloudQueue?: boolean }): Promise<void> {
     await db.adminExpenses.put(cost);
+
+    const wid = cost.workshopId || cost.tenantId || '';
+    if (!options?.skipCloudQueue && wid && wid !== 'default' && wid !== 'workshop_demo') {
+      enqueueOfflineMutation({
+        workshopId: wid,
+        type: 'expense_upsert',
+        payload: {
+          id: cost.id,
+          workshop_id: wid,
+          title: cost.title || 'مصروف',
+          category: cost.category || 'تشغيلية',
+          amount: Number(cost.baseCurrencyAmount || cost.amount || 0),
+          treasury_id: cost.safeType || 'main',
+          payment_method: (cost as any).paymentMethod || 'cash',
+          date: cost.paymentDate || cost.date || new Date().toISOString().split('T')[0],
+          notes: cost.notes || '',
+          updated_at: new Date().toISOString(),
+        },
+      });
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        flushOfflineMutations().catch(() => {});
+      }
+    }
 
     // Deduct from safe
     await this.recordSafeTransaction({
@@ -2002,7 +2187,7 @@ export const tenantStorage = {
     }
   },
 
-  async saveWorkOrder(order: WorkOrderRecord): Promise<void> {
+  async saveWorkOrder(order: WorkOrderRecord, options?: { skipCloudQueue?: boolean }): Promise<void> {
     const tenantId = (order as any).tenantId || order.workshopId;
     await db.workOrders.put({
       ...order,
@@ -2010,6 +2195,40 @@ export const tenantStorage = {
       workshopId: tenantId,
       updatedAt: Date.now(),
     } as any);
+
+    if (!options?.skipCloudQueue && tenantId && tenantId !== 'default' && tenantId !== 'workshop_demo') {
+      enqueueOfflineMutation({
+        workshopId: tenantId,
+        type: 'work_order_upsert',
+        payload: {
+          id: order.id,
+          workshop_id: tenantId,
+          order_number: order.orderNumber || `WO-${order.id.slice(-4)}`,
+          product_name: order.productName || '',
+          craft_id: order.craftId || null,
+          category: order.category || null,
+          target_quantity: Number(order.targetQuantity || 1),
+          status: order.status || 'pending',
+          assigned_employee_id: order.assignedEmployeeId || null,
+          assigned_employee_name: order.assignedEmployeeName || null,
+          assigned_employee_wage: Number(order.assignedEmployeeWage || 0),
+          pulled_materials: order.pulledMaterials || [],
+          returned_materials: order.returnedMaterials || [],
+          scrap_items: order.scrapItems || [],
+          finished_products_produced: Number(order.finishedProductsProduced || 0),
+          total_consumed_materials_cost: Number(order.totalConsumedMaterialsCost || 0),
+          total_labor_cost: Number(order.totalLaborCost || 0),
+          total_production_cost: Number(order.totalProductionCost || 0),
+          unit_cost_calculated: Number(order.unitCostCalculated || 0),
+          start_date: order.startDate || null,
+          notes: order.notes || '',
+          updated_at: new Date().toISOString(),
+        },
+      });
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        flushOfflineMutations().catch(() => {});
+      }
+    }
   },
 
   async deleteWorkOrder(id: string): Promise<void> {

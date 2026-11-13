@@ -288,6 +288,25 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       };
 
       await firestoreService.saveInvoice(workshop.id, invoiceRecord);
+      try {
+        const { supabase } = await import('../../lib/supabase');
+        await supabase.from('invoices').upsert({
+          id: invoiceRecord.id,
+          workshop_id: workshop.id,
+          invoice_number: invoiceRecord.invoiceNumber,
+          customer_id: invoiceRecord.customerId,
+          customer_name: invoiceRecord.customerName,
+          total_amount: invoiceRecord.totalAmount,
+          paid_amount: invoiceRecord.paidAmount,
+          remaining_amount: invoiceRecord.remainingAmount,
+          status: invoiceRecord.status,
+          items: invoiceRecord.items,
+          date: invoiceRecord.date,
+          notes: invoiceRecord.notes,
+          created_at: new Date(invoiceRecord.createdAt || Date.now()).toISOString(),
+          updated_at: new Date(invoiceRecord.updatedAt || Date.now()).toISOString(),
+        });
+      } catch {}
       setNotice({ text: `تم حفظ الفاتورة #${invoiceNumber} بنجاح!` });
       setIsInvoiceModalOpen(false);
       await loadAllData();

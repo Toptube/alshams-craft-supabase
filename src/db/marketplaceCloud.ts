@@ -45,6 +45,10 @@ export interface CloudMarketplaceProduct {
     diameter?: number;
   };
   materials_summary?: string;
+  logo_url?: string | null;
+  logoUrl?: string | null;
+  store_slug?: string;
+  storeSlug?: string;
   status: 'pending_approval' | 'approved' | 'rejected';
   rejection_reason?: string | null;
   rejectionReason?: string | null;
@@ -62,6 +66,7 @@ export interface PublicWorkshopStoreData {
     country?: string;
     currencySymbol?: string;
     logoUrl?: string;
+    storeSlug?: string;
     selectedCrafts?: string[];
     ratingStars?: number;
     medal?: string;
@@ -73,16 +78,21 @@ export interface PublicWorkshopStoreData {
  * Normalizes a raw cloud row into a clean typed object
  */
 export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
+  const wid = row.workshop_id || row.workshopId || '';
   return {
     id: row.id || `prod_${Date.now()}`,
-    workshop_id: row.workshop_id || row.workshopId || '',
-    workshopId: row.workshop_id || row.workshopId || '',
+    workshop_id: wid,
+    workshopId: wid,
     brand_name: row.brand_name || row.brandName || 'ورشة الشمساوية',
     brandName: row.brand_name || row.brandName || 'ورشة الشمساوية',
     artist_name: row.artist_name || row.artistName || 'فنان الشمساوية',
     artistName: row.artist_name || row.artistName || 'فنان الشمساوية',
     phone_number: row.phone_number || row.phoneNumber || '',
     phoneNumber: row.phone_number || row.phoneNumber || '',
+    logo_url: row.logo_url || row.logoUrl || null,
+    logoUrl: row.logo_url || row.logoUrl || null,
+    store_slug: row.store_slug || row.storeSlug || wid,
+    storeSlug: row.store_slug || row.storeSlug || wid,
     product_name: row.product_name || row.productName || 'مشغولة يدوية فاخرة',
     productName: row.product_name || row.productName || 'مشغولة يدوية فاخرة',
     category: row.category || 'macrame',
@@ -204,11 +214,11 @@ export async function publishProductToMarketplace(
 }
 
 /**
- * Fetches all approved marketplace products for public shoppers
+ * Fetches marketplace products (both approved and pending_approval provisionally, excluding rejected)
  */
 export async function fetchApprovedMarketplaceProducts(): Promise<CloudMarketplaceProduct[]> {
   try {
-    // 1. Try server API
+    // 1. Try server API (returns enriched products across all workshops)
     const res = await fetch('/api/marketplace/products');
     if (res.ok) {
       const data = await res.json();
@@ -219,15 +229,36 @@ export async function fetchApprovedMarketplaceProducts(): Promise<CloudMarketpla
   } catch {}
 
   try {
-    // 2. Direct Supabase query
-    const { data, error } = await supabase
-      .from('marketplace_products')
-      .select('*')
-      .eq('status', 'approved')
-      .order('created_at', { ascending: false });
+    // 2. Direct Supabase query fallback
+    const [{ data, error }, { data: wsRows }] = await Promise.all([
+      supabase
+        .from('marketplace_products')
+        .select('*')
+        .in('status', ['approved', 'pending_approval'])
+        .order('created_at', { ascending: false }),
+      supabase.from('workshops').select('*'),
+    ]);
+
+    const wsMap = new Map<string, any>();
+    if (Array.isArray(wsRows)) {
+      wsRows.forEach((w: any) => {
+        if (w.id) wsMap.set(w.id, w);
+        if (w.workshop_id) wsMap.set(w.workshop_id, w);
+      });
+    }
 
     if (!error && Array.isArray(data) && data.length > 0) {
-      return data.map(normalizeCloudProduct);
+      return data.map((row: any) => {
+        const ws = wsMap.get(row.workshop_id);
+        return normalizeCloudProduct({
+          ...row,
+          brand_name: row.brand_name || ws?.brand_name || 'ورشة الشمساوية',
+          artist_name: row.artist_name || ws?.artist_name || 'فنان الشمساوية',
+          phone_number: row.phone_number || ws?.phone_number || ws?.phone || '',
+          logo_url: ws?.logo_data || ws?.logo_url || null,
+          store_slug: ws?.store_slug || ws?.id || row.workshop_id,
+        });
+      });
     }
   } catch {}
 
@@ -345,13 +376,15 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
       const found = wsData.find((w: any) => matchesWorkshopSlug(w, cleanSlug));
 
       if (found) {
-        // Strict query products by workshop_id ONLY
+        const wid = found.id || found.workshop_id;
+        // Strict query products by workshop_id ONLY (exclude rejected)
         let prodsData: any[] = [];
         try {
           const { data: pData } = await supabase
             .from('marketplace_products')
             .select('*')
-            .eq('workshop_id', found.id);
+            .eq('workshop_id', wid)
+            .neq('status', 'rejected');
           if (Array.isArray(pData)) prodsData = pData;
         } catch {}
 
@@ -360,23 +393,26 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
             const { data: catData } = await supabase
               .from('products')
               .select('*')
-              .eq('workshop_id', found.id);
+              .eq('workshop_id', wid);
             if (Array.isArray(catData)) {
               prodsData = catData.map((p: any) => ({
                 id: p.id,
                 workshop_id: p.workshop_id,
                 brand_name: found.brand_name || 'ورشة الشمساوية',
-                artist_name: found.artist_name || 'فنان',
-                phone_number: found.phone || '',
+                artist_name: found.artist_name || 'فنان الشمساوية',
+                phone_number: found.phone_number || found.phone || '',
+                logo_url: found.logo_data || found.logo_url || found.logoUrl || null,
+                store_slug: found.store_slug || wid,
                 product_name: p.product_name,
                 category: p.category || 'أعمال يدوية',
+                craft_name: p.craft_name || p.category || 'أعمال يدوية',
                 store_price: p.retail_price || 0,
                 retail_price: p.retail_price || 0,
                 wholesale_price: p.wholesale_price || 0,
                 cost_price: p.cost_price || 0,
                 image_url: p.image_url || null,
                 store_description: p.specs?.marketingDescription || p.specs?.materialsDescription || p.product_name,
-                status: 'approved',
+                status: 'pending_approval',
                 created_at: p.created_at,
               }));
             }
@@ -384,22 +420,36 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
         }
 
         const logo = found.logo_data || found.logo_url || found.logoUrl || null;
+        const phone = found.phone_number || found.phone || found.phoneNumber || '';
+        const storeSlug = found.store_slug || found.storeSlug || wid;
 
         return {
           workshop: {
-            id: found.id,
+            id: wid,
             brandName: found.brand_name || found.brandName || 'ورشة الشمساوية',
-            artistName: found.artist_name || found.artistName || 'فنان',
-            phoneNumber: found.phone || found.phone_number || found.phoneNumber || '',
+            artistName: found.artist_name || found.artistName || 'فنان الشمساوية',
+            phoneNumber: phone,
             email: found.email || '',
             country: found.country || 'مصر',
             currencySymbol: found.currency_symbol || found.currencySymbol || 'ج.م',
             logoUrl: logo,
+            storeSlug,
             ratingStars: found.rating_stars || found.ratingStars || 5,
             medal: found.medal || 'gold',
             selectedCrafts: Array.isArray(found.selected_crafts) ? found.selected_crafts : ['macrame'],
           },
-          products: (prodsData || []).map(normalizeCloudProduct),
+          products: (prodsData || [])
+            .filter((p: any) => p.status !== 'rejected' && (p.workshop_id === wid || p.workshopId === wid))
+            .map((p: any) =>
+              normalizeCloudProduct({
+                ...p,
+                brand_name: found.brand_name || found.brandName,
+                artist_name: found.artist_name || found.artistName,
+                phone_number: p.phone_number || phone,
+                logo_url: p.logo_url || logo,
+                store_slug: storeSlug,
+              })
+            ),
         };
       }
     }

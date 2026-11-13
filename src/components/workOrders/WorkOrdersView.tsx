@@ -273,7 +273,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
       );
 
       const newOrder: WorkOrderRecord = {
-        id: 'wo_' + Date.now(),
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'wo_' + Date.now(),
         workshopId,
         orderNumber,
         productName: productName.trim(),
@@ -424,7 +424,7 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
 
       // 5. حفظ أمر التشغيل بحالة مكتمل "completed"
       const completedOrder: WorkOrderRecord = {
-        id: 'wo_' + Date.now(),
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'wo_' + Date.now(),
         workshopId,
         orderNumber,
         productName: productName.trim(),

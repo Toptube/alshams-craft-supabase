@@ -532,7 +532,14 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       });
 
       // 2. Open work orders
-      const workOrders = await firestoreService.getWorkOrders(workshopId).catch(() => []);
+      const [dexieWo, fsWo] = await Promise.all([
+        tenantStorage.getWorkOrders(workshopId).catch(() => []),
+        firestoreService.getWorkOrders(workshopId).catch(() => []),
+      ]);
+      const woMap = new Map<string, any>();
+      for (const w of fsWo || []) woMap.set(w.id, w);
+      for (const w of dexieWo || []) woMap.set(w.id, w);
+      const workOrders = Array.from(woMap.values());
       const openOrders = workOrders.filter(
         (wo: any) => wo.status !== 'completed' && wo.status !== 'delivered' && wo.status !== 'cancelled'
       );

@@ -418,6 +418,20 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
       };
       await tenantStorage.recordSupplierPurchaseInvoice(updatedInvoice);
 
+      // مزامنة سحابية هادئة لفاتورة المورد في Supabase
+      try {
+        await supabase
+          .from('supplier_invoices')
+          .update({
+            paid_amount: updatedInvoice.paidAmount,
+            remaining_amount: updatedInvoice.remainingAmount,
+            status: updatedInvoice.status,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', updatedInvoice.id)
+          .eq('workshop_id', workshopId);
+      } catch {}
+
       // 3. تخفيض مديونية المورد
       try {
         const sup = suppliers.find((s) => s.id === payingInvoice.supplierId);

@@ -320,7 +320,7 @@ export function mapWorkshopRowToUserProfile(row: any, userEmail?: string): UserP
     id: row.id,
     workshopId: row.id,
     tenantId: row.id,
-    ownerUid: row.user_id || row.owner_id || row.id,
+    ownerUid: row.owner_id || row.owner_uid || row.user_id || row.id,
     email: userEmail || row.email || '',
     brandName: brand,
     artistName: artist,
@@ -328,19 +328,19 @@ export function mapWorkshopRowToUserProfile(row: any, userEmail?: string): UserP
     familyNickname: family,
     country: row.country || 'جمهورية مصر العربية',
     currency: row.currency || 'EGP',
-    currencySymbol: row.currency === 'EGP' ? 'ج.م' : row.currency || 'ج.م',
-    phoneNumber: row.phone || '',
+    currencySymbol: row.currency_symbol || (row.currency === 'EGP' ? 'ج.م' : row.currency || 'ج.م'),
+    phoneNumber: row.phone || row.phone_number || '',
     selectedCrafts: Array.isArray(row.selected_crafts) && row.selected_crafts.length > 0
       ? row.selected_crafts
       : ['macrame'],
-    defaultVatPercent: 14,
+    defaultVatPercent: row.default_vat_percent ?? 14,
     showTaxInfoOnInvoice: false,
-    logoBase64: row.logo_data || '',
-    logoUrl: row.logo_data || '',
+    logoBase64: row.logo_data || row.logo_url || '',
+    logoUrl: row.logo_data || row.logo_url || '',
     welcomeShown: Boolean(row.welcome_shown),
     role: row.role || 'artisan',
-    isFrozen: row.status === 'suspended',
-    frozenReason: row.status === 'suspended' ? 'حسابك موقوف مؤقتاً، تواصل مع الدعم' : undefined,
+    isFrozen: Boolean(row.is_frozen || row.status === 'suspended' || row.status === 'banned'),
+    frozenReason: row.suspended_reason || row.suspension_reason || row.frozen_reason || (row.status === 'suspended' || row.status === 'banned' ? 'حسابك موقوف مؤقتاً، تواصل مع الدعم' : undefined),
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
     updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
     createdBy: userEmail || row.email || '',
@@ -1325,7 +1325,8 @@ export async function getTreasuryChannelBalancesFromSupabase(
 
 export async function getTreasuryTransactionsFromSupabase(
   treasuryId?: string,
-  limit = 200
+  limit = 200,
+  workshopId?: string
 ): Promise<{ data: SupabaseTreasuryTransaction[]; error: SupabaseErrorResult | null }> {
   try {
     let query = supabase
@@ -1333,6 +1334,10 @@ export async function getTreasuryTransactionsFromSupabase(
       .select('*')
       .order('occurred_at', { ascending: false })
       .limit(limit);
+
+    if (workshopId) {
+      query = query.eq('workshop_id', workshopId);
+    }
 
     if (treasuryId) {
       query = query.eq('treasury_id', treasuryId);

@@ -979,7 +979,7 @@ export const NewSupplierModal: React.FC<{
       try {
         await tenantStorage.saveSupplier({
           id: res.data?.id || 'sup_' + Date.now(),
-          tenantId: profile.tenantId,
+          tenantId,
           name: name.trim(),
           companyName: companyName.trim() || 'مغزل / متجر خامات',
           phoneNumber: phone.trim() || '01000000000',

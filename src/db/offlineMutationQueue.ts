@@ -11,7 +11,19 @@ import { supabase } from '../lib/supabase';
 export interface OfflineMutation {
   id: string;
   workshopId: string;
-  type: 'marketplace_publish' | 'product_upsert' | 'order_create' | 'workshop_update';
+  type:
+    | 'marketplace_publish'
+    | 'product_upsert'
+    | 'order_create'
+    | 'workshop_update'
+    | 'workshop_order_upsert'
+    | 'material_upsert'
+    | 'customer_upsert'
+    | 'supplier_upsert'
+    | 'employee_upsert'
+    | 'work_order_upsert'
+    | 'supplier_invoice_upsert'
+    | 'expense_upsert';
   payload: any;
   queuedAt: number;
   retryCount: number;
@@ -20,6 +32,16 @@ export interface OfflineMutation {
 const STORAGE_KEY = 'alshams_offline_mutations_v2';
 export const OFFLINE_QUEUE_EVENT = 'alshams:offline-queue-changed';
 export const OFFLINE_SYNC_STATUS_EVENT = 'alshams:offline-sync-status';
+
+function isValidCloudWorkshopId(workshopId?: string): boolean {
+  return Boolean(
+    workshopId &&
+      workshopId !== 'default' &&
+      workshopId !== 'central' &&
+      workshopId !== 'workshop_demo' &&
+      workshopId !== '00000000-0000-0000-0000-000000000000'
+  );
+}
 
 function readQueue(): OfflineMutation[] {
   if (typeof window === 'undefined') return [];
@@ -122,8 +144,9 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
   }
 
   const queue = readQueue();
-  if (queue.length === 0) {
-    return { synced: 0, remaining: 0 };
+  const pending = queue.filter((item) => (item.retryCount || 0) < 12);
+  if (pending.length === 0) {
+    return { synced: 0, remaining: queue.length };
   }
 
   isFlushing = true;
@@ -132,14 +155,19 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
   try {
     window.dispatchEvent(
       new CustomEvent(OFFLINE_SYNC_STATUS_EVENT, {
-        detail: { status: 'syncing', pending: queue.length },
+        detail: { status: 'syncing', pending: pending.length },
       })
     );
 
-    const pending = [...queue];
-
     for (const item of pending) {
       let success = false;
+      const wid = item.workshopId || item.payload?.workshop_id;
+
+      // Skip synthetic local-only demo workspaces gracefully
+      if (!isValidCloudWorkshopId(wid) && item.type !== 'order_create') {
+        removeOfflineMutation(item.id);
+        continue;
+      }
 
       try {
         if (item.type === 'marketplace_publish') {
@@ -162,6 +190,60 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
             .from('workshops')
             .upsert(item.payload, { onConflict: 'id' });
           if (!error) success = true;
+        } else if (item.type === 'workshop_order_upsert') {
+          const { error } = await supabase
+            .from('orders')
+            .upsert(item.payload, { onConflict: 'id' });
+          if (!error) success = true;
+        } else if (item.type === 'customer_upsert') {
+          const { error } = await supabase
+            .from('customers')
+            .upsert(item.payload, { onConflict: 'id' });
+          if (!error) success = true;
+        } else if (item.type === 'supplier_upsert') {
+          const { error } = await supabase
+            .from('suppliers')
+            .upsert(item.payload, { onConflict: 'id' });
+          if (!error) success = true;
+        } else if (item.type === 'employee_upsert') {
+          const { error } = await supabase
+            .from('employees')
+            .upsert(item.payload, { onConflict: 'id' });
+          if (!error) success = true;
+        } else if (item.type === 'work_order_upsert') {
+          const { error } = await supabase
+            .from('work_orders')
+            .upsert(item.payload, { onConflict: 'id' });
+          if (!error) success = true;
+        } else if (item.type === 'supplier_invoice_upsert') {
+          const { error } = await supabase
+            .from('supplier_invoices')
+            .upsert(item.payload, { onConflict: 'id' });
+          if (!error) success = true;
+        } else if (item.type === 'expense_upsert') {
+          const { error } = await supabase
+            .from('expenses')
+            .upsert(item.payload, { onConflict: 'id' });
+          if (!error) success = true;
+        } else if (item.type === 'material_upsert') {
+          if (item.payload?.unit_id) {
+            const { error } = await supabase
+              .from('materials')
+              .upsert(item.payload, { onConflict: 'id' });
+            if (!error) success = true;
+          } else if (item.payload?.id && wid) {
+            const { error } = await supabase
+              .from('materials')
+              .update({
+                name: item.payload.name,
+                purchase_price: item.payload.purchase_price,
+                current_stock: item.payload.current_stock,
+                min_limit: item.payload.min_limit,
+              })
+              .eq('id', item.payload.id)
+              .eq('workshop_id', wid);
+            if (!error) success = true;
+          }
         }
       } catch (err) {
         console.warn(`[Offline Queue] Failed to sync mutation ${item.id}:`, err);
@@ -171,12 +253,10 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
         removeOfflineMutation(item.id);
         synced++;
       } else {
-        // Increment retry count
         const currentQueue = readQueue();
         const target = currentQueue.find((m) => m.id === item.id);
         if (target) {
           target.retryCount = (target.retryCount || 0) + 1;
-          // If retried over 10 times with persistent error, preserve locally but stop infinite loop
           writeQueue(currentQueue);
         }
       }
@@ -203,13 +283,16 @@ export function initOfflineSyncListeners(): () => void {
   listenersInitialized = true;
 
   const handleOnline = () => {
-    console.log('[Al-Shams Sync] Connection restored, flushing offline queue...');
+    // Reset transient retry counts on reconnect so queued items retry cleanly
+    const current = readQueue();
+    if (current.some((m) => m.retryCount > 0)) {
+      writeQueue(current.map((m) => ({ ...m, retryCount: 0 })));
+    }
     flushOfflineMutations();
   };
 
   window.addEventListener('online', handleOnline);
 
-  // Service Worker message listener
   let handleMessage: any = null;
   if ('serviceWorker' in navigator) {
     handleMessage = (event: MessageEvent) => {
@@ -220,14 +303,12 @@ export function initOfflineSyncListeners(): () => void {
     navigator.serviceWorker.addEventListener('message', handleMessage);
   }
 
-  // Periodic fallback check every 30 seconds
   const interval = setInterval(() => {
     if (navigator.onLine && readQueue().length > 0) {
       flushOfflineMutations();
     }
-  }, 30000);
+  }, 20000);
 
-  // Initial check on mount
   if (navigator.onLine && readQueue().length > 0) {
     setTimeout(flushOfflineMutations, 1000);
   }
