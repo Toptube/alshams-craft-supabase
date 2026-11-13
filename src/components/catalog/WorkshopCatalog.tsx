@@ -48,9 +48,9 @@ import {
   generateArtisanQuotationPDF,
   extractQuotationDataFromRecord,
 } from '../../services/quotationPdfGenerator';
-import { flushProductSync } from '../../db/productsCloud';
+import { flushProductSync, syncAllWorkshopProductsAndStore } from '../../db/productsCloud';
 import { flushOfflineMutations, getPendingOfflineMutationsCount } from '../../db/offlineMutationQueue';
-import { pendingCount } from '../../db/productSyncQueue';
+import { pendingCount, PRODUCTS_PULLED_EVENT } from '../../db/productSyncQueue';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
 
 interface WorkshopCatalogProps {
@@ -86,18 +86,26 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
 
   useEffect(() => {
-    const wid = profile.id || profile.workshopId || profile.tenantId || '';
+    const wid = profile.tenantId || profile.workshopId || profile.id || '';
     const updateCount = () => {
       setPendingSyncCount(pendingCount(wid) + getPendingOfflineMutationsCount(wid));
+    };
+    const handleRemoteRefresh = () => {
+      loadCatalogData();
+      updateCount();
     };
     updateCount();
     window.addEventListener('alshams:products-dirty', updateCount);
     window.addEventListener('alshams:products-sync-status', updateCount);
     window.addEventListener('alshams:offline-queue-changed', updateCount);
+    window.addEventListener(PRODUCTS_PULLED_EVENT, handleRemoteRefresh);
+    window.addEventListener('alshams_products_changed', handleRemoteRefresh);
     return () => {
       window.removeEventListener('alshams:products-dirty', updateCount);
       window.removeEventListener('alshams:products-sync-status', updateCount);
       window.removeEventListener('alshams:offline-queue-changed', updateCount);
+      window.removeEventListener(PRODUCTS_PULLED_EVENT, handleRemoteRefresh);
+      window.removeEventListener('alshams_products_changed', handleRemoteRefresh);
     };
   }, [profile.id, profile.workshopId, profile.tenantId]);
 
@@ -867,14 +875,19 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             onClick={async () => {
               setIsSyncing(true);
               try {
-                const wid = profile.id || profile.workshopId || profile.tenantId || '';
-                await flushProductSync(wid);
-                await flushOfflineMutations();
+                const wid = profile.tenantId || profile.workshopId || profile.id || '';
+                await flushProductSync(wid).catch(() => 0);
+                await flushOfflineMutations().catch(() => {});
+                const summary = await syncAllWorkshopProductsAndStore(profile);
                 await loadCatalogData();
-                setPendingSyncCount(0);
+                setPendingSyncCount(summary.pendingRemaining);
                 playSuccessSound();
-                setNotice('تمت المزامنة بنجاح مع السحابة، وكافة المشغولات محفوظة محلياً وسحابياً!');
-                setTimeout(() => setNotice(''), 3000);
+                setNotice(
+                  summary.pendingRemaining === 0
+                    ? `تمت المزامنة الشاملة بنجاح! كافة مشغولات الكتالوج (${allProducts.length}) ومعروضات المتجر (${summary.pushedStore > 0 ? `+${summary.pushedStore} مرفوعة حديثاً` : 'محدثة'}) متطابقة سحابياً ومحلياً ✨`
+                    : `تم الحفظ محلياً مع بقاء (${summary.pendingRemaining}) عملية بالانتظار لحين استقرار الاتصال بالسحابة.`
+                );
+                setTimeout(() => setNotice(''), 4000);
               } catch {
                 playAlertSound();
               } finally {

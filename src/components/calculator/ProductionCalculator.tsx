@@ -24,6 +24,7 @@ import {
 import { tenantStorage } from '../../db/dexieDB';
 import { flushProductSync } from '../../db/productsCloud';
 import { markProductDirty, isPending } from '../../db/productSyncQueue';
+import { publishProductToMarketplace } from '../../db/marketplaceCloud';
 import { supabase } from '../../lib/supabase';
 import {
   MAIN_SECTIONS,
@@ -1484,6 +1485,12 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           const attempt = async () => {
             await flushProductSync(tenantId);
             if (isPending(tenantId, savedRecord.id) && navigator.onLine) await flushProductSync(tenantId);
+            if (savedRecord.inStore && savedRecord.isPublishedInStore !== false) {
+              const pubRes = await publishProductToMarketplace(savedRecord, profile).catch(() => null);
+              if (pubRes?.status === 'approved' && !savedRecord.isMarketplaceApproved) {
+                await tenantStorage.applyRemoteProduct({ ...savedRecord, isMarketplaceApproved: true });
+              }
+            }
           };
           await Promise.race([attempt().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]);
           cloudSynced = !isPending(tenantId, savedRecord.id);

@@ -135,60 +135,81 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               return;
             }
             const targetWorkshopId = data.workshop.id;
-            let finalProducts: any[] = [];
+            const mergedMap = new Map<string, any>();
+            const rejectedIds = new Set<string>();
 
-            // 1. Strict marketplace_products query by workshop_id (excluding rejected)
+            // 1. Seed from server/API storefront payload (already merged on backend)
+            if (Array.isArray(data.products)) {
+              data.products.forEach((p: any) => {
+                if ((p.workshop_id || p.workshopId) === targetWorkshopId) {
+                  if (p.status === 'rejected') rejectedIds.add(p.id);
+                  else mergedMap.set(p.id, p);
+                }
+              });
+            }
+
+            // 2. Direct Supabase marketplace_products supplement (keeps status/edits freshest)
             if (typeof navigator === 'undefined' || navigator.onLine) {
               try {
                 const { data: marketData } = await supabase
                   .from('marketplace_products')
                   .select('*')
-                  .eq('workshop_id', targetWorkshopId)
-                  .neq('status', 'rejected');
-                if (Array.isArray(marketData) && marketData.length > 0) {
-                  finalProducts = marketData;
+                  .eq('workshop_id', targetWorkshopId);
+                if (Array.isArray(marketData)) {
+                  marketData.forEach((p: any) => {
+                    if (p.status === 'rejected') {
+                      rejectedIds.add(p.id);
+                      mergedMap.delete(p.id);
+                    } else {
+                      mergedMap.set(p.id, { ...(mergedMap.get(p.id) || {}), ...p });
+                    }
+                  });
                 }
               } catch {}
             }
 
-            // 2. Fallback to API/storefront payload strictly filtered by workshop_id
-            if (finalProducts.length === 0 && Array.isArray(data.products) && data.products.length > 0) {
-              finalProducts = data.products.filter(
-                (p: any) => p.status !== 'rejected' && (p.workshop_id || p.workshopId) === targetWorkshopId
-              );
-            }
-
-            // 3. Offline / local Dexie fallback strictly for targetWorkshopId
-            if (finalProducts.length === 0) {
+            // 3. Local Dexie supplement ONLY if this browser holds the matching workshop (useful right after offline save)
+            if (typeof window !== 'undefined') {
               try {
-                const localProds = await tenantStorage.getProducts(targetWorkshopId);
-                finalProducts = localProds
-                  .filter((p) => p.inStore && p.isPublishedInStore !== false)
-                  .map((p) => ({
-                    id: p.id,
-                    workshop_id: targetWorkshopId,
-                    brand_name: data!.workshop.brandName,
-                    artist_name: data!.workshop.artistName,
-                    phone_number: data!.workshop.phoneNumber,
-                    logo_url: data!.workshop.logoUrl,
-                    store_slug: data!.workshop.storeSlug,
-                    product_name: p.productName,
-                    category: p.category || p.craftName || 'أعمال يدوية',
-                    craft_name: p.craftName || p.category || 'أعمال يدوية',
-                    decor_category: p.decorCategory || 'all',
-                    store_price: p.storePrice || p.retailPrice || 0,
-                    retail_price: p.retailPrice || p.storePrice || 0,
-                    wholesale_price: p.wholesalePrice || 0,
-                    cost_price: p.costPrice || 0,
-                    current_stock: p.currentStock ?? 1,
-                    image_url: p.imageUrl || '/alshams_falcon_emblem.png',
-                    store_description: p.storeDescription || (p as any).notes || '',
-                    available_colors: p.availableColors || [],
-                    available_sizes: p.availableSizes || [],
-                    status: p.isMarketplaceApproved ? 'approved' : 'pending_approval',
-                  }));
+                const rawProf = localStorage.getItem('alshams_profile');
+                const localProf = rawProf ? JSON.parse(rawProf) : null;
+                const localWid = localProf?.tenantId || localProf?.workshopId || localProf?.id;
+                if (localWid && localWid === targetWorkshopId) {
+                  const localProds = await tenantStorage.getProducts(targetWorkshopId);
+                  localProds
+                    .filter((p) => p.inStore && p.isPublishedInStore !== false && !rejectedIds.has(p.id))
+                    .forEach((p) => {
+                      if (!mergedMap.has(p.id)) {
+                        mergedMap.set(p.id, {
+                          id: p.id,
+                          workshop_id: targetWorkshopId,
+                          brand_name: data!.workshop.brandName,
+                          artist_name: data!.workshop.artistName,
+                          phone_number: data!.workshop.phoneNumber,
+                          logo_url: data!.workshop.logoUrl,
+                          store_slug: data!.workshop.storeSlug,
+                          product_name: p.productName,
+                          category: p.category || p.craftName || 'أعمال يدوية',
+                          craft_name: p.craftName || p.category || 'أعمال يدوية',
+                          decor_category: p.decorCategory || 'all',
+                          store_price: p.storePrice || p.retailPrice || 0,
+                          retail_price: p.retailPrice || p.storePrice || 0,
+                          wholesale_price: p.wholesalePrice || 0,
+                          cost_price: p.costPrice || 0,
+                          current_stock: p.currentStock ?? 1,
+                          image_url: p.imageUrl || '/alshams_falcon_emblem.png',
+                          store_description: p.storeDescription || (p as any).notes || '',
+                          available_colors: p.availableColors || [],
+                          available_sizes: p.availableSizes || [],
+                          status: p.isMarketplaceApproved ? 'approved' : 'pending_approval',
+                        });
+                      }
+                    });
+                }
               } catch {}
             }
+
+            const finalProducts = Array.from(mergedMap.values());
 
             setStoreData({
               workshop: data.workshop,
@@ -196,6 +217,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 .filter(
                   (p: any) =>
                     p.status !== 'rejected' &&
+                    !rejectedIds.has(p.id) &&
                     (p.workshop_id || p.workshopId) === targetWorkshopId
                 )
                 .map((p: any) =>

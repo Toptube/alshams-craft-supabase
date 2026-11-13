@@ -76,6 +76,7 @@ import {
   QrCode,
   Printer,
   Share2,
+  Bell,
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import {
@@ -280,6 +281,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const [loadingCloudProducts, setLoadingCloudProducts] = useState<boolean>(false);
   const [cloudRejectingProduct, setCloudRejectingProduct] = useState<CloudMarketplaceProduct | null>(null);
   const [cloudRejectReason, setCloudRejectReason] = useState<string>('');
+  const [adminAlerts, setAdminAlerts] = useState<any[]>([]);
+  const [isAdminNotificationsOpen, setIsAdminNotificationsOpen] = useState<boolean>(false);
 
   // Live Workshop Join Applications (قراءة حية لطلبات الانضمام من Supabase)
   const [workshopApplications, setWorkshopApplications] = useState<any[]>([]);
@@ -1288,6 +1291,34 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, profile.email]);
 
+  // Load Unified Super Admin Notifications Bell (Pending Products, Join Apps, Appeals, Alerts)
+  const loadAdminNotifications = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const headers = await getAdminAuthHeaders();
+      const res = await fetch('/api/admin/notifications', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.notifications)) {
+          setAdminAlerts(data.notifications);
+        }
+      }
+    } catch (e) {
+      console.warn('Load admin notifications warning:', e);
+    }
+  }, [isAdmin, profile.email]);
+
+  const handleDismissAdminNotification = async (notifId: string) => {
+    setAdminAlerts((prev) => prev.filter((n) => n.id !== notifId));
+    try {
+      const headers = await getAdminAuthHeaders();
+      await fetch(`/api/admin/notifications/${encodeURIComponent(notifId)}`, {
+        method: 'DELETE',
+        headers,
+      });
+    } catch {}
+  };
+
   useEffect(() => {
     if (isAdmin) {
       loadWorkshops();
@@ -1296,8 +1327,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       loadCloudMarketplaceProducts();
       loadWorkshopApplications();
       loadMarketplaceControlData();
+      loadAdminNotifications();
     }
-  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications, loadMarketplaceControlData]);
+  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications, loadMarketplaceControlData, loadAdminNotifications]);
 
   // 2. Realtime Subscriptions (Workshops, Marketplace Products, Join Applications, Announcements, Replies)
   useEffect(() => {
@@ -1315,6 +1347,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           playAlertSound();
           setRealtimeToast(`🔔 تم تسجيل ورشة جديدة: [${brand}] - صاحبها: [${artist}]${phone ? ` - هاتف: [${phone}]` : ''}`);
           loadWorkshops(true);
+          loadAdminNotifications();
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'workshops' }, (payload) => {
@@ -1325,6 +1358,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             playPostaNotificationSound();
             setRealtimeToast(`⚖️ طعن جديد مقدم من ورشة: [${updatedRow.brand_name || 'ورشة'}]`);
             loadAppeals();
+            loadAdminNotifications();
           }
           setWorkshops((prev) =>
             prev.map((w) =>
@@ -1346,13 +1380,33 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'marketplace_products' }, (payload) => {
         loadCloudMarketplaceProducts();
-        if (payload.eventType === 'INSERT') {
-          playAlertSound();
-          setRealtimeToast(`🛍️ مشغولة جديدة أضيفت وبانتظار الاعتماد للسوق المركزي: [${(payload.new as any)?.product_name || 'مشغولة'}]`);
+        loadAdminNotifications();
+        const row = (payload.new as any) || {};
+        if (payload.eventType === 'INSERT' || (payload.eventType === 'UPDATE' && row.status === 'pending_approval')) {
+          playPostaNotificationSound();
+          setRealtimeToast(`🛍️ قطعة جديدة وبانتظار الاعتماد للسوق المركزي: [${row.product_name || 'مشغولة'}]`);
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, (payload) => {
+        const row = (payload.new as any) || {};
+        loadCloudMarketplaceProducts();
+        loadAdminNotifications();
+        if (row.product_name) {
+          setRealtimeToast(`📦 تم حفظ مشغولة جديدة بالكتالوج: [${row.product_name}]`);
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'admin_announcements' }, (payload) => {
+        const newAnn = payload.new as any;
+        if (newAnn?.recipient_type === 'super_admin_alert') {
+          playPostaNotificationSound();
+          setRealtimeToast(newAnn.title || '🔔 إشعار جديد لإدارة المنظومة');
+          loadAdminNotifications();
+          loadCloudMarketplaceProducts();
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workshop_applications' }, (payload) => {
         loadWorkshopApplications();
+        loadAdminNotifications();
         if (payload.eventType === 'INSERT') {
           playPostaNotificationSound();
           setRealtimeToast(`🏛️ طلب انضمام جديد من ورشة: [${(payload.new as any)?.brand_name || 'ورشة'}]`);
@@ -1379,7 +1433,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications]);
+  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications, loadAdminNotifications]);
 
   // 3. Load Deep Executive ERP Data
   const loadDeepData = useCallback(async (workshopId: string) => {
@@ -2130,6 +2184,92 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
+            {/* Admin Approvals & System Alerts Bell */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAdminNotificationsOpen((prev) => !prev);
+                  loadAdminNotifications();
+                }}
+                className="relative p-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition cursor-pointer shadow-xs"
+                title="إشعارات الاعتمادات وطلبات السوق والورش"
+              >
+                <Bell size={17} className="text-amber-400" />
+                {adminAlerts.length > 0 && (
+                  <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-amber-500 text-stone-950 rounded-full text-[10px] font-black font-mono animate-pulse">
+                    {adminAlerts.length}
+                  </span>
+                )}
+              </button>
+
+              {isAdminNotificationsOpen && (
+                <div className="absolute left-0 top-full mt-2 w-80 sm:w-96 max-h-96 overflow-y-auto rounded-2xl bg-stone-900 border border-amber-500/40 shadow-2xl z-50 p-3 space-y-2 text-right">
+                  <div className="flex items-center justify-between pb-2 border-b border-stone-800">
+                    <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                      <Bell size={14} />
+                      <span>تنبيهات وطلبات الاعتماد ({adminAlerts.length})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsAdminNotificationsOpen(false)}
+                      className="p-1 text-stone-400 hover:text-white cursor-pointer"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  {adminAlerts.length === 0 ? (
+                    <p className="text-[11px] text-stone-400 text-center py-6 font-bold">
+                      لا توجد طلبات اعتماد أو تنبيهات معلقة حالياً ✓
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {adminAlerts.map((notif: any) => (
+                        <div
+                          key={notif.id}
+                          className="p-2.5 rounded-xl bg-stone-800/80 hover:bg-stone-800 border border-stone-700/80 transition space-y-1"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (notif.targetTab) {
+                                  setActiveExecutiveTab(notif.targetTab);
+                                  if (notif.targetTab === 'product_approvals') loadCloudMarketplaceProducts();
+                                  if (notif.targetTab === 'applications') loadWorkshopApplications();
+                                  if (notif.targetTab === 'appeals') loadAppeals();
+                                }
+                                setIsAdminNotificationsOpen(false);
+                              }}
+                              className="text-right flex-1 cursor-pointer"
+                            >
+                              <div className="text-[11px] font-black text-amber-300 leading-snug">
+                                {notif.title}
+                              </div>
+                              <div className="text-[10px] text-stone-300 leading-relaxed mt-0.5">
+                                {notif.message}
+                              </div>
+                            </button>
+                            {notif.dismissible && (
+                              <button
+                                type="button"
+                                onClick={() => handleDismissAdminNotification(notif.id)}
+                                className="p-1 text-stone-500 hover:text-rose-400 cursor-pointer shrink-0"
+                                title="إخفاء التنبيه"
+                              >
+                                <X size={12} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Top Messages Icon with Vintage Phone Bell */}
             <button
               type="button"
@@ -2193,6 +2333,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 loadWorkshops(false);
                 loadAppeals();
                 loadMessagingHub();
+                loadCloudMarketplaceProducts();
+                loadWorkshopApplications();
+                loadAdminNotifications();
               }}
               disabled={refreshing}
               className="p-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition cursor-pointer disabled:opacity-50"
@@ -2779,11 +2922,14 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       <th className="py-2.5 px-3">تكلفة الإنتاج</th>
                       <th className="py-2.5 px-3">سعر الجملة</th>
                       <th className="py-2.5 px-3">سعر القطاعي</th>
+                      <th className="py-2.5 px-3">حالة السوق</th>
                       <th className="py-2.5 px-3 text-center">إجراءات اعتماد السوق المركزي</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-semibold">
-                    {deepData.products.map((p: any) => (
+                    {deepData.products.map((p: any) => {
+                      const mktStatus = p.marketplace_status || (p.local_record?.marketplaceStatus);
+                      return (
                       <tr key={p.id || p.product_id} className="hover:bg-amber-50/30 dark:hover:bg-stone-800/30">
                         <td className="py-2.5 px-3 font-black text-stone-900 dark:text-stone-100">
                           {p.name || p.product_name || p.title}
@@ -2796,7 +2942,26 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                           {p.wholesale_price ?? 0} {currentSelectedWorkshop.currencySymbol}
                         </td>
                         <td className="py-2.5 px-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                          {p.retail_price ?? p.price ?? 0} {currentSelectedWorkshop.currencySymbol}
+                          {p.store_price ?? p.retail_price ?? p.price ?? 0} {currentSelectedWorkshop.currencySymbol}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {mktStatus === 'approved' ? (
+                            <span className="px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-black text-[10px]">
+                              معتمد بالسوق ✓
+                            </span>
+                          ) : mktStatus === 'rejected' ? (
+                            <span className="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 font-black text-[10px]">
+                              مرفوض ❌
+                            </span>
+                          ) : mktStatus === 'pending_approval' ? (
+                            <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 font-black text-[10px]">
+                              بانتظار الاعتماد ⏳
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-lg bg-stone-500/15 text-stone-500 font-bold text-[10px]">
+                              كتالوج الورشة 📦
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="flex items-center justify-center gap-1.5">
@@ -2829,6 +2994,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                                 setSuccessNotice(`✓ تم اعتماد "${p.name || p.productName || p.product_name}" ونشره في سوق الشمساوية المركزي بنجاح!`);
                                 loadDeepData(selectedWorkshopId);
                                 loadCloudMarketplaceProducts();
+                                loadAdminNotifications();
                               }}
                               className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
                               title="اعتماد فوري للعرض بالسوق المركزي"
@@ -2840,7 +3006,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                               onClick={async () => {
                                 const targetId = p.id || p.product_id;
                                 const reason = window.prompt('يرجى كتابة ملاحظات الإرجاع للفنان:') || 'يرجى مراجعة وتدقيق مواصفات المشغولة';
-                                const res = await reviewMarketplaceProduct(targetId, 'rejected', reason, profile.email);
+                                const res = await reviewMarketplaceProduct(targetId, 'rejected', reason, profile.email, {
+                                  productPayload: {
+                                    ...p,
+                                    workshopId: selectedWorkshopId || p.workshop_id || p.workshopId,
+                                    brandName: currentSelectedWorkshop.brandName,
+                                    artistName: currentSelectedWorkshop.artistName,
+                                    phoneNumber: currentSelectedWorkshop.phoneNumber,
+                                  },
+                                });
                                 if (!res.success) {
                                   showError(res.error || 'تعذر تسجيل إرجاع المنتج');
                                   return;
@@ -2849,6 +3023,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                                 setSuccessNotice(`✓ تم إرجاع المشغولة وإخطار الفنان بملاحظات التعديل.`);
                                 loadDeepData(selectedWorkshopId);
                                 loadCloudMarketplaceProducts();
+                                loadAdminNotifications();
                               }}
                               className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
                               title="إرجاع المشغولة للفنان بملاحظات"
@@ -2858,7 +3033,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
               </div>
@@ -3917,6 +4092,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                                 } else {
                                   playSuccessSound();
                                   setSuccessNotice(`✓ تم اعتماد المشغولة "${p.productName}" بتقييم ${initialRatingForApprove} نجوم ونشرها في السوق السحابي بنجاح!`);
+                                  loadAdminNotifications();
                                 }
                                 loadCloudMarketplaceProducts();
                               }}
@@ -4364,7 +4540,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                           rejectingProduct.id || rejectingProduct.product_id,
                           'rejected',
                           rejectReason,
-                          profile.email
+                          profile.email,
+                          { productPayload: rejectingProduct }
                         );
                         if (!res.success) {
                           showError(res.error || 'تم الرفض محلياً ولكن تعذر الحفظ السحابي');
@@ -4373,6 +4550,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                           setSuccessNotice(`✓ تم رفض المشغولة سحابياً وإرسال السبب لورشة الفنان: "${rejectReason}"`);
                         }
                         loadCloudMarketplaceProducts();
+                        loadAdminNotifications();
                         setRejectingProduct(null);
                       }}
                       className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
@@ -4715,6 +4893,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                                   );
                                   playSuccessSound();
                                   setSuccessNotice(`✓ تم اعتماد مشغولة "${p.product_name}" ونشرها في سوق الشمساوية المركزي بنجاح! ✨`);
+                                  loadAdminNotifications();
                                 } else {
                                   showError(res.error || 'تعذر اعتماد المنتج سحابياً — تأكد من الصلاحيات أو الاتصال');
                                 }
@@ -4777,7 +4956,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       type="button"
                       onClick={async () => {
                         const reason = cloudRejectReason.trim() || 'تحتاج إلى تدقيق المواصفات والصور الفنية.';
-                        const res = await reviewMarketplaceProduct(cloudRejectingProduct.id, 'rejected', reason, profile.email);
+                        const res = await reviewMarketplaceProduct(cloudRejectingProduct.id, 'rejected', reason, profile.email, {
+                          productPayload: cloudRejectingProduct,
+                        });
                         if (res.success) {
                           setCloudProductsForReview((prev) =>
                             prev.map((item) => (item.id === cloudRejectingProduct.id ? { ...item, status: 'rejected', rejection_reason: reason } : item))
@@ -4785,6 +4966,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                           playAlertSound();
                           setSuccessNotice(`✓ تم رفض المشغولة وإخطار ورشة [${cloudRejectingProduct.brand_name || 'الفنان'}] بالملاحظات بنجاح.`);
                           setCloudRejectingProduct(null);
+                          loadAdminNotifications();
                         } else {
                           showError(res.error || 'تعذر حفظ قرار الرفض سحابياً');
                         }
@@ -6782,16 +6964,21 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   </div>
 
                   <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">معروضات السوق المركزي</span>
+                    <span className="text-[10px] text-stone-500 font-bold block mb-1">معروضات المتجر والسوق</span>
                     <span className="font-black text-amber-600 font-mono text-base block">
                       {auditData.marketplaceProductsCount || 0} معروضة
                     </span>
+                    {(auditData.pendingApprovalCount || 0) > 0 && (
+                      <span className="text-[10px] text-amber-500 font-bold block mt-0.5">
+                        ({auditData.pendingApprovalCount} بانتظار اعتمادك ⏳)
+                      </span>
+                    )}
                   </div>
 
                   <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">المنتجات بالكتالوج</span>
+                    <span className="text-[10px] text-stone-500 font-bold block mb-1">إجمالي المنتجات المسجلة</span>
                     <span className="font-black text-blue-600 font-mono text-base block">
-                      {auditData.productsCount || 0}
+                      {Math.max(auditData.productsCount || 0, auditData.marketplaceProductsCount || 0)}
                     </span>
                   </div>
 

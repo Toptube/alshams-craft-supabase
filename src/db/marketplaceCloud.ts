@@ -155,81 +155,169 @@ export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
 export async function publishProductToMarketplace(
   product: SavedProductRecord,
   profile: UserProfile
-): Promise<{ success: boolean; status: 'pending_approval' | 'approved' | 'rejected'; error?: string }> {
-  try {
-    const payload: Partial<CloudMarketplaceProduct> = {
-      id: product.id,
-      workshop_id: profile.tenantId || profile.workshopId || profile.id,
-      brand_name: profile.brandName || 'ورشة الشمساوية',
-      artist_name: profile.artistName || 'فنان الشمساوية',
-      phone_number: profile.phoneNumber || '',
-      product_name: product.productName,
-      category: product.category,
-      craft_name: product.craftName || product.category,
-      decor_category: product.decorCategory || 'all',
-      store_price: product.storePrice || product.retailPrice || 0,
-      retail_price: product.retailPrice || product.storePrice || 0,
-      wholesale_price: product.wholesalePrice || 0,
-      cost_price: product.costPrice || 0,
-      current_stock: product.currentStock ?? 1,
-      image_url: product.imageUrl || '/alshams_falcon_emblem.png',
-      store_description: product.storeDescription || (product as any).notes || '',
-      available_colors: product.availableColors || [],
-      available_sizes: product.availableSizes || [],
-      dimensions: {
-        length: (product.input as any)?.dimensions?.length,
-        width: (product.input as any)?.dimensions?.width,
-        height: (product.input as any)?.dimensions?.height,
-        diameter: (product.input as any)?.dimensions?.diameter,
-      },
-      status: product.isMarketplaceApproved ? 'approved' : 'pending_approval',
-      updated_at: new Date().toISOString(),
-    };
+): Promise<{
+  success: boolean;
+  cloudSynced: boolean;
+  status: 'pending_approval' | 'approved' | 'rejected';
+  error?: string;
+}> {
+  const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
+  const initialStatus: 'pending_approval' | 'approved' | 'rejected' = product.isMarketplaceApproved
+    ? 'approved'
+    : 'pending_approval';
 
+  const safeCloudRow: Partial<CloudMarketplaceProduct> = {
+    id: product.id,
+    workshop_id: workshopId,
+    brand_name: profile.brandName || 'ورشة الشمساوية',
+    artist_name: profile.artistName || 'فنان الشمساوية',
+    phone_number: profile.phoneNumber || '',
+    product_name: product.productName,
+    category: String(product.category || 'macrame'),
+    craft_name: product.craftName || String(product.category || 'المكرمية'),
+    decor_category: product.decorCategory || 'all',
+    store_price: Number(product.storePrice || product.retailPrice || 0),
+    retail_price: Number(product.retailPrice || product.storePrice || 0),
+    wholesale_price: Number(product.wholesalePrice || 0),
+    cost_price: Number(product.costPrice || 0),
+    current_stock: Number(product.currentStock ?? 1),
+    image_url: product.imageUrl || '/alshams_falcon_emblem.png',
+    store_description: product.storeDescription || (product as any).marketingDescription || (product as any).notes || '',
+    available_colors: Array.isArray(product.availableColors) ? product.availableColors : [],
+    available_sizes: Array.isArray(product.availableSizes) ? product.availableSizes : [],
+    dimensions: {
+      length: (product.input as any)?.dimensions?.length,
+      width: (product.input as any)?.dimensions?.width ?? product.input?.widthCm,
+      height: (product.input as any)?.dimensions?.height ?? product.input?.totalLengthCm,
+      diameter: (product.input as any)?.dimensions?.diameter ?? product.input?.diameterCm,
+    },
+    materials_summary: (product as any).materialsDescription || '',
+    status: initialStatus,
+    rejection_reason: null,
+    updated_at: new Date().toISOString(),
+  };
+
+  try {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       enqueueOfflineMutation({
-        workshopId: payload.workshop_id || 'default',
+        workshopId: workshopId || 'default',
         type: 'marketplace_publish',
-        payload,
+        payload: safeCloudRow,
       });
-      return { success: true, status: payload.status as any };
+      return { success: true, cloudSynced: false, status: initialStatus };
     }
 
-    // Attempt server API first (handles both Supabase + persistent sync cleanly)
+    let resolvedStatus: 'pending_approval' | 'approved' | 'rejected' = initialStatus;
+    let serverCloudSynced = false;
+    let lastError: string | undefined;
+
+    // 1. Attempt server API first (passes auth headers so server can authenticate Supabase write + notify Super Admin)
     try {
+      const headers = await getOptionalAuthHeaders(profile.email, { 'Content-Type': 'application/json' });
       const res = await fetch('/api/marketplace/publish', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify({
+          ...safeCloudRow,
+          logo_url: (profile as any).logo_url || profile.logoUrl || undefined,
+          store_slug: profile.store_slug || profile.storeSlug || undefined,
+        }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        return { success: true, status: data.product?.status || (payload.status as any) };
+        if (data?.product?.status) {
+          resolvedStatus = data.product.status;
+        }
+        serverCloudSynced = Boolean(data?.cloudSynced);
+        if (serverCloudSynced) {
+          return { success: true, cloudSynced: true, status: resolvedStatus };
+        }
+        if (data?.cloudError) lastError = data.cloudError;
+      } else {
+        lastError = `HTTP ${res.status}`;
       }
-    } catch {}
+    } catch (e: any) {
+      lastError = e?.message;
+    }
 
-    // Direct Supabase upsert fallback
+    // 2. Direct authenticated Supabase upsert fallback (if server used anon or could not pass RLS)
     try {
+      const { data: existingRemote } = await supabase
+        .from('marketplace_products')
+        .select('id, status')
+        .eq('id', product.id)
+        .maybeSingle();
+
+      if (existingRemote?.status === 'approved') {
+        resolvedStatus = 'approved';
+      }
+
+      const directRow = { ...safeCloudRow, status: resolvedStatus };
       const { error } = await supabase
         .from('marketplace_products')
-        .upsert(payload, { onConflict: 'id' });
+        .upsert(directRow, { onConflict: 'id' });
       if (!error) {
-        return { success: true, status: payload.status as any };
+        return { success: true, cloudSynced: true, status: resolvedStatus };
       }
-    } catch {}
+      lastError = error.message;
+    } catch (e: any) {
+      lastError = e?.message || lastError;
+    }
 
+    // 3. Queue for automatic retry when connection/session stabilizes
     enqueueOfflineMutation({
-      workshopId: payload.workshop_id || 'default',
+      workshopId: workshopId || 'default',
       type: 'marketplace_publish',
-      payload,
+      payload: { ...safeCloudRow, status: resolvedStatus },
     });
 
-    return { success: true, status: 'pending_approval' };
+    return { success: true, cloudSynced: false, status: resolvedStatus, error: lastError };
   } catch (err: any) {
     console.warn('[Marketplace Cloud Sync Warning]:', err);
-    return { success: true, status: 'pending_approval' };
+    enqueueOfflineMutation({
+      workshopId: workshopId || 'default',
+      type: 'marketplace_publish',
+      payload: safeCloudRow,
+    });
+    return { success: true, cloudSynced: false, status: initialStatus, error: err?.message };
   }
+}
+
+/**
+ * Fetches all marketplace_products rows belonging to a specific workshop
+ */
+export async function fetchWorkshopMarketplaceProducts(workshopId: string): Promise<CloudMarketplaceProduct[]> {
+  if (!workshopId) return [];
+  const map = new Map<string, CloudMarketplaceProduct>();
+
+  try {
+    const res = await fetch(`/api/store/${encodeURIComponent(workshopId)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.products)) {
+        data.products.forEach((p: any) => {
+          const norm = normalizeCloudProduct(p);
+          map.set(norm.id, norm);
+        });
+      }
+    }
+  } catch {}
+
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_products')
+      .select('*')
+      .eq('workshop_id', workshopId);
+    if (!error && Array.isArray(data)) {
+      data.forEach((p: any) => {
+        const norm = normalizeCloudProduct(p);
+        map.set(norm.id, norm);
+      });
+    }
+  } catch {}
+
+  return Array.from(map.values());
 }
 
 /**
@@ -442,46 +530,65 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
           };
         }
 
-        let prodsData: any[] = [];
+        const prodsMap = new Map<string, any>();
+        const rejectedIds = new Set<string>();
+
         try {
           const { data: pData } = await supabase
             .from('marketplace_products')
             .select('*')
-            .eq('workshop_id', wid)
-            .neq('status', 'rejected');
-          if (Array.isArray(pData)) prodsData = pData;
+            .eq('workshop_id', wid);
+          if (Array.isArray(pData)) {
+            pData.forEach((p: any) => {
+              if (p.status === 'rejected') {
+                rejectedIds.add(p.id);
+              } else {
+                prodsMap.set(p.id, p);
+              }
+            });
+          }
         } catch {}
 
-        if (prodsData.length === 0) {
-          try {
-            const { data: catData } = await supabase
-              .from('products')
-              .select('*')
-              .eq('workshop_id', wid);
-            if (Array.isArray(catData)) {
-              prodsData = catData.map((p: any) => ({
-                id: p.id,
-                workshop_id: p.workshop_id,
-                brand_name: found.brand_name || 'ورشة الشمساوية',
-                artist_name: found.artist_name || 'فنان الشمساوية',
-                phone_number: found.phone_number || found.phone || '',
-                logo_url: logo,
-                store_slug: storeSlug,
-                product_name: p.product_name,
-                category: p.category || 'أعمال يدوية',
-                craft_name: p.craft_name || p.category || 'أعمال يدوية',
-                store_price: p.retail_price || 0,
-                retail_price: p.retail_price || 0,
-                wholesale_price: p.wholesale_price || 0,
-                cost_price: p.cost_price || 0,
-                image_url: p.image_url || null,
-                store_description: p.specs?.marketingDescription || p.specs?.materialsDescription || p.product_name,
-                status: 'pending_approval',
-                created_at: p.created_at,
-              }));
-            }
-          } catch {}
-        }
+        try {
+          const { data: catData } = await supabase
+            .from('products')
+            .select('*')
+            .eq('workshop_id', wid);
+          if (Array.isArray(catData)) {
+            catData.forEach((p: any) => {
+              if (p.is_active === false || rejectedIds.has(p.id)) return;
+              const lr = p.local_record || {};
+              if (lr.inStore === false || lr.isPublishedInStore === false) return;
+              if (!prodsMap.has(p.id)) {
+                prodsMap.set(p.id, {
+                  id: p.id,
+                  workshop_id: p.workshop_id,
+                  brand_name: found.brand_name || 'ورشة الشمساوية',
+                  artist_name: found.artist_name || 'فنان الشمساوية',
+                  phone_number: found.phone_number || found.phone || '',
+                  logo_url: logo,
+                  store_slug: storeSlug,
+                  product_name: p.product_name || lr.productName,
+                  category: p.category || lr.category || 'أعمال يدوية',
+                  craft_name: p.craft_name || lr.craftName || p.category || 'أعمال يدوية',
+                  store_price: lr.storePrice || p.retail_price || 0,
+                  retail_price: p.retail_price || lr.retailPrice || 0,
+                  wholesale_price: p.wholesale_price || lr.wholesalePrice || 0,
+                  cost_price: p.cost_price || lr.costPrice || 0,
+                  current_stock: lr.currentStock ?? 1,
+                  image_url: p.image_url || lr.imageUrl || null,
+                  store_description: lr.storeDescription || p.specs?.marketingDescription || p.specs?.materialsDescription || p.product_name,
+                  available_colors: lr.availableColors || [],
+                  available_sizes: lr.availableSizes || [],
+                  status: lr.isMarketplaceApproved ? 'approved' : 'pending_approval',
+                  created_at: p.created_at,
+                });
+              }
+            });
+          }
+        } catch {}
+
+        const prodsData = Array.from(prodsMap.values());
 
         return {
           workshop: {

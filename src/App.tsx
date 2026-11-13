@@ -12,10 +12,10 @@ import {
 } from './types';
 import { supabase } from './lib/supabase';
 import { getCurrentWorkshopFromSupabase } from './db/supabaseService';
-import { flushProductSync } from './db/productsCloud';
+import { flushProductSync, startProductSync } from './db/productsCloud';
 import { tenantStorage } from './db/dexieDB';
 import { playPostaNotificationSound } from './lib/sounds';
-import { startQuietBackgroundSync } from './services/periodicQuietSync';
+import { startQuietBackgroundSync, hydrateWorkshopIntoDexie } from './services/periodicQuietSync';
 
 // Access Control & Messaging
 import { AccessGate } from './components/gate/AccessGate';
@@ -453,12 +453,17 @@ export const App: React.FC = () => {
     };
   }, [profile?.tenantId, profile?.workshopId, profile?.id, loadSearchCacheAndNotifications]);
 
-  // آلية المزامنة الدورية الهادئة في الخلفية كل 30 دقيقة لمطابقة الخامات والمنتجات والمبيعات
+  // آلية المزامنة الدورية الهادئة في الخلفية ومزامنة الكتالوج والمتجر تلقائياً
   useEffect(() => {
     if (!profile) return;
-    const cleanup = startQuietBackgroundSync(profile);
-    return cleanup;
-  }, [profile?.workshopId, profile?.id]);
+    const tid = profile.tenantId || profile.workshopId || profile.id;
+    const cleanupQuiet = startQuietBackgroundSync(profile);
+    const cleanupProducts = tid ? startProductSync(tid) : () => {};
+    return () => {
+      cleanupQuiet();
+      cleanupProducts();
+    };
+  }, [profile?.tenantId, profile?.workshopId, profile?.id]);
 
   // Check Supabase session on boot and keep persistent login
   useEffect(() => {
@@ -1291,14 +1296,22 @@ export const App: React.FC = () => {
                   setOriginalSuperAdminProfile(profile);
                 }
                 setSwitchedWorkshopContext(workshop);
+                const targetWid = workshop.id || workshop.workshopId || (workshop as any).tenantId || '';
+                const adminEmail = profile?.email || originalSuperAdminProfile?.email || workshop.email;
                 const merged: UserProfile = {
                   ...workshop,
+                  id: targetWid,
+                  workshopId: targetWid,
+                  tenantId: targetWid,
                   role: 'superadmin',
-                  email: profile?.email || workshop.email,
+                  email: adminEmail,
                 };
                 setProfile(merged);
                 localStorage.setItem('alshams_profile', JSON.stringify(merged));
                 setActiveView('home');
+                if (targetWid) {
+                  hydrateWorkshopIntoDexie(targetWid, { asSuperAdmin: true, userEmail: adminEmail }).catch(() => {});
+                }
               }}
             />
           ) : (
@@ -1547,14 +1560,22 @@ export const App: React.FC = () => {
                 setOriginalSuperAdminProfile(profile);
               }
               setSwitchedWorkshopContext(workshop);
+              const targetWid = workshop.id || workshop.workshopId || (workshop as any).tenantId || '';
+              const adminEmail = profile?.email || originalSuperAdminProfile?.email || workshop.email;
               const merged: UserProfile = {
                 ...workshop,
+                id: targetWid,
+                workshopId: targetWid,
+                tenantId: targetWid,
                 role: 'superadmin',
-                email: profile?.email || workshop.email,
+                email: adminEmail,
               };
               setProfile(merged);
               localStorage.setItem('alshams_profile', JSON.stringify(merged));
               setActiveView('home');
+              if (targetWid) {
+                hydrateWorkshopIntoDexie(targetWid, { asSuperAdmin: true, userEmail: adminEmail }).catch(() => {});
+              }
             }}
           />
         )}

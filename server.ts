@@ -1002,21 +1002,42 @@ app.get('/api/admin/workshops/:id/audit', requireAuth, async (req: Authenticated
   }
 
   let matsCount = 0;
-  let prodsCount = 0;
+  let catalogProductsCount = 0;
   let marketplaceCount = 0;
+  let pendingApprovalCount = 0;
+  let approvedMarketplaceCount = 0;
+  let productsCount = 0;
   let ordersCount = 0;
 
   try {
     const [matsRes, prodsRes, mktRes, ordRes, mktOrdRes] = await Promise.all([
       client.from('materials').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
-      client.from('products').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
-      client.from('marketplace_products').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
+      client.from('products').select('id, product_name, is_active, local_record').eq('workshop_id', targetWid),
+      client.from('marketplace_products').select('id, product_name, status').eq('workshop_id', targetWid),
       client.from('orders').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
       client.from('marketplace_orders').select('id', { count: 'exact', head: true }).eq('workshop_id', targetWid),
     ]);
     if (typeof matsRes.count === 'number') matsCount = matsRes.count;
-    if (typeof prodsRes.count === 'number') prodsCount = prodsRes.count;
-    if (typeof mktRes.count === 'number') marketplaceCount = mktRes.count;
+
+    const persistentMkt = loadPersistentMarketplaceProducts().filter(
+      (p: any) => p.workshop_id === targetWid || p.workshopId === targetWid
+    );
+    const catalogRows = (Array.isArray(prodsRes.data) ? prodsRes.data : []).filter((p: any) => p.is_active !== false);
+    const mktMap = new Map<string, any>();
+    persistentMkt.forEach((p: any) => mktMap.set(p.id, p));
+    (Array.isArray(mktRes.data) ? mktRes.data : []).forEach((p: any) => mktMap.set(p.id, { ...(mktMap.get(p.id) || {}), ...p }));
+
+    const allUniqueIds = new Set<string>();
+    catalogRows.forEach((p: any) => allUniqueIds.add(p.id));
+    mktMap.forEach((p: any, id: string) => {
+      allUniqueIds.add(id);
+      if (p.status === 'pending_approval') pendingApprovalCount += 1;
+      if (p.status === 'approved') approvedMarketplaceCount += 1;
+    });
+
+    catalogProductsCount = catalogRows.length;
+    marketplaceCount = mktMap.size;
+    productsCount = allUniqueIds.size;
     ordersCount = (typeof ordRes.count === 'number' ? ordRes.count : 0) + (typeof mktOrdRes.count === 'number' ? mktOrdRes.count : 0);
   } catch {}
 
@@ -1034,8 +1055,11 @@ app.get('/api/admin/workshops/:id/audit', requireAuth, async (req: Authenticated
     rating_stars: ws.rating_stars || 5,
     medal: ws.medal || null,
     lastActiveDate,
-    productsCount: prodsCount,
+    productsCount,
+    catalogProductsCount,
     marketplaceProductsCount: marketplaceCount,
+    pendingApprovalCount,
+    approvedMarketplaceCount,
     materialsCount: matsCount,
     ordersCount: ordersCount,
   });
@@ -1051,16 +1075,72 @@ app.get('/api/admin/workshops/:id/deep-data', requireAuth, async (req: Authentic
   const client = getDbClient(req);
 
   try {
-    const [matsRes, prodsRes, treasRes, ordersRes, mktOrdersRes, custsRes, supsRes, empsRes] = await Promise.all([
+    const [matsRes, prodsRes, mktProdsRes, treasRes, ordersRes, mktOrdersRes, custsRes, supsRes, empsRes, workOrdersRes] = await Promise.all([
       client.from('materials').select('*').eq('workshop_id', targetWid),
       client.from('products').select('*').eq('workshop_id', targetWid),
+      client.from('marketplace_products').select('*').eq('workshop_id', targetWid),
       client.from('treasuries').select('*').eq('workshop_id', targetWid),
       client.from('orders').select('*').eq('workshop_id', targetWid),
       client.from('marketplace_orders').select('*').eq('workshop_id', targetWid),
       client.from('customers').select('*').eq('workshop_id', targetWid),
       client.from('suppliers').select('*').eq('workshop_id', targetWid),
       client.from('employees').select('*').eq('workshop_id', targetWid),
+      client.from('work_orders').select('*').eq('workshop_id', targetWid),
     ]);
+
+    const persistentMktForWs = loadPersistentMarketplaceProducts().filter(
+      (p: any) => p.workshop_id === targetWid || p.workshopId === targetWid
+    );
+    const mktMap = new Map<string, any>();
+    persistentMktForWs.forEach((p: any) => mktMap.set(p.id, p));
+    (Array.isArray(mktProdsRes.data) ? mktProdsRes.data : []).forEach((p: any) => {
+      mktMap.set(p.id, { ...(mktMap.get(p.id) || {}), ...p });
+    });
+
+    const productsMap = new Map<string, any>();
+    (Array.isArray(prodsRes.data) ? prodsRes.data : []).forEach((p: any) => {
+      const mktMatch = mktMap.get(p.id);
+      productsMap.set(p.id, {
+        ...p,
+        marketplace_status: mktMatch?.status || (p.local_record?.marketplaceStatus || null),
+        store_price: mktMatch?.store_price ?? p.retail_price ?? 0,
+        image_url: p.image_url || mktMatch?.image_url || null,
+      });
+    });
+
+    mktMap.forEach((mp: any, id: string) => {
+      const existing = productsMap.get(id);
+      if (existing) {
+        productsMap.set(id, {
+          ...existing,
+          marketplace_status: mp.status || existing.marketplace_status,
+          store_price: mp.store_price ?? existing.store_price,
+          image_url: existing.image_url || mp.image_url || null,
+        });
+      } else {
+        productsMap.set(id, {
+          id: mp.id,
+          workshop_id: mp.workshop_id || targetWid,
+          product_name: mp.product_name,
+          category: mp.category || mp.craft_name || 'عام',
+          craft_name: mp.craft_name || mp.category || 'عام',
+          cost_price: Number(mp.cost_price || 0),
+          wholesale_price: Number(mp.wholesale_price || 0),
+          retail_price: Number(mp.retail_price || mp.store_price || 0),
+          store_price: Number(mp.store_price || mp.retail_price || 0),
+          image_url: mp.image_url || null,
+          current_stock: Number(mp.current_stock ?? 1),
+          marketplace_status: mp.status || 'pending_approval',
+          is_active: true,
+          specs: {
+            materialsDescription: mp.materials_summary || '',
+            marketingDescription: mp.store_description || '',
+          },
+          created_at: mp.created_at,
+          updated_at: mp.updated_at,
+        });
+      }
+    });
 
     const combinedOrders = [
       ...(Array.isArray(ordersRes.data) ? ordersRes.data : []),
@@ -1069,12 +1149,14 @@ app.get('/api/admin/workshops/:id/deep-data', requireAuth, async (req: Authentic
 
     res.json({
       materials: matsRes.data || [],
-      products: prodsRes.data || [],
+      products: Array.from(productsMap.values()),
+      marketplaceProducts: Array.from(mktMap.values()),
       treasuries: treasRes.data || [],
       orders: combinedOrders,
       customers: custsRes.data || [],
       suppliers: supsRes.data || [],
       employees: empsRes.data || [],
+      workOrders: workOrdersRes.data || [],
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'تعذر جلب تفاصيل بيانات الورشة' });
@@ -1618,9 +1700,11 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
 
       const mergedMap = new Map<string, any>();
       localAnnouncements
-        .filter((a) => wantAll || a.recipient_type === 'all' || a.recipient_workshop_id === wid)
+        .filter((a) => a.recipient_type !== 'super_admin_alert' && (wantAll || a.recipient_type === 'all' || a.recipient_workshop_id === wid))
         .forEach((a) => mergedMap.set(a.id, a));
-      announcements.forEach((a: any) => mergedMap.set(a.id, a));
+      announcements
+        .filter((a: any) => a.recipient_type !== 'super_admin_alert')
+        .forEach((a: any) => mergedMap.set(a.id, a));
 
       const merged = Array.from(mergedMap.values())
         .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
@@ -1636,7 +1720,7 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
   }
 
   const list = localAnnouncements.filter(
-    (a) => wantAll || a.recipient_type === 'all' || a.recipient_workshop_id === wid
+    (a) => a.recipient_type !== 'super_admin_alert' && (wantAll || a.recipient_type === 'all' || a.recipient_workshop_id === wid)
   );
   const merged = list.map((a) => ({
     ...a,
@@ -1644,6 +1728,152 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
   }));
 
   res.json({ announcements: merged });
+});
+
+// 6a. Unified Super Admin Notifications Bell (Pending Products, Applications, Appeals & System Alerts)
+app.get('/api/admin/notifications', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+
+  const client = getDbClient(req);
+  const items: any[] = [];
+
+  try {
+    const [alertsRes, mktPendingRes, catProdsRes, appsRes, appealsRes, wsRes] = await Promise.all([
+      client.from('admin_announcements').select('*').eq('recipient_type', 'super_admin_alert').order('created_at', { ascending: false }).limit(50),
+      client.from('marketplace_products').select('*').eq('status', 'pending_approval').order('updated_at', { ascending: false }),
+      client.from('products').select('id, workshop_id, product_name, retail_price, local_record, is_active, created_at, updated_at').eq('is_active', true),
+      client.from('workshop_applications').select('*').eq('status', 'pending'),
+      client.from('workshops').select('id, brand_name, artist_name, appeal_status, appeal_message, appeal_submitted_at').eq('appeal_status', 'pending'),
+      client.from('workshops').select('id, brand_name, artist_name'),
+    ]);
+
+    const wsNameMap = new Map<string, any>();
+    loadPersistentWorkshops().forEach((w: any) => wsNameMap.set(w.id || w.workshopId, w));
+    (wsRes.data || []).forEach((w: any) => wsNameMap.set(w.id, { ...(wsNameMap.get(w.id) || {}), ...w }));
+
+    // 1. Live Pending Marketplace Products
+    const seenPendingProdIds = new Set<string>();
+    const pushPendingProd = (p: any) => {
+      if (!p?.id || seenPendingProdIds.has(p.id)) return;
+      seenPendingProdIds.add(p.id);
+      const ws = wsNameMap.get(p.workshop_id || p.workshopId);
+      items.push({
+        id: `pending_prod_${p.id}`,
+        entityId: p.id,
+        workshopId: p.workshop_id || p.workshopId,
+        type: 'product_approval',
+        targetTab: 'product_approvals',
+        title: `🛍️ طلب اعتماد قطعة للسوق: ${p.product_name || 'مشغولة يدوية'}`,
+        message: `من ورشة "${p.brand_name || ws?.brand_name || ws?.brandName || 'ورشة حرفية'}" (${p.artist_name || ws?.artist_name || ws?.artistName || 'فنان'}) • سعر العرض: ${Number(p.store_price ?? p.retail_price ?? 0)} ج.م`,
+        createdAt: p.updated_at || p.created_at || new Date().toISOString(),
+      });
+    };
+
+    loadPersistentMarketplaceProducts()
+      .filter((p: any) => p.status === 'pending_approval')
+      .forEach(pushPendingProd);
+    (mktPendingRes.data || []).forEach(pushPendingProd);
+
+    // Also inspect unapproved catalog products published for store
+    const allKnownMktIds = new Set<string>([
+      ...loadPersistentMarketplaceProducts().map((p: any) => p.id),
+    ]);
+    try {
+      const { data: allMktIds } = await client.from('marketplace_products').select('id');
+      (allMktIds || []).forEach((r: any) => allKnownMktIds.add(r.id));
+    } catch {}
+
+    (catProdsRes.data || []).forEach((p: any) => {
+      const lr = p.local_record || {};
+      if (!allKnownMktIds.has(p.id) && lr.inStore !== false && lr.isPublishedInStore !== false) {
+        const ws = wsNameMap.get(p.workshop_id);
+        pushPendingProd({
+          ...p,
+          brand_name: ws?.brand_name || ws?.brandName,
+          artist_name: ws?.artist_name || ws?.artistName,
+          store_price: p.retail_price,
+        });
+      }
+    });
+
+    // 2. Pending Join Applications
+    (appsRes.data || []).forEach((a: any) => {
+      items.push({
+        id: `pending_app_${a.id}`,
+        entityId: a.id,
+        type: 'workshop_application',
+        targetTab: 'applications',
+        title: `🏛️ طلب انضمام ورشة جديد: ${a.brand_name || 'ورشة'}`,
+        message: `الفنان: ${a.artist_name || 'غير محدد'} • ${a.country || 'مصر'}`,
+        createdAt: a.created_at || new Date().toISOString(),
+      });
+    });
+
+    // 3. Pending Appeals
+    (appealsRes.data || []).forEach((ap: any) => {
+      items.push({
+        id: `pending_appeal_${ap.id}`,
+        entityId: ap.id,
+        type: 'appeal',
+        targetTab: 'appeals',
+        title: `⚖️ طعن جديد من ورشة: ${ap.brand_name || 'ورشة'}`,
+        message: ap.appeal_message || 'تم تقديم تظلم للمراجعة',
+        createdAt: ap.appeal_submitted_at || new Date().toISOString(),
+      });
+    });
+
+    // 4. Stored super_admin_alert rows in admin_announcements
+    const alertSeen = new Set<string>();
+    const pushAlert = (a: any) => {
+      if (!a?.id || alertSeen.has(a.id)) return;
+      alertSeen.add(a.id);
+      items.push({
+        id: a.id,
+        entityId: a.id,
+        type: 'alert',
+        targetTab: 'product_approvals',
+        title: a.title,
+        message: a.content,
+        createdAt: a.created_at || new Date().toISOString(),
+        dismissible: true,
+      });
+    };
+    localAnnouncements.filter((a) => a.recipient_type === 'super_admin_alert').forEach(pushAlert);
+    (alertsRes.data || []).forEach(pushAlert);
+
+    items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    res.json({
+      success: true,
+      notifications: items,
+      counts: {
+        total: items.length,
+        pendingProducts: seenPendingProdIds.size,
+        pendingApplications: (appsRes.data || []).length,
+        pendingAppeals: (appealsRes.data || []).length,
+      },
+    });
+  } catch {
+    res.json({ success: true, notifications: items, counts: { total: items.length, pendingProducts: 0, pendingApplications: 0, pendingAppeals: 0 } });
+  }
+});
+
+app.delete('/api/admin/notifications/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  const targetId = req.params.id;
+  const idx = localAnnouncements.findIndex((a) => a.id === targetId && a.recipient_type === 'super_admin_alert');
+  if (idx >= 0) localAnnouncements.splice(idx, 1);
+  try {
+    const client = getDbClient(req);
+    await client.from('admin_announcements').delete().eq('id', targetId).eq('recipient_type', 'super_admin_alert');
+  } catch {}
+  res.json({ success: true });
 });
 
 // 6b. Super Admin Sent Announcements Log with Read / Acknowledge / Reply Analytics
@@ -1656,7 +1886,7 @@ app.get('/api/admin/announcements', requireAuth, async (req: AuthenticatedReques
   const client = getDbClient(req);
   try {
     const [{ data: anns }, { data: receipts }] = await Promise.all([
-      client.from('admin_announcements').select('*').order('created_at', { ascending: false }),
+      client.from('admin_announcements').select('*').neq('recipient_type', 'super_admin_alert').order('created_at', { ascending: false }),
       client.from('workshop_messages_receipts').select('message_id, read_at, acknowledged_at, reply_text'),
     ]);
 
@@ -1669,14 +1899,16 @@ app.get('/api/admin/announcements', requireAuth, async (req: AuthenticatedReques
       statsMap.set(r.message_id, cur);
     });
 
-    const list = (Array.isArray(anns) ? anns : localAnnouncements).map((a: any) => ({
+    const list = (Array.isArray(anns) ? anns : localAnnouncements.filter((a) => a.recipient_type !== 'super_admin_alert')).map((a: any) => ({
       ...a,
       stats: statsMap.get(a.id) || { reads: 0, acknowledged: 0, replies: 0 },
     }));
     res.json({ announcements: list });
   } catch {
     res.json({
-      announcements: localAnnouncements.map((a) => ({ ...a, stats: { reads: 0, acknowledged: 0, replies: 0 } })),
+      announcements: localAnnouncements
+        .filter((a) => a.recipient_type !== 'super_admin_alert')
+        .map((a) => ({ ...a, stats: { reads: 0, acknowledged: 0, replies: 0 } })),
     });
   }
 });
@@ -2342,19 +2574,37 @@ app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'بيانات المنتج غير مكتملة' });
     }
 
-    const client = supabaseAdminClient;
+    const dbClient = req.headers.authorization ? getDbClient(req) : supabaseAdminClient;
     const persistent = loadPersistentMarketplaceProducts();
     const existingIndex = persistent.findIndex((p: any) => p.id === product.id);
 
+    // Check remote DB status too so already-approved products preserve 'approved'
+    let remoteExisting: any = null;
+    try {
+      const { data } = await dbClient
+        .from('marketplace_products')
+        .select('id, status, created_at')
+        .eq('id', product.id)
+        .maybeSingle();
+      if (data) remoteExisting = data;
+    } catch {}
+
+    const alreadyApprovedRemotely =
+      (existingIndex >= 0 && persistent[existingIndex].status === 'approved') ||
+      remoteExisting?.status === 'approved';
+
     const initialStatus =
-      product.status === 'approved' && existingIndex >= 0 && persistent[existingIndex].status === 'approved'
+      alreadyApprovedRemotely && product.status !== 'rejected'
         ? 'approved'
         : (product.status || 'pending_approval');
+
+    const wid = product.workshop_id || product.workshopId || '';
+    const nowIso = new Date().toISOString();
 
     // Only include real Supabase marketplace_products columns
     const supaRow: any = {
       id: product.id,
-      workshop_id: product.workshop_id || product.workshopId || '',
+      workshop_id: wid,
       brand_name: product.brand_name || product.brandName || 'ورشة الشمساوية',
       artist_name: product.artist_name || product.artistName || 'فنان الشمساوية',
       phone_number: product.phone_number || product.phoneNumber || '',
@@ -2375,8 +2625,8 @@ app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
       materials_summary: product.materials_summary || product.materialsSummary || '',
       status: initialStatus,
       rejection_reason: initialStatus === 'pending_approval' ? null : (product.rejection_reason || null),
-      created_at: product.created_at || (existingIndex >= 0 ? persistent[existingIndex].created_at : new Date().toISOString()),
-      updated_at: new Date().toISOString(),
+      created_at: product.created_at || remoteExisting?.created_at || (existingIndex >= 0 ? persistent[existingIndex].created_at : nowIso),
+      updated_at: nowIso,
     };
 
     if (existingIndex >= 0) {
@@ -2387,14 +2637,55 @@ app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
     savePersistentMarketplaceProducts(persistent);
 
     let cloudSynced = false;
+    let cloudError: string | undefined;
     try {
-      const { error } = await client.from('marketplace_products').upsert(supaRow, { onConflict: 'id' });
-      if (!error) cloudSynced = true;
-    } catch {}
+      const { error } = await dbClient.from('marketplace_products').upsert(supaRow, { onConflict: 'id' });
+      if (!error) {
+        cloudSynced = true;
+      } else {
+        cloudError = error.message;
+        if (dbClient !== supabaseAdminClient) {
+          const fallbackRes = await supabaseAdminClient.from('marketplace_products').upsert(supaRow, { onConflict: 'id' });
+          if (!fallbackRes.error) {
+            cloudSynced = true;
+            cloudError = undefined;
+          }
+        }
+      }
+    } catch (e: any) {
+      cloudError = e?.message;
+    }
+
+    // Create Super Admin notification alert when a product is submitted for review
+    if (initialStatus === 'pending_approval') {
+      const alertTitle = `🛍️ طلب اعتماد قطعة جديدة: ${supaRow.product_name}`;
+      const alertContent = `رفعت ورشة "${supaRow.brand_name}" (${supaRow.artist_name}) قطعة "${supaRow.product_name}" بسعر عرض ${supaRow.store_price} ج.م وتنتظر مراجعتكم واعتمادها في سوق الشمساوية.`;
+      const existingAlertIdx = localAnnouncements.findIndex(
+        (a) => a.recipient_type === 'super_admin_alert' && a.title === alertTitle
+      );
+      if (existingAlertIdx < 0) {
+        const alertRow = {
+          id: crypto.randomUUID(),
+          sender_id: null,
+          sender_name: supaRow.brand_name,
+          recipient_type: 'super_admin_alert',
+          recipient_workshop_id: isValidUuid(wid) ? wid : null,
+          recipient_workshop_name: supaRow.brand_name,
+          title: alertTitle,
+          content: alertContent,
+          created_at: nowIso,
+        };
+        localAnnouncements.unshift(alertRow);
+        dbClient.from('admin_announcements').insert(alertRow).then(() => {}, () => {
+          supabaseAdminClient.from('admin_announcements').insert(alertRow).then(() => {}, () => {});
+        });
+      }
+    }
 
     res.json({
       success: true,
       cloudSynced,
+      cloudError,
       product: supaRow,
       message: initialStatus === 'pending_approval'
         ? 'تم إرسال القطعة للمراجعة والاعتماد المركزي بنجاح ✨'
@@ -2405,7 +2696,7 @@ app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
   }
 });
 
-// 3. Super Admin Get Marketplace Products (Pending, Approved, Rejected & All)
+// 3. Super Admin Get Marketplace Products (Pending, Approved, Rejected & Unsynced Active Catalog Items)
 app.get('/api/admin/marketplace/products', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const userEmail = req.userEmail || req.user?.email || '';
   if (!isSuperAdmin(userEmail)) {
@@ -2419,21 +2710,81 @@ app.get('/api/admin/marketplace/products', requireAuth, async (req: Authenticate
 
   persistent.forEach((p: any) => map.set(p.id, p));
 
+  const wsMap = new Map<string, any>();
+  loadPersistentWorkshops().forEach((w: any) => wsMap.set(w.id || w.workshopId, w));
+
   try {
-    let query = client.from('marketplace_products').select('*').order('updated_at', { ascending: false });
-    if (requestedStatus) {
-      query = query.eq('status', requestedStatus);
+    const [mktRes, catRes, wsRes] = await Promise.all([
+      client.from('marketplace_products').select('*').order('updated_at', { ascending: false }),
+      client.from('products').select('*').eq('is_active', true),
+      client.from('workshops').select('*'),
+    ]);
+
+    if (Array.isArray(wsRes.data)) {
+      wsRes.data.forEach((w: any) => wsMap.set(w.id, { ...(wsMap.get(w.id) || {}), ...w }));
     }
-    const { data, error } = await query;
-    if (!error && Array.isArray(data)) {
-      data.forEach((p: any) => map.set(p.id, { ...(map.get(p.id) || {}), ...p }));
+
+    if (!mktRes.error && Array.isArray(mktRes.data)) {
+      mktRes.data.forEach((p: any) => map.set(p.id, { ...(map.get(p.id) || {}), ...p }));
+    }
+
+    // Surface any active workshop catalog product published to store that isn't yet in marketplace_products
+    if (!catRes.error && Array.isArray(catRes.data)) {
+      catRes.data.forEach((p: any) => {
+        if (map.has(p.id)) return;
+        const lr = p.local_record || {};
+        if (lr.inStore === false || lr.isPublishedInStore === false) return;
+        const ws = wsMap.get(p.workshop_id);
+        map.set(p.id, {
+          id: p.id,
+          workshop_id: p.workshop_id,
+          brand_name: ws?.brand_name || ws?.brandName || lr.brandName || 'ورشة الشمساوية',
+          artist_name: ws?.artist_name || ws?.artistName || lr.artistName || 'فنان الشمساوية',
+          phone_number: ws?.phone_number || ws?.phone || ws?.phoneNumber || '',
+          logo_url: ws?.logo_data || ws?.logo_url || null,
+          store_slug: ws?.store_slug || p.workshop_id,
+          product_name: p.product_name,
+          category: p.category || lr.category || 'أعمال يدوية',
+          craft_name: p.craft_name || lr.craftName || p.category || 'أعمال يدوية',
+          decor_category: lr.decorCategory || 'all',
+          store_price: Number(lr.storePrice ?? p.retail_price ?? 0),
+          retail_price: Number(p.retail_price ?? 0),
+          wholesale_price: Number(p.wholesale_price ?? 0),
+          cost_price: Number(p.cost_price ?? 0),
+          current_stock: Number(lr.currentStock ?? 1),
+          image_url: p.image_url || lr.imageUrl || '/alshams_falcon_emblem.png',
+          store_description: p.specs?.marketingDescription || p.specs?.materialsDescription || lr.storeDescription || '',
+          available_colors: p.available_colors || [],
+          available_sizes: p.available_sizes || [],
+          dimensions: p.dimensions || {},
+          materials_summary: p.specs?.materialsDescription || '',
+          status: lr.marketplaceStatus || 'pending_approval',
+          sourceTable: 'products',
+          created_at: p.created_at,
+          updated_at: p.updated_at || p.created_at,
+        });
+      });
     }
   } catch {}
 
-  let allProducts = Array.from(map.values());
+  let allProducts = Array.from(map.values()).map((p: any) => {
+    const ws = wsMap.get(p.workshop_id || p.workshopId);
+    if (!ws) return p;
+    return {
+      ...p,
+      brand_name: p.brand_name || ws.brand_name || ws.brandName,
+      artist_name: p.artist_name || ws.artist_name || ws.artistName,
+      phone_number: p.phone_number || ws.phone_number || ws.phone || ws.phoneNumber,
+      logo_url: p.logo_url || ws.logo_data || ws.logo_url || null,
+      store_slug: p.store_slug || ws.store_slug || ws.id,
+    };
+  });
+
   if (requestedStatus) {
     allProducts = allProducts.filter((p) => p.status === requestedStatus);
   }
+
+  allProducts.sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime());
 
   res.json({ success: true, products: allProducts, count: allProducts.length });
 });
@@ -2938,60 +3289,67 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
 
     const persistent = loadPersistentMarketplaceProducts();
     const prodsMap = new Map<string, any>();
+    const rejectedIds = new Set<string>();
 
-    // Strict local isolation by workshop_id ONLY (exclude rejected)
+    // Track rejected items + collect persistent marketplace products for this workshop
     persistent.forEach((p: any) => {
-      if ((p.workshop_id === wid || p.workshopId === wid) && p.status !== 'rejected') {
-        prodsMap.set(p.id, p);
+      if (p.workshop_id === wid || p.workshopId === wid) {
+        if (p.status === 'rejected') rejectedIds.add(p.id);
+        else prodsMap.set(p.id, p);
       }
     });
 
-    // Strict database isolation by workshop_id ONLY
+    // Strict database isolation by workshop_id ONLY across both marketplace_products and products
     try {
-      const { data } = await client
-        .from('marketplace_products')
-        .select('*')
-        .eq('workshop_id', wid)
-        .neq('status', 'rejected');
-      if (Array.isArray(data)) {
-        data.forEach((p: any) => {
-          prodsMap.set(p.id, { ...(prodsMap.get(p.id) || {}), ...p });
+      const [{ data: mktData }, { data: catData }] = await Promise.all([
+        client.from('marketplace_products').select('*').eq('workshop_id', wid),
+        client.from('products').select('*').eq('workshop_id', wid),
+      ]);
+
+      if (Array.isArray(mktData)) {
+        mktData.forEach((p: any) => {
+          if (p.status === 'rejected') {
+            rejectedIds.add(p.id);
+            prodsMap.delete(p.id);
+          } else {
+            prodsMap.set(p.id, { ...(prodsMap.get(p.id) || {}), ...p });
+          }
+        });
+      }
+
+      if (Array.isArray(catData)) {
+        catData.forEach((p: any) => {
+          const lr = p.local_record || {};
+          const isHidden = p.is_active === false || lr.inStore === false || lr.isPublishedInStore === false;
+          if (isHidden || rejectedIds.has(p.id) || prodsMap.has(p.id)) return;
+          prodsMap.set(p.id, {
+            id: p.id,
+            workshop_id: p.workshop_id,
+            brand_name: brandName,
+            artist_name: artistName,
+            phone_number: phone,
+            logo_url: logoUrl,
+            store_slug: storeSlug,
+            product_name: p.product_name,
+            category: p.category || lr.category || 'أعمال يدوية',
+            craft_name: p.craft_name || lr.craftName || p.category || 'أعمال يدوية',
+            decor_category: lr.decorCategory || 'all',
+            store_price: Number(lr.storePrice ?? p.retail_price ?? 0),
+            retail_price: Number(p.retail_price ?? 0),
+            wholesale_price: Number(p.wholesale_price ?? 0),
+            cost_price: Number(p.cost_price ?? 0),
+            current_stock: Number(lr.currentStock ?? 1),
+            image_url: p.image_url || lr.imageUrl || null,
+            store_description: p.specs?.marketingDescription || p.specs?.materialsDescription || lr.storeDescription || p.product_name,
+            available_colors: p.available_colors || [],
+            available_sizes: p.available_sizes || [],
+            dimensions: p.dimensions || {},
+            status: lr.marketplaceStatus || 'pending_approval',
+            created_at: p.created_at,
+          });
         });
       }
     } catch {}
-
-    if (prodsMap.size === 0) {
-      try {
-        const { data: catData } = await client
-          .from('products')
-          .select('*')
-          .eq('workshop_id', wid);
-        if (Array.isArray(catData)) {
-          catData.forEach((p: any) => {
-            prodsMap.set(p.id, {
-              id: p.id,
-              workshop_id: p.workshop_id,
-              brand_name: brandName,
-              artist_name: artistName,
-              phone_number: phone,
-              logo_url: logoUrl,
-              store_slug: storeSlug,
-              product_name: p.product_name,
-              category: p.category || 'أعمال يدوية',
-              craft_name: p.craft_name || p.category || 'أعمال يدوية',
-              store_price: p.retail_price || 0,
-              retail_price: p.retail_price || 0,
-              wholesale_price: p.wholesale_price || 0,
-              cost_price: p.cost_price || 0,
-              image_url: p.image_url || null,
-              store_description: p.specs?.marketingDescription || p.specs?.materialsDescription || p.product_name,
-              status: 'pending_approval',
-              created_at: p.created_at,
-            });
-          });
-        }
-      } catch {}
-    }
 
     const storeProducts = Array.from(prodsMap.values())
       .filter((p: any) => p.status !== 'rejected' && (p.workshop_id === wid || p.workshopId === wid))

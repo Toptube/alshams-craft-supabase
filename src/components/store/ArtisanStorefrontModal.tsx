@@ -147,8 +147,13 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
     };
 
     loadData();
+    const handleRefresh = () => loadData();
+    window.addEventListener('alshams:products-pulled', handleRefresh);
+    window.addEventListener('alshams_products_changed', handleRefresh);
     return () => {
       isMounted = false;
+      window.removeEventListener('alshams:products-pulled', handleRefresh);
+      window.removeEventListener('alshams_products_changed', handleRefresh);
     };
   }, [isOpen, tenantId, initialOrderId]);
 
