@@ -49,6 +49,8 @@ export interface CloudMarketplaceProduct {
   logoUrl?: string | null;
   store_slug?: string;
   storeSlug?: string;
+  workshop_rating_stars?: number;
+  workshop_medal?: string | null;
   status: 'pending_approval' | 'approved' | 'rejected';
   rejection_reason?: string | null;
   rejectionReason?: string | null;
@@ -70,8 +72,25 @@ export interface PublicWorkshopStoreData {
     selectedCrafts?: string[];
     ratingStars?: number;
     medal?: string;
+    status?: string;
+    suspended?: boolean;
+    suspensionReason?: string | null;
   };
   products: CloudMarketplaceProduct[];
+}
+
+async function getOptionalAuthHeaders(
+  userEmail?: string,
+  extra: Record<string, string> = {}
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { ...extra };
+  if (userEmail) headers['x-user-email'] = userEmail;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+  } catch {}
+  return headers;
 }
 
 /**
@@ -93,6 +112,8 @@ export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
     logoUrl: row.logo_url || row.logoUrl || null,
     store_slug: row.store_slug || row.storeSlug || wid,
     storeSlug: row.store_slug || row.storeSlug || wid,
+    workshop_rating_stars: row.workshop_rating_stars ?? row.workshopRatingStars ?? undefined,
+    workshop_medal: row.workshop_medal ?? row.workshopMedal ?? null,
     product_name: row.product_name || row.productName || 'مشغولة يدوية فاخرة',
     productName: row.product_name || row.productName || 'مشغولة يدوية فاخرة',
     category: row.category || 'macrame',
@@ -161,11 +182,10 @@ export async function publishProductToMarketplace(
         height: (product.input as any)?.dimensions?.height,
         diameter: (product.input as any)?.dimensions?.diameter,
       },
-      status: (product.isMarketplaceApproved ? 'approved' : 'pending_approval'),
+      status: product.isMarketplaceApproved ? 'approved' : 'pending_approval',
       updated_at: new Date().toISOString(),
     };
 
-    // 1. If offline, enqueue immediately without error
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       enqueueOfflineMutation({
         workshopId: payload.workshop_id || 'default',
@@ -175,17 +195,7 @@ export async function publishProductToMarketplace(
       return { success: true, status: payload.status as any };
     }
 
-    // 2. First attempt direct Supabase upsert
-    try {
-      const { error } = await supabase
-        .from('marketplace_products')
-        .upsert(payload, { onConflict: 'id' });
-      if (!error) {
-        return { success: true, status: payload.status as any };
-      }
-    } catch {}
-
-    // 3. Fallback to server API endpoint
+    // Attempt server API first (handles both Supabase + persistent sync cleanly)
     try {
       const res = await fetch('/api/marketplace/publish', {
         method: 'POST',
@@ -195,11 +205,20 @@ export async function publishProductToMarketplace(
 
       if (res.ok) {
         const data = await res.json();
-        return { success: true, status: data.product?.status || 'pending_approval' };
+        return { success: true, status: data.product?.status || (payload.status as any) };
       }
     } catch {}
 
-    // 4. Fallback: enqueue into offline mutation queue safely
+    // Direct Supabase upsert fallback
+    try {
+      const { error } = await supabase
+        .from('marketplace_products')
+        .upsert(payload, { onConflict: 'id' });
+      if (!error) {
+        return { success: true, status: payload.status as any };
+      }
+    } catch {}
+
     enqueueOfflineMutation({
       workshopId: payload.workshop_id || 'default',
       type: 'marketplace_publish',
@@ -214,27 +233,25 @@ export async function publishProductToMarketplace(
 }
 
 /**
- * Fetches marketplace products (both approved and pending_approval provisionally, excluding rejected)
+ * Fetches marketplace products strictly APPROVED & from ACTIVE workshops only
  */
 export async function fetchApprovedMarketplaceProducts(): Promise<CloudMarketplaceProduct[]> {
   try {
-    // 1. Try server API (returns enriched products across all workshops)
     const res = await fetch('/api/marketplace/products');
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data.products) && data.products.length > 0) {
+      if (Array.isArray(data.products)) {
         return data.products.map(normalizeCloudProduct);
       }
     }
   } catch {}
 
   try {
-    // 2. Direct Supabase query fallback
     const [{ data, error }, { data: wsRows }] = await Promise.all([
       supabase
         .from('marketplace_products')
         .select('*')
-        .in('status', ['approved', 'pending_approval'])
+        .eq('status', 'approved')
         .order('created_at', { ascending: false }),
       supabase.from('workshops').select('*'),
     ]);
@@ -247,18 +264,27 @@ export async function fetchApprovedMarketplaceProducts(): Promise<CloudMarketpla
       });
     }
 
-    if (!error && Array.isArray(data) && data.length > 0) {
-      return data.map((row: any) => {
-        const ws = wsMap.get(row.workshop_id);
-        return normalizeCloudProduct({
-          ...row,
-          brand_name: row.brand_name || ws?.brand_name || 'ورشة الشمساوية',
-          artist_name: row.artist_name || ws?.artist_name || 'فنان الشمساوية',
-          phone_number: row.phone_number || ws?.phone_number || ws?.phone || '',
-          logo_url: ws?.logo_data || ws?.logo_url || null,
-          store_slug: ws?.store_slug || ws?.id || row.workshop_id,
+    if (!error && Array.isArray(data)) {
+      return data
+        .filter((row: any) => {
+          const ws = wsMap.get(row.workshop_id);
+          if (!ws) return true;
+          const st = ws.status || (ws.is_frozen ? 'suspended' : 'active');
+          return !ws.is_frozen && st !== 'banned' && st !== 'suspended';
+        })
+        .map((row: any) => {
+          const ws = wsMap.get(row.workshop_id);
+          return normalizeCloudProduct({
+            ...row,
+            brand_name: ws?.brand_name || row.brand_name || 'ورشة الشمساوية',
+            artist_name: ws?.artist_name || row.artist_name || 'فنان الشمساوية',
+            phone_number: ws?.phone_number || ws?.phone || row.phone_number || '',
+            logo_url: ws?.logo_data || ws?.logo_url || null,
+            store_slug: ws?.store_slug || ws?.id || row.workshop_id,
+            workshop_rating_stars: ws?.rating_stars ?? 5,
+            workshop_medal: ws?.medal ?? null,
+          });
         });
-      });
     }
   } catch {}
 
@@ -270,9 +296,7 @@ export async function fetchApprovedMarketplaceProducts(): Promise<CloudMarketpla
  */
 export async function fetchPendingMarketplaceProducts(userEmail?: string): Promise<CloudMarketplaceProduct[]> {
   try {
-    const headers: Record<string, string> = {};
-    if (userEmail) headers['x-user-email'] = userEmail;
-
+    const headers = await getOptionalAuthHeaders(userEmail);
     const res = await fetch('/api/admin/marketplace/products?status=pending_approval', {
       headers,
     });
@@ -300,18 +324,19 @@ export async function fetchPendingMarketplaceProducts(userEmail?: string): Promi
 }
 
 /**
- * Super Admin review action (Approve or Reject with reason)
+ * Super Admin review action (Approve or Reject with reason, optional rating & product upsert payload)
  */
 export async function reviewMarketplaceProduct(
   productId: string,
-  decision: 'approved' | 'rejected',
+  decision: 'approved' | 'rejected' | 'pending_approval',
   rejectionReason?: string,
-  userEmail?: string
-): Promise<{ success: boolean; message?: string }> {
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (userEmail) headers['x-user-email'] = userEmail;
+  userEmail?: string,
+  options?: { ratingStars?: number; productPayload?: any }
+): Promise<{ success: boolean; message?: string; cloudSynced?: boolean; error?: string }> {
+  let serverError: string | undefined;
 
+  try {
+    const headers = await getOptionalAuthHeaders(userEmail, { 'Content-Type': 'application/json' });
     const res = await fetch('/api/admin/marketplace/review', {
       method: 'POST',
       headers,
@@ -319,14 +344,25 @@ export async function reviewMarketplaceProduct(
         productId,
         status: decision,
         rejectionReason: rejectionReason || undefined,
+        ratingStars: options?.ratingStars,
+        productPayload: options?.productPayload,
       }),
     });
 
     if (res.ok) {
       const data = await res.json();
-      return { success: true, message: data.message };
+      return {
+        success: true,
+        cloudSynced: data.cloudSynced,
+        message: data.message,
+      };
+    } else {
+      const errJson = await res.json().catch(() => ({}));
+      serverError = errJson.error || `HTTP ${res.status}`;
     }
-  } catch {}
+  } catch (e: any) {
+    serverError = e?.message;
+  }
 
   try {
     const { error } = await supabase
@@ -339,11 +375,12 @@ export async function reviewMarketplaceProduct(
       .eq('id', productId);
 
     if (!error) {
-      return { success: true };
+      return { success: true, cloudSynced: true };
     }
-  } catch {}
-
-  return { success: true };
+    return { success: false, error: serverError || error.message };
+  } catch (e: any) {
+    return { success: false, error: serverError || e?.message || 'تعذر تنفيذ المراجعة سحابياً' };
+  }
 }
 
 /**
@@ -352,7 +389,6 @@ export async function reviewMarketplaceProduct(
 export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicWorkshopStoreData | null> {
   const cleanSlug = decodeURIComponent(slug).toLowerCase().trim().replace(/^@/, '');
 
-  // 1. Try server API
   try {
     const res = await fetch(`/api/store/${encodeURIComponent(cleanSlug)}`);
     if (res.ok) {
@@ -366,7 +402,6 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
     }
   } catch {}
 
-  // 2. Direct Supabase query fallback
   try {
     const { data: wsData } = await supabase
       .from('workshops')
@@ -377,7 +412,36 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
 
       if (found) {
         const wid = found.id || found.workshop_id;
-        // Strict query products by workshop_id ONLY (exclude rejected)
+        const wsStatus = found.status || (found.is_frozen ? 'suspended' : 'active');
+        const isSuspended = Boolean(found.is_frozen || wsStatus === 'banned' || wsStatus === 'suspended');
+
+        const logo = found.logo_data || found.logo_url || found.logoUrl || null;
+        const phone = found.phone_number || found.phone || found.phoneNumber || '';
+        const storeSlug = found.store_slug || found.storeSlug || wid;
+
+        if (isSuspended) {
+          return {
+            workshop: {
+              id: wid,
+              brandName: found.brand_name || found.brandName || 'ورشة الشمساوية',
+              artistName: found.artist_name || found.artistName || 'فنان الشمساوية',
+              phoneNumber: phone,
+              email: found.email || '',
+              country: found.country || 'مصر',
+              currencySymbol: found.currency_symbol || found.currencySymbol || 'ج.م',
+              logoUrl: logo,
+              storeSlug,
+              ratingStars: found.rating_stars || found.ratingStars || 5,
+              medal: found.medal || 'gold',
+              status: wsStatus,
+              suspended: true,
+              suspensionReason: found.suspension_reason || found.suspended_reason || null,
+              selectedCrafts: Array.isArray(found.selected_crafts) ? found.selected_crafts : ['macrame'],
+            },
+            products: [],
+          };
+        }
+
         let prodsData: any[] = [];
         try {
           const { data: pData } = await supabase
@@ -401,8 +465,8 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
                 brand_name: found.brand_name || 'ورشة الشمساوية',
                 artist_name: found.artist_name || 'فنان الشمساوية',
                 phone_number: found.phone_number || found.phone || '',
-                logo_url: found.logo_data || found.logo_url || found.logoUrl || null,
-                store_slug: found.store_slug || wid,
+                logo_url: logo,
+                store_slug: storeSlug,
                 product_name: p.product_name,
                 category: p.category || 'أعمال يدوية',
                 craft_name: p.craft_name || p.category || 'أعمال يدوية',
@@ -419,10 +483,6 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
           } catch {}
         }
 
-        const logo = found.logo_data || found.logo_url || found.logoUrl || null;
-        const phone = found.phone_number || found.phone || found.phoneNumber || '';
-        const storeSlug = found.store_slug || found.storeSlug || wid;
-
         return {
           workshop: {
             id: wid,
@@ -436,6 +496,8 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
             storeSlug,
             ratingStars: found.rating_stars || found.ratingStars || 5,
             medal: found.medal || 'gold',
+            status: wsStatus,
+            suspended: false,
             selectedCrafts: Array.isArray(found.selected_crafts) ? found.selected_crafts : ['macrame'],
           },
           products: (prodsData || [])
@@ -459,3 +521,75 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
 
   return null;
 }
+
+export async function fetchPlatformSettingsCloud(): Promise<any | null> {
+  try {
+    const res = await fetch('/api/platform-settings');
+    if (res.ok) {
+      const data = await res.json();
+      return data.settings || null;
+    }
+  } catch {}
+  return null;
+}
+
+export async function savePlatformSettingsCloud(
+  settings: any,
+  userEmail?: string
+): Promise<{ success: boolean; cloudSynced?: boolean; settings?: any; error?: string }> {
+  try {
+    const headers = await getOptionalAuthHeaders(userEmail, { 'Content-Type': 'application/json' });
+    const res = await fetch('/api/platform-settings', {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(settings),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return { success: true, cloudSynced: data.cloudSynced, settings: data.settings };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'تعذر حفظ الإعدادات سحابياً' };
+  }
+}
+
+export async function fetchCloudMarketplaceOrders(userEmail?: string): Promise<any[]> {
+  try {
+    const headers = await getOptionalAuthHeaders(userEmail);
+    const res = await fetch('/api/admin/marketplace/orders', { headers });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.orders)) return data.orders;
+    }
+  } catch {}
+
+  try {
+    const { data, error } = await supabase
+      .from('marketplace_orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (!error && Array.isArray(data)) return data;
+  } catch {}
+
+  return [];
+}
+
+export async function updateCloudMarketplaceOrder(
+  orderId: string,
+  updates: any,
+  userEmail?: string
+): Promise<{ success: boolean; cloudSynced?: boolean; error?: string }> {
+  try {
+    const headers = await getOptionalAuthHeaders(userEmail, { 'Content-Type': 'application/json' });
+    const res = await fetch(`/api/admin/marketplace/orders/${encodeURIComponent(orderId)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(updates),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return { success: true, cloudSynced: data.cloudSynced };
+    return { success: false, error: data.error || `HTTP ${res.status}` };
+  } catch (e: any) {
+    return { success: false, error: e?.message };
+  }
+}
+

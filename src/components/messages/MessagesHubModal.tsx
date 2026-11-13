@@ -14,6 +14,7 @@ import {
   Bell,
 } from 'lucide-react';
 import { playPostaNotificationSound, playSuccessSound, playAlertSound, playErrorSound } from '../../lib/sounds';
+import { supabase } from '../../lib/supabase';
 
 interface MessagesHubModalProps {
   isOpen: boolean;
@@ -45,16 +46,27 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
 
   const effectiveWorkshopId = profile?.workshopId || profile?.id || workshopId || '';
   const effectiveEmail = profile?.email || '';
+  const markedReadIdsRef = React.useRef<Set<string>>(new Set());
+
+  const getHeaders = async (includeJson = false): Promise<Record<string, string>> => {
+    const h: Record<string, string> = {};
+    if (includeJson) h['Content-Type'] = 'application/json';
+    if (effectiveWorkshopId) h['x-workshop-id'] = effectiveWorkshopId;
+    if (effectiveEmail) h['x-user-email'] = effectiveEmail;
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.access_token) h['Authorization'] = `Bearer ${data.session.access_token}`;
+    } catch {}
+    return h;
+  };
 
   const fetchAnnouncements = async () => {
     if (!effectiveWorkshopId) return;
     setLoading(true);
     try {
+      const headers = await getHeaders(false);
       const res = await fetch(`/api/announcements?workshopId=${encodeURIComponent(effectiveWorkshopId)}`, {
-        headers: {
-          'x-workshop-id': effectiveWorkshopId,
-          ...(effectiveEmail ? { 'x-user-email': effectiveEmail } : {}),
-        },
+        headers,
       });
       if (res.ok) {
         const data = await res.json();
@@ -77,6 +89,31 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
     }
   }, [initialAnnouncements, isOpen, effectiveWorkshopId]);
 
+  React.useEffect(() => {
+    if (!isOpen || !effectiveWorkshopId || announcements.length === 0) return;
+    const unread = announcements.filter(
+      (a) => a?.id && !a?.receipt?.read_at && !markedReadIdsRef.current.has(a.id)
+    );
+    if (unread.length === 0) return;
+
+    (async () => {
+      const headers = await getHeaders(true);
+      await Promise.allSettled(
+        unread.map((a) => {
+          markedReadIdsRef.current.add(a.id);
+          return fetch(`/api/announcements/${encodeURIComponent(a.id)}/receipt`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ action: 'read', workshopId: effectiveWorkshopId }),
+          });
+        })
+      );
+      if (onReceiptUpdate) {
+        try { await onReceiptUpdate(); } catch {}
+      }
+    })();
+  }, [isOpen, announcements, effectiveWorkshopId]);
+
   if (!isOpen) return null;
 
   const refreshAll = async () => {
@@ -91,13 +128,10 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
 
   const handleAcknowledge = async (messageId: string) => {
     try {
-      const res = await fetch(`/api/announcements/${messageId}/receipt`, {
+      const headers = await getHeaders(true);
+      const res = await fetch(`/api/announcements/${encodeURIComponent(messageId)}/receipt`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-workshop-id': effectiveWorkshopId,
-          'x-user-email': effectiveEmail,
-        },
+        headers,
         body: JSON.stringify({ action: 'acknowledge', workshopId: effectiveWorkshopId }),
       });
       if (res.ok) {
@@ -117,13 +151,10 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
     if (!replyText.trim()) return;
     setSubmittingReply(true);
     try {
-      const res = await fetch(`/api/announcements/${messageId}/receipt`, {
+      const headers = await getHeaders(true);
+      const res = await fetch(`/api/announcements/${encodeURIComponent(messageId)}/receipt`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-workshop-id': effectiveWorkshopId,
-          'x-user-email': effectiveEmail,
-        },
+        headers,
         body: JSON.stringify({
           action: 'reply',
           reply_text: replyText.trim(),

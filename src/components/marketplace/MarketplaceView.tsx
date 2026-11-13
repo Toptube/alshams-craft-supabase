@@ -13,6 +13,7 @@ import {
   canCustomerReviewProduct,
   addProductReview,
   getProductReviews,
+  syncPlatformSettingsFromCloud,
 } from '../../services/marketplaceCartService';
 import { fetchApprovedMarketplaceProducts } from '../../db/marketplaceCloud';
 import { supabase } from '../../lib/supabase';
@@ -242,9 +243,10 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     const fetchMarketplace = async () => {
       setLoading(true);
       try {
+        syncPlatformSettingsFromCloud().catch(() => {});
         const cloudProducts = await fetchApprovedMarketplaceProducts().catch(() => []);
         const cloudMapped: MarketplaceProductRecord[] = (cloudProducts || [])
-          .filter((cp) => cp.status !== 'rejected')
+          .filter((cp) => cp.status === 'approved')
           .map((cp) => ({
             id: cp.id,
             workshopId: cp.workshop_id || cp.workshopId,
@@ -265,8 +267,8 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             currentStock: Number(cp.current_stock ?? cp.currentStock ?? 1),
             inStore: true,
             isPublishedInStore: true,
-            isMarketplaceApproved: cp.status === 'approved',
-            marketStatus: cp.status,
+            isMarketplaceApproved: true,
+            marketStatus: 'approved',
             imageUrl: cp.image_url || cp.imageUrl || '/alshams_falcon_emblem.png',
             storeDescription: cp.store_description || cp.storeDescription || '',
             availableColors: Array.isArray(cp.available_colors) ? cp.available_colors : [],
@@ -278,14 +280,17 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             output: {} as any,
           }));
 
-        // Local workshop fallback when offline or newly exported locally
+        // Local workshop fallback ONLY for offline-approved products (never bypasses Super Admin moderation)
         let publishedLocal: MarketplaceProductRecord[] = [];
-        if (profile) {
+        const isCurrentProfileBlocked = Boolean(
+          profile && ((profile as any).isFrozen || profile.status === 'banned' || profile.status === 'suspended')
+        );
+        if (profile && !isCurrentProfileBlocked) {
           const tenantId = profile.tenantId || profile.workshopId || profile.id;
           if (tenantId) {
             const localProds = await tenantStorage.getProducts(tenantId).catch(() => []);
             publishedLocal = localProds
-              .filter((p) => p && p.inStore && p.isPublishedInStore !== false)
+              .filter((p) => p && p.inStore && p.isPublishedInStore !== false && p.isMarketplaceApproved === true)
               .map((p) => ({
                 ...p,
                 workshopId: tenantId,

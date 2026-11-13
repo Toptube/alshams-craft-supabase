@@ -33,6 +33,7 @@ import {
   addToCart,
   getStoredCart,
   OFFICIAL_SUPPORT_PHONE,
+  syncPlatformSettingsFromCloud,
 } from '../../services/marketplaceCartService';
 import { MarketplaceCartModal } from '../marketplace/MarketplaceCartModal';
 import { playSuccessSound, playAddToCartSound, triggerHaptic } from '../../lib/sounds';
@@ -84,6 +85,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   // Fetch Store Data
   useEffect(() => {
     let isMounted = true;
+    syncPlatformSettingsFromCloud().catch(() => {});
     const load = async () => {
       setLoading(true);
       setErrorNotice(null);
@@ -98,6 +100,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               const localProf = JSON.parse(rawProf);
               if (matchesWorkshopSlug(localProf, slug)) {
                 const wid = localProf.workshopId || localProf.tenantId || localProf.id;
+                const localSuspended = Boolean(localProf.isFrozen || localProf.status === 'banned' || localProf.status === 'suspended');
                 data = {
                   workshop: {
                     id: wid,
@@ -108,8 +111,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                     currencySymbol: localProf.currencySymbol || 'ج.م',
                     logoUrl: localProf.logo_url || localProf.logoUrl || localProf.logoBase64,
                     storeSlug: localProf.store_slug || localProf.storeSlug || wid,
-                    ratingStars: localProf.ratingStars || 5,
+                    ratingStars: localProf.ratingStars || localProf.rating_stars || 5,
                     medal: localProf.medal || 'gold',
+                    status: localProf.status || 'active',
+                    suspended: localSuspended,
+                    suspensionReason: localProf.suspension_reason || null,
                   },
                   products: [],
                 };
@@ -120,6 +126,14 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
         if (isMounted) {
           if (data && data.workshop) {
+            if (data.workshop.suspended || data.workshop.status === 'banned' || data.workshop.status === 'suspended') {
+              setStoreData({
+                workshop: { ...data.workshop, suspended: true },
+                products: [],
+              });
+              setLoading(false);
+              return;
+            }
             const targetWorkshopId = data.workshop.id;
             let finalProducts: any[] = [];
 
@@ -460,11 +474,21 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           <div className="w-full md:w-auto p-5 rounded-2xl bg-white dark:bg-stone-900 border border-amber-500/30 shadow-xl flex flex-row md:flex-col gap-4 justify-around min-w-[240px]">
             <div className="text-center">
               <div className="flex items-center justify-center gap-1 text-amber-500 mb-1">
-                {Array.from({ length: 5 }).map((_, i) => (
+                {Array.from({ length: Math.min(5, Math.max(1, Number(workshop?.ratingStars) || 5)) }).map((_, i) => (
                   <Star key={i} className="w-4 h-4 fill-amber-500 text-amber-500" />
                 ))}
               </div>
-              <p className="text-xs font-bold text-stone-500 dark:text-stone-400">تقييم الجودة والحرفة</p>
+              <p className="text-xs font-bold text-stone-500 dark:text-stone-400">
+                {workshop?.medal === 'diamond'
+                  ? '💎 القلادة الماسية'
+                  : workshop?.medal === 'gold'
+                  ? '🥇 القلادة الذهبية'
+                  : workshop?.medal === 'silver'
+                  ? '🥈 القلادة الفضية'
+                  : workshop?.medal === 'bronze'
+                  ? '🥉 القلادة البرونزية'
+                  : 'تقييم الجودة والحرفة'}
+              </p>
             </div>
             <div className="h-full w-px md:w-full md:h-px bg-stone-200 dark:bg-stone-800" />
             <div className="text-center">
@@ -479,6 +503,26 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
       {/* Main Storefront Body */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+        {workshop?.suspended && (
+          <div className="p-8 rounded-3xl bg-amber-50 dark:bg-stone-900 border-2 border-amber-500/50 text-center space-y-3 shadow-lg">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+              <ShieldCheck className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-black text-stone-900 dark:text-white">
+              هذا المتجر متوقف مؤقتاً للمراجعة الإدارية
+            </h3>
+            <p className="text-xs text-stone-600 dark:text-stone-400 max-w-md mx-auto leading-relaxed">
+              توقف عرض منتجات هذا المتجر مؤقتاً بناءً على إجراءات مراجعة الجودة والرقابة في منظومة الشمساوية.
+            </p>
+            <a
+              href="/#/market"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition"
+            >
+              <span>تصفح سوق الشمساوية المركزي</span>
+              <ArrowRight className="w-4 h-4" />
+            </a>
+          </div>
+        )}
         {/* Search & Category Filter Bar */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white dark:bg-stone-900 p-4 rounded-2xl border border-stone-200 dark:border-stone-800 shadow-xs">
           {/* Search Box */}

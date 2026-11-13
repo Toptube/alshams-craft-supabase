@@ -11,11 +11,14 @@ import {
   updateCentralMarketplaceOrderStatus,
   setClientPrivacyActive,
   getClientPrivacyActive,
+  syncPlatformSettingsFromCloud,
+  mergeCloudOrdersIntoLocal,
   GovernoratesShippingConfig,
 } from '../../services/marketplaceCartService';
 import {
   reviewMarketplaceProduct,
-  fetchPendingMarketplaceProducts,
+  fetchCloudMarketplaceOrders,
+  savePlatformSettingsCloud,
   CloudMarketplaceProduct,
 } from '../../db/marketplaceCloud';
 import { getWorkshopCleanSlug } from '../../utils/slugify';
@@ -241,6 +244,23 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setErrorMsg(''), 6000);
   };
 
+  const isValidUuid = (val?: string | null): boolean =>
+    typeof val === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
+
+  const getAdminAuthHeaders = async (includeJson = false): Promise<Record<string, string>> => {
+    const headers: Record<string, string> = {
+      'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+    };
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    } catch {}
+    return headers;
+  };
+
   // Master ERP Workshop Switcher State
   const [selectedWorkshopId, setSelectedWorkshopId] = useState<string>(profile.id);
   const [activeExecutiveTab, setActiveExecutiveTab] = useState<ExecutiveTab>(initialTab);
@@ -248,6 +268,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const [shippingConfig, setShippingConfig] = useState<GovernoratesShippingConfig>(() => getShippingConfig());
   const [marketplaceOrdersList, setMarketplaceOrdersList] = useState<any[]>(() => getCentralMarketplaceOrders());
   const [editingGovRates, setEditingGovRates] = useState<boolean>(false);
+  const [savingMarketSettings, setSavingMarketSettings] = useState<boolean>(false);
+  const [deletingAnnId, setDeletingAnnId] = useState<string | null>(null);
   const [initialRatingForApprove, setInitialRatingForApprove] = useState<number>(5);
   const [rejectingProduct, setRejectingProduct] = useState<any | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('');
@@ -654,24 +676,23 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
     setOverridingCredentials(true);
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = await getAdminAuthHeaders(true);
       const res = await fetch(`/api/admin/workshops/${ws.id}/credentials`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers,
         body: JSON.stringify({
           email: ws.email,
+          newEmail: ws.email,
           phoneNumber: ws.phoneNumber,
+          newPhone: ws.phoneNumber,
           password: editNewPassword || undefined,
+          newPassword: editNewPassword || undefined,
         }),
       });
 
+      const resJson = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || 'فشل تحديث بيانات الدخول');
+        throw new Error(resJson.error || 'فشل تحديث بيانات الدخول');
       }
 
       playSuccessSound();
@@ -682,11 +703,17 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         artistName: ws.artistName,
         email: ws.email,
         phone: ws.phoneNumber || '',
-        password: editNewPassword || 'تم التثبيت بدون تغيير كلمة السر',
+        password: editNewPassword || 'تم تثبيت البريد والهاتف بدون تغيير كلمة السر',
       });
 
-      setSuccessNotice(`تم تحديث بيانات الدخول لورشة "${ws.brandName}" بنجاح!`);
-      setTimeout(() => setSuccessNotice(''), 4000);
+      if (editNewPassword && resJson.authPasswordSynced === false) {
+        setSuccessNotice(
+          `تم تحديث البريد والهاتف سحابياً لورشة "${ws.brandName}". ملاحظة: تغيير كلمة السر في Supabase Auth مباشرة يتطلب مفتاح الخدمة أو استخدام رابط استعادة كلمة السر.`
+        );
+      } else {
+        setSuccessNotice(`تم تحديث بيانات الدخول لورشة "${ws.brandName}" بنجاح!`);
+      }
+      setTimeout(() => setSuccessNotice(''), 5500);
       setEditNewPassword('');
     } catch (err: any) {
       showError('تعذر تحديث بيانات الدخول: ' + (err.message || 'خطأ غير معروف'));
@@ -710,7 +737,24 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         : 'البرونزية 🥉';
 
     try {
-      // 1. Direct Supabase update for immediate live persistence across all clients
+      // 1. Server endpoint sync (updates workshops + creates valid UUID official announcement)
+      const headers = await getAdminAuthHeaders(true);
+      const res = await fetch(`/api/admin/workshops/${awardingWorkshop.id}/award`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          rating_stars: selectedStars,
+          medal: selectedMedal,
+          custom_note: awardCustomNote,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'تعذر حفظ التكريم على الخادم');
+      }
+
+      // 2. Ensure Supabase workshops row reflects the award even under direct client policy
       try {
         await supabase
           .from('workshops')
@@ -722,58 +766,20 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             updated_at: awardedAt,
           })
           .eq('id', awardingWorkshop.id);
-      } catch (supaErr) {
-        console.warn('Direct Supabase workshop award update notice:', supaErr);
-      }
-
-      // 2. Dispatch official tribute announcement in Supabase
-      try {
-        const tributeTitle = `🎖️ تهنئة رسمية: منح ورشتكم قلادة الشمساوية ${medalArabic}!`;
-        const tributeContent = `تقديراً لتميزكم الحرفي وتفانيكم في جودة المشغولات اليدوية، قررت إدارة منظومة الشمساوية برئاسة كبير العيلة م. حسام بسيوني منح ورشتكم [${awardingWorkshop.brandName}] تقييم [${selectedStars}] نجوم وقلادة [${medalArabic}].${awardCustomNote ? `\n\nكلمة التكريم: "${awardCustomNote}"` : ''}\n\nنبارك لكم هذا التكريم المستحق ونتمنى لكم دوام التألق والإبداع!`;
-
-        await supabase.from('admin_announcements').insert({
-          id: `ann_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          sender_id: profile.id,
-          sender_name: profile.artistName || 'م. حسام بسيوني (سوبر أدمن)',
-          recipient_type: 'specific',
-          recipient_workshop_id: awardingWorkshop.id,
-          recipient_workshop_name: awardingWorkshop.brandName,
-          title: tributeTitle,
-          content: tributeContent,
-          created_at: awardedAt,
-        });
-
-        // Also add local in-app notification if stored on device
-        await tenantStorage.putNotification({
-          id: `notif_${Date.now()}`,
-          tenantId: awardingWorkshop.id,
-          type: 'system',
-          title: tributeTitle,
-          message: tributeContent,
-          isRead: false,
-          createdAt: Date.now(),
-        }).catch(() => null);
-      } catch (annErr) {
-        console.warn('Tribute announcement dispatch notice:', annErr);
-      }
-
-      // 3. Server endpoint sync
-      try {
-        const token = (await supabase.auth.getSession()).data.session?.access_token;
-        await fetch(`/api/admin/workshops/${awardingWorkshop.id}/award`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            rating_stars: selectedStars,
-            medal: selectedMedal,
-            custom_note: awardCustomNote,
-          }),
-        });
       } catch {}
+
+      // 3. Also add local in-app notification
+      const tributeTitle = `🎖️ تهنئة رسمية: منح ورشتكم قلادة الشمساوية ${medalArabic}!`;
+      const tributeContent = `قررت إدارة منظومة الشمساوية منح ورشتكم [${awardingWorkshop.brandName}] تقييم [${selectedStars}] نجوم وقلادة [${medalArabic}].${awardCustomNote ? `\n"${awardCustomNote}"` : ''}`;
+      await tenantStorage.putNotification({
+        id: `notif_${Date.now()}`,
+        tenantId: awardingWorkshop.id,
+        type: 'system',
+        title: tributeTitle,
+        message: tributeContent,
+        isRead: false,
+        createdAt: Date.now(),
+      }).catch(() => null);
 
       playSuccessSound();
 
@@ -795,7 +801,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         )
       );
 
-      // Update local storage profile if currently logged in workshop
+      // Update local storage profile if stored locally
       try {
         const localWs = await tenantStorage.getProfile(awardingWorkshop.id);
         if (localWs) {
@@ -810,8 +816,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         }
       } catch {}
 
+      loadMessagingHub();
       setSuccessNotice(
-        `تم منح ورشة "${awardingWorkshop.brandName}" تقييم ${selectedStars} نجوم وقلادة ${medalArabic} وإرسال التهنئة بنجاح!`
+        `تم منح ورشة "${awardingWorkshop.brandName}" تقييم ${selectedStars} نجوم وقلادة ${medalArabic} وإرسال التهنئة الرسمية بنجاح!`
       );
       setTimeout(() => setSuccessNotice(''), 5000);
       setAwardingWorkshop(null);
@@ -969,7 +976,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             country: row.country || 'مصر',
             currency: row.currency || 'EGP',
             currencySymbol: row.currency_symbol || 'ج.م',
-            callingCode: '+20',
+            callingCode: row.calling_code || '+20',
             selectedCrafts: Array.isArray(row.selected_crafts) ? row.selected_crafts : ['macrame'],
             defaultVatPercent: row.default_vat_percent ?? 14,
             showTaxInfoOnInvoice: false,
@@ -977,9 +984,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             status: row.status || (row.is_frozen ? 'suspended' : 'active'),
             isFrozen: Boolean(row.is_frozen || row.status === 'suspended' || row.status === 'banned'),
             suspension_reason: row.suspension_reason || row.suspended_reason,
+            suspension_duration: row.suspension_duration || null,
+            suspended_until: row.suspended_until || null,
+            appeal_status: row.appeal_status || 'none',
+            appeal_message: row.appeal_message || '',
+            rejection_reason: row.rejection_reason || '',
             rating_stars: row.rating_stars || 5,
             ratingStars: row.rating_stars || 5,
             medal: row.medal || null,
+            medal_awarded_at: row.medal_awarded_at || null,
+            medalAwardedAt: row.medal_awarded_at || null,
+            medal_note: row.medal_note || null,
+            medalNote: row.medal_note || null,
+            storeSlug: row.store_slug || undefined,
             createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
             updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
             createdBy: row.created_by || row.owner_id || row.id || 'system',
@@ -996,15 +1013,17 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         if (w.id) map.set(w.id, w);
       });
 
-      // 2. دمج أي بيانات إضافية من السيرفر (تقييمات، تفاصيل) للورش المسجلة فعلياً
+      // 2. دمج بيانات السيرفر (أو إضافة أي ورشة معتمدة عبر السيرفر)
       serverWorkshops.forEach((w) => {
         if (w.id && map.has(w.id)) {
           const existing = map.get(w.id)!;
           map.set(w.id, { ...existing, ...w, phoneNumber: existing.phoneNumber || w.phoneNumber });
+        } else if (w.id) {
+          map.set(w.id, w);
         }
       });
 
-      // 3. تصفية الورش: عرض الورش الحقيقية المسجلة فعلياً (مثل A&M Handmade) وترتيبها
+      // 3. تصفية الورش واستبعاد أي سجل نظام صفري
       const list = Array.from(map.values())
         .filter((w) => {
           const id = (w.id || '').toLowerCase();
@@ -1057,42 +1076,83 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       const phone = app.phone_number || app.phoneNumber || '';
       const email = app.email || '';
       const crafts = Array.isArray(app.crafts) ? app.crafts : typeof app.crafts === 'string' ? app.crafts.split(',') : ['macrame'];
-      const wsId = app.user_id || app.workshop_id || `ws_${Date.now()}`;
+      const wsId = isValidUuid(app.user_id)
+        ? app.user_id
+        : isValidUuid(app.workshop_id)
+        ? app.workshop_id
+        : crypto.randomUUID();
+      const nowIso = new Date().toISOString();
 
-      // 1. Update application status
-      await supabase
+      // 1. Update application status in Supabase
+      const { error: appErr } = await supabase
         .from('workshop_applications')
         .update({
           status: 'approved',
-          reviewed_at: new Date().toISOString(),
+          workshop_id: wsId,
+          reviewed_at: nowIso,
           reviewer_email: profile.email || 'hmb.top.tube@gmail.com',
           review_notes: appReviewNotes || 'تم الاعتماد الرسمي للورشة في المنظومة',
         })
         .eq('id', app.id);
 
-      // 2. Upsert workshop into workshops table
-      await supabase.from('workshops').upsert({
+      if (appErr) throw new Error(appErr.message);
+
+      // 2. Upsert workshop into Supabase workshops table & server
+      const { error: wsErr } = await supabase.from('workshops').upsert({
         id: wsId,
         brand_name: brand,
         artist_name: artist,
-        email: email,
-        phone: phone,
+        email,
+        phone,
         country: app.country || 'مصر',
         currency: 'EGP',
+        currency_symbol: 'ج.م',
         selected_crafts: crafts,
         status: 'active',
         is_frozen: false,
-        updated_at: new Date().toISOString(),
+        store_slug: getWorkshopCleanSlug({ id: wsId, brandName: brand, artistName: artist }),
+        updated_at: nowIso,
       }, { onConflict: 'id' });
 
+      if (wsErr) throw new Error(wsErr.message);
+
+      try {
+        const headers = await getAdminAuthHeaders(true);
+        await fetch('/api/admin/workshops', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            id: wsId,
+            brandName: brand,
+            artistName: artist,
+            email,
+            phoneNumber: phone,
+            country: app.country || 'مصر',
+            selectedCrafts: crafts,
+            role: 'artisan',
+          }),
+        });
+        await fetch('/api/admin/announcements', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            recipient_type: 'specific',
+            recipient_workshop_id: wsId,
+            title: `🎉 أهلاً بك في منظومة الشمساوية — تم اعتماد ورشة "${brand}"!`,
+            content: `مبارك لك يا فنان/ة ${artist}! تم اعتماد طلب انضمام ورشتك رسمياً وتفعيل حسابك ومتجرك الخاص داخل منظومة الشمساوية.`,
+          }),
+        });
+      } catch {}
+
       setWorkshopApplications((prev) =>
-        prev.map((a) => (a.id === app.id ? { ...a, status: 'approved' } : a))
+        prev.map((a) => (a.id === app.id ? { ...a, status: 'approved', workshop_id: wsId } : a))
       );
       playSuccessSound();
       setSuccessNotice(`✓ تم اعتماد ورشة [${brand}] رسمياً وإضافتها لمنظومة الشمساوية! 🏛️`);
       setReviewingApp(null);
       setAppReviewNotes('');
-      loadWorkshops();
+      loadWorkshops(true);
+      loadMessagingHub();
     } catch (e: any) {
       showError('تعذر اعتماد الورشة: ' + (e.message || 'خطأ'));
     }
@@ -1101,7 +1161,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   // Reject Workshop Application
   const handleRejectApplication = async (app: any, reason: string) => {
     try {
-      await supabase
+      const { error } = await supabase
         .from('workshop_applications')
         .update({
           status: 'rejected',
@@ -1110,6 +1170,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           review_notes: reason || 'نعتذر، لم يستوفِ الطلب معايير الجودة اليدوية المطلوبة حالياً',
         })
         .eq('id', app.id);
+
+      if (error) throw new Error(error.message);
 
       setWorkshopApplications((prev) =>
         prev.map((a) => (a.id === app.id ? { ...a, status: 'rejected', review_notes: reason } : a))
@@ -1128,12 +1190,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     if (!isAdmin) return;
     setAppealsLoading(true);
     try {
-      const res = await fetch('/api/admin/appeals', {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-        },
-      });
+      const headers = await getAdminAuthHeaders(true);
+      const res = await fetch('/api/admin/appeals', { headers });
       if (res.ok) {
         const json = await res.json();
         setAppealsList(json.appeals || []);
@@ -1145,17 +1203,14 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, profile.email]);
 
-  // Load Messaging Inbox & Announcements
+  // Load Messaging Inbox & Announcements (with analytics stats)
   const loadMessagingHub = useCallback(async () => {
     if (!isAdmin) return;
     try {
+      const headers = await getAdminAuthHeaders();
       const [annRes, inboxRes] = await Promise.all([
-        fetch('/api/announcements', {
-          headers: { 'x-user-email': profile.email || 'hmb.top.tube@gmail.com' },
-        }),
-        fetch('/api/admin/inbox', {
-          headers: { 'x-user-email': profile.email || 'hmb.top.tube@gmail.com' },
-        }),
+        fetch('/api/admin/announcements', { headers }),
+        fetch('/api/admin/inbox', { headers }),
       ]);
 
       if (annRes.ok) {
@@ -1189,11 +1244,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         console.warn('Direct Supabase fetch products warning:', e);
       }
 
-      const res = await fetch('/api/admin/marketplace/products', {
-        headers: {
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-        },
-      });
+      const headers = await getAdminAuthHeaders();
+      const res = await fetch('/api/admin/marketplace/products', { headers });
       let serverProds: any[] = [];
       if (res.ok) {
         const data = await res.json();
@@ -1215,6 +1267,27 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, profile.email]);
 
+  // Sync Central Marketplace Platform Settings & Cloud Orders
+  const loadMarketplaceControlData = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const syncedCfg = await syncPlatformSettingsFromCloud();
+      if (syncedCfg) {
+        setShippingConfig(syncedCfg);
+        setCentralShippingPrivacy(getClientPrivacyActive());
+      }
+      const cloudOrders = await fetchCloudMarketplaceOrders(profile.email);
+      if (Array.isArray(cloudOrders) && cloudOrders.length > 0) {
+        const merged = mergeCloudOrdersIntoLocal(cloudOrders);
+        setMarketplaceOrdersList(merged);
+      } else {
+        setMarketplaceOrdersList(getCentralMarketplaceOrders());
+      }
+    } catch (e) {
+      console.warn('Load marketplace control data warning:', e);
+    }
+  }, [isAdmin, profile.email]);
+
   useEffect(() => {
     if (isAdmin) {
       loadWorkshops();
@@ -1222,8 +1295,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       loadMessagingHub();
       loadCloudMarketplaceProducts();
       loadWorkshopApplications();
+      loadMarketplaceControlData();
     }
-  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications]);
+  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications, loadMarketplaceControlData]);
 
   // 2. Realtime Subscriptions (Workshops, Marketplace Products, Join Applications, Announcements, Replies)
   useEffect(() => {
@@ -1410,45 +1484,46 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     if (!editingWorkshop) return;
     setSavingAction(true);
     try {
+      const updatedSlug = getWorkshopCleanSlug(editingWorkshop);
       const updated: WorkshopProfile = {
         ...editingWorkshop,
+        storeSlug: updatedSlug,
         updatedAt: Date.now(),
       };
 
-      try {
-        const nowIso = new Date().toISOString();
-        await Promise.allSettled([
-          supabase.from('workshops').update({
-            brand_name: updated.brandName,
-            artist_name: updated.artistName,
-            phone: updated.phoneNumber,
-            status: updated.status || 'active',
-            updated_at: nowIso,
-          }).eq('id', updated.id),
-          supabase.from('profiles').update({
-            name: updated.artistName || updated.brandName,
-            phone: updated.phoneNumber,
-            status: updated.status || 'active',
-            role: updated.role || 'artisan',
-          }).eq('id', updated.id),
-        ]);
-      } catch (supaErr) {
-        console.warn('Supabase workshop/profile update notice:', supaErr);
-      }
+      const nowIso = new Date().toISOString();
+      const [wsRes] = await Promise.all([
+        supabase.from('workshops').update({
+          brand_name: updated.brandName,
+          artist_name: updated.artistName,
+          email: updated.email,
+          phone: updated.phoneNumber,
+          country: updated.country || 'مصر',
+          currency: updated.currency || 'EGP',
+          currency_symbol: updated.currencySymbol || 'ج.م',
+          store_slug: updatedSlug,
+          status: updated.status || 'active',
+          updated_at: nowIso,
+        }).eq('id', updated.id),
+        supabase.from('profiles').update({
+          name: updated.artistName || updated.brandName,
+          email: updated.email,
+          phone: updated.phoneNumber,
+          status: updated.status || 'active',
+          role: updated.role || 'artisan',
+        }).eq('id', updated.id),
+      ]);
 
-      try {
-        const token = (await supabase.auth.getSession()).data.session?.access_token;
-        await fetch(`/api/admin/workshops/${updated.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(updated),
-        });
-      } catch (apiErr) {
-        console.warn('Server workshop update notice:', apiErr);
+      const headers = await getAdminAuthHeaders(true);
+      const apiRes = await fetch(`/api/admin/workshops/${updated.id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(updated),
+      });
+
+      if (!apiRes.ok && wsRes.error) {
+        const errJson = await apiRes.json().catch(() => ({}));
+        throw new Error(errJson.error || wsRes.error.message || 'تعذر حفظ تعديلات الورشة');
       }
 
       await tenantStorage.saveProfile(updated);
@@ -1460,7 +1535,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
       loadWorkshops(true);
       playSuccessSound();
-      setSuccessNotice(`تم تحديث بيانات ورشة "${updated.brandName}" بنجاح.`);
+      setSuccessNotice(`تم تحديث بيانات ورشة "${updated.brandName}" ومزامنتها سحابياً بنجاح.`);
       setTimeout(() => setSuccessNotice(''), 4000);
       setEditingWorkshop(null);
     } catch (err: any) {
@@ -1487,14 +1562,12 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       else if (suspensionDurationChoice === 'أسبوع') suspendedUntilMs = now + 7 * 24 * 60 * 60 * 1000;
       else if (suspensionDurationChoice === 'أسبوعين') suspendedUntilMs = now + 14 * 24 * 60 * 60 * 1000;
       else if (suspensionDurationChoice === 'شهر') suspendedUntilMs = now + 30 * 24 * 60 * 60 * 1000;
-      else suspendedUntilMs = null; // إيقاف مؤقت لحين النظر
+      else suspendedUntilMs = null;
 
+      const headers = await getAdminAuthHeaders(true);
       const res = await fetch(`/api/admin/workshops/${editingWorkshop.id}/status`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-        },
+        headers,
         body: JSON.stringify({
           status: 'suspended',
           suspension_reason: suspensionReasonInput.trim(),
@@ -1503,7 +1576,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         }),
       });
 
-      if (!res.ok) throw new Error('تعذر إيقاف الورشة على الخادم');
+      const errJson = !res.ok ? await res.json().catch(() => ({})) : {};
+      if (!res.ok) throw new Error(errJson.error || 'تعذر إيقاف الورشة على الخادم');
 
       const updatedWs: WorkshopProfile = {
         ...editingWorkshop,
@@ -1517,7 +1591,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setWorkshops((prev) => prev.map((w) => (w.id === editingWorkshop.id ? updatedWs : w)));
       loadWorkshops(true);
       playAlertSound();
-      setSuccessNotice(`تم إيقاف حساب ورشة "${editingWorkshop.brandName}" مؤقتاً لمدة ${suspensionDurationChoice}.`);
+      setSuccessNotice(`تم إيقاف حساب ورشة "${editingWorkshop.brandName}" ومتجرها مؤقتاً لمدة ${suspensionDurationChoice}.`);
       setIsSuspendingModalOpen(false);
       setEditingWorkshop(null);
       setSuspensionReasonInput('');
@@ -1539,12 +1613,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
     setSavingAction(true);
     try {
+      const headers = await getAdminAuthHeaders(true);
       const res = await fetch(`/api/admin/workshops/${editingWorkshop.id}/status`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-        },
+        headers,
         body: JSON.stringify({
           status: 'banned',
           suspension_reason: banReasonInput.trim(),
@@ -1553,7 +1625,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         }),
       });
 
-      if (!res.ok) throw new Error('تعذر حظر الورشة');
+      const errJson = !res.ok ? await res.json().catch(() => ({})) : {};
+      if (!res.ok) throw new Error(errJson.error || 'تعذر حظر الورشة');
 
       const updatedWs: WorkshopProfile = {
         ...editingWorkshop,
@@ -1567,7 +1640,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setWorkshops((prev) => prev.map((w) => (w.id === editingWorkshop.id ? updatedWs : w)));
       loadWorkshops(true);
       playAlertSound();
-      setSuccessNotice(`تم حظر ورشة "${editingWorkshop.brandName}" بشكل نهائي.`);
+      setSuccessNotice(`تم حظر ورشة "${editingWorkshop.brandName}" وإخفاء منتجاتها ومتجرها نهائياً.`);
       setIsBanningModalOpen(false);
       setEditingWorkshop(null);
       setBanReasonInput('');
@@ -1583,16 +1656,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleReactivateWorkshop = async (targetWs: WorkshopProfile) => {
     setSavingAction(true);
     try {
+      const headers = await getAdminAuthHeaders(true);
       const res = await fetch(`/api/admin/workshops/${targetWs.id}/status`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-        },
+        headers,
         body: JSON.stringify({ status: 'active' }),
       });
 
-      if (!res.ok) throw new Error('تعذر إعادة تفعيل الورشة');
+      const errJson = !res.ok ? await res.json().catch(() => ({})) : {};
+      if (!res.ok) throw new Error(errJson.error || 'تعذر إعادة تفعيل الورشة');
 
       const updatedWs: WorkshopProfile = {
         ...targetWs,
@@ -1606,7 +1678,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setWorkshops((prev) => prev.map((w) => (w.id === targetWs.id ? updatedWs : w)));
       loadWorkshops(true);
       playSuccessSound();
-      setSuccessNotice(`تم إلغاء الحظر وإعادة تفعيل ورشة "${targetWs.brandName}" بنجاح!`);
+      setSuccessNotice(`تم إلغاء الحظر وإعادة تفعيل ورشة "${targetWs.brandName}" ومتجرها بنجاح!`);
       setEditingWorkshop(null);
       setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
@@ -1619,22 +1691,23 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   // 4. Accept Appeal
   const handleAcceptAppeal = async (appealItem: any) => {
     try {
+      const headers = await getAdminAuthHeaders(true);
       const res = await fetch(`/api/admin/workshops/${appealItem.id}/appeal`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-        },
+        headers,
         body: JSON.stringify({ appeal_status: 'accepted' }),
       });
 
-      if (res.ok) {
-        playSuccessSound();
-        setSuccessNotice(`تم قبول طعن ورشة "${appealItem.brand_name || 'الورشة'}" وإعادة تفعيلها فوراً.`);
-        loadAppeals();
-        loadWorkshops(true);
-        setTimeout(() => setSuccessNotice(''), 4000);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'فشل قبول الطعن على الخادم');
       }
+
+      playSuccessSound();
+      setSuccessNotice(`تم قبول طعن ورشة "${appealItem.brand_name || 'الورشة'}" وإعادة تفعيلها فوراً.`);
+      loadAppeals();
+      loadWorkshops(true);
+      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('تعذر قبول الطعن: ' + err.message);
     }
@@ -1644,27 +1717,28 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleConfirmRejectAppeal = async () => {
     if (!rejectingAppealWorkshop) return;
     try {
+      const headers = await getAdminAuthHeaders(true);
       const res = await fetch(`/api/admin/workshops/${rejectingAppealWorkshop.id}/appeal`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-        },
+        headers,
         body: JSON.stringify({
           appeal_status: 'rejected',
           rejection_reason: rejectionReasonInput.trim() || 'تم رفض الطعن بعد دراسة تفاصيل وسجلات الورشة.',
         }),
       });
 
-      if (res.ok) {
-        playAlertSound();
-        setSuccessNotice(`تم رفض طعن ورشة "${rejectingAppealWorkshop.brand_name || 'الورشة'}" وتسجيل السبب.`);
-        setRejectingAppealWorkshop(null);
-        setRejectionReasonInput('');
-        loadAppeals();
-        loadWorkshops(true);
-        setTimeout(() => setSuccessNotice(''), 4000);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'فشل رفض الطعن على الخادم');
       }
+
+      playAlertSound();
+      setSuccessNotice(`تم رفض طعن ورشة "${rejectingAppealWorkshop.brand_name || 'الورشة'}" وتسجيل السبب.`);
+      setRejectingAppealWorkshop(null);
+      setRejectionReasonInput('');
+      loadAppeals();
+      loadWorkshops(true);
+      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('تعذر رفض الطعن: ' + err.message);
     }
@@ -1684,12 +1758,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
     setSendingAnnouncement(true);
     try {
+      const headers = await getAdminAuthHeaders(true);
       const res = await fetch('/api/admin/announcements', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-        },
+        headers,
         body: JSON.stringify({
           recipient_type: newAnnRecipientType,
           recipient_workshop_id: newAnnRecipientType === 'specific' ? newAnnRecipientWorkshopId : null,
@@ -1698,17 +1770,84 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         }),
       });
 
-      if (res.ok) {
-        playPostaNotificationSound();
-        setSuccessNotice('تم إرسال الرسالة بنجاح عبر مركز المراسلات لكافة الورش المحددة!');
-        setNewAnnTitle('');
-        setNewAnnContent('');
-        setNewAnnRecipientWorkshopId('');
-        loadMessagingHub();
-        setTimeout(() => setSuccessNotice(''), 4000);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'تعذر إرسال التوجيه عبر الخادم');
       }
+
+      playPostaNotificationSound();
+      setSuccessNotice('تم إرسال الرسالة بنجاح عبر مركز المراسلات لكافة الورش المحددة!');
+      setNewAnnTitle('');
+      setNewAnnContent('');
+      setNewAnnRecipientWorkshopId('');
+      loadMessagingHub();
+      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('تعذر إرسال الرسالة: ' + err.message);
+    } finally {
+      setSendingAnnouncement(false);
+    }
+  };
+
+  // 6b. Delete Sent Announcement
+  const handleDeleteAnnouncement = async (annId: string) => {
+    setDeletingAnnId(annId);
+    try {
+      const headers = await getAdminAuthHeaders(true);
+      const res = await fetch(`/api/admin/announcements/${annId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'تعذر حذف الرسالة');
+      }
+      setAnnouncementsList((prev) => prev.filter((a) => a.id !== annId));
+      playAlertSound();
+      setSuccessNotice('✓ تم حذف التوجيه من سجل المراسلات بنجاح.');
+      setTimeout(() => setSuccessNotice(''), 3500);
+    } catch (err: any) {
+      showError('تعذر حذف الرسالة: ' + err.message);
+    } finally {
+      setDeletingAnnId(null);
+    }
+  };
+
+  // 6c. Direct Reply to Workshop Inbox Message
+  const handleSendDirectReply = async (targetMsg: any) => {
+    if (!targetMsg?.workshop_id || !isValidUuid(targetMsg.workshop_id)) {
+      showError('لا يوجد معرف ورشة صالح للرد الداخلي — استخدم واتساب للتواصل الخارجي.');
+      return;
+    }
+    if (!directReplyContent.trim()) {
+      showError('يرجى كتابة نص الرد');
+      return;
+    }
+    setSendingAnnouncement(true);
+    try {
+      const headers = await getAdminAuthHeaders(true);
+      const res = await fetch('/api/admin/announcements', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          recipient_type: 'specific',
+          recipient_workshop_id: targetMsg.workshop_id,
+          title: `✉️ رد إداري مباشر على استفساركم`,
+          content: directReplyContent.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'تعذر إرسال الرد المباشر');
+      }
+      playPostaNotificationSound();
+      setSuccessNotice(`✓ تم إرسال الرد المباشر إلى ورشة "${targetMsg.workshops?.brand_name || 'الفنان'}" بنجاح!`);
+      setDirectReplyTarget(null);
+      setDirectReplyContent('');
+      loadMessagingHub();
+      setTimeout(() => setSuccessNotice(''), 4000);
+    } catch (err: any) {
+      showError('تعذر إرسال الرد: ' + err.message);
     } finally {
       setSendingAnnouncement(false);
     }
@@ -1728,30 +1867,31 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
     setSavingAction(true);
     try {
-      // 1. Delete from Supabase workshops and profiles directly
-      try {
-        await supabase.from('workshops').delete().eq('id', deletingWorkshop.id);
-        await supabase.from('profiles').delete().eq('id', deletingWorkshop.id);
-        if (deletingWorkshop.ownerUid) {
-          await supabase.from('profiles').delete().eq('id', deletingWorkshop.ownerUid);
+      // 1. Delete from Supabase workshops and profiles directly if cascade
+      if (selectiveDeleteMode === 'cascade') {
+        try {
+          await supabase.from('workshops').delete().eq('id', deletingWorkshop.id);
+          await supabase.from('profiles').delete().eq('id', deletingWorkshop.id);
+          if (deletingWorkshop.ownerUid) {
+            await supabase.from('profiles').delete().eq('id', deletingWorkshop.ownerUid);
+          }
+        } catch (supaErr) {
+          console.warn('Supabase workshop delete notice:', supaErr);
         }
-      } catch (supaErr) {
-        console.warn('Supabase workshop delete notice:', supaErr);
       }
 
       // 2. Call backend server endpoint
-      try {
-        const token = (await supabase.auth.getSession()).data.session?.access_token;
-        await fetch(`/api/admin/workshops/${deletingWorkshop.id}/selective-delete`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ mode: selectiveDeleteMode }),
-        });
-      } catch {}
+      const headers = await getAdminAuthHeaders(true);
+      const delRes = await fetch(`/api/admin/workshops/${deletingWorkshop.id}/selective-delete`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ mode: selectiveDeleteMode }),
+      });
+
+      if (!delRes.ok) {
+        const errJson = await delRes.json().catch(() => ({}));
+        throw new Error(errJson.error || 'تعذر تنفيذ عملية التصفير/الحذف على الخادم');
+      }
 
       if (selectiveDeleteMode === 'cascade') {
         await tenantStorage.deleteProfile(deletingWorkshop.id);
@@ -1791,23 +1931,27 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
     setSavingAction(true);
     try {
-      const generatedId = 'ws_' + Math.random().toString(36).substring(2, 10);
+      const generatedId = crypto.randomUUID();
       const countryConfig =
         COUNTRIES_CONFIG.find((c) => c.name === newCountry) || COUNTRIES_CONFIG[0];
+      const brandClean = newBrandName.trim();
+      const artistClean = newArtistName.trim();
+      const storeSlug = getWorkshopCleanSlug({ id: generatedId, brandName: brandClean, artistName: artistClean });
 
       const newWs: WorkshopProfile = {
         id: generatedId,
         workshopId: generatedId,
         ownerUid: generatedId,
-        email: newEmail.trim() || `${generatedId}@alshams.craft`,
-        brandName: newBrandName.trim(),
-        artistName: newArtistName.trim(),
+        email: newEmail.trim() || `ws-${generatedId.slice(0, 8)}@alshams.craft`,
+        brandName: brandClean,
+        artistName: artistClean,
         gender: 'female',
         phoneNumber: newPhone.trim(),
         country: countryConfig.name,
         currency: countryConfig.currency,
         currencySymbol: countryConfig.currencySymbol,
         callingCode: countryConfig.callingCode,
+        storeSlug,
         selectedCrafts: ['macrame'],
         defaultVatPercent: 14,
         showTaxInfoOnInvoice: false,
@@ -1820,35 +1964,45 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         createdBy: profile.email || 'admin',
       };
 
-      try {
-        const nowIso = new Date(newWs.createdAt).toISOString();
-        await Promise.allSettled([
-          supabase.from('workshops').upsert({
-            id: newWs.id,
-            brand_name: newWs.brandName,
-            artist_name: newWs.artistName,
-            email: newWs.email,
-            phone: newWs.phoneNumber,
-            country: newWs.country,
-            currency: newWs.currency,
-            selected_crafts: newWs.selectedCrafts,
-            status: 'active',
-            is_frozen: false,
-            created_at: nowIso,
-            updated_at: nowIso,
-          }, { onConflict: 'id' }),
-          supabase.from('profiles').upsert({
-            id: newWs.id,
-            name: newWs.artistName || newWs.brandName,
-            email: newWs.email,
-            phone: newWs.phoneNumber,
-            role: newWs.role,
-            status: 'active',
-            created_at: nowIso,
-          }, { onConflict: 'id' }),
-        ]);
-      } catch (supaErr) {
-        console.warn('Supabase workshop/profile upsert notice:', supaErr);
+      const nowIso = new Date(newWs.createdAt).toISOString();
+      const [wsUpsertRes] = await Promise.all([
+        supabase.from('workshops').upsert({
+          id: newWs.id,
+          brand_name: newWs.brandName,
+          artist_name: newWs.artistName,
+          email: newWs.email,
+          phone: newWs.phoneNumber,
+          country: newWs.country,
+          currency: newWs.currency,
+          currency_symbol: newWs.currencySymbol,
+          store_slug: storeSlug,
+          selected_crafts: newWs.selectedCrafts,
+          status: 'active',
+          is_frozen: false,
+          created_at: nowIso,
+          updated_at: nowIso,
+        }, { onConflict: 'id' }),
+        supabase.from('profiles').upsert({
+          id: newWs.id,
+          name: newWs.artistName || newWs.brandName,
+          email: newWs.email,
+          phone: newWs.phoneNumber,
+          role: newWs.role,
+          status: 'active',
+          created_at: nowIso,
+        }, { onConflict: 'id' }),
+      ]);
+
+      const headers = await getAdminAuthHeaders(true);
+      const serverRes = await fetch('/api/admin/workshops', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(newWs),
+      });
+
+      if (!serverRes.ok && wsUpsertRes.error) {
+        const errJson = await serverRes.json().catch(() => ({}));
+        throw new Error(errJson.error || wsUpsertRes.error.message || 'تعذر حفظ الورشة في قاعدة البيانات');
       }
 
       await tenantStorage.saveProfile(newWs);
@@ -2048,6 +2202,77 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 1.5 Quick Command Pulse Bar (أولويات السوبر أدمن ومهام الاعتماد الحية) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveExecutiveTab('product_approvals');
+            loadCloudMarketplaceProducts();
+          }}
+          className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-amber-300/60 dark:border-amber-800/60 hover:border-amber-500 transition flex items-center justify-between text-right shadow-xs cursor-pointer"
+        >
+          <div>
+            <span className="text-[10px] font-bold text-stone-500 block">منتجات بانتظار السوق</span>
+            <span className="text-base font-black font-mono text-amber-600">
+              {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length}
+            </span>
+          </div>
+          <Sparkles className="w-5 h-5 text-amber-500 shrink-0" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveExecutiveTab('applications');
+            loadWorkshopApplications();
+          }}
+          className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-amber-500 transition flex items-center justify-between text-right shadow-xs cursor-pointer"
+        >
+          <div>
+            <span className="text-[10px] font-bold text-stone-500 block">طلبات انضمام الورش</span>
+            <span className="text-base font-black font-mono text-emerald-600">
+              {workshopApplications.filter((a) => a.status === 'pending' || !a.status).length}
+            </span>
+          </div>
+          <Building2 className="w-5 h-5 text-emerald-500 shrink-0" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveExecutiveTab('appeals');
+            loadAppeals();
+          }}
+          className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-rose-500 transition flex items-center justify-between text-right shadow-xs cursor-pointer"
+        >
+          <div>
+            <span className="text-[10px] font-bold text-stone-500 block">طعون وتظلمات معلقة</span>
+            <span className="text-base font-black font-mono text-rose-600">
+              {stats.pendingAppeals}
+            </span>
+          </div>
+          <Scale className="w-5 h-5 text-rose-500 shrink-0" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveExecutiveTab('messaging');
+            loadMessagingHub();
+          }}
+          className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-blue-500 transition flex items-center justify-between text-right shadow-xs cursor-pointer"
+        >
+          <div>
+            <span className="text-[10px] font-bold text-stone-500 block">رسائل وردود الوارد</span>
+            <span className="text-base font-black font-mono text-blue-600">
+              {inboxList.length}
+            </span>
+          </div>
+          <Mail className="w-5 h-5 text-blue-500 shrink-0" />
+        </button>
       </div>
 
       {/* 2. Realtime Notification Banner */}
@@ -2579,9 +2804,31 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                               type="button"
                               onClick={async () => {
                                 const targetId = p.id || p.product_id;
-                                await reviewMarketplaceProduct(targetId, 'approved', undefined, profile.email);
+                                const res = await reviewMarketplaceProduct(
+                                  targetId,
+                                  'approved',
+                                  undefined,
+                                  profile.email,
+                                  {
+                                    ratingStars: initialRatingForApprove,
+                                    productPayload: {
+                                      ...p,
+                                      workshopId: selectedWorkshopId || p.workshop_id || p.workshopId,
+                                      brandName: currentSelectedWorkshop.brandName,
+                                      artistName: currentSelectedWorkshop.artistName,
+                                      phoneNumber: currentSelectedWorkshop.phoneNumber,
+                                      storeSlug: getWorkshopCleanSlug(currentSelectedWorkshop),
+                                    },
+                                  }
+                                );
+                                if (!res.success) {
+                                  showError(res.error || 'تعذر اعتماد المنتج في السوق السحابي');
+                                  return;
+                                }
                                 playSuccessSound();
+                                setSuccessNotice(`✓ تم اعتماد "${p.name || p.productName || p.product_name}" ونشره في سوق الشمساوية المركزي بنجاح!`);
                                 loadDeepData(selectedWorkshopId);
+                                loadCloudMarketplaceProducts();
                               }}
                               className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
                               title="اعتماد فوري للعرض بالسوق المركزي"
@@ -2593,9 +2840,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                               onClick={async () => {
                                 const targetId = p.id || p.product_id;
                                 const reason = window.prompt('يرجى كتابة ملاحظات الإرجاع للفنان:') || 'يرجى مراجعة وتدقيق مواصفات المشغولة';
-                                await reviewMarketplaceProduct(targetId, 'rejected', reason, profile.email);
+                                const res = await reviewMarketplaceProduct(targetId, 'rejected', reason, profile.email);
+                                if (!res.success) {
+                                  showError(res.error || 'تعذر تسجيل إرجاع المنتج');
+                                  return;
+                                }
                                 playAlertSound();
+                                setSuccessNotice(`✓ تم إرجاع المشغولة وإخطار الفنان بملاحظات التعديل.`);
                                 loadDeepData(selectedWorkshopId);
+                                loadCloudMarketplaceProducts();
                               }}
                               className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
                               title="إرجاع المشغولة للفنان بملاحظات"
@@ -3123,6 +3376,43 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
                 <div>
                   <label className="block text-stone-700 dark:text-stone-300 mb-1">
+                    قوالب توجيهات سريعة (اضغط للتعبئة التلقائية):
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 pb-1">
+                    {[
+                      {
+                        label: '📦 تحديث الشحن والتسليم',
+                        title: 'توجيه عاجل بخصوص مواعيد التسليم وفحص الجودة',
+                        content: 'أهلاً بكل فناني عائلة الشمساوية، نرجو الالتزام بمواعيد تسليم الطلبات وتغليف المشغولات بعناية قبل التسليم لمندوب الفحص المركزي.',
+                      },
+                      {
+                        label: '✨ موسم معارض ومبيعات',
+                        title: 'دعوة لتجهيز معروضات الموسم الجديد في سوق الشمساوية',
+                        content: 'أحبابنا المبدعون، يمكنك الآن رفع أحدث مشغولاتك وإضافة أبعادها والصور الواضحة ليتم اعتمادها فوراً في سوق الشمساوية المركزي.',
+                      },
+                      {
+                        label: '🧶 تنبيه أسعار الخامات',
+                        title: 'تنبيه دوري لمراجعة تسعير الخامات والمنتجات',
+                        content: 'يرجى تحديث أسعار الخامات في مخزن الورشة لضمان احتساب تكلفة الإنتاج وهوامش الربح بدقة في الفواتير والكتالوج.',
+                      },
+                    ].map((tpl) => (
+                      <button
+                        key={tpl.label}
+                        type="button"
+                        onClick={() => {
+                          setNewAnnTitle(tpl.title);
+                          setNewAnnContent(tpl.content);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-stone-900 border border-amber-300/60 dark:border-amber-800/60 text-[11px] font-bold text-amber-700 dark:text-amber-300 hover:bg-amber-50 cursor-pointer"
+                      >
+                        {tpl.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-stone-700 dark:text-stone-300 mb-1">
                     عنوان الرسالة / التوجيه:
                   </label>
                   <input
@@ -3162,14 +3452,97 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               </form>
             </div>
 
-            {/* 2. Admin Inbox (Artisans Replies) */}
+            {/* 1.5 Sent Announcements Log & Read/Acknowledge Analytics */}
             <div className="space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-800">
                 <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
-                  صندوق الوارد (Admin Inbox) — ردود واستفسارات الفنانين
+                  سجل التوجيهات المرسلة وإحصائيات القراءة والتفاعل ({announcementsList.length})
+                </h3>
+                <button
+                  type="button"
+                  onClick={loadMessagingHub}
+                  className="p-1.5 rounded-lg text-stone-500 hover:text-amber-600 cursor-pointer"
+                  title="تحديث سجل المراسلات"
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+
+              {announcementsList.length === 0 ? (
+                <div className="p-6 text-center rounded-2xl bg-stone-50 dark:bg-stone-850 border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400 font-bold">
+                  لم يتم إرسال إعلانات أو توجيهات مسجلة حتى الآن.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {announcementsList.slice(0, 10).map((ann: any) => (
+                    <div
+                      key={ann.id}
+                      className="p-4 rounded-2xl bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-2 shadow-xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-0.5 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                ann.recipient_type === 'specific'
+                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                              }`}
+                            >
+                              {ann.recipient_type === 'specific'
+                                ? `🔒 خاص: ${ann.recipient_workshop_name || 'ورشة محددة'}`
+                                : '📢 إعلان عام'}
+                            </span>
+                            <span className="text-[10px] text-stone-400 font-mono">
+                              {ann.created_at ? new Date(ann.created_at).toLocaleDateString('ar-EG') : ''}
+                            </span>
+                          </div>
+                          <h4 className="font-black text-xs text-stone-900 dark:text-stone-100 truncate pt-1">
+                            {ann.title}
+                          </h4>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={deletingAnnId === ann.id}
+                          onClick={() => handleDeleteAnnouncement(ann.id)}
+                          className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer shrink-0 disabled:opacity-40"
+                          title="حذف هذا التوجيه"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+
+                      <p className="text-[11px] text-stone-600 dark:text-stone-300 line-clamp-2 leading-relaxed">
+                        {ann.content}
+                      </p>
+
+                      {ann.stats && (
+                        <div className="flex items-center gap-2 pt-1.5 border-t border-stone-100 dark:border-stone-800 text-[10px] font-bold">
+                          <span className="px-2 py-0.5 rounded bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
+                            👁️ قرأها: {ann.stats.reads || 0}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
+                            ✓ أكد الاستلام: {ann.stats.acknowledged || 0}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300">
+                            💬 ردود: {ann.stats.replies || 0}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 2. Admin Inbox (Artisans Replies & Public Feedback) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-800">
+                <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
+                  صندوق الوارد (Admin Inbox) — ردود الفنانين ورسائل البوابة العامة
                 </h3>
                 <span className="text-xs font-mono font-bold text-stone-500">
-                  {inboxList.length} رد وارد
+                  {inboxList.length} رسالة واردة
                 </span>
               </div>
 
@@ -3179,45 +3552,84 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 </div>
               ) : (
                 <div className="space-y-2.5">
-                  {inboxList.map((msg, idx) => (
-                    <div
-                      key={msg.id || idx}
-                      className="p-4 rounded-2xl bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-2 shadow-xs"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="font-black text-xs sm:text-sm text-stone-900 dark:text-stone-100">
-                          {msg.workshops?.brand_name || msg.workshop_name || 'ورشة الشمساوية'}
-                          <span className="text-xs font-normal text-stone-500 mr-1.5">
-                            (الفنان: {msg.workshops?.artist_name || 'غير محدد'})
+                  {inboxList.map((msg, idx) => {
+                    const msgKey = msg.id || String(idx);
+                    const isReplyingHere = directReplyTarget?.id === msg.id && msg.id;
+                    const canDirectReply = Boolean(msg.workshop_id && isValidUuid(msg.workshop_id));
+                    return (
+                      <div
+                        key={msgKey}
+                        className="p-4 rounded-2xl bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-2 shadow-xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-black text-xs sm:text-sm text-stone-900 dark:text-stone-100">
+                            {msg.workshops?.brand_name || msg.workshop_name || 'زائر المنظومة'}
+                            <span className="text-xs font-normal text-stone-500 mr-1.5">
+                              ({msg.workshops?.artist_name || 'مرسل خارجي'})
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-stone-400 font-mono">
+                            {msg.replied_at ? new Date(msg.replied_at).toLocaleString('ar-EG') : ''}
                           </span>
                         </div>
-                        <span className="text-[10px] text-stone-400 font-mono">
-                          {msg.replied_at ? new Date(msg.replied_at).toLocaleString('ar-EG') : ''}
-                        </span>
-                      </div>
 
-                      <div className="p-3 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-750 text-xs font-bold text-stone-800 dark:text-stone-200">
-                        "{msg.reply_text}"
-                      </div>
+                        <div className="p-3 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-750 text-xs font-bold text-stone-800 dark:text-stone-200">
+                          "{msg.reply_text}"
+                        </div>
 
-                      <div className="flex items-center gap-2 pt-1 text-xs">
-                        {msg.workshops?.phone_number && (
-                          <a
-                            href={`https://wa.me/${msg.workshops.phone_number.replace(/\D/g, '')}?text=${encodeURIComponent('بخصوص ردكم الأخير على منظومة الشمساوية')}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1"
-                          >
-                            <MessageCircle size={12} />
-                            <span>رد عبر واتساب</span>
-                          </a>
+                        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+                          {canDirectReply && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDirectReplyTarget(isReplyingHere ? null : msg);
+                                setDirectReplyContent('');
+                              }}
+                              className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                            >
+                              <Send size={12} />
+                              <span>رد عبر المنظومة ✉️</span>
+                            </button>
+                          )}
+
+                          {msg.workshops?.phone_number && (
+                            <a
+                              href={`https://wa.me/${msg.workshops.phone_number.replace(/\D/g, '')}?text=${encodeURIComponent('بخصوص ردكم الأخير على منظومة الشمساوية')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1"
+                            >
+                              <MessageCircle size={12} />
+                              <span>رد عبر واتساب</span>
+                            </a>
+                          )}
+                          <span className="text-[11px] text-stone-400">
+                            بخصوص رسالة: {msg.admin_announcements?.title || 'إعلان إداري'}
+                          </span>
+                        </div>
+
+                        {isReplyingHere && (
+                          <div className="pt-2 border-t border-stone-200 dark:border-stone-800 flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={directReplyContent}
+                              onChange={(e) => setDirectReplyContent(e.target.value)}
+                              placeholder="اكتب ردك الرسمي ليصل لصندوق بريد الورشة..."
+                              className="flex-1 px-3 py-2 rounded-xl border border-amber-400 bg-stone-50 dark:bg-stone-900 text-xs font-bold outline-none"
+                            />
+                            <button
+                              type="button"
+                              disabled={sendingAnnouncement}
+                              onClick={() => handleSendDirectReply(msg)}
+                              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs cursor-pointer"
+                            >
+                              إرسال الرد
+                            </button>
+                          </div>
                         )}
-                        <span className="text-[11px] text-stone-400">
-                          بخصوص رسالة: {msg.admin_announcements?.title || 'إعلان إداري'}
-                        </span>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -3362,15 +3774,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const updated = !centralShippingPrivacy;
                   setCentralShippingPrivacy(updated);
                   setClientPrivacyActive(updated);
                   playSuccessSound();
+                  const saveRes = await savePlatformSettingsCloud(
+                    { ...shippingConfig, centralShippingPrivacy: updated },
+                    profile.email
+                  );
                   setSuccessNotice(
                     updated
-                      ? '✓ تم تفعيل حجب بيانات العملاء والشحن المركزي عبر إدارة المنظومة 🛡️'
-                      : 'تم تفعيل إظهار بيانات العملاء (الاسم والهاتف والعنوان) لورش الفنانين 📱'
+                      ? `✓ تم تفعيل حجب بيانات العملاء والشحن المركزي ${saveRes.success ? '(ومزامنته سحابياً لجميع المتاجر)' : '(محلياً)'} 🛡️`
+                      : `تم تفعيل إظهار بيانات العملاء لورش الفنانين ${saveRes.success ? '(ومزامنته سحابياً)' : ''} 📱`
                   );
                 }}
                 className={`px-4 py-2.5 rounded-2xl font-black text-xs transition flex items-center gap-2 cursor-pointer shadow-md shrink-0 ${
@@ -3478,8 +3894,31 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                                 p.isMarketplaceApproved = true;
                                 p.rating = initialRatingForApprove;
                                 await tenantStorage.mutateProduct(p);
-                                playSuccessSound();
-                                setSuccessNotice(`✓ تم اعتماد المشغولة "${p.productName}" بتقييم ${initialRatingForApprove} نجوم ونشرها بنجاح!`);
+                                const targetId = p.id || p.product_id;
+                                const res = await reviewMarketplaceProduct(
+                                  targetId,
+                                  'approved',
+                                  undefined,
+                                  profile.email,
+                                  {
+                                    ratingStars: initialRatingForApprove,
+                                    productPayload: {
+                                      ...p,
+                                      workshopId: selectedWorkshopId || p.workshop_id || p.workshopId,
+                                      brandName: currentSelectedWorkshop.brandName,
+                                      artistName: currentSelectedWorkshop.artistName,
+                                      phoneNumber: currentSelectedWorkshop.phoneNumber,
+                                      storeSlug: getWorkshopCleanSlug(currentSelectedWorkshop),
+                                    },
+                                  }
+                                );
+                                if (!res.success) {
+                                  showError(res.error || 'تم الاعتماد محلياً ولكن تعذرت المزامنة السحابية');
+                                } else {
+                                  playSuccessSound();
+                                  setSuccessNotice(`✓ تم اعتماد المشغولة "${p.productName}" بتقييم ${initialRatingForApprove} نجوم ونشرها في السوق السحابي بنجاح!`);
+                                }
+                                loadCloudMarketplaceProducts();
                               }}
                               className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] cursor-pointer"
                               title="اعتماد المشغولة وتحديد التقييم"
@@ -3509,21 +3948,46 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
             {/* 3. Shipping & Storage Pricing Panel */}
             <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Truck className="w-5 h-5 text-amber-600" />
                   <h4 className="font-black text-sm text-stone-900 dark:text-white">
                     إدارة تسعير الشحن والعمولات ومصاريف التخزين والتغليف
                   </h4>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setEditingGovRates(!editingGovRates)}
-                  className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs flex items-center gap-1 cursor-pointer"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>{editingGovRates ? 'إغلاق جدول المحافظات' : 'تعديل أسعار المحافظات'}</span>
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={savingMarketSettings}
+                    onClick={async () => {
+                      setSavingMarketSettings(true);
+                      saveShippingConfig(shippingConfig);
+                      const res = await savePlatformSettingsCloud(
+                        { ...shippingConfig, centralShippingPrivacy },
+                        profile.email
+                      );
+                      setSavingMarketSettings(false);
+                      if (res.success) {
+                        playSuccessSound();
+                        setSuccessNotice('✓ تم حفظ ومزامنة أسعار الشحن والتغليف سحابياً لجميع المتاجر!');
+                      } else {
+                        showError(res.error || 'تعذرت المزامنة السحابية للإعدادات');
+                      }
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    <Check size={14} />
+                    <span>{savingMarketSettings ? 'جاري الحفظ...' : 'حفظ ومزامنة سحابية ☁️'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingGovRates(!editingGovRates)}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>{editingGovRates ? 'إغلاق جدول المحافظات' : 'تعديل أسعار المحافظات'}</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
@@ -3613,12 +4077,40 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setMarketplaceOrdersList(getCentralMarketplaceOrders())}
-                  className="p-1.5 rounded-lg text-stone-400 hover:text-amber-600 transition"
-                  title="تحديث قائمة الطلبيات"
+                  onClick={loadMarketplaceControlData}
+                  className="p-1.5 rounded-lg text-stone-400 hover:text-amber-600 transition cursor-pointer"
+                  title="مزامنة وتحديث طلبيات السوق من السحابة"
                 >
                   <RefreshCw className="w-4 h-4" />
                 </button>
+              </div>
+
+              {/* Financials Summary Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
+                  <span className="text-[10px] text-stone-500 font-bold block">إجمالي الطلبات</span>
+                  <span className="font-mono font-black text-base text-stone-900 dark:text-white">
+                    {marketplaceOrdersList.length}
+                  </span>
+                </div>
+                <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                  <span className="text-[10px] text-amber-800 dark:text-amber-300 font-bold block">حجم مبيعات السوق (GMV)</span>
+                  <span className="font-mono font-black text-base text-amber-600">
+                    {marketplaceOrdersList.reduce((sum, o) => sum + (Number(o.finalTotal || o.total_amount) || 0), 0).toLocaleString()} ج.م
+                  </span>
+                </div>
+                <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                  <span className="text-[10px] text-emerald-800 dark:text-emerald-300 font-bold block">عمولة المنظومة (10%)</span>
+                  <span className="font-mono font-black text-base text-emerald-600">
+                    {Math.round(marketplaceOrdersList.reduce((sum, o) => sum + (Number(o.subtotal || o.finalTotal) || 0) * 0.1, 0)).toLocaleString()} ج.م
+                  </span>
+                </div>
+                <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/20">
+                  <span className="text-[10px] text-blue-800 dark:text-blue-300 font-bold block">دفعات الجدية المحصلة (33%)</span>
+                  <span className="font-mono font-black text-base text-blue-600">
+                    {Math.round(marketplaceOrdersList.reduce((sum, o) => sum + (Number(o.advancePaymentAmount || o.deposit_paid) || 0), 0)).toLocaleString()} ج.م
+                  </span>
+                </div>
               </div>
 
               {marketplaceOrdersList.length === 0 ? (
@@ -3734,17 +4226,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                           {/* Privacy Toggle per order */}
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
                               const updatedPrivacy = !isClientHidden;
-                              updateCentralMarketplaceOrderStatus(order.id, {
-                                isClientDataHiddenFromArtisan: updatedPrivacy,
-                              });
+                              await updateCentralMarketplaceOrderStatus(
+                                order.id,
+                                { isClientDataHiddenFromArtisan: updatedPrivacy },
+                                profile.email
+                              );
                               setMarketplaceOrdersList(getCentralMarketplaceOrders());
                               playSuccessSound();
                               setSuccessNotice(
                                 updatedPrivacy
-                                  ? '✓ تم حجب بيانات العميل عن الورشة لهذا الأوردر'
-                                  : 'تم إظهار بيانات العميل للورشة للشحن المباشر'
+                                  ? '✓ تم حجب بيانات العميل عن الورشة لهذا الأوردر ومزامنة القرار سحابياً'
+                                  : 'تم إظهار بيانات العميل للورشة للشحن المباشر ومزامنة القرار سحابياً'
                               );
                             }}
                             className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1 ${
@@ -3762,15 +4256,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                             {order.status === 'pending' && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  updateCentralMarketplaceOrderStatus(order.id, {
-                                    status: 'in_progress',
-                                    marketplaceStatus: 'in_production',
-                                    advancePaymentConfirmed: true,
-                                  });
+                                onClick={async () => {
+                                  await updateCentralMarketplaceOrderStatus(
+                                    order.id,
+                                    {
+                                      status: 'in_progress',
+                                      marketplaceStatus: 'in_production',
+                                      advancePaymentConfirmed: true,
+                                    },
+                                    profile.email
+                                  );
                                   setMarketplaceOrdersList(getCentralMarketplaceOrders());
                                   playSuccessSound();
-                                  setSuccessNotice(`✓ تم اعتماد دفعة الجدية للطلب #${order.invoiceNumber} وبدء التصنيع بالورشة!`);
+                                  setSuccessNotice(`✓ تم اعتماد دفعة الجدية للطلب #${order.invoiceNumber} وبدء التصنيع بالورشة ومزامنة الحالة سحابياً!`);
                                 }}
                                 className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-md"
                               >
@@ -3781,14 +4279,18 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                             {order.status === 'in_progress' && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  updateCentralMarketplaceOrderStatus(order.id, {
-                                    status: 'shipped',
-                                    marketplaceStatus: 'shipped',
-                                  });
+                                onClick={async () => {
+                                  await updateCentralMarketplaceOrderStatus(
+                                    order.id,
+                                    {
+                                      status: 'shipped',
+                                      marketplaceStatus: 'shipped',
+                                    },
+                                    profile.email
+                                  );
                                   setMarketplaceOrdersList(getCentralMarketplaceOrders());
                                   playSuccessSound();
-                                  setSuccessNotice(`✓ تم فحص القطعة بنجاح وتحويل الطلب #${order.invoiceNumber} للشحن والتوصيل!`);
+                                  setSuccessNotice(`✓ تم فحص القطعة بنجاح وتحويل الطلب #${order.invoiceNumber} للشحن والتوصيل ومزامنته سحابياً!`);
                                 }}
                                 className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-md"
                               >
@@ -3799,15 +4301,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                             {order.status === 'shipped' && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  updateCentralMarketplaceOrderStatus(order.id, {
-                                    status: 'completed',
-                                    marketplaceStatus: 'delivered',
-                                    remainingAmount: 0,
-                                  });
+                                onClick={async () => {
+                                  await updateCentralMarketplaceOrderStatus(
+                                    order.id,
+                                    {
+                                      status: 'completed',
+                                      marketplaceStatus: 'delivered',
+                                      remainingAmount: 0,
+                                    },
+                                    profile.email
+                                  );
                                   setMarketplaceOrdersList(getCentralMarketplaceOrders());
                                   playSuccessSound();
-                                  setSuccessNotice(`✓ تم تأكيد استلام العميل للطلب #${order.invoiceNumber} وتصفية الحساب كاملاً!`);
+                                  setSuccessNotice(`✓ تم تأكيد استلام العميل للطلب #${order.invoiceNumber} وتصفية الحساب كاملاً ومزامنته سحابياً!`);
                                 }}
                                 className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-md"
                               >
@@ -3854,8 +4360,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                         rejectingProduct.isMarketplaceApproved = false;
                         rejectingProduct.rejectReason = rejectReason;
                         await tenantStorage.mutateProduct(rejectingProduct);
-                        playAlertSound();
-                        setSuccessNotice(`✓ تم رفض المشغولة وإرسال السبب لورشة الفنان: "${rejectReason}"`);
+                        const res = await reviewMarketplaceProduct(
+                          rejectingProduct.id || rejectingProduct.product_id,
+                          'rejected',
+                          rejectReason,
+                          profile.email
+                        );
+                        if (!res.success) {
+                          showError(res.error || 'تم الرفض محلياً ولكن تعذر الحفظ السحابي');
+                        } else {
+                          playAlertSound();
+                          setSuccessNotice(`✓ تم رفض المشغولة سحابياً وإرسال السبب لورشة الفنان: "${rejectReason}"`);
+                        }
+                        loadCloudMarketplaceProducts();
                         setRejectingProduct(null);
                       }}
                       className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
@@ -4182,13 +4699,24 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                             <button
                               type="button"
                               onClick={async () => {
-                                const res = await reviewMarketplaceProduct(p.id, 'approved', undefined, profile.email);
+                                const res = await reviewMarketplaceProduct(
+                                  p.id,
+                                  'approved',
+                                  undefined,
+                                  profile.email,
+                                  {
+                                    ratingStars: (p as any).rating_stars ?? initialRatingForApprove ?? 5,
+                                    productPayload: p,
+                                  }
+                                );
                                 if (res.success) {
                                   setCloudProductsForReview((prev) =>
-                                    prev.map((item) => (item.id === p.id ? { ...item, status: 'approved' } : item))
+                                    prev.map((item) => (item.id === p.id ? { ...item, status: 'approved', rejection_reason: null } : item))
                                   );
                                   playSuccessSound();
                                   setSuccessNotice(`✓ تم اعتماد مشغولة "${p.product_name}" ونشرها في سوق الشمساوية المركزي بنجاح! ✨`);
+                                } else {
+                                  showError(res.error || 'تعذر اعتماد المنتج سحابياً — تأكد من الصلاحيات أو الاتصال');
                                 }
                               }}
                               className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer active:scale-95"
@@ -4257,6 +4785,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                           playAlertSound();
                           setSuccessNotice(`✓ تم رفض المشغولة وإخطار ورشة [${cloudRejectingProduct.brand_name || 'الفنان'}] بالملاحظات بنجاح.`);
                           setCloudRejectingProduct(null);
+                        } else {
+                          showError(res.error || 'تعذر حفظ قرار الرفض سحابياً');
                         }
                       }}
                       className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs cursor-pointer shadow-md shadow-rose-600/30"
@@ -5630,10 +6160,21 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               </label>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <p className="text-xs text-stone-600 dark:text-stone-300 font-bold">
-                أنت على وشك تنفيذ هذا الإجراء على ورشة: <span className="text-rose-600 font-black">{deletingWorkshop.brandName}</span>
+                أنت على وشك تنفيذ هذا الإجراء على ورشة:{' '}
+                <span className="text-rose-600 font-black">{deletingWorkshop.brandName}</span>
               </p>
+              <label className="block text-[11px] font-bold text-stone-600 dark:text-stone-400">
+                اكتب اسم الورشة بالكامل (<span className="font-black text-rose-600 select-all">{deletingWorkshop.brandName}</span>) للتأكيد:
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={deletingWorkshop.brandName}
+                className="w-full px-3.5 py-2 rounded-xl border border-rose-300 dark:border-rose-800 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
+              />
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
@@ -5646,7 +6187,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               </button>
               <button
                 type="button"
-                disabled={savingAction}
+                disabled={savingAction || deleteConfirmText.trim() !== deletingWorkshop.brandName.trim()}
                 onClick={handleSelectiveDeleteWorkshop}
                 className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-40 cursor-pointer shadow-md"
               >

@@ -15,10 +15,13 @@ import {
   transcribeAudioWithGemini,
 } from './server/aiProvider.js';
 import * as shamousaModule from './server/shamousaProvider.js';
+import crypto from 'crypto';
 import {
   isSuperAdmin,
   processTrainingInteraction,
   getActiveGlobalMemories,
+  getAllGlobalMemories,
+  deleteGlobalMemoryRecord,
 } from './server/aiGlobalMemory.js';
 import {
   performGoogleSearch,
@@ -30,53 +33,129 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const WORKSHOPS_FILE = path.resolve(__dirname, 'data/workshops.json');
+const MARKETPLACE_PRODUCTS_FILE = path.resolve(__dirname, 'data/marketplace_products.json');
+const MARKETPLACE_ORDERS_FILE = path.resolve(__dirname, 'data/marketplace_orders.json');
+const PLATFORM_SETTINGS_FILE = path.resolve(__dirname, 'data/platform_settings.json');
+const PUBLIC_FEEDBACK_FILE = path.resolve(__dirname, 'data/public_feedback.json');
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUuid(val?: string | null): boolean {
+  return Boolean(val && typeof val === 'string' && UUID_REGEX.test(val.trim()));
+}
+
+function readJsonArray(filePath: string): any[] {
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn(`[JSON Read] ${path.basename(filePath)} error:`, err);
+  }
+  return [];
+}
+
+function writeJsonData(filePath: string, data: any): void {
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn(`[JSON Write] ${path.basename(filePath)} error:`, err);
+  }
+}
 
 function loadPersistentWorkshops(): any[] {
-  try {
-    if (fs.existsSync(WORKSHOPS_FILE)) {
-      const raw = fs.readFileSync(WORKSHOPS_FILE, 'utf-8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch (err) {
-    console.warn('[Workshops Persistent] Read error:', err);
-  }
-  return [];
+  return readJsonArray(WORKSHOPS_FILE);
 }
-
 function savePersistentWorkshops(list: any[]): void {
-  try {
-    const dir = path.dirname(WORKSHOPS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(WORKSHOPS_FILE, JSON.stringify(list, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('[Workshops Persistent] Save error:', err);
-  }
+  writeJsonData(WORKSHOPS_FILE, list);
 }
-
-const MARKETPLACE_PRODUCTS_FILE = path.resolve(__dirname, 'data/marketplace_products.json');
 
 function loadPersistentMarketplaceProducts(): any[] {
-  try {
-    if (fs.existsSync(MARKETPLACE_PRODUCTS_FILE)) {
-      const raw = fs.readFileSync(MARKETPLACE_PRODUCTS_FILE, 'utf-8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch (err) {
-    console.warn('[Marketplace Persistent] Read error:', err);
-  }
-  return [];
+  return readJsonArray(MARKETPLACE_PRODUCTS_FILE);
+}
+function savePersistentMarketplaceProducts(list: any[]): void {
+  writeJsonData(MARKETPLACE_PRODUCTS_FILE, list);
 }
 
-function savePersistentMarketplaceProducts(list: any[]): void {
+function loadPersistentMarketplaceOrders(): any[] {
+  return readJsonArray(MARKETPLACE_ORDERS_FILE);
+}
+function savePersistentMarketplaceOrders(list: any[]): void {
+  writeJsonData(MARKETPLACE_ORDERS_FILE, list);
+}
+
+function loadPersistentFeedback(): any[] {
+  return readJsonArray(PUBLIC_FEEDBACK_FILE);
+}
+function savePersistentFeedback(list: any[]): void {
+  writeJsonData(PUBLIC_FEEDBACK_FILE, list);
+}
+
+const DEFAULT_PLATFORM_SETTINGS = {
+  governorateRates: {
+    'القاهرة': 50,
+    'الجيزة': 50,
+    'الإسكندرية': 65,
+    'القليوبية': 65,
+    'المنوفية': 70,
+    'الغربية': 70,
+    'الدقهلية': 75,
+    'الشرقية': 75,
+    'كفر الشيخ': 75,
+    'البحيرة': 75,
+    'دمياط': 75,
+    'بورسعيد': 80,
+    'الإسماعيلية': 80,
+    'السويس': 80,
+    'الفيوم': 85,
+    'بني سويف': 85,
+    'المنيا': 90,
+    'أسيوط': 100,
+    'سوهاج': 105,
+    'قنا': 110,
+    'الأقصر': 115,
+    'أسوان': 120,
+    'البحر الأحمر': 135,
+    'جنوب سيناء': 140,
+    'شمال سيناء': 140,
+    'مطروح': 135,
+    'الوادي الجديد': 145,
+  },
+  packagingFee: 25,
+  storageAndHandlingFee: 20,
+  commissionPercent: 10,
+  advancePaymentRatio: 0.33,
+  defaultClientPrivacy: true,
+  updatedAt: new Date().toISOString(),
+};
+
+function loadPersistentPlatformSettings(): any {
   try {
-    const dir = path.dirname(MARKETPLACE_PRODUCTS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(MARKETPLACE_PRODUCTS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    if (fs.existsSync(PLATFORM_SETTINGS_FILE)) {
+      const raw = fs.readFileSync(PLATFORM_SETTINGS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          ...DEFAULT_PLATFORM_SETTINGS,
+          ...parsed,
+          governorateRates: {
+            ...DEFAULT_PLATFORM_SETTINGS.governorateRates,
+            ...(parsed.governorateRates || {}),
+          },
+        };
+      }
+    }
   } catch (err) {
-    console.warn('[Marketplace Persistent] Save error:', err);
+    console.warn('[Platform Settings] Read error:', err);
   }
+  return { ...DEFAULT_PLATFORM_SETTINGS };
+}
+
+function savePersistentPlatformSettings(cfg: any): void {
+  writeJsonData(PLATFORM_SETTINGS_FILE, cfg);
 }
 
 let viteDevServer: any = null;
@@ -169,7 +248,11 @@ export interface AuthenticatedRequest extends Request {
   scopedSupabase?: SupabaseClient;
 }
 
-// Authentication Middleware via Supabase JWT
+function getDbClient(req?: AuthenticatedRequest | Request): SupabaseClient {
+  return (req as AuthenticatedRequest)?.scopedSupabase || supabaseAdminClient;
+}
+
+// Authentication Middleware via Supabase JWT (always prefer verified JWT over dev header fallback)
 async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   const devEmail =
@@ -178,62 +261,64 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
     (req.query?.userEmail as string) ||
     '';
 
-  // Support Super Admin direct access for dev/testing/supervisory calls
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
+      if (!error && user) {
+        req.user = user;
+        const userEmail = user.email || (user.user_metadata?.email as string) || devEmail || '';
+        req.userEmail = userEmail;
+        const superAdmin = isSuperAdmin(userEmail);
+        req.isSuperAdmin = superAdmin;
+
+        const workshopId = superAdmin
+          ? (req.headers['x-workshop-id'] as string) || req.body?.workshopId || (req.query?.workshopId as string) || 'ALL_WORKSHOPS'
+          : (user.user_metadata?.workshop_id ||
+             user.user_metadata?.workshopId ||
+             user.user_metadata?.tenant_id ||
+             user.id);
+        req.workshopId = workshopId;
+
+        // Create client scoped to authenticated user's JWT for RLS
+        req.scopedSupabase = createClient(supabaseServerUrl, supabaseConfig.publishableKey, {
+          global: {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        });
+
+        next();
+        return;
+      }
+
+      // If token expired/invalid, return 401 so authedFetch triggers refreshSession()
+      res.status(401).json({ error: 'جلسة العمل منتهية أو غير صالحة. يرجى إعادة تسجيل الدخول.' });
+      return;
+    } catch (err: any) {
+      console.error('[Auth Middleware Error]:', err);
+      res.status(401).json({ error: 'تعذر التحقق من هوية المستخدم' });
+      return;
+    }
+  }
+
+  // Fallback for direct Super Admin supervisory server calls without Bearer header
   if (devEmail && isSuperAdmin(devEmail)) {
     req.user = {
       id: 'super_admin_hossam',
       email: devEmail,
-      user_metadata: { full_name: 'الباشمهندس حسام', name: 'حسام' },
+      user_metadata: { full_name: 'الباشمهندس حسام بسيوني', name: 'حسام' },
     };
     req.userEmail = devEmail;
     req.isSuperAdmin = true;
     req.workshopId = (req.headers['x-workshop-id'] as string) || req.body?.workshopId || (req.query?.workshopId as string) || 'ALL_WORKSHOPS';
-    req.scopedSupabase = supabaseAuthClient;
+    req.scopedSupabase = supabaseAdminClient;
     next();
     return;
   }
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول للوصول إلى هذه الخدمة' });
-    return;
-  }
-
-  const token = authHeader.split(' ')[1];
-  try {
-    const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
-    if (error || !user) {
-      res.status(401).json({ error: 'جلسة العمل منتهية أو غير صالحة. يرجى إعادة تسجيل الدخول.' });
-      return;
-    }
-
-    req.user = user;
-    const userEmail = user.email || (user.user_metadata?.email as string) || (req.headers['x-user-email'] as string) || '';
-    req.userEmail = userEmail;
-    const superAdmin = isSuperAdmin(userEmail);
-    req.isSuperAdmin = superAdmin;
-
-    const workshopId = superAdmin
-      ? (req.headers['x-workshop-id'] as string) || req.body?.workshopId || 'ALL_WORKSHOPS'
-      : (user.user_metadata?.workshop_id ||
-         user.user_metadata?.workshopId ||
-         user.user_metadata?.tenant_id ||
-         user.id);
-    req.workshopId = workshopId;
-
-    // Create client scoped to user JWT for Row-Level Security
-    req.scopedSupabase = createClient(supabaseConfig.url, supabaseConfig.publishableKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    });
-
-    next();
-  } catch (err: any) {
-    console.error('[Auth Middleware Error]:', err);
-    res.status(401).json({ error: 'تعذر التحقق من هوية المستخدم' });
-  }
+  res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول للوصول إلى هذه الخدمة' });
 }
 
 // -------------------------------------------------------------
@@ -257,15 +342,42 @@ app.get('/api/ai/usage', requireAuth, (req: AuthenticatedRequest, res: Response)
 });
 
 // -------------------------------------------------------------
-// Active Global Memory Listing (Super Admin & Audit)
+// Active Global Memory Listing & Deletion (Super Admin & Audit)
 // -------------------------------------------------------------
 app.get('/api/ai/global-memory', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const agent = (req.query.agent as 'shamousa' | 'falcon') || undefined;
     const memories = await getActiveGlobalMemories(agent);
     res.json({ memories, count: memories.length });
-  } catch (err: any) {
+  } catch {
     res.status(500).json({ error: 'تعذر قراءة الذاكرة المركزية' });
+  }
+});
+
+app.get('/api/admin/memories', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  try {
+    const agent = (req.query.agent as 'shamousa' | 'falcon') || undefined;
+    const memories = await getAllGlobalMemories(agent);
+    res.json({ success: true, memories, count: memories.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر قراءة سجل الذاكرة الدائمة' });
+  }
+});
+
+app.delete('/api/admin/memories/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  try {
+    await deleteGlobalMemoryRecord(req.params.id, getDbClient(req));
+    res.json({ success: true, message: 'تم حذف القاعدة من الذاكرة المركزية' });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر حذف القاعدة' });
   }
 });
 
@@ -279,7 +391,7 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
   }
 
   try {
-    const client = supabaseAdminClient;
+    const client = getDbClient(req);
     let dbWorkshops: any[] = [];
     let dbProfiles: any[] = [];
 
@@ -314,36 +426,69 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
       if (w.id) map.set(w.id, w);
     });
 
-    // 2. Merge database workshops with real profile data
-    dbWorkshops.forEach((row) => {
-      if (row.id) {
-        const existing = map.get(row.id) || {};
-        const prof = profilesMap.get(row.id) || profilesMap.get((row.email || '').toLowerCase()) || profilesMap.get(row.user_id) || {};
+    // 2. Merge database workshops with real profile data + auto-unfreeze expired suspensions
+    for (const row of dbWorkshops) {
+      if (!row.id) continue;
+      const existing = map.get(row.id) || {};
+      const prof =
+        profilesMap.get(row.id) ||
+        profilesMap.get((row.email || '').toLowerCase()) ||
+        profilesMap.get(row.owner_id) ||
+        {};
 
-        const artistName = prof.artist_name || prof.full_name || prof.name || row.artist_name || row.artistName || existing.artistName;
-        const phoneNumber = prof.phone_number || prof.phone || row.phone_number || row.phoneNumber || existing.phoneNumber;
-        const email = prof.email || row.email || existing.email;
-        const status = prof.status || row.status || existing.status || (row.is_frozen || row.isFrozen ? 'suspended' : 'active');
+      const artistName = prof.artist_name || prof.full_name || prof.name || row.artist_name || row.artistName || existing.artistName;
+      const phoneNumber = prof.phone_number || prof.phone || row.phone_number || row.phone || row.phoneNumber || existing.phoneNumber;
+      const wsEmail = prof.email || row.email || existing.email || '';
+      let status = row.status || prof.status || existing.status || (row.is_frozen || row.isFrozen ? 'suspended' : 'active');
+      let isFrozen = Boolean(row.is_frozen || row.isFrozen || status === 'suspended' || status === 'banned');
+      let suspendedUntil = row.suspended_until || prof.suspended_until || existing.suspended_until || null;
+      let suspensionReason = row.suspension_reason || row.suspended_reason || row.frozen_reason || existing.suspension_reason || null;
+      let suspensionDuration = row.suspension_duration || existing.suspension_duration || null;
 
-        map.set(row.id, {
-          ...existing,
-          ...row,
-          brandName: row.brand_name || row.brandName || prof.brand_name || existing.brandName,
-          artistName: artistName || 'فنان',
-          phoneNumber: phoneNumber || '',
-          email: email || '',
-          status,
-          isFrozen: Boolean(row.is_frozen || row.isFrozen || status === 'suspended' || status === 'banned'),
-          suspension_reason: row.suspension_reason || row.frozen_reason || existing.suspension_reason,
-          suspension_duration: row.suspension_duration || existing.suspension_duration,
-          suspended_until: row.suspended_until || existing.suspended_until,
-          appeal_status: row.appeal_status || existing.appeal_status || 'none',
-          appeal_message: row.appeal_message || existing.appeal_message,
-        });
+      if (status === 'suspended' && suspendedUntil) {
+        const untilTs = new Date(suspendedUntil).getTime();
+        if (!isNaN(untilTs) && Date.now() > untilTs) {
+          status = 'active';
+          isFrozen = false;
+          suspendedUntil = null;
+          suspensionReason = null;
+          suspensionDuration = null;
+          client.from('workshops').update({
+            status: 'active',
+            is_frozen: false,
+            suspended_reason: null,
+            suspension_reason: null,
+            suspension_duration: null,
+            suspended_until: null,
+          }).eq('id', row.id).then(() => {}, () => {});
+        }
       }
-    });
 
-    // 3. Add profiles that don't have a separate workshop row yet
+      map.set(row.id, {
+        ...existing,
+        ...row,
+        brandName: row.brand_name || row.brandName || prof.brand_name || existing.brandName,
+        artistName: artistName || 'فنان',
+        phoneNumber: phoneNumber || '',
+        email: wsEmail,
+        status,
+        isFrozen,
+        suspension_reason: suspensionReason,
+        suspension_duration: suspensionDuration,
+        suspended_until: suspendedUntil,
+        appeal_status: row.appeal_status || prof.appeal_status || existing.appeal_status || 'none',
+        appeal_message: row.appeal_message || existing.appeal_message || null,
+        rejection_reason: row.rejection_reason || prof.rejection_reason || existing.rejection_reason || null,
+        appeal_submitted_at: row.appeal_submitted_at || existing.appeal_submitted_at || null,
+        rating_stars: row.rating_stars ?? existing.rating_stars ?? 5,
+        ratingStars: row.rating_stars ?? existing.ratingStars ?? 5,
+        medal: row.medal ?? existing.medal ?? null,
+        medal_note: row.medal_note ?? existing.medal_note ?? null,
+        medal_awarded_at: row.medal_awarded_at ?? existing.medal_awarded_at ?? null,
+      });
+    }
+
+    // 3. Add profiles that don't have a separate workshop row yet (skip super admin personal account if separate)
     dbProfiles.forEach((p) => {
       const pid = p.workshop_id || p.id;
       if (pid && !map.has(pid)) {
@@ -383,7 +528,7 @@ app.get('/api/admin/system-report', requireAuth, async (req: AuthenticatedReques
   }
 
   try {
-    const client = supabaseAdminClient;
+    const client = getDbClient(req);
     let dbWorkshops: any[] = [];
     try {
       const { data, error } = await client
@@ -462,30 +607,35 @@ app.get('/api/admin/system-report', requireAuth, async (req: AuthenticatedReques
   }
 });
 
-// Create new workshop (Super Admin)
+// Create new workshop (Super Admin) - Uses valid UUID for Supabase workshops.id
 app.post('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const email = req.userEmail || req.user?.email || '';
   if (!isSuperAdmin(email)) {
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
-  const { brandName, artistName, email: wsEmail, phoneNumber, country, role } = req.body || {};
+  const { id: requestedId, brandName, artistName, email: wsEmail, phoneNumber, country, role, selectedCrafts, storeSlug } = req.body || {};
   if (!brandName) {
     return res.status(400).json({ error: 'اسم الورشة أو البراند مطلوب' });
   }
 
+  const newUuid = isValidUuid(requestedId) ? requestedId : crypto.randomUUID();
+  const resolvedCurrency = country === 'المملكة العربية السعودية' ? 'SAR' : country === 'الإمارات العربية المتحدة' ? 'AED' : 'EGP';
+  const resolvedSymbol = country === 'المملكة العربية السعودية' ? 'ر.س' : country === 'الإمارات العربية المتحدة' ? 'د.إ' : 'ج.م';
+
   const newWs: any = {
-    id: 'ws_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-    workshopId: 'ws_' + Date.now(),
-    ownerUid: 'usr_' + Date.now(),
-    brandName: brandName.trim(),
-    artistName: (artistName || 'فنان').trim(),
-    email: (wsEmail || '').trim().toLowerCase(),
-    phoneNumber: (phoneNumber || '').trim(),
+    id: newUuid,
+    workshopId: newUuid,
+    ownerUid: newUuid,
+    brandName: String(brandName).trim(),
+    artistName: String(artistName || 'فنان').trim(),
+    email: String(wsEmail || '').trim().toLowerCase(),
+    phoneNumber: String(phoneNumber || '').trim(),
     country: country || 'مصر',
-    currency: country === 'المملكة العربية السعودية' ? 'SAR' : country === 'الإمارات العربية المتحدة' ? 'AED' : 'EGP',
-    currencySymbol: country === 'المملكة العربية السعودية' ? 'ر.س' : country === 'الإمارات العربية المتحدة' ? 'د.إ' : 'ج.م',
-    selectedCrafts: ['macrame'],
+    currency: resolvedCurrency,
+    currencySymbol: resolvedSymbol,
+    storeSlug: storeSlug ? String(storeSlug).trim() : undefined,
+    selectedCrafts: Array.isArray(selectedCrafts) && selectedCrafts.length > 0 ? selectedCrafts : ['macrame'],
     defaultVatPercent: 14,
     role: role || 'artisan',
     status: 'active',
@@ -495,28 +645,46 @@ app.post('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, 
     createdBy: 'superadmin',
   };
 
+  let cloudSynced = false;
+  let cloudError: string | undefined;
+
+  try {
+    const client = getDbClient(req);
+    const nowIso = new Date().toISOString();
+    const { error: wsInsErr } = await client.from('workshops').insert({
+      id: newWs.id,
+      workshop_id: newWs.id,
+      brand_name: newWs.brandName,
+      artist_name: newWs.artistName,
+      email: newWs.email || null,
+      phone: newWs.phoneNumber || null,
+      phone_number: newWs.phoneNumber || null,
+      country: newWs.country,
+      currency: newWs.currency,
+      currency_symbol: newWs.currencySymbol,
+      store_slug: newWs.storeSlug || null,
+      selected_crafts: newWs.selectedCrafts,
+      role: newWs.role,
+      status: 'active',
+      is_frozen: false,
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+    if (wsInsErr) {
+      cloudError = wsInsErr.message;
+      console.warn('[Admin Create Workshop] Supabase notice:', wsInsErr.message);
+    } else {
+      cloudSynced = true;
+    }
+  } catch (e: any) {
+    cloudError = e?.message;
+  }
+
   const localList = loadPersistentWorkshops();
   localList.unshift(newWs);
   savePersistentWorkshops(localList);
 
-  try {
-    const client = supabaseAdminClient;
-    const { error: wsInsErr } = await client.from('workshops').insert({
-      id: newWs.id,
-      brand_name: newWs.brandName,
-      artist_name: newWs.artistName,
-      email: newWs.email,
-      phone: newWs.phoneNumber,
-      country: newWs.country,
-      currency: newWs.currency,
-      status: 'active',
-    });
-    if (wsInsErr) {
-      console.warn('[Admin Create Workshop] Supabase notice:', wsInsErr.message);
-    }
-  } catch {}
-
-  res.json({ success: true, workshop: newWs });
+  res.json({ success: true, workshop: newWs, cloudSynced, cloudError });
 });
 
 // Update workshop basic info
@@ -536,28 +704,56 @@ app.put('/api/admin/workshops/:id', requireAuth, async (req: AuthenticatedReques
     savePersistentWorkshops(localList);
   }
 
+  let cloudSynced = false;
+  let cloudError: string | undefined;
   try {
-    const client = supabaseAdminClient;
+    const client = getDbClient(req);
     const nowIso = new Date().toISOString();
-    await Promise.allSettled([
-      client.from('workshops').update({
-        brand_name: updates.brandName,
-        artist_name: updates.artistName,
-        email: updates.email,
-        phone: updates.phoneNumber,
-        country: updates.country,
-        currency: updates.currency,
-        updated_at: nowIso,
-      }).eq('id', targetWid),
-      client.from('profiles').update({
-        name: updates.artistName || updates.brandName,
-        email: updates.email,
-        phone: updates.phoneNumber,
-      }).eq('id', targetWid),
-    ]);
-  } catch {}
+    const wsPatch: Record<string, any> = { updated_at: nowIso };
+    if (updates.brandName !== undefined) wsPatch.brand_name = updates.brandName;
+    if (updates.artistName !== undefined) wsPatch.artist_name = updates.artistName;
+    if (updates.email !== undefined) wsPatch.email = updates.email;
+    if (updates.phoneNumber !== undefined) {
+      wsPatch.phone = updates.phoneNumber;
+      wsPatch.phone_number = updates.phoneNumber;
+    }
+    if (updates.country !== undefined) wsPatch.country = updates.country;
+    if (updates.currency !== undefined) wsPatch.currency = updates.currency;
+    if (updates.currencySymbol !== undefined) wsPatch.currency_symbol = updates.currencySymbol;
+    if (updates.storeSlug !== undefined) wsPatch.store_slug = updates.storeSlug;
+    if (updates.status !== undefined) {
+      wsPatch.status = updates.status;
+      wsPatch.is_frozen = updates.status !== 'active';
+    }
+    if (updates.role !== undefined) wsPatch.role = updates.role;
 
-  res.json({ success: true, workshop: idx >= 0 ? localList[idx] : updates });
+    const { error: wsErr } = await client.from('workshops').update(wsPatch).eq('id', targetWid);
+    if (!wsErr) {
+      cloudSynced = true;
+    } else {
+      cloudError = wsErr.message;
+    }
+
+    const profPatch: Record<string, any> = { updated_at: nowIso };
+    if (updates.artistName || updates.brandName) {
+      profPatch.name = updates.artistName || updates.brandName;
+      if (updates.artistName) profPatch.artist_name = updates.artistName;
+      if (updates.brandName) profPatch.brand_name = updates.brandName;
+    }
+    if (updates.email !== undefined) profPatch.email = updates.email;
+    if (updates.phoneNumber !== undefined) {
+      profPatch.phone = updates.phoneNumber;
+      profPatch.phone_number = updates.phoneNumber;
+    }
+    if (updates.status !== undefined) profPatch.status = updates.status;
+    if (updates.role !== undefined) profPatch.role = updates.role;
+
+    await client.from('profiles').update(profPatch).or(`id.eq.${targetWid},workshop_id.eq.${targetWid}`);
+  } catch (e: any) {
+    cloudError = e?.message;
+  }
+
+  res.json({ success: true, cloudSynced, cloudError, workshop: idx >= 0 ? localList[idx] : updates });
 });
 
 // Admin Credential Override (Password reset, email & phone update for struggling artisans)
@@ -568,52 +764,76 @@ app.post('/api/admin/workshops/:id/credentials', requireAuth, async (req: Authen
   }
 
   const targetWid = req.params.id;
-  const { newPassword, newEmail, newPhone, newBrandName, newArtistName } = req.body || {};
+  const body = req.body || {};
+  const newPassword = body.newPassword ?? body.password;
+  const newEmail = body.newEmail ?? body.email;
+  const newPhone = body.newPhone ?? body.phoneNumber ?? body.phone;
+  const newBrandName = body.newBrandName ?? body.brandName;
+  const newArtistName = body.newArtistName ?? body.artistName;
 
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
   const localList = loadPersistentWorkshops();
   const targetIndex = localList.findIndex((w) => w.id === targetWid || w.workshopId === targetWid);
 
   const updatedRow: any = targetIndex >= 0 ? { ...localList[targetIndex] } : { id: targetWid, workshopId: targetWid };
 
-  if (newBrandName) updatedRow.brandName = newBrandName.trim();
-  if (newArtistName) updatedRow.artistName = newArtistName.trim();
-  if (newEmail) updatedRow.email = newEmail.trim().toLowerCase();
-  if (newPhone) updatedRow.phoneNumber = newPhone.trim();
+  if (newBrandName) updatedRow.brandName = String(newBrandName).trim();
+  if (newArtistName) updatedRow.artistName = String(newArtistName).trim();
+  if (newEmail) updatedRow.email = String(newEmail).trim().toLowerCase();
+  if (newPhone) updatedRow.phoneNumber = String(newPhone).trim();
   if (newPassword) {
-    updatedRow.rawPassword = newPassword;
     updatedRow.updatedPasswordAt = new Date().toISOString();
   }
   updatedRow.updatedAt = Date.now();
 
-  // Try updating Supabase auth user if service role key is available
+  let authPasswordSynced = false;
+  const hasServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY);
   try {
-    if (client.auth?.admin && (newPassword || newEmail)) {
+    if (hasServiceRole && supabaseAdminClient.auth?.admin && (newPassword || newEmail)) {
       const userUpdate: any = {};
       if (newPassword) userUpdate.password = newPassword;
       if (newEmail) {
-        userUpdate.email = newEmail.trim().toLowerCase();
+        userUpdate.email = String(newEmail).trim().toLowerCase();
         userUpdate.email_confirm = true;
       }
       if (newPhone) userUpdate.phone = newPhone;
-      await client.auth.admin.updateUserById(targetWid, userUpdate).catch(() => {});
+      const { error: authErr } = await supabaseAdminClient.auth.admin.updateUserById(targetWid, userUpdate);
+      if (!authErr) authPasswordSynced = true;
     }
   } catch (authErr) {
     console.warn('[Admin Override] Supabase admin auth notice:', authErr);
   }
 
-  // Try updating Supabase workshops table
+  let cloudSynced = false;
+  let cloudError: string | undefined;
   try {
-    await client.from('workshops').update({
-      brand_name: updatedRow.brandName,
-      artist_name: updatedRow.artistName,
-      email: updatedRow.email,
-      phone: updatedRow.phoneNumber,
-      updated_at: new Date().toISOString(),
-    }).eq('id', targetWid);
-  } catch {}
+    const nowIso = new Date().toISOString();
+    const wsUpdate: Record<string, any> = { updated_at: nowIso };
+    if (updatedRow.brandName) wsUpdate.brand_name = updatedRow.brandName;
+    if (updatedRow.artistName) wsUpdate.artist_name = updatedRow.artistName;
+    if (updatedRow.email) wsUpdate.email = updatedRow.email;
+    if (updatedRow.phoneNumber) {
+      wsUpdate.phone = updatedRow.phoneNumber;
+      wsUpdate.phone_number = updatedRow.phoneNumber;
+    }
 
-  // Update in persistent list
+    const { error: wsErr } = await client.from('workshops').update(wsUpdate).eq('id', targetWid);
+    if (!wsErr) cloudSynced = true;
+    else cloudError = wsErr.message;
+
+    const profUpdate: Record<string, any> = { updated_at: nowIso };
+    if (updatedRow.email) profUpdate.email = updatedRow.email;
+    if (updatedRow.phoneNumber) {
+      profUpdate.phone = updatedRow.phoneNumber;
+      profUpdate.phone_number = updatedRow.phoneNumber;
+    }
+    if (updatedRow.artistName) profUpdate.artist_name = updatedRow.artistName;
+    if (updatedRow.brandName) profUpdate.brand_name = updatedRow.brandName;
+    await client.from('profiles').update(profUpdate).or(`id.eq.${targetWid},workshop_id.eq.${targetWid}`);
+  } catch (e: any) {
+    cloudError = e?.message;
+  }
+
   if (targetIndex >= 0) {
     localList[targetIndex] = updatedRow;
   } else {
@@ -623,7 +843,12 @@ app.post('/api/admin/workshops/:id/credentials', requireAuth, async (req: Authen
 
   res.json({
     success: true,
-    message: 'تم تحديث بيانات الدخول وحساب الورشة بنجاح.',
+    cloudSynced,
+    cloudError,
+    authPasswordSynced,
+    message: newPassword && !authPasswordSynced
+      ? 'تم تحديث البريد والهاتف في ملف الورشة والملف الشخصي. (تغيير كلمة مرور Supabase Auth مباشرة يتطلب مفتاح Service Role بالخادم).'
+      : 'تم تحديث بيانات الدخول وحساب الورشة بنجاح.',
     workshop: updatedRow,
   });
 });
@@ -637,14 +862,32 @@ app.post('/api/admin/workshops/:id/award', requireAuth, async (req: Authenticate
 
   const targetWid = req.params.id;
   const { rating_stars, medal, custom_note } = req.body || {};
+  const client = getDbClient(req);
 
   const localList = loadPersistentWorkshops();
-  const targetIndex = localList.findIndex((w) => w.id === targetWid || w.workshopId === targetWid);
-  if (targetIndex < 0) {
+  let targetIndex = localList.findIndex((w) => w.id === targetWid || w.workshopId === targetWid);
+  let ws: any = targetIndex >= 0 ? localList[targetIndex] : null;
+
+  if (!ws) {
+    try {
+      const { data: supaWs } = await client.from('workshops').select('*').eq('id', targetWid).maybeSingle();
+      if (supaWs) {
+        ws = {
+          id: supaWs.id,
+          workshopId: supaWs.id,
+          brandName: supaWs.brand_name || 'ورشة الشمساوية',
+          artistName: supaWs.artist_name || 'فنان',
+          email: supaWs.email || '',
+          phoneNumber: supaWs.phone || supaWs.phone_number || '',
+        };
+      }
+    } catch {}
+  }
+
+  if (!ws) {
     return res.status(404).json({ error: 'الورشة غير موجودة' });
   }
 
-  const ws = localList[targetIndex];
   const medalNames: Record<string, string> = {
     diamond: 'الماسية 💎',
     gold: 'الذهبية 🥇',
@@ -653,54 +896,64 @@ app.post('/api/admin/workshops/:id/award', requireAuth, async (req: Authenticate
   };
   const medalLabel = medalNames[medal] || 'التكريمية 🎖️';
   const starsCount = Math.max(1, Math.min(5, Number(rating_stars) || 5));
+  const nowIso = new Date().toISOString();
 
   ws.rating_stars = starsCount;
   ws.ratingStars = starsCount;
   ws.medal = medal;
-  ws.medal_awarded_at = new Date().toISOString();
-  ws.medalAwardedAt = ws.medal_awarded_at;
+  ws.medal_awarded_at = nowIso;
+  ws.medalAwardedAt = nowIso;
   ws.medal_note = custom_note ? String(custom_note).trim() : undefined;
   ws.medalNote = ws.medal_note;
   ws.updatedAt = Date.now();
 
-  localList[targetIndex] = ws;
+  if (targetIndex >= 0) {
+    localList[targetIndex] = ws;
+  } else {
+    localList.unshift(ws);
+  }
   savePersistentWorkshops(localList);
 
-  // Update Supabase if available
+  let cloudSynced = false;
+  let cloudError: string | undefined;
   try {
-    const client = supabaseAdminClient;
-    await client.from('workshops').update({
+    const { error: updErr } = await client.from('workshops').update({
       rating_stars: starsCount,
       medal: medal,
-      medal_awarded_at: ws.medal_awarded_at,
-      medal_note: ws.medal_note,
-      updated_at: new Date().toISOString(),
+      medal_awarded_at: nowIso,
+      medal_note: ws.medal_note || null,
+      updated_at: nowIso,
     }).eq('id', targetWid);
-  } catch {}
+    if (!updErr) cloudSynced = true;
+    else cloudError = updErr.message;
+  } catch (e: any) {
+    cloudError = e?.message;
+  }
 
-  // Automatically dispatch official tribute announcement to workshop's messaging box
+  // Dispatch official tribute announcement with valid UUID columns
   const tributeText = `تهنئة خاصة من كبير عيلة الشمساوية م. حسام بسيوني وإدارة المنظومة: تقديراً لتميزكم وتفاعلكم، تم منح ورشتكم [${ws.brandName}] تقييم [${starsCount}] نجوم وقلادة [${medalLabel}] 🎖️${custom_note ? `\n\nكلمة التكريم: "${custom_note}"` : ''}`;
 
   const tributeAnn: any = {
-    id: 'ann_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-    sender_id: 'super_admin_hossam',
+    id: crypto.randomUUID(),
+    sender_id: isValidUuid(req.user?.id) ? req.user.id : null,
     sender_name: 'م. حسام بسيوني (كبير عيلة الشمساوية)',
     recipient_type: 'specific',
-    recipient_workshop_id: targetWid,
+    recipient_workshop_id: isValidUuid(targetWid) ? targetWid : null,
     recipient_workshop_name: ws.brandName,
-    title: '🎖️ تهنئة وتكريم رسمي من كبير عيلة الشمساوية',
+    title: `🎖️ تهنئة رسمية: قلادة الشمساوية ${medalLabel}`,
     content: tributeText,
-    created_at: new Date().toISOString(),
+    created_at: nowIso,
   };
 
   try {
-    const client = supabaseAdminClient;
     await client.from('admin_announcements').insert(tributeAnn);
   } catch {}
   localAnnouncements.unshift(tributeAnn);
 
   res.json({
     success: true,
+    cloudSynced,
+    cloudError,
     message: `تم منح الورشة قلادة ${medalLabel} وتقييم ${starsCount} نجوم وإرسال التهنئة بنجاح!`,
     workshop: ws,
     announcement: tributeAnn,
@@ -714,23 +967,22 @@ app.get('/api/admin/workshops/:id/audit', requireAuth, async (req: Authenticated
   }
 
   const targetWid = req.params.id;
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
   let ws: any = null;
 
   try {
-    const { data: supaWs } = await client
-      .from('workshops')
-      .select('*')
-      .eq('id', targetWid)
-      .maybeSingle();
+    const [{ data: supaWs }, { data: supaProf }] = await Promise.all([
+      client.from('workshops').select('*').eq('id', targetWid).maybeSingle(),
+      client.from('profiles').select('*').or(`id.eq.${targetWid},workshop_id.eq.${targetWid}`).maybeSingle(),
+    ]);
     if (supaWs) {
       ws = {
         id: supaWs.id,
-        brandName: supaWs.brand_name,
-        artistName: supaWs.artist_name,
-        email: supaWs.email || '',
-        phoneNumber: supaWs.phone || supaWs.phone_number || '',
-        country: supaWs.country || 'مصر',
+        brandName: supaWs.brand_name || supaProf?.brand_name || 'ورشة الشمساوية',
+        artistName: supaProf?.artist_name || supaProf?.full_name || supaWs.artist_name || 'فنان',
+        email: supaProf?.email || supaWs.email || '',
+        phoneNumber: supaProf?.phone_number || supaProf?.phone || supaWs.phone || supaWs.phone_number || '',
+        country: supaWs.country || supaProf?.country || 'مصر',
         currencySymbol: supaWs.currency_symbol || 'ج.م',
         status: supaWs.status || 'active',
         rating_stars: supaWs.rating_stars || 5,
@@ -796,7 +1048,7 @@ app.get('/api/admin/workshops/:id/deep-data', requireAuth, async (req: Authentic
   }
 
   const targetWid = req.params.id;
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
 
   try {
     const [matsRes, prodsRes, treasRes, ordersRes, mktOrdersRes, custsRes, supsRes, empsRes] = await Promise.all([
@@ -837,23 +1089,29 @@ app.post('/api/admin/workshops/:id/selective-delete', requireAuth, async (req: A
 
   const targetWid = req.params.id;
   const { mode } = req.body || {};
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
 
   try {
     if (mode === 'catalog_inventory') {
-      await Promise.all([
+      await Promise.allSettled([
         client.from('materials').delete().eq('workshop_id', targetWid),
         client.from('products').delete().eq('workshop_id', targetWid),
+        client.from('marketplace_products').delete().eq('workshop_id', targetWid),
       ]);
+      const mp = loadPersistentMarketplaceProducts().filter((p) => p.workshop_id !== targetWid && p.workshopId !== targetWid);
+      savePersistentMarketplaceProducts(mp);
       return res.json({ success: true, message: 'تم تفريغ الخامات والمنتجات مع الإبقاء على ملف الورشة' });
     }
 
     if (mode === 'finance_orders') {
-      await Promise.all([
+      await Promise.allSettled([
         client.from('orders').delete().eq('workshop_id', targetWid),
+        client.from('marketplace_orders').delete().eq('workshop_id', targetWid),
         client.from('treasuries').delete().eq('workshop_id', targetWid),
         client.from('safe_transactions').delete().eq('workshop_id', targetWid),
       ]);
+      const mo = loadPersistentMarketplaceOrders().filter((o) => o.workshop_id !== targetWid && o.workshopId !== targetWid);
+      savePersistentMarketplaceOrders(mo);
       return res.json({ success: true, message: 'تم تصفير المعاملات المالية والفواتير والأوردرات' });
     }
 
@@ -861,6 +1119,8 @@ app.post('/api/admin/workshops/:id/selective-delete', requireAuth, async (req: A
       await Promise.allSettled([
         client.from('materials').delete().eq('workshop_id', targetWid),
         client.from('products').delete().eq('workshop_id', targetWid),
+        client.from('marketplace_products').delete().eq('workshop_id', targetWid),
+        client.from('marketplace_orders').delete().eq('workshop_id', targetWid),
         client.from('treasuries').delete().eq('workshop_id', targetWid),
         client.from('safe_transactions').delete().eq('workshop_id', targetWid),
         client.from('orders').delete().eq('workshop_id', targetWid),
@@ -875,9 +1135,9 @@ app.post('/api/admin/workshops/:id/selective-delete', requireAuth, async (req: A
         client.from('profiles').delete().or(`id.eq.${targetWid},workshop_id.eq.${targetWid}`),
       ]);
 
-      const localList = loadPersistentWorkshops();
-      const filtered = localList.filter((w) => w.id !== targetWid && w.workshopId !== targetWid);
-      savePersistentWorkshops(filtered);
+      savePersistentWorkshops(loadPersistentWorkshops().filter((w) => w.id !== targetWid && w.workshopId !== targetWid));
+      savePersistentMarketplaceProducts(loadPersistentMarketplaceProducts().filter((p) => p.workshop_id !== targetWid && p.workshopId !== targetWid));
+      savePersistentMarketplaceOrders(loadPersistentMarketplaceOrders().filter((o) => o.workshop_id !== targetWid && o.workshopId !== targetWid));
 
       return res.json({ success: true, message: 'تم حذف الورشة بالكامل وكافة بياناتها' });
     }
@@ -1072,23 +1332,34 @@ app.post('/api/admin/workshops/:id/status', requireAuth, async (req: Authenticat
   }
 
   const isFrozen = status !== 'active';
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
 
-  const reasonText = isFrozen ? suspension_reason || 'إجراء إداري' : null;
+  const reasonText = isFrozen ? (suspension_reason || 'إجراء إداري') : null;
   const nowIso = new Date().toISOString();
   const updateData: any = {
     status,
     is_frozen: isFrozen,
     suspended_reason: reasonText,
     suspension_reason: reasonText,
-    suspension_duration: isFrozen ? suspension_duration || null : null,
-    suspended_until: status === 'suspended' ? suspended_until || null : null,
+    frozen_reason: reasonText,
+    suspension_duration: isFrozen ? (suspension_duration || null) : null,
+    suspended_until: status === 'suspended' ? (suspended_until || null) : null,
     updated_at: nowIso,
   };
 
+  let cloudSynced = false;
+  let cloudError: string | undefined;
+  let workshopName = 'ورشة الشمساوية';
+
   try {
+    const { data: wsRow } = await client.from('workshops').select('brand_name').eq('id', targetWid).maybeSingle();
+    if (wsRow?.brand_name) workshopName = wsRow.brand_name;
+
     const { error: stErr } = await client.from('workshops').update(updateData).eq('id', targetWid);
-    if (stErr) {
+    if (!stErr) {
+      cloudSynced = true;
+    } else {
+      cloudError = stErr.message;
       await client.from('workshops').update({
         status,
         is_frozen: isFrozen,
@@ -1096,8 +1367,18 @@ app.post('/api/admin/workshops/:id/status', requireAuth, async (req: Authenticat
         updated_at: nowIso,
       }).eq('id', targetWid);
     }
-    await client.from('profiles').update({ status }).eq('id', targetWid);
-  } catch (dbErr) {
+
+    await client.from('profiles').update({
+      status,
+      is_frozen: isFrozen,
+      suspension_reason: reasonText,
+      frozen_reason: reasonText,
+      suspension_duration: isFrozen ? (suspension_duration || null) : null,
+      suspended_until: status === 'suspended' ? (suspended_until || null) : null,
+      updated_at: nowIso,
+    }).or(`id.eq.${targetWid},workshop_id.eq.${targetWid}`);
+  } catch (dbErr: any) {
+    cloudError = dbErr?.message;
     console.warn('[Admin Status] Supabase update warning:', dbErr);
   }
 
@@ -1113,6 +1394,7 @@ app.post('/api/admin/workshops/:id/status', requireAuth, async (req: Authenticat
   const pList = loadPersistentWorkshops();
   const pIdx = pList.findIndex((w) => w.id === targetWid || w.workshopId === targetWid);
   if (pIdx >= 0) {
+    if (pList[pIdx].brandName) workshopName = pList[pIdx].brandName;
     pList[pIdx] = {
       ...pList[pIdx],
       status,
@@ -1125,7 +1407,37 @@ app.post('/api/admin/workshops/:id/status', requireAuth, async (req: Authenticat
     savePersistentWorkshops(pList);
   }
 
-  res.json({ success: true, workshopId: targetWid, status, updateData });
+  // Send formal status notice to workshop's messaging hub
+  const statusTitle =
+    status === 'banned'
+      ? `🚫 قرار إداري: حظر حساب الورشة`
+      : status === 'suspended'
+      ? `⏸️ إشعار إداري: إيقاف مؤقت لحساب الورشة`
+      : `✅ مبروك! تم إعادة تفعيل حساب الورشة`;
+  const statusContent =
+    status === 'banned'
+      ? `تم اتخاذ قرار بحظر ورشتكم [${workshopName}] من المنظومة وسوق الشمساوية.\nالسبب المسجل: ${reasonText}\nيمكنكم تقديم طعن رسمي من شاشة الوصول ليتم مراجعته من إدارة المنظومة.`
+      : status === 'suspended'
+      ? `تم إيقاف ورشتكم [${workshopName}] مؤقتاً (${suspension_duration || 'لحين المراجعة'}).\nالسبب: ${reasonText}\nتختفي معروضات الورشة مؤقتاً من السوق المركزي حتى انتهاء المدة أو قبول الطعن.`
+      : `تمت مراجعة حالة ورشتكم [${workshopName}] وإعادة تفعيلها بالكامل في المنظومة وسوق الشمساوية المركزي!`;
+
+  const statusAnn = {
+    id: crypto.randomUUID(),
+    sender_id: isValidUuid(req.user?.id) ? req.user.id : null,
+    sender_name: 'م. حسام بسيوني (كبير عيلة الشمساوية)',
+    recipient_type: 'specific',
+    recipient_workshop_id: isValidUuid(targetWid) ? targetWid : null,
+    recipient_workshop_name: workshopName,
+    title: statusTitle,
+    content: statusContent,
+    created_at: nowIso,
+  };
+  try {
+    await client.from('admin_announcements').insert(statusAnn);
+  } catch {}
+  localAnnouncements.unshift(statusAnn);
+
+  res.json({ success: true, cloudSynced, cloudError, workshopId: targetWid, status, updateData });
 });
 
 // 4. Super Admin Review Appeal (Accept / Reject)
@@ -1142,8 +1454,9 @@ app.post('/api/admin/workshops/:id/appeal', requireAuth, async (req: Authenticat
     return res.status(400).json({ error: 'حالة الطعن غير صالحة' });
   }
 
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
   const isAccepted = appeal_status === 'accepted';
+  const nowIso = new Date().toISOString();
 
   const updateData: any = isAccepted
     ? {
@@ -1152,22 +1465,34 @@ app.post('/api/admin/workshops/:id/appeal', requireAuth, async (req: Authenticat
         appeal_status: 'accepted',
         suspended_reason: null,
         suspension_reason: null,
+        frozen_reason: null,
         suspension_duration: null,
         suspended_until: null,
+        updated_at: nowIso,
       }
     : {
         appeal_status: 'rejected',
         rejection_reason: rejection_reason || 'تم رفض الطعن بعد دراسة سجلات الورشة.',
+        updated_at: nowIso,
       };
 
+  let cloudSynced = false;
+  let workshopName = 'ورشة الشمساوية';
   try {
+    const { data: wsRow } = await client.from('workshops').select('brand_name').eq('id', targetWid).maybeSingle();
+    if (wsRow?.brand_name) workshopName = wsRow.brand_name;
+
     const { error: wsAppErr } = await client.from('workshops').update(updateData).eq('id', targetWid);
-    if (wsAppErr && isAccepted) {
+    if (!wsAppErr) cloudSynced = true;
+    else if (isAccepted) {
       await client.from('workshops').update({ status: 'active', is_frozen: false, suspended_reason: null }).eq('id', targetWid);
     }
-    if (isAccepted) {
-      await client.from('profiles').update({ status: 'active' }).eq('id', targetWid);
-    }
+
+    await client.from('profiles').update(
+      isAccepted
+        ? { status: 'active', is_frozen: false, appeal_status: 'accepted', updated_at: nowIso }
+        : { appeal_status: 'rejected', rejection_reason: updateData.rejection_reason, updated_at: nowIso }
+    ).or(`id.eq.${targetWid},workshop_id.eq.${targetWid}`);
   } catch {}
 
   const existing = localWorkshopStatusMap.get(targetWid) || { status: 'suspended' };
@@ -1179,6 +1504,7 @@ app.post('/api/admin/workshops/:id/appeal', requireAuth, async (req: Authenticat
   const pList2 = loadPersistentWorkshops();
   const pIdx2 = pList2.findIndex((w) => w.id === targetWid || w.workshopId === targetWid);
   if (pIdx2 >= 0) {
+    if (pList2[pIdx2].brandName) workshopName = pList2[pIdx2].brandName;
     pList2[pIdx2] = {
       ...pList2[pIdx2],
       ...updateData,
@@ -1188,33 +1514,68 @@ app.post('/api/admin/workshops/:id/appeal', requireAuth, async (req: Authenticat
     savePersistentWorkshops(pList2);
   }
 
-  res.json({ success: true, appeal_status, updateData });
+  // Dispatch appeal outcome announcement
+  const appealAnn = {
+    id: crypto.randomUUID(),
+    sender_id: isValidUuid(req.user?.id) ? req.user.id : null,
+    sender_name: 'م. حسام بسيوني (كبير عيلة الشمساوية)',
+    recipient_type: 'specific',
+    recipient_workshop_id: isValidUuid(targetWid) ? targetWid : null,
+    recipient_workshop_name: workshopName,
+    title: isAccepted ? '⚖️ قبول الطعن وإعادة تفعيل الورشة' : '⚖️ قرار الإدارة بخصوص الطعن المقدم',
+    content: isAccepted
+      ? `تم قبول الطعن المقدم من ورشتكم [${workshopName}] وإعادة تفعيل الحساب والمتجر بالكامل.`
+      : `تم دراسة طعن ورشتكم [${workshopName}] وتقرر رفضه للسبب التالي:\n${updateData.rejection_reason}`,
+    created_at: nowIso,
+  };
+  try {
+    await client.from('admin_announcements').insert(appealAnn);
+  } catch {}
+  localAnnouncements.unshift(appealAnn);
+
+  res.json({ success: true, cloudSynced, appeal_status, updateData });
 });
 
-// 5. Super Admin Get All Appeals
+// 5. Super Admin Get All Appeals (Enriched with profiles phone/email)
 app.get('/api/admin/appeals', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const email = req.userEmail || req.user?.email || '';
   if (!isSuperAdmin(email)) {
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
   try {
-    const { data, error } = await client
-      .from('workshops')
-      .select('id, brand_name, artist_name, phone, email, status, suspended_reason, appeal_status, appeal_message, rejection_reason, appeal_submitted_at')
-      .not('appeal_status', 'is', null)
-      .neq('appeal_status', 'none')
-      .order('appeal_submitted_at', { ascending: false });
+    const [{ data, error }, { data: profiles }] = await Promise.all([
+      client
+        .from('workshops')
+        .select('id, brand_name, artist_name, phone, phone_number, email, status, suspended_reason, suspension_reason, appeal_status, appeal_message, rejection_reason, appeal_submitted_at')
+        .not('appeal_status', 'is', null)
+        .neq('appeal_status', 'none')
+        .order('appeal_submitted_at', { ascending: false }),
+      client.from('profiles').select('id, workshop_id, email, phone, phone_number, artist_name'),
+    ]);
 
     if (!error && Array.isArray(data)) {
-      return res.json({ appeals: data });
+      const profMap = new Map<string, any>();
+      (profiles || []).forEach((p: any) => {
+        if (p.id) profMap.set(p.id, p);
+        if (p.workshop_id) profMap.set(p.workshop_id, p);
+      });
+      const enriched = data.map((row: any) => {
+        const p = profMap.get(row.id);
+        return {
+          ...row,
+          email: row.email || p?.email || '',
+          phone_number: row.phone_number || row.phone || p?.phone_number || p?.phone || '',
+          artist_name: p?.artist_name || row.artist_name || 'فنان',
+        };
+      });
+      return res.json({ appeals: enriched });
     }
   } catch {
     // ignore
   }
 
-  // Fallback to local map
   const localList: any[] = [];
   localWorkshopStatusMap.forEach((v, k) => {
     if (v.appeal_status && v.appeal_status !== 'none') {
@@ -1226,35 +1587,47 @@ app.get('/api/admin/appeals', requireAuth, async (req: AuthenticatedRequest, res
 });
 
 // -------------------------------------------------------------
-// In-App Messaging Hub Endpoints (Announcements & Receipts)
+// In-App Messaging Hub Endpoints (Exact Schema: id UUID, sender_id, sender_name, recipient_type, recipient_workshop_id, recipient_workshop_name, title, content, created_at)
 // -------------------------------------------------------------
 
-// 6. Get Announcements for current workshop
+// 6. Get Announcements for current workshop (or all when ?all=1 / Super Admin)
 app.get('/api/announcements', async (req: Request, res: Response) => {
   const wid = ((req.query.workshopId as string) || (req.body?.workshopId as string) || (req.headers['x-workshop-id'] as string) || '') as string;
+  const wantAll = req.query.all === '1' || wid === 'ALL_WORKSHOPS' || !wid;
   const client = supabaseAdminClient;
 
   try {
-    const { data: announcements, error: aErr } = await client
-      .from('admin_announcements')
-      .select('*')
-      .or(`recipient_type.eq.all,recipient_workshop_id.eq.${wid}`)
-      .order('created_at', { ascending: false });
+    let query = client.from('admin_announcements').select('*').order('created_at', { ascending: false });
+    if (!wantAll && isValidUuid(wid)) {
+      query = query.or(`recipient_type.eq.all,recipient_workshop_id.eq.${wid}`);
+    } else if (!wantAll) {
+      query = query.eq('recipient_type', 'all');
+    }
+
+    const { data: announcements, error: aErr } = await query;
 
     if (!aErr && Array.isArray(announcements)) {
-      // Fetch receipts for this workshop
-      const { data: receipts } = await client
-        .from('workshop_messages_receipts')
-        .select('*')
-        .eq('workshop_id', wid);
-
       const receiptsMap = new Map<string, any>();
-      (receipts || []).forEach((r: any) => receiptsMap.set(r.message_id, r));
+      if (isValidUuid(wid)) {
+        const { data: receipts } = await client
+          .from('workshop_messages_receipts')
+          .select('*')
+          .eq('workshop_id', wid);
+        (receipts || []).forEach((r: any) => receiptsMap.set(r.message_id, r));
+      }
 
-      const merged = announcements.map((a: any) => ({
-        ...a,
-        receipt: receiptsMap.get(a.id) || null,
-      }));
+      const mergedMap = new Map<string, any>();
+      localAnnouncements
+        .filter((a) => wantAll || a.recipient_type === 'all' || a.recipient_workshop_id === wid)
+        .forEach((a) => mergedMap.set(a.id, a));
+      announcements.forEach((a: any) => mergedMap.set(a.id, a));
+
+      const merged = Array.from(mergedMap.values())
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+        .map((a: any) => ({
+          ...a,
+          receipt: receiptsMap.get(a.id) || localReceipts.find((r) => r.message_id === a.id && r.workshop_id === wid) || null,
+        }));
 
       return res.json({ announcements: merged });
     }
@@ -1262,9 +1635,8 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
     // ignore
   }
 
-  // Fallback to local announcements
   const list = localAnnouncements.filter(
-    (a) => a.recipient_type === 'all' || a.recipient_workshop_id === wid
+    (a) => wantAll || a.recipient_type === 'all' || a.recipient_workshop_id === wid
   );
   const merged = list.map((a) => ({
     ...a,
@@ -1274,6 +1646,41 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
   res.json({ announcements: merged });
 });
 
+// 6b. Super Admin Sent Announcements Log with Read / Acknowledge / Reply Analytics
+app.get('/api/admin/announcements', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+
+  const client = getDbClient(req);
+  try {
+    const [{ data: anns }, { data: receipts }] = await Promise.all([
+      client.from('admin_announcements').select('*').order('created_at', { ascending: false }),
+      client.from('workshop_messages_receipts').select('message_id, read_at, acknowledged_at, reply_text'),
+    ]);
+
+    const statsMap = new Map<string, { reads: number; acknowledged: number; replies: number }>();
+    (receipts || []).forEach((r: any) => {
+      const cur = statsMap.get(r.message_id) || { reads: 0, acknowledged: 0, replies: 0 };
+      if (r.read_at) cur.reads += 1;
+      if (r.acknowledged_at) cur.acknowledged += 1;
+      if (r.reply_text) cur.replies += 1;
+      statsMap.set(r.message_id, cur);
+    });
+
+    const list = (Array.isArray(anns) ? anns : localAnnouncements).map((a: any) => ({
+      ...a,
+      stats: statsMap.get(a.id) || { reads: 0, acknowledged: 0, replies: 0 },
+    }));
+    res.json({ announcements: list });
+  } catch {
+    res.json({
+      announcements: localAnnouncements.map((a) => ({ ...a, stats: { reads: 0, acknowledged: 0, replies: 0 } })),
+    });
+  }
+});
+
 // 7. Post Announcement (Broadcast or Specific - Super Admin Only)
 app.post('/api/admin/announcements', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const email = req.userEmail || req.user?.email || '';
@@ -1281,41 +1688,69 @@ app.post('/api/admin/announcements', requireAuth, async (req: AuthenticatedReque
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
-  const { recipient_type, recipient_workshop_id, title, content } = req.body || {};
+  const { recipient_type, recipient_workshop_id, recipient_workshop_name, title, content } = req.body || {};
   if (!title || !content) {
     return res.status(400).json({ error: 'عنوان ونص الرسالة مطلوبان' });
   }
 
+  const client = getDbClient(req);
+  const isSpecific = recipient_type === 'specific';
+  let resolvedRecipientName = recipient_workshop_name || null;
+
+  if (isSpecific && recipient_workshop_id && !resolvedRecipientName) {
+    const localWs = loadPersistentWorkshops().find((w) => w.id === recipient_workshop_id);
+    if (localWs?.brandName) resolvedRecipientName = localWs.brandName;
+    else if (isValidUuid(recipient_workshop_id)) {
+      const { data: wsRow } = await client.from('workshops').select('brand_name').eq('id', recipient_workshop_id).maybeSingle();
+      if (wsRow?.brand_name) resolvedRecipientName = wsRow.brand_name;
+    }
+  }
+
   const newAnn: any = {
-    id: 'ann_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-    sender_id: 'super_admin_hossam',
-    recipient_type: recipient_type || 'all',
-    recipient_workshop_id: recipient_type === 'specific' ? recipient_workshop_id : null,
-    title: title.trim(),
-    content: content.trim(),
+    id: crypto.randomUUID(),
+    sender_id: isValidUuid(req.user?.id) ? req.user.id : null,
+    sender_name: 'م. حسام بسيوني (كبير عيلة الشمساوية)',
+    recipient_type: isSpecific ? 'specific' : 'all',
+    recipient_workshop_id: isSpecific && isValidUuid(recipient_workshop_id) ? recipient_workshop_id : null,
+    recipient_workshop_name: isSpecific ? (resolvedRecipientName || 'ورشة محددة') : 'كافة ورش المنظومة',
+    title: String(title).trim(),
+    content: String(content).trim(),
     created_at: new Date().toISOString(),
   };
 
-  const client = supabaseAdminClient;
+  let cloudSynced = false;
+  let cloudError: string | undefined;
   try {
-    await client.from('admin_announcements').insert({
-      id: newAnn.id,
-      sender_id: newAnn.sender_id,
-      recipient_type: newAnn.recipient_type,
-      recipient_workshop_id: newAnn.recipient_workshop_id,
-      title: newAnn.title,
-      content: newAnn.content,
-      created_at: newAnn.created_at,
-    });
-  } catch {
-    // fallback
+    const { error: insErr } = await client.from('admin_announcements').insert(newAnn);
+    if (!insErr) cloudSynced = true;
+    else {
+      cloudError = insErr.message;
+      console.warn('[Admin Announcements] Supabase insert error:', insErr.message);
+    }
+  } catch (e: any) {
+    cloudError = e?.message;
   }
 
   localAnnouncements.unshift(newAnn);
-  res.json({ success: true, announcement: newAnn });
+  res.json({ success: true, cloudSynced, cloudError, announcement: newAnn });
 });
 
-// 8. Workshop Message Receipt & Reply Handler
+app.delete('/api/admin/announcements/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  const annId = req.params.id;
+  const client = getDbClient(req);
+  try {
+    await client.from('admin_announcements').delete().eq('id', annId);
+  } catch {}
+  const idx = localAnnouncements.findIndex((a) => a.id === annId);
+  if (idx >= 0) localAnnouncements.splice(idx, 1);
+  res.json({ success: true });
+});
+
+// 8. Workshop Message Receipt & Reply Handler (select-then-update-or-insert safe even without composite unique index)
 app.post('/api/announcements/:id/receipt', async (req: Request, res: Response) => {
   const wid = (req.body?.workshopId || req.headers['x-workshop-id'] || (req as any).workshopId || '') as string;
   const messageId = req.params.id;
@@ -1324,31 +1759,53 @@ app.post('/api/announcements/:id/receipt', async (req: Request, res: Response) =
   const client = supabaseAdminClient;
   const nowIso = new Date().toISOString();
 
-  let receiptUpdate: any = {};
+  const receiptUpdate: any = {};
   if (action === 'read') {
     receiptUpdate.read_at = nowIso;
   } else if (action === 'acknowledge') {
     receiptUpdate.read_at = nowIso;
     receiptUpdate.acknowledged_at = nowIso;
   } else if (action === 'reply') {
-    receiptUpdate.reply_text = (reply_text || '').trim();
+    receiptUpdate.read_at = nowIso;
+    receiptUpdate.reply_text = String(reply_text || '').trim();
     receiptUpdate.replied_at = nowIso;
   }
 
-  try {
-    await client.from('workshop_messages_receipts').upsert(
-      {
-        message_id: messageId,
-        workshop_id: wid,
-        ...receiptUpdate,
-      },
-      { onConflict: 'message_id,workshop_id' }
-    );
-  } catch {
-    // fallback
+  let cloudSynced = false;
+  if (isValidUuid(messageId) && isValidUuid(wid)) {
+    try {
+      const { data: existingRow } = await client
+        .from('workshop_messages_receipts')
+        .select('id, read_at')
+        .eq('message_id', messageId)
+        .eq('workshop_id', wid)
+        .maybeSingle();
+
+      if (existingRow?.id) {
+        const patch = { ...receiptUpdate };
+        if (existingRow.read_at && action === 'read') {
+          cloudSynced = true;
+        } else {
+          const { error: uErr } = await client
+            .from('workshop_messages_receipts')
+            .update(patch)
+            .eq('id', existingRow.id);
+          if (!uErr) cloudSynced = true;
+        }
+      } else {
+        const { error: iErr } = await client
+          .from('workshop_messages_receipts')
+          .insert({
+            id: crypto.randomUUID(),
+            message_id: messageId,
+            workshop_id: wid,
+            ...receiptUpdate,
+          });
+        if (!iErr) cloudSynced = true;
+      }
+    } catch {}
   }
 
-  // Update local receipts
   const existingIdx = localReceipts.findIndex(
     (r) => r.message_id === messageId && r.workshop_id === wid
   );
@@ -1358,47 +1815,62 @@ app.post('/api/announcements/:id/receipt', async (req: Request, res: Response) =
     localReceipts.push({ message_id: messageId, workshop_id: wid, ...receiptUpdate });
   }
 
-  res.json({ success: true, receipt: receiptUpdate });
+  res.json({ success: true, cloudSynced, receipt: receiptUpdate });
 });
 
-// 9. Super Admin Inbox (Artisans Replies & Inquiries)
+// 9. Super Admin Inbox (Artisans Replies & Public Visitor Feedback)
 app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const email = req.userEmail || req.user?.email || '';
   if (!isSuperAdmin(email)) {
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
+  let dbReceipts: any[] = [];
   try {
     const { data: receipts } = await client
       .from('workshop_messages_receipts')
-      .select('*, admin_announcements(*), workshops(id, brand_name, artist_name, phone, email)')
+      .select('*, admin_announcements(*), workshops(id, brand_name, artist_name, phone, phone_number, email)')
       .not('reply_text', 'is', null)
       .order('replied_at', { ascending: false });
 
     if (Array.isArray(receipts)) {
-      return res.json({ inbox: receipts });
+      dbReceipts = receipts;
     }
   } catch {
     // ignore
   }
 
-  // Fallback to local receipts
-  const replies = localReceipts
-    .filter((r) => r.reply_text)
+  const feedbackItems = loadPersistentFeedback().map((fb: any) => ({
+    id: fb.id,
+    message_id: 'public_feedback',
+    workshop_id: null,
+    workshop_name: `${fb.name} (${fb.craft || 'زائر'})`,
+    reply_text: `[رأي ومقترح من صفحة الهبوط] الاسم: ${fb.name} (${fb.craft || 'مشغولات يدوية'}) | التقييم: ${fb.rating || 5}/5 نجوم | التواصل: ${fb.contact || 'غير محدد'}\n\n${fb.message}`,
+    replied_at: fb.created_at,
+    admin_announcements: { title: '⭐ رأي / رسالة زائر من صفحة الهبوط' },
+    workshops: { brand_name: fb.name, artist_name: fb.craft || 'زائر للمنظومة', phone_number: fb.contact || '' },
+  }));
+
+  const localReplies = localReceipts
+    .filter((r) => r.reply_text && !dbReceipts.some((d) => d.message_id === r.message_id && d.workshop_id === r.workshop_id))
     .map((r) => {
       const ann = localAnnouncements.find((a) => a.id === r.message_id);
       return {
         ...r,
         admin_announcements: ann,
-        workshop_name: 'ورشة الشمساوية',
+        workshop_name: r.workshop_name || 'ورشة الشمساوية',
       };
     });
 
-  res.json({ inbox: replies });
+  const combined = [...dbReceipts, ...feedbackItems, ...localReplies].sort(
+    (a, b) => new Date(b.replied_at || b.created_at || 0).getTime() - new Date(a.replied_at || a.created_at || 0).getTime()
+  );
+
+  res.json({ inbox: combined });
 });
 
-// 10. Public Feedback & Proposals Endpoint (Landing Page & Artisans Reviews)
+// 10. Public Feedback & Proposals Endpoint (Persisted to data/public_feedback.json & cloud announcement)
 app.post('/api/public/feedback', async (req: Request, res: Response) => {
   const { name, craft, rating, message, contact } = req.body || {};
   if (!name || !message) {
@@ -1415,28 +1887,9 @@ app.post('/api/public/feedback', async (req: Request, res: Response) => {
     created_at: new Date().toISOString(),
   };
 
-  const formattedReply = `[رأي ومقترح من صفحة الهبوط] الاسم: ${feedbackItem.name} (${feedbackItem.craft}) | التقييم: ${feedbackItem.rating}/5 نجوم | وسيلة التواصل: ${feedbackItem.contact || 'غير محدد'}\n\nنص الرسالة:\n${feedbackItem.message}`;
-
-  localReceipts.unshift({
-    message_id: 'feedback_msg',
-    workshop_id: 'visitor_' + Date.now(),
-    reply_text: formattedReply,
-    replied_at: feedbackItem.created_at,
-    workshop_name: feedbackItem.name,
-  });
-
-  try {
-    if (supabaseAdminClient) {
-      await supabaseAdminClient.from('workshop_messages_receipts').insert({
-        message_id: 'feedback_msg',
-        workshop_id: 'visitor_' + Date.now(),
-        reply_text: formattedReply,
-        replied_at: feedbackItem.created_at,
-      });
-    }
-  } catch {
-    // ignore
-  }
+  const feedbackList = loadPersistentFeedback();
+  feedbackList.unshift(feedbackItem);
+  savePersistentFeedback(feedbackList);
 
   res.json({
     success: true,
@@ -1798,21 +2251,25 @@ app.get('/api/ai/status', (_req: Request, res: Response) => {
 });
 
 // -------------------------------------------------------------
-// Marketplace Cloud Endpoints & Super Admin Product Approvals
+// Marketplace Cloud Endpoints & Super Admin Product Approvals & Central Orders
 // -------------------------------------------------------------
 
-// 1. Get Marketplace Products for Public Shoppers (Approved + Pending Approval provisionally, excluding Rejected)
+function isWorkshopBlocked(ws: any): boolean {
+  if (!ws) return false;
+  const st = ws.status || (ws.is_frozen || ws.isFrozen ? 'suspended' : 'active');
+  return st === 'banned' || st === 'suspended' || Boolean(ws.is_frozen || ws.isFrozen);
+}
+
+// 1. Get Marketplace Products for Public Shoppers (Strictly APPROVED & from ACTIVE workshops only)
 app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
   try {
     const client = supabaseAdminClient;
     const persistent = loadPersistentMarketplaceProducts();
     const productsMap = new Map<string, any>();
 
-    // Build workshops lookup map to enrich brand, artist, phone, logo, slug
     const workshopLookup = new Map<string, any>();
     try {
-      const persistentWorkshops = loadPersistentWorkshops();
-      persistentWorkshops.forEach((w: any) => {
+      loadPersistentWorkshops().forEach((w: any) => {
         const wid = w.id || w.workshopId || w.workshop_id;
         if (wid) workshopLookup.set(wid, w);
       });
@@ -1828,19 +2285,17 @@ app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
       }
     } catch {}
 
-    // Add persistent products (exclude rejected)
     persistent.forEach((p: any) => {
-      if (p.status !== 'rejected') {
-        productsMap.set(p.id, { ...p, status: p.status || 'pending_approval' });
+      if (p.status === 'approved') {
+        productsMap.set(p.id, p);
       }
     });
 
-    // Merge Supabase products (approved + pending_approval, excluding rejected)
     try {
       const { data, error } = await client
         .from('marketplace_products')
         .select('*')
-        .in('status', ['approved', 'pending_approval'])
+        .eq('status', 'approved')
         .order('created_at', { ascending: false });
 
       if (!error && Array.isArray(data)) {
@@ -1850,34 +2305,40 @@ app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
       }
     } catch {}
 
-    // Enrich workshop details on every product
     const products = Array.from(productsMap.values())
-      .filter((p: any) => p.status !== 'rejected')
+      .filter((p: any) => {
+        if (p.status !== 'approved') return false;
+        const wid = p.workshop_id || p.workshopId || '';
+        const ws = workshopLookup.get(wid);
+        return !isWorkshopBlocked(ws);
+      })
       .map((p: any) => {
         const wid = p.workshop_id || p.workshopId || '';
         const ws = workshopLookup.get(wid);
         const enriched = {
           ...p,
-          brand_name: p.brand_name || p.brandName || ws?.brand_name || ws?.brandName || 'ورشة الشمساوية',
-          artist_name: p.artist_name || p.artistName || ws?.artist_name || ws?.artistName || 'فنان الشمساوية',
-          phone_number: p.phone_number || p.phoneNumber || ws?.phone_number || ws?.phone || ws?.phoneNumber || '',
-          logo_url: p.logo_url || p.logoUrl || ws?.logo_data || ws?.logo_url || ws?.logoUrl || null,
-          store_slug: p.store_slug || p.storeSlug || ws?.store_slug || ws?.storeSlug || wid,
+          brand_name: ws?.brand_name || ws?.brandName || p.brand_name || p.brandName || 'ورشة الشمساوية',
+          artist_name: ws?.artist_name || ws?.artistName || p.artist_name || p.artistName || 'فنان الشمساوية',
+          phone_number: ws?.phone_number || ws?.phone || ws?.phoneNumber || p.phone_number || p.phoneNumber || '',
+          logo_url: ws?.logo_data || ws?.logo_url || ws?.logoUrl || p.logo_url || p.logoUrl || null,
+          store_slug: ws?.store_slug || ws?.storeSlug || p.store_slug || p.storeSlug || wid,
+          workshop_rating_stars: ws?.rating_stars ?? ws?.ratingStars ?? 5,
+          workshop_medal: ws?.medal ?? null,
         };
         return normalizeCloudProductRow(enriched);
       });
 
     res.json({ success: true, products, count: products.length });
-  } catch (err: any) {
+  } catch {
     res.status(500).json({ error: 'تعذر جلب معروضات سوق الشمساوية' });
   }
 });
 
-// 2. Publish/Sync Product from Artisan Store to Central Marketplace
+// 2. Publish/Sync Product from Artisan Store to Central Marketplace (Pending Approval by default)
 app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
   try {
     const product = req.body || {};
-    if (!product.id || !product.product_name && !product.productName) {
+    if (!product.id || (!product.product_name && !product.productName)) {
       return res.status(400).json({ error: 'بيانات المنتج غير مكتملة' });
     }
 
@@ -1890,7 +2351,8 @@ app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
         ? 'approved'
         : (product.status || 'pending_approval');
 
-    const normalizedRow: any = {
+    // Only include real Supabase marketplace_products columns
+    const supaRow: any = {
       id: product.id,
       workshop_id: product.workshop_id || product.workshopId || '',
       brand_name: product.brand_name || product.brandName || 'ورشة الشمساوية',
@@ -1910,56 +2372,52 @@ app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
       available_colors: product.available_colors || product.availableColors || [],
       available_sizes: product.available_sizes || product.availableSizes || [],
       dimensions: product.dimensions || {},
+      materials_summary: product.materials_summary || product.materialsSummary || '',
       status: initialStatus,
       rejection_reason: initialStatus === 'pending_approval' ? null : (product.rejection_reason || null),
       created_at: product.created_at || (existingIndex >= 0 ? persistent[existingIndex].created_at : new Date().toISOString()),
       updated_at: new Date().toISOString(),
     };
 
-    // Update persistent list
     if (existingIndex >= 0) {
-      persistent[existingIndex] = { ...persistent[existingIndex], ...normalizedRow };
+      persistent[existingIndex] = { ...persistent[existingIndex], ...supaRow };
     } else {
-      persistent.unshift(normalizedRow);
+      persistent.unshift(supaRow);
     }
     savePersistentMarketplaceProducts(persistent);
 
-    // Upsert in Supabase
+    let cloudSynced = false;
     try {
-      await client.from('marketplace_products').upsert(normalizedRow, { onConflict: 'id' });
+      const { error } = await client.from('marketplace_products').upsert(supaRow, { onConflict: 'id' });
+      if (!error) cloudSynced = true;
     } catch {}
 
     res.json({
       success: true,
-      product: normalizedRow,
+      cloudSynced,
+      product: supaRow,
       message: initialStatus === 'pending_approval'
         ? 'تم إرسال القطعة للمراجعة والاعتماد المركزي بنجاح ✨'
         : 'تم تحديث بيانات المعروضة بنجاح.',
     });
-  } catch (err: any) {
+  } catch {
     res.status(500).json({ error: 'تعذر حفظ ومزامنة المنتج سحابياً' });
   }
 });
 
-// 3. Super Admin Get Marketplace Products (Pending & All)
-app.get('/api/admin/marketplace/products', async (req: Request, res: Response) => {
-  const userEmail =
-    (req.headers['x-user-email'] as string) ||
-    (req.query?.userEmail as string) ||
-    '';
-
+// 3. Super Admin Get Marketplace Products (Pending, Approved, Rejected & All)
+app.get('/api/admin/marketplace/products', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const userEmail = req.userEmail || req.user?.email || '';
   if (!isSuperAdmin(userEmail)) {
     return res.status(403).json({ error: 'صلاحيات غير كافية: هذا القسم مخصص لإدارة وسوبر أدمن المنظومة' });
   }
 
   const requestedStatus = (req.query.status as string) || '';
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
   const persistent = loadPersistentMarketplaceProducts();
   const map = new Map<string, any>();
 
-  persistent.forEach((p: any) => {
-    map.set(p.id, p);
-  });
+  persistent.forEach((p: any) => map.set(p.id, p));
 
   try {
     let query = client.from('marketplace_products').select('*').order('updated_at', { ascending: false });
@@ -1968,9 +2426,7 @@ app.get('/api/admin/marketplace/products', async (req: Request, res: Response) =
     }
     const { data, error } = await query;
     if (!error && Array.isArray(data)) {
-      data.forEach((p: any) => {
-        map.set(p.id, { ...(map.get(p.id) || {}), ...p });
-      });
+      data.forEach((p: any) => map.set(p.id, { ...(map.get(p.id) || {}), ...p }));
     }
   } catch {}
 
@@ -1982,65 +2438,133 @@ app.get('/api/admin/marketplace/products', async (req: Request, res: Response) =
   res.json({ success: true, products: allProducts, count: allProducts.length });
 });
 
-// 4. Super Admin Review Action (Approve / Reject)
-app.post('/api/admin/marketplace/review', async (req: Request, res: Response) => {
-  const userEmail =
-    (req.headers['x-user-email'] as string) ||
-    (req.body?.userEmail as string) ||
-    '';
-
+// 4. Super Admin Review Action (Approve / Reject with reason, upsert if local/catalog product, sync DB & notify artisan)
+app.post('/api/admin/marketplace/review', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const userEmail = req.userEmail || req.user?.email || '';
   if (!isSuperAdmin(userEmail)) {
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
-  const { productId, status, rejectionReason } = req.body || {};
-  if (!productId || !['approved', 'rejected'].includes(status)) {
+  const { productId, status, rejectionReason, ratingStars, productPayload } = req.body || {};
+  if (!productId || !['approved', 'rejected', 'pending_approval'].includes(status)) {
     return res.status(400).json({ error: 'معرف المنتج أو حالة القرار غير صالحة' });
   }
 
-  const client = supabaseAdminClient;
+  const client = getDbClient(req);
   const persistent = loadPersistentMarketplaceProducts();
   const idx = persistent.findIndex((p: any) => p.id === productId);
+  const nowIso = new Date().toISOString();
 
   const updateData: any = {
     status,
     rejection_reason: status === 'rejected' ? (rejectionReason || 'لم يستوفِ معايير العرض الحرفي') : null,
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso,
   };
 
-  let targetProduct = idx >= 0 ? persistent[idx] : null;
+  let targetProduct: any = idx >= 0 ? { ...persistent[idx], ...updateData } : null;
 
-  if (idx >= 0) {
-    persistent[idx] = { ...persistent[idx], ...updateData };
-    savePersistentMarketplaceProducts(persistent);
-    targetProduct = persistent[idx];
+  if (!targetProduct) {
+    try {
+      const { data: existingMkt } = await client.from('marketplace_products').select('*').eq('id', productId).maybeSingle();
+      if (existingMkt) targetProduct = { ...existingMkt, ...updateData };
+    } catch {}
   }
 
-  try {
-    await client.from('marketplace_products').update(updateData).eq('id', productId);
-  } catch {}
+  if (!targetProduct && productPayload) {
+    targetProduct = {
+      id: productId,
+      workshop_id: productPayload.workshop_id || productPayload.workshopId || '',
+      brand_name: productPayload.brand_name || productPayload.brandName || 'ورشة الشمساوية',
+      artist_name: productPayload.artist_name || productPayload.artistName || 'فنان الشمساوية',
+      phone_number: productPayload.phone_number || productPayload.phoneNumber || '',
+      product_name: productPayload.product_name || productPayload.productName || 'مشغولة يدوية',
+      category: productPayload.category || 'macrame',
+      craft_name: productPayload.craft_name || productPayload.craftName || 'أعمال يدوية',
+      decor_category: productPayload.decor_category || productPayload.decorCategory || 'all',
+      store_price: Number(productPayload.store_price ?? productPayload.storePrice ?? productPayload.retail_price ?? productPayload.retailPrice ?? 0),
+      retail_price: Number(productPayload.retail_price ?? productPayload.retailPrice ?? productPayload.store_price ?? 0),
+      wholesale_price: Number(productPayload.wholesale_price ?? productPayload.wholesalePrice ?? 0),
+      cost_price: Number(productPayload.cost_price ?? productPayload.costPrice ?? 0),
+      current_stock: Number(productPayload.current_stock ?? productPayload.currentStock ?? 1),
+      image_url: productPayload.image_url || productPayload.imageUrl || '/alshams_falcon_emblem.png',
+      store_description: productPayload.store_description || productPayload.storeDescription || '',
+      available_colors: productPayload.available_colors || productPayload.availableColors || [],
+      available_sizes: productPayload.available_sizes || productPayload.availableSizes || [],
+      dimensions: productPayload.dimensions || {},
+      materials_summary: ratingStars ? `تقييم الجودة المبدئي: ${ratingStars}/5` : '',
+      created_at: nowIso,
+      ...updateData,
+    };
+  }
 
-  // Dispatch In-App Notification / Announcement to Workshop
-  if (targetProduct && targetProduct.workshop_id) {
+  if (targetProduct) {
+    if (idx >= 0) persistent[idx] = targetProduct;
+    else persistent.unshift(targetProduct);
+    savePersistentMarketplaceProducts(persistent);
+  }
+
+  let cloudSynced = false;
+  let cloudError: string | undefined;
+  try {
+    if (productPayload && targetProduct) {
+      const upsertRow = {
+        id: targetProduct.id,
+        workshop_id: targetProduct.workshop_id,
+        brand_name: targetProduct.brand_name,
+        artist_name: targetProduct.artist_name,
+        phone_number: targetProduct.phone_number,
+        product_name: targetProduct.product_name,
+        category: targetProduct.category,
+        craft_name: targetProduct.craft_name,
+        decor_category: targetProduct.decor_category,
+        store_price: targetProduct.store_price,
+        retail_price: targetProduct.retail_price,
+        wholesale_price: targetProduct.wholesale_price,
+        cost_price: targetProduct.cost_price,
+        current_stock: targetProduct.current_stock,
+        image_url: targetProduct.image_url,
+        store_description: targetProduct.store_description,
+        available_colors: targetProduct.available_colors,
+        available_sizes: targetProduct.available_sizes,
+        dimensions: targetProduct.dimensions,
+        materials_summary: targetProduct.materials_summary || '',
+        status,
+        rejection_reason: updateData.rejection_reason,
+        updated_at: nowIso,
+      };
+      const { error } = await client.from('marketplace_products').upsert(upsertRow, { onConflict: 'id' });
+      if (!error) cloudSynced = true;
+      else cloudError = error.message;
+    } else {
+      const { error } = await client.from('marketplace_products').update(updateData).eq('id', productId);
+      if (!error) cloudSynced = true;
+      else cloudError = error.message;
+    }
+  } catch (e: any) {
+    cloudError = e?.message;
+  }
+
+  // Dispatch In-App Notification / Announcement to Workshop (with valid UUIDs & exact schema)
+  if (targetProduct && targetProduct.workshop_id && (status === 'approved' || status === 'rejected')) {
     const isApproved = status === 'approved';
     const annTitle = isApproved
       ? `✨ مبروك! تم اعتماد مشغولتكم [${targetProduct.product_name}] في سوق الشمساوية`
       : `⚠️ تنبيه من إدارة المنظومة بخصوص القطعة [${targetProduct.product_name}]`;
 
     const annContent = isApproved
-      ? `تمت مراجعة واعتماد مشغولتكم الحرفية [${targetProduct.product_name}] بنجاح من كبير عيلة الشمساوية والإدارة. القطعة الآن معروضة ومتاحة للشراء المباشر لكافة زوار سوق الشمساوية المركزي!`
+      ? `تمت مراجعة واعتماد مشغولتكم الحرفية [${targetProduct.product_name}] بنجاح من كبير عيلة الشمساوية والإدارة${ratingStars ? ` بتقييم مبدئي ${ratingStars} نجوم` : ''}. القطعة الآن معروضة ومتاحة للشراء المباشر لكافة زوار سوق الشمساوية المركزي!`
       : `تحياتنا لكم يا فنان، نأسف لإبلاغكم بأن قطعتكم [${targetProduct.product_name}] لم يتم اعتمادها في العرض المركزي للأسباب التالية:\n"${rejectionReason || 'تحتاج إلى تدقيق المواصفات والصور'}"\nيمكنكم تعديل البيانات وإعادة الإرسال للمراجعة في أي وقت.`;
 
     const annRow: any = {
-      id: 'ann_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-      sender_id: 'super_admin_hossam',
+      id: crypto.randomUUID(),
+      sender_id: isValidUuid(req.user?.id) ? req.user.id : null,
       sender_name: 'م. حسام بسيوني (كبير عيلة الشمساوية)',
       recipient_type: 'specific',
-      recipient_workshop_id: targetProduct.workshop_id,
+      recipient_workshop_id: isValidUuid(targetProduct.workshop_id) ? targetProduct.workshop_id : null,
       recipient_workshop_name: targetProduct.brand_name || 'الورشة الحرفية',
       title: annTitle,
       content: annContent,
-      created_at: new Date().toISOString(),
+      created_at: nowIso,
     };
 
     try {
@@ -2051,12 +2575,290 @@ app.post('/api/admin/marketplace/review', async (req: Request, res: Response) =>
 
   res.json({
     success: true,
-    message: status === 'approved' ? 'تم اعتماد المعروضة ونشرها في سوق الشمساوية بنجاح ✨' : 'تم تسجيل الرفض وإبلاغ الورشة ❌',
+    cloudSynced,
+    cloudError,
+    message: status === 'approved'
+      ? 'تم اعتماد المعروضة ونشرها في سوق الشمساوية بنجاح ✨'
+      : status === 'rejected'
+      ? 'تم تسجيل الرفض وإبلاغ الورشة ❌'
+      : 'تمت إعادة القطعة لقائمة المراجعة ⏳',
     product: targetProduct,
   });
 });
 
-// 5. Public Storefront Data by Workshop Slug or ID
+// -------------------------------------------------------------
+// Platform Config & Central Marketplace Orders Sync Endpoints
+// -------------------------------------------------------------
+app.get('/api/platform-settings', async (_req: Request, res: Response) => {
+  const localCfg = loadPersistentPlatformSettings();
+  try {
+    const { data: wsRows } = await supabaseAdminClient.from('workshops').select('id, settings').limit(10);
+    if (Array.isArray(wsRows)) {
+      const host = wsRows.find((w: any) => w.settings && w.settings.platformConfig);
+      if (host?.settings?.platformConfig) {
+        const cloudCfg = host.settings.platformConfig;
+        const merged = {
+          ...localCfg,
+          ...cloudCfg,
+          governorateRates: {
+            ...localCfg.governorateRates,
+            ...(cloudCfg.governorateRates || {}),
+          },
+        };
+        return res.json({ success: true, settings: merged });
+      }
+    }
+  } catch {}
+  res.json({ success: true, settings: localCfg });
+});
+
+app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  const body = req.body || {};
+  const existing = loadPersistentPlatformSettings();
+  const nextSettings = {
+    ...existing,
+    ...body,
+    governorateRates: {
+      ...existing.governorateRates,
+      ...(body.governorateRates || {}),
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  savePersistentPlatformSettings(nextSettings);
+
+  let cloudSynced = false;
+  try {
+    const client = getDbClient(req);
+    const { data: wsList } = await client.from('workshops').select('id, settings').order('created_at', { ascending: true }).limit(1);
+    const target = Array.isArray(wsList) ? wsList[0] : null;
+    if (target?.id) {
+      const nextWsSettings = { ...(target.settings || {}), platformConfig: nextSettings };
+      const { error } = await client.from('workshops').update({ settings: nextWsSettings, updated_at: nextSettings.updatedAt }).eq('id', target.id);
+      if (!error) cloudSynced = true;
+    }
+  } catch {}
+
+  res.json({ success: true, cloudSynced, settings: nextSettings });
+});
+
+app.post('/api/marketplace/orders', async (req: Request, res: Response) => {
+  try {
+    const body = req.body || {};
+    const orderId = body.id || 'ord_' + Date.now();
+    const wid = body.workshop_id || body.workshopId || 'central';
+    const orderNumber = body.order_number || body.invoiceNumber || `SHAMS-${Date.now().toString().slice(-5)}`;
+    const nowIso = new Date().toISOString();
+    const isClientHidden = body.isClientDataHiddenFromArtisan !== false;
+
+    const cleanNotes = String(body.notes || '').replace(/\[META:[^\]]+\]/g, '').trim();
+    const metaTag = `[META:hidden=${isClientHidden ? 1 : 0};confirmed=${body.advancePaymentConfirmed ? 1 : 0};mpStatus=${body.marketplaceStatus || 'pending_approval'}]`;
+
+    const supaRow = {
+      id: orderId,
+      order_number: orderNumber,
+      workshop_id: wid,
+      customer_name: body.customer_name || body.customerName || 'عميل',
+      customer_phone: body.customer_phone || body.customerPhone || '',
+      customer_address: body.customer_address || body.detailedAddress || '',
+      governorate: body.governorate || 'القاهرة',
+      items: Array.isArray(body.items) ? body.items : [],
+      subtotal: Number(body.subtotal || 0),
+      shipping_fee: Number(body.shipping_fee ?? body.shipping ?? body.shippingCost ?? 0),
+      total_amount: Number(body.total_amount ?? body.finalTotal ?? 0),
+      deposit_paid: Number(body.deposit_paid ?? body.advancePaymentAmount ?? 0),
+      remaining_amount: Number(body.remaining_amount ?? body.remainingAmount ?? 0),
+      payment_method: body.payment_method || body.paymentMethod || 'instapay',
+      status: body.status || 'pending',
+      notes: cleanNotes ? `${cleanNotes} ${metaTag}` : metaTag,
+      created_at: body.created_at || nowIso,
+      updated_at: nowIso,
+    };
+
+    const existingList = loadPersistentMarketplaceOrders();
+    const idx = existingList.findIndex((o) => o.id === orderId);
+    const storedRecord = { ...supaRow, isClientDataHiddenFromArtisan: isClientHidden, advancePaymentConfirmed: Boolean(body.advancePaymentConfirmed) };
+    if (idx >= 0) existingList[idx] = storedRecord;
+    else existingList.unshift(storedRecord);
+    savePersistentMarketplaceOrders(existingList);
+
+    let cloudSynced = false;
+    try {
+      const { error } = await supabaseAdminClient.from('marketplace_orders').upsert(supaRow, { onConflict: 'id' });
+      if (!error) cloudSynced = true;
+    } catch {}
+
+    // Notify target workshop in-app
+    if (isValidUuid(wid)) {
+      const orderAnn = {
+        id: crypto.randomUUID(),
+        sender_id: null,
+        sender_name: 'سوق الشمساوية المركزي',
+        recipient_type: 'specific',
+        recipient_workshop_id: wid,
+        recipient_workshop_name: 'ورشة الشمساوية',
+        title: `🛍️ طلبية سوق جديدة برقم #${orderNumber}`,
+        content: `وردت طلبية جديدة من سوق الشمساوية بقيمة ${supaRow.total_amount} ج.م (عربون جدية: ${supaRow.deposit_paid} ج.م). ستراجع الإدارة دفعة الجدية لتأكيد بدء التنفيذ.`,
+        created_at: nowIso,
+      };
+      supabaseAdminClient.from('admin_announcements').insert(orderAnn).then(() => {}, () => {});
+      localAnnouncements.unshift(orderAnn);
+    }
+
+    res.json({ success: true, cloudSynced, order: storedRecord });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر تسجيل طلبية السوق' });
+  }
+});
+
+app.get('/api/admin/marketplace/orders', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+
+  const client = getDbClient(req);
+  const map = new Map<string, any>();
+  loadPersistentMarketplaceOrders().forEach((o: any) => map.set(o.id, o));
+
+  try {
+    const { data, error } = await client
+      .from('marketplace_orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (!error && Array.isArray(data)) {
+      data.forEach((row: any) => {
+        const metaMatch = String(row.notes || '').match(/\[META:([^\]]+)\]/);
+        let hidden = true;
+        let confirmed = false;
+        let mpStatus = 'pending_approval';
+        if (metaMatch) {
+          hidden = !metaMatch[1].includes('hidden=0');
+          confirmed = metaMatch[1].includes('confirmed=1');
+          const mSt = metaMatch[1].match(/mpStatus=([^;\]]+)/);
+          if (mSt) mpStatus = mSt[1];
+        }
+        map.set(row.id, {
+          ...map.get(row.id),
+          ...row,
+          invoiceNumber: row.order_number,
+          workshopId: row.workshop_id,
+          customerName: row.customer_name,
+          customerPhone: row.customer_phone,
+          detailedAddress: row.customer_address,
+          finalTotal: Number(row.total_amount || 0),
+          shippingCost: Number(row.shipping_fee || 0),
+          advancePaymentAmount: Number(row.deposit_paid || 0),
+          remainingAmount: Number(row.remaining_amount || 0),
+          paymentMethod: row.payment_method,
+          isClientDataHiddenFromArtisan: hidden,
+          advancePaymentConfirmed: confirmed,
+          marketplaceStatus: mpStatus,
+        });
+      });
+    }
+  } catch {}
+
+  const orders = Array.from(map.values()).sort(
+    (a, b) => new Date(b.created_at || b.createdAt || 0).getTime() - new Date(a.created_at || a.createdAt || 0).getTime()
+  );
+  res.json({ success: true, orders, count: orders.length });
+});
+
+app.patch('/api/admin/marketplace/orders/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+
+  const orderId = req.params.id;
+  const updates = req.body || {};
+  const client = getDbClient(req);
+  const nowIso = new Date().toISOString();
+
+  const ordersList = loadPersistentMarketplaceOrders();
+  const idx = ordersList.findIndex((o) => o.id === orderId);
+  let targetOrder: any = idx >= 0 ? { ...ordersList[idx] } : { id: orderId };
+
+  if (idx < 0) {
+    try {
+      const { data: existingRow } = await client.from('marketplace_orders').select('*').eq('id', orderId).maybeSingle();
+      if (existingRow) targetOrder = { ...existingRow };
+    } catch {}
+  }
+
+  const nextStatus = updates.status ?? targetOrder.status ?? 'pending';
+  const nextRemaining = updates.remainingAmount ?? updates.remaining_amount ?? targetOrder.remainingAmount ?? targetOrder.remaining_amount ?? 0;
+  const nextHidden = updates.isClientDataHiddenFromArtisan !== undefined
+    ? Boolean(updates.isClientDataHiddenFromArtisan)
+    : (targetOrder.isClientDataHiddenFromArtisan !== false);
+  const nextConfirmed = updates.advancePaymentConfirmed !== undefined
+    ? Boolean(updates.advancePaymentConfirmed)
+    : Boolean(targetOrder.advancePaymentConfirmed);
+  const nextMpStatus = updates.marketplaceStatus || targetOrder.marketplaceStatus || 'pending_approval';
+
+  const cleanNotes = String(targetOrder.notes || '').replace(/\[META:[^\]]+\]/g, '').trim();
+  const nextNotes = `${cleanNotes ? cleanNotes + ' ' : ''}[META:hidden=${nextHidden ? 1 : 0};confirmed=${nextConfirmed ? 1 : 0};mpStatus=${nextMpStatus}]`;
+
+  targetOrder = {
+    ...targetOrder,
+    ...updates,
+    status: nextStatus,
+    remaining_amount: Number(nextRemaining),
+    remainingAmount: Number(nextRemaining),
+    isClientDataHiddenFromArtisan: nextHidden,
+    advancePaymentConfirmed: nextConfirmed,
+    marketplaceStatus: nextMpStatus,
+    notes: nextNotes,
+    updated_at: nowIso,
+    updatedAt: Date.now(),
+  };
+
+  if (idx >= 0) ordersList[idx] = targetOrder;
+  else ordersList.unshift(targetOrder);
+  savePersistentMarketplaceOrders(ordersList);
+
+  let cloudSynced = false;
+  try {
+    const { error } = await client.from('marketplace_orders').update({
+      status: nextStatus,
+      remaining_amount: Number(nextRemaining),
+      notes: nextNotes,
+      updated_at: nowIso,
+    }).eq('id', orderId);
+    if (!error) cloudSynced = true;
+  } catch {}
+
+  const wid = targetOrder.workshop_id || targetOrder.workshopId;
+  if (isValidUuid(wid) && updates.status && ['in_progress', 'shipped', 'completed'].includes(updates.status)) {
+    const orderNum = targetOrder.order_number || targetOrder.invoiceNumber || orderId;
+    const statusMessages: Record<string, string> = {
+      in_progress: `تم اعتماد دفعة الجدية للطلبية #${orderNum}. يمكنكم البدء في التصنيع والتنفيذ فوراً.${nextHidden ? ' (بيانات العميل محفوظة بالوضع الآمن لإدارة الشحن المركزي).' : ''}`,
+      shipped: `تم فحص الجودة وتحويل الطلبية #${orderNum} لمرحلة الشحن والتسليم.`,
+      completed: `تم تسليم الطلبية #${orderNum} للعميل وتصفية الحساب بالكامل!`,
+    };
+    const ann = {
+      id: crypto.randomUUID(),
+      sender_id: isValidUuid(req.user?.id) ? req.user.id : null,
+      sender_name: 'م. حسام بسيوني (إدارة سوق الشمساوية)',
+      recipient_type: 'specific',
+      recipient_workshop_id: wid,
+      recipient_workshop_name: 'ورشة الشمساوية',
+      title: `📦 تحديث حالة الطلبية #${orderNum}`,
+      content: statusMessages[updates.status],
+      created_at: nowIso,
+    };
+    client.from('admin_announcements').insert(ann).then(() => {}, () => {});
+    localAnnouncements.unshift(ann);
+  }
+
+  res.json({ success: true, cloudSynced, order: targetOrder });
+});
+
+// 5. Public Storefront Data by Workshop Slug or ID (Blocks banned/suspended storefronts)
 app.get('/api/store/:slug', async (req: Request, res: Response) => {
   try {
     const slug = decodeURIComponent(req.params.slug).toLowerCase().trim().replace(/^@/, '');
@@ -2110,6 +2912,29 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
     const logoUrl = ws.logo_data || ws.logo_url || ws.logoUrl || null;
     const phone = ws.phone_number || ws.phone || ws.phoneNumber || '';
     const storeSlug = ws.store_slug || ws.storeSlug || wid;
+    const blocked = isWorkshopBlocked(ws);
+
+    if (blocked) {
+      const reasonMsg = ws.suspension_reason || ws.suspended_reason || 'المتجر موقوف مؤقتاً للمراجعة الإدارية.';
+      return res.json({
+        success: true,
+        suspended: true,
+        suspensionReason: reasonMsg,
+        workshop: {
+          id: wid,
+          brandName,
+          artistName,
+          status: ws.status || 'suspended',
+          suspended: true,
+          suspensionReason: reasonMsg,
+          logoUrl,
+          storeSlug,
+          ratingStars: ws.rating_stars || ws.ratingStars || 5,
+          medal: ws.medal || null,
+        },
+        products: [],
+      });
+    }
 
     const persistent = loadPersistentMarketplaceProducts();
     const prodsMap = new Map<string, any>();
@@ -2183,6 +3008,7 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
+      suspended: false,
       workshop: {
         id: wid,
         brandName,
@@ -2193,13 +3019,14 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
         currencySymbol: ws.currency_symbol || ws.currencySymbol || 'ج.م',
         logoUrl,
         storeSlug,
+        status: ws.status || 'active',
         selectedCrafts: ws.selected_crafts || ws.selectedCrafts || ['macrame'],
         ratingStars: ws.rating_stars || ws.ratingStars || 5,
-        medal: ws.medal || 'gold',
+        medal: ws.medal || null,
       },
       products: storeProducts,
     });
-  } catch (err: any) {
+  } catch {
     res.status(500).json({ error: 'تعذر جلب بيانات المتجر' });
   }
 });

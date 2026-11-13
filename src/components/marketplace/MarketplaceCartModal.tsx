@@ -15,6 +15,8 @@ import {
   ADVANCE_PAYMENT_MIN_RATIO,
   saveCentralMarketplaceOrder,
   getStoredCustomerSession,
+  syncPlatformSettingsFromCloud,
+  getClientPrivacyActive,
 } from '../../services/marketplaceCartService';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
 import {
@@ -78,10 +80,12 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedOrder, setSubmittedOrder] = useState<InvoiceRecord | null>(null);
+  const [ratesVersion, setRatesVersion] = useState(0);
 
   // Sync state whenever opened
   React.useEffect(() => {
     if (isOpen) {
+      syncPlatformSettingsFromCloud().then(() => setRatesVersion((v) => v + 1)).catch(() => {});
       try {
         const rawItems = getStoredCart() || [];
         const safeItems = Array.isArray(rawItems)
@@ -117,7 +121,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   const shippingCost = useMemo(() => {
     if (!Array.isArray(cartItems) || cartItems.length === 0) return 0;
     return calculateShippingRate(governorate || 'القاهرة');
-  }, [governorate, cartItems]);
+  }, [governorate, cartItems, ratesVersion]);
 
   // Discount
   const discountAmount = useMemo(() => {
@@ -248,7 +252,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
         marketplaceStatus: 'pending_approval',
         targetDeliveryDate: targetDate,
         productionDaysRemaining: targetDays,
-        isClientDataHiddenFromArtisan: true, // Default strict privacy: hidden from workshop until Super Admin reviews
+        isClientDataHiddenFromArtisan: getClientPrivacyActive(),
         isGuest: !customerUser,
         loyaltyPointsEarned: Math.floor(finalTotal / 10),
         notes: cartItems.map((i) => i.customNotes).filter(Boolean).join(' | ') || undefined,

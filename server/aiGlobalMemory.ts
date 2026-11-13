@@ -136,6 +136,51 @@ export async function buildGlobalMemoryPrompt(agentType: 'shamousa' | 'falcon'):
 ${blocks.join('\n\n---\n\n')}\n`;
 }
 
+export async function getAllGlobalMemories(agentType?: 'shamousa' | 'falcon'): Promise<GlobalMemoryRecord[]> {
+  try {
+    const { data, error } = await supabase
+      .from('ai_global_memory')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      cachedMemories = data.map((d: any) => ({
+        id: String(d.id),
+        agent_type: (d.agent || d.agent_type || 'both') as any,
+        title: d.title || d.category || 'توجيه وقاعدة هندسية معتمدة',
+        rules: d.content || d.rules || '',
+        metadata: d.metadata || {},
+        is_active: d.is_active !== false,
+        created_at: d.created_at || new Date().toISOString(),
+      }));
+      lastCacheUpdate = Date.now();
+      saveLocalBackup();
+    }
+  } catch {
+    // fallback to cache
+  }
+
+  return cachedMemories.filter((m) => {
+    if (!agentType) return true;
+    return m.agent_type === agentType || m.agent_type === 'both' || !m.agent_type;
+  });
+}
+
+export async function deleteGlobalMemoryRecord(id: string, scopedClient?: any): Promise<boolean> {
+  if (!id) return false;
+  cachedMemories = cachedMemories.filter((m) => String(m.id) !== String(id));
+  lastCacheUpdate = Date.now();
+  saveLocalBackup();
+
+  const clientToUse = scopedClient || supabase;
+  try {
+    await clientToUse.from('ai_global_memory').delete().eq('id', id);
+  } catch {
+    // ignore if local-only memory id
+  }
+  return true;
+}
+
 /**
  * Save new memory record to Supabase and cache
  */
@@ -153,7 +198,7 @@ export async function saveGlobalMemoryRecord(record: {
     rules: record.rules,
     metadata: {
       author: 'الباشمهندس حسام',
-      author_email: 'hmb.top.tupe@gmail.com',
+      author_email: 'hmb.top.tube@gmail.com',
       created_at: new Date().toISOString(),
       ...(record.metadata || {}),
     },

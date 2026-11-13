@@ -20,6 +20,8 @@ export interface GovernoratesShippingConfig {
   governorateRates: Record<string, number>;
   packagingFee: number; // مصاريف التغليف والحفظ
   storageAndHandlingFee: number; // مصاريف الفحص والمناولة
+  commissionPercent?: number;
+  advancePaymentRatio?: number;
 }
 
 export const DEFAULT_SHIPPING_CONFIG: GovernoratesShippingConfig = {
@@ -197,6 +199,9 @@ export function getShippingConfig(): GovernoratesShippingConfig {
 export function saveShippingConfig(cfg: GovernoratesShippingConfig): void {
   try {
     localStorage.setItem(SHIPPING_RATES_KEY, JSON.stringify(cfg));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('alshams_shipping_updated', { detail: cfg }));
+    }
   } catch (e) {
     console.warn('Failed saving shipping config:', e);
   }
@@ -220,6 +225,32 @@ export function setClientPrivacyActive(active: boolean): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(PRIVACY_TOGGLE_KEY, String(active));
   window.dispatchEvent(new CustomEvent('alshams_privacy_updated', { detail: active }));
+}
+
+export async function syncPlatformSettingsFromCloud(): Promise<GovernoratesShippingConfig | null> {
+  try {
+    const res = await fetch('/api/platform-settings');
+    if (res.ok) {
+      const data = await res.json();
+      const s = data?.settings;
+      if (s) {
+        const mergedCfg: GovernoratesShippingConfig = {
+          ...DEFAULT_SHIPPING_CONFIG,
+          ...s,
+          governorateRates: {
+            ...DEFAULT_SHIPPING_CONFIG.governorateRates,
+            ...(s.governorateRates || {}),
+          },
+        };
+        saveShippingConfig(mergedCfg);
+        if (typeof s.centralShippingPrivacy === 'boolean') {
+          setClientPrivacyActive(s.centralShippingPrivacy);
+        }
+        return mergedCfg;
+      }
+    }
+  } catch {}
+  return null;
 }
 
 // 5. Central Marketplace Orders Storage
@@ -280,7 +311,7 @@ export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
       window.dispatchEvent(new CustomEvent('alshams_new_order_received', { detail: order }));
     }
 
-    // 5. Cloud Sync to Supabase marketplace_orders
+    // 5. Cloud Sync via server /api/marketplace/orders (with Supabase & offline queue fallback)
     const cloudPayload = {
       id: order.id,
       order_number: order.invoiceNumber || `SHAMS-${Date.now().toString().slice(-5)}`,
@@ -297,17 +328,45 @@ export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
       remaining_amount: order.remainingAmount || 0,
       payment_method: order.paymentMethod || 'vodafone_cash',
       status: 'pending',
+      marketplaceStatus: order.marketplaceStatus || 'pending_approval',
+      advancePaymentConfirmed: Boolean(order.advancePaymentConfirmed),
+      isClientDataHiddenFromArtisan: order.isClientDataHiddenFromArtisan !== false,
       notes: order.notes || '',
       created_at: new Date(order.createdAt || Date.now()).toISOString(),
       updated_at: new Date(order.updatedAt || Date.now()).toISOString(),
     };
 
     if (typeof navigator !== 'undefined' && navigator.onLine) {
-      Promise.resolve(supabase.from('marketplace_orders').insert(cloudPayload))
-        .then(({ error }: any) => {
-          if (error) {
-            console.warn('[Supabase marketplace_orders] Notice:', error.message);
-            enqueueOfflineMutation({ workshopId, type: 'order_create', payload: cloudPayload });
+      fetch('/api/marketplace/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cloudPayload),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const { error } = await supabase.from('marketplace_orders').insert({
+              id: cloudPayload.id,
+              order_number: cloudPayload.order_number,
+              workshop_id: cloudPayload.workshop_id,
+              customer_name: cloudPayload.customer_name,
+              customer_phone: cloudPayload.customer_phone,
+              customer_address: cloudPayload.customer_address,
+              governorate: cloudPayload.governorate,
+              items: cloudPayload.items,
+              subtotal: cloudPayload.subtotal,
+              shipping_fee: cloudPayload.shipping_fee,
+              total_amount: cloudPayload.total_amount,
+              deposit_paid: cloudPayload.deposit_paid,
+              remaining_amount: cloudPayload.remaining_amount,
+              payment_method: cloudPayload.payment_method,
+              status: cloudPayload.status,
+              notes: cloudPayload.notes,
+              created_at: cloudPayload.created_at,
+              updated_at: cloudPayload.updated_at,
+            });
+            if (error) {
+              enqueueOfflineMutation({ workshopId, type: 'order_create', payload: cloudPayload });
+            }
           }
         })
         .catch(() => {
@@ -321,18 +380,101 @@ export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
   }
 }
 
-export function updateCentralMarketplaceOrderStatus(
+export function mergeCloudOrdersIntoLocal(cloudOrders: any[]): InvoiceRecord[] {
+  const local = getCentralMarketplaceOrders();
+  const map = new Map<string, any>();
+  local.forEach((o) => {
+    if (o && o.id) map.set(o.id, o);
+  });
+
+  (cloudOrders || []).forEach((row: any) => {
+    if (!row || !row.id) return;
+    const prev = map.get(row.id) || {};
+    const metaMatch = String(row.notes || '').match(/\[META:([^\]]+)\]/);
+    let hidden = row.isClientDataHiddenFromArtisan;
+    let confirmed = row.advancePaymentConfirmed;
+    let mpStatus = row.marketplaceStatus;
+    if (metaMatch) {
+      if (hidden === undefined) hidden = !metaMatch[1].includes('hidden=0');
+      if (confirmed === undefined) confirmed = metaMatch[1].includes('confirmed=1');
+      if (!mpStatus) {
+        const mSt = metaMatch[1].match(/mpStatus=([^;\]]+)/);
+        if (mSt) mpStatus = mSt[1];
+      }
+    }
+    const cleanNotes = String(row.notes || prev.notes || '').replace(/\[META:[^\]]+\]/g, '').trim();
+    map.set(row.id, {
+      ...prev,
+      id: row.id,
+      invoiceNumber: row.invoiceNumber || row.order_number || prev.invoiceNumber || row.id,
+      workshopId: row.workshopId || row.workshop_id || prev.workshopId || 'central',
+      tenantId: row.workshopId || row.workshop_id || prev.tenantId || 'central',
+      customerName: row.customerName || row.customer_name || prev.customerName || 'عميل',
+      customerPhone: row.customerPhone || row.customer_phone || prev.customerPhone || '',
+      detailedAddress: row.detailedAddress || row.customer_address || prev.detailedAddress || '',
+      governorate: row.governorate || prev.governorate || 'القاهرة',
+      items: Array.isArray(row.items) ? row.items : (prev.items || []),
+      subtotal: Number(row.subtotal ?? prev.subtotal ?? 0),
+      shipping: Number(row.shipping_fee ?? row.shippingCost ?? prev.shipping ?? 0),
+      shippingCost: Number(row.shippingCost ?? row.shipping_fee ?? prev.shippingCost ?? 0),
+      finalTotal: Number(row.finalTotal ?? row.total_amount ?? prev.finalTotal ?? 0),
+      totalAmount: Number(row.totalAmount ?? row.total_amount ?? row.finalTotal ?? prev.totalAmount ?? 0),
+      advancePaymentAmount: Number(row.advancePaymentAmount ?? row.deposit_paid ?? prev.advancePaymentAmount ?? 0),
+      remainingAmount: Number(row.remainingAmount ?? row.remaining_amount ?? prev.remainingAmount ?? 0),
+      paymentMethod: row.paymentMethod || row.payment_method || prev.paymentMethod || 'instapay',
+      status: row.status || prev.status || 'pending',
+      marketplaceStatus: mpStatus || prev.marketplaceStatus || 'pending_approval',
+      advancePaymentConfirmed: confirmed !== undefined ? Boolean(confirmed) : Boolean(prev.advancePaymentConfirmed),
+      isClientDataHiddenFromArtisan: hidden !== undefined ? Boolean(hidden) : (prev.isClientDataHiddenFromArtisan !== false),
+      notes: cleanNotes || undefined,
+      targetDeliveryDate: row.targetDeliveryDate || prev.targetDeliveryDate,
+      createdAt: prev.createdAt || (row.created_at ? new Date(row.created_at).getTime() : Date.now()),
+      updatedAt: row.updatedAt || (row.updated_at ? new Date(row.updated_at).getTime() : Date.now()),
+    });
+  });
+
+  const merged = Array.from(map.values()).sort(
+    (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+  );
+  try {
+    localStorage.setItem(MARKETPLACE_ORDERS_KEY, JSON.stringify(merged));
+  } catch {}
+  return merged;
+}
+
+export async function updateCentralMarketplaceOrderStatus(
   orderId: string,
-  updates: Partial<InvoiceRecord>
-): void {
+  updates: Partial<InvoiceRecord>,
+  userEmail?: string
+): Promise<{ success: boolean; cloudSynced?: boolean }> {
   const orders = getCentralMarketplaceOrders();
   const order = orders.find((o) => o.id === orderId);
   if (order) {
     Object.assign(order, updates, { updatedAt: Date.now() });
     localStorage.setItem(MARKETPLACE_ORDERS_KEY, JSON.stringify(orders));
-    const workshopId = order.workshopId || order.tenantId || 'central';
     tenantStorage.saveOrder(order).catch((err) => console.warn('Dexie save order error:', err));
   }
+
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (userEmail) headers['x-user-email'] = userEmail;
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.access_token) headers['Authorization'] = `Bearer ${data.session.access_token}`;
+    } catch {}
+
+    const res = await fetch(`/api/admin/marketplace/orders/${encodeURIComponent(orderId)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(updates),
+    });
+    if (res.ok) {
+      const json = await res.json().catch(() => ({}));
+      return { success: true, cloudSynced: Boolean(json.cloudSynced) };
+    }
+  } catch {}
+
+  return { success: false, cloudSynced: false };
 }
 
 // 6. Verified Reviews & Rating Guard

@@ -17,9 +17,11 @@ import {
   Lock,
   Globe,
   ExternalLink,
+  Trash2,
 } from 'lucide-react';
 import { playSuccessSound, playAlertSound, playErrorSound } from '../../lib/sounds';
 import { authedFetch } from '../../lib/apiClient';
+import { supabase } from '../../lib/supabase';
 
 interface UnifiedAICommandCenterProps {
   profile: UserProfile;
@@ -69,11 +71,15 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
   const loadMemories = async () => {
     setLoadingMemories(true);
     try {
-      const res = await fetch('/api/admin/memories', {
-        headers: {
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-        },
-      });
+      const headers: Record<string, string> = {
+        'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+      };
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.access_token) headers['Authorization'] = `Bearer ${data.session.access_token}`;
+      } catch {}
+
+      const res = await fetch('/api/admin/memories', { headers });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.memories)) {
@@ -85,6 +91,26 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
     } finally {
       setLoadingMemories(false);
     }
+  };
+
+  const handleDeleteMemory = async (memId: string) => {
+    try {
+      const headers: Record<string, string> = {
+        'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+      };
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.access_token) headers['Authorization'] = `Bearer ${data.session.access_token}`;
+      } catch {}
+      const res = await fetch(`/api/admin/memories/${encodeURIComponent(memId)}`, {
+        method: 'DELETE',
+        headers,
+      });
+      if (res.ok) {
+        setActiveMemories((prev) => prev.filter((m) => m.id !== memId));
+        playAlertSound();
+      }
+    } catch {}
   };
 
   useEffect(() => {
@@ -515,13 +541,23 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
                     key={mem.id}
                     className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-1.5"
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="font-mono text-[10px] text-amber-600 font-bold uppercase">
                         {mem.category || 'rule'}
                       </span>
-                      <span className="text-[9px] text-stone-400 font-mono">
-                        {mem.created_at ? new Date(mem.created_at).toLocaleDateString('ar-EG') : ''}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] text-stone-400 font-mono">
+                          {mem.created_at ? new Date(mem.created_at).toLocaleDateString('ar-EG') : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMemory(mem.id)}
+                          title="حذف القاعدة من الذاكرة"
+                          className="p-1 rounded-lg text-stone-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </div>
                     <p className="font-bold text-stone-800 dark:text-stone-200 text-[11px] leading-relaxed whitespace-pre-wrap">
                       {mem.instruction || mem.content}
