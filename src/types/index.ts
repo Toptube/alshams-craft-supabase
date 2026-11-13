@@ -59,6 +59,7 @@ export interface WorkshopProfile {
   artistName: string;
   gender: Gender;
   phoneNumber: string;
+  address?: string;
   country: string;
   callingCode?: string;
   currency: string;

@@ -66,8 +66,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         ) : (
           <div className="flex items-center gap-1.5">
-            <img src="/platform-logo-light.png" className="h-8 sm:h-9 w-auto dark:hidden" alt="منظومة الشمساوية" />
-            <img src="/platform-logo-dark.png" className="h-8 sm:h-9 w-auto hidden dark:block" alt="منظومة الشمساوية" />
+            <AlShamsBrandLogo maxWidth={140} maxHeight={44} alt="منظومة الشمساوية" />
           </div>
         )}
       </div>

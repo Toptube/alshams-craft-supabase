@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { UserProfile, Gender, getDefaultFamilyNickname } from '../../types';
+import { UserProfile, Gender, ThemeMode, getDefaultFamilyNickname } from '../../types';
 import { COUNTRIES_CONFIG, getGenderArtistTitle } from '../../utils/macrameMath';
 import { tenantStorage } from '../../db/dexieDB';
 import { updateWorkshopProfileInSupabase } from '../../db/supabaseService';
+import { MAIN_SECTIONS, SUB_CRAFTS_REGISTRY, MainSectionId } from '../../registry/craftsRegistry';
 import { NumberInput } from '../ui/NumberInput';
 import {
   SUPPORTED_LANGUAGES,
@@ -47,6 +48,11 @@ import {
   Copy,
   ShieldCheck,
   Zap,
+  MapPin,
+  Mail,
+  Layers,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { supabase, supabaseConfig } from '../../lib/supabase';
@@ -71,6 +77,8 @@ interface ProfileSettingsModalProps {
   onFactoryResetDone?: () => void;
   isPerformanceMode?: boolean;
   onTogglePerformanceMode?: (enabled?: boolean) => void;
+  themeMode?: ThemeMode;
+  onSelectThemeMode?: (mode: ThemeMode) => void;
 }
 
 export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
@@ -81,6 +89,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   onFactoryResetDone,
   isPerformanceMode,
   onTogglePerformanceMode,
+  themeMode = 'light',
+  onSelectThemeMode,
 }) => {
   const [localPerfMode, setLocalPerfMode] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -130,6 +140,13 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [gender, setGender] = useState<Gender>(profile.gender || 'female');
   const [countryName, setCountryName] = useState(profile.country || 'جمهورية مصر العربية');
   const [phoneNumber, setPhoneNumber] = useState(profile.phoneNumber || '');
+  const [address, setAddress] = useState(profile.address || (profile as any).settings?.address || '');
+  const [selectedCrafts, setSelectedCrafts] = useState<string[]>(
+    Array.isArray(profile.selectedCrafts) && profile.selectedCrafts.length > 0
+      ? profile.selectedCrafts
+      : ['macrame']
+  );
+  const [craftsFilterSection, setCraftsFilterSection] = useState<MainSectionId | 'all'>('all');
   const [logoUrl, setLogoUrl] = useState(profile.logoUrl || '');
   const [defaultWholesaleDiscountPercent, setDefaultWholesaleDiscountPercent] = useState<number>(
     profile.defaultWholesaleDiscountPercent ?? 25
@@ -403,6 +420,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         dailySalesReminderMode,
         dailySalesReminderTime,
         workshopClosingHour,
+        address: address.trim(),
         socials: {
           facebook: activeSocials.facebook ? socialUrls.facebook.trim() : undefined,
           instagram: activeSocials.instagram ? socialUrls.instagram.trim() : undefined,
@@ -413,8 +431,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         },
       };
 
-      // Only update allowed fields: brand_name, artist_name, gender, family_name,
-      // country, currency, phone, selected_crafts, settings, logo_data, welcome_shown
+      const safeSelectedCrafts = selectedCrafts.length > 0 ? selectedCrafts : ['macrame'];
+
+      // Only update allowed fields on workshops table: brand_name, artist_name, gender, family_name,
+      // country, currency, phone, selected_crafts, settings, logo_data, welcome_shown, store_slug
       const { updated, error } = await updateWorkshopProfileInSupabase(workshopId, {
         brandName: brandName.trim(),
         artistName: artistName.trim(),
@@ -423,7 +443,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         country: currentCountryConfig.name,
         currency: currentCountryConfig.currency,
         phone: phoneNumber.trim(),
-        selectedCrafts: profile.selectedCrafts || ['macrame'],
+        selectedCrafts: safeSelectedCrafts,
         settings: settingsPayload,
         logoData: logoUrl || '',
         welcomeShown: profile.welcomeShown,
@@ -442,6 +462,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         updated.dailySalesReminderMode = dailySalesReminderMode;
         updated.dailySalesReminderTime = dailySalesReminderTime;
         updated.workshopClosingHour = workshopClosingHour;
+        updated.address = address.trim();
+        updated.selectedCrafts = safeSelectedCrafts;
         updated.storeSlug = storeSlug.trim() || undefined;
         updated.store_slug = storeSlug.trim() || undefined;
         await tenantStorage.saveProfile(updated);
@@ -613,44 +635,45 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-stone-900 w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 text-stone-900 dark:text-stone-100 p-5 sm:p-7 relative text-right">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#05070B]/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-[#FAF5EB] dark:bg-[#060B18] w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] p-5 sm:p-7 relative text-right">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-stone-200 dark:border-stone-800">
+        <div className="flex items-center justify-between pb-4 border-b border-[#DEC9A8] dark:border-[#1B2B4B]">
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+            aria-label="إغلاق الإعدادات"
+            className="p-2 rounded-xl bg-[#FFFDF9] dark:bg-[#111E3A] text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#EADBC3] dark:hover:bg-[#1B2D54] border border-[#D8C5A8] dark:border-[#243760] transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100">
+              <h2 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#FAF5EB]">
                 إعدادات البراند وملف {getGenderArtistTitle(gender)}
               </h2>
-              <p className="text-[11px] text-stone-500 dark:text-stone-400">
-                تخصيص الهوية التجارية واللوجو الخاص، وإدارة أمان المنظومة
+              <p className="text-[11px] font-medium text-[#5A4B38] dark:text-[#D8C5A8]">
+                بيانات الورشة، الشعار، الحِرف المختارة، وأمان الحساب
               </p>
             </div>
-            <AlShamsBrandLogo maxWidth={125} />
+            <AlShamsBrandLogo maxWidth={135} maxHeight={52} />
           </div>
         </div>
 
         {/* Navigation Tabs */}
-        <div className="mt-4 flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-2 overflow-x-auto">
+        <div className="mt-4 flex items-center gap-2 border-b border-[#DEC9A8] dark:border-[#1B2B4B] pb-2.5 overflow-x-auto">
           <button
             type="button"
             onClick={() => {
               playButtonClickSound();
               setActiveTab('profile');
             }}
-            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer whitespace-nowrap ${
               activeTab === 'profile'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+                ? 'bg-[#EA580C] text-white shadow-sm'
+                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#EDE2D0] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
             }`}
           >
-            البيانات الأساسية للفنان
+            البيانات والورش المختارة
           </button>
           <button
             type="button"
@@ -658,14 +681,14 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               playButtonClickSound();
               setActiveTab('language');
             }}
-            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'language'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+                ? 'bg-[#EA580C] text-white shadow-sm'
+                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#EDE2D0] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
             }`}
           >
             <Globe className="w-3.5 h-3.5" />
-            <span>اللغة وتعدد اللغات</span>
+            <span>اللغة</span>
           </button>
           <button
             type="button"
@@ -673,17 +696,14 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               playButtonClickSound();
               setActiveTab('reminders');
             }}
-            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'reminders'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+                ? 'bg-[#EA580C] text-white shadow-sm'
+                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#EDE2D0] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
             }`}
           >
             <Bell className="w-3.5 h-3.5" />
             <span>التنبيهات اليومية</span>
-            {enableDailySalesReminder && (
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            )}
           </button>
           <button
             type="button"
@@ -691,10 +711,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               playButtonClickSound();
               setActiveTab('export_data');
             }}
-            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'export_data'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800'
+                ? 'bg-[#EA580C] text-white shadow-sm'
+                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#EDE2D0] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
             }`}
           >
             <Download className="w-3.5 h-3.5" />
@@ -706,10 +726,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               playButtonClickSound();
               setActiveTab('factory_reset');
             }}
-            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'factory_reset'
-                ? 'bg-rose-600 text-white shadow-sm'
-                : 'text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40'
+                ? 'bg-[#05070B] text-[#F59E0B] border border-[#EA580C] shadow-sm'
+                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#C2410C] dark:text-[#FB923C] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
             }`}
           >
             <ShieldAlert className="w-3.5 h-3.5" />
@@ -874,7 +894,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
               <div>
                 <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-                  رقم الهاتف المعتمد
+                  رقم الهاتف المعتمد *
                 </label>
                 <input
                   type="tel"
@@ -886,6 +906,174 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   dir="ltr"
                 />
               </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>البريد الإلكتروني (الجيميل)</span>
+                </label>
+                <input
+                  type="email"
+                  readOnly
+                  value={authUser?.email || profile.email || ''}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-100 dark:bg-stone-800/80 font-mono text-xs font-bold text-stone-600 dark:text-stone-300 outline-none text-left cursor-not-allowed"
+                  dir="ltr"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>عنوان الورشة</span>
+                </label>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="المحافظة / المدينة / عنوان الورشة"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Selected Workshops / Crafts List */}
+              <div className="sm:col-span-2 p-4 rounded-2xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1E2E52] space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-[#0C1427] text-[#F59E0B] flex items-center justify-center shrink-0">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                        الورش والحِرف المختارة في ورشتك ({selectedCrafts.length})
+                      </h4>
+                      <p className="text-[11px] text-[#4B5563] dark:text-[#D8CBB8]">
+                        حدد الحِرف التي تعمل بها ورشتك لتظهر في الحاسبة والكتالوج
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section filter buttons */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  <button
+                    type="button"
+                    onClick={() => setCraftsFilterSection('all')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap cursor-pointer transition ${
+                      craftsFilterSection === 'all'
+                        ? 'bg-[#0C1427] text-[#FAF5EB] dark:bg-[#EA580C] dark:text-white'
+                        : 'bg-[#FFFDF9] dark:bg-[#111E3A] text-[#0C1427] dark:text-[#E5D7C2] border border-[#DEC9A8] dark:border-[#243760]'
+                    }`}
+                  >
+                    الكل ({SUB_CRAFTS_REGISTRY.length})
+                  </button>
+                  {MAIN_SECTIONS.map((sec) => (
+                    <button
+                      key={sec.id}
+                      type="button"
+                      onClick={() => setCraftsFilterSection(sec.id)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap cursor-pointer transition ${
+                        craftsFilterSection === sec.id
+                          ? 'bg-[#0C1427] text-[#FAF5EB] dark:bg-[#EA580C] dark:text-white'
+                          : 'bg-[#FFFDF9] dark:bg-[#111E3A] text-[#0C1427] dark:text-[#E5D7C2] border border-[#DEC9A8] dark:border-[#243760]'
+                      }`}
+                    >
+                      {sec.nameAr}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Crafts Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-0.5">
+                  {(craftsFilterSection === 'all'
+                    ? SUB_CRAFTS_REGISTRY
+                    : SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === craftsFilterSection)
+                  ).map((craft) => {
+                    const checked = selectedCrafts.includes(craft.id);
+                    return (
+                      <button
+                        key={craft.id}
+                        type="button"
+                        onClick={() => {
+                          setValidationError('');
+                          if (checked) {
+                            if (selectedCrafts.length <= 1) {
+                              setValidationError('يجب الإبقاء على ورشة أو حرفة واحدة على الأقل.');
+                              return;
+                            }
+                            setSelectedCrafts(selectedCrafts.filter((id) => id !== craft.id));
+                          } else {
+                            setSelectedCrafts([...selectedCrafts, craft.id]);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border text-right flex items-center justify-between gap-2 cursor-pointer transition ${
+                          checked
+                            ? 'bg-[#0C1427] text-[#FAF5EB] border-[#EA580C] dark:bg-[#142347] dark:border-[#F59E0B]'
+                            : 'bg-[#FFFDF9] dark:bg-[#081022] text-[#0C1427] dark:text-[#E5D7C2] border-[#E4D6C0] dark:border-[#1E2E52] hover:border-[#EA580C]'
+                        }`}
+                      >
+                        <span className="text-xs font-bold truncate">{craft.nameAr}</span>
+                        <span
+                          className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
+                            checked
+                              ? 'bg-[#EA580C] text-white'
+                              : 'border border-[#C9B496] dark:border-[#334A7C]'
+                          }`}
+                        >
+                          {checked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Appearance Switcher inside Gear Settings */}
+              {onSelectThemeMode && (
+                <div className="sm:col-span-2 p-3.5 rounded-2xl bg-[#0C1427] text-[#FAF5EB] border border-[#EA580C]/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-black text-[#FBBF24] block">مظهر الواجهة والألوان</span>
+                    <span className="text-[11px] text-[#D8CBB8]">اختر الوضع المريح لعينك أثناء العمل</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => onSelectThemeMode('light')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center justify-center gap-1 cursor-pointer transition ${
+                        themeMode === 'light'
+                          ? 'bg-[#EA580C] text-white'
+                          : 'bg-[#142242] text-[#FAF5EB] hover:bg-[#1C2E57]'
+                      }`}
+                    >
+                      <Sun className="w-3.5 h-3.5" />
+                      <span>نهاري</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSelectThemeMode('night_focus')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center justify-center gap-1 cursor-pointer transition ${
+                        themeMode === 'night_focus'
+                          ? 'bg-[#EA580C] text-white'
+                          : 'bg-[#142242] text-[#FAF5EB] hover:bg-[#1C2E57]'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>سهر هادئ</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSelectThemeMode('dark')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center justify-center gap-1 cursor-pointer transition ${
+                        themeMode === 'dark'
+                          ? 'bg-[#EA580C] text-white'
+                          : 'bg-[#142242] text-[#FAF5EB] hover:bg-[#1C2E57]'
+                      }`}
+                    >
+                      <Moon className="w-3.5 h-3.5" />
+                      <span>داكن</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Wholesale margin discount percent */}
               <div className="sm:col-span-2 p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60">

@@ -1692,6 +1692,8 @@ export const App: React.FC = () => {
           }}
           isPerformanceMode={isPerformanceMode}
           onTogglePerformanceMode={handleTogglePerformanceMode}
+          themeMode={themeMode}
+          onSelectThemeMode={setThemeMode}
         />
       )}
 

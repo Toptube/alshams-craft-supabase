@@ -8,9 +8,9 @@ export const brandIconLight = '/brand_icon_light.png';
 export const brandIconDark = '/brand_icon_dark.png';
 export const alshamsFalconEmblemImg = brandIconLight;
 
-// Platform Calligraphy Logos (Light & Dark)
-export const brandLogoLight = '/platform-logo-light.png';
-export const brandLogoDark = '/platform-logo-dark.png';
+// Platform Calligraphy Logos (100% Transparent Light & Dark)
+export const brandLogoLight = '/assets/aistudio/platform_logo_light_2f80dd76.png';
+export const brandLogoDark = '/assets/aistudio/platform_logo_dark_26194bd4.png';
 export const alshamsOfficialBannerLogo = brandLogoLight;
 
 export const AlShamsSunIcon: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 20 }) => (
@@ -93,24 +93,28 @@ export const AlShamsFalconEmblem = AlShamsBrandIcon;
 export const AlShamsBrandLogo: React.FC<{
   className?: string;
   maxWidth?: number | string;
+  maxHeight?: number | string;
   size?: string;
   showSubtitle?: boolean;
   isDark?: boolean;
   alt?: string;
-}> = ({ className = '', maxWidth = 180, size, isDark, alt = 'منظومة الشمساوية' }) => {
+}> = ({ className = '', maxWidth = 180, maxHeight, size, isDark, alt = 'منظومة الشمساوية' }) => {
   let effectiveMaxWidth = maxWidth;
-  if (size === 'sm') effectiveMaxWidth = 130;
-  else if (size === 'md') effectiveMaxWidth = 155;
-  else if (size === 'lg') effectiveMaxWidth = 180;
+  if (size === 'sm') effectiveMaxWidth = 135;
+  else if (size === 'md') effectiveMaxWidth = 175;
+  else if (size === 'lg') effectiveMaxWidth = 240;
+
   const maxWStyle = typeof effectiveMaxWidth === 'number' ? `${effectiveMaxWidth}px` : effectiveMaxWidth;
+  const maxHStyle = maxHeight !== undefined ? (typeof maxHeight === 'number' ? `${maxHeight}px` : maxHeight) : undefined;
+  const sizeClasses = maxHStyle ? 'w-auto h-auto max-w-full' : 'w-full max-w-full h-auto';
 
   if (isDark === true) {
     return (
       <img
         src={brandLogoDark}
         alt={alt}
-        style={{ maxWidth: maxWStyle }}
-        className={`w-auto h-auto max-h-11 sm:max-h-12 object-contain select-none shrink-0 drop-shadow-[0_0_12px_rgba(56,189,248,0.4)] ${className}`}
+        style={{ maxWidth: maxWStyle, ...(maxHStyle ? { maxHeight: maxHStyle } : {}) }}
+        className={`${sizeClasses} bg-transparent object-contain select-none shrink-0 ${className}`}
       />
     );
   }
@@ -120,8 +124,8 @@ export const AlShamsBrandLogo: React.FC<{
       <img
         src={brandLogoLight}
         alt={alt}
-        style={{ maxWidth: maxWStyle }}
-        className={`w-auto h-auto max-h-11 sm:max-h-12 object-contain select-none shrink-0 ${className}`}
+        style={{ maxWidth: maxWStyle, ...(maxHStyle ? { maxHeight: maxHStyle } : {}) }}
+        className={`${sizeClasses} bg-transparent object-contain select-none shrink-0 ${className}`}
       />
     );
   }
@@ -129,17 +133,19 @@ export const AlShamsBrandLogo: React.FC<{
   return (
     <div
       style={{ maxWidth: maxWStyle }}
-      className={`relative inline-flex items-center justify-center select-none shrink-0 ${className}`}
+      className={`relative ${maxHStyle ? 'w-auto' : 'w-full'} bg-transparent inline-flex items-center justify-center select-none shrink-0 ${className}`}
     >
       <img
         src={brandLogoLight}
         alt={alt}
-        className="w-auto h-auto max-h-11 sm:max-h-12 object-contain dark:hidden select-none"
+        style={maxHStyle ? { maxHeight: maxHStyle } : undefined}
+        className={`${sizeClasses} bg-transparent object-contain dark:hidden select-none`}
       />
       <img
         src={brandLogoDark}
         alt={alt}
-        className="w-auto h-auto max-h-11 sm:max-h-12 object-contain hidden dark:block select-none drop-shadow-[0_0_12px_rgba(56,189,248,0.4)]"
+        style={maxHStyle ? { maxHeight: maxHStyle } : undefined}
+        className={`${sizeClasses} bg-transparent object-contain hidden dark:block select-none`}
       />
     </div>
   );

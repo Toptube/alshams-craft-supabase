@@ -330,6 +330,7 @@ export function mapWorkshopRowToUserProfile(row: any, userEmail?: string): UserP
     currency: row.currency || 'EGP',
     currencySymbol: row.currency_symbol || (row.currency === 'EGP' ? 'ج.م' : row.currency || 'ج.م'),
     phoneNumber: row.phone || row.phone_number || '',
+    address: row.address || row.settings?.address || '',
     selectedCrafts: Array.isArray(row.selected_crafts) && row.selected_crafts.length > 0
       ? row.selected_crafts
       : ['macrame'],

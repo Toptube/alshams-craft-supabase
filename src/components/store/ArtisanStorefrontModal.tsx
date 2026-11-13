@@ -477,7 +477,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
-            <AlShamsBrandLogo maxWidth={125} />
+            <AlShamsBrandLogo maxWidth={130} maxHeight={48} isDark={true} />
             <button
               type="button"
               onClick={onClose}
@@ -909,7 +909,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             <div className="p-5 sm:p-6 rounded-3xl bg-[#FDFBF7] text-[#0A1128] border-4 border-amber-500 shadow-2xl max-w-sm w-full space-y-4">
               <div className="space-y-2">
                 <div className="flex justify-center">
-                  <AlShamsBrandLogo maxWidth={140} />
+                  <AlShamsBrandLogo maxWidth={155} maxHeight={64} isDark={false} />
                 </div>
                 <span className="text-[10px] font-black uppercase tracking-widest text-amber-700 block">
                   منظومة الشمساوية • هاند ميد مصر ☀️

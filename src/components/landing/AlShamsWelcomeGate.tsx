@@ -135,7 +135,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
 
             {/* الشعار المعتمد للمنظومة بدون أي كروت أو إطارات صلبة */}
             <div className="relative mb-4 flex justify-center">
-              <AlShamsBrandLogo maxWidth={220} isDark={true} />
+              <AlShamsBrandLogo maxWidth={250} isDark={true} />
             </div>
 
             {/* ثنائي صقر وشموسة يرحبان بالزائر في الصدارة معاً (Frameless & Seamless) */}

@@ -161,7 +161,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* الشعار المعتمد للمنظومة بعرض لا يتجاوز 180px وبخلفية شفافة تماماً كأنه مدمج في نسيج الصفحة */}
           <div className="flex items-center gap-2 select-none shrink-0">
             <AlShamsFalconEmblem size="sm" className="hover:scale-105 transition-transform" />
-            <AlShamsBrandLogo maxWidth={175} />
+            <AlShamsBrandLogo maxWidth={155} maxHeight={52} />
           </div>
 
           {/* Quick Nav Links (Desktop) */}
@@ -239,7 +239,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             
             {/* The Official Landscape Banner Logo (Seamless Calligraphy) */}
             <div className="w-full max-w-xl px-2 mb-4 flex items-center justify-center">
-              <AlShamsBrandLogo maxWidth={280} />
+              <AlShamsBrandLogo maxWidth={320} />
             </div>
 
             {/* Visual Harmony: Center-Aligned Falcon Artisan Mascot with Hero Pitch */}
