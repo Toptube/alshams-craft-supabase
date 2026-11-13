@@ -28,6 +28,7 @@ import {
   PlusCircle,
   Zap,
   Calculator,
+  Globe,
 } from 'lucide-react';
 
 export interface StructuredCalculatorExport {
@@ -131,6 +132,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const [transferredNotice, setTransferredNotice] = useState(false);
   const [dailyRemaining, setDailyRemaining] = useState<number | null>(null);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
+  const [useGoogleSearch, setUseGoogleSearch] = useState(false);
 
   // Modern Chat UX additions: Auto-expanding, Voice, Attachments, Saved sessions & Menu
   const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
@@ -538,6 +540,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
       const payload: any = {
         message: textToSend || (att ? 'يرجى فحص وتحليل صورة المشغولة هندسياً بدقة، وتحديد أبعادها ومستلزمات إنتاجها والتكلفة وسعر البيع العادل جملة وقطاعي في السوق المصري.' : `استفسار حول: ${chip}`),
         actionChip: chip || null,
+        useSearch: useGoogleSearch,
         chatHistory: formattedHistory,
         workshopContext: {
           selectedCrafts: profile.selectedCrafts || ['macrame'],
@@ -972,29 +975,37 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                   </div>
                 )}
 
-                {/* المصادر */}
-                {msg.sources && msg.sources.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-stone-200 dark:border-stone-700">
-                    <button
-                      type="button"
-                      onClick={() => toggleSourceExpansion(msg.id)}
-                      className="flex items-center justify-between w-full text-[10px] font-bold text-amber-700 dark:text-amber-400"
-                    >
-                      <span>مصادر السوق المعتمدة ({msg.sources.length})</span>
-                      {expandedSources[msg.id] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    </button>
-                    {expandedSources[msg.id] && (
-                      <div className="mt-1 flex flex-wrap gap-1">
+                {/* شارة بحث جوجل والمصادر */}
+                {(msg.searchUsed || (msg.sources && msg.sources.length > 0)) && (
+                  <div className="mt-2 pt-2 border-t border-stone-200 dark:border-stone-700 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                        <Globe className="w-3 h-3" />
+                        <span>نتائج مدعومة ببحث جوجل المباشر</span>
+                      </span>
+                      {msg.sources && msg.sources.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => toggleSourceExpansion(msg.id)}
+                          className="flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 cursor-pointer"
+                        >
+                          <span>مصادر السوق ({msg.sources.length})</span>
+                          {expandedSources[msg.id] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        </button>
+                      )}
+                    </div>
+                    {msg.sources && msg.sources.length > 0 && expandedSources[msg.id] !== false && (
+                      <div className="flex flex-wrap gap-1">
                         {msg.sources.map((src, i) => (
                           <a
                             key={i}
                             href={src.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-[9px] px-1.5 py-0.5 rounded bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 flex items-center gap-1"
+                            className="text-[9px] px-1.5 py-0.5 rounded bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-amber-950/50 flex items-center gap-1"
                           >
                             <ExternalLink className="w-2.5 h-2.5 text-stone-400" />
-                            <span className="truncate max-w-[150px]">{src.title || src.url}</span>
+                            <span className="truncate max-w-[160px]">{src.title || src.url}</span>
                           </a>
                         ))}
                       </div>
@@ -1132,6 +1143,22 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           }`}
         >
           {isRecordingVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+        </button>
+
+        {/* زر بحث جوجل الحي 🌐 */}
+        <button
+          type="button"
+          onClick={() => setUseGoogleSearch((v) => !v)}
+          title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل لهذه المحادثة' : 'تفعيل بحث جوجل الحي للأسعار والموردين'}
+          aria-pressed={useGoogleSearch}
+          className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 flex items-center gap-1 text-xs font-bold ${
+            useGoogleSearch
+              ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/50'
+              : 'text-stone-500 hover:text-emerald-600 hover:bg-stone-100 dark:hover:bg-stone-800'
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+          <span className="hidden sm:inline text-[11px]">بحث جوجل</span>
         </button>
 
         {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}

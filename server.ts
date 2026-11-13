@@ -20,6 +20,10 @@ import {
   processTrainingInteraction,
   getActiveGlobalMemories,
 } from './server/aiGlobalMemory.js';
+import {
+  performGoogleSearch,
+  getAgentSecretStatus,
+} from './server/googleSearchService.js';
 
 dotenv.config();
 
@@ -1485,6 +1489,7 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
 
     const clientTreasury = Number(clientWorkshopState?.treasuryBalance ?? req.body?.treasuryBalance ?? 0);
 
+    const useSearch = Boolean(req.body?.useSearch);
     const result = await shamousaRunner(
       message.trim(),
       Array.isArray(history) ? history : [],
@@ -1497,6 +1502,7 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
         clientContext: clientWorkshopState,
         userEmail: email,
         isSuperAdmin: superAdmin,
+        useSearch,
       },
       Array.isArray(images) ? images : undefined
     );
@@ -1507,7 +1513,10 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
     res.json({
       reply: typeof result === 'string' ? result : (result.reply || ''),
       handoffToFalcon: Boolean(result?.handoffToFalcon),
-      provider: result?.provider || 'groq',
+      provider: result?.provider || 'gemini',
+      sources: Array.isArray(result?.sources) ? result.sources : [],
+      searchUsed: Boolean(result?.searchUsed),
+      searchEntryPoint: result?.searchEntryPoint,
       remaining,
     });
   } catch (err: any) {
@@ -1530,7 +1539,7 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
   const email = req.userEmail || req.user?.email || '';
   const superAdmin = isSuperAdmin(email);
 
-  const { message, actionChip, chatHistory, workshopContext, images } = req.body || {};
+  const { message, actionChip, chatHistory, workshopContext, images, useSearch } = req.body || {};
   if (!message && !actionChip && (!images || images.length === 0)) {
     res.status(400).json({ error: 'الرسالة أو الصورة مطلوبة' });
     return;
@@ -1595,6 +1604,7 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
       chatHistory: Array.isArray(chatHistory) ? chatHistory : [],
       userEmail: email,
       isSuperAdmin: superAdmin,
+      useSearch: Boolean(useSearch),
       images: Array.isArray(images) ? images : undefined,
       workshopContext: {
         ...(workshopContext || {}),
@@ -1718,6 +1728,36 @@ app.delete('/api/ai/session', requireAuth, (req: AuthenticatedRequest, res: Resp
   const wid = req.workshopId || '';
   clearWorkshopSession(wid);
   res.json({ ok: true });
+});
+
+// -------------------------------------------------------------
+// Live Google Search Grounding & AI Secrets Readiness Status
+// -------------------------------------------------------------
+const handleGoogleSearchRoute = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { query, agent, country } = req.body || {};
+    if (!query || typeof query !== 'string' || !query.trim()) {
+      res.status(400).json({ error: 'نص البحث مطلوب' });
+      return;
+    }
+    const targetAgent = agent === 'shamousa' ? 'shamousa' : agent === 'falcon' ? 'falcon' : 'search';
+    const result = await performGoogleSearch(query.trim(), {
+      agent: targetAgent,
+      country: typeof country === 'string' && country.trim() ? country.trim() : undefined,
+    });
+    res.json(result);
+  } catch (err: any) {
+    const statusCode = Number(err?.status) === 429 ? 429 : 502;
+    console.log('[Google Search Route Notice]:', statusCode, err?.message?.slice(0, 120));
+    res.status(statusCode).json({ error: err?.message || 'تعذر تنفيذ بحث جوجل حالياً' });
+  }
+};
+
+app.post('/api/ai/search', requireAuth, handleGoogleSearchRoute);
+app.post('/api/search/google', requireAuth, handleGoogleSearchRoute);
+
+app.get('/api/ai/status', (_req: Request, res: Response) => {
+  res.json(getAgentSecretStatus());
 });
 
 // -------------------------------------------------------------

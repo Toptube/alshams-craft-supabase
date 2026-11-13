@@ -1,56 +1,25 @@
 import React, { useState } from 'react';
-import { AlShamsBrandLogo, ArtisanAvatar } from '../brand/BrandAssets';
+import { ArtisanAvatar } from '../brand/BrandAssets';
 import { UserProfile, isUserAdmin, ThemeMode } from '../../types';
-import { getGenderGreeting } from '../../utils/macrameMath';
 import {
   X,
-  Calculator,
-  Sparkles,
-  FolderArchive,
-  BarChart3,
   Sun,
   Moon,
   LogOut,
   ChevronLeft,
-  ChevronDown,
-  Bell,
-  Wallet,
-  Boxes,
-  Truck,
-  Users,
-  Hammer,
-  FileText,
-  DollarSign,
   BookOpen,
   CloudUpload,
   Layers,
   Settings,
-  HelpCircle,
-  Home,
-  ShieldCheck,
-  Compass,
-  LayoutGrid,
-  ShoppingCart,
-  Users2,
-  Briefcase,
-  Sliders,
-  Database,
-  Building,
-  Mail,
-  Scale,
-  Download,
-  Check,
+  Eye,
+  MessageSquare,
   RefreshCw,
-  Store,
   ShoppingBag,
-  Package,
-  PackagePlus,
-  Zap,
   Globe,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
-import { tenantStorage } from '../../db/dexieDB';
-import { playSuccessSound, playErrorSound } from '../../lib/sounds';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
 interface SidebarDrawerProps {
@@ -88,18 +57,12 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   activeView,
   onSelectView,
   onNavigateToCatalog,
-  onOpenArtisanStore,
-  unreadNotificationsCount = 0,
-  unreadMessagesCount = 0,
-  onOpenNotifications,
-  onOpenMessagesHub,
   onOpenProfileSettings,
   onOpenCraftsSelector,
   onOpenUserGuide,
   onOpenCloudMigration,
   onOpenSupport,
   onStartTour,
-  onOpenPermissionsModal,
   onToggleDarkMode,
   isDarkMode,
   themeMode = 'light',
@@ -108,7 +71,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onTogglePerformanceMode,
   onLogout,
 }) => {
-  const { lang: currentLang, dir, t: tr } = useTranslation();
+  const { t: tr } = useTranslation();
+  const [isGearModalOpen, setIsGearModalOpen] = useState(false);
 
   const [localPerfMode, setLocalPerfMode] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -136,1309 +100,230 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
     }
   };
 
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
-    erp: false,
-    crm: false,
-    hr: false,
-    system: false,
-  });
-
-  const [isSavingBackup, setIsSavingBackup] = useState(false);
-  const [backupSuccessMessage, setBackupSuccessMessage] = useState('');
-  const [showCelebrationModal, setShowCelebrationModal] = useState(false);
-
-  const handleSaveWorkshopDataToDevice = async () => {
-    setIsSavingBackup(true);
-    setBackupSuccessMessage('');
-    try {
-      const tid = profile.tenantId || profile.workshopId || profile.id || 'default';
-      const [
-        treasuryTransactions,
-        customers,
-        suppliers,
-        supplierInvoices,
-        rawMaterials,
-        inventoryTransactions,
-        orders,
-        employees,
-        employeePayouts,
-        products,
-        adminCosts,
-        fixedAssets,
-      ] = await Promise.all([
-        tenantStorage.getSafeTransactions(tid).catch(() => []),
-        tenantStorage.getCustomers(tid).catch(() => []),
-        tenantStorage.getSuppliers(tid).catch(() => []),
-        tenantStorage.getSupplierInvoices(tid).catch(() => []),
-        tenantStorage.getRawMaterials(tid).catch(() => []),
-        tenantStorage.getInventoryTransactions(tid).catch(() => []),
-        tenantStorage.getOrders(tid).catch(() => []),
-        tenantStorage.getEmployees(tid).catch(() => []),
-        tenantStorage.getEmployeePayouts(tid).catch(() => []),
-        tenantStorage.getProducts(tid).catch(() => []),
-        tenantStorage.getAdminCosts(tid).catch(() => []),
-        tenantStorage.getFixedAssets(tid).catch(() => []),
-      ]);
-
-      // Agenda appointments from local store
-      let agendaAppointments = [];
-      try {
-        const rawAgenda = localStorage.getItem(`alshams_agenda_${tid}`);
-        if (rawAgenda) agendaAppointments = JSON.parse(rawAgenda);
-      } catch {}
-
-      const workshopArchive = {
-        منظومة_الشمساوية: 'نسخة_كاملة_2026',
-        اسم_الورشة: profile.brandName || 'ورشة الشمساوية',
-        اسم_الفنان: profile.artistName || 'فنان الشمساوية',
-        تاريخ_الحفظ: new Date().toLocaleDateString('ar-EG', { dateStyle: 'full' }),
-        وقت_الحفظ_الدقيق: new Date().toISOString(),
-        بيانات_الورشة_والإعدادات: profile,
-        الخامات_والمخزون: rawMaterials,
-        المنتجات: products,
-        المبيعات_والفواتير: orders,
-        الخزائن_والمعاملات: treasuryTransactions,
-        سجل_العملاء: customers,
-        سجل_الموردين: suppliers,
-        فواتير_الموردين: supplierInvoices,
-        فريق_العمل: employees,
-        سجل_المصروفات_والأجور: employeePayouts,
-        المصاريف_الإدارية: adminCosts,
-        الأصول_الثابتة: fixedAssets,
-        أجندة_المواعيد_والتسليم: agendaAppointments,
-        حركات_المخزن: inventoryTransactions,
-      };
-
-      const dataBlob = new Blob([JSON.stringify(workshopArchive, null, 2)], {
-        type: 'application/json;charset=utf-8',
-      });
-      const downloadUrl = URL.createObjectURL(dataBlob);
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.href = downloadUrl;
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const cleanBrand = (profile.brandName || 'ورشتي').replace(/\s+/g, '_');
-      downloadAnchor.download = `نسخة_بيانات_${cleanBrand}_${todayStr}.json`;
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      setTimeout(() => {
-        downloadAnchor.remove();
-        URL.revokeObjectURL(downloadUrl);
-      }, 500);
-
-      playSuccessSound();
-      setShowCelebrationModal(true);
-      setBackupSuccessMessage('تم حفظ كامل بيانات ورشتك بنجاح في جهازك، بياناتك في أمان تام');
-      setTimeout(() => {
-        setBackupSuccessMessage('');
-      }, 6000);
-    } catch (err) {
-      console.error('Save copy error:', err);
-      playErrorSound();
-    } finally {
-      setIsSavingBackup(false);
-    }
-  };
-
-  const toggleSection = (sec: string) => {
-    setCollapsedSections((prev) => ({
-      ...prev,
-      [sec]: !prev[sec],
-    }));
-  };
-
-  // Section 2: ERP (Resource Planning)
-  const erpModules = [
-    {
-      id: 'materials',
-      label: tr('mod_materials'),
-      sublabel: tr('sub_materials'),
-      icon: Layers,
-      badge: tr('badge_materials'),
-    },
-    {
-      id: 'purchases',
-      label: 'المشتريات وتوريد الخامات',
-      sublabel: 'فواتير التوريد والمدفوعات',
-      icon: PackagePlus,
-      badge: 'المشتريات',
-    },
-    {
-      id: 'suppliers',
-      label: tr('mod_suppliers'),
-      sublabel: tr('sub_suppliers'),
-      icon: Truck,
-      badge: tr('badge_suppliers'),
-    },
-    {
-      id: 'work_orders',
-      label: tr('mod_work_orders'),
-      sublabel: tr('sub_work_orders'),
-      icon: Hammer,
-      badge: tr('badge_work_orders'),
-    },
-    {
-      id: 'calculator',
-      label: tr('mod_calculator'),
-      sublabel: tr('sub_calculator'),
-      icon: Calculator,
-      badge: tr('badge_calculator'),
-    },
-    {
-      id: 'inventory',
-      label: tr('mod_inventory'),
-      sublabel: tr('sub_inventory'),
-      icon: Boxes,
-      badge: tr('badge_inventory'),
-    },
-    {
-      id: 'catalog',
-      label: tr('mod_catalog'),
-      sublabel: tr('sub_catalog'),
-      icon: BookOpen,
-      badge: tr('badge_catalog'),
-    },
-    {
-      id: 'archive',
-      label: tr('mod_archive'),
-      sublabel: tr('sub_archive'),
-      icon: FolderArchive,
-      badge: tr('badge_archive'),
-    },
-    {
-      id: 'treasuries',
-      label: tr('mod_treasuries'),
-      sublabel: tr('sub_treasuries'),
-      icon: Wallet,
-      badge: tr('badge_treasuries'),
-    },
-    {
-      id: 'accounts',
-      label: 'الحسابات والدفتر المالي',
-      sublabel: 'اليومية والأرباح والآجل',
-      icon: Scale,
-      badge: 'الدفتر',
-    },
-    {
-      id: 'fixed_assets',
-      label: tr('mod_fixed_assets'),
-      sublabel: tr('sub_fixed_assets'),
-      icon: Building,
-      badge: tr('badge_fixed_assets'),
-    },
-    {
-      id: 'currency_rates',
-      label: tr('mod_currency_rates'),
-      sublabel: tr('sub_currency_rates'),
-      icon: DollarSign,
-      badge: tr('badge_currency_rates'),
-    },
-  ];
-
-  // Section 3: CRM (Sales & Customer Relations)
-  const crmModules = [
-    {
-      id: 'sales',
-      label: tr('mod_sales'),
-      sublabel: tr('sub_sales'),
-      icon: ShoppingCart,
-      badge: tr('badge_sales'),
-    },
-    {
-      id: 'invoices',
-      label: tr('mod_invoices'),
-      sublabel: tr('sub_invoices'),
-      icon: FileText,
-      badge: tr('badge_invoices'),
-    },
-    {
-      id: 'customers',
-      label: tr('mod_customers'),
-      sublabel: tr('sub_customers'),
-      icon: Users,
-      badge: tr('badge_customers'),
-    },
-    {
-      id: 'store',
-      label: 'متجري',
-      sublabel: 'إدارة متجري والطلبيات المباشرة وتوليد كود QR للمشاركة',
-      icon: Store,
-      badge: 'متجري',
-    },
-    ...(isUserAdmin(profile)
-      ? [
-          {
-            id: 'marketplace',
-            label: 'سوق الشمساوية المركزي',
-            sublabel: 'سوق الحرفيين المشترك لعرض وبيع المشغولات وتقييمات المشترين',
-            icon: ShoppingBag,
-            badge: 'السوق',
-          },
-        ]
-      : []),
-  ];
-
-  // Section 4: HR (Human Resources)
-  const hrModules = [
-    {
-      id: 'hr',
-      label: tr('mod_hr'),
-      sublabel: tr('sub_hr'),
-      icon: Users2,
-      badge: tr('badge_hr'),
-    },
-    {
-      id: 'expenses',
-      label: tr('mod_expenses'),
-      sublabel: tr('sub_expenses'),
-      icon: DollarSign,
-      badge: tr('badge_expenses'),
-    },
-  ];
-
-  // Section 5: System & Data Management
-  const systemModules = [
-    {
-      id: 'reports',
-      label: tr('mod_reports'),
-      sublabel: tr('sub_reports'),
-      icon: BarChart3,
-      badge: tr('badge_reports'),
-    },
-    {
-      id: 'ai_agent',
-      label: tr('mod_ai_agent'),
-      sublabel: tr('sub_ai_agent'),
-      icon: Sparkles,
-      badge: tr('badge_ai_agent'),
-    },
-  ];
-
-  const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64;
-
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-start bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-stone-900 w-full max-w-xs sm:max-w-sm h-full shadow-2xl border-l border-stone-200 dark:border-stone-800 flex flex-col text-right animate-in slide-in-from-right duration-300">
-        {/* Top Header */}
-        <div className="p-4 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="إغلاق القائمة"
-            className="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-          <div className="flex items-center gap-2">
-            {workshopLogo ? (
-              <div className="flex items-center gap-2">
-                <img
-                  src={workshopLogo}
-                  className="h-8 w-8 rounded-xl object-contain border border-amber-500/30 bg-white dark:bg-stone-800 p-0.5 shadow-2xs"
-                  alt={profile.brandName || 'شعار الورشة'}
-                />
-                <span className="text-xs font-black text-stone-900 dark:text-stone-100 max-w-[140px] truncate">
-                  {profile.brandName}
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <img src="/platform-logo-light.png" className="h-8 w-auto dark:hidden" alt="منظومة الشمساوية" />
-                <img src="/platform-logo-dark.png" className="h-8 w-auto hidden dark:block" alt="منظومة الشمساوية" />
-              </div>
-            )}
-          </div>
-        </div>
+  const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64;
+  const isAdmin = isUserAdmin(profile);
 
-        {/* Artisan / Super Admin Profile Card */}
-        {isUserAdmin(profile) ? (
-          <div className="p-4 bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white border-b border-amber-500/40 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-400 text-amber-300 flex items-center justify-center text-xl shadow-md">
-                👑
-              </div>
-              <div className="text-right">
-                <div className="flex items-center gap-1.5">
-                  <h4 className="font-black text-xs text-amber-200">كبير عيلة الشمساوية</h4>
-                  <span className="text-[8px] px-1.5 py-0.2 rounded bg-amber-500 text-stone-950 font-mono font-black">SUPER</span>
-                </div>
-                <p className="text-[10px] text-stone-300 font-bold font-mono truncate max-w-[170px]" dir="ltr">
-                  {profile.email || 'hmb.top.tube@gmail.com'}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                onOpenProfileSettings();
-                onClose();
-              }}
-              title={tr('workshop_profile_settings')}
-              className="p-2 rounded-xl text-stone-400 hover:text-amber-300 hover:bg-white/10 transition cursor-pointer"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="p-4 bg-stone-50 dark:bg-stone-800/40 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+  return (
+    <div
+      className="fixed inset-0 z-50 flex justify-start bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+      dir="rtl"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="bg-white dark:bg-stone-900 w-full max-w-xs sm:max-w-sm h-full shadow-2xl border-l border-stone-200 dark:border-stone-800 flex flex-col text-right animate-in slide-in-from-right duration-300 relative">
+        {/* 1. تنظيف الهيدر العلوي للقائمة: [ لوجو الورشة واسم الحرفي + أيقونة الترس ⚙️ للإعدادات + زر الإغلاق ✕ ] */}
+        <div className="p-4 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2 bg-stone-50/80 dark:bg-stone-900">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {workshopLogo ? (
+              <img
+                src={workshopLogo}
+                alt={profile.brandName || profile.artistName || 'شعار الورشة'}
+                className="h-10 w-10 rounded-xl object-contain border border-amber-500/30 bg-white dark:bg-stone-800 p-0.5 shadow-2xs shrink-0"
+              />
+            ) : (
               <ArtisanAvatar
                 logoUrl={profile.logoBase64}
                 artistName={profile.artistName}
                 size="md"
+                className="shrink-0"
               />
-              <div className="text-right">
-                <h4 className="font-black text-xs text-stone-900 dark:text-stone-100">
-                  {profile.artistName}
-                </h4>
-                <p className="text-[10px] text-stone-500 font-medium">
-                  {profile.brandName || tr('workshop_hub_desc')}
-                </p>
-              </div>
+            )}
+            <div className="min-w-0 text-right">
+              <h4 className="font-black text-xs sm:text-sm text-stone-900 dark:text-stone-100 truncate">
+                {profile.artistName || 'فنان الشمساوية'}
+              </h4>
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 font-bold truncate">
+                {profile.brandName || 'منظومة الشمساوية'}
+              </p>
             </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
-              onClick={() => {
-                onOpenProfileSettings();
-                onClose();
-              }}
-              title={tr('workshop_profile_settings')}
-              className="p-2 rounded-xl text-stone-500 hover:text-amber-600 hover:bg-stone-200 dark:hover:bg-stone-700 transition cursor-pointer"
+              onClick={() => setIsGearModalOpen(true)}
+              aria-label="إعدادات الورشة والمظهر"
+              title="الإعدادات وأقسام الورشة والمظهر"
+              className="p-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-amber-400 text-stone-600 dark:text-stone-300 hover:text-amber-600 dark:hover:text-amber-400 transition cursor-pointer shadow-2xs active:scale-95"
             >
               <Settings className="w-4 h-4" />
             </button>
-          </div>
-        )}
-
-        {/* Core Account Controls: [ إعدادات الورشة والبراند - التبديل بين الورش - تسجيل الخروج ] */}
-        <div className="p-3 bg-stone-100 dark:bg-stone-850 border-b border-stone-200 dark:border-stone-800 space-y-1.5">
-          <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
-              onClick={() => {
-                onOpenProfileSettings();
-                onClose();
-              }}
-              className="px-3 py-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-amber-400 font-bold text-stone-800 dark:text-stone-200 hover:text-amber-600 text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+              onClick={onClose}
+              aria-label="إغلاق القائمة"
+              title="إغلاق"
+              className="p-2 rounded-xl hover:bg-stone-200/70 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition cursor-pointer active:scale-95"
             >
-              <Settings className="w-3.5 h-3.5 text-amber-500" />
-              <span>إعدادات الورشة والبراند ⚙️</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                onSelectView('admin');
-                onClose();
-              }}
-              className="px-3 py-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-amber-400 font-bold text-stone-800 dark:text-stone-200 hover:text-amber-600 text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
-            >
-              <Building className="w-3.5 h-3.5 text-blue-500" />
-              <span>التبديل بين الورش</span>
+              <X className="w-5 h-5" />
             </button>
           </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              onLogout();
-              onClose();
-            }}
-            className="w-full py-1.5 px-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 font-bold text-rose-600 dark:text-rose-400 text-xs flex items-center justify-center gap-1.5 hover:bg-rose-100 transition cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>تسجيل الخروج 🚪</span>
-          </button>
         </div>
 
-        {/* Quick Actions Bar (الإشعارات، الدارك مود، حِرف الورشة) */}
-        <div className="p-2.5 bg-amber-500/10 dark:bg-amber-950/20 border-b border-amber-200/40 dark:border-amber-900/40 grid grid-cols-3 gap-1.5 text-center text-xs">
+        {/* 3. الترتيب الأوسط للقائمة: روابط التنقل الأساسية للورشة فقط بشكل بسيط وسلس */}
+        <nav className="flex-1 overflow-y-auto p-4 space-y-2.5">
+          {/* منصتي (الكتالوج والمتجر) */}
           <button
             type="button"
             onClick={() => {
-              onOpenNotifications();
-              onClose();
-            }}
-            className="relative py-2 px-1 rounded-xl bg-white dark:bg-stone-800 border border-amber-200/80 dark:border-stone-700 font-bold text-stone-800 dark:text-stone-200 hover:bg-amber-50 transition cursor-pointer flex flex-col items-center justify-center gap-1 shadow-2xs"
-          >
-            <Bell className="w-4 h-4 text-amber-600" />
-            <span className="text-[10px]">{tr('notifications')}</span>
-            {unreadNotificationsCount > 0 && (
-              <span className="absolute top-1 right-2 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[8px] font-mono font-black text-white animate-pulse">
-                {unreadNotificationsCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              onOpenCraftsSelector();
-              onClose();
-            }}
-            className="py-2 px-1 rounded-xl bg-white dark:bg-stone-800 border border-amber-200/80 dark:border-stone-700 font-bold text-stone-800 dark:text-stone-200 hover:bg-amber-50 transition cursor-pointer flex flex-col items-center justify-center gap-1 shadow-2xs"
-          >
-            <Layers className="w-4 h-4 text-amber-600" />
-            <span className="text-[10px]">{tr('workshop_crafts')}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onToggleDarkMode}
-            className="py-2 px-1 rounded-xl bg-white dark:bg-stone-800 border border-amber-200/80 dark:border-stone-700 font-bold text-stone-800 dark:text-stone-200 hover:bg-amber-50 transition cursor-pointer flex flex-col items-center justify-center gap-1 shadow-2xs"
-          >
-            {isDarkMode ? (
-              <>
-                <Sun className="w-4 h-4 text-amber-400" />
-                <span className="text-[10px]">{tr('light_mode')}</span>
-              </>
-            ) : (
-              <>
-                <Moon className="w-4 h-4 text-stone-600" />
-                <span className="text-[10px]">{tr('dark_mode')}</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* ========================================================= */}
-        {/* RESTRUCTURED ENTERPRISE NAVIGATION (SaaS Hierarchy) */}
-        {/* ========================================================= */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-3">
-          {/* ========================================================= */}
-          {/* المسارات الأساسية الصريحة لمنصتي والمتجر والكتالوج والسوق */}
-          {/* ========================================================= */}
-          <div className="p-2.5 rounded-2xl bg-amber-500/10 dark:bg-amber-950/25 border border-amber-300/80 dark:border-amber-700/50 space-y-2">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[11px] font-black text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
-                <span>🌐</span>
-                <span>منصتي والمسارات المباشرة</span>
-              </span>
-              <span className="text-[8.5px] px-1.5 py-0.5 rounded bg-amber-500 text-stone-950 font-black font-mono">
-                DIRECT
-              </span>
-            </div>
-
-            {/* 1. منصتي (الكتالوج والمتجر) */}
-            <button
-              type="button"
-              onClick={() => {
-                if (onNavigateToCatalog) onNavigateToCatalog('catalog');
-                else onSelectView('catalog');
-                onClose();
-              }}
-              className="w-full p-2.5 rounded-xl bg-white dark:bg-stone-850 border border-amber-300 dark:border-amber-700/60 hover:border-amber-500 font-black text-stone-900 dark:text-stone-100 text-xs flex items-center justify-between transition cursor-pointer shadow-2xs group"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-                  <Globe className="w-4 h-4" />
-                </div>
-                <div className="text-right">
-                  <span className="block font-black text-xs text-stone-900 dark:text-stone-100">
-                    منصتي (الكتالوج والمتجر) 🌐
-                  </span>
-                  <span className="block text-[9.5px] text-stone-500 dark:text-stone-400">
-                    الكتالوج الشامل + المتجر الخاص
-                  </span>
-                </div>
-              </div>
-              <ChevronLeft className="w-4 h-4 text-amber-500 group-hover:-translate-x-0.5 transition-transform" />
-            </button>
-
-            {/* 2 & 3: الكتالوج المرجعي ومتجري الخاص */}
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  if (onNavigateToCatalog) onNavigateToCatalog('catalog');
-                  else onSelectView('catalog');
-                  onClose();
-                }}
-                className="p-2 rounded-xl bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-700 hover:border-amber-400 font-bold text-stone-800 dark:text-stone-200 text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
-              >
-                <Package className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span className="text-[11px] truncate">الكتالوج المرجعي 📦</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (onOpenArtisanStore) onOpenArtisanStore();
-                  else if (onNavigateToCatalog) onNavigateToCatalog('store');
-                  else onSelectView('store');
-                  onClose();
-                }}
-                className="p-2 rounded-xl bg-[#0c1427] hover:bg-[#131e38] border border-amber-500/40 font-bold text-amber-300 text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
-              >
-                <Store className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span className="text-[11px] truncate">متجري الخاص 🏪</span>
-              </button>
-            </div>
-
-            {/* 4. سوق الشمساوية المركزي */}
-            <button
-              type="button"
-              onClick={() => {
-                onSelectView('marketplace');
-                onClose();
-              }}
-              className="w-full p-2 rounded-xl bg-white dark:bg-stone-850 border border-emerald-200 dark:border-emerald-900/50 hover:border-emerald-400 font-bold text-stone-800 dark:text-stone-200 text-xs flex items-center justify-between transition cursor-pointer shadow-2xs"
-            >
-              <div className="flex items-center gap-2">
-                <ShoppingBag className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span className="text-xs">سوق الشمساوية المركزي 🛍️</span>
-              </div>
-              <ChevronLeft className="w-3.5 h-3.5 text-stone-400" />
-            </button>
-          </div>
-
-          {isUserAdmin(profile) ? (
-            <div className="space-y-2">
-              <div className="p-3 rounded-2xl bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 border border-amber-500/40 text-white space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-black text-amber-300 flex items-center gap-1.5">
-                    <span>👑</span>
-                    <span>منظومة الحوكمة والتحكم المركزي</span>
-                  </span>
-                  <span className="text-[8.5px] px-1.5 py-0.5 rounded-full bg-amber-500 text-stone-950 font-black font-mono">
-                    MASTER ERP
-                  </span>
-                </div>
-                <p className="text-[10px] text-stone-300 leading-tight">
-                  كبير عيلة الشمساوية • إشراف كامل وتجاوز عزل الورش
-                </p>
-              </div>
-
-              {/* Master Super Admin Navigation Links */}
-              {[
-                {
-                  id: 'admin',
-                  label: 'لوحة التحكم وإدارة الورش',
-                  sublabel: 'إشراف، إيقاف، حظر، وتكريم الورش',
-                  icon: ShieldCheck,
-                  color: 'text-amber-500',
-                  bg: 'bg-amber-500/10',
-                },
-                {
-                  id: 'ai_agent',
-                  label: 'المساعد الذكي (صقر & شموسة)',
-                  sublabel: 'الرؤية الهندسية وبروتوكول التدريب المباشر',
-                  icon: Sparkles,
-                  color: 'text-yellow-500',
-                  bg: 'bg-yellow-500/10',
-                },
-                {
-                  id: 'materials',
-                  label: 'مستودع الخامات المركزي',
-                  sublabel: 'جرد وتحديث أسعار تكلفة خامات المنظومة',
-                  icon: Layers,
-                  color: 'text-blue-500',
-                  bg: 'bg-blue-500/10',
-                },
-                {
-                  id: 'catalog',
-                  label: 'كتالوج ومنتجات الورش',
-                  sublabel: 'استعراض كافة المنتجات والتسعير الحرفي',
-                  icon: BookOpen,
-                  color: 'text-emerald-500',
-                  bg: 'bg-emerald-500/10',
-                },
-                {
-                  id: 'hr',
-                  label: 'جهات الاتصال وفرق العمل',
-                  sublabel: 'العملاء، الموردين، والحرفيين والصناع',
-                  icon: Users,
-                  color: 'text-purple-500',
-                  bg: 'bg-purple-500/10',
-                },
-                {
-                  id: 'treasuries',
-                  label: 'الخزائن والأرشيف المالي',
-                  sublabel: 'أرصدة الخزائن وحركات التحويل والطلبيات',
-                  icon: Wallet,
-                  color: 'text-teal-500',
-                  bg: 'bg-teal-500/10',
-                },
-                {
-                  id: 'appeals',
-                  label: 'مركز الطعون والشكاوى',
-                  sublabel: 'مراجعة طعون الورش الموقوفة وفك التجميد',
-                  icon: Scale,
-                  color: 'text-rose-500',
-                  bg: 'bg-rose-500/10',
-                },
-                {
-                  id: 'messaging',
-                  label: 'مركز المراسلات (بوسطة)',
-                  sublabel: 'إرسال التعميمات واستقبال ردود الفنانين',
-                  icon: Mail,
-                  color: 'text-sky-500',
-                  bg: 'bg-sky-500/10',
-                },
-              ].map((item) => {
-                const Icon = item.icon;
-                const isActive = activeView === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      if (item.id === 'messaging' && onOpenMessagesHub) {
-                        onOpenMessagesHub();
-                      } else {
-                        onSelectView(item.id);
-                      }
-                      onClose();
-                    }}
-                    className={`w-full p-2.5 rounded-2xl flex items-center justify-between text-right transition-all cursor-pointer border ${
-                      isActive
-                        ? 'bg-amber-600 text-white font-black shadow-md border-amber-500'
-                        : 'bg-stone-50/80 dark:bg-stone-850/60 hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200 border-stone-200 dark:border-stone-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                          isActive ? 'bg-white/20 text-white' : `${item.bg} ${item.color}`
-                        }`}
-                      >
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-black block">{item.label}</span>
-                        <span
-                          className={`text-[9.5px] block leading-tight ${
-                            isActive ? 'text-amber-100' : 'text-stone-400'
-                          }`}
-                        >
-                          {item.sublabel}
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronLeft className={`w-4 h-4 ${isActive ? 'text-white' : 'text-stone-300'}`} />
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <>
-              {/* 1. التطبيقات (الرئيسية مع كل أزرار التطبيقات) */}
-              <div className="pb-1">
-            <button
-              type="button"
-              onClick={() => {
-                onSelectView('home');
-                onClose();
-              }}
-              className={`w-full p-3 rounded-2xl flex items-center justify-between text-right transition-all cursor-pointer border ${
-                activeView === 'home' || activeView === 'create_center'
-                  ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-md border-amber-500 font-black'
-                  : 'bg-amber-50/70 dark:bg-stone-800/80 hover:bg-amber-100/70 text-stone-900 dark:text-stone-100 border-amber-200 dark:border-stone-700'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <div
-                  className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                    activeView === 'home' || activeView === 'create_center'
-                      ? 'bg-white/20 text-white'
-                      : 'bg-amber-500 text-white shadow-xs'
-                  }`}
-                >
-                  <LayoutGrid className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="text-xs font-black block">{tr('sec_apps')}</span>
-                  <span
-                    className={`text-[9.5px] block leading-tight ${
-                      activeView === 'home' || activeView === 'create_center'
-                        ? 'text-amber-100'
-                        : 'text-stone-500 dark:text-stone-400'
-                    }`}
-                  >
-                    {tr('sec_apps_sub')}
-                  </span>
-                </div>
-              </div>
-              <ChevronLeft
-                className={`w-4 h-4 ${
-                  activeView === 'home' || activeView === 'create_center'
-                    ? 'text-white'
-                    : 'text-amber-600'
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* 2. تخطيط الموارد (ERP) */}
-          <div className="rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/40 p-1.5 space-y-1">
-            <button
-              type="button"
-              onClick={() => toggleSection('erp')}
-              className="w-full px-2.5 py-1.5 flex items-center justify-between text-right cursor-pointer group"
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 text-[10px] font-black font-mono">
-                  ERP
-                </span>
-                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-blue-600 transition-colors">
-                  {tr('sec_erp')}
-                </span>
-              </div>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
-                  collapsedSections.erp ? '-rotate-90' : ''
-                }`}
-              />
-            </button>
-
-            {!collapsedSections.erp && (
-              <div className="space-y-0.5 pt-0.5">
-                {erpModules.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeView === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectView(item.id);
-                        onClose();
-                      }}
-                      className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-blue-600 text-white font-black shadow-xs'
-                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            isActive
-                              ? 'bg-white/20 text-white'
-                              : 'bg-stone-100 dark:bg-stone-800 text-blue-600 dark:text-blue-400'
-                          }`}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold block">{item.label}</span>
-                          <span
-                            className={`text-[9px] block leading-tight ${
-                              isActive ? 'text-blue-100' : 'text-stone-400'
-                            }`}
-                          >
-                            {item.sublabel}
-                          </span>
-                        </div>
-                      </div>
-                      <ChevronLeft
-                        className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-stone-300'}`}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* 3. المبيعات والعلاقات (CRM) */}
-          <div className="rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/40 p-1.5 space-y-1">
-            <button
-              type="button"
-              onClick={() => toggleSection('crm')}
-              className="w-full px-2.5 py-1.5 flex items-center justify-between text-right cursor-pointer group"
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 text-[10px] font-black font-mono">
-                  CRM
-                </span>
-                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-emerald-600 transition-colors">
-                  {tr('sec_crm')}
-                </span>
-              </div>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
-                  collapsedSections.crm ? '-rotate-90' : ''
-                }`}
-              />
-            </button>
-
-            {!collapsedSections.crm && (
-              <div className="space-y-0.5 pt-0.5">
-                {crmModules.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeView === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectView(item.id);
-                        onClose();
-                      }}
-                      className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-emerald-600 text-white font-black shadow-xs'
-                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            isActive
-                              ? 'bg-white/20 text-white'
-                              : 'bg-stone-100 dark:bg-stone-800 text-emerald-600 dark:text-emerald-400'
-                          }`}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold block">{item.label}</span>
-                          <span
-                            className={`text-[9px] block leading-tight ${
-                              isActive ? 'text-emerald-100' : 'text-stone-400'
-                            }`}
-                          >
-                            {item.sublabel}
-                          </span>
-                        </div>
-                      </div>
-                      <ChevronLeft
-                        className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-stone-300'}`}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* 4. الموارد البشرية (HR) */}
-          <div className="rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/40 p-1.5 space-y-1">
-            <button
-              type="button"
-              onClick={() => toggleSection('hr')}
-              className="w-full px-2.5 py-1.5 flex items-center justify-between text-right cursor-pointer group"
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="px-1.5 py-0.5 rounded-md bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 text-[10px] font-black font-mono">
-                  HR
-                </span>
-                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-purple-600 transition-colors">
-                  {tr('sec_hr')}
-                </span>
-              </div>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
-                  collapsedSections.hr ? '-rotate-90' : ''
-                }`}
-              />
-            </button>
-
-            {!collapsedSections.hr && (
-              <div className="space-y-0.5 pt-0.5">
-                {hrModules.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeView === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectView(item.id);
-                        onClose();
-                      }}
-                      className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-purple-600 text-white font-black shadow-xs'
-                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            isActive
-                              ? 'bg-white/20 text-white'
-                              : 'bg-stone-100 dark:bg-stone-800 text-purple-600 dark:text-purple-400'
-                          }`}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold block">{item.label}</span>
-                          <span
-                            className={`text-[9px] block leading-tight ${
-                              isActive ? 'text-purple-100' : 'text-stone-400'
-                            }`}
-                          >
-                            {item.sublabel}
-                          </span>
-                        </div>
-                      </div>
-                      <ChevronLeft
-                        className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-stone-300'}`}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* 5. إدارة النظام والبيانات (System & Data Management) */}
-          <div className="rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-850/40 p-1.5 space-y-1">
-            <button
-              type="button"
-              onClick={() => toggleSection('system')}
-              className="w-full px-2.5 py-1.5 flex items-center justify-between text-right cursor-pointer group"
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="px-1.5 py-0.5 rounded-md bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-[10px] font-black font-mono">
-                  SYSTEM
-                </span>
-                <span className="text-xs font-black text-stone-900 dark:text-stone-100 group-hover:text-amber-600 transition-colors">
-                  {tr('sec_system')}
-                </span>
-              </div>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-stone-400 transition-transform duration-200 ${
-                  collapsedSections.system ? '-rotate-90' : ''
-                }`}
-              />
-            </button>
-
-            {!collapsedSections.system && (
-              <div className="space-y-0.5 pt-0.5">
-                {/* Admin Dashboard if authorized */}
-                {isUserAdmin(profile) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSelectView('admin');
-                      onClose();
-                    }}
-                    className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
-                      activeView === 'admin'
-                        ? 'bg-purple-700 text-white font-black shadow-xs'
-                        : 'text-purple-800 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 flex items-center justify-center">
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-black block">{tr('mod_admin')}</span>
-                        <span className="text-[9px] text-stone-400 block">{tr('sub_admin')}</span>
-                      </div>
-                    </div>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900 font-mono">
-                      Admin
-                    </span>
-                  </button>
-                )}
-
-                {systemModules.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeView === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectView(item.id);
-                        onClose();
-                      }}
-                      className={`w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-amber-600 text-white font-black shadow-xs'
-                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            isActive
-                              ? 'bg-white/20 text-white'
-                              : 'bg-stone-100 dark:bg-stone-800 text-amber-600 dark:text-amber-400'
-                          }`}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold block">{item.label}</span>
-                          <span
-                            className={`text-[9px] block leading-tight ${
-                              isActive ? 'text-amber-100' : 'text-stone-400'
-                            }`}
-                          >
-                            {item.sublabel}
-                          </span>
-                        </div>
-                      </div>
-                      <ChevronLeft
-                        className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-stone-300'}`}
-                      />
-                    </button>
-                  );
-                })}
-
-                {/* مركز المراسلات والإعلانات */}
-                {onOpenMessagesHub && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpenMessagesHub();
-                      onClose();
-                    }}
-                    className="w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer text-stone-700 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-amber-950/40"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-lg bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 flex items-center justify-center">
-                        <Mail className="w-3.5 h-3.5" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold block">مركز المراسلات (بوسطة)</span>
-                          {unreadMessagesCount > 0 && (
-                            <span className="px-1.5 py-0.2 bg-amber-500 text-stone-900 text-[10px] font-black rounded-full animate-bounce">
-                              {unreadMessagesCount}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[9px] text-stone-400 block">
-                          توجيهات وإعلانات إدارة المنظومة
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronLeft className="w-3.5 h-3.5 text-stone-300" />
-                  </button>
-                )}
-
-                {/* اعدادات الورشة */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenProfileSettings();
-                    onClose();
-                  }}
-                  className="w-full px-2.5 py-2 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center">
-                      <Settings className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold block">{tr('mod_settings')}</span>
-                      <span className="text-[9px] text-stone-400 block">
-                        {tr('sub_settings')}
-                      </span>
-                    </div>
-                  </div>
-                  <ChevronLeft className="w-3.5 h-3.5 text-stone-300" />
-                </button>
-
-                {/* قسم اختيار لغة المنظومة (Language Switcher) */}
-                <div className="p-3 rounded-2xl bg-[#0C1427] border-2 border-amber-500/40 shadow-xl space-y-2">
-                  <div className="flex items-center justify-between text-xs font-black text-white">
-                    <span className="flex items-center gap-1.5 text-amber-300">
-                      <Globe className="w-3.5 h-3.5 text-amber-400" />
-                      <span>لغة المنظومة</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onOpenProfileSettings()}
-                      className="text-[10px] text-amber-400 hover:underline cursor-pointer"
-                    >
-                      تخصيص اللغات
-                    </button>
-                  </div>
-                  <div className="pt-0.5">
-                    <LanguageSwitcher onOpenSettingsModal={onOpenProfileSettings} />
-                  </div>
-                </div>
-
-                {/* وضع السهر الحرفي المريح للعين ومظهر الورشة (تباين حاد وألوان حرفية ناصعة) */}
-                {onSelectThemeMode && (
-                  <div className="p-3 rounded-2xl bg-[#0C1427] border-2 border-amber-500/40 shadow-xl space-y-2.5">
-                    <div className="flex items-center justify-between text-xs font-black text-white">
-                      <span className="flex items-center gap-1.5 text-amber-300">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                        <span>مظهر الورشة وإضاءة العمل</span>
-                      </span>
-                      <span className="text-[11px] text-amber-200 font-black px-2 py-0.5 rounded-full bg-amber-950/80 border border-amber-500/50">
-                        {themeMode === 'night_focus' ? 'سهر هادئ 🌙' : themeMode === 'dark' ? 'داكن 🌑' : 'نهاري ☀️'}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => onSelectThemeMode('light')}
-                        className={`py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer ${
-                          themeMode === 'light'
-                            ? 'bg-amber-600 text-white shadow-md border border-amber-400 ring-2 ring-amber-400/40'
-                            : 'bg-[#131E38] text-amber-200 hover:bg-[#1D2F57] border border-amber-500/30'
-                        }`}
-                        title="الوضع النهاري المشرق"
-                      >
-                        <Sun className="w-3.5 h-3.5 text-amber-400" />
-                        <span>نهاري</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSelectThemeMode('night_focus')}
-                        className={`py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer ${
-                          themeMode === 'night_focus'
-                            ? 'bg-amber-600 text-white shadow-md border border-amber-400 ring-2 ring-amber-400/40'
-                            : 'bg-[#131E38] text-amber-200 hover:bg-[#1D2F57] border border-amber-500/30'
-                        }`}
-                        title="وضع السهر الهادئ - درجات الكهرمان المريحة للعين"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                        <span>سهر هادئ</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSelectThemeMode('dark')}
-                        className={`py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer ${
-                          themeMode === 'dark'
-                            ? 'bg-amber-600 text-white shadow-md border border-amber-400 ring-2 ring-amber-400/40'
-                            : 'bg-[#131E38] text-amber-200 hover:bg-[#1D2F57] border border-amber-500/30'
-                        }`}
-                        title="الوضع الداكن الليلي"
-                      >
-                        <Moon className="w-3.5 h-3.5 text-amber-400" />
-                        <span>داكن</span>
-                      </button>
-                    </div>
-
-                    {/* مفتاح تقليل الحركة وسلاسة الأجهزة الضعيفة */}
-                    <div className="pt-2.5 mt-2 border-t border-amber-500/20 flex items-center justify-between gap-2">
-                      <div className="text-right min-w-0">
-                        <div className="flex items-center gap-1.5 text-xs font-black text-amber-300">
-                          <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span className="truncate">وضع الأداء السريع / تقليل الحركة والانتقالات ⚡</span>
-                        </div>
-                        <span className="text-[10px] text-amber-200/70 block mt-0.5">
-                          تسريع الاستجابة وتعطيل الانتقالات لتوفير موارد الهواتف الضعيفة
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handlePerfToggle}
-                        className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer p-0.5 shrink-0 ${
-                          activePerfMode ? 'bg-amber-500 shadow-md' : 'bg-slate-800 border border-amber-500/30'
-                        }`}
-                        title="مفتاح تبديل وضع الأداء السريع"
-                      >
-                        <div
-                          className={`w-5 h-5 rounded-full bg-white transition-transform ${
-                            activePerfMode ? '-translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* حفظ نسخة من بيانات الورشة في جهازك */}
-                <button
-                  type="button"
-                  onClick={handleSaveWorkshopDataToDevice}
-                  disabled={isSavingBackup}
-                  className="w-full px-2.5 py-2.5 rounded-xl flex items-center justify-between text-right transition-all cursor-pointer bg-emerald-50/80 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800/60 shadow-2xs group"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs">
-                      {isSavingBackup ? (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Download className="w-3.5 h-3.5" />
-                      )}
-                    </div>
-                    <div>
-                      <span className="text-xs font-black block">
-                        {isSavingBackup ? 'جاري تجهيز النسخة...' : 'حفظ نسخة من بيانات الورشة في جهازك'}
-                      </span>
-                      <span className="text-[9px] text-emerald-700/80 dark:text-emerald-300/80 block">
-                        الخامات، المنتجات، المبيعات، والإعدادات
-                      </span>
-                    </div>
-                  </div>
-                  <ChevronLeft className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 group-hover:-translate-x-0.5 transition-transform" />
-                </button>
-
-                {backupSuccessMessage && (
-                  <div className="p-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 text-xs font-black flex items-center gap-2 animate-in fade-in">
-                    <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-300 shrink-0" />
-                    <span>{backupSuccessMessage}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-            </>
-          )}
-        </nav>
-
-        {/* Utilities: Guide + Migration + Logout */}
-        <div className="p-3 border-t border-stone-100 dark:border-stone-800 space-y-2 bg-stone-50 dark:bg-stone-900/60">
-          {/* Interactive Tour Button */}
-          {onStartTour && (
-            <button
-              type="button"
-              onClick={() => {
-                onStartTour();
-                onClose();
-              }}
-              className="w-full py-2 px-3 rounded-xl border border-amber-300 dark:border-amber-700/80 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50 flex items-center justify-center gap-2 cursor-pointer shadow-2xs text-xs font-black transition active:scale-95"
-            >
-              <Compass className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-              <span>{tr('mod_tour')}</span>
-            </button>
-          )}
-
-          {/* فحص أذونات وتنبيهات المنظومة */}
-          <button
-            type="button"
-            onClick={() => {
-              if (onOpenPermissionsModal) {
-                onOpenPermissionsModal();
+              if (onNavigateToCatalog) {
+                onNavigateToCatalog('catalog');
               } else {
-                window.dispatchEvent(new CustomEvent('alshams_open_permissions_modal'));
+                onSelectView('catalog');
               }
               onClose();
             }}
-            className="w-full py-2 px-3 rounded-xl border border-blue-300 dark:border-blue-700/80 bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50 flex items-center justify-center gap-2 cursor-pointer shadow-2xs text-xs font-black transition active:scale-95"
+            className={`w-full p-3.5 rounded-2xl border transition-all flex items-center justify-between text-right cursor-pointer shadow-2xs group ${
+              activeView === 'catalog'
+                ? 'bg-gradient-to-l from-amber-500 to-amber-600 text-white border-amber-400 shadow-md'
+                : 'bg-white dark:bg-stone-850 border-stone-200 dark:border-stone-800 hover:border-amber-400 text-stone-900 dark:text-stone-100'
+            }`}
           >
-            <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span>فحص أذونات وتنبيهات المنظومة 🛡️</span>
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  activeView === 'catalog'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400'
+                }`}
+              >
+                <Globe className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-sm font-black block">منصتي (الكتالوج والمتجر) 🌐</span>
+                <span
+                  className={`text-[11px] block ${
+                    activeView === 'catalog' ? 'text-amber-100' : 'text-stone-500 dark:text-stone-400'
+                  }`}
+                >
+                  إدارة الكتالوج المرجعي ومتجر الورشة
+                </span>
+              </div>
+            </div>
+            <ChevronLeft
+              className={`w-4 h-4 transition-transform group-hover:-translate-x-0.5 ${
+                activeView === 'catalog' ? 'text-white' : 'text-stone-400'
+              }`}
+            />
           </button>
 
-          <div className="grid grid-cols-3 gap-1.5 text-xs font-bold">
+          {/* التبديل بين الورش */}
+          <button
+            type="button"
+            onClick={() => {
+              if (isAdmin) {
+                onSelectView('admin');
+              } else {
+                onOpenProfileSettings();
+              }
+              onClose();
+            }}
+            className={`w-full p-3.5 rounded-2xl border transition-all flex items-center justify-between text-right cursor-pointer shadow-2xs group ${
+              activeView === 'admin'
+                ? 'bg-gradient-to-l from-blue-600 to-indigo-700 text-white border-blue-400 shadow-md'
+                : 'bg-white dark:bg-stone-850 border-stone-200 dark:border-stone-800 hover:border-blue-400 text-stone-900 dark:text-stone-100'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  activeView === 'admin'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400'
+                }`}
+              >
+                <RefreshCw className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-sm font-black block">التبديل بين الورش 🔄</span>
+                <span
+                  className={`text-[11px] block ${
+                    activeView === 'admin' ? 'text-blue-100' : 'text-stone-500 dark:text-stone-400'
+                  }`}
+                >
+                  {isAdmin ? 'إدارة المنظومة والتبديل بين حسابات الورش' : 'مراجعة حساب الورشة والربط السحابي'}
+                </span>
+              </div>
+            </div>
+            <ChevronLeft
+              className={`w-4 h-4 transition-transform group-hover:-translate-x-0.5 ${
+                activeView === 'admin' ? 'text-white' : 'text-stone-400'
+              }`}
+            />
+          </button>
+
+          {/* سوق الشمساوية المركزي */}
+          <button
+            type="button"
+            onClick={() => {
+              onSelectView('marketplace');
+              onClose();
+            }}
+            className={`w-full p-3.5 rounded-2xl border transition-all flex items-center justify-between text-right cursor-pointer shadow-2xs group ${
+              activeView === 'marketplace'
+                ? 'bg-gradient-to-l from-emerald-600 to-teal-700 text-white border-emerald-400 shadow-md'
+                : 'bg-white dark:bg-stone-850 border-stone-200 dark:border-stone-800 hover:border-emerald-400 text-stone-900 dark:text-stone-100'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  activeView === 'marketplace'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400'
+                }`}
+              >
+                <ShoppingBag className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-sm font-black block">سوق الشمساوية المركزي 🛍️</span>
+                <span
+                  className={`text-[11px] block ${
+                    activeView === 'marketplace' ? 'text-emerald-100' : 'text-stone-500 dark:text-stone-400'
+                  }`}
+                >
+                  تصفح المشغولات الحرفية المعتمدة في السوق
+                </span>
+              </div>
+            </div>
+            <ChevronLeft
+              className={`w-4 h-4 transition-transform group-hover:-translate-x-0.5 ${
+                activeView === 'marketplace' ? 'text-white' : 'text-stone-400'
+              }`}
+            />
+          </button>
+        </nav>
+
+        {/* 4. شريط أدوات سفلي مدمج وأنيق (Bottom Icon Bar): 5 أيقونات فقط */}
+        <div className="p-3 border-t border-stone-100 dark:border-stone-800 bg-stone-50/90 dark:bg-stone-900">
+          <div className="flex items-center justify-between gap-1.5">
             <button
               type="button"
               onClick={() => {
                 onOpenUserGuide();
                 onClose();
               }}
-              className="py-2 px-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-100 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-2xs text-[10px]"
+              title="دليل الورشة"
+              aria-label="دليل الورشة"
+              className="flex-1 py-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-amber-400 text-amber-600 dark:text-amber-400 flex items-center justify-center transition cursor-pointer shadow-2xs active:scale-95"
             >
-              <BookOpen className="w-3.5 h-3.5 text-amber-600" />
-              <span>{tr('mod_guide')}</span>
+              <BookOpen className="w-4 h-4" />
             </button>
 
             <button
               type="button"
               onClick={() => {
-                if (onOpenSupport) onOpenSupport();
+                if (onStartTour) onStartTour();
                 onClose();
               }}
-              className="py-2 px-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-100 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-2xs text-[10px]"
+              title="الجولة التعريفية"
+              aria-label="الجولة التعريفية"
+              className="flex-1 py-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-amber-400 text-stone-700 dark:text-stone-300 hover:text-amber-600 flex items-center justify-center transition cursor-pointer shadow-2xs active:scale-95"
             >
-              <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{tr('mod_support')}</span>
+              <Eye className="w-4 h-4" />
             </button>
 
             <button
@@ -1447,72 +332,214 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 onOpenCloudMigration();
                 onClose();
               }}
-              className="py-2 px-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-100 flex flex-col items-center justify-center gap-1 cursor-pointer shadow-2xs text-[10px]"
+              title="النسخ والرفع للسحاب"
+              aria-label="النسخ والرفع للسحاب"
+              className="flex-1 py-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-blue-400 text-blue-600 dark:text-blue-400 flex items-center justify-center transition cursor-pointer shadow-2xs active:scale-95"
             >
-              <CloudUpload className="w-3.5 h-3.5 text-blue-600" />
-              <span>{tr('mod_cloud')}</span>
+              <CloudUpload className="w-4 h-4" />
             </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={onLogout}
-            className="w-full py-2 px-3 rounded-xl border border-rose-200 dark:border-rose-900/60 text-xs font-bold flex items-center justify-center gap-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>{tr('mod_logout')}</span>
-          </button>
-
-          <div className="text-center pt-1 border-t border-stone-200/50 dark:border-stone-800/50">
-            <p className="text-[10px] text-stone-400 dark:text-stone-500 font-bold">
-              {tr('saas_enterprise_footer')}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* نافذة تأكيد نجاح حفظ النسخة مميزة ومبهجة */}
-      {showCelebrationModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-950/75 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
-          <div className="w-full max-w-md p-6 rounded-3xl bg-white dark:bg-stone-900 border-2 border-emerald-500/80 dark:border-emerald-500 shadow-2xl space-y-4 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 text-white flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/30">
-              <Check className="w-9 h-9 stroke-[3]" />
-            </div>
-
-            <div className="space-y-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-black border border-emerald-200 dark:border-emerald-800">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>حفظ آمن ومكتمل</span>
-              </span>
-              <h3 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100 leading-snug">
-                تم حفظ كامل بيانات ورشتك بنجاح في جهازك، بياناتك في أمان تام
-              </h3>
-              <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed font-medium">
-                تم تنزيل ملف النسخة في مجلد التنزيلات على جهازك، ويتضمن كامل أرشيف الخامات، المنتجات، المبيعات، الفواتير، وحركات الخزينة.
-              </p>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/80 text-right space-y-1.5 text-xs">
-              <div className="flex justify-between items-center text-stone-700 dark:text-stone-300">
-                <span className="text-stone-500">اسم الورشة:</span>
-                <span className="font-black text-amber-800 dark:text-amber-300">{profile.brandName || 'ورشة الشمساوية'}</span>
-              </div>
-              <div className="flex justify-between items-center text-stone-700 dark:text-stone-300">
-                <span className="text-stone-500">حالة النسخة:</span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">مكتملة ومحفوظة محلياً بالكامل</span>
-              </div>
-            </div>
 
             <button
               type="button"
-              onClick={() => setShowCelebrationModal(false)}
-              className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-sm shadow-md shadow-emerald-600/20 transition cursor-pointer active:scale-95"
+              onClick={() => {
+                if (onOpenSupport) onOpenSupport();
+                onClose();
+              }}
+              title="الدعم الفني والشكاوى"
+              aria-label="الدعم الفني والشكاوى"
+              className="flex-1 py-2.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:border-emerald-400 text-emerald-600 dark:text-emerald-400 flex items-center justify-center transition cursor-pointer shadow-2xs active:scale-95"
             >
-              استمرار العمل في الورشة
+              <MessageSquare className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                onLogout();
+                onClose();
+              }}
+              title="تسجيل الخروج"
+              aria-label="تسجيل الخروج"
+              className="flex-1 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 flex items-center justify-center transition cursor-pointer shadow-2xs active:scale-95"
+            >
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
-      )}
+
+        {/* 2. نافذة الإعدادات المنبثقة عند الضغط على أيقونة الترس ⚙️ */}
+        {isGearModalOpen && (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+            dir="rtl"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsGearModalOpen(false);
+            }}
+          >
+            <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+              <div className="px-4 py-3.5 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between bg-stone-50 dark:bg-stone-850">
+                <div className="flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <h3 className="text-sm font-black text-stone-900 dark:text-stone-100">
+                    إعدادات الورشة والمظهر
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsGearModalOpen(false)}
+                  aria-label="إغلاق نافذة الإعدادات"
+                  className="p-1.5 rounded-xl hover:bg-stone-200 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-3">
+                {/* 1. إعدادات الورشة والبراند */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsGearModalOpen(false);
+                    onOpenProfileSettings();
+                    onClose();
+                  }}
+                  className="w-full p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 hover:bg-amber-50 dark:hover:bg-amber-950/30 border border-stone-200 dark:border-stone-700 hover:border-amber-400 flex items-center justify-between text-right transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                      <Settings className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-black text-stone-900 dark:text-stone-100 block">
+                        إعدادات الورشة والبراند
+                      </span>
+                      <span className="text-[10px] text-stone-500 dark:text-stone-400 block">
+                        الشعار، البيانات التجارية، والعملة
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronLeft className="w-4 h-4 text-stone-400" />
+                </button>
+
+                {/* 2. أقسام الورشة وتخصيصها */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsGearModalOpen(false);
+                    onOpenCraftsSelector();
+                    onClose();
+                  }}
+                  className="w-full p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 hover:bg-amber-50 dark:hover:bg-amber-950/30 border border-stone-200 dark:border-stone-700 hover:border-amber-400 flex items-center justify-between text-right transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 flex items-center justify-center shrink-0">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-black text-stone-900 dark:text-stone-100 block">
+                        أقسام الورشة وتخصيصها
+                      </span>
+                      <span className="text-[10px] text-stone-500 dark:text-stone-400 block">
+                        {tr('workshop_crafts')} والأنشطة الحرفية
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronLeft className="w-4 h-4 text-stone-400" />
+                </button>
+
+                {/* 3. مفتاح تبديل الوضع (نهاري / ليلي) */}
+                <div className="p-3 rounded-2xl bg-stone-950 text-white border border-amber-500/30 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>مظهر الورشة والوضع</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onToggleDarkMode}
+                      className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-200 border border-amber-500/40 hover:bg-amber-500/30 transition cursor-pointer"
+                    >
+                      {isDarkMode ? 'تبديل للنهاري ☀️' : 'تبديل لليلي 🌙'}
+                    </button>
+                  </div>
+
+                  {onSelectThemeMode && (
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onSelectThemeMode('light')}
+                        className={`py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer ${
+                          themeMode === 'light'
+                            ? 'bg-amber-600 text-white border border-amber-400'
+                            : 'bg-stone-900 text-amber-200 hover:bg-stone-800 border border-stone-700'
+                        }`}
+                      >
+                        <Sun className="w-3.5 h-3.5" />
+                        <span>نهاري</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSelectThemeMode('night_focus')}
+                        className={`py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer ${
+                          themeMode === 'night_focus'
+                            ? 'bg-amber-600 text-white border border-amber-400'
+                            : 'bg-stone-900 text-amber-200 hover:bg-stone-800 border border-stone-700'
+                        }`}
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>سهر هادئ</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSelectThemeMode('dark')}
+                        className={`py-2 px-1 rounded-xl text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer ${
+                          themeMode === 'dark'
+                            ? 'bg-amber-600 text-white border border-amber-400'
+                            : 'bg-stone-900 text-amber-200 hover:bg-stone-800 border border-stone-700'
+                        }`}
+                      >
+                        <Moon className="w-3.5 h-3.5" />
+                        <span>داكن</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* وضع الأداء السريع */}
+                  <div className="pt-2 border-t border-stone-800 flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-stone-300 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      <span>وضع الأداء السريع</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handlePerfToggle}
+                      aria-label="تبديل وضع الأداء السريع"
+                      className={`w-10 h-5 rounded-full transition-colors relative cursor-pointer p-0.5 ${
+                        activePerfMode ? 'bg-amber-500' : 'bg-stone-700'
+                      }`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                          activePerfMode ? '-translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {/* لغة المنظومة */}
+                <div className="p-2.5 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-700">
+                  <LanguageSwitcher onOpenSettingsModal={() => {
+                    setIsGearModalOpen(false);
+                    onOpenProfileSettings();
+                    onClose();
+                  }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

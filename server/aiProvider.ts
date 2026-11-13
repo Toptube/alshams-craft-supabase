@@ -4,6 +4,13 @@ import {
   processTrainingInteraction,
   buildGlobalMemoryPrompt,
 } from './aiGlobalMemory.js';
+import {
+  resolveAgentGeminiKey,
+  createGeminiClientForAgent,
+  getCandidateGeminiModels,
+  extractGroundingMetadata,
+  shouldTriggerGoogleSearch,
+} from './googleSearchService.js';
 
 export interface AIVisionPromptInput {
   imageBase64: string;
@@ -29,6 +36,7 @@ export interface AIChatPromptInput {
   chatHistory: any[];
   userEmail?: string;
   isSuperAdmin?: boolean;
+  useSearch?: boolean;
   images?: Array<{ base64: string; mimeType?: string; name?: string }>;
   workshopContext: {
     selectedCrafts?: string[];
@@ -54,17 +62,6 @@ export interface AIChatResult {
   searchEntryPoint?: string;
   inTrainingMode?: boolean;
   visionAnalysis?: any;
-}
-
-// قاطع دارة للبحث عند استنزاف الكوتة
-let searchQuotaExhaustedUntil = 0;
-
-function isSearchQuotaCoolingDown(): boolean {
-  return Date.now() < searchQuotaExhaustedUntil;
-}
-
-function markSearchQuotaExhausted(): void {
-  searchQuotaExhaustedUntil = Date.now() + 2 * 60 * 1000;
 }
 
 export type GeminiErrorKind = 'timeout' | 'quota' | 'unavailable' | 'bad_key' | 'bad_request' | 'other';
@@ -201,47 +198,20 @@ async function callGroqFallback(
 
 
 export class GeminiAIProvider {
-  private ai: GoogleGenAI | null = null;
-  private modelName: string;
-
-  constructor() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    // النماذج الرسمية المدعومة وفق دليل gemini-api
-    const rawModel = process.env.GEMINI_MODEL || '';
-    this.modelName = rawModel && !rawModel.includes('1.5') && !rawModel.includes('2.0') && !rawModel.includes('2.5')
-      ? rawModel
-      : 'gemini-3.8-flash';
-
-    if (apiKey) {
-      this.ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
-        },
-      });
-    }
+  private getClient(): GoogleGenAI {
+    return createGeminiClientForAgent('falcon');
   }
 
   isAvailable(): boolean {
-    return Boolean(this.ai && process.env.GEMINI_API_KEY);
+    return Boolean(resolveAgentGeminiKey('falcon'));
   }
 
   private async generate(
     req: { contents: any; config?: any },
     opts: { label: string; timeoutMs: number }
   ): Promise<any> {
-    if (!this.ai) throw new Error('مفتاح GEMINI_API_KEY غير مضبوط على الخادم');
-
-    const modelsToTry = [
-      this.modelName,
-      'gemini-flash-latest',
-      'gemini-2.5-flash',
-      'gemini-3.8-flash',
-      'gemini-3.1-flash-lite',
-    ].filter((m) => m && !m.includes('1.5') && !m.includes('2.0-flash'));
-    const uniqueModels = Array.from(new Set(modelsToTry));
+    const ai = this.getClient();
+    const uniqueModels = getCandidateGeminiModels();
     let lastError: any = null;
 
     for (const model of uniqueModels) {
@@ -257,7 +227,7 @@ export class GeminiAIProvider {
 
         try {
           const response = await Promise.race([
-            this.ai.models.generateContent({
+            ai.models.generateContent({
               model,
               contents: req.contents,
               config: req.config || {},
@@ -269,12 +239,11 @@ export class GeminiAIProvider {
           clearTimeout(timeoutId);
           lastError = err;
           const msg = String(err?.message || err || '');
-          if (msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE') || msg.includes('404')) {
-            console.warn(`[Gemini generate] Model ${model} (attempt ${attempt}) returned temporary error: ${msg.slice(0, 100)}, retrying...`);
-            if (attempt === 1) {
-              await new Promise((r) => setTimeout(r, 1200));
-              continue;
-            }
+          const isTransient503 = msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE');
+          console.log(`[Falcon Gemini] Notice on ${model} (attempt ${attempt}): ${isTransient503 ? 'temporary demand spike (503)' : 'trying fallback'}`);
+          if (isTransient503 && attempt === 1) {
+            await new Promise((r) => setTimeout(r, 600));
+            continue;
           }
           break;
         }
@@ -286,7 +255,7 @@ export class GeminiAIProvider {
   }
 
   async analyzeCraftVision(input: AIVisionPromptInput): Promise<any> {
-    if (!this.ai) throw new Error('مفتاح GEMINI_API_KEY غير مضبوط على الخادم');
+    if (!this.isAvailable()) throw new Error('مفتاح Gemini الخاص بصقر غير مضبوط على الخادم');
 
     const { imageBase64, mimeType = 'image/jpeg', artistNotes = '', workshopContext = {} } = input;
     const activeCrafts = Array.isArray(workshopContext.activeCrafts) ? workshopContext.activeCrafts : ['macrame'];
@@ -513,10 +482,10 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
     let groqFailReason = '';
 
     // -------------------------------------------------------------
-    // Provider 1: Google Gemini Flash (المحرك الأساسي للأدوات والرؤية والبحث)
+    // Provider 1: Google Gemini + Google Search Grounding (المحرك الأساسي لصقر الشمساوية)
     // -------------------------------------------------------------
-    if (process.env.GEMINI_API_KEY || this.ai) {
-      console.log('[AI Service: Falcon] Attempting Provider 1 (Gemini Flash)...');
+    if (this.isAvailable()) {
+      console.log('[AI Service: Falcon] Attempting Provider 1 (Gemini + Google Search Grounding)...');
       try {
         const contents: any[] = chatHistory.slice(-10).map((m) => ({
           role: m.sender === 'user' || m.role === 'user' ? 'user' : 'model',
@@ -549,66 +518,62 @@ ${artistName ? `- تنادي الصانع باسمه الودود: ${artistName}
         }
         contents.push({ role: 'user', parts: userParts });
 
-        const lowerQuery = (userPromptText || '').toLowerCase();
-        // لا نستخدم أدوات البحث عند تحليل الصور لتفادي التعليق والبطء
-        const needsSearch = !hasImages && ['سعر', 'أسعار', 'سوق', 'مورد', 'تريند', 'منافس'].some((k) => lowerQuery.includes(k));
+        // تفعيل بحث جوجل الحي عند طلب السوق/الأسعار/الموردين أو تفعيل البحث صراحةً من الواجهة
+        const needsSearch = !hasImages && shouldTriggerGoogleSearch(userPromptText, Boolean(input.useSearch));
 
         let response: any = null;
         let searchUsed = false;
-        let searchSources: Array<{ title: string; url: string }> = [];
 
-        if (needsSearch && !isSearchQuotaCoolingDown()) {
+        if (needsSearch) {
           try {
             response = await this.generate(
               {
                 contents,
                 config: {
-                  systemInstruction: { parts: [{ text: systemInstruction }] },
+                  systemInstruction,
                   tools: [{ googleSearch: {} }],
                 },
               },
-              { label: 'chat-search', timeoutMs: 12_000 }
+              { label: 'falcon-google-search', timeoutMs: 18_000 }
             );
             searchUsed = true;
           } catch (searchErr: any) {
-            console.warn('[Falcon] Gemini search tools notice, falling back to direct fast chat:', searchErr?.message);
-            markSearchQuotaExhausted();
+            console.warn('[Falcon] Google Search grounding fallback notice:', searchErr?.message);
             response = await this.generate(
-              { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-              { label: 'chat-fallback-no-search', timeoutMs: 14_000 }
+              { contents, config: { systemInstruction } },
+              { label: 'falcon-chat-direct', timeoutMs: 16_000 }
             );
           }
         } else {
           response = await this.generate(
-            { contents, config: { systemInstruction: { parts: [{ text: systemInstruction }] } } },
-            { label: hasImages ? 'chat-vision' : 'chat', timeoutMs: hasImages ? 22_000 : 15_000 }
+            { contents, config: { systemInstruction } },
+            { label: hasImages ? 'falcon-vision' : 'falcon-chat', timeoutMs: hasImages ? 22_000 : 16_000 }
           );
         }
 
-        const candidate = response?.candidates?.[0];
-        const grounding = candidate?.groundingMetadata;
-        if (grounding?.groundingChunks) {
-          for (const chunk of grounding.groundingChunks) {
-            if (chunk.web?.uri) searchSources.push({ title: chunk.web.title || chunk.web.uri, url: chunk.web.uri });
-          }
-        }
-
+        const { sources: searchSources, searchEntryPoint } = extractGroundingMetadata(response);
         const reply = response?.text?.trim();
         if (reply) {
-          console.log('[AI Service: Falcon] Provider 1 (Gemini Flash) succeeded.');
+          console.log('[AI Service: Falcon] Provider 1 (Gemini) succeeded.', searchUsed ? `Sources: ${searchSources.length}` : '');
           const visionAnalysis = hasImages ? this.extractStructuredPricingFromReply(reply, safeCategory, hourlyRate) : undefined;
-          return { reply, sources: searchSources.slice(0, 4), searchUsed, visionAnalysis };
+          return {
+            reply,
+            sources: searchSources.slice(0, 6),
+            searchUsed: searchUsed || searchSources.length > 0,
+            searchEntryPoint,
+            visionAnalysis,
+          };
         }
-        geminiFailReason = 'رد فارغ من Gemini Flash';
+        geminiFailReason = 'رد فارغ من Gemini';
       } catch (geminiErr: any) {
-        geminiFailReason = geminiErr?.message || 'فشل الاتصال بـ Gemini Flash';
+        geminiFailReason = geminiErr?.message || 'فشل الاتصال بـ Gemini';
         console.warn(
-          `[AI Service: Falcon] Provider 1 (Gemini Flash) failed: [${geminiFailReason}] -> Switching to Provider 2 (Groq Backup)...`
+          `[AI Service: Falcon] Provider 1 (Gemini) failed: [${geminiFailReason}] -> Switching to Provider 2 (Groq Backup)...`
         );
       }
     } else {
-      geminiFailReason = 'GEMINI_API_KEY غير متوفر على الخادم';
-      console.log(`[AI Service: Falcon] Provider 1 (Gemini Flash) skipped: ${geminiFailReason} -> Switching to Provider 2 (Groq Backup)...`);
+      geminiFailReason = 'مفتاح GEMINI_API_KEY_FALCON / GEMINI_API_KEY غير مضبوط في Secrets';
+      console.log(`[AI Service: Falcon] Provider 1 (Gemini) skipped: ${geminiFailReason} -> Switching to Provider 2 (Groq Backup)...`);
     }
 
     // -------------------------------------------------------------
@@ -742,40 +707,41 @@ export function clearWorkshopSession(workshopId: string): void {
 }
 
 export async function transcribeAudioWithGemini(audioBase64: string, mimeType = 'audio/webm'): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('مفتاح GEMINI_API_KEY غير متوفر لتفريغ الصوت');
-
-  const ai = new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
-
+  const ai = createGeminiClientForAgent('falcon');
   const cleanData = audioBase64.replace(/^data:[^;]+;base64,/, '');
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.8-flash',
-    contents: [
-      {
-        role: 'user',
-        parts: [
+  const models = getCandidateGeminiModels();
+  let lastErr: any = null;
+
+  for (const model of models) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [
           {
-            inlineData: {
-              mimeType: mimeType || 'audio/webm',
-              data: cleanData,
-            },
-          },
-          {
-            text: 'أنت مفرغ صوتي محترف وخبير في اللهجة المصرية والعربية للحرفيين. استمع إلى التسجيل الصوتي واكتب الكلام المنطوق فقط بدقة تامة دون تكرار ودون أي مقدمات أو شروحات. أخرج نص الكلام المنطوق مباشرة فقط.',
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: mimeType || 'audio/webm',
+                  data: cleanData,
+                },
+              },
+              {
+                text: 'أنت مفرغ صوتي محترف وخبير في اللهجة المصرية والعربية للحرفيين. استمع إلى التسجيل الصوتي واكتب الكلام المنطوق فقط بدقة تامة دون تكرار ودون أي مقدمات أو شروحات. أخرج نص الكلام المنطوق مباشرة فقط.',
+              },
+            ],
           },
         ],
-      },
-    ],
-  });
+      });
 
-  return response.text?.trim() || '';
+      const txt = response.text?.trim();
+      if (txt) return txt;
+    } catch (err: any) {
+      lastErr = err;
+    }
+  }
+
+  throw lastErr || new Error('تعذر تفريغ المقطع الصوتي عبر Gemini');
 }
 
 export { isSuperAdmin };

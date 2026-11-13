@@ -4,7 +4,6 @@ import {
   Menu,
   Sun,
   Moon,
-  Package,
   Store,
 } from 'lucide-react';
 import { useTranslation } from '../../lib/i18n';
@@ -73,19 +72,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         )}
       </div>
 
-      {/* الوسط: أزرار الوصول المباشر (الكتالوج ومتجري) */}
+      {/* الوسط: زر الوصول المباشر للمتجر */}
       <div className="flex items-center gap-1.5 sm:gap-2">
-        {onNavigateToCatalog && (
-          <button
-            type="button"
-            onClick={() => onNavigateToCatalog('catalog')}
-            title="الكتالوج المرجعي وإدارة المشغولات"
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-amber-50 dark:bg-stone-850 dark:hover:bg-amber-950/40 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-bold text-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-2xs"
-          >
-            <Package className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span>الكتالوج 📦</span>
-          </button>
-        )}
         {(onOpenArtisanStore || onNavigateToCatalog) && (
           <button
             type="button"

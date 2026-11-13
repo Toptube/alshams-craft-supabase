@@ -288,20 +288,20 @@ ${rawContent}
     }
   }
 
-  // 2. Gemini fallback
-  if (process.env.GEMINI_API_KEY) {
-    try {
-      const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  // 2. Gemini fallback (with per-agent Secrets & gemini-4-hydrogen)
+  try {
+    const { resolveAgentGeminiKey, createGeminiClientForAgent, PRIMARY_GEMINI_MODEL } = await import('./googleSearchService.js');
+    if (resolveAgentGeminiKey('shamousa')) {
+      const ai = createGeminiClientForAgent('shamousa');
       const resp = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: PRIMARY_GEMINI_MODEL,
         contents: prompt,
       });
       const txt = resp?.text?.trim();
       if (txt) return txt;
-    } catch (e) {
-      console.warn('[AI Global Memory] Gemini summarizer warning:', e);
     }
+  } catch (e) {
+    console.warn('[AI Global Memory] Gemini summarizer warning:', e);
   }
 
   // Fallback direct structuring

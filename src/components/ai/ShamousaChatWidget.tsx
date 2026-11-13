@@ -25,6 +25,7 @@ import {
   Sparkles,
   ChevronLeft,
   ChevronDown,
+  Globe,
 } from 'lucide-react';
 import { AlShamsSunIcon } from '../brand/BrandAssets';
 import { authedFetch } from '../../lib/apiClient';
@@ -69,6 +70,8 @@ export interface ShamousaMessage {
   contactAction?: ShamousaContactAction;
   actionChips?: SmartActionChip[];
   attachmentPreview?: string;
+  sources?: Array<{ title: string; url: string }>;
+  searchUsed?: boolean;
 }
 
 export interface WorkshopAppointment {
@@ -327,6 +330,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [useGoogleSearch, setUseGoogleSearch] = useState(false);
 
   const adjustTextareaHeight = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -884,6 +888,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             name: currentAttachment.name,
           }] : [],
           history,
+          useSearch: useGoogleSearch,
           artistName: firstName,
           brandName: profile.brandName || 'الورشة الحرفية',
           workshopId,
@@ -922,6 +927,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           actionLink: dynamicLink,
           contactAction: data.contactAction,
           actionChips: replyChips.length > 0 ? replyChips : undefined,
+          sources: Array.isArray(data.sources) ? data.sources : undefined,
+          searchUsed: Boolean(data.searchUsed),
         },
       ]);
     } catch (err: any) {
@@ -1091,6 +1098,30 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                         </div>
                       )}
                       {renderText(m.content)}
+                      {(m.searchUsed || (m.sources && m.sources.length > 0)) && (
+                        <div className="mt-2 pt-2 border-t border-stone-200 dark:border-stone-700 space-y-1">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                            <Globe className="w-3 h-3" />
+                            <span>مدعوم ببحث جوجل الحي</span>
+                          </span>
+                          {m.sources && m.sources.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {m.sources.map((src, idx) => (
+                                <a
+                                  key={idx}
+                                  href={src.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-stone-100 dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:bg-amber-50 dark:hover:bg-amber-950/50"
+                                >
+                                  <ExternalLink className="w-2.5 h-2.5 text-stone-400" />
+                                  <span className="truncate max-w-[140px]">{src.title || src.url}</span>
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </Bubble>
 
                     {/* أزرار الإجراءات السريعة بالكلمات الدلالية */}
@@ -1262,6 +1293,21 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                     }`}
                   >
                     {isRecordingVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  </button>
+
+                  {/* زر بحث جوجل الحي 🌐 */}
+                  <button
+                    type="button"
+                    onClick={() => setUseGoogleSearch((v) => !v)}
+                    title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل لشموسة' : 'تفعيل بحث جوجل الحي للأسعار والموردين'}
+                    aria-pressed={useGoogleSearch}
+                    className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 ${
+                      useGoogleSearch
+                        ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/50'
+                        : 'text-stone-500 hover:text-emerald-600 hover:bg-stone-100 dark:hover:bg-stone-800'
+                    }`}
+                  >
+                    <Globe className="w-4 h-4" />
                   </button>
 
                   {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}

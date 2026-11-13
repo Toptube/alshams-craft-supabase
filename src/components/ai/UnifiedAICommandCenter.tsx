@@ -14,8 +14,11 @@ import {
   BookOpen,
   CheckCircle2,
   Lock,
+  Globe,
+  ExternalLink,
 } from 'lucide-react';
 import { playSuccessSound, playAlertSound, playErrorSound } from '../../lib/sounds';
+import { authedFetch } from '../../lib/apiClient';
 
 interface UnifiedAICommandCenterProps {
   profile: UserProfile;
@@ -39,7 +42,15 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
   const [activeAIAgent, setActiveAIAgent] = useState<'falcon' | 'shamousa'>('falcon');
 
   // Shamousa Independent Console State
-  const [shamousaMessages, setShamousaMessages] = useState<Array<{ role: 'user' | 'model'; text: string; time: string }>>([
+  const [shamousaMessages, setShamousaMessages] = useState<
+    Array<{
+      role: 'user' | 'model';
+      text: string;
+      time: string;
+      sources?: Array<{ title: string; url: string }>;
+      searchUsed?: boolean;
+    }>
+  >([
     {
       role: 'model',
       text: 'أهلاً يا حسام 🌞، أنا مديرة أعمالك. اخبارك ايه! واخبار شغلنا ايه ! يارب يكون كل حاجه تمام ... تحب نبدأ إزاي النهارده؟! جاهزة لاستقبال أي توجيهات برمجية، فحص الورش، أو تحليل بيانات المنظومة.',
@@ -48,6 +59,7 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [useGoogleSearch, setUseGoogleSearch] = useState(false);
   const [inTrainingMode, setInTrainingMode] = useState(false);
   const [activeMemories, setActiveMemories] = useState<any[]>([]);
   const [loadingMemories, setLoadingMemories] = useState(false);
@@ -104,7 +116,7 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
     }
 
     try {
-      const res = await fetch('/api/ai/shamousa/chat', {
+      const res = await authedFetch('/api/ai/shamousa/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -112,6 +124,7 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
         },
         body: JSON.stringify({
           message: msg,
+          useSearch: useGoogleSearch,
           userEmail: profile.email || 'hmb.top.tube@gmail.com',
           workshopId: profile.workshopId || profile.id,
           brandName: profile.brandName,
@@ -135,6 +148,8 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
           role: 'model',
           text: reply,
           time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+          sources: Array.isArray(json.sources) ? json.sources : undefined,
+          searchUsed: Boolean(json.searchUsed),
         },
       ]);
       playSuccessSound();
@@ -381,6 +396,30 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
                     }`}
                   >
                     <div className="whitespace-pre-wrap">{m.text}</div>
+                    {(m.searchUsed || (m.sources && m.sources.length > 0)) && (
+                      <div className="mt-2 pt-2 border-t border-stone-200 dark:border-stone-700 space-y-1">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                          <Globe className="w-3 h-3" />
+                          <span>بحث جوجل الحي</span>
+                        </span>
+                        {m.sources && m.sources.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {m.sources.map((src, sIdx) => (
+                              <a
+                                key={sIdx}
+                                href={src.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300"
+                              >
+                                <ExternalLink className="w-2.5 h-2.5 text-stone-400" />
+                                <span className="truncate max-w-[150px]">{src.title || src.url}</span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <span className="text-[9px] opacity-70 block mt-1 text-left font-mono" dir="ltr">
                       {m.time}
                     </span>
@@ -403,6 +442,20 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
               }}
               className="pt-3 border-t border-stone-200 dark:border-stone-800 flex items-center gap-2"
             >
+              <button
+                type="button"
+                onClick={() => setUseGoogleSearch((v) => !v)}
+                aria-pressed={useGoogleSearch}
+                title="تفعيل بحث جوجل الحي"
+                className={`px-3 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                  useGoogleSearch
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700'
+                }`}
+              >
+                <Globe size={14} />
+                <span className="hidden sm:inline">بحث جوجل</span>
+              </button>
               <input
                 type="text"
                 value={inputMessage}

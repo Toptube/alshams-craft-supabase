@@ -1,10 +1,18 @@
-import { GoogleGenAI } from '@google/genai';
+import { FunctionDeclaration, Type } from '@google/genai';
 import { workshopToolSchemas, runWorkshopTool, WorkshopToolContext } from './workshopTools.js';
 import {
   isSuperAdmin,
   processTrainingInteraction,
   buildGlobalMemoryPrompt,
 } from './aiGlobalMemory.js';
+import {
+  resolveAgentGeminiKey,
+  createGeminiClientForAgent,
+  getCandidateGeminiModels,
+  extractGroundingMetadata,
+  shouldTriggerGoogleSearch,
+  GroundedSource,
+} from './googleSearchService.js';
 
 export interface ShamousaContext {
   artistName: string;
@@ -15,6 +23,7 @@ export interface ShamousaContext {
   db: any;
   userEmail?: string;
   isSuperAdmin?: boolean;
+  useSearch?: boolean;
   clientContext?: {
     treasuryBalance?: number;
     treasuriesDetail?: any[];
@@ -142,57 +151,104 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
 }
 
 
-// المحرك الاحتياطي المعتمد: Google Gemini Flash (مع دعم الرؤية الحاسوبية وقراءة الصور والفواتير)
-async function callGeminiChat(
+function toGeminiType(rawType?: unknown): Type {
+  switch (String(rawType || '').toLowerCase()) {
+    case 'number':
+      return Type.NUMBER;
+    case 'integer':
+      return Type.INTEGER;
+    case 'boolean':
+      return Type.BOOLEAN;
+    case 'array':
+      return Type.ARRAY;
+    case 'object':
+      return Type.OBJECT;
+    default:
+      return Type.STRING;
+  }
+}
+
+function buildShamousaGeminiFunctionDeclarations(): FunctionDeclaration[] {
+  return workshopToolSchemas.map((schema) => {
+    const rawProps = (schema.parameters?.properties || {}) as Record<string, any>;
+    const convertedProps: Record<string, any> = {};
+    for (const [k, v] of Object.entries(rawProps)) {
+      convertedProps[k] = {
+        type: toGeminiType(v?.type),
+        ...(v?.description ? { description: String(v.description) } : {}),
+        ...(Array.isArray(v?.enum) ? { enum: v.enum } : {}),
+      };
+    }
+
+    return {
+      name: schema.name,
+      description: schema.description,
+      parameters: {
+        type: Type.OBJECT,
+        properties: convertedProps,
+        ...(Array.isArray(schema.parameters?.required) ? { required: schema.parameters.required as string[] } : {}),
+      },
+    };
+  });
+}
+
+// المحرك الأساسي المعتمد لشموسة: Google Gemini (مع دعم أدوات الورشة + بحث جوجل + الرؤية الحاسوبية)
+async function callGeminiChatForShamousa(
   systemInstruction: string,
   messages: any[],
-  images?: Array<{ base64: string; mimeType?: string; name?: string }>
-): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY غير متوفر');
-
-  const ai = new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
-
-  const modelsToTry = [
-    'gemini-flash-latest',
-    'gemini-2.5-flash',
-    'gemini-3.8-flash',
-    'gemini-3.1-flash-lite',
-  ];
-  const contents: any[] = [];
+  toolCtx: WorkshopToolContext,
+  options: {
+    images?: Array<{ base64: string; mimeType?: string; name?: string }>;
+    useSearch?: boolean;
+  } = {}
+): Promise<{
+  reply: string;
+  sources: GroundedSource[];
+  searchUsed: boolean;
+  searchEntryPoint?: string;
+}> {
+  const ai = createGeminiClientForAgent('shamousa');
+  const modelsToTry = getCandidateGeminiModels();
+  const baseContents: any[] = [];
 
   const nonSystemMessages = messages.filter((m) => m.role !== 'system').slice(-10);
+  const hasImages = Array.isArray(options.images) && options.images.length > 0;
+
   for (let i = 0; i < nonSystemMessages.length; i++) {
     const m = nonSystemMessages[i];
     const isLast = i === nonSystemMessages.length - 1;
     const parts: any[] = [{ text: String(m.content || '') }];
 
-    if (isLast && Array.isArray(images) && images.length > 0) {
-      for (const img of images) {
+    if (isLast && hasImages && options.images) {
+      for (const img of options.images) {
         if (img?.base64) {
-          const cleanData = img.base64.replace(/^data:[^;]+;base64,/, '');
+          let cleanData = img.base64;
+          let mime = img.mimeType || 'image/jpeg';
+          const match = img.base64.match(/^data:([^;]+);base64,(.+)$/s);
+          if (match) {
+            mime = match[1].trim();
+            cleanData = match[2].trim();
+          } else {
+            cleanData = cleanData.replace(/^data:[^,]+,/, '').trim();
+          }
           parts.push({
             inlineData: {
-              mimeType: img.mimeType || 'image/jpeg',
-              data: cleanData,
+              mimeType: mime,
+              data: cleanData.replace(/\s+/g, ''),
             },
           });
         }
       }
     }
 
-    contents.push({
+    baseContents.push({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts,
     });
   }
+
+  const functionDeclarations = buildShamousaGeminiFunctionDeclarations();
+  const enableSearch = !hasImages && Boolean(options.useSearch);
 
   let lastGeminiError: any = null;
 
@@ -204,33 +260,143 @@ async function callGeminiChat(
       });
 
       try {
-        console.log(`[Shamousa] Calling Gemini model: ${modelName} (attempt ${attempt})${images && images.length > 0 ? ' [With Vision/Images]' : ''}`);
-        const response: any = await Promise.race([
+        console.log(
+          `[Shamousa Gemini] Model: ${modelName} (attempt ${attempt})` +
+            (hasImages ? ' [Vision]' : '') +
+            (enableSearch ? ' [Google Search + Tools]' : ' [Tools]')
+        );
+
+        const toolsConfig: any[] = [];
+        const config: any = {
+          systemInstruction,
+        };
+
+        if (!hasImages) {
+          if (enableSearch) {
+            // Hybrid Server-Side Google Search + Client-Side Workshop Function Calling (per Gemini 4 spec)
+            toolsConfig.push({ googleSearch: {} });
+            toolsConfig.push({ functionDeclarations });
+            config.toolConfig = { includeServerSideToolInvocations: true };
+          } else {
+            toolsConfig.push({ functionDeclarations });
+          }
+          config.tools = toolsConfig;
+        }
+
+        const contentsTurn = [...baseContents];
+        let response: any = await Promise.race([
           ai.models.generateContent({
             model: modelName,
-            contents,
-            config: {
-              systemInstruction: { parts: [{ text: systemInstruction }] },
-            },
+            contents: contentsTurn,
+            config,
           }).finally(() => clearTimeout(timeoutId)),
           timeoutPromise,
         ]);
 
+        // Handle multi-turn workshop Function Calling if Gemini invoked internal DB tools
+        let round = 0;
+        while (Array.isArray(response?.functionCalls) && response.functionCalls.length > 0 && round < 3) {
+          round++;
+          const modelContent = response?.candidates?.[0]?.content;
+          if (modelContent) {
+            contentsTurn.push(modelContent);
+          }
+
+          const fnResponseParts: any[] = [];
+          for (const call of response.functionCalls) {
+            const fnName = call.name;
+            const fnArgs = call.args || {};
+            console.log(`[Shamousa Gemini Tool Call]: ${fnName}`, fnArgs);
+            const toolResult = await runWorkshopTool(fnName, fnArgs, toolCtx);
+            fnResponseParts.push({
+              functionResponse: {
+                name: fnName,
+                ...(call.id ? { id: call.id } : {}),
+                response: { result: toolResult },
+              },
+            });
+          }
+
+          contentsTurn.push({
+            role: 'user',
+            parts: fnResponseParts,
+          });
+
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: contentsTurn,
+            config,
+          });
+        }
+
+        const { sources, searchEntryPoint } = extractGroundingMetadata(response);
         const reply = response?.text?.trim();
-        if (reply) return reply;
+        if (reply) {
+          return {
+            reply,
+            sources: sources.slice(0, 6),
+            searchUsed: enableSearch || sources.length > 0,
+            searchEntryPoint,
+          };
+        }
       } catch (err: any) {
         clearTimeout(timeoutId);
         lastGeminiError = err;
         const errMsg = String(err?.message || err || '');
-        console.warn(`[Gemini Flash] Model ${modelName} (attempt ${attempt}) returned: ${errMsg.slice(0, 120)}`);
-        if (errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('UNAVAILABLE') || errMsg.includes('404')) {
-          if (attempt === 1) {
-            await new Promise((r) => setTimeout(r, 1200));
-            continue;
-          }
+        const isTransient503 = errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand');
+        const isQuota429 = errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED');
+
+        console.log(
+          `[Shamousa Gemini] Notice on ${modelName} (attempt ${attempt}): ${
+            isTransient503 ? 'high demand (503)' : isQuota429 ? 'quota notice (429)' : 'switching fallback'
+          }`
+        );
+
+        // If hybrid search+tools failed with 400 or 429, fall back to Gemini with Workshop Tools only (no googleSearch)
+        if (enableSearch && !isTransient503) {
+          try {
+            const toolsOnlyRes = await ai.models.generateContent({
+              model: modelName,
+              contents: baseContents,
+              config: {
+                systemInstruction,
+                tools: [{ functionDeclarations }],
+              },
+            });
+            const txt = toolsOnlyRes?.text?.trim();
+            if (txt) {
+              return {
+                reply: txt,
+                sources: [],
+                searchUsed: false,
+              };
+            }
+          } catch {}
+        }
+
+        if (isTransient503 && attempt === 1) {
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
         }
         break;
       }
+    }
+  }
+
+  // Final Gemini pass without tools before switching to Groq backup
+  if (enableSearch) {
+    for (const modelName of modelsToTry) {
+      try {
+        const directRes = await ai.models.generateContent({
+          model: modelName,
+          contents: baseContents,
+          config: { systemInstruction },
+        });
+        const txt = directRes?.text?.trim();
+        if (txt) {
+          return { reply: txt, sources: [], searchUsed: false };
+        }
+      } catch {}
     }
   }
 
@@ -309,7 +475,7 @@ ${metrics.openWorkOrdersDesc ? `   - تفاصيل أوامر التشغيل ال
 
 - عندما يسألك ${firstName} عن رصيد الخزنة، الفلوس، الخامات الناقصة، أو أوامر التشغيل: أجيبي فوراً بالبيانات الحقيقية المحددة أعلاه بدقة ووضوح.
 
-لديكِ أدوات استعلام فعلية متصلة بقاعدة البيانات (search_treasuries, search_materials, search_orders, search_customers, search_suppliers, search_employees, workshop_overview). استخدميها كلما احتجتِ تفاصيل أوفى عن منتج محدد أو خامة معينة.`;
+لديكِ أدوات استعلام فعلية متصلة بقاعدة البيانات (search_treasuries, search_materials, search_orders, search_customers, search_suppliers, search_employees, workshop_overview) بالإضافة إلى محرك بحث جوجل الحي (googleSearch) للاستعلام عن أحدث أسعار السوق والموردين واتجاهات السوق خارج الورشة عند الحاجة.`;
 }
 
 export async function handleShamousaChat(
@@ -317,7 +483,15 @@ export async function handleShamousaChat(
   history: any[],
   ctx: ShamousaContext,
   images?: Array<{ base64: string; mimeType?: string; name?: string }>
-): Promise<{ reply: string; handoffToFalcon?: boolean; provider: string; inTrainingMode?: boolean }> {
+): Promise<{
+  reply: string;
+  handoffToFalcon?: boolean;
+  provider: string;
+  sources?: GroundedSource[];
+  searchUsed?: boolean;
+  searchEntryPoint?: string;
+  inTrainingMode?: boolean;
+}> {
   const userEmail = ctx.userEmail || '';
   const superAdmin = Boolean(ctx.isSuperAdmin || isSuperAdmin(userEmail));
 
@@ -459,69 +633,68 @@ export async function handleShamousaChat(
   }
 
   const hasImages = Array.isArray(images) && images.length > 0;
+  const wantsGoogleSearch = shouldTriggerGoogleSearch(userMessage, Boolean(ctx.useSearch));
+  const shamousaGeminiKey = resolveAgentGeminiKey('shamousa');
 
-  // إذا تم إرفاق صور، يتم توجيه الطلب حصرياً ومباشرة لمحرك الرؤية الحاسوبية Gemini Flash
-  if (hasImages && process.env.GEMINI_API_KEY) {
-    console.log('[AI Service: Shamousa] Images attached -> Routing directly to Gemini Flash Vision...');
+  // -------------------------------------------------------------
+  // Provider 1 (Primary): Google Gemini + Workshop Tools + Google Search Grounding
+  // -------------------------------------------------------------
+  if (shamousaGeminiKey) {
+    console.log('[AI Service: Shamousa] Attempting Provider 1 (Gemini + Tools + Google Search)...');
     try {
-      const geminiVisionReply = await callGeminiChat(systemInstruction, promptMessages, images);
-      if (geminiVisionReply) {
-        console.log('[AI Service: Shamousa] Gemini Flash Vision succeeded.');
-        return { reply: geminiVisionReply, handoffToFalcon: false, provider: 'gemini_vision' };
+      const geminiResult = await callGeminiChatForShamousa(systemInstruction, promptMessages, toolCtx, {
+        images,
+        useSearch: wantsGoogleSearch,
+      });
+      if (geminiResult.reply) {
+        console.log(
+          '[AI Service: Shamousa] Provider 1 (Gemini) succeeded.',
+          geminiResult.searchUsed ? `[Google Search Sources: ${geminiResult.sources.length}]` : ''
+        );
+        return {
+          reply: geminiResult.reply,
+          handoffToFalcon: false,
+          provider: hasImages ? 'gemini_vision' : geminiResult.searchUsed ? 'gemini_google_search' : 'gemini',
+          sources: geminiResult.sources,
+          searchUsed: geminiResult.searchUsed,
+          searchEntryPoint: geminiResult.searchEntryPoint,
+        };
       }
-    } catch (gErr: any) {
-      console.warn('[AI Service: Shamousa] Gemini Vision initial attempt failed:', gErr?.message);
+      geminiFailReason = 'رد فارغ من Gemini';
+    } catch (geminiErr: any) {
+      geminiFailReason = geminiErr?.message || 'فشل الاتصال بـ Gemini';
+      console.warn(
+        `[AI Service: Shamousa] Provider 1 (Gemini) failed: [${geminiFailReason}] -> Switching to Provider 2 (Groq Backup)...`
+      );
     }
+  } else {
+    geminiFailReason = 'مفتاح GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY غير مضبوط في Secrets';
+    console.log(`[AI Service: Shamousa] Provider 1 (Gemini) skipped: ${geminiFailReason} -> Switching to Provider 2 (Groq Backup)...`);
   }
 
   // -------------------------------------------------------------
-  // Provider 1: Groq API (Primary -> Secondary for fast text)
+  // Provider 2 (Backup): Groq API (Primary -> Secondary for fast text)
   // -------------------------------------------------------------
   const groqKeyToUse = !hasImages ? (groqPrimary || groqSecondary) : undefined;
   if (groqKeyToUse) {
-    console.log('[AI Service: Shamousa] Attempting Provider 1 (Groq)...');
+    console.log('[AI Service: Shamousa] Attempting Provider 2 (Groq Backup)...');
     try {
       const reply = await tryGroqExecution(groqKeyToUse);
       if (reply) {
-        console.log('[AI Service: Shamousa] Provider 1 (Groq) succeeded.');
-        return { reply, handoffToFalcon: false, provider: 'groq' };
+        console.log('[AI Service: Shamousa] Provider 2 (Groq Backup) succeeded.');
+        return { reply, handoffToFalcon: false, provider: 'groq', sources: [], searchUsed: false };
       }
       groqFailReason = 'Empty response from Groq';
     } catch (groqErr: any) {
       groqFailReason = groqErr?.message || 'Groq connection failed';
-      console.warn(
-        `[AI Service: Shamousa] Attempting Provider 1 (Groq)... Failed: [${groqFailReason}] -> Switching to Provider 2 (Gemini Flash)...`
-      );
+      console.error(`[AI Service: Shamousa] Provider 2 (Groq Backup) failed: [${groqFailReason}]`);
     }
   } else if (!hasImages) {
     groqFailReason = 'GROQ_API_KEY غير متوفر على الخادم';
-    console.log(`[AI Service: Shamousa] Provider 1 (Groq) skipped: ${groqFailReason} -> Switching to Provider 2 (Gemini Flash)...`);
   }
-
-  // -------------------------------------------------------------
-  // Provider 2: Google Gemini Flash (gemini-3.8-flash)
-  // -------------------------------------------------------------
-  if (process.env.GEMINI_API_KEY) {
-    console.log('[AI Service: Shamousa] Attempting Provider 2 (Gemini Flash)...');
-    try {
-      const geminiReply = await callGeminiChat(systemInstruction, promptMessages, images);
-      if (geminiReply) {
-        console.log('[AI Service: Shamousa] Switching to Provider 2 (Gemini Flash)... Success!');
-        return { reply: geminiReply, handoffToFalcon: false, provider: 'gemini' };
-      }
-      geminiFailReason = 'Empty response from Gemini Flash';
-    } catch (geminiErr: any) {
-      geminiFailReason = geminiErr?.message || 'Gemini Flash connection failed';
-      console.error(`[AI Service: Shamousa] Provider 2 (Gemini Flash) failed: [${geminiFailReason}]`);
-    }
-  } else {
-    geminiFailReason = 'GEMINI_API_KEY غير متوفر على الخادم';
-  }
-
 
   // -------------------------------------------------------------
   // Strict: منع الردود الصامتة والوهمية (No Silent Mock Fallbacks)
-  // إذا فشل المزودان، إرجاع تنبيه صريح ومباشر يوضح السبب الحقيقي
   // -------------------------------------------------------------
   const sanitizeReason = (reason: string) => {
     if (!reason) return 'غير متاح حالياً';
@@ -537,11 +710,11 @@ export async function handleShamousaChat(
     return reason.replace(/\{.*?\}|https?:\/\/\S+/g, '').slice(0, 80).trim() || 'تعذر الاتصال بالخادم';
   };
 
-  const cleanGroq = sanitizeReason(groqFailReason);
   const cleanGemini = sanitizeReason(geminiFailReason);
+  const cleanGroq = sanitizeReason(groqFailReason);
 
   throw new Error(
-    `تعذر اتصال الذكاء الاصطناعي: فشل المزود الأساسي (Groq: ${cleanGroq}) وفشل المزود البديل (Gemini Flash: ${cleanGemini}). يرجى التحقق من اتصال الإنترنت أو تحديث مفاتيح التشغيل على الخادم.`
+    `تعذر اتصال الذكاء الاصطناعي: فشل المزود الأساسي (Gemini: ${cleanGemini}) وفشل المزود البديل (Groq: ${cleanGroq}). يرجى التحقق من اتصال الإنترنت ومفاتيح التشغيل في الإعدادات (Secrets).`
   );
 }
 
