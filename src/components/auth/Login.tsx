@@ -94,7 +94,7 @@ export const Login: React.FC<LoginProps> = ({
       <form onSubmit={handleFormSubmit} className="space-y-3.5">
         {/* Email */}
         <div>
-          <label className="block text-xs font-bold mb-1 text-[#0C1427] dark:text-[#FAF5EB]">
+          <label className="block text-xs font-bold mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
             البريد الإلكتروني <span className="text-rose-500">*</span>
           </label>
           <div className="relative">
@@ -104,16 +104,16 @@ export const Login: React.FC<LoginProps> = ({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="name@example.com"
-              className="w-full px-3.5 py-2.5 pr-9 rounded-2xl border border-[#DEC9A8] dark:border-[#1B2B4B] bg-[#FAF5EB] dark:bg-[#0B142B] text-xs font-bold outline-none focus:ring-2 focus:ring-[#EA580C] font-mono text-right"
+              className="w-full px-3.5 py-2.5 pr-9 rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold outline-none focus:ring-2 focus:ring-[#EA580C] font-mono text-right"
             />
-            <Mail className="w-4 h-4 text-[#EA580C]/70 absolute right-3 top-3 pointer-events-none" />
+            <Mail className="w-4 h-4 text-[#EA580C]/80 absolute right-3 top-3 pointer-events-none" />
           </div>
         </div>
 
         {/* Password with Eye/EyeOff toggle */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-bold text-[#0C1427] dark:text-[#FAF5EB]">
+            <label className="text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA]">
               كلمة المرور <span className="text-rose-500">*</span>
             </label>
             <button
@@ -132,14 +132,14 @@ export const Login: React.FC<LoginProps> = ({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-3.5 py-2.5 pr-9 pl-10 rounded-2xl border border-[#DEC9A8] dark:border-[#1B2B4B] bg-[#FAF5EB] dark:bg-[#0B142B] text-xs font-bold outline-none focus:ring-2 focus:ring-[#EA580C] font-mono text-right"
+              className="w-full px-3.5 py-2.5 pr-9 pl-10 rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold outline-none focus:ring-2 focus:ring-[#EA580C] font-mono text-right"
             />
-            <Lock className="w-4 h-4 text-[#EA580C]/70 absolute right-3 top-3 pointer-events-none" />
+            <Lock className="w-4 h-4 text-[#EA580C]/80 absolute right-3 top-3 pointer-events-none" />
             <button
               type="button"
               onClick={() => setShowPassword((prev) => !prev)}
               data-flat="true"
-              className="absolute left-3 top-2.5 text-[#5C4734] dark:text-[#EADBC3] hover:text-[#EA580C] dark:hover:text-amber-400 transition cursor-pointer p-0.5"
+              className="absolute left-3 top-2.5 text-[#334155] dark:text-[#CBD5E1] hover:text-[#EA580C] dark:hover:text-amber-400 transition cursor-pointer p-0.5"
               title={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
             >
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -154,9 +154,9 @@ export const Login: React.FC<LoginProps> = ({
             id="rememberMe"
             checked={rememberMe}
             onChange={(e) => setRememberMe(e.target.checked)}
-            className="w-4 h-4 rounded border-[#DEC9A8] text-[#EA580C] focus:ring-[#EA580C] cursor-pointer accent-[#EA580C]"
+            className="w-4 h-4 rounded border-[#D4CCBC] text-[#EA580C] focus:ring-[#EA580C] cursor-pointer accent-[#EA580C]"
           />
-          <label htmlFor="rememberMe" className="text-xs font-bold text-[#5C4734] dark:text-[#EADBC3] cursor-pointer select-none">
+          <label htmlFor="rememberMe" className="text-xs font-bold text-[#334155] dark:text-[#CBD5E1] cursor-pointer select-none">
             تذكر تسجيل دخولي على هذا الجهاز
           </label>
         </div>
@@ -165,7 +165,7 @@ export const Login: React.FC<LoginProps> = ({
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-[#EA580C] via-[#F59E0B] to-[#C2410C] hover:from-[#C2410C] hover:to-[#EA580C] text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-600/25 transition disabled:opacity-50 cursor-pointer"
+          className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-600/25 transition disabled:opacity-50 cursor-pointer"
         >
           {loading ? (
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

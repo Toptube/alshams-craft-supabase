@@ -207,7 +207,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-start bg-[#05070B]/70 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex justify-start bg-[#060B18]/75 backdrop-blur-xs animate-in fade-in duration-150"
       dir="rtl"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -215,17 +215,17 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
     >
       <aside
         aria-label="القائمة الجانبية للورشة"
-        className="w-full max-w-xs sm:max-w-sm h-full flex flex-col text-right shadow-2xl border-l bg-[#FAF5EB] text-[#0C1427] border-[#DEC9A8] dark:bg-[#060B18] dark:text-[#FAF5EB] dark:border-[#1B2B4B] animate-in slide-in-from-right duration-200 relative"
+        className="w-full max-w-xs sm:max-w-sm h-full flex flex-col text-right shadow-2xl border-l bg-[#F2ECE1] text-[#0C1427] border-[#D4CCBC] dark:bg-[#060B18] dark:text-[#F7F3EA] dark:border-[#22355E] animate-in slide-in-from-right duration-200 relative"
       >
         {/* الهيدر: لوجو متجر الفنان + الاسم + أيقونة الترس المباشرة للإعدادات + إغلاق */}
-        <div className="p-4 border-b border-[#DEC9A8] dark:border-[#1B2B4B] bg-[#F3E9D8] dark:bg-[#0B142B] flex items-center justify-between gap-2.5">
+        <div className="p-4 border-b border-[#D4CCBC] dark:border-[#22355E] bg-[#E9E2D4] dark:bg-[#0D162E] flex items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0">
             {workshopLogo ? (
               <img
                 src={workshopLogo}
                 alt={profile.brandName || profile.artistName || 'شعار المتجر'}
                 referrerPolicy="no-referrer"
-                className="h-11 w-11 rounded-xl object-contain border border-[#EA580C]/50 bg-[#FFFDF9] dark:bg-[#111E3A] p-0.5 shadow-2xs shrink-0"
+                className="h-11 w-11 rounded-xl object-contain border border-[#EA580C]/50 bg-[#F7F3EA] dark:bg-[#132040] p-0.5 shadow-2xs shrink-0"
               />
             ) : (
               <ArtisanAvatar
@@ -236,7 +236,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               />
             )}
             <div className="min-w-0 text-right">
-              <h4 className="font-black text-sm text-[#0C1427] dark:text-[#FAF5EB] truncate">
+              <h4 className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA] truncate">
                 {profile.artistName || 'فنان الشمساوية'}
               </h4>
               <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24] truncate">
@@ -254,7 +254,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               }}
               aria-label="إعدادات الورشة والحساب"
               title="إعدادات الورشة والبراند وكلمة المرور"
-              className="min-h-[40px] min-w-[40px] p-2 rounded-xl bg-[#0C1427] text-[#F59E0B] hover:bg-[#EA580C] hover:text-white dark:bg-[#142242] dark:text-[#FBBF24] dark:hover:bg-[#EA580C] dark:hover:text-white border border-[#0C1427] dark:border-[#253B6B] flex items-center justify-center transition-colors cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C]"
+              className="min-h-[40px] min-w-[40px] p-2 rounded-xl bg-[#0C1427] text-[#FBBF24] hover:bg-[#EA580C] hover:text-white dark:bg-[#132040] dark:text-[#FBBF24] dark:hover:bg-[#EA580C] dark:hover:text-white border border-[#0C1427] dark:border-[#2D4475] flex items-center justify-center transition-colors cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C]"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -263,7 +263,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               onClick={onClose}
               aria-label="إغلاق القائمة الجانبية"
               title="إغلاق"
-              className="min-h-[40px] min-w-[40px] p-2 rounded-xl bg-[#FFFDF9] text-[#0C1427] hover:bg-[#EADBC3] dark:bg-[#111E3A] dark:text-[#FAF5EB] dark:hover:bg-[#1B2D54] border border-[#D8C5A8] dark:border-[#243760] flex items-center justify-center transition-colors cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C]"
+              className="min-h-[40px] min-w-[40px] p-2 rounded-xl bg-[#F7F3EA] text-[#0C1427] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:text-[#F7F3EA] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center transition-colors cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C]"
             >
               <X className="w-5 h-5" />
             </button>
@@ -282,11 +282,11 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               }}
               className={`min-h-[42px] px-3 py-2 rounded-xl border text-xs font-black flex items-center justify-center gap-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
                 activeView === 'home'
-                  ? 'bg-[#0C1427] text-[#FAF5EB] border-[#EA580C] dark:bg-[#EA580C] dark:text-white dark:border-[#F59E0B]'
-                  : 'bg-[#FFFDF9] text-[#0C1427] border-[#DFCEB5] hover:border-[#EA580C] dark:bg-[#0C1427] dark:text-[#FAF5EB] dark:border-[#1E2E52] dark:hover:border-[#F59E0B]'
+                  ? 'bg-[#0C1427] text-[#F7F3EA] border-[#EA580C] dark:bg-[#EA580C] dark:text-white dark:border-[#FBBF24]'
+                  : 'bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24]'
               }`}
             >
-              <Home className={`w-4 h-4 shrink-0 ${activeView === 'home' ? 'text-[#F59E0B] dark:text-white' : 'text-[#EA580C] dark:text-[#FBBF24]'}`} />
+              <Home className={`w-4 h-4 shrink-0 ${activeView === 'home' ? 'text-[#FBBF24] dark:text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'}`} />
               <span className="truncate">الرئيسية</span>
             </button>
 
@@ -296,9 +296,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 onOpenNotifications();
                 onClose();
               }}
-              className="min-h-[42px] px-3 py-2 rounded-xl border bg-[#FFFDF9] text-[#0C1427] border-[#DFCEB5] hover:border-[#EA580C] dark:bg-[#0C1427] dark:text-[#FAF5EB] dark:border-[#1E2E52] dark:hover:border-[#F59E0B] text-xs font-black flex items-center justify-center gap-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C]"
+              className="min-h-[42px] px-3 py-2 rounded-xl border bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24] text-xs font-black flex items-center justify-center gap-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C]"
             >
-              <Bell className="w-4 h-4 shrink-0 text-[#EA580C] dark:text-[#FBBF24]" />
+              <Bell className="w-4 h-4 shrink-0 text-[#C2410C] dark:text-[#FBBF24]" />
               <span className="truncate">الإشعارات</span>
               {totalUnreadAlerts > 0 && (
                 <span className="min-w-[20px] h-5 px-1.5 rounded-md bg-[#EA580C] text-white text-[11px] font-mono tabular-nums font-black flex items-center justify-center shrink-0">
@@ -308,7 +308,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             </button>
           </div>
 
-          <div className="h-px bg-[#DEC9A8] dark:bg-[#1B2B4B] my-1" />
+          <div className="h-px bg-[#D4CCBC] dark:bg-[#22355E] my-1" />
 
           {/* الأقسام الرئيسية (ERP / CRM / FCA / HR) القابلة للفتح والإغلاق بسهم */}
           <div className="space-y-2">
@@ -321,8 +321,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                   key={group.key}
                   className={`rounded-2xl border overflow-hidden transition-colors ${
                     hasActiveChild
-                      ? 'border-[#EA580C]/70 bg-[#FFFDF9] dark:bg-[#0C1427] dark:border-[#F59E0B]/60'
-                      : 'border-[#DFCEB5] bg-[#FFFDF9] dark:bg-[#0B1326] dark:border-[#1B2B4B]'
+                      ? 'border-[#EA580C]/70 bg-[#F7F3EA] dark:bg-[#0D162E] dark:border-[#FBBF24]/60'
+                      : 'border-[#D4CCBC] bg-[#F7F3EA] dark:bg-[#0D162E] dark:border-[#22355E]'
                   }`}
                 >
                   {/* رأس القسم الرئيسي */}
@@ -332,8 +332,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     aria-expanded={isExpanded}
                     className={`w-full min-h-[46px] px-3.5 py-2.5 flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
                       isExpanded
-                        ? 'bg-[#0C1427] text-[#FAF5EB] dark:bg-[#13203E] dark:text-[#FAF5EB]'
-                        : 'text-[#0C1427] hover:bg-[#F3E9D8] dark:text-[#FAF5EB] dark:hover:bg-[#111E3A]'
+                        ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#132040] dark:text-[#F7F3EA]'
+                        : 'text-[#0C1427] hover:bg-[#E9E2D4] dark:text-[#F7F3EA] dark:hover:bg-[#132040]'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -341,7 +341,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                         className={`px-2 py-0.5 rounded-md font-mono text-[11px] font-black tracking-wide shrink-0 ${
                           isExpanded
                             ? 'bg-[#EA580C] text-white'
-                            : 'bg-[#0C1427] text-[#F59E0B] dark:bg-[#1B2E59] dark:text-[#FBBF24]'
+                            : 'bg-[#0C1427] text-[#FBBF24] dark:bg-[#1A2B54] dark:text-[#FBBF24]'
                         }`}
                       >
                         {group.code}
@@ -354,15 +354,15 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                     <ChevronDown
                       className={`w-4 h-4 shrink-0 transition-transform duration-150 ${
                         isExpanded
-                          ? 'rotate-180 text-[#F59E0B]'
-                          : 'text-[#6B5B45] dark:text-[#D8C5A8]'
+                          ? 'rotate-180 text-[#FBBF24]'
+                          : 'text-[#475569] dark:text-[#CBD5E1]'
                       }`}
                     />
                   </button>
 
                   {/* العناصر الفرعية تظهر عند الفتح وتختفي عند الإغلاق */}
                   {isExpanded && (
-                    <div className="p-2 space-y-1 border-t border-[#E6D8C3] dark:border-[#1B2B4B] bg-[#FAF5EB]/70 dark:bg-[#070D1D]">
+                    <div className="p-2 space-y-1 border-t border-[#D4CCBC] dark:border-[#22355E] bg-[#EFE9DC]/80 dark:bg-[#060B18]">
                       {group.items.map((item) => {
                         const IconComp = item.icon;
                         const isItemActive = activeView === item.id;
@@ -375,7 +375,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                             className={`w-full min-h-[40px] px-3 py-2 rounded-xl flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
                               isItemActive
                                 ? 'bg-[#EA580C] text-white font-black'
-                                : 'text-[#0C1427] hover:bg-[#EFE4D2] dark:text-[#EDE2D0] dark:hover:bg-[#122040]'
+                                : 'text-[#0C1427] hover:bg-[#E3DBCC] dark:text-[#E5E0D5] dark:hover:bg-[#132040]'
                             }`}
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
@@ -392,7 +392,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                             </div>
                             <ChevronLeft
                               className={`w-3.5 h-3.5 shrink-0 ${
-                                isItemActive ? 'text-white' : 'text-[#8C7A62] dark:text-[#A99880]'
+                                isItemActive ? 'text-white' : 'text-[#475569] dark:text-[#CBD5E1]'
                               }`}
                             />
                           </button>
@@ -405,7 +405,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             })}
           </div>
 
-          <div className="h-px bg-[#DEC9A8] dark:bg-[#1B2B4B] my-1" />
+          <div className="h-px bg-[#D4CCBC] dark:bg-[#22355E] my-1" />
 
           {/* المساعد الذكي */}
           <button
@@ -416,14 +416,14 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             }}
             className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl border flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
               activeView === 'ai_agent'
-                ? 'bg-[#EA580C] text-white border-[#F59E0B]'
-                : 'bg-[#FFFDF9] text-[#0C1427] border-[#DFCEB5] hover:border-[#EA580C] dark:bg-[#0C1427] dark:text-[#FAF5EB] dark:border-[#1E2E52] dark:hover:border-[#F59E0B]'
+                ? 'bg-[#EA580C] text-white border-[#FBBF24]'
+                : 'bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24]'
             }`}
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <Sparkles
                 className={`w-4 h-4 shrink-0 ${
-                  activeView === 'ai_agent' ? 'text-white' : 'text-[#EA580C] dark:text-[#FBBF24]'
+                  activeView === 'ai_agent' ? 'text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'
                 }`}
               />
               <span className="text-xs font-black truncate">المستشار الذكي (صقر & شموسة)</span>
@@ -441,21 +441,21 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               }}
               className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl border flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
                 activeView === 'admin'
-                  ? 'bg-[#0C1427] text-[#F59E0B] border-[#EA580C] dark:bg-[#1B2E59] dark:text-[#FBBF24]'
-                  : 'bg-[#0C1427] text-[#FAF5EB] border-[#1D3566] hover:border-[#EA580C]'
+                  ? 'bg-[#0C1427] text-[#FBBF24] border-[#EA580C] dark:bg-[#1A2B54] dark:text-[#FBBF24]'
+                  : 'bg-[#0C1427] text-[#F7F3EA] border-[#22355E] hover:border-[#EA580C]'
               }`}
             >
               <div className="flex items-center gap-2.5 min-w-0">
-                <RefreshCw className="w-4 h-4 shrink-0 text-[#F59E0B]" />
+                <RefreshCw className="w-4 h-4 shrink-0 text-[#FBBF24]" />
                 <span className="text-xs font-black truncate">إدارة المنظومة والتبديل بين الورش</span>
               </div>
-              <ChevronLeft className="w-4 h-4 shrink-0 text-[#F59E0B]" />
+              <ChevronLeft className="w-4 h-4 shrink-0 text-[#FBBF24]" />
             </button>
           )}
         </nav>
 
         {/* شريط الأدوات السفلي المدمج: 5 أيقونات فقط لعدم ازدحام القائمة */}
-        <div className="p-3 border-t border-[#DEC9A8] dark:border-[#1B2B4B] bg-[#F3E9D8] dark:bg-[#0B142B]">
+        <div className="p-3 border-t border-[#D4CCBC] dark:border-[#22355E] bg-[#E9E2D4] dark:bg-[#0D162E]">
           <div className="flex items-center justify-between gap-1.5">
             <button
               type="button"
@@ -465,7 +465,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               }}
               title="دليل الورشة"
               aria-label="دليل الورشة"
-              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#111E3A] border border-[#D8C5A8] dark:border-[#243760] hover:border-[#EA580C] text-[#0C1427] dark:text-[#FAF5EB] hover:text-[#EA580C] dark:hover:text-[#FBBF24] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA] hover:text-[#EA580C] dark:hover:text-[#FBBF24] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
             >
               <BookOpen className="w-4 h-4" />
             </button>
@@ -478,7 +478,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               }}
               title="الجولة التعريفية"
               aria-label="الجولة التعريفية"
-              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#111E3A] border border-[#D8C5A8] dark:border-[#243760] hover:border-[#EA580C] text-[#0C1427] dark:text-[#FAF5EB] hover:text-[#EA580C] dark:hover:text-[#FBBF24] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA] hover:text-[#EA580C] dark:hover:text-[#FBBF24] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
             >
               <Eye className="w-4 h-4" />
             </button>
@@ -491,7 +491,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               }}
               title="النسخ والرفع السحابي"
               aria-label="النسخ والرفع السحابي"
-              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#111E3A] border border-[#D8C5A8] dark:border-[#243760] hover:border-[#EA580C] text-[#1D3566] dark:text-[#FBBF24] hover:text-[#EA580C] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#1D3566] dark:text-[#FBBF24] hover:text-[#EA580C] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
             >
               <CloudUpload className="w-4 h-4" />
             </button>
@@ -504,7 +504,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               }}
               title="الدعم الفني والشكاوى"
               aria-label="الدعم الفني والشكاوى"
-              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#111E3A] border border-[#D8C5A8] dark:border-[#243760] hover:border-[#EA580C] text-[#0C1427] dark:text-[#FAF5EB] hover:text-[#EA580C] dark:hover:text-[#FBBF24] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA] hover:text-[#EA580C] dark:hover:text-[#FBBF24] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
             >
               <MessageSquare className="w-4 h-4" />
             </button>
@@ -517,7 +517,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               }}
               title="تسجيل الخروج"
               aria-label="تسجيل الخروج"
-              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#05070B] dark:bg-[#05070B] border border-[#EA580C]/70 hover:bg-[#EA580C] text-[#F59E0B] hover:text-white flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#0C1427] dark:bg-[#060B18] border border-[#EA580C]/70 hover:bg-[#EA580C] text-[#FBBF24] hover:text-white flex items-center justify-center transition-colors cursor-pointer active:scale-95"
             >
               <LogOut className="w-4 h-4" />
             </button>

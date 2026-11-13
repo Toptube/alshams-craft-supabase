@@ -532,11 +532,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
   return (
     <div
-      className="min-h-screen bg-[#FAF5EB] text-[#0C1427] dark:bg-[#060B18] dark:text-[#FAF5EB] font-sans pb-16 max-w-full overflow-x-hidden transition-colors duration-200"
+      className="min-h-screen bg-[#F2ECE1] text-[#0C1427] dark:bg-[#060B18] dark:text-[#F7F3EA] font-sans pb-16 max-w-full overflow-x-hidden transition-colors duration-200"
       dir="rtl"
     >
       {/* 1. Unified Clean Top Navigation Header */}
-      <header className="sticky top-0 z-40 bg-[#FFFDF9]/95 dark:bg-[#0B142B]/95 backdrop-blur-md border-b border-[#DEC9A8] dark:border-[#1B2B4B] px-4 sm:px-6 py-3">
+      <header className="sticky top-0 z-40 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] px-4 sm:px-6 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 sm:gap-8">
           {/* Zone 1: Brand Wordmark (single line, zero descriptor clutter) */}
           <button
@@ -546,7 +546,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             title="سوق الشمساوية"
           >
             <AlShamsBrandIcon size="sm" />
-            <span className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#FAF5EB] whitespace-nowrap">
+            <span className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA] whitespace-nowrap">
               سوق الشمساوية
             </span>
           </button>
@@ -558,9 +558,9 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="ابحث عن مشغولة يدوية، ديكور، أو حرفة..."
-              className="w-full h-10 pr-10 pl-14 rounded-xl bg-[#F3E9D8] dark:bg-[#060B18] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] placeholder-[#6E6254] dark:placeholder-[#8FA2C2] text-sm font-medium outline-none focus:border-[#EA580C] dark:focus:border-[#FBBF24] transition-colors"
+              className="w-full h-10 pr-10 pl-14 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] placeholder-[#475569] dark:placeholder-[#94A3B8] text-sm font-medium outline-none focus:border-[#EA580C] dark:focus:border-[#FBBF24] transition-colors"
             />
-            <Search className="w-4 h-4 text-[#6E6254] dark:text-[#8FA2C2] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-[#475569] dark:text-[#94A3B8] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             {searchQuery && (
               <button
                 type="button"
@@ -575,10 +575,10 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           {/* Zone 3: Concise Actions */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {customerUser ? (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs whitespace-nowrap">
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs whitespace-nowrap">
                 <User className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
                 <span className="font-bold truncate max-w-[110px]">{customerUser.name}</span>
-                <span className="text-[#6E6254] dark:text-[#8FA2C2]" aria-hidden="true">·</span>
+                <span className="text-[#475569] dark:text-[#94A3B8]" aria-hidden="true">·</span>
                 <span className="font-mono tabular-nums text-[#C2410C] dark:text-[#FBBF24] font-bold">
                   {customerUser.loyaltyPoints} نقطة
                 </span>
@@ -587,7 +587,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCustomerAuthOpen(true)}
-                className="px-3 py-2 rounded-xl text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242] text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                className="px-3 py-2 rounded-xl text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0"
               >
                 <User className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />
                 <span className="hidden sm:inline">حسابي</span>
@@ -598,7 +598,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               <button
                 type="button"
                 onClick={onOpenStoreModal}
-                className="px-3 py-2 rounded-xl border border-[#DEC9A8] dark:border-[#1B2B4B] hover:bg-[#F3E9D8] dark:hover:bg-[#142242] text-[#0C1427] dark:text-[#FAF5EB] font-bold text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+                className="px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] font-bold text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
                 title="إدارة الكتالوج والمتجر"
               >
                 <Store className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
@@ -609,7 +609,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className="relative px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center gap-2 transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+              className="relative px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center gap-2 transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
               title="فتح سلة المشتريات"
             >
               <ShoppingBag className="w-4 h-4" />
@@ -627,33 +627,33 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       {/* 2. Editorial Showcase Hero (Hidden while searching/filtering so results rise straight to top) */}
       {!hasActiveFilters && (
         <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-2">
-          <div className="grid grid-cols-1 lg:grid-cols-12 items-stretch rounded-2xl overflow-hidden bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B]">
+          <div className="grid grid-cols-1 lg:grid-cols-12 items-stretch rounded-2xl overflow-hidden bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E]">
             <div className="lg:col-span-5 p-6 sm:p-8 flex flex-col justify-center gap-4 text-right">
               <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
                 مشغولات يدوية · ديكور وأثاث منزلي
               </p>
-              <h1 className="text-2xl sm:text-3xl font-black leading-tight text-[#0C1427] dark:text-[#FAF5EB] text-balance">
+              <h1 className="text-2xl sm:text-3xl font-black leading-tight text-[#0C1427] dark:text-[#F7F3EA] text-balance">
                 اقتنِ قطعاً يدوية أصيلة لمنزلك
               </h1>
-              <p className="text-sm text-[#5C4E3E] dark:text-[#B6C2D9] leading-relaxed max-w-md">
+              <p className="text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed max-w-md">
                 تشكيلة مختارة من الديكورات والمشغولات الحرفية بتصنيع متقن وتوصيل لكافة المحافظات.
               </p>
               <div className="pt-1 flex items-center gap-4">
                 <button
                   type="button"
                   onClick={scrollToCatalog}
-                  className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-sm inline-flex items-center gap-2 transition cursor-pointer active:scale-95 whitespace-nowrap"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-sm inline-flex items-center gap-2 transition cursor-pointer active:scale-95 whitespace-nowrap"
                 >
                   <span>تصفح المعروضات</span>
                   <ArrowLeft className="w-4 h-4" />
                 </button>
-                <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2] tabular-nums">
+                <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8] tabular-nums">
                   {products.length} قطعة متاحة
                 </span>
               </div>
             </div>
 
-            <div className="lg:col-span-7 min-h-[190px] sm:min-h-[250px] bg-gradient-to-br from-[#F3E9D8] to-[#DEC9A8] dark:from-[#0B142B] dark:to-[#132040] relative overflow-hidden">
+            <div className="lg:col-span-7 min-h-[190px] sm:min-h-[250px] bg-gradient-to-br from-[#E9E2D4] to-[#DFD7C6] dark:from-[#0D162E] dark:to-[#132040] relative overflow-hidden">
               <img
                 src="/src/assets/images/hero_shamsawiyah_market_1794585781201.jpg"
                 alt="تشكيلة مشغولات يدوية وديكور منزلي في سوق الشمساوية"
@@ -680,9 +680,9 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="ابحث عن مشغولة يدوية أو حرفة..."
-            className="w-full h-11 pr-10 pl-14 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] placeholder-[#6E6254] dark:placeholder-[#8FA2C2] text-sm font-medium outline-none focus:border-[#EA580C]"
+            className="w-full h-11 pr-10 pl-14 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] placeholder-[#475569] dark:placeholder-[#94A3B8] text-sm font-medium outline-none focus:border-[#EA580C]"
           />
-          <Search className="w-4 h-4 text-[#6E6254] dark:text-[#8FA2C2] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-4 h-4 text-[#475569] dark:text-[#94A3B8] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           {searchQuery && (
             <button
               type="button"
@@ -705,8 +705,8 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 onClick={() => setSelectedDecorCategory(cat.id)}
                 className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer shrink-0 border ${
                   active
-                    ? 'bg-[#0C1427] text-[#FAF5EB] border-[#0C1427] dark:bg-[#EA580C] dark:text-white dark:border-[#EA580C]'
-                    : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#5C4E3E] dark:text-[#B6C2D9] border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C]/60'
+                    ? 'bg-[#0C1427] text-[#F7F3EA] border-[#0C1427] dark:bg-[#EA580C] dark:text-white dark:border-[#EA580C]'
+                    : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#334155] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60'
                 }`}
               >
                 {cat.nameAr}
@@ -726,7 +726,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 className={`w-full h-10 px-3 rounded-xl border text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer whitespace-nowrap ${
                   selectedMainSections.length > 0
                     ? 'bg-[#EA580C]/10 border-[#EA580C] text-[#C2410C] dark:text-[#FBBF24]'
-                    : 'bg-[#FFFDF9] dark:bg-[#0C1427] border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] hover:border-[#EA580C]/60'
+                    : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C]/60'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
@@ -739,14 +739,14 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               </button>
 
               {openDropdown === 'section' && (
-                <div className="absolute right-0 left-0 sm:w-64 mt-1.5 z-50 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] shadow-xl p-1.5 space-y-1 max-h-72 overflow-y-auto">
+                <div className="absolute right-0 left-0 sm:w-64 mt-1.5 z-50 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-xl p-1.5 space-y-1 max-h-72 overflow-y-auto">
                   <button
                     type="button"
                     onClick={() => toggleMainSection('all')}
                     className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between transition cursor-pointer ${
                       selectedMainSections.length === 0
                         ? 'bg-[#EA580C] text-white'
-                        : 'text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242]'
+                        : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54]'
                     }`}
                   >
                     <span>الكل (كافة الأقسام)</span>
@@ -763,7 +763,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer text-right ${
                           isChecked
                             ? 'bg-[#EA580C]/10 text-[#C2410C] dark:text-[#FBBF24]'
-                            : 'text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242]'
+                            : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54]'
                         }`}
                       >
                         <span className="truncate">{sec.nameAr}</span>
@@ -771,7 +771,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                           className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
                             isChecked
                               ? 'bg-[#EA580C] border-[#EA580C] text-white'
-                              : 'border-[#DEC9A8] dark:border-[#253B6B]'
+                              : 'border-[#D4CCBC] dark:border-[#2D4475]'
                           }`}
                         >
                           {isChecked && <Check className="w-3 h-3" />}
@@ -791,7 +791,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 className={`w-full h-10 px-3 rounded-xl border text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer whitespace-nowrap ${
                   selectedSubCrafts.length > 0
                     ? 'bg-[#EA580C]/10 border-[#EA580C] text-[#C2410C] dark:text-[#FBBF24]'
-                    : 'bg-[#FFFDF9] dark:bg-[#0C1427] border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] hover:border-[#EA580C]/60'
+                    : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C]/60'
                 }`}
               >
                 <span className="flex items-center gap-2 truncate">
@@ -804,14 +804,14 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               </button>
 
               {openDropdown === 'craft' && (
-                <div className="absolute right-0 left-0 sm:w-64 mt-1.5 z-50 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] shadow-xl p-1.5 space-y-1 max-h-72 overflow-y-auto">
+                <div className="absolute right-0 left-0 sm:w-64 mt-1.5 z-50 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-xl p-1.5 space-y-1 max-h-72 overflow-y-auto">
                   <button
                     type="button"
                     onClick={() => toggleSubCraft('all')}
                     className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between transition cursor-pointer ${
                       selectedSubCrafts.length === 0
                         ? 'bg-[#EA580C] text-white'
-                        : 'text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242]'
+                        : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54]'
                     }`}
                   >
                     <span>الكل ({availableSubCrafts.length} تخصص)</span>
@@ -828,7 +828,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer text-right ${
                           isChecked
                             ? 'bg-[#EA580C]/10 text-[#C2410C] dark:text-[#FBBF24]'
-                            : 'text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#F3E9D8] dark:hover:bg-[#142242]'
+                            : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54]'
                         }`}
                       >
                         <span className="truncate">{craft.nameAr}</span>
@@ -836,7 +836,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                           className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
                             isChecked
                               ? 'bg-[#EA580C] border-[#EA580C] text-white'
-                              : 'border-[#DEC9A8] dark:border-[#253B6B]'
+                              : 'border-[#D4CCBC] dark:border-[#2D4475]'
                           }`}
                         >
                           {isChecked && <Check className="w-3 h-3" />}
@@ -852,7 +852,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               <button
                 type="button"
                 onClick={resetAllFilters}
-                className="h-10 px-3 rounded-xl text-xs font-bold text-[#C2410C] dark:text-[#FBBF24] hover:bg-[#F3E9D8] dark:hover:bg-[#142242] flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition"
+                className="h-10 px-3 rounded-xl text-xs font-bold text-[#C2410C] dark:text-[#FBBF24] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>إعادة ضبط</span>
@@ -862,17 +862,17 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
           {/* Sort + Results Summary */}
           <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-            <span className="text-xs font-medium text-[#6E6254] dark:text-[#8FA2C2] tabular-nums">
+            <span className="text-xs font-medium text-[#475569] dark:text-[#94A3B8] tabular-nums">
               {filteredProducts.length} منتج
             </span>
 
             <div className="relative flex items-center">
-              <ArrowUpDown className="w-3.5 h-3.5 text-[#6E6254] dark:text-[#8FA2C2] absolute right-3 pointer-events-none" />
+              <ArrowUpDown className="w-3.5 h-3.5 text-[#475569] dark:text-[#94A3B8] absolute right-3 pointer-events-none" />
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
                 aria-label="ترتيب المنتجات"
-                className="h-10 pr-8 pl-3 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs font-bold text-[#0C1427] dark:text-[#FAF5EB] outline-none focus:border-[#EA580C] cursor-pointer"
+                className="h-10 pr-8 pl-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C] cursor-pointer"
               >
                 <option value="featured">الأحدث</option>
                 <option value="price_asc">السعر: الأقل للأعلى</option>
@@ -899,32 +899,32 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className="rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] overflow-hidden animate-pulse"
+                className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden animate-pulse"
               >
-                <div className="w-full aspect-[4/3] bg-[#F3E9D8] dark:bg-[#0B142B]" />
+                <div className="w-full aspect-[4/3] bg-[#E9E2D4] dark:bg-[#132040]" />
                 <div className="p-4 space-y-3">
-                  <div className="h-3 bg-[#F3E9D8] dark:bg-[#142242] rounded w-1/2" />
-                  <div className="h-4 bg-[#F3E9D8] dark:bg-[#142242] rounded w-4/5" />
-                  <div className="h-5 bg-[#F3E9D8] dark:bg-[#142242] rounded w-1/3" />
-                  <div className="h-9 bg-[#F3E9D8] dark:bg-[#142242] rounded-xl w-full" />
+                  <div className="h-3 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-1/2" />
+                  <div className="h-4 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-4/5" />
+                  <div className="h-5 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-1/3" />
+                  <div className="h-9 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded-xl w-full" />
                 </div>
               </div>
             ))}
           </div>
         ) : filteredProducts.length === 0 ? (
-          <div className="p-14 text-center rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-3">
+          <div className="p-14 text-center rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
             <ShoppingBag className="w-10 h-10 mx-auto text-[#C2410C] dark:text-[#FBBF24] opacity-70" />
-            <h3 className="text-base font-black text-[#0C1427] dark:text-[#FAF5EB]">
+            <h3 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
               لا توجد منتجات مطابقة لخيارات البحث
             </h3>
-            <p className="text-xs text-[#6E6254] dark:text-[#8FA2C2]">
+            <p className="text-xs text-[#475569] dark:text-[#CBD5E1]">
               جرّب تغيير القسم أو التخصص أو مسح كلمات البحث.
             </p>
             {hasActiveFilters && (
               <button
                 type="button"
                 onClick={resetAllFilters}
-                className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs cursor-pointer transition"
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs cursor-pointer transition"
               >
                 عرض جميع المنتجات
               </button>
@@ -945,11 +945,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 <article
                   key={p.id}
                   onClick={() => handleOpenProductDetails(p)}
-                  className="rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] overflow-hidden hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 transition-all duration-200 flex flex-col justify-between cursor-pointer group hover:-translate-y-0.5 hover:shadow-lg"
+                  className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 transition-all duration-200 flex flex-col justify-between cursor-pointer group hover:-translate-y-0.5 hover:shadow-lg"
                 >
                   <div>
                     {/* Product Image (clean photography, no pill overlays) */}
-                    <div className="w-full aspect-[4/3] bg-[#F3E9D8] dark:bg-[#0B142B] overflow-hidden border-b border-[#DEC9A8]/60 dark:border-[#1B2B4B]">
+                    <div className="w-full aspect-[4/3] bg-[#E9E2D4] dark:bg-[#132040] overflow-hidden border-b border-[#D4CCBC]/70 dark:border-[#22355E]">
                       <img
                         src={p.imageUrl || '/alshams_falcon_emblem.png'}
                         alt={p.productName}
@@ -965,22 +965,22 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     {/* Card Details */}
                     <div className="p-4 space-y-2">
                       {/* Unboxed Metadata + Rating */}
-                      <div className="flex items-center justify-between gap-2 text-xs text-[#6E6254] dark:text-[#8FA2C2]">
+                      <div className="flex items-center justify-between gap-2 text-xs text-[#475569] dark:text-[#94A3B8]">
                         <span className="truncate font-medium">
                           {p.craftName || p.category} · {hasStock ? 'متوفر' : 'تنفيذ بالطلب'}
                         </span>
-                        <span className="flex items-center gap-1 font-mono tabular-nums text-[#0C1427] dark:text-[#FAF5EB] font-bold shrink-0">
+                        <span className="flex items-center gap-1 font-mono tabular-nums text-[#0C1427] dark:text-[#F7F3EA] font-bold shrink-0">
                           <Star className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
                           <span>{avgRating}</span>
                         </span>
                       </div>
 
-                      <h3 className="font-bold text-sm sm:text-base text-[#0C1427] dark:text-[#FAF5EB] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
+                      <h3 className="font-bold text-sm sm:text-base text-[#0C1427] dark:text-[#F7F3EA] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
                         {p.productName}
                       </h3>
 
                       {p.storeDescription && (
-                        <p className="text-xs text-[#5C4E3E] dark:text-[#A3B3CE] line-clamp-1">
+                        <p className="text-xs text-[#334155] dark:text-[#CBD5E1] line-clamp-1">
                           {p.storeDescription}
                         </p>
                       )}
@@ -997,10 +997,10 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   {/* Aligned Price & CTA Footer */}
                   <div className="px-4 pb-4 pt-1 space-y-3">
                     <div className="flex items-baseline gap-1 font-mono tabular-nums">
-                      <span className="text-lg font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                      <span className="text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
                         {price.toLocaleString('ar-EG')}
                       </span>
-                      <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2]">ج.م</span>
+                      <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">ج.م</span>
                     </div>
 
                     <button
@@ -1009,7 +1009,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         e.stopPropagation();
                         handleAddToCart(p, 1);
                       }}
-                      className="w-full py-2.5 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
                     >
                       <ShoppingBag className="w-4 h-4" />
                       <span>أضف للسلة</span>
@@ -1025,17 +1025,17 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       {/* 5. Product Details Modal (Contiguous Purchase Module) */}
       {selectedProductDetails && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#05070B]/75 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#060B18]/75 backdrop-blur-sm"
           dir="rtl"
           onClick={(e) => {
             if (e.target === e.currentTarget) setSelectedProductDetails(null);
           }}
         >
-          <div className="bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-6 text-[#0C1427] dark:text-[#FAF5EB] relative">
+          <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-6 text-[#0C1427] dark:text-[#F7F3EA] relative">
             <button
               type="button"
               onClick={() => setSelectedProductDetails(null)}
-              className="w-9 h-9 rounded-xl bg-[#F3E9D8] dark:bg-[#142242] hover:bg-[#DEC9A8] dark:hover:bg-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-center transition cursor-pointer absolute top-4 left-4"
+              className="w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center transition cursor-pointer absolute top-4 left-4"
               title="إغلاق"
             >
               <X className="w-5 h-5" />
@@ -1043,7 +1043,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-1">
               {/* Product Media */}
-              <div className="w-full aspect-[4/3] md:aspect-square rounded-2xl overflow-hidden bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B]">
+              <div className="w-full aspect-[4/3] md:aspect-square rounded-2xl overflow-hidden bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
                 <img
                   src={selectedProductDetails.imageUrl || '/alshams_falcon_emblem.png'}
                   alt={selectedProductDetails.productName}
@@ -1063,37 +1063,37 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     {(selectedProductDetails.currentStock || 0) > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
                   </p>
 
-                  <h3 className="font-black text-xl text-[#0C1427] dark:text-[#FAF5EB] leading-snug">
+                  <h3 className="font-black text-xl text-[#0C1427] dark:text-[#F7F3EA] leading-snug">
                     {selectedProductDetails.productName}
                   </h3>
 
                   <div className="flex items-baseline gap-1.5 font-mono tabular-nums pt-1">
-                    <span className="text-2xl font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                    <span className="text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
                       {(
                         selectedProductDetails.storePrice ||
                         selectedProductDetails.retailPrice ||
                         0
                       ).toLocaleString('ar-EG')}
                     </span>
-                    <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2]">ج.م</span>
+                    <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">ج.م</span>
                   </div>
 
                   {/* Super Admin ONLY attribution (never visible to customers) */}
                   {isSuperAdmin && (
-                    <div className="py-2 px-3 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-1">
+                    <div className="py-2 px-3 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-1">
                       <p className="font-bold text-[#C2410C] dark:text-[#FBBF24]">
                         الورشة: {selectedProductDetails.brandName || 'الشمساوية'} · الفنان:{' '}
                         {selectedProductDetails.artistName || 'غير محدد'}
                       </p>
                       {selectedProductDetails.phoneNumber && (
-                        <p className="font-mono tabular-nums text-[#0C1427] dark:text-[#FAF5EB]" dir="ltr">
+                        <p className="font-mono tabular-nums text-[#0C1427] dark:text-[#F7F3EA]" dir="ltr">
                           {selectedProductDetails.phoneNumber}
                         </p>
                       )}
                     </div>
                   )}
 
-                  <p className="text-sm text-[#5C4E3E] dark:text-[#B6C2D9] leading-relaxed">
+                  <p className="text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
                     {selectedProductDetails.storeDescription ||
                       selectedProductDetails.input?.personalNotes ||
                       'مشغولة يدوية مصنوعة بإتقان وجودة عالية.'}
@@ -1102,7 +1102,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   {selectedProductDetails.availableColors &&
                     selectedProductDetails.availableColors.length > 0 && (
                       <div className="space-y-1.5 pt-1">
-                        <label className="block font-bold text-[#0C1427] dark:text-[#FAF5EB]">
+                        <label className="block font-bold text-[#0C1427] dark:text-[#F7F3EA]">
                           الألوان المتاحة
                         </label>
                         <div className="flex flex-wrap gap-1.5">
@@ -1114,7 +1114,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                                 modalSelectedColor === color
                                   ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                                  : 'bg-[#F3E9D8] dark:bg-[#0B142B] text-[#0C1427] dark:text-[#FAF5EB] border-[#DEC9A8] dark:border-[#1B2B4B]'
+                                  : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
                               }`}
                             >
                               {color}
@@ -1127,7 +1127,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   {selectedProductDetails.availableSizes &&
                     selectedProductDetails.availableSizes.length > 0 && (
                       <div className="space-y-1.5 pt-1">
-                        <label className="block font-bold text-[#0C1427] dark:text-[#FAF5EB]">
+                        <label className="block font-bold text-[#0C1427] dark:text-[#F7F3EA]">
                           المقاسات المتاحة
                         </label>
                         <div className="flex flex-wrap gap-1.5">
@@ -1139,7 +1139,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                                 modalSelectedSize === size
                                   ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                                  : 'bg-[#F3E9D8] dark:bg-[#0B142B] text-[#0C1427] dark:text-[#FAF5EB] border-[#DEC9A8] dark:border-[#1B2B4B]'
+                                  : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
                               }`}
                             >
                               {size}
@@ -1150,7 +1150,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     )}
 
                   <div className="pt-1">
-                    <label className="block font-bold text-[#5C4E3E] dark:text-[#B6C2D9] mb-1">
+                    <label className="block font-bold text-[#334155] dark:text-[#CBD5E1] mb-1">
                       ملاحظات على الطلب (اختياري)
                     </label>
                     <input
@@ -1158,18 +1158,18 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                       value={modalCustomNotes}
                       onChange={(e) => setModalCustomNotes(e.target.value)}
                       placeholder="تخصيص لون أو مقاس..."
-                      className="w-full px-3 py-2 rounded-xl bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] text-xs outline-none focus:border-[#EA580C] font-medium"
+                      className="w-full px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs outline-none focus:border-[#EA580C] font-medium"
                     />
                   </div>
                 </div>
 
                 {/* Quantity & Buy CTA */}
                 <div className="pt-3 flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] shrink-0">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] shrink-0">
                     <button
                       type="button"
                       onClick={() => setModalQuantity(Math.max(1, modalQuantity - 1))}
-                      className="w-7 h-7 rounded-lg bg-[#FFFDF9] dark:bg-[#142242] text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-center cursor-pointer"
+                      className="w-7 h-7 rounded-lg bg-[#F7F3EA] dark:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer"
                     >
                       <Minus className="w-3.5 h-3.5" />
                     </button>
@@ -1179,7 +1179,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setModalQuantity(modalQuantity + 1)}
-                      className="w-7 h-7 rounded-lg bg-[#FFFDF9] dark:bg-[#142242] text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-center cursor-pointer"
+                      className="w-7 h-7 rounded-lg bg-[#F7F3EA] dark:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
                     </button>
@@ -1188,7 +1188,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleAddToCart(selectedProductDetails)}
-                    className="flex-1 py-3 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer active:scale-95"
+                    className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer active:scale-95"
                   >
                     <ShoppingBag className="w-4 h-4" />
                     <span>
@@ -1206,27 +1206,27 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             </div>
 
             {/* Verified Reviews Section */}
-            <div className="border-t border-[#DEC9A8] dark:border-[#1B2B4B] pt-5 space-y-3">
+            <div className="border-t border-[#D4CCBC] dark:border-[#22355E] pt-5 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-black text-sm text-[#0C1427] dark:text-[#FAF5EB] flex items-center gap-2">
+                <h4 className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
                   <Star className="w-4 h-4 fill-[#F59E0B] text-[#F59E0B]" />
                   <span>تقييمات المشترين</span>
                 </h4>
-                <span className="text-[11px] text-[#6E6254] dark:text-[#8FA2C2]">
+                <span className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
                   متاح بعد استلام الطلب
                 </span>
               </div>
 
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {getProductReviews(selectedProductDetails.id).length === 0 ? (
-                  <p className="py-3 text-xs text-[#6E6254] dark:text-[#8FA2C2] text-center">
+                  <p className="py-3 text-xs text-[#475569] dark:text-[#94A3B8] text-center">
                     لا توجد تقييمات حتى الآن.
                   </p>
                 ) : (
                   getProductReviews(selectedProductDetails.id).map((rev) => (
                     <div
                       key={rev.id}
-                      className="p-3 rounded-xl bg-[#F3E9D8]/60 dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs space-y-1"
+                      className="p-3 rounded-xl bg-[#E9E2D4]/75 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs space-y-1"
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-bold">{rev.authorName}</span>
@@ -1236,13 +1236,13 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                           ))}
                         </div>
                       </div>
-                      <p className="text-[#5C4E3E] dark:text-[#B6C2D9] text-xs">{rev.comment}</p>
+                      <p className="text-[#334155] dark:text-[#CBD5E1] text-xs">{rev.comment}</p>
                     </div>
                   ))
                 )}
               </div>
 
-              <div className="p-3.5 rounded-xl bg-[#F3E9D8]/50 dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-2.5">
+              <div className="p-3.5 rounded-xl bg-[#E9E2D4]/65 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-2.5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                   <input
                     type="text"
@@ -1250,7 +1250,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     onChange={(e) => setNewReviewAuthor(e.target.value)}
                     placeholder="الاسم"
                     disabled={!!customerUser}
-                    className="px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] outline-none font-bold disabled:opacity-75"
+                    className="px-3 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] outline-none font-bold disabled:opacity-75"
                   />
                   <input
                     type="tel"
@@ -1258,12 +1258,12 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     onChange={(e) => setNewReviewPhone(e.target.value)}
                     placeholder="رقم الهاتف المستخدم في الطلب"
                     disabled={!!customerUser}
-                    className="px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] outline-none font-bold font-mono disabled:opacity-75"
+                    className="px-3 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] outline-none font-bold font-mono disabled:opacity-75"
                   />
                 </div>
 
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="text-[#5C4E3E] dark:text-[#B6C2D9] font-bold">التقييم:</span>
+                  <span className="text-[#334155] dark:text-[#CBD5E1] font-bold">التقييم:</span>
                   <div className="flex items-center gap-1">
                     {[1, 2, 3, 4, 5].map((s) => (
                       <button
@@ -1276,7 +1276,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                           className={`w-4 h-4 ${
                             newReviewRating >= s
                               ? 'fill-[#F59E0B] text-[#F59E0B]'
-                              : 'text-[#DEC9A8] dark:text-[#253B6B]'
+                              : 'text-[#D4CCBC] dark:text-[#2D4475]'
                           }`}
                         />
                       </button>
@@ -1289,7 +1289,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   onChange={(e) => setNewReviewComment(e.target.value)}
                   placeholder="اكتب رأيك في المنتج..."
                   rows={2}
-                  className="w-full px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] outline-none font-medium text-xs resize-none"
+                  className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] outline-none font-medium text-xs resize-none"
                 />
 
                 {reviewGuardError && (
@@ -1339,9 +1339,9 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       />
 
       {/* Clean Minimal Footer */}
-      <footer className="mt-16 border-t border-[#DEC9A8] dark:border-[#1B2B4B] bg-[#FFFDF9] dark:bg-[#0B142B] py-5 px-4 sm:px-6">
+      <footer className="mt-16 border-t border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#0D162E] py-5 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-4">
-          <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#FAF5EB]">
+          <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
             سوق الشمساوية للفنون اليدوية
           </span>
           <a

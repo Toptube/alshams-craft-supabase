@@ -71,9 +71,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return (
         <div
           dir="rtl"
-          className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 bg-[#FDFBF7] dark:bg-[#060B18] text-[#0A1128] dark:text-[#FDFBF7] font-sans selection:bg-amber-500 selection:text-white"
+          className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] font-sans selection:bg-[#EA580C] selection:text-white"
         >
-          <div className="max-w-xl w-full bg-white dark:bg-stone-900 border-2 border-amber-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 text-center animate-in fade-in duration-300">
+          <div className="max-w-xl w-full bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#D4CCBC] dark:border-[#22355E] rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 text-center animate-in fade-in duration-300">
             {/* Logo & Emblem */}
             <div className="relative inline-flex items-center justify-center mx-auto">
               <div className="w-20 h-20 rounded-2xl bg-amber-500/10 dark:bg-amber-400/10 border border-amber-500/30 flex items-center justify-center p-3 shadow-inner">
@@ -98,10 +98,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 <Sparkles className="w-3.5 h-3.5" />
                 صيانة طارئة سريعة | عائلة الشمساوية
               </span>
-              <h1 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-white">
+              <h1 className="text-xl sm:text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
                 {this.props.fallbackTitle || 'يا فنان، حصل توقف مفاجئ في تحميل الشاشة!'}
               </h1>
-              <p className="text-sm font-medium text-stone-600 dark:text-stone-300 leading-relaxed max-w-md mx-auto">
+              <p className="text-sm font-medium text-[#334155] dark:text-[#CBD5E1] leading-relaxed max-w-md mx-auto">
                 متشيلش هم أبداً، بيانات ورشتك، خاماتك، حساباتك، وسجلاتك محفوظة بأمان تام في قاعدة البيانات. نقدر نعيد تشغيل الواجهة فوراً بضغطة زر واحدة.
               </p>
             </div>
@@ -111,7 +111,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               <button
                 type="button"
                 onClick={this.handleReload}
-                className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-sm transition shadow-lg shadow-amber-500/20 cursor-pointer active:scale-95"
+                className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-black text-sm transition shadow-lg shadow-orange-600/20 cursor-pointer active:scale-95"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>إعادة تشغيل المنظومة</span>
@@ -120,7 +120,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               <button
                 type="button"
                 onClick={this.handleGoHome}
-                className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-750 text-stone-800 dark:text-stone-200 font-bold text-sm transition cursor-pointer active:scale-95 border border-stone-200 dark:border-stone-700"
+                className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] font-bold text-sm transition cursor-pointer active:scale-95 border border-[#D4CCBC] dark:border-[#22355E]"
               >
                 <Home className="w-4 h-4" />
                 <span>العودة للرئيسية</span>

@@ -207,8 +207,8 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Background - Deep Royal Navy
-      ctx.fillStyle = '#070E1E';
+      // Background - Deep Midnight Navy
+      ctx.fillStyle = '#060B18';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Outer Golden Border
@@ -233,7 +233,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
       ctx.fillText(profile.brandName || profile.artistName || 'ورشة فنية', 600, 270);
 
       // Subtitle
-      ctx.fillStyle = '#EADBC8';
+      ctx.fillStyle = '#E2E8F0';
       ctx.font = '500 32px Cairo, sans-serif';
       ctx.fillText('أرقى المشغولات اليدوية والديكورات الحرفية الفاخرة', 600, 340);
 
@@ -251,7 +251,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
       ctx.drawImage(qrCanvas, 320, 480, 560, 560);
 
       // Text inside card
-      ctx.fillStyle = '#070E1E';
+      ctx.fillStyle = '#0C1427';
       ctx.font = 'bold 28px Cairo, sans-serif';
       ctx.fillText('امسح الكود بكاميرا الموبايل لزيارة المتجر والطلب', 600, 1090);
 
@@ -457,36 +457,43 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
   if (!isOpen) return null;
 
+  const pendingOrdersCount = orders.filter((o) => o.status === 'pending' || o.status === 'in_progress').length;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-[#0C1427] text-white w-full max-w-5xl max-h-[92vh] rounded-3xl border-2 border-amber-500/40 shadow-2xl flex flex-col overflow-hidden text-right">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[#060B18]/75 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-[#F2ECE1] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] w-full max-w-5xl max-h-[92vh] rounded-3xl border-2 border-[#D4CCBC] dark:border-[#EA580C]/45 shadow-2xl flex flex-col overflow-hidden text-right">
         {/* Header */}
-        <div className="px-5 py-4 bg-gradient-to-r from-[#080F1E] via-[#0C1427] to-[#142347] border-b border-amber-500/30 flex items-center justify-between">
+        <div className="px-5 py-4 bg-[#F7F3EA] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-400/40 text-amber-300 flex items-center justify-center shadow-lg">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#E9E2D4] to-[#F5DFC6] dark:from-[#EA580C]/20 dark:to-[#F59E0B]/10 border border-[#EA580C]/35 text-[#C2410C] dark:text-amber-300 flex items-center justify-center shadow-md">
               <Store className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-black text-amber-300">
+                <h3 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-amber-300">
                   متجر ورشة {profile.brandName || profile.artistName}
                 </h3>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-black">
-                  متصل ومفعل 🟢
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-400/30 text-[10px] font-black">
+                  متصل ومفعل
                 </span>
               </div>
-              <p className="text-xs text-[#EADBC8] font-medium">
+              <p className="text-xs text-[#334155] dark:text-[#CBD5E1] font-medium">
                 واجهة العرض العامة، مولد كود QR، ودورة متابعة طلبيات وتحصيل المتجر
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <AlShamsBrandLogo maxWidth={130} maxHeight={48} isDark={true} />
+            <div className="dark:hidden">
+              <AlShamsBrandLogo maxWidth={130} maxHeight={48} isDark={false} />
+            </div>
+            <div className="hidden dark:block">
+              <AlShamsBrandLogo maxWidth={130} maxHeight={48} isDark={true} />
+            </div>
             <button
               type="button"
               onClick={onClose}
-              className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-stone-300 hover:text-white flex items-center justify-center transition cursor-pointer"
+              className="w-9 h-9 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] hover:text-[#0C1427] dark:hover:text-[#F7F3EA] flex items-center justify-center transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -495,13 +502,13 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
         {/* Feedback Alert */}
         {feedback && (
-          <div className="px-4 py-2 bg-amber-500/20 border-b border-amber-500/40 text-amber-200 text-xs font-bold text-center animate-pulse">
+          <div className="px-4 py-2 bg-[#F5DFC6]/70 dark:bg-amber-500/20 border-b border-[#EA580C]/30 text-[#9A3412] dark:text-amber-200 text-xs font-bold text-center">
             {feedback}
           </div>
         )}
 
         {/* Navigation Tabs (Responsive & Touch-Friendly) */}
-        <div className="px-3 sm:px-5 pt-3 bg-[#080F1E] border-b border-amber-900/30 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
+        <div className="px-3 sm:px-5 pt-3 bg-[#E9E2D4] dark:bg-[#060B18] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
           <motion.button
             whileTap={{ scale: 0.96 }}
             type="button"
@@ -511,11 +518,11 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             }}
             className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
               activeTab === 'storefront'
-                ? 'bg-[#0C1427] text-amber-300 border-t-2 border-x-2 border-amber-500/50 shadow-sm'
-                : 'text-stone-400 hover:text-white'
+                ? 'bg-[#F2ECE1] dark:bg-[#0D162E] text-[#C2410C] dark:text-amber-300 border-t-2 border-x-2 border-[#EA580C]/60 dark:border-amber-500/50 shadow-sm'
+                : 'text-[#334155] dark:text-[#CBD5E1] hover:text-[#0C1427] dark:hover:text-[#F7F3EA]'
             }`}
           >
-            <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
+            <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#EA580C] dark:text-amber-400" />
             <span>منتجات المتجر والمخزون ({products.length})</span>
           </motion.button>
 
@@ -528,14 +535,16 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             }}
             className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
               activeTab === 'orders'
-                ? 'bg-[#0C1427] text-amber-300 border-t-2 border-x-2 border-amber-500/50 shadow-sm'
-                : 'text-stone-400 hover:text-white'
+                ? 'bg-[#F2ECE1] dark:bg-[#0D162E] text-[#C2410C] dark:text-amber-300 border-t-2 border-x-2 border-[#EA580C]/60 dark:border-amber-500/50 shadow-sm'
+                : 'text-[#334155] dark:text-[#CBD5E1] hover:text-[#0C1427] dark:hover:text-[#F7F3EA]'
             }`}
           >
-            <Package className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" />
+            <Package className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 dark:text-emerald-400" />
             <span>طلبيات المتجر والتحصيل ({orders.length})</span>
-            {orders.filter((o) => o.status === 'pending' || o.status === 'in_progress').length > 0 && (
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+            {pendingOrdersCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-mono text-[10px] font-black">
+                {pendingOrdersCount}
+              </span>
             )}
           </motion.button>
 
@@ -548,11 +557,11 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             }}
             className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
               activeTab === 'qr'
-                ? 'bg-[#0C1427] text-amber-300 border-t-2 border-x-2 border-amber-500/50 shadow-sm'
-                : 'text-stone-400 hover:text-white'
+                ? 'bg-[#F2ECE1] dark:bg-[#0D162E] text-[#C2410C] dark:text-amber-300 border-t-2 border-x-2 border-[#EA580C]/60 dark:border-amber-500/50 shadow-sm'
+                : 'text-[#334155] dark:text-[#CBD5E1] hover:text-[#0C1427] dark:hover:text-[#F7F3EA]'
             }`}
           >
-            <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300" />
+            <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#EA580C] dark:text-amber-300" />
             <span>كود QR والبوستر 🖼️</span>
           </motion.button>
         </div>
@@ -561,21 +570,21 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
         {activeTab === 'storefront' && (
           <div className="p-3 sm:p-5 flex-1 overflow-y-auto space-y-3 sm:space-y-4">
             {/* Operational Quality Notice */}
-            <div className="p-3 sm:p-4 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-xs leading-relaxed space-y-1">
-              <div className="flex items-center gap-2 text-amber-300 font-black">
-                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div className="p-3 sm:p-4 rounded-2xl bg-[#F7F3EA] dark:bg-amber-500/10 border border-[#D4CCBC] dark:border-amber-400/35 text-xs leading-relaxed space-y-1">
+              <div className="flex items-center gap-2 text-[#C2410C] dark:text-amber-300 font-black">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <span>سياسة فحص الجودة المعتمدة في منظومة الشمساوية:</span>
               </div>
-              <p className="text-[#EADBC8] text-[11px] sm:text-xs font-medium">
+              <p className="text-[#334155] dark:text-[#CBD5E1] text-[11px] sm:text-xs font-medium">
                 "تخضع كافة المشغولات للفحص الفني اليدوي لضمان معايير الفنش والجودة؛ للحفاظ على ثقة عملاء عائلة الشمساوية وقيمة منتجك الحرفي".
               </p>
             </div>
 
             {/* Quick Share Bar */}
-            <div className="p-3 sm:p-3.5 rounded-2xl bg-[#131E38] border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+            <div className="p-3 sm:p-3.5 rounded-2xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex flex-col sm:flex-row items-center justify-between gap-2.5">
               <div className="flex items-center gap-2 text-xs w-full sm:w-auto min-w-0">
-                <span className="text-amber-300 font-bold shrink-0">رابط متجرك:</span>
-                <span className="font-mono text-emerald-300 text-[11px] bg-black/40 px-2 py-1 rounded-lg border border-emerald-500/30 truncate flex-1 sm:max-w-md" dir="ltr">
+                <span className="text-[#C2410C] dark:text-amber-300 font-bold shrink-0">رابط متجرك:</span>
+                <span className="font-mono text-emerald-800 dark:text-emerald-300 text-[11px] bg-[#E9E2D4] dark:bg-[#060B18] px-2 py-1 rounded-lg border border-[#D4CCBC] dark:border-emerald-500/30 truncate flex-1 sm:max-w-md" dir="ltr">
                   {storeUrl}
                 </span>
               </div>
@@ -584,7 +593,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                   whileTap={{ scale: 0.94 }}
                   type="button"
                   onClick={handleCopyStoreLink}
-                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition"
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>نسخ الرابط</span>
@@ -603,10 +612,10 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
             {/* Products Grid: 2-Columns on Mobile, 3-Columns on Desktop */}
             {products.length === 0 ? (
-              <div className="p-10 text-center rounded-3xl bg-[#080F1E] border border-amber-500/20 space-y-3">
-                <Store className="w-12 h-12 mx-auto text-amber-500/60" />
-                <h4 className="text-sm font-black text-amber-200">لا توجد منتجات معروضة بمتجرك حالياً</h4>
-                <p className="text-xs text-[#EADBC8] max-w-md mx-auto">
+              <div className="p-10 text-center rounded-3xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
+                <Store className="w-12 h-12 mx-auto text-[#EA580C]/70" />
+                <h4 className="text-sm font-black text-[#0C1427] dark:text-amber-200">لا توجد منتجات معروضة بمتجرك حالياً</h4>
+                <p className="text-xs text-[#334155] dark:text-[#CBD5E1] max-w-md mx-auto">
                   يمكنك حفظ أي مشغولة من حاسبة التكاليف وسيتم إدراجها هنا فورياً بمعايير الجودة العالية.
                 </p>
               </div>
@@ -618,11 +627,11 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                   return (
                     <div
                       key={p.id}
-                      className="rounded-2xl bg-[#080F1E] border border-amber-500/30 p-2 sm:p-3.5 flex flex-col justify-between hover:border-amber-400 transition shadow-lg group relative"
+                      className="rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] p-2 sm:p-3.5 flex flex-col justify-between hover:border-[#EA580C] dark:hover:border-amber-400 transition shadow-md group relative"
                     >
                       <div>
                         {/* Image & Badges */}
-                        <div className="relative w-full h-28 sm:h-44 rounded-xl overflow-hidden bg-black/40 mb-2 sm:mb-3 border border-amber-500/20">
+                        <div className="relative w-full h-28 sm:h-44 rounded-xl overflow-hidden bg-[#E9E2D4] dark:bg-[#132040] mb-2 sm:mb-3 border border-[#D4CCBC] dark:border-[#22355E]">
                           {p.imageUrl ? (
                             <img
                               src={p.imageUrl}
@@ -631,7 +640,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                               loading="lazy"
                             />
                           ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-amber-400/50">
+                            <div className="w-full h-full flex flex-col items-center justify-center text-[#EA580C]/60 dark:text-amber-400/50">
                               <ShoppingBag className="w-8 h-8 sm:w-10 sm:h-10 mb-1" />
                               <span className="text-[9px] sm:text-[10px]">مشغولة يدوية</span>
                             </div>
@@ -639,7 +648,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
                           {/* Guarantee Badge */}
                           <div className="absolute top-1.5 right-1.5">
-                            <span className="px-1.5 sm:px-2 py-0.5 rounded-md bg-stone-900/85 text-amber-300 text-[8px] sm:text-[10px] font-black border border-amber-400/50 shadow-xs flex items-center gap-1">
+                            <span className="px-1.5 sm:px-2 py-0.5 rounded-md bg-[#0C1427]/85 text-amber-300 text-[8px] sm:text-[10px] font-black border border-amber-400/50 shadow-xs flex items-center gap-1">
                               <ShieldCheck className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
                               <span>جودة يدوية</span>
                             </span>
@@ -652,7 +661,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                                 فوري ({p.currentStock})
                               </span>
                             ) : (
-                              <span className="px-1.5 py-0.5 rounded-md bg-amber-600/90 text-white font-black text-[8px] sm:text-[9px] shadow-xs">
+                              <span className="px-1.5 py-0.5 rounded-md bg-[#EA580C]/90 text-white font-black text-[8px] sm:text-[9px] shadow-xs">
                                 عند الطلب
                               </span>
                             )}
@@ -660,7 +669,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
                           {/* Price Tag */}
                           <div className="absolute bottom-1.5 left-1.5">
-                            <span className="px-1.5 sm:px-2 py-0.5 rounded-lg bg-black/85 text-amber-300 font-mono text-[10px] sm:text-xs font-bold border border-amber-500/30">
+                            <span className="px-1.5 sm:px-2 py-0.5 rounded-lg bg-[#0C1427]/85 text-amber-300 font-mono text-[10px] sm:text-xs font-bold border border-amber-500/30">
                               {price} {profile.currencySymbol || 'ج.م'}
                             </span>
                           </div>
@@ -668,24 +677,24 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
                         {/* Title & Category */}
                         <div className="mb-1">
-                          <h4 className="font-black text-xs sm:text-sm text-white truncate" title={p.productName}>
+                          <h4 className="font-black text-xs sm:text-sm text-[#0C1427] dark:text-[#F7F3EA] truncate" title={p.productName}>
                             {p.productName}
                           </h4>
-                          <span className="text-[9px] sm:text-[10px] text-amber-200/80 line-clamp-1">
+                          <span className="text-[9px] sm:text-[10px] text-[#475569] dark:text-[#CBD5E1] line-clamp-1">
                             {p.category || 'مشغولة يدوية'}
                           </span>
                         </div>
                       </div>
 
                       {/* Card Actions: Quick Add to Cart + Calculator Link */}
-                      <div className="pt-2 border-t border-amber-500/20 space-y-1.5">
+                      <div className="pt-2 border-t border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
                         <motion.button
                           whileTap={{ scale: 0.94 }}
                           type="button"
                           onClick={() => handleQuickAddToCart(p)}
-                          className="w-full py-1.5 px-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black text-[10px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition"
+                          className="w-full py-1.5 px-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-black text-[10px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition"
                         >
-                          <ShoppingBag className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-200" />
+                          <ShoppingBag className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-100" />
                           <span>أضف للسلة 🛒</span>
                         </motion.button>
 
@@ -696,7 +705,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                               playTapSound();
                               onOpenCalculatorForRecord(p);
                             }}
-                            className="w-full py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-[9px] sm:text-[10px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                            className="w-full py-1 rounded-lg bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] text-[#C2410C] dark:text-amber-300 border border-[#D4CCBC] dark:border-[#22355E] text-[9px] sm:text-[10px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
                           >
                             <span>عرض بالحاسبة 🧮</span>
                           </button>
@@ -713,21 +722,21 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
         {/* Tab 2: Orders & Lifecycle */}
         {activeTab === 'orders' && (
           <div className="p-5 flex-1 overflow-y-auto space-y-4">
-            <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
-              <h4 className="font-black text-sm text-amber-300 flex items-center gap-2">
+            <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
+              <h4 className="font-black text-sm text-[#C2410C] dark:text-amber-300 flex items-center gap-2">
                 <Package className="w-4 h-4" />
                 <span>إدارة ومتابعة أوردرات المتجر والتسليم</span>
               </h4>
-              <span className="text-xs text-stone-400 font-mono">
+              <span className="text-xs text-[#475569] dark:text-[#94A3B8] font-mono">
                 إجمالي الطلبيات: {orders.length}
               </span>
             </div>
 
             {orders.length === 0 ? (
-              <div className="p-12 text-center rounded-3xl bg-[#080F1E] border border-amber-500/20 space-y-3">
-                <Package className="w-12 h-12 mx-auto text-amber-500/60" />
-                <h4 className="text-sm font-black text-amber-200">لا توجد طلبيات مسجلة في المتجر حتى الآن</h4>
-                <p className="text-xs text-[#EADBC8] max-w-md mx-auto">
+              <div className="p-12 text-center rounded-3xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
+                <Package className="w-12 h-12 mx-auto text-[#EA580C]/70" />
+                <h4 className="text-sm font-black text-[#0C1427] dark:text-amber-200">لا توجد طلبيات مسجلة في المتجر حتى الآن</h4>
+                <p className="text-xs text-[#334155] dark:text-[#CBD5E1] max-w-md mx-auto">
                   عند قيام الزبائن بالطلب عبر رابط متجرك المباشر أو كود QR، ستظهر الطلبيات هنا مباشرة لبدء الجدولة والتسليم.
                 </p>
               </div>
@@ -747,25 +756,25 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                   return (
                     <div
                       key={order.id}
-                      className="p-4 rounded-2xl bg-[#080F1E] border border-amber-500/30 hover:border-amber-400 transition space-y-3"
+                      className="p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-amber-400 transition space-y-3"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-500/20 pb-2.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#D4CCBC] dark:border-[#22355E] pb-2.5">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center font-bold text-xs">
+                          <span className="w-8 h-8 rounded-xl bg-[#E9E2D4] dark:bg-amber-500/20 text-[#C2410C] dark:text-amber-300 flex items-center justify-center font-bold text-xs">
                             #{order.invoiceNumber}
                           </span>
                           <div>
                             <div className="flex items-center gap-2">
-                              <h5 className="font-black text-sm text-white">{displayName}</h5>
-                              <span className="px-2 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-bold">
+                              <h5 className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA]">{displayName}</h5>
+                              <span className="px-2 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30 text-[9px] font-bold">
                                 طلبية متجر 🛍️
                               </span>
                             </div>
-                            <span className="text-[11px] text-[#EADBC8] font-mono" dir="ltr">
+                            <span className="text-[11px] text-[#334155] dark:text-[#CBD5E1] font-mono" dir="ltr">
                               📞 {displayPhone}
                             </span>
                             {displayAddress && (
-                              <span className="text-[10px] text-stone-400 block mt-0.5">
+                              <span className="text-[10px] text-[#475569] dark:text-[#94A3B8] block mt-0.5">
                                 📍 {displayAddress}
                               </span>
                             )}
@@ -777,10 +786,10 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                           {daysRemaining !== null && order.status !== 'completed' && order.status !== 'cancelled' && (
                             <span className={`px-2.5 py-0.5 rounded-full border text-[10px] font-bold flex items-center gap-1 font-mono ${
                               daysRemaining > 2
-                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-500/40'
                                 : daysRemaining > 0
-                                ? 'bg-orange-500/20 text-orange-300 border-orange-500/40 animate-pulse'
-                                : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-900 dark:text-orange-300 border-orange-300 dark:border-orange-500/40'
+                                : 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-500/40'
                             }`}>
                               <Clock className="w-3 h-3" />
                               <span>
@@ -794,27 +803,27 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                           )}
 
                           {order.status === 'pending' && (
-                            <span className="px-2.5 py-1 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/40 text-xs font-black">
+                            <span className="px-2.5 py-1 rounded-full bg-sky-100 dark:bg-sky-500/20 text-sky-800 dark:text-sky-300 border border-sky-300 dark:border-sky-400/40 text-xs font-black">
                               أوردر جديد 🆕
                             </span>
                           )}
                           {order.status === 'in_progress' && (
-                            <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40 text-xs font-black">
+                            <span className="px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-400/40 text-xs font-black">
                               جاري التصنيع 🔨
                             </span>
                           )}
                           {order.status === 'shipped' && (
-                            <span className="px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-400/40 text-xs font-black">
+                            <span className="px-2.5 py-1 rounded-full bg-purple-100 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-400/40 text-xs font-black">
                               جاري الشحن والتوصيل 🚚
                             </span>
                           )}
                           {order.status === 'completed' && (
-                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-xs font-black">
+                            <span className="px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-400/40 text-xs font-black">
                               تم الاستلام والتحصيل ✓
                             </span>
                           )}
                           {order.status === 'cancelled' && (
-                            <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-400/40 text-xs font-black">
+                            <span className="px-2.5 py-1 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-400/40 text-xs font-black">
                               مرتجع / ملغي ❌
                             </span>
                           )}
@@ -823,23 +832,23 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
                       {/* Items & Financials */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                        <div className="p-2.5 rounded-xl bg-[#0C1427] border border-amber-900/40">
-                          <span className="text-[10px] text-stone-400 block mb-0.5">الأصناف المطلوبة</span>
-                          <span className="font-bold text-white line-clamp-1">
+                        <div className="p-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+                          <span className="text-[10px] text-[#475569] dark:text-[#94A3B8] block mb-0.5">الأصناف المطلوبة</span>
+                          <span className="font-bold text-[#0C1427] dark:text-[#F7F3EA] line-clamp-1">
                             {order.items?.map((i) => `${i.productName} (${i.quantity})`).join('، ') || 'مشغولة يدوية'}
                           </span>
                         </div>
 
-                        <div className="p-2.5 rounded-xl bg-[#0C1427] border border-amber-900/40">
-                          <span className="text-[10px] text-stone-400 block mb-0.5">الحساب المالي</span>
-                          <span className="font-bold text-emerald-400 font-mono">
+                        <div className="p-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+                          <span className="text-[10px] text-[#475569] dark:text-[#94A3B8] block mb-0.5">الحساب المالي</span>
+                          <span className="font-bold text-emerald-700 dark:text-emerald-400 font-mono">
                             إجمالي: {order.finalTotal} | مسدد: {order.paidAmount || 0} {profile.currencySymbol || 'ج.م'}
                           </span>
                         </div>
 
-                        <div className="p-2.5 rounded-xl bg-[#0C1427] border border-amber-900/40">
-                          <span className="text-[10px] text-stone-400 block mb-0.5">المتبقي للتحصيل</span>
-                          <span className="font-black text-amber-300 font-mono text-sm">
+                        <div className="p-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+                          <span className="text-[10px] text-[#475569] dark:text-[#94A3B8] block mb-0.5">المتبقي للتحصيل</span>
+                          <span className="font-black text-[#C2410C] dark:text-amber-300 font-mono text-sm">
                             {remaining} {profile.currencySymbol || 'ج.م'}
                           </span>
                         </div>
@@ -855,7 +864,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                               const inThreeDays = new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0];
                               setScheduledDeliveryDate(inThreeDays);
                             }}
-                            className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 transition"
+                            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95 transition"
                           >
                             <Clock className="w-4 h-4" />
                             <span>بدء التنفيذ وتحديد ميعاد التسليم 🔨</span>
@@ -891,7 +900,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                               setReturningOrder(order);
                               setReturnAmount(order.paidAmount || order.finalTotal || 0);
                             }}
-                            className="px-2.5 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-500/40 text-rose-300 font-bold flex items-center gap-1 cursor-pointer transition"
+                            className="px-2.5 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/80 hover:bg-rose-100 dark:hover:bg-rose-900 border border-rose-300 dark:border-rose-500/40 text-rose-700 dark:text-rose-300 font-bold flex items-center gap-1 cursor-pointer transition"
                             title="تسجيل مرتجع كلي أو جزئي للأوردر"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
@@ -911,24 +920,24 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
         {activeTab === 'qr' && (
           <div className="p-4 sm:p-6 flex-1 overflow-y-auto flex flex-col items-center justify-center text-center space-y-5">
             {/* Printable Frame */}
-            <div className="p-5 sm:p-6 rounded-3xl bg-[#FDFBF7] text-[#0A1128] border-4 border-amber-500 shadow-2xl max-w-sm w-full space-y-4">
+            <div className="p-5 sm:p-6 rounded-3xl bg-[#F7F3EA] text-[#0C1427] border-4 border-[#EA580C] shadow-2xl max-w-sm w-full space-y-4">
               <div className="space-y-2">
                 <div className="flex justify-center">
                   <AlShamsBrandLogo maxWidth={155} maxHeight={64} isDark={false} />
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-amber-700 block">
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#C2410C] block">
                   منظومة الشمساوية • هاند ميد مصر ☀️
                 </span>
-                <h3 className="text-lg sm:text-xl font-black text-[#0A1128]">
+                <h3 className="text-lg sm:text-xl font-black text-[#0C1427]">
                   {profile.brandName || profile.artistName}
                 </h3>
-                <p className="text-xs text-stone-600 font-bold">
+                <p className="text-xs text-[#334155] font-bold">
                   امسح الكود بكاميرا الموبايل لزيارة متجرنا وطلب القطع المصنوعة بحب وعناية ✨
                 </p>
               </div>
 
               {/* Native High-Resolution QR Canvas */}
-              <div className="w-56 h-56 mx-auto rounded-2xl overflow-hidden border-2 border-[#0A1128] p-2 bg-white shadow-inner flex items-center justify-center">
+              <div className="w-56 h-56 mx-auto rounded-2xl overflow-hidden border-2 border-[#0C1427] p-2 bg-[#FFFFFF] shadow-inner flex items-center justify-center">
                 <QRCodeCanvas
                   id="workshop-qr-canvas"
                   value={storeUrl}
@@ -946,11 +955,11 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 />
               </div>
 
-              <div className="space-y-1 border-t border-stone-200 pt-2">
+              <div className="space-y-1 border-t border-[#D4CCBC] pt-2">
                 <span className="text-[10px] font-bold text-emerald-700 block">
                   🛡️ مشغولات يدوية أصلية 100% بضمان الجودة العالية
                 </span>
-                <div className="text-[10px] sm:text-[11px] font-mono text-stone-700 truncate" dir="ltr">
+                <div className="text-[10px] sm:text-[11px] font-mono text-[#334155] truncate" dir="ltr">
                   {storeUrl}
                 </div>
               </div>
@@ -962,7 +971,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 whileTap={{ scale: 0.94 }}
                 type="button"
                 onClick={handleDownloadHighResPoster}
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black text-xs flex items-center gap-2 cursor-pointer shadow-lg transition"
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-black text-xs flex items-center gap-2 cursor-pointer shadow-lg transition"
               >
                 <span>🖼️</span>
                 <span>تحميل بوستر الورشة عالي الدقة للطباعة</span>
@@ -972,9 +981,9 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 whileTap={{ scale: 0.94 }}
                 type="button"
                 onClick={handleDownloadQR}
-                className="px-3.5 py-2.5 rounded-xl bg-[#131E38] hover:bg-[#1D2F57] border border-amber-500/40 text-amber-300 font-black text-xs flex items-center gap-2 cursor-pointer transition shadow-xs"
+                className="px-3.5 py-2.5 rounded-xl bg-[#F7F3EA] hover:bg-[#E9E2D4] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#C2410C] dark:text-amber-300 font-black text-xs flex items-center gap-2 cursor-pointer transition shadow-xs"
               >
-                <Download className="w-4 h-4 text-amber-400" />
+                <Download className="w-4 h-4 text-[#EA580C] dark:text-amber-400" />
                 <span>تحميل كود QR 💾</span>
               </motion.button>
 
@@ -982,7 +991,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 whileTap={{ scale: 0.94 }}
                 type="button"
                 onClick={handlePrintPoster}
-                className="px-3.5 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-black text-xs flex items-center gap-2 cursor-pointer transition"
+                className="px-3.5 py-2.5 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-black text-xs flex items-center gap-2 cursor-pointer transition"
               >
                 <Printer className="w-4 h-4" />
                 <span>طباعة 🖨️</span>
@@ -1003,33 +1012,33 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
         {/* Modal: Schedule Order Delivery */}
         {schedulingOrder && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-            <div className="bg-[#0C1427] border-2 border-amber-500 rounded-3xl p-5 max-w-md w-full space-y-4 text-right">
-              <h4 className="font-black text-sm text-amber-300 flex items-center gap-2">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-xs">
+            <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#EA580C] rounded-3xl p-5 max-w-md w-full space-y-4 text-right text-[#0C1427] dark:text-[#F7F3EA] shadow-2xl">
+              <h4 className="font-black text-sm text-[#C2410C] dark:text-amber-300 flex items-center gap-2">
                 <Clock className="w-4 h-4" />
                 <span>تحديد موعد تسليم الأوردر #{schedulingOrder.invoiceNumber}</span>
               </h4>
-              <p className="text-xs text-[#EADBC8]">
+              <p className="text-xs text-[#334155] dark:text-[#CBD5E1]">
                 حدد تاريخ انتهاء تنفيذ القطعة وجاهزيتها للتسليم للعميل:
               </p>
               <input
                 type="date"
                 value={scheduledDeliveryDate}
                 onChange={(e) => setScheduledDeliveryDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-[#131E38] border border-amber-500/40 text-white text-xs font-bold outline-none"
+                className="w-full px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold outline-none focus:border-[#EA580C]"
               />
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setSchedulingOrder(null)}
-                  className="px-3 py-1.5 rounded-xl text-xs text-stone-400 hover:text-white"
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-[#475569] dark:text-[#94A3B8] hover:text-[#0C1427] dark:hover:text-[#F7F3EA]"
                 >
                   إلغاء
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmSchedule}
-                  className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
+                  className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs"
                 >
                   تأكيد وبدء التنفيذ 🔨
                 </button>
@@ -1040,22 +1049,22 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
         {/* Modal: Collect Payment and Handover */}
         {collectingOrder && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-            <div className="bg-[#0C1427] border-2 border-emerald-500 rounded-3xl p-5 max-w-md w-full space-y-4 text-right">
-              <h4 className="font-black text-sm text-emerald-300 flex items-center gap-2">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-xs">
+            <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-emerald-500 rounded-3xl p-5 max-w-md w-full space-y-4 text-right text-[#0C1427] dark:text-[#F7F3EA] shadow-2xl">
+              <h4 className="font-black text-sm text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
                 <DollarSign className="w-4 h-4" />
                 <span>تحصيل باقي فاتورة أوردر #{collectingOrder.invoiceNumber}</span>
               </h4>
-              <div className="p-3 rounded-xl bg-[#131E38] text-xs space-y-1">
+              <div className="p-3 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs space-y-1">
                 <div className="flex justify-between">
-                  <span className="text-stone-400">اسم العميل:</span>
-                  <span className="font-bold text-white">{collectingOrder.customerName}</span>
+                  <span className="text-[#475569] dark:text-[#94A3B8]">اسم العميل:</span>
+                  <span className="font-bold text-[#0C1427] dark:text-[#F7F3EA]">{collectingOrder.customerName}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-stone-400">إجمالي الفاتورة:</span>
-                  <span className="font-mono text-white">{collectingOrder.finalTotal} {profile.currencySymbol || 'ج.م'}</span>
+                  <span className="text-[#475569] dark:text-[#94A3B8]">إجمالي الفاتورة:</span>
+                  <span className="font-mono text-[#0C1427] dark:text-[#F7F3EA]">{collectingOrder.finalTotal} {profile.currencySymbol || 'ج.م'}</span>
                 </div>
-                <div className="flex justify-between text-emerald-400 font-bold border-t border-stone-700 pt-1">
+                <div className="flex justify-between text-emerald-700 dark:text-emerald-400 font-bold border-t border-[#D4CCBC] dark:border-[#22355E] pt-1">
                   <span>المبلغ المطلوب تحصيله الآن:</span>
                   <span className="font-mono text-sm">{Math.max(0, (collectingOrder.finalTotal || 0) - (collectingOrder.paidAmount || 0))} {profile.currencySymbol || 'ج.م'}</span>
                 </div>
@@ -1063,11 +1072,11 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
               {/* Disbursement Safe */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-amber-300 block">إيداع المبلغ في خزينة:</label>
+                <label className="text-xs font-bold text-[#C2410C] dark:text-amber-300 block">إيداع المبلغ في خزينة:</label>
                 <select
                   value={selectedTreasuryId}
                   onChange={(e) => setSelectedTreasuryId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-[#131E38] border border-amber-500/40 text-white text-xs font-bold outline-none"
+                  className="w-full px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold outline-none focus:border-[#EA580C]"
                 >
                   {treasuries.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -1079,7 +1088,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
               {/* Payment Method */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-amber-300 block">طريقة الاستلام:</label>
+                <label className="text-xs font-bold text-[#C2410C] dark:text-amber-300 block">طريقة الاستلام:</label>
                 <div className="grid grid-cols-4 gap-1.5 text-xs text-center font-bold">
                   {(['cash', 'instapay', 'vodafone_cash', 'bank'] as const).map((m) => (
                     <button
@@ -1089,7 +1098,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                       className={`p-2 rounded-xl border transition ${
                         collectionMethod === m
                           ? 'bg-emerald-600 text-white border-emerald-400 font-black'
-                          : 'bg-[#131E38] text-stone-300 border-stone-700'
+                          : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E]'
                       }`}
                     >
                       {m === 'cash' ? 'كاش 💵' : m === 'instapay' ? 'إنستاباي ⚡' : m === 'vodafone_cash' ? 'محفظة 📱' : 'بنك 🏦'}
@@ -1102,7 +1111,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setCollectingOrder(null)}
-                  className="px-3 py-1.5 rounded-xl text-xs text-stone-400 hover:text-white"
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-[#475569] dark:text-[#94A3B8] hover:text-[#0C1427] dark:hover:text-[#F7F3EA]"
                 >
                   إلغاء
                 </button>
@@ -1120,9 +1129,9 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
         {/* Modal: Process Returns */}
         {returningOrder && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-            <div className="bg-[#0C1427] border-2 border-rose-500 rounded-3xl p-5 max-w-md w-full space-y-4 text-right">
-              <h4 className="font-black text-sm text-rose-300 flex items-center gap-2">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-xs">
+            <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-rose-500 rounded-3xl p-5 max-w-md w-full space-y-4 text-right text-[#0C1427] dark:text-[#F7F3EA] shadow-2xl">
+              <h4 className="font-black text-sm text-rose-700 dark:text-rose-300 flex items-center gap-2">
                 <RotateCcw className="w-4 h-4" />
                 <span>تسجيل مرتجع للأوردر #{returningOrder.invoiceNumber}</span>
               </h4>
@@ -1135,7 +1144,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                     setReturnAmount(returningOrder.paidAmount || returningOrder.finalTotal || 0);
                   }}
                   className={`p-2 rounded-xl border text-center font-bold ${
-                    returnType === 'full' ? 'bg-rose-600 text-white border-rose-400' : 'bg-[#131E38] text-stone-300 border-stone-700'
+                    returnType === 'full' ? 'bg-rose-600 text-white border-rose-400' : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E]'
                   }`}
                 >
                   مرتجع كلي (إلغاء الأوردر)
@@ -1144,7 +1153,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                   type="button"
                   onClick={() => setReturnType('partial')}
                   className={`p-2 rounded-xl border text-center font-bold ${
-                    returnType === 'partial' ? 'bg-rose-600 text-white border-rose-400' : 'bg-[#131E38] text-stone-300 border-stone-700'
+                    returnType === 'partial' ? 'bg-rose-600 text-white border-rose-400' : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E]'
                   }`}
                 >
                   مرتجع جزئي
@@ -1153,34 +1162,34 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
               {returnType === 'partial' && (
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-amber-300 block">المبلغ المردود للعميل ({profile.currencySymbol || 'ج.م'}):</label>
+                  <label className="text-xs font-bold text-[#C2410C] dark:text-amber-300 block">المبلغ المردود للعميل ({profile.currencySymbol || 'ج.م'}):</label>
                   <input
                     type="number"
                     value={returnAmount}
                     onChange={(e) => setReturnAmount(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 rounded-xl bg-[#131E38] border border-amber-500/40 text-white text-xs font-mono font-bold outline-none"
+                    className="w-full px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-mono font-bold outline-none focus:border-[#EA580C]"
                   />
                 </div>
               )}
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-amber-300 block">سبب الإرجاع:</label>
+                <label className="text-xs font-bold text-[#C2410C] dark:text-amber-300 block">سبب الإرجاع:</label>
                 <input
                   type="text"
                   value={returnReason}
                   onChange={(e) => setReturnReason(e.target.value)}
                   placeholder="مثال: تغيير اللون / مقاس مختلف / إلغاء من العميل"
-                  className="w-full px-3 py-2 rounded-xl bg-[#131E38] border border-amber-500/40 text-white text-xs font-bold outline-none"
+                  className="w-full px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold outline-none focus:border-[#EA580C]"
                 />
               </div>
 
-              <div className="flex items-center gap-2 text-xs text-[#EADBC8]">
+              <div className="flex items-center gap-2 text-xs text-[#334155] dark:text-[#CBD5E1]">
                 <input
                   type="checkbox"
                   id="restock_check"
                   checked={returnRestock}
                   onChange={(e) => setReturnRestock(e.target.checked)}
-                  className="rounded accent-amber-500 w-4 h-4 cursor-pointer"
+                  className="rounded accent-[#EA580C] w-4 h-4 cursor-pointer"
                 />
                 <label htmlFor="restock_check" className="cursor-pointer font-bold">
                   إعادة القطع المسترجعة إلى رصيد مخزون الورشة تلقائياً
@@ -1191,7 +1200,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setReturningOrder(null)}
-                  className="px-3 py-1.5 rounded-xl text-xs text-stone-400 hover:text-white"
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-[#475569] dark:text-[#94A3B8] hover:text-[#0C1427] dark:hover:text-[#F7F3EA]"
                 >
                   إلغاء
                 </button>

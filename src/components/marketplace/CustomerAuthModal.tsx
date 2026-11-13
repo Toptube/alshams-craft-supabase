@@ -102,36 +102,36 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-5 bg-[#060B18]/75 backdrop-blur-md animate-in fade-in" dir="rtl">
-      <div className="bg-[#FFFDF9] dark:bg-[#0C1427] border-2 border-[#DEC9A8] dark:border-[#EA580C]/45 rounded-3xl max-w-lg w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-4 text-[#0C1427] dark:text-[#FAF5EB] relative">
+      <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#D4CCBC] dark:border-[#EA580C]/45 rounded-3xl max-w-lg w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-4 text-[#0C1427] dark:text-[#F7F3EA] relative">
         {/* Close Button (✕) */}
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-[#5C4734] dark:text-[#EADBC3] flex items-center justify-center transition cursor-pointer"
+          className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#334155] dark:text-[#CBD5E1] flex items-center justify-center transition cursor-pointer"
           title="إغلاق"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Modal Header */}
-        <div className="flex items-center gap-3 border-b border-[#DEC9A8]/70 dark:border-[#1B2B4B] pb-3">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-[#EA580C] to-[#F59E0B] text-white flex items-center justify-center text-lg font-black shadow-md">
+        <div className="flex items-center gap-3 border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-[#C2410C] via-[#EA580C] to-[#D97706] text-white flex items-center justify-center text-lg font-black shadow-md">
             ✨
           </div>
           <div>
             <h3 className="font-black text-base text-[#0C1427] dark:text-amber-300">
               تسجيل حساب عميل - عائلة الشمساوية
             </h3>
-            <p className="text-xs text-[#5C4734] dark:text-[#EADBC3]">
+            <p className="text-xs text-[#334155] dark:text-[#CBD5E1]">
               احصل على كود خصم 5% فوري + 50 نقطة ولاء مجانية في محفظتك 🎁
             </p>
           </div>
         </div>
 
         {/* Discount & Loyalty Banner */}
-        <div className="p-3.5 rounded-2xl bg-gradient-to-l from-[#F3E9D8] to-[#FFEDD5] dark:from-[#0B142B] dark:to-[#111E3A] border border-[#DEC9A8] dark:border-[#EA580C]/35 flex items-center gap-3">
+        <div className="p-3.5 rounded-2xl bg-gradient-to-l from-[#E9E2D4] to-[#F5DFC6]/70 dark:from-[#132040] dark:to-[#1A2B54] border border-[#D4CCBC] dark:border-[#EA580C]/35 flex items-center gap-3">
           <Tag className="w-6 h-6 text-[#EA580C] dark:text-amber-400 shrink-0" />
-          <div className="text-xs leading-relaxed text-[#0C1427] dark:text-[#FAF5EB]">
+          <div className="text-xs leading-relaxed text-[#0C1427] dark:text-[#F7F3EA]">
             <span className="font-black text-[#C2410C] dark:text-amber-300 block">كود ترحيبي فوري: [ SHAMS5 ]</span>
             <span>خصم 5% سارٍ على أول طلبية لك، ونقاط مكافآت تُضاف تلقائياً مع كل عملية شراء ناجحة!</span>
           </div>
@@ -146,7 +146,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
         {/* Form Fields */}
         <form onSubmit={handleRegister} className="space-y-3 text-xs">
           <div>
-            <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+            <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
               الاسم الكريم بالكامل *
             </label>
             <div className="relative">
@@ -155,7 +155,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="مثال: سارة محمود"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold outline-none focus:border-[#EA580C]"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold outline-none focus:border-[#EA580C]"
                 required
               />
               <User className="w-4 h-4 text-[#EA580C]/80 dark:text-amber-400 absolute left-3 top-3 pointer-events-none" />
@@ -164,7 +164,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+              <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
                 رقم الهاتف الأساسي * (إجباري للشحن)
               </label>
               <div className="relative">
@@ -173,7 +173,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="010XXXXXXXX"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold font-mono outline-none focus:border-[#EA580C]"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold font-mono outline-none focus:border-[#EA580C]"
                   required
                 />
                 <Phone className="w-4 h-4 text-[#EA580C]/80 dark:text-amber-400 absolute left-3 top-3 pointer-events-none" />
@@ -181,7 +181,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+              <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
                 رقم هاتف بديل (اختياري)
               </label>
               <input
@@ -189,22 +189,22 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
                 value={alternatePhone}
                 onChange={(e) => setAlternatePhone(e.target.value)}
                 placeholder="011XXXXXXXX"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold font-mono outline-none focus:border-[#EA580C]"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold font-mono outline-none focus:border-[#EA580C]"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+            <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
               المحافظة * (لحساب تكلفة الشحن)
             </label>
             <select
               value={governorate}
               onChange={(e) => setGovernorate(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold outline-none focus:border-[#EA580C]"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold outline-none focus:border-[#EA580C]"
             >
               {governorates.map((gov) => (
-                <option key={gov} value={gov} className="bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-white">
+                <option key={gov} value={gov} className="bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA]">
                   {gov}
                 </option>
               ))}
@@ -212,7 +212,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+            <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
               عنوان التوصيل بالتفصيل * (الشارع، العمارة، الشقة)
             </label>
             <textarea
@@ -220,13 +220,13 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
               onChange={(e) => setDetailedAddress(e.target.value)}
               placeholder="مثال: المعادي الجديدة، شارع النصر، عمارة 14، الدور الثالث شقة 6"
               rows={2}
-              className="w-full px-3.5 py-2 rounded-xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold outline-none focus:border-[#EA580C] resize-none"
+              className="w-full px-3.5 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold outline-none focus:border-[#EA580C] resize-none"
               required
             />
           </div>
 
           <div>
-            <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+            <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
               عنوان بديل اختياري (مكتب، منزل العائلة)
             </label>
             <input
@@ -234,14 +234,14 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
               value={alternateAddress}
               onChange={(e) => setAlternateAddress(e.target.value)}
               placeholder="اختياري لتسليم الشحنة في حال عدم تواجدك"
-              className="w-full px-3.5 py-2 rounded-xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold outline-none focus:border-[#EA580C]"
+              className="w-full px-3.5 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold outline-none focus:border-[#EA580C]"
             />
           </div>
 
           <div className="pt-2 space-y-2">
             <button
               type="submit"
-              className="w-full py-3 rounded-2xl bg-gradient-to-r from-[#EA580C] via-[#F59E0B] to-[#C2410C] hover:from-[#C2410C] hover:to-[#EA580C] text-white font-black text-xs shadow-lg transition cursor-pointer flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-black text-xs shadow-lg transition cursor-pointer flex items-center justify-center gap-2"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>تسجيل الحساب وتفعيل الخصم 5% فوراً ✨</span>
@@ -250,17 +250,17 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             <button
               type="button"
               onClick={onContinueAsGuest}
-              className="w-full py-2.5 rounded-2xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#EADBC3] font-bold text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+              className="w-full py-2.5 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#CBD5E1] font-bold text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
             >
               <span>المتابعة كزائر بدون تسجيل (Guest)</span>
-              <span className="text-[10px] text-[#7C5C3E] dark:text-[#D6CBB8]">(مع التنازل عن كود الخصم ونقاط الولاء)</span>
+              <span className="text-[10px] text-[#475569] dark:text-[#94A3B8]">(مع التنازل عن كود الخصم ونقاط الولاء)</span>
             </button>
           </div>
         </form>
 
-        <div className="pt-2 border-t border-amber-500/20 text-center">
-          <p className="text-[11px] text-[#EADBC8] flex items-center justify-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+        <div className="pt-2 border-t border-[#D4CCBC] dark:border-[#22355E] text-center">
+          <p className="text-[11px] font-bold text-[#334155] dark:text-[#CBD5E1] flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span>بياناتك محفوظة بأعلى معايير الأمان وتستخدم لغرض شحن طلبيتك فقط.</span>
           </p>
         </div>

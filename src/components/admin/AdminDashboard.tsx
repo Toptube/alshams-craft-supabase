@@ -572,8 +572,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Background - Deep Royal Navy
-      ctx.fillStyle = '#070E1E';
+      // Background - Deep Midnight Navy
+      ctx.fillStyle = '#060B18';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Outer Golden Border
@@ -598,7 +598,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       ctx.fillText('سوق الشمساوية المركزي', 600, 260);
 
       // Subtitle
-      ctx.fillStyle = '#EADBC8';
+      ctx.fillStyle = '#CBD5E1';
       ctx.font = '500 30px Cairo, sans-serif';
       ctx.fillText('منصة كبرى تجمع نخبة ورش وحرفيي الهاند ميد والديكور الراقي', 600, 330);
 
@@ -616,7 +616,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       ctx.drawImage(qrCanvas, 320, 460, 560, 560);
 
       // Text inside card
-      ctx.fillStyle = '#070E1E';
+      ctx.fillStyle = '#0C1427';
       ctx.font = 'bold 28px Cairo, sans-serif';
       ctx.fillText('امسح الكود بكاميرا الهاتف لتصفح وتسوق كافة المعروضات', 600, 1075);
 
@@ -631,7 +631,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       ctx.fillText('🛡️ ضمان جودة منظومة الشمساوية: فحص المشغولات والتسليم لباب البيت', 600, 1260);
 
       // Delivery and Quality
-      ctx.fillStyle = '#EADBC8';
+      ctx.fillStyle = '#CBD5E1';
       ctx.font = '500 26px Cairo, sans-serif';
       ctx.fillText('شحن لكافة محافظات مصر • فحص واستلام بأعلى معايير الجودة اليدوية', 600, 1320);
 
@@ -3815,7 +3815,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         {activeExecutiveTab === 'marketplace' && (
           <div className="space-y-6 animate-in fade-in">
             {/* 0. Central Marketplace Link, Dynamic QR Code & Print Poster Card */}
-            <div className="p-6 rounded-3xl bg-gradient-to-br from-[#0C1427] via-[#0E1B38] to-[#142347] border-2 border-amber-500/50 shadow-2xl space-y-5 text-right">
+            <div className="p-6 rounded-3xl bg-gradient-to-br from-[#060B18] via-[#0D162E] to-[#132040] border-2 border-amber-500/50 shadow-2xl space-y-5 text-right">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-500/30 pb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/50 text-amber-300 flex items-center justify-center shadow-lg">
@@ -3830,7 +3830,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                         مباشر ومفعّل 🟢
                       </span>
                     </div>
-                    <p className="text-xs text-[#EADBC8] font-medium">
+                    <p className="text-xs text-[#CBD5E1] font-medium">
                       بوابة الشراء المركزية العامة لمشغولات عائلة الشمساوية بضمان جودة المنظومة
                     </p>
                   </div>
@@ -3852,7 +3852,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               {/* QR and Share Details Grid */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
                 {/* QR Code Canvas Frame */}
-                <div className="md:col-span-4 flex flex-col items-center justify-center p-4 rounded-2xl bg-[#070E1E] border border-amber-500/30 text-center space-y-3">
+                <div className="md:col-span-4 flex flex-col items-center justify-center p-4 rounded-2xl bg-[#060B18] border border-amber-500/30 text-center space-y-3">
                   <div className="p-2.5 bg-white rounded-2xl shadow-xl border-2 border-amber-400">
                     <QRCodeCanvas
                       id="central-market-qr-canvas"
@@ -3870,7 +3870,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       }}
                     />
                   </div>
-                  <span className="text-[11px] font-bold text-[#EADBC8]">
+                  <span className="text-[11px] font-bold text-[#CBD5E1]">
                     امسح الكود بكاميرا الهاتف لفتح السوق فورياً 📱
                   </span>
                 </div>
@@ -3886,15 +3886,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
                   {/* Trust & Guarantee Badges */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-center">
-                    <div className="p-2.5 rounded-xl bg-[#070E1E]/80 border border-amber-500/20 space-y-0.5">
+                    <div className="p-2.5 rounded-xl bg-[#060B18]/80 border border-amber-500/20 space-y-0.5">
                       <span className="text-[11px] font-black text-amber-300 block">🛡️ حماية مركزية</span>
                       <span className="text-[10px] text-stone-300">عربون 33% والمتبقي بعد المعاينة</span>
                     </div>
-                    <div className="p-2.5 rounded-xl bg-[#070E1E]/80 border border-amber-500/20 space-y-0.5">
+                    <div className="p-2.5 rounded-xl bg-[#060B18]/80 border border-amber-500/20 space-y-0.5">
                       <span className="text-[11px] font-black text-amber-300 block">🚚 شحن منزلي</span>
                       <span className="text-[10px] text-stone-300">توصيل لكافة محافظات الجمهورية</span>
                     </div>
-                    <div className="p-2.5 rounded-xl bg-[#070E1E]/80 border border-amber-500/20 space-y-0.5">
+                    <div className="p-2.5 rounded-xl bg-[#060B18]/80 border border-amber-500/20 space-y-0.5">
                       <span className="text-[11px] font-black text-amber-300 block">📞 خط ساخن موحد</span>
                       <span className="text-[10px] font-mono font-bold text-emerald-300">01000996059</span>
                     </div>
@@ -3942,7 +3942,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                     مفتاح أمان بيانات العملاء (Client Privacy Toggle)
                   </h4>
                 </div>
-                <p className="text-xs text-stone-600 dark:text-[#EADBC8] max-w-2xl leading-relaxed">
+                <p className="text-xs text-[#334155] dark:text-[#CBD5E1] max-w-2xl leading-relaxed">
                   الوضع الافتراضي (معطل): يستلم الفنان الطلبية بتفاصيل المشغولة فقط، واسم العميل يظهر كـ "عميل متجر عائلة الشمساوية" مع حجب هاتفه وعنوانه تماماً، حيث تتولى إدارة المنظومة الفحص والشحن والتسليم. عند التفعيل: تظهر بيانات العميل كاملة للورشة للشحن المباشر.
                 </p>
               </div>
@@ -4513,14 +4513,14 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                     <AlertTriangle className="w-4 h-4" />
                     <span>سبب رفض مشغولة "{rejectingProduct.productName}"</span>
                   </h4>
-                  <p className="text-xs text-[#EADBC8]">
+                  <p className="text-xs text-[#CBD5E1]">
                     اكتب الملاحظات والتوجيهات للفنان لتعديلها وإعادة إرسالها:
                   </p>
                   <textarea
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
                     rows={3}
-                    className="w-full p-3 rounded-xl bg-[#131E38] border border-rose-500/40 text-white text-xs font-bold outline-none resize-none"
+                    className="w-full p-3 rounded-xl bg-[#132040] border border-rose-500/40 text-white text-xs font-bold outline-none resize-none"
                   />
                   <div className="flex items-center justify-end gap-2">
                     <button
@@ -4578,7 +4578,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                     مقصورة اعتماد معروضات سوق الشمساوية المركزي 🛍️✨
                   </h4>
                 </div>
-                <p className="text-xs font-medium text-stone-600 dark:text-[#EADBC8] max-w-2xl leading-relaxed">
+                <p className="text-xs font-medium text-[#334155] dark:text-[#CBD5E1] max-w-2xl leading-relaxed">
                   فحص ومراجعة كافة المشغولات اليدوية المرفوعة من الورش الحرفية للتأكد من استيفائها معايير الفنش والجودة العالية لمنظومة الشمساوية قبل نشرها للجمهور والمتسوقين.
                 </p>
               </div>
@@ -4596,7 +4596,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             </div>
 
             {/* بطاقة كود QR والرابط الرسمي لسوق الشمساوية المركزي (مخصصة لإدارة وحملات السوبر أدمن) */}
-            <div className="p-5 rounded-3xl bg-[#0c1427] text-white border-2 border-amber-500/50 shadow-xl flex flex-col md:flex-row items-center justify-between gap-5">
+            <div className="p-5 rounded-3xl bg-[#0D162E] text-white border-2 border-amber-500/50 shadow-xl flex flex-col md:flex-row items-center justify-between gap-5">
               <div className="space-y-2 text-right flex-1">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/40">
@@ -4934,7 +4934,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       رفض مشغولة "{cloudRejectingProduct.product_name}" وإرسال الملاحظات
                     </h4>
                   </div>
-                  <p className="text-xs text-[#EADBC8] leading-relaxed">
+                  <p className="text-xs text-[#CBD5E1] leading-relaxed">
                     اكتب التوجيهات الفنية والملاحظات للفنان لضبط المواصفات أو الصور في ورشته:
                   </p>
                   <textarea
@@ -4942,7 +4942,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                     onChange={(e) => setCloudRejectReason(e.target.value)}
                     rows={4}
                     placeholder="مثال: يرجى رفع صورة أكثر وضوحاً بخلفية بيضاء محايدة، وتدقيق مقاسات القطر والأطوال..."
-                    className="w-full p-3 rounded-xl bg-[#131E38] border border-rose-500/40 text-white text-xs font-bold outline-none resize-none focus:border-rose-400"
+                    className="w-full p-3 rounded-xl bg-[#132040] border border-rose-500/40 text-white text-xs font-bold outline-none resize-none focus:border-rose-400"
                   />
                   <div className="flex items-center justify-end gap-2 pt-2">
                     <button

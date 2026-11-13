@@ -1058,10 +1058,10 @@ export const App: React.FC = () => {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#FAF5EB] dark:bg-[#060B18] text-[#0C1427] dark:text-[#FAF5EB] font-sans" dir="rtl">
+      <div className="min-h-screen flex items-center justify-center bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] font-sans" dir="rtl">
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 border-4 border-[#EA580C] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-bold text-[#5C4734] dark:text-[#EADBC3]">جاري تشغيل منظومة الشمساوية...</p>
+          <p className="text-sm font-bold text-[#334155] dark:text-[#CBD5E1]">جاري تشغيل منظومة الشمساوية...</p>
         </div>
       </div>
     );
@@ -1144,7 +1144,7 @@ export const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FAF5EB] dark:bg-[#060B18] text-[#0C1427] dark:text-[#FAF5EB] font-sans transition-colors duration-200" dir="rtl">
+    <div className="min-h-screen flex flex-col bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] font-sans transition-colors duration-200" dir="rtl">
       {/* Top Navbar */}
       <Navbar
         profile={profile}
@@ -1179,7 +1179,7 @@ export const App: React.FC = () => {
 
       {/* Super Admin Executive Context Mode Banner */}
       {switchedWorkshopContext && (
-        <aside aria-label="شريط وضع الإشراف" className="bg-gradient-to-r from-[#0C1427] via-[#1B2B4B] to-[#9A3412] text-[#FAF5EB] px-4 py-2 text-xs font-black flex flex-wrap items-center justify-between gap-2 border-b border-[#EA580C]/45 shadow-md">
+        <aside aria-label="شريط وضع الإشراف" className="bg-gradient-to-r from-[#060B18] via-[#132040] to-[#9A3412] text-[#F7F3EA] px-4 py-2 text-xs font-black flex flex-wrap items-center justify-between gap-2 border-b border-[#EA580C]/45 shadow-md">
           <div className="flex items-center gap-2">
             <span className="text-sm">👑</span>
             <span>
@@ -1190,7 +1190,7 @@ export const App: React.FC = () => {
             <button
               type="button"
               onClick={() => navigateTo('admin')}
-              className="px-3 py-1 rounded-xl bg-gradient-to-r from-[#EA580C] to-[#F59E0B] hover:from-[#C2410C] hover:to-[#EA580C] text-white text-[11px] font-black cursor-pointer transition shadow-xs"
+              className="px-3 py-1 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white text-[11px] font-black cursor-pointer transition shadow-xs"
             >
               العودة للوحة الإشراف
             </button>
@@ -1203,7 +1203,7 @@ export const App: React.FC = () => {
                 }
                 setSwitchedWorkshopContext(null);
               }}
-              className="px-3 py-1 rounded-xl bg-[#0B142B] hover:bg-[#162447] text-[#EADBC3] border border-[#253860] text-[11px] font-bold cursor-pointer transition"
+              className="px-3 py-1 rounded-xl bg-[#0D162E] hover:bg-[#1A2B54] text-[#F7F3EA] border border-[#2D4475] text-[11px] font-bold cursor-pointer transition"
             >
               إنهاء وضع الإشراف
             </button>
@@ -1213,7 +1213,7 @@ export const App: React.FC = () => {
 
       {/* Welcome Banner: يظهر فقط عند الفتح للترحيب بالفنان وورشته */}
       {showWelcomeBanner && profile && (
-        <aside aria-label="رسالة الترحيب" className="bg-gradient-to-l from-[#FFFDF9] via-[#F7EFE0] to-[#FFEDD5] dark:from-[#0C1427] dark:via-[#111E3A] dark:to-[#1E130A] border-b border-[#DEC9A8] dark:border-[#EA580C]/35 px-4 py-2.5 text-xs font-bold text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-300">
+        <aside aria-label="رسالة الترحيب" className="bg-gradient-to-l from-[#F7F3EA] via-[#EFE9DC] to-[#FFEDD5] dark:from-[#0D162E] dark:via-[#132040] dark:to-[#1E130A] border-b border-[#D4CCBC] dark:border-[#EA580C]/35 px-4 py-2.5 text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-[#EA580C] dark:text-amber-400 shrink-0" />
             <span>
@@ -1223,7 +1223,7 @@ export const App: React.FC = () => {
           <button
             type="button"
             onClick={() => setShowWelcomeBanner(false)}
-            className="p-1.5 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] text-[#5C4734] dark:text-[#EADBC3] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] transition cursor-pointer"
+            className="p-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] text-[#334155] dark:text-[#CBD5E1] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] transition cursor-pointer"
             title="إغلاق الترحيب"
           >
             <X className="w-3.5 h-3.5" />
@@ -1233,13 +1233,13 @@ export const App: React.FC = () => {
 
       {/* Global Sub-Page Bar: زر الرجوع للصفحة السابقة بجوار الخروج للصفحة الرئيسية */}
       {activeView !== 'home' && (
-        <aside aria-label="شريط التنقل السريع" className="sticky top-0 z-30 bg-[#FFFDF9]/95 dark:bg-[#0B142B]/95 backdrop-blur-md border-b border-[#DEC9A8] dark:border-[#1B2B4B] px-3 sm:px-6 py-2.5 shadow-xs flex items-center justify-between">
+        <aside aria-label="شريط التنقل السريع" className="sticky top-0 z-30 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] px-3 sm:px-6 py-2.5 shadow-xs flex items-center justify-between">
           <div className="flex items-center gap-2">
             {/* زر الرجوع للصفحة السابقة */}
             <button
               type="button"
               onClick={navigateBack}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-b from-[#FFEDD5] to-[#FED7AA]/75 dark:from-[#1A294B] dark:to-[#0C1427] text-[#9A3412] dark:text-[#FDBA74] border border-[#EA580C]/40 dark:border-[#EA580C]/45 hover:border-[#EA580C] text-xs font-black transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-b from-[#FFEDD5] to-[#FED7AA] dark:from-[#1A294B] dark:to-[#0D162E] text-[#9A3412] dark:text-[#FDBA74] border border-[#EA580C]/45 dark:border-[#EA580C]/50 hover:border-[#EA580C] text-xs font-black transition cursor-pointer"
               title="الرجوع للصفحة السابقة"
             >
               <ArrowRight className="w-4 h-4 text-[#EA580C] dark:text-amber-400" />
@@ -1250,7 +1250,7 @@ export const App: React.FC = () => {
             <button
               type="button"
               onClick={goHome}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#FAF5EB] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#FAF5EB] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-xs font-bold transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-bold transition cursor-pointer"
               title="الخروج للصفحة الرئيسية"
             >
               <Home className="w-4 h-4 text-[#C2410C] dark:text-amber-300" />
@@ -1260,7 +1260,7 @@ export const App: React.FC = () => {
 
           {/* Current Page Title */}
           <div className="flex items-center gap-2">
-            <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#FAF5EB] truncate max-w-[200px] sm:max-w-none px-3 py-1 rounded-xl bg-[#F3E9D8]/80 dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B]">
+            <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] truncate max-w-[200px] sm:max-w-none px-3 py-1 rounded-xl bg-[#E9E2D4]/90 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
               {VIEW_TITLES[activeView]}
             </span>
           </div>

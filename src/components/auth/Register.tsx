@@ -242,16 +242,16 @@ export const Register: React.FC<RegisterProps> = ({
         </div>
 
         {/* Mandatory Terms & AI Policy Checkbox */}
-        <div className="p-3 rounded-2xl bg-[#F3E9D8]/85 dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B]">
+        <div className="p-3 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
           <div className="flex items-start gap-2.5">
             <input
               type="checkbox"
               id="agreeTermsCheckbox"
               checked={agreeTerms}
               onChange={(e) => setAgreeTerms(e.target.checked)}
-              className="mt-0.5 w-4 h-4 rounded border-[#DEC9A8] text-[#EA580C] focus:ring-[#EA580C] cursor-pointer accent-[#EA580C] shrink-0"
+              className="mt-0.5 w-4 h-4 rounded border-[#D4CCBC] text-[#EA580C] focus:ring-[#EA580C] cursor-pointer accent-[#EA580C] shrink-0"
             />
-            <label htmlFor="agreeTermsCheckbox" className="text-xs font-bold text-[#0C1427] dark:text-[#FAF5EB] leading-normal select-none">
+            <label htmlFor="agreeTermsCheckbox" className="text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] leading-normal select-none">
               أوافق على سياسات وشروط وأحكام منظومة الشمساوية{' '}
               <button
                 type="button"
@@ -271,8 +271,8 @@ export const Register: React.FC<RegisterProps> = ({
           disabled={!agreeTerms || loading}
           className={`w-full py-3 px-4 rounded-2xl font-black text-xs flex items-center justify-center gap-2 transition shadow-md ${
             agreeTerms && !loading
-              ? 'bg-gradient-to-r from-[#EA580C] via-[#F59E0B] to-[#C2410C] hover:from-[#C2410C] hover:to-[#EA580C] text-white shadow-orange-600/25 cursor-pointer'
-              : 'bg-[#EADBC3] dark:bg-[#111E3A] text-[#7C5C3E] dark:text-[#8E7B64] cursor-not-allowed opacity-70'
+              ? 'bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white shadow-orange-600/25 cursor-pointer'
+              : 'bg-[#DFD7C6] dark:bg-[#132040] text-[#475569] dark:text-[#94A3B8] cursor-not-allowed opacity-75'
           }`}
           title={!agreeTerms ? 'يجب الموافقة على الشروط والأحكام أولاً' : 'إنشاء الورشة'}
         >

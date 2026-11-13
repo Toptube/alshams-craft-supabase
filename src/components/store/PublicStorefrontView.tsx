@@ -369,7 +369,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
   return (
     <div
-      className="min-h-screen bg-[#FAF5EB] text-[#0C1427] dark:bg-[#060B18] dark:text-[#FAF5EB] font-sans selection:bg-[#EA580C] selection:text-white transition-colors duration-200"
+      className="min-h-screen bg-[#F2ECE1] text-[#0C1427] dark:bg-[#060B18] dark:text-[#F7F3EA] font-sans selection:bg-[#EA580C] selection:text-white transition-colors duration-200"
       dir="rtl"
     >
       {/* Toast Notification */}
@@ -380,11 +380,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       )}
 
       {/* 1. Clean Three-Zone Top Header */}
-      <header className="sticky top-0 z-30 bg-[#FFFDF9]/95 dark:bg-[#0B142B]/95 backdrop-blur-md border-b border-[#DEC9A8] dark:border-[#1B2B4B]">
+      <header className="sticky top-0 z-30 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4 sm:gap-8">
           {/* Zone 1: Workshop Brand (Clean lockup, zero redundant pill clutter) */}
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] flex items-center justify-center overflow-hidden p-0.5 shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center overflow-hidden p-0.5 shrink-0">
               <img
                 src={(workshop as any)?.logo_url || workshop?.logoUrl || '/default-store-icon.png'}
                 alt={brandName}
@@ -394,13 +394,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 }}
               />
             </div>
-            <h1 className="font-black text-base sm:text-lg text-[#0C1427] dark:text-[#FAF5EB] truncate">
+            <h1 className="font-black text-base sm:text-lg text-[#0C1427] dark:text-[#F7F3EA] truncate">
               {brandName}
             </h1>
           </div>
 
           {/* Zone 2: Clean Navigation Links */}
-          <nav className="hidden md:flex items-center gap-6 text-xs font-bold text-[#5C4E3E] dark:text-[#B6C2D9]">
+          <nav className="hidden md:flex items-center gap-6 text-xs font-bold text-[#334155] dark:text-[#CBD5E1]">
             <a
               href="/#/market"
               className="hover:text-[#C2410C] dark:hover:text-[#FBBF24] transition-colors whitespace-nowrap shrink-0"
@@ -424,7 +424,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <button
               type="button"
               onClick={handleShareStore}
-              className="px-3 py-2 rounded-xl bg-[#F3E9D8] hover:bg-[#DEC9A8]/70 dark:bg-[#142242] dark:hover:bg-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              className="px-3 py-2 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               title="مشاركة رابط المتجر"
             >
               {copiedLink ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Share2 className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />}
@@ -434,7 +434,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className="relative px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs transition flex items-center gap-2 cursor-pointer active:scale-95 whitespace-nowrap"
+              className="relative px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs transition flex items-center gap-2 cursor-pointer active:scale-95 whitespace-nowrap"
               title="سلة المشتريات"
             >
               <ShoppingBag className="w-4 h-4" />
@@ -450,14 +450,14 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       </header>
 
       {/* 2. Clean Store Identity Banner (Direct Artist Contact Preserved Here, Excess Fluff Removed) */}
-      <section className="bg-[#FFFDF9] dark:bg-[#0B142B] border-b border-[#DEC9A8] dark:border-[#1B2B4B] py-6 sm:py-8 px-4 sm:px-6">
+      <section className="bg-[#F7F3EA] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] py-6 sm:py-8 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
           <div className="space-y-2.5 text-right max-w-2xl">
             <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
               بأنامل الفنان: {artistName} · {workshop?.country || 'مصر'}
             </p>
 
-            <h2 className="text-2xl sm:text-3xl font-black text-[#0C1427] dark:text-[#FAF5EB] leading-tight text-balance">
+            <h2 className="text-2xl sm:text-3xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight text-balance">
               {brandName}
             </h2>
 
@@ -465,7 +465,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <div className="pt-1 flex flex-wrap items-center gap-3 text-xs">
               <a
                 href={`tel:${phone}`}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold transition cursor-pointer whitespace-nowrap"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold transition cursor-pointer whitespace-nowrap"
               >
                 <Phone className="w-3.5 h-3.5" />
                 <span dir="ltr">{phone}</span>
@@ -481,7 +481,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 <span>واتساب الفنان</span>
               </a>
 
-              <span className="inline-flex items-center gap-1.5 text-[#5C4E3E] dark:text-[#B6C2D9] font-medium">
+              <span className="inline-flex items-center gap-1.5 text-[#334155] dark:text-[#CBD5E1] font-medium">
                 <Truck className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />
                 <span>توصيل لجميع المحافظات</span>
               </span>
@@ -489,7 +489,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
 
           {/* Clean Rating & Catalog Summary */}
-          <div className="flex items-center gap-6 px-5 py-3.5 rounded-2xl bg-[#FAF5EB] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] shrink-0">
+          <div className="flex items-center gap-6 px-5 py-3.5 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] shrink-0">
             <div className="text-center">
               <div className="flex items-center justify-center gap-1 text-[#F59E0B] mb-0.5">
                 {Array.from({ length: Math.min(5, Math.max(1, Number(workshop?.ratingStars) || 5)) }).map(
@@ -498,14 +498,14 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   )
                 )}
               </div>
-              <p className="text-[11px] font-bold text-[#6E6254] dark:text-[#8FA2C2]">تقييم المتجر</p>
+              <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">تقييم المتجر</p>
             </div>
-            <div className="w-px h-8 bg-[#DEC9A8] dark:bg-[#1B2B4B]" />
+            <div className="w-px h-8 bg-[#D4CCBC] dark:bg-[#22355E]" />
             <div className="text-center">
-              <p className="text-lg font-black text-[#0C1427] dark:text-[#FAF5EB] tabular-nums">
+              <p className="text-lg font-black text-[#0C1427] dark:text-[#F7F3EA] tabular-nums">
                 {storeData?.products?.length || 0}
               </p>
-              <p className="text-[11px] font-bold text-[#6E6254] dark:text-[#8FA2C2]">منتج متاح</p>
+              <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">منتج متاح</p>
             </div>
           </div>
         </div>
@@ -514,17 +514,17 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       {/* 3. Main Storefront Catalog */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-7 space-y-6">
         {workshop?.suspended && (
-          <div className="p-8 rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#EA580C]/40 text-center space-y-3">
+          <div className="p-8 rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#EA580C]/40 text-center space-y-3">
             <ShieldCheck className="w-9 h-9 mx-auto text-[#C2410C] dark:text-[#FBBF24]" />
-            <h3 className="text-base font-black text-[#0C1427] dark:text-[#FAF5EB]">
+            <h3 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
               هذا المتجر متوقف مؤقتاً للمراجعة
             </h3>
-            <p className="text-xs text-[#5C4E3E] dark:text-[#B6C2D9] max-w-md mx-auto">
+            <p className="text-xs text-[#334155] dark:text-[#CBD5E1] max-w-md mx-auto">
               يمكنك استعراض كافة المنتجات المعتمدة عبر السوق الرئيسي.
             </p>
             <a
               href="/#/market"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs transition"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs transition"
             >
               <span>تصفح سوق الشمساوية</span>
               <ArrowRight className="w-4 h-4" />
@@ -536,13 +536,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
             <div className="relative w-full sm:w-72 shrink-0">
-              <Search className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-[#6E6254] dark:text-[#8FA2C2]" />
+              <Search className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-[#475569] dark:text-[#94A3B8]" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="ابحث داخل المتجر..."
-                className="w-full h-10 pr-10 pl-4 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs sm:text-sm font-medium outline-none focus:border-[#EA580C]"
+                className="w-full h-10 pr-10 pl-4 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] placeholder-[#475569] dark:placeholder-[#94A3B8] text-xs sm:text-sm font-medium outline-none focus:border-[#EA580C]"
               />
             </div>
 
@@ -554,8 +554,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   onClick={() => setSelectedCategory(c.id)}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer border shrink-0 ${
                     selectedCategory === c.id
-                      ? 'bg-[#0C1427] text-[#FAF5EB] border-[#0C1427] dark:bg-[#EA580C] dark:text-white dark:border-[#EA580C]'
-                      : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#5C4E3E] dark:text-[#B6C2D9] border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C]/60'
+                      ? 'bg-[#0C1427] text-[#F7F3EA] border-[#0C1427] dark:bg-[#EA580C] dark:text-white dark:border-[#EA580C]'
+                      : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#334155] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60'
                   }`}
                 >
                   {c.name}
@@ -565,12 +565,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
 
           <div className="relative flex items-center shrink-0 self-end lg:self-auto">
-            <ArrowUpDown className="w-3.5 h-3.5 text-[#6E6254] dark:text-[#8FA2C2] absolute right-3 pointer-events-none" />
+            <ArrowUpDown className="w-3.5 h-3.5 text-[#475569] dark:text-[#94A3B8] absolute right-3 pointer-events-none" />
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
               aria-label="ترتيب المنتجات"
-              className="h-10 pr-8 pl-3 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs font-bold text-[#0C1427] dark:text-[#FAF5EB] outline-none focus:border-[#EA580C] cursor-pointer"
+              className="h-10 pr-8 pl-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C] cursor-pointer"
             >
               <option value="featured">الأحدث</option>
               <option value="price_asc">السعر: الأقل للأعلى</option>
@@ -585,13 +585,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className="rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] overflow-hidden animate-pulse"
+                className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden animate-pulse"
               >
-                <div className="w-full aspect-[4/3] bg-[#F3E9D8] dark:bg-[#0B142B]" />
+                <div className="w-full aspect-[4/3] bg-[#E9E2D4] dark:bg-[#132040]" />
                 <div className="p-4 space-y-3">
-                  <div className="h-3 bg-[#F3E9D8] dark:bg-[#142242] rounded w-1/2" />
-                  <div className="h-4 bg-[#F3E9D8] dark:bg-[#142242] rounded w-4/5" />
-                  <div className="h-5 bg-[#F3E9D8] dark:bg-[#142242] rounded w-1/3" />
+                  <div className="h-3 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-1/2" />
+                  <div className="h-4 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-4/5" />
+                  <div className="h-5 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-1/3" />
                 </div>
               </div>
             ))}
@@ -616,11 +616,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 <article
                   key={p.id}
                   onClick={() => handleOpenProduct(p)}
-                  className="group rounded-2xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg flex flex-col justify-between overflow-hidden cursor-pointer"
+                  className="group rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg flex flex-col justify-between overflow-hidden cursor-pointer"
                 >
                   <div>
                     {/* Clean Photography (Zero overlay badges) */}
-                    <div className="w-full aspect-[4/3] bg-[#F3E9D8] dark:bg-[#0B142B] overflow-hidden border-b border-[#DEC9A8]/60 dark:border-[#1B2B4B]">
+                    <div className="w-full aspect-[4/3] bg-[#E9E2D4] dark:bg-[#132040] overflow-hidden border-b border-[#D4CCBC]/70 dark:border-[#22355E]">
                       <img
                         src={p.image_url || '/alshams_falcon_emblem.png'}
                         alt={p.product_name}
@@ -635,22 +635,22 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
                     <div className="p-4 space-y-2">
                       {/* Unboxed Metadata */}
-                      <p className="text-xs font-medium text-[#6E6254] dark:text-[#8FA2C2] truncate">
+                      <p className="text-xs font-medium text-[#475569] dark:text-[#94A3B8] truncate">
                         {p.craft_name || p.category} · {p.current_stock > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
                       </p>
 
-                      <h3 className="font-bold text-sm sm:text-base text-[#0C1427] dark:text-[#FAF5EB] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
+                      <h3 className="font-bold text-sm sm:text-base text-[#0C1427] dark:text-[#F7F3EA] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
                         {p.product_name}
                       </h3>
 
                       {p.store_description && (
-                        <p className="text-xs text-[#5C4E3E] dark:text-[#A3B3CE] line-clamp-1">
+                        <p className="text-xs text-[#334155] dark:text-[#CBD5E1] line-clamp-1">
                           {p.store_description}
                         </p>
                       )}
 
                       {hasColors && (
-                        <p className="text-[11px] text-[#6E6254] dark:text-[#8FA2C2] truncate">
+                        <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] truncate">
                           الألوان: {p.available_colors!.slice(0, 3).join('، ')}
                         </p>
                       )}
@@ -660,10 +660,10 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   {/* Price & CTA Baseline */}
                   <div className="px-4 pb-4 pt-1 space-y-3">
                     <div className="flex items-baseline gap-1 font-mono tabular-nums">
-                      <span className="text-lg font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                      <span className="text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
                         {displayPrice.toLocaleString('ar-EG')}
                       </span>
-                      <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2]">
+                      <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
                         {currencySymbol}
                       </span>
                     </div>
@@ -674,7 +674,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         e.stopPropagation();
                         handleAddToCart(p, 1);
                       }}
-                      className="w-full py-2.5 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
                     >
                       <ShoppingBag className="w-4 h-4" />
                       <span>أضف للسلة</span>
@@ -688,12 +688,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
         {/* Empty State */}
         {!loading && filteredProducts.length === 0 && (
-          <div className="text-center py-14 px-4 bg-[#FFFDF9] dark:bg-[#0C1427] rounded-2xl border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-3">
+          <div className="text-center py-14 px-4 bg-[#F7F3EA] dark:bg-[#0D162E] rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
             <ShoppingBag className="w-10 h-10 mx-auto text-[#C2410C] dark:text-[#FBBF24] opacity-70" />
-            <h3 className="text-base font-black text-[#0C1427] dark:text-[#FAF5EB]">
+            <h3 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
               لا توجد منتجات مطابقة للبحث
             </h3>
-            <p className="text-xs text-[#6E6254] dark:text-[#8FA2C2]">
+            <p className="text-xs text-[#475569] dark:text-[#CBD5E1]">
               جرّب تغيير كلمات البحث أو استعراض تصنيف آخر.
             </p>
             <button
@@ -702,7 +702,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 setSearchQuery('');
                 setSelectedCategory('all');
               }}
-              className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs transition cursor-pointer"
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs transition cursor-pointer"
             >
               عرض كافة المعروضات
             </button>
@@ -715,7 +715,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         <button
           type="button"
           onClick={() => setIsCartOpen(true)}
-          className="fixed bottom-4 left-4 z-40 px-4 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs flex items-center gap-2 shadow-lg active:scale-95 transition cursor-pointer"
+          className="fixed bottom-4 left-4 z-40 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center gap-2 shadow-lg active:scale-95 transition cursor-pointer"
         >
           <ShoppingBag className="w-4 h-4" />
           <span>عرض السلة ({cartItemsCount})</span>
@@ -725,23 +725,23 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       {/* Product Details Modal (Clean PDP — Deposit calculated only in Cart/Checkout) */}
       {selectedProduct && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#05070B]/75 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-sm"
           dir="rtl"
           onClick={(e) => {
             if (e.target === e.currentTarget) setSelectedProduct(null);
           }}
         >
-          <div className="bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5 shadow-2xl relative text-right text-[#0C1427] dark:text-[#FAF5EB]">
+          <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5 shadow-2xl relative text-right text-[#0C1427] dark:text-[#F7F3EA]">
             <button
               type="button"
               onClick={() => setSelectedProduct(null)}
-              className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#F3E9D8] dark:bg-[#142242] hover:bg-[#DEC9A8] dark:hover:bg-[#1B2B4B] flex items-center justify-center transition cursor-pointer"
+              className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] flex items-center justify-center transition cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-start pt-1">
-              <div className="w-full aspect-square rounded-2xl overflow-hidden bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B]">
+              <div className="w-full aspect-square rounded-2xl overflow-hidden bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
                 <img
                   src={selectedProduct.image_url || '/alshams_falcon_emblem.png'}
                   alt={selectedProduct.product_name}
@@ -756,29 +756,29 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   {selectedProduct.current_stock > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
                 </p>
 
-                <h3 className="text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#FAF5EB] leading-snug">
+                <h3 className="text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-snug">
                   {selectedProduct.product_name}
                 </h3>
 
                 <div className="flex items-baseline gap-1.5 font-mono tabular-nums">
-                  <span className="text-2xl font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                  <span className="text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
                     {(selectedProduct.store_price || selectedProduct.retail_price || 0).toLocaleString(
                       'ar-EG'
                     )}
                   </span>
-                  <span className="text-xs font-bold text-[#6E6254] dark:text-[#8FA2C2]">
+                  <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
                     {currencySymbol}
                   </span>
                 </div>
 
-                <p className="text-xs sm:text-sm text-[#5C4E3E] dark:text-[#B6C2D9] leading-relaxed">
+                <p className="text-xs sm:text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
                   {selectedProduct.store_description || 'مشغولة يدوية متقنة الصنع.'}
                 </p>
               </div>
             </div>
 
             {/* Options */}
-            <div className="space-y-4 pt-4 border-t border-[#DEC9A8] dark:border-[#1B2B4B]">
+            <div className="space-y-4 pt-4 border-t border-[#D4CCBC] dark:border-[#22355E]">
               {selectedProduct.available_colors && selectedProduct.available_colors.length > 0 && (
                 <div className="space-y-2">
                   <label className="text-xs font-bold block">اللون</label>
@@ -791,7 +791,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                           selectedColor === c
                             ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                            : 'bg-[#F3E9D8] dark:bg-[#0B142B] text-[#0C1427] dark:text-[#FAF5EB] border-[#DEC9A8] dark:border-[#1B2B4B]'
+                            : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
                         }`}
                       >
                         {c}
@@ -813,7 +813,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
                           selectedSize === s
                             ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                            : 'bg-[#F3E9D8] dark:bg-[#0B142B] text-[#0C1427] dark:text-[#FAF5EB] border-[#DEC9A8] dark:border-[#1B2B4B]'
+                            : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
                         }`}
                       >
                         {s}
@@ -825,11 +825,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
               <div className="flex items-center justify-between gap-4">
                 <span className="text-xs font-bold">الكمية</span>
-                <div className="flex items-center gap-3 bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] px-3 py-1.5 rounded-xl">
+                <div className="flex items-center gap-3 bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] px-3 py-1.5 rounded-xl">
                   <button
                     type="button"
                     onClick={() => setSelectedQuantity((q) => Math.max(1, q - 1))}
-                    className="w-7 h-7 rounded-lg bg-[#FFFDF9] dark:bg-[#142242] flex items-center justify-center font-bold cursor-pointer"
+                    className="w-7 h-7 rounded-lg bg-[#F7F3EA] dark:bg-[#1A2B54] flex items-center justify-center font-bold cursor-pointer"
                   >
                     <Minus className="w-3.5 h-3.5" />
                   </button>
@@ -839,7 +839,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setSelectedQuantity((q) => q + 1)}
-                    className="w-7 h-7 rounded-lg bg-[#FFFDF9] dark:bg-[#142242] flex items-center justify-center font-bold cursor-pointer"
+                    className="w-7 h-7 rounded-lg bg-[#F7F3EA] dark:bg-[#1A2B54] flex items-center justify-center font-bold cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -847,7 +847,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-[#5C4E3E] dark:text-[#B6C2D9] block">
+                <label className="text-xs font-bold text-[#334155] dark:text-[#CBD5E1] block">
                   ملاحظات على الطلب (اختياري)
                 </label>
                 <textarea
@@ -855,16 +855,16 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   onChange={(e) => setCustomNotes(e.target.value)}
                   placeholder="تخصيص لون أو مقاس أو تغليف..."
                   rows={2}
-                  className="w-full p-3 rounded-xl bg-[#F3E9D8] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs font-medium outline-none focus:border-[#EA580C] resize-none"
+                  className="w-full p-3 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-medium outline-none focus:border-[#EA580C] resize-none"
                 />
               </div>
             </div>
 
-            <div className="pt-2 border-t border-[#DEC9A8] dark:border-[#1B2B4B]">
+            <div className="pt-2 border-t border-[#D4CCBC] dark:border-[#22355E]">
               <button
                 type="button"
                 onClick={() => handleAddToCart(selectedProduct)}
-                className="w-full py-3 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-sm transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-sm transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
               >
                 <ShoppingBag className="w-4 h-4" />
                 <span>أضف إلى السلة</span>
@@ -903,7 +903,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       />
 
       {/* Minimal Unified Footer */}
-      <footer className="mt-16 bg-[#FFFDF9] dark:bg-[#0B142B] border-t border-[#DEC9A8] dark:border-[#1B2B4B] py-5 px-4 sm:px-6">
+      <footer className="mt-16 bg-[#F7F3EA] dark:bg-[#0D162E] border-t border-[#D4CCBC] dark:border-[#22355E] py-5 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-4">
           <a
             href="/#/market"

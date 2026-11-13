@@ -635,23 +635,23 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#05070B]/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-[#FAF5EB] dark:bg-[#060B18] w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#FAF5EB] p-5 sm:p-7 relative text-right">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#060B18]/75 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-[#F2ECE1] dark:bg-[#060B18] w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] p-5 sm:p-7 relative text-right">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-[#DEC9A8] dark:border-[#1B2B4B]">
+        <div className="flex items-center justify-between pb-4 border-b border-[#D4CCBC] dark:border-[#22355E]">
           <button
             onClick={onClose}
             aria-label="إغلاق الإعدادات"
-            className="p-2 rounded-xl bg-[#FFFDF9] dark:bg-[#111E3A] text-[#0C1427] dark:text-[#FAF5EB] hover:bg-[#EADBC3] dark:hover:bg-[#1B2D54] border border-[#D8C5A8] dark:border-[#243760] transition cursor-pointer"
+            className="p-2 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <h2 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#FAF5EB]">
+              <h2 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
                 إعدادات البراند وملف {getGenderArtistTitle(gender)}
               </h2>
-              <p className="text-[11px] font-medium text-[#5A4B38] dark:text-[#D8C5A8]">
+              <p className="text-[11px] font-medium text-[#334155] dark:text-[#CBD5E1]">
                 بيانات الورشة، الشعار، الحِرف المختارة، وأمان الحساب
               </p>
             </div>
@@ -660,7 +660,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="mt-4 flex items-center gap-2 border-b border-[#DEC9A8] dark:border-[#1B2B4B] pb-2.5 overflow-x-auto">
+        <div className="mt-4 flex items-center gap-2 border-b border-[#D4CCBC] dark:border-[#22355E] pb-2.5 overflow-x-auto">
           <button
             type="button"
             onClick={() => {
@@ -670,7 +670,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer whitespace-nowrap ${
               activeTab === 'profile'
                 ? 'bg-[#EA580C] text-white shadow-sm'
-                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#EDE2D0] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
+                : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
             }`}
           >
             البيانات والورش المختارة
@@ -684,7 +684,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'language'
                 ? 'bg-[#EA580C] text-white shadow-sm'
-                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#EDE2D0] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
+                : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
             }`}
           >
             <Globe className="w-3.5 h-3.5" />
@@ -699,7 +699,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'reminders'
                 ? 'bg-[#EA580C] text-white shadow-sm'
-                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#EDE2D0] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
+                : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
             }`}
           >
             <Bell className="w-3.5 h-3.5" />
@@ -714,7 +714,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'export_data'
                 ? 'bg-[#EA580C] text-white shadow-sm'
-                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-[#EDE2D0] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
+                : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
             }`}
           >
             <Download className="w-3.5 h-3.5" />
@@ -728,8 +728,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             }}
             className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'factory_reset'
-                ? 'bg-[#05070B] text-[#F59E0B] border border-[#EA580C] shadow-sm'
-                : 'bg-[#FFFDF9] dark:bg-[#0C1427] text-[#C2410C] dark:text-[#FB923C] border border-[#DFCEB5] dark:border-[#1E2E52] hover:border-[#EA580C]'
+                ? 'bg-[#0C1427] text-[#FBBF24] border border-[#EA580C] shadow-sm'
+                : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#C2410C] dark:text-[#FB923C] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
             }`}
           >
             <ShieldAlert className="w-3.5 h-3.5" />
@@ -936,17 +936,17 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
 
               {/* Selected Workshops / Crafts List */}
-              <div className="sm:col-span-2 p-4 rounded-2xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1E2E52] space-y-3">
+              <div className="sm:col-span-2 p-4 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-[#0C1427] text-[#F59E0B] flex items-center justify-center shrink-0">
+                    <div className="w-8 h-8 rounded-xl bg-[#0C1427] text-[#FBBF24] flex items-center justify-center shrink-0">
                       <Layers className="w-4 h-4" />
                     </div>
                     <div>
-                      <h4 className="text-xs font-black text-[#0C1427] dark:text-[#FAF5EB]">
+                      <h4 className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
                         الورش والحِرف المختارة في ورشتك ({selectedCrafts.length})
                       </h4>
-                      <p className="text-[11px] text-[#4B5563] dark:text-[#D8CBB8]">
+                      <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1]">
                         حدد الحِرف التي تعمل بها ورشتك لتظهر في الحاسبة والكتالوج
                       </p>
                     </div>
@@ -960,8 +960,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     onClick={() => setCraftsFilterSection('all')}
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap cursor-pointer transition ${
                       craftsFilterSection === 'all'
-                        ? 'bg-[#0C1427] text-[#FAF5EB] dark:bg-[#EA580C] dark:text-white'
-                        : 'bg-[#FFFDF9] dark:bg-[#111E3A] text-[#0C1427] dark:text-[#E5D7C2] border border-[#DEC9A8] dark:border-[#243760]'
+                        ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#EA580C] dark:text-white'
+                        : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#CBD5E1] border border-[#D4CCBC] dark:border-[#22355E]'
                     }`}
                   >
                     الكل ({SUB_CRAFTS_REGISTRY.length})
@@ -973,8 +973,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       onClick={() => setCraftsFilterSection(sec.id)}
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap cursor-pointer transition ${
                         craftsFilterSection === sec.id
-                          ? 'bg-[#0C1427] text-[#FAF5EB] dark:bg-[#EA580C] dark:text-white'
-                          : 'bg-[#FFFDF9] dark:bg-[#111E3A] text-[#0C1427] dark:text-[#E5D7C2] border border-[#DEC9A8] dark:border-[#243760]'
+                          ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#EA580C] dark:text-white'
+                          : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#CBD5E1] border border-[#D4CCBC] dark:border-[#22355E]'
                       }`}
                     >
                       {sec.nameAr}
@@ -1007,8 +1007,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                         }}
                         className={`p-2.5 rounded-xl border text-right flex items-center justify-between gap-2 cursor-pointer transition ${
                           checked
-                            ? 'bg-[#0C1427] text-[#FAF5EB] border-[#EA580C] dark:bg-[#142347] dark:border-[#F59E0B]'
-                            : 'bg-[#FFFDF9] dark:bg-[#081022] text-[#0C1427] dark:text-[#E5D7C2] border-[#E4D6C0] dark:border-[#1E2E52] hover:border-[#EA580C]'
+                            ? 'bg-[#0C1427] text-[#F7F3EA] border-[#EA580C] dark:bg-[#1A2B54] dark:border-[#FBBF24]'
+                            : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
                         }`}
                       >
                         <span className="text-xs font-bold truncate">{craft.nameAr}</span>
@@ -1016,7 +1016,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                           className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
                             checked
                               ? 'bg-[#EA580C] text-white'
-                              : 'border border-[#C9B496] dark:border-[#334A7C]'
+                              : 'border border-[#94A3B8] dark:border-[#2D4475]'
                           }`}
                         >
                           {checked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
@@ -1029,10 +1029,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
               {/* Appearance Switcher inside Gear Settings */}
               {onSelectThemeMode && (
-                <div className="sm:col-span-2 p-3.5 rounded-2xl bg-[#0C1427] text-[#FAF5EB] border border-[#EA580C]/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="sm:col-span-2 p-3.5 rounded-2xl bg-[#0C1427] dark:bg-[#0D162E] text-[#F7F3EA] border border-[#EA580C]/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
                     <span className="text-xs font-black text-[#FBBF24] block">مظهر الواجهة والألوان</span>
-                    <span className="text-[11px] text-[#D8CBB8]">اختر الوضع المريح لعينك أثناء العمل</span>
+                    <span className="text-[11px] text-[#CBD5E1]">اختر الوضع المريح لعينك أثناء العمل</span>
                   </div>
                   <div className="grid grid-cols-3 gap-1.5 w-full sm:w-auto">
                     <button
@@ -1041,7 +1041,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center justify-center gap-1 cursor-pointer transition ${
                         themeMode === 'light'
                           ? 'bg-[#EA580C] text-white'
-                          : 'bg-[#142242] text-[#FAF5EB] hover:bg-[#1C2E57]'
+                          : 'bg-[#132040] text-[#F7F3EA] hover:bg-[#1A2B54]'
                       }`}
                     >
                       <Sun className="w-3.5 h-3.5" />
@@ -1053,7 +1053,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center justify-center gap-1 cursor-pointer transition ${
                         themeMode === 'night_focus'
                           ? 'bg-[#EA580C] text-white'
-                          : 'bg-[#142242] text-[#FAF5EB] hover:bg-[#1C2E57]'
+                          : 'bg-[#132040] text-[#F7F3EA] hover:bg-[#1A2B54]'
                       }`}
                     >
                       <Sparkles className="w-3.5 h-3.5" />
@@ -1065,7 +1065,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                       className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center justify-center gap-1 cursor-pointer transition ${
                         themeMode === 'dark'
                           ? 'bg-[#EA580C] text-white'
-                          : 'bg-[#142242] text-[#FAF5EB] hover:bg-[#1C2E57]'
+                          : 'bg-[#132040] text-[#F7F3EA] hover:bg-[#1A2B54]'
                       }`}
                     >
                       <Moon className="w-3.5 h-3.5" />

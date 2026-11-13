@@ -308,28 +308,28 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#060B18]/75 backdrop-blur-md animate-in fade-in" dir="rtl">
-      <div className="bg-[#FFFDF9] dark:bg-[#0C1427] border-2 border-[#DEC9A8] dark:border-[#EA580C]/45 rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-5 text-[#0C1427] dark:text-[#FAF5EB] relative">
+      <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#D4CCBC] dark:border-[#EA580C]/45 rounded-3xl max-w-3xl w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-5 text-[#0C1427] dark:text-[#F7F3EA] relative">
         {/* Close Button (✕) */}
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-[#5C4734] dark:text-[#EADBC3] flex items-center justify-center transition cursor-pointer"
+          className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#334155] dark:text-[#CBD5E1] flex items-center justify-center transition cursor-pointer"
           title="إغلاق السلة"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#DEC9A8]/70 dark:border-[#1B2B4B] pb-3 pl-10">
+        <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-3 pl-10">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#FFEDD5] to-[#FED7AA] dark:from-[#EA580C]/25 dark:to-[#F59E0B]/15 border border-[#EA580C]/35 text-[#C2410C] dark:text-amber-300 flex items-center justify-center shadow-md">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#E9E2D4] to-[#F5DFC6] dark:from-[#EA580C]/25 dark:to-[#F59E0B]/15 border border-[#EA580C]/35 text-[#C2410C] dark:text-amber-300 flex items-center justify-center shadow-md">
               <ShoppingBag className="w-6 h-6" />
             </div>
             <div>
               <h3 className="font-black text-base sm:text-lg text-[#0C1427] dark:text-amber-300">
                 سلة مشترياتك في سوق الشمساوية
               </h3>
-              <p className="text-xs text-[#5C4734] dark:text-[#EADBC3]">
+              <p className="text-xs text-[#334155] dark:text-[#CBD5E1]">
                 {cartItems.length} قطعة مختارة بعناية ومضمونة من منظومة الشمساوية
               </p>
             </div>
@@ -349,7 +349,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
 
         {/* If Order Submitted Successfully */}
         {submittedOrder ? (
-          <div className="p-6 rounded-3xl bg-gradient-to-b from-emerald-50 to-[#FAF5EB] dark:from-emerald-950/40 dark:to-[#080F1E] border-2 border-emerald-400 dark:border-emerald-500/50 text-center space-y-4">
+          <div className="p-6 rounded-3xl bg-gradient-to-b from-emerald-50 to-[#F2ECE1] dark:from-emerald-950/40 dark:to-[#060B18] border-2 border-emerald-400 dark:border-emerald-500/50 text-center space-y-4">
             <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-500/20 border-2 border-emerald-500 text-emerald-700 dark:text-emerald-300 flex items-center justify-center mx-auto text-2xl shadow-xl">
               ✓
             </div>
@@ -357,29 +357,29 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
               <span className="px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-400/40 text-xs font-mono font-bold">
                 رقم الطلبية: #{submittedOrder.invoiceNumber}
               </span>
-              <h4 className="text-xl font-black text-[#0C1427] dark:text-white pt-1">
+              <h4 className="text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] pt-1">
                 تم تسجيل طلبيتك بنجاح بضمان منظومة الشمساوية! ✨
               </h4>
-              <p className="text-xs text-[#5C4734] dark:text-[#EADBC3] max-w-lg mx-auto leading-relaxed">
+              <p className="text-xs text-[#334155] dark:text-[#CBD5E1] max-w-lg mx-auto leading-relaxed">
                 شكراً لثقتك في فناني مصر.. فريق الجودة سيبدأ في فحص مواصفات طلبك وإرساله لخط التصنيع فور التحقق من دفعة الجدية.
               </p>
             </div>
 
             {/* Financial Summary Box */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-[#FFFDF9] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-xs text-right">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs text-right">
               <div>
-                <span className="text-[#5C4734] dark:text-[#EADBC3] block text-[11px]">إجمالي الفاتورة:</span>
-                <span className="font-mono text-base font-black text-[#0C1427] dark:text-white">
+                <span className="text-[#334155] dark:text-[#CBD5E1] block text-[11px]">إجمالي الفاتورة:</span>
+                <span className="font-mono text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
                   {submittedOrder.finalTotal} ج.م
                 </span>
               </div>
-              <div className="sm:border-r sm:border-[#DEC9A8] dark:sm:border-[#1B2B4B] sm:pr-3">
+              <div className="sm:border-r sm:border-[#D4CCBC] dark:sm:border-[#22355E] sm:pr-3">
                 <span className="text-[#C2410C] dark:text-amber-400 block text-[11px] font-bold">دفعة الجدية (33%):</span>
                 <span className="font-mono text-base font-black text-[#EA580C] dark:text-amber-300">
                   {submittedOrder.advancePaymentAmount} ج.م
                 </span>
               </div>
-              <div className="sm:border-r sm:border-[#DEC9A8] dark:sm:border-[#1B2B4B] sm:pr-3">
+              <div className="sm:border-r sm:border-[#D4CCBC] dark:sm:border-[#22355E] sm:pr-3">
                 <span className="text-emerald-700 dark:text-emerald-400 block text-[11px] font-bold">المتبقي عند الاستلام:</span>
                 <span className="font-mono text-base font-black text-emerald-700 dark:text-emerald-300">
                   {submittedOrder.remainingAmount} ج.م
@@ -388,12 +388,12 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
             </div>
 
             {/* Support Contact */}
-            <div className="p-3.5 rounded-2xl bg-[#F3E9D8] dark:bg-amber-500/10 border border-[#DEC9A8] dark:border-amber-500/30 text-xs text-[#0C1427] dark:text-stone-200 space-y-2">
+            <div className="p-3.5 rounded-2xl bg-[#E9E2D4] dark:bg-amber-500/10 border border-[#D4CCBC] dark:border-amber-500/30 text-xs text-[#0C1427] dark:text-[#CBD5E1] space-y-2">
               <div className="flex items-center justify-center gap-2 text-[#C2410C] dark:text-amber-300 font-bold">
                 <Phone className="w-4 h-4" />
                 <span>واتساب خدمة العملاء والمتابعة: {OFFICIAL_SUPPORT_PHONE}</span>
               </div>
-              <p className="text-[11px] text-[#5C4734] dark:text-[#EADBC3]">
+              <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1]">
                 إذا قمت بالتحويل، يمكنك إرسال صورة الإيصال عبر الواتساب لتأكيد بدء التنفيذ الفوري.
               </p>
               <a
@@ -411,22 +411,22 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#EA580C] to-[#F59E0B] text-white font-black text-xs"
+              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] text-white font-black text-xs"
             >
               متابعة تصفح السوق 🛍️
             </button>
           </div>
         ) : cartItems.length === 0 ? (
-          <div className="p-12 text-center rounded-3xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-3">
-            <ShoppingBag className="w-12 h-12 mx-auto text-[#EA580C]/60" />
+          <div className="p-12 text-center rounded-3xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
+            <ShoppingBag className="w-12 h-12 mx-auto text-[#EA580C]/70" />
             <h4 className="text-sm font-black text-[#0C1427] dark:text-amber-200">سلة مشترياتك فارغة حالياً</h4>
-            <p className="text-xs text-[#5C4734] dark:text-[#EADBC3]">
+            <p className="text-xs text-[#334155] dark:text-[#CBD5E1]">
               تصفح المشغولات اليدوية والديكورية الفاخرة وأضف لمستك الفنية لمنزلك!
             </p>
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#EA580C] to-[#F59E0B] text-white font-black text-xs"
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] text-white font-black text-xs"
             >
               اكتشف المعروضات الآن ✨
             </button>
@@ -446,10 +446,10 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                 return (
                   <div
                     key={itemId}
-                    className="p-3.5 rounded-2xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] flex items-center justify-between gap-3 text-xs"
+                    className="p-3.5 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-3 text-xs"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#F3E9D8] dark:bg-[#060B18] border border-[#DEC9A8] dark:border-[#1B2B4B] shrink-0">
+                      <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#E9E2D4] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] shrink-0">
                         {itemImg ? (
                           <img src={itemImg} alt="" className="w-full h-full object-cover" />
                         ) : (
@@ -459,17 +459,17 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                         )}
                       </div>
                       <div className="min-w-0 space-y-0.5">
-                        <h4 className="font-black text-[#0C1427] dark:text-white truncate text-xs sm:text-sm">
+                        <h4 className="font-black text-[#0C1427] dark:text-[#F7F3EA] truncate text-xs sm:text-sm">
                           {itemName}
                         </h4>
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#5C4734] dark:text-[#EADBC3]">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#334155] dark:text-[#CBD5E1]">
                           {item.selectedColor && (
-                            <span className="px-2 py-0.5 rounded-md bg-[#F3E9D8] dark:bg-amber-500/10 border border-[#DEC9A8] dark:border-amber-500/20">
+                            <span className="px-2 py-0.5 rounded-md bg-[#E9E2D4] dark:bg-amber-500/10 border border-[#D4CCBC] dark:border-amber-500/20">
                               اللون: {item.selectedColor}
                             </span>
                           )}
                           {item.selectedSize && (
-                            <span className="px-2 py-0.5 rounded-md bg-[#F3E9D8] dark:bg-amber-500/10 border border-[#DEC9A8] dark:border-amber-500/20">
+                            <span className="px-2 py-0.5 rounded-md bg-[#E9E2D4] dark:bg-amber-500/10 border border-[#D4CCBC] dark:border-amber-500/20">
                               المقاس: {item.selectedSize}
                             </span>
                           )}
@@ -478,7 +478,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                           </span>
                         </div>
                         {item.customNotes && (
-                          <p className="text-[10px] text-[#7C5C3E] dark:text-[#D6CBB8] truncate">
+                          <p className="text-[10px] text-[#475569] dark:text-[#94A3B8] truncate">
                             ملاحظات خاصة: {item.customNotes}
                           </p>
                         )}
@@ -487,11 +487,11 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
 
                     {/* Quantity & Delete */}
                     <div className="flex items-center gap-3 shrink-0">
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B]">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E]">
                         <button
                           type="button"
                           onClick={() => handleUpdateQty(itemId, -1)}
-                          className="w-6 h-6 rounded-lg bg-[#F3E9D8] dark:bg-[#111E3A] text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-center cursor-pointer"
+                          className="w-6 h-6 rounded-lg bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer"
                           title="تقليل الكمية"
                         >
                           <Minus className="w-3.5 h-3.5" />
@@ -502,7 +502,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleUpdateQty(itemId, 1)}
-                          className="w-6 h-6 rounded-lg bg-[#F3E9D8] dark:bg-[#111E3A] text-[#0C1427] dark:text-[#FAF5EB] flex items-center justify-center cursor-pointer"
+                          className="w-6 h-6 rounded-lg bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer"
                           title="زيادة الكمية"
                         >
                           <Plus className="w-3.5 h-3.5" />
@@ -512,7 +512,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleRemoveItem(itemId)}
-                        className="p-1.5 rounded-lg bg-[#FFFDF9] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#7C5C3E] hover:text-rose-500 transition cursor-pointer"
+                        className="p-1.5 rounded-lg bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#475569] dark:text-[#CBD5E1] hover:text-rose-500 transition cursor-pointer"
                         title="حذف القطعة"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -524,14 +524,14 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
             </div>
 
             {/* 2. Customer Auth Banner / Info */}
-            <div className="p-3.5 rounded-2xl bg-gradient-to-l from-[#F3E9D8] to-[#FFEDD5]/70 dark:from-[#0B142B] dark:to-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="p-3.5 rounded-2xl bg-gradient-to-l from-[#E9E2D4] to-[#F5DFC6]/70 dark:from-[#132040] dark:to-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
               {customerUser ? (
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-bold">
                     ✓
                   </div>
                   <div>
-                    <span className="font-bold text-[#0C1427] dark:text-white block">
+                    <span className="font-bold text-[#0C1427] dark:text-[#F7F3EA] block">
                       مسجل بحساب: {customerUser.name} ({customerUser.phone})
                     </span>
                     <span className="text-[11px] text-[#C2410C] dark:text-amber-300">
@@ -546,7 +546,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                     <span className="font-black text-[#0C1427] dark:text-amber-300 block">
                       هل تملك حساباً في عائلة الشمساوية؟
                     </span>
-                    <span className="text-[11px] text-[#5C4734] dark:text-[#EADBC3]">
+                    <span className="text-[11px] text-[#334155] dark:text-[#CBD5E1]">
                       سجّل الآن لتحصل على خصم 5% فوري وتجميع نقاط ولاء مع كل طلبية.
                     </span>
                   </div>
@@ -557,7 +557,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                 <button
                   type="button"
                   onClick={onOpenCustomerAuth}
-                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#EA580C] to-[#F59E0B] text-white font-black text-xs shrink-0 cursor-pointer shadow-sm"
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] text-white font-black text-xs shrink-0 cursor-pointer shadow-sm"
                 >
                   تسجيل الدخول / إنشاء حساب 🏷️
                 </button>
@@ -565,7 +565,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
             </div>
 
             {/* 3. Shipping Details Form */}
-            <div className="p-4 rounded-2xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-3 text-xs">
+            <div className="p-4 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-3 text-xs">
               <h4 className="font-black text-[#C2410C] dark:text-amber-300 flex items-center gap-2">
                 <Truck className="w-4 h-4" />
                 <span>بيانات الشحن والتوصيل المنزلي</span>
@@ -573,7 +573,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+                  <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
                     اسم المستلم *
                   </label>
                   <input
@@ -582,13 +582,13 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                     onChange={(e) => setGuestName(e.target.value)}
                     placeholder="الاسم الكريم بالكامل"
                     disabled={!!customerUser}
-                    className="w-full px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold outline-none focus:border-[#EA580C] disabled:opacity-75"
+                    className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold outline-none focus:border-[#EA580C] disabled:opacity-75"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+                  <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
                     رقم الهاتف الأساسي * (إجباري)
                   </label>
                   <input
@@ -597,7 +597,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                     onChange={(e) => setGuestPhone(e.target.value)}
                     placeholder="010XXXXXXXX"
                     disabled={!!customerUser}
-                    className="w-full px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold font-mono outline-none focus:border-[#EA580C] disabled:opacity-75"
+                    className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold font-mono outline-none focus:border-[#EA580C] disabled:opacity-75"
                     required
                   />
                 </div>
@@ -605,16 +605,16 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+                  <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
                     المحافظة * (لحساب قيمة الشحن الفعلي)
                   </label>
                   <select
                     value={governorate}
                     onChange={(e) => setGovernorate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold outline-none focus:border-[#EA580C]"
+                    className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold outline-none focus:border-[#EA580C]"
                   >
                     {governorates.map((gov) => (
-                      <option key={gov} value={gov} className="bg-[#FFFDF9] dark:bg-[#0C1427] text-[#0C1427] dark:text-white">
+                      <option key={gov} value={gov} className="bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA]">
                         {gov} (شحن: {calculateShippingRate(gov)} ج.م)
                       </option>
                     ))}
@@ -622,7 +622,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+                  <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
                     رقم هاتف بديل (اختياري)
                   </label>
                   <input
@@ -630,13 +630,13 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                     value={customerUser?.alternatePhone || guestAltPhone}
                     onChange={(e) => setGuestAltPhone(e.target.value)}
                     placeholder="رقم آخر لضمان سهولة التواصل"
-                    className="w-full px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold font-mono outline-none focus:border-[#EA580C]"
+                    className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold font-mono outline-none focus:border-[#EA580C]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[#0C1427] dark:text-[#FAF5EB] font-bold mb-1">
+                <label className="block text-[#0C1427] dark:text-[#F7F3EA] font-bold mb-1">
                   العنوان التفصيلي للتسليم * (المنطقة، الشارع، رقم العمارة والشقة)
                 </label>
                 <textarea
@@ -644,25 +644,25 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                   onChange={(e) => setGuestAddress(e.target.value)}
                   placeholder="اكتب العنوان بدقة ليصل مندوب الشحن لمنزلك دون تأخير"
                   rows={2}
-                  className="w-full px-3 py-2 rounded-xl bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-bold outline-none focus:border-[#EA580C] resize-none"
+                  className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-bold outline-none focus:border-[#EA580C] resize-none"
                   required
                 />
               </div>
             </div>
 
             {/* 4. Payment Method & 33% Advance Rule */}
-            <div className="p-4 rounded-2xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-3 text-xs">
+            <div className="p-4 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-3 text-xs">
               <h4 className="font-black text-[#C2410C] dark:text-amber-300 flex items-center justify-between flex-wrap gap-2">
                 <span className="flex items-center gap-2">
                   <CreditCard className="w-4 h-4" />
                   <span>طريقة السداد وجدية حجز تصنيع الهاند ميد (33%)</span>
                 </span>
-                <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-[#FFEDD5] dark:bg-amber-500/20 text-[#9A3412] dark:text-amber-300 border border-[#EA580C]/30 font-bold">
+                <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-[#F5DFC6] dark:bg-amber-500/20 text-[#9A3412] dark:text-amber-300 border border-[#EA580C]/30 font-bold">
                   دفعة تعاقدية: {advancePaymentAmount} ج.م
                 </span>
               </h4>
 
-              <p className="text-[11px] text-[#5C4734] dark:text-[#EADBC3] leading-relaxed">
+              <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
                 نظراً لأن مشغولات الهاند ميد تُصنع يدوياً خصيصاً لحضرتك وبألوان ومقاسات منزلك، يُشترط سداد دفعة جدية لا تقل عن 33% لبدء خط الإنتاج بالورشة، ويُسدد المبلغ المتبقي عند الاستلام والفحص.
               </p>
 
@@ -673,12 +673,12 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                   onClick={() => setPaymentMethod('instapay')}
                   className={`p-3 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
                     paymentMethod === 'instapay'
-                      ? 'bg-gradient-to-r from-[#EA580C] to-[#F59E0B] border-[#C2410C] text-white font-black'
-                      : 'bg-[#FFFDF9] dark:bg-[#0C1427] border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#EADBC3]'
+                      ? 'bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] border-[#C2410C] text-white font-black'
+                      : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#CBD5E1]'
                   }`}
                 >
                   <span className="text-sm">⚡ إنستاباي InstaPay</span>
-                  <span className={`text-[10px] ${paymentMethod === 'instapay' ? 'text-amber-100' : 'text-[#5C4734] dark:text-[#D6CBB8]'}`}>تحويل لحظي مباشر</span>
+                  <span className={`text-[10px] ${paymentMethod === 'instapay' ? 'text-amber-100' : 'text-[#475569] dark:text-[#94A3B8]'}`}>تحويل لحظي مباشر</span>
                 </button>
 
                 <button
@@ -686,12 +686,12 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                   onClick={() => setPaymentMethod('vodafone_cash')}
                   className={`p-3 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
                     paymentMethod === 'vodafone_cash'
-                      ? 'bg-gradient-to-r from-[#EA580C] to-[#F59E0B] border-[#C2410C] text-white font-black'
-                      : 'bg-[#FFFDF9] dark:bg-[#0C1427] border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#EADBC3]'
+                      ? 'bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] border-[#C2410C] text-white font-black'
+                      : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#CBD5E1]'
                   }`}
                 >
                   <span className="text-sm">📱 محفظة إلكترونية كاش</span>
-                  <span className={`text-[10px] ${paymentMethod === 'vodafone_cash' ? 'text-amber-100' : 'text-[#5C4734] dark:text-[#D6CBB8]'}`}>فودافون كاش / محافظ البنوك</span>
+                  <span className={`text-[10px] ${paymentMethod === 'vodafone_cash' ? 'text-amber-100' : 'text-[#475569] dark:text-[#94A3B8]'}`}>فودافون كاش / محافظ البنوك</span>
                 </button>
 
                 <button
@@ -699,21 +699,21 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                   onClick={() => setPaymentMethod('cash')}
                   className={`p-3 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
                     paymentMethod === 'cash'
-                      ? 'bg-gradient-to-r from-[#EA580C] to-[#F59E0B] border-[#C2410C] text-white font-black'
-                      : 'bg-[#FFFDF9] dark:bg-[#0C1427] border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-[#EADBC3]'
+                      ? 'bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] border-[#C2410C] text-white font-black'
+                      : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#CBD5E1]'
                   }`}
                 >
                   <span className="text-sm">💵 كاش عند الاستلام</span>
-                  <span className={`text-[10px] ${paymentMethod === 'cash' ? 'text-amber-100' : 'text-[#5C4734] dark:text-[#D6CBB8]'}`}>سداد الباقي نقداً مع المندوب</span>
+                  <span className={`text-[10px] ${paymentMethod === 'cash' ? 'text-amber-100' : 'text-[#475569] dark:text-[#94A3B8]'}`}>سداد الباقي نقداً مع المندوب</span>
                 </button>
               </div>
 
               {/* Official Transfer Box */}
-              <div className="p-3.5 rounded-xl bg-[#F3E9D8] dark:bg-amber-500/10 border border-[#DEC9A8] dark:border-amber-400/40 space-y-2">
+              <div className="p-3.5 rounded-xl bg-[#E9E2D4] dark:bg-amber-500/10 border border-[#D4CCBC] dark:border-amber-400/40 space-y-2">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-[#9A3412] dark:text-amber-300">رقم الشركة الرسمي للتحويل:</span>
-                    <span className="font-mono text-base font-black text-[#0C1427] dark:text-white bg-[#FFFDF9] dark:bg-[#060B18] px-2.5 py-1 rounded-lg border border-[#DEC9A8] dark:border-amber-500/40" dir="ltr">
+                    <span className="font-mono text-base font-black text-[#0C1427] dark:text-[#F7F3EA] bg-[#F7F3EA] dark:bg-[#060B18] px-2.5 py-1 rounded-lg border border-[#D4CCBC] dark:border-amber-500/40" dir="ltr">
                       {OFFICIAL_PAYMENT_PHONE}
                     </span>
                   </div>
@@ -726,12 +726,12 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                     <span>{copiedNumber ? 'تم النسخ بنجاح ✓' : 'نسخ الرقم'}</span>
                   </button>
                 </div>
-                <p className="text-[11px] text-[#5C4734] dark:text-[#EADBC3]">
+                <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1]">
                   مستلم التحويل الرسمي: <strong>منظومة الشمساوية للدفع المعتمد</strong> (إنستاباي وفودافون كاش).
                 </p>
 
                 <div>
-                  <label className="block text-[#0C1427] dark:text-[#EADBC3] text-[11px] font-bold mb-1">
+                  <label className="block text-[#0C1427] dark:text-[#CBD5E1] text-[11px] font-bold mb-1">
                     رقم العملية أو اسم المحول (اختياري لتأكيد التحويل فوراً):
                   </label>
                   <input
@@ -739,29 +739,29 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                     value={transactionRef}
                     onChange={(e) => setTransactionRef(e.target.value)}
                     placeholder="مثال: تحويل من محفظة 010... أو اسم الحساب"
-                    className="w-full px-3 py-1.5 rounded-lg bg-[#FFFDF9] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white text-xs outline-none focus:border-[#EA580C]"
+                    className="w-full px-3 py-1.5 rounded-lg bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs outline-none focus:border-[#EA580C]"
                   />
                 </div>
               </div>
             </div>
 
             {/* 5. Cost Summary & Coupon */}
-            <div className="p-4 rounded-2xl bg-[#FAF5EB] dark:bg-[#0B142B] border border-[#DEC9A8] dark:border-[#1B2B4B] space-y-2 text-xs">
+            <div className="p-4 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-2 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-[#5C4734] dark:text-[#EADBC3]">قيمة المنتجات:</span>
-                <span className="font-mono font-bold text-[#0C1427] dark:text-white">{subtotal} ج.م</span>
+                <span className="text-[#334155] dark:text-[#CBD5E1]">قيمة المنتجات:</span>
+                <span className="font-mono font-bold text-[#0C1427] dark:text-[#F7F3EA]">{subtotal} ج.م</span>
               </div>
 
               {/* Coupon row */}
-              <div className="flex items-center justify-between py-1 border-t border-[#DEC9A8]/60 dark:border-[#1B2B4B]">
+              <div className="flex items-center justify-between py-1 border-t border-[#D4CCBC] dark:border-[#22355E]">
                 <div className="flex items-center gap-2">
-                  <span className="text-[#5C4734] dark:text-[#EADBC3]">كود الخصم الترحيبي:</span>
+                  <span className="text-[#334155] dark:text-[#CBD5E1]">كود الخصم الترحيبي:</span>
                   <input
                     type="text"
                     value={couponCode}
                     onChange={(e) => setCouponCode(e.target.value)}
                     placeholder="SHAMS5"
-                    className="w-24 px-2 py-0.5 rounded-md bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] text-[#0C1427] dark:text-white font-mono font-bold uppercase text-center text-[11px]"
+                    className="w-24 px-2 py-0.5 rounded-md bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-mono font-bold uppercase text-center text-[11px]"
                   />
                   <button
                     type="button"
@@ -782,23 +782,23 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
               )}
 
               <div className="flex items-center justify-between">
-                <span className="text-[#5C4734] dark:text-[#EADBC3]">تكلفة الشحن والتوصيل ({governorate}):</span>
-                <span className="font-mono font-bold text-[#0C1427] dark:text-white">{shippingCost} ج.م</span>
+                <span className="text-[#334155] dark:text-[#CBD5E1]">تكلفة الشحن والتوصيل ({governorate}):</span>
+                <span className="font-mono font-bold text-[#0C1427] dark:text-[#F7F3EA]">{shippingCost} ج.م</span>
               </div>
 
-              <div className="pt-2 border-t border-[#DEC9A8] dark:border-[#1B2B4B] flex items-center justify-between text-sm sm:text-base font-black">
+              <div className="pt-2 border-t border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between text-sm sm:text-base font-black">
                 <span className="text-[#C2410C] dark:text-amber-300">إجمالي الفاتورة:</span>
                 <span className="font-mono text-[#EA580C] dark:text-amber-300 text-lg">{finalTotal} ج.م</span>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-[#F3E9D8] dark:bg-amber-500/10 border border-[#DEC9A8] dark:border-amber-500/30 flex items-center justify-between flex-wrap gap-2 text-xs font-bold">
+              <div className="p-2.5 rounded-xl bg-[#E9E2D4] dark:bg-amber-500/10 border border-[#D4CCBC] dark:border-amber-500/30 flex items-center justify-between flex-wrap gap-2 text-xs font-bold">
                 <div className="text-[#9A3412] dark:text-amber-300">
                   <span>الدفعة التعاقدية للبدء (33%): </span>
-                  <span className="font-mono font-black text-[#0C1427] dark:text-white">{advancePaymentAmount} ج.م</span>
+                  <span className="font-mono font-black text-[#0C1427] dark:text-[#F7F3EA]">{advancePaymentAmount} ج.م</span>
                 </div>
                 <div className="text-emerald-800 dark:text-emerald-300">
                   <span>الباقي عند التسليم: </span>
-                  <span className="font-mono font-black text-[#0C1427] dark:text-white">{remainingAtDelivery} ج.م</span>
+                  <span className="font-mono font-black text-[#0C1427] dark:text-[#F7F3EA]">{remainingAtDelivery} ج.م</span>
                 </div>
               </div>
             </div>
@@ -814,7 +814,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#EA580C] via-[#F59E0B] to-[#C2410C] hover:from-[#C2410C] hover:to-[#EA580C] text-white font-black text-sm shadow-xl transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-black text-sm shadow-xl transition cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <CheckCircle2 className="w-5 h-5" />
                 <span>

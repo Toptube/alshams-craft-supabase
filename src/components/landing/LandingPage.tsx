@@ -141,7 +141,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF5EB] dark:bg-[#060B18] text-[#0C1427] dark:text-[#FAF5EB] font-sans selection:bg-[#EA580C] selection:text-white transition-colors duration-300" dir="rtl">
+    <div className="min-h-screen bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] font-sans selection:bg-[#EA580C] selection:text-white transition-colors duration-300" dir="rtl">
       
       {/* ------------------------------------------------------------- */}
       {/* بوابة الاستقبال التفاعلية الفاخرة (Hero Gate / Welcome Modal)   */}
@@ -155,7 +155,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* 1. Header / Navbar (Sticky, Modern Glassmorphism & Audio Widget)*/}
       {/* ------------------------------------------------------------- */}
-      <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-[#FFFDF9]/90 dark:bg-[#0B142B]/90 border-b border-[#DEC9A8] dark:border-[#1B2B4B] transition-all shadow-sm">
+      <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 border-b border-[#D4CCBC] dark:border-[#22355E] transition-all shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-3 sm:gap-4">
           
           {/* الشعار المعتمد للمنظومة بعرض لا يتجاوز 180px وبخلفية شفافة تماماً كأنه مدمج في نسيج الصفحة */}
@@ -165,7 +165,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           {/* Quick Nav Links (Desktop) */}
-          <nav className="hidden xl:flex items-center gap-6 text-sm font-bold text-[#5C4734] dark:text-[#EADBC3]">
+          <nav className="hidden xl:flex items-center gap-6 text-sm font-bold text-[#334155] dark:text-[#CBD5E1]">
             <a href="#safe-accounts" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors">
               عقلك الحرفي
             </a>
@@ -192,7 +192,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={() => setIsWelcomeGateOpen(true)}
-              className="hidden lg:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-black bg-[#F3E9D8] dark:bg-[#111E3A] text-[#9A3412] dark:text-amber-200 border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] transition cursor-pointer shrink-0"
+              className="hidden lg:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-black bg-[#E9E2D4] dark:bg-[#132040] text-[#9A3412] dark:text-amber-200 border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] transition cursor-pointer shrink-0"
               title="فتح بوابة الترحيب التفاعلية"
             >
               <span>بوابة الترحيب ✨</span>
@@ -204,7 +204,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={onToggleTheme}
                 aria-label="تبديل مظهر الواجهة"
                 title={isDarkMode ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'}
-                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#F3E9D8] dark:bg-[#111E3A] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-[#0C1427] dark:text-[#FAF5EB] transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA] transition-colors cursor-pointer flex items-center justify-center shrink-0"
               >
                 {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-[#C2410C]" />}
               </button>
@@ -214,7 +214,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={onOpenLogin}
-              className="px-4 sm:px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm bg-gradient-to-r from-[#EA580C] via-[#F59E0B] to-[#C2410C] hover:from-[#C2410C] hover:to-[#EA580C] text-white shadow-md shadow-orange-600/25 transition-all cursor-pointer flex items-center gap-2 border border-[#FDBA74]/50 whitespace-nowrap shrink-0"
+              className="px-4 sm:px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white shadow-md shadow-orange-600/25 transition-all cursor-pointer flex items-center gap-2 border border-[#FDBA74]/50 whitespace-nowrap shrink-0"
             >
               <span>فتح الورشة</span>
               <ArrowLeft className="w-4 h-4 text-white" />
@@ -226,7 +226,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* 2. Hero Section & Safe Zone (Strict Branding Placement)       */}
       {/* ------------------------------------------------------------- */}
-      <section className="relative overflow-hidden pt-8 pb-16 md:pt-12 md:pb-24 border-b border-[#DEC9A8] dark:border-[#1B2B4B] bg-gradient-to-b from-[#FAF5EB] via-[#F5EAD8] to-[#FFFDF9] dark:from-[#060B18] dark:via-[#081024] dark:to-[#0C1427]">
+      <section className="relative overflow-hidden pt-8 pb-16 md:pt-12 md:pb-24 border-b border-[#D4CCBC] dark:border-[#22355E] bg-gradient-to-b from-[#F2ECE1] via-[#EBE4D6] to-[#F7F3EA] dark:from-[#060B18] dark:via-[#091226] dark:to-[#0D162E]">
         
         {/* Subtle geometric craft background overlay */}
         <div className="absolute inset-0 pointer-events-none opacity-25 dark:opacity-15 bg-[radial-gradient(#ea580c_1px,transparent_1px)] [background-size:24px_24px]" />
@@ -258,14 +258,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
               {/* Main Headline & Storytelling */}
               <div className="flex-1 text-center md:text-right space-y-4">
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0C1427] dark:text-[#FAF5EB] leading-tight">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight">
                   عشان إيدك بتتلف في حرير.. <br />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#F59E0B] dark:from-[#FDBA74] dark:via-amber-300 dark:to-[#FB923C]">
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] dark:from-[#FDBA74] dark:via-amber-300 dark:to-[#FB923C]">
                     ورشتك تستاهل نظام يديرها بضمير!
                   </span>
                 </h1>
 
-                <p className="text-base sm:text-lg text-[#5C4734] dark:text-[#EADBC3] leading-relaxed font-medium">
+                <p className="text-base sm:text-lg text-[#334155] dark:text-[#CBD5E1] leading-relaxed font-medium">
                   من أول فتلة خيط وتسعير الخامات بالمليم وحساب الهدر وساعات التعب، لحد أرباحك الصافية وإدارة الخزن والزبائن.. بدون أي كلاكيع حسابية ولا دفاتر بتضيع.
                 </p>
 
@@ -274,7 +274,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <button
                     type="button"
                     onClick={onOpenRegister}
-                    className="px-6 py-3.5 rounded-2xl font-black text-base bg-gradient-to-r from-[#EA580C] via-[#F59E0B] to-[#C2410C] hover:from-[#C2410C] hover:to-[#EA580C] text-white shadow-xl shadow-orange-600/25 transition-all cursor-pointer flex items-center gap-2 border border-[#FDBA74]/50"
+                    className="px-6 py-3.5 rounded-2xl font-black text-base bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white shadow-xl shadow-orange-600/25 transition-all cursor-pointer flex items-center gap-2 border border-[#FDBA74]/50"
                   >
                     <Sparkles className="w-5 h-5 text-amber-100" />
                     <span>افتح ورشتك في ثواني مجاناً 🌟</span>
@@ -282,7 +282,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
                   <a
                     href="#safe-accounts"
-                    className="px-6 py-3.5 rounded-2xl font-bold text-base bg-[#FFFDF9] dark:bg-[#0C1427] border border-[#DEC9A8] dark:border-[#1B2B4B] hover:border-[#EA580C] text-[#0C1427] dark:text-[#FAF5EB] transition-all flex items-center gap-2"
+                    className="px-6 py-3.5 rounded-2xl font-bold text-base bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA] transition-all flex items-center gap-2"
                   >
                     <span>شوف إزاي بتشتغل</span>
                     <ChevronDown className="w-4 h-4 text-[#EA580C]" />
@@ -869,7 +869,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* 5.3 Marketplace & Store: متجرك المستقل وسوق الشمساوية التكاملي  */}
       {/* ------------------------------------------------------------- */}
-      <section id="craft-store" className="py-16 md:py-24 border-b border-stone-200 dark:border-[#1E293B] bg-gradient-to-b from-white via-amber-50/20 to-white dark:from-[#060B18] dark:via-[#0A1128] dark:to-[#060B18]">
+      <section id="craft-store" className="py-16 md:py-24 border-b border-[#D4CCBC] dark:border-[#22355E] bg-gradient-to-b from-[#F2ECE1] via-[#EBE4D6] to-[#F2ECE1] dark:from-[#060B18] dark:via-[#0D162E] dark:to-[#060B18]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-12">
             
@@ -879,12 +879,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <span>أول وأكبر سوق للحرف اليدوية (Multi-Vendor Marketplace)</span>
               </div>
               
-              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0A1128] dark:text-white leading-tight">
+              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight">
                 سوق الشمساوية.. <br />
-                <span className="text-amber-600 dark:text-amber-400">أول منصة متعددة التجار متخصصة لفناني وصنّاع الحرف اليدوية في مصر والعالم العربي!</span>
+                <span className="text-[#C2410C] dark:text-amber-400">أول منصة متعددة التجار متخصصة لفناني وصنّاع الحرف اليدوية في مصر والعالم العربي!</span>
               </h2>
 
-              <p className="text-base sm:text-lg text-stone-700 dark:text-[#EADBC8] leading-relaxed font-medium">
+              <p className="text-base sm:text-lg text-[#334155] dark:text-[#CBD5E1] leading-relaxed font-medium">
                 بمجرد فتح ورشتك، ووضع منتجاتك.. هتسمّع معاك في الأرشيف والكتالوج، ومنه بضغطة زر واحدة هتقدر تصدر منتجاتك لمتجرك الخاص، وهتحصل تلقائياً على <strong>واجهة متجر رقمي مستقلة</strong> بهويتك وعلامتك، مع إدراج مشغولاتك المعتمدة فوراً داخل <span className="text-amber-600 dark:text-amber-300 font-bold">سوق الشمساوية العام</span> للوصول لآلاف العملاء وتجار الجملة وعشاق الهاند ميد في مصر والخليج دون وسطاء ولا عمولات خفية.
               </p>
 
@@ -927,15 +927,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* Interactive Preview Card for Store & Multi-Vendor Marketplace */}
-            <div className="w-full max-w-md p-6 rounded-3xl bg-[#FDFBF7] dark:bg-[#0A1128] border-2 border-amber-300/80 dark:border-amber-500/40 shadow-2xl space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-amber-200 dark:border-[#1E293B]">
+            <div className="w-full max-w-md p-6 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#D4CCBC] dark:border-[#22355E] shadow-2xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-[#C2410C] dark:text-amber-400 flex items-center justify-center font-bold">
                     <Store className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="font-black text-sm text-[#0A1128] dark:text-white block">سوق الشمساوية التكاملي</span>
-                    <span className="text-[10px] text-stone-500 dark:text-amber-200/80">منصة الحرف اليدوية المعتمدة</span>
+                    <span className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA] block">سوق الشمساوية التكاملي</span>
+                    <span className="text-[10px] text-[#475569] dark:text-amber-200/80">منصة الحرف اليدوية المعتمدة</span>
                   </div>
                 </div>
                 <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
@@ -944,30 +944,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
 
               <div className="space-y-3">
-                <div className="p-3.5 rounded-2xl bg-white dark:bg-[#060B18] border border-amber-200/80 dark:border-[#1E293B] flex items-center gap-3 shadow-xs hover:border-amber-400 transition-all">
+                <div className="p-3.5 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center gap-3 shadow-xs hover:border-[#EA580C] transition-all">
                   <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold shrink-0">
                     <ShoppingBag className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1">
-                      <p className="font-black text-xs text-[#0A1128] dark:text-white truncate">مرآة مكرمية بوهيمية قطر 60 سم</p>
+                      <p className="font-black text-xs text-[#0C1427] dark:text-[#F7F3EA] truncate">مرآة مكرمية بوهيمية قطر 60 سم</p>
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-sm bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">مكرمية</span>
                     </div>
-                    <p className="text-[10px] text-stone-600 dark:text-stone-300 font-medium">ورشة شمس الأصيل • 3 قطع جاهزة للتسليم</p>
+                    <p className="text-[10px] text-[#334155] dark:text-[#CBD5E1] font-medium">ورشة شمس الأصيل • 3 قطع جاهزة للتسليم</p>
                   </div>
-                  <span className="font-black font-mono text-xs text-amber-700 dark:text-amber-300">1,450 ج.م</span>
+                  <span className="font-black font-mono text-xs text-[#C2410C] dark:text-amber-300">1,450 ج.م</span>
                 </div>
 
-                <div className="p-3.5 rounded-2xl bg-white dark:bg-[#060B18] border border-amber-200/80 dark:border-[#1E293B] flex items-center gap-3 shadow-xs hover:border-amber-400 transition-all">
+                <div className="p-3.5 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center gap-3 shadow-xs hover:border-[#EA580C] transition-all">
                   <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold shrink-0">
                     <Sparkles className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1">
-                      <p className="font-black text-xs text-[#0A1128] dark:text-white truncate">حقيبة جلد طبيعي مدبوغ نباتياً</p>
+                      <p className="font-black text-xs text-[#0C1427] dark:text-[#F7F3EA] truncate">حقيبة جلد طبيعي مدبوغ نباتياً</p>
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-sm bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300">جلود طبيعية</span>
                     </div>
-                    <p className="text-[10px] text-stone-600 dark:text-stone-300 font-medium">ورشة الباشا كرافت • تفصيل حسب الطلب</p>
+                    <p className="text-[10px] text-[#334155] dark:text-[#CBD5E1] font-medium">ورشة الباشا كرافت • تفصيل حسب الطلب</p>
                   </div>
                   <span className="font-black font-mono text-xs text-blue-700 dark:text-blue-300">2,800 ج.م</span>
                 </div>
@@ -978,7 +978,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <span className="text-xs font-black text-amber-900 dark:text-amber-300 block">
                   ⚡ مزامنة ذكية فورية مع الورشة
                 </span>
-                <p className="text-[11px] text-stone-700 dark:text-[#EADBC8] leading-tight">
+                <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1] leading-tight">
                   أي طلب يتم اعتماده في السوق يخصم خاماته من مخزنك ويضيف عائداته لخزينتك مباشرة
                 </p>
               </div>
