@@ -240,22 +240,45 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           return;
         }
 
-        // If no row exists yet in workshops table, construct profile from metadata
+        // If no row exists yet in workshops table, check profiles row then construct profile from metadata
         const userMeta = (signInData.user?.user_metadata || {}) as any;
+        let profRow: any = null;
+        try {
+          const { data: pData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', signInData.user!.id)
+            .maybeSingle();
+          profRow = pData;
+        } catch {}
+
+        const emailPrefix = cleanEmail.split('@')[0] || '';
         const fallbackProfile: UserProfile = {
-          id: signInData.user!.id,
+          id: profRow?.workshop_id || userMeta.workshop_id || signInData.user!.id,
           ownerUid: signInData.user!.id,
-          tenantId: userMeta.workshop_id || signInData.user!.id,
-          workshopId: userMeta.workshop_id || signInData.user!.id,
+          tenantId: profRow?.workshop_id || userMeta.workshop_id || signInData.user!.id,
+          workshopId: profRow?.workshop_id || userMeta.workshop_id || signInData.user!.id,
           email: signInData.user!.email || cleanEmail,
-          artistName: userMeta.artist_name || userMeta.artistName || 'فنان الشمساوية',
-          brandName: userMeta.brand_name || userMeta.brandName || 'ورشة الشمساوية',
-          gender: userMeta.gender || 'female',
-          phoneNumber: userMeta.phone_number || userMeta.phone || '',
-          country: userMeta.country || 'مصر',
-          currency: userMeta.currency || 'EGP',
+          artistName:
+            profRow?.artist_name ||
+            profRow?.full_name ||
+            profRow?.name ||
+            userMeta.artist_name ||
+            userMeta.artistName ||
+            userMeta.full_name ||
+            emailPrefix ||
+            'فنان',
+          brandName:
+            profRow?.brand_name ||
+            userMeta.brand_name ||
+            userMeta.brandName ||
+            (emailPrefix ? `ورشة ${emailPrefix}` : 'ورشة حرفية'),
+          gender: profRow?.gender || userMeta.gender || 'female',
+          phoneNumber: profRow?.phone || profRow?.phone_number || userMeta.phone_number || userMeta.phone || '',
+          country: profRow?.country || userMeta.country || 'جمهورية مصر العربية',
+          currency: profRow?.currency || userMeta.currency || 'EGP',
           currencySymbol: userMeta.currency_symbol || 'ج.م',
-          selectedCrafts: userMeta.selected_crafts || ['macrame'],
+          selectedCrafts: profRow?.selected_crafts || userMeta.selected_crafts || ['macrame'],
           defaultVatPercent: 14,
           showTaxInfoOnInvoice: false,
           createdAt: Date.now(),

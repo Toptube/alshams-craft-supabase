@@ -517,24 +517,52 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
     });
 
     const localList = loadPersistentWorkshops();
-    const map = new Map<string, any>();
-
-    // 1. Add persistent local workshops
+    const localById = new Map<string, any>();
+    const localByEmail = new Map<string, any>();
     localList.forEach((w) => {
-      if (w.id) map.set(w.id, w);
+      if (w.id) localById.set(w.id, w);
+      const em = String(w.email || '').trim().toLowerCase();
+      if (em) localByEmail.set(em, w);
     });
 
-    // 2. Merge database workshops with real profile data + auto-unfreeze expired suspensions
+    const map = new Map<string, any>();
+    const seenOwnerIds = new Set<string>();
+    const seenEmails = new Set<string>();
+
+    const trackIdentity = (wsId: string, ownerId?: string, emailStr?: string) => {
+      if (ownerId) seenOwnerIds.add(String(ownerId).trim());
+      if (wsId) seenOwnerIds.add(String(wsId).trim());
+      const cleanEm = String(emailStr || '').trim().toLowerCase();
+      if (cleanEm) seenEmails.add(cleanEm);
+    };
+
+    // 1. Merge authoritative Supabase workshops first, deduplicating by owner_id/email
     for (const row of dbWorkshops) {
       if (!row.id) continue;
-      const existing = map.get(row.id) || {};
+      const rowOwner = String(row.owner_id || row.owner_uid || '').trim();
+      const rowEmail = String(row.email || '').trim().toLowerCase();
+
+      // Skip duplicate workshop rows belonging to the exact same owner/email already registered
+      if ((rowOwner && seenOwnerIds.has(rowOwner)) || (rowEmail && seenEmails.has(rowEmail))) {
+        continue;
+      }
+
+      const existing = localById.get(row.id) || (rowEmail ? localByEmail.get(rowEmail) : undefined) || {};
       const prof =
         profilesMap.get(row.id) ||
-        profilesMap.get((row.email || '').toLowerCase()) ||
+        profilesMap.get(rowEmail) ||
         profilesMap.get(row.owner_id) ||
         {};
 
-      const artistName = prof.artist_name || prof.full_name || prof.name || row.artist_name || row.artistName || existing.artistName;
+      const artistName =
+        cleanRealArtistName(prof.artist_name) ||
+        cleanRealArtistName(prof.full_name) ||
+        cleanRealArtistName(prof.name) ||
+        cleanRealArtistName(row.artist_name) ||
+        cleanRealArtistName(row.artistName) ||
+        cleanRealArtistName(existing.artistName) ||
+        row.artist_name ||
+        existing.artistName;
       const phoneNumber = prof.phone_number || prof.phone || row.phone_number || row.phone || row.phoneNumber || existing.phoneNumber;
       const wsEmail = prof.email || row.email || existing.email || '';
       let status = row.status || prof.status || existing.status || (row.is_frozen || row.isFrozen ? 'suspended' : 'active');
@@ -565,7 +593,13 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
       map.set(row.id, {
         ...existing,
         ...row,
-        brandName: row.brand_name || row.brandName || prof.brand_name || existing.brandName,
+        brandName:
+          cleanRealBrandName(row.brand_name) ||
+          cleanRealBrandName(row.brandName) ||
+          cleanRealBrandName(prof.brand_name) ||
+          cleanRealBrandName(existing.brandName) ||
+          row.brand_name ||
+          existing.brandName,
         artistName: artistName || 'فنان',
         phoneNumber: phoneNumber || '',
         email: wsEmail,
@@ -584,31 +618,57 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
         medal_note: row.medal_note ?? existing.medal_note ?? null,
         medal_awarded_at: row.medal_awarded_at ?? existing.medal_awarded_at ?? null,
       });
+
+      trackIdentity(row.id, rowOwner, wsEmail);
     }
 
-    // 3. Add profiles that don't have a separate workshop row yet (skip super admin personal account if separate)
-    dbProfiles.forEach((p) => {
-      const pid = p.workshop_id || p.id;
-      if (pid && !map.has(pid)) {
-        map.set(pid, {
-          id: pid,
-          workshopId: pid,
-          ownerUid: p.id,
-          brandName: p.brand_name || p.brandName || 'ورشة ' + (p.artist_name || p.full_name || 'الشمساوية'),
-          artistName: p.artist_name || p.full_name || p.name || 'فنان',
-          email: p.email || '',
-          phoneNumber: p.phone_number || p.phone || '',
-          country: p.country || 'مصر',
-          currency: p.currency || 'EGP',
-          currencySymbol: p.currency_symbol || 'ج.م',
-          status: p.status || 'active',
-          isFrozen: p.status === 'suspended' || p.status === 'banned',
-          selectedCrafts: p.selected_crafts || ['macrame'],
-          role: p.role || 'artisan',
-          createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
-          updatedAt: p.updated_at ? new Date(p.updated_at).getTime() : Date.now(),
-        });
+    // 2. Add persistent local workshops only if not already present by id/owner/email
+    localList.forEach((w) => {
+      if (!w.id || map.has(w.id)) return;
+      const wOwner = String(w.ownerUid || w.owner_id || '').trim();
+      const wEmail = String(w.email || '').trim().toLowerCase();
+      if ((wOwner && seenOwnerIds.has(wOwner)) || (wEmail && seenEmails.has(wEmail))) {
+        return;
       }
+      map.set(w.id, w);
+      trackIdentity(w.id, wOwner, wEmail);
+    });
+
+    // 3. Add profiles that genuinely don't have a separate workshop row yet (skip super admin & already-tracked owners/emails)
+    dbProfiles.forEach((p) => {
+      const pEmail = String(p.email || '').trim().toLowerCase();
+      if (isSuperAdmin(pEmail)) return;
+      const pid = p.workshop_id || p.id;
+      if (!pid) return;
+      if (
+        map.has(pid) ||
+        map.has(p.id) ||
+        seenOwnerIds.has(p.id) ||
+        seenOwnerIds.has(pid) ||
+        (pEmail && seenEmails.has(pEmail))
+      ) {
+        return;
+      }
+
+      map.set(pid, {
+        id: pid,
+        workshopId: pid,
+        ownerUid: p.id,
+        brandName: p.brand_name || p.brandName || 'ورشة ' + (p.artist_name || p.full_name || (pEmail ? pEmail.split('@')[0] : 'حرفية')),
+        artistName: p.artist_name || p.full_name || p.name || (pEmail ? pEmail.split('@')[0] : 'فنان'),
+        email: p.email || '',
+        phoneNumber: p.phone_number || p.phone || '',
+        country: p.country || 'مصر',
+        currency: p.currency || 'EGP',
+        currencySymbol: p.currency_symbol || 'ج.م',
+        status: p.status || 'active',
+        isFrozen: p.status === 'suspended' || p.status === 'banned',
+        selectedCrafts: p.selected_crafts || ['macrame'],
+        role: p.role || 'artisan',
+        createdAt: p.created_at ? new Date(p.created_at).getTime() : Date.now(),
+        updatedAt: p.updated_at ? new Date(p.updated_at).getTime() : Date.now(),
+      });
+      trackIdentity(pid, p.id, pEmail);
     });
 
     const merged = Array.from(map.values());

@@ -380,17 +380,18 @@ export interface RawSupabaseWorkshop {
 /**
  * Maps a row from `workshops` table to the app's `UserProfile`
  */
-export function mapWorkshopRowToUserProfile(row: any, userEmail?: string): UserProfile {
+export function mapWorkshopRowToUserProfile(rawRow: any, userEmail?: string): UserProfile {
+  const row = rawRow && typeof rawRow === 'object' ? rawRow : {};
   const gdr: Gender = row.gender === 'male' ? 'male' : 'female';
   const artist = row.artist_name || 'فنان';
   const family = row.family_name || getDefaultFamilyNickname(artist, gdr);
   const brand = row.brand_name || 'ورشة الشمس';
 
   return {
-    id: row.id,
-    workshopId: row.id,
-    tenantId: row.id,
-    ownerUid: row.owner_id || row.owner_uid || row.user_id || row.id,
+    id: row.id || '',
+    workshopId: row.id || '',
+    tenantId: row.id || '',
+    ownerUid: row.owner_id || row.owner_uid || row.user_id || row.id || '',
     email: userEmail || row.email || '',
     brandName: brand,
     artistName: artist,
@@ -720,6 +721,7 @@ export async function updateWorkshopProfileInSupabase(
   }
 ): Promise<{ updated: UserProfile | null; error: SupabaseErrorResult | null }> {
   try {
+    const { user } = await ensureValidSupabaseSession();
     const payload: Record<string, any> = {};
 
     if (fields.brandName !== undefined) payload.brand_name = fields.brandName.trim();
@@ -736,18 +738,156 @@ export async function updateWorkshopProfileInSupabase(
     const finalSlug = fields.store_slug || fields.storeSlug;
     if (finalSlug !== undefined) payload.store_slug = finalSlug.trim().toLowerCase().replace(/\s+/g, '-');
 
-    const { data, error } = await supabase
-      .from('workshops')
-      .update(payload)
-      .eq('id', workshopId)
-      .select()
-      .maybeSingle();
+    let data: any = null;
+    let error: any = null;
+
+    if (workshopId && isValidUuid(workshopId)) {
+      const res = await supabase
+        .from('workshops')
+        .update(payload)
+        .eq('id', workshopId)
+        .select()
+        .maybeSingle();
+      data = res.data;
+      error = res.error;
+    }
+
+    // Recovery 1: If no row matched `id = workshopId`, look up the user's owned workshop row by owner_id / email
+    if (!data && !error && user) {
+      const ownedRes = await supabase
+        .from('workshops')
+        .select('id')
+        .or(`owner_id.eq.${user.id},owner_uid.eq.${user.id}`)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      const ownedId = ownedRes.data?.id;
+      if (ownedId) {
+        const res2 = await supabase
+          .from('workshops')
+          .update(payload)
+          .eq('id', ownedId)
+          .select()
+          .maybeSingle();
+        data = res2.data;
+        error = res2.error;
+      } else {
+        // Recovery 2: No row exists in `workshops` (e.g. deleted during cleanup or incomplete registration) -> create it cleanly!
+        const meta = (user.user_metadata || {}) as Record<string, any>;
+        const safeBrand = payload.brand_name || meta.brand_name || 'ورشة حرفية';
+        const safeArtist = payload.artist_name || meta.artist_name || meta.full_name || user.email?.split('@')[0] || 'فنان';
+        const safeGender: 'male' | 'female' = payload.gender === 'male' ? 'male' : 'female';
+        const safeCountry = payload.country || 'جمهورية مصر العربية';
+        const safeCurrency = payload.currency || 'EGP';
+        const safePhone = payload.phone || meta.phone || '';
+
+        try {
+          const { error: rpcErr } = await supabase.rpc('create_my_workshop', {
+            p_brand: safeBrand,
+            p_artist: safeArtist,
+            p_gender: safeGender,
+            p_country: safeCountry,
+            p_currency: safeCurrency,
+            p_phone: safePhone,
+          });
+          if (!rpcErr) {
+            const createdLookup = await supabase
+              .from('workshops')
+              .select('id')
+              .or(`owner_id.eq.${user.id},owner_uid.eq.${user.id}`)
+              .order('created_at', { ascending: true })
+              .limit(1)
+              .maybeSingle();
+
+            if (createdLookup.data?.id) {
+              const res3 = await supabase
+                .from('workshops')
+                .update({ ...payload, email: user.email || undefined })
+                .eq('id', createdLookup.data.id)
+                .select()
+                .maybeSingle();
+              data = res3.data;
+              error = res3.error;
+            }
+          }
+        } catch {
+          // Fallback to direct insert below
+        }
+
+        if (!data && !error) {
+          const insRes = await supabase
+            .from('workshops')
+            .insert({
+              owner_id: user.id,
+              email: user.email || '',
+              brand_name: safeBrand,
+              artist_name: safeArtist,
+              gender: safeGender,
+              country: safeCountry,
+              currency: safeCurrency,
+              phone: safePhone,
+              ...payload,
+            })
+            .select()
+            .maybeSingle();
+          data = insRes.data;
+          error = insRes.error;
+        }
+      }
+    }
 
     if (error) {
       return { updated: null, error: getArabicSupabaseError(error) };
     }
 
-    const updatedProfile = mapWorkshopRowToUserProfile(data, data?.email);
+    if (!data) {
+      return {
+        updated: null,
+        error: {
+          code: 'WORKSHOP_NOT_FOUND',
+          message: 'No workshop row found or updated for this account',
+          arabicMessage: 'لم يتم العثور على سجل الورشة في قاعدة البيانات أو تعذر تحديثه. يرجى تسجيل الخروج وإعادة الدخول.',
+        },
+      };
+    }
+
+    // Best-effort sync to `profiles` and `auth.user_metadata` so all views stay consistent
+    if (user) {
+      const syncTasks: Promise<any>[] = [
+        Promise.resolve(
+          supabase.from('profiles').upsert(
+            {
+              id: user.id,
+              workshop_id: data.id,
+              email: user.email || data.email || '',
+              artist_name: data.artist_name,
+              brand_name: data.brand_name,
+              full_name: data.artist_name,
+              name: data.artist_name,
+              phone: data.phone || '',
+              country: data.country || 'جمهورية مصر العربية',
+              currency: data.currency || 'EGP',
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'id' }
+          )
+        ),
+        supabase.auth.updateUser({
+          data: {
+            artist_name: data.artist_name,
+            brand_name: data.brand_name,
+            gender: data.gender,
+            phone: data.phone || '',
+            phone_number: data.phone || '',
+            workshop_id: data.id,
+          },
+        }),
+      ];
+      await Promise.allSettled(syncTasks);
+    }
+
+    const updatedProfile = mapWorkshopRowToUserProfile(data, data?.email || user?.email);
     return { updated: updatedProfile, error: null };
   } catch (err: any) {
     return { updated: null, error: getArabicSupabaseError(err) };

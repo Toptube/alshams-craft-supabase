@@ -467,7 +467,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         updated.storeSlug = storeSlug.trim() || undefined;
         updated.store_slug = storeSlug.trim() || undefined;
         await tenantStorage.saveProfile(updated);
-        await tenantStorage.generateProactiveNotifications(workshopId, updated);
+        await tenantStorage.generateProactiveNotifications(updated.id || workshopId, updated);
         playSuccessSound();
         onProfileUpdated(updated);
         setSuccessNotice(true);
@@ -475,6 +475,9 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           setSuccessNotice(false);
           onClose();
         }, 900);
+      } else {
+        playErrorSound();
+        setValidationError('تعذر حفظ البيانات في قاعدة البيانات. يرجى المحاولة مرة أخرى.');
       }
     } catch (err: any) {
       playErrorSound();
