@@ -3489,10 +3489,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => playPostaNotificationSound()}
-                  className="px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1"
+                  className="px-3 py-1.5 rounded-xl bg-[#1E3A8A] hover:bg-[#172554] text-white dark:bg-[#EDE3CF] dark:hover:bg-[#E2D5BC] dark:text-[#0C1427] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Volume2 size={13} />
-                  <span>نغمة بوسطة!</span>
+                  <span>اختبار نغمة البريد</span>
                 </button>
               </div>
 

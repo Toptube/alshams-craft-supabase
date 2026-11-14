@@ -527,68 +527,76 @@ export function playPageFlipSound(): void {
 }
 
 /**
- * 10. نغمة إشعار وصول الرسائل والمراسلات (رنة هاتف أرضي تناظرية كلاسيكية):
- * صوت جرس هاتف أرضي تناظري عتيق نقي (Dual-Tone Bell 440Hz + 480Hz)
- * نمط النغمة المزدوجة المتكررة (تررررررررن... تررررررررن) بمطرقة ميكانيكية متناوبة.
- * باستخدام Web Audio API فقط وبدون نطق أي كلمات أو مؤثرات صوتية خارجية نهائياً.
+ * 10. نغمة إشعار وصول رسائل البريد والمراسلات (النغمة المخصصة رقم 7):
+ * تشغّل ملف النغمة المعتمد (/assets/aistudio/7_e9b28b0b.mp3) مع تهيئة مسبقة
+ * وبديل صوتي برمجي آمن في حال تعذر تحميل الملف.
  */
-export function playPostaNotificationSound(): void {
-  markSoundPlayed();
-  if (!isSoundEnabled()) return;
+const MAIL_RINGTONE_SRC = '/assets/aistudio/7_e9b28b0b.mp3';
+let mailRingtoneAudio: HTMLAudioElement | null = null;
 
+function getMailRingtoneAudio(): HTMLAudioElement | null {
+  if (typeof window === 'undefined' || typeof Audio === 'undefined') return null;
+  if (!mailRingtoneAudio) {
+    try {
+      mailRingtoneAudio = new Audio(MAIL_RINGTONE_SRC);
+      mailRingtoneAudio.preload = 'auto';
+      mailRingtoneAudio.volume = 0.85;
+    } catch {
+      return null;
+    }
+  }
+  return mailRingtoneAudio;
+}
+
+function playSynthesizedPostaFallback(): void {
   const ctx = getAudioContext();
   if (!ctx) return;
 
   try {
     const now = ctx.currentTime;
-    const f1 = 440; // نغمة الجرس الأولى (440Hz)
-    const f2 = 480; // نغمة الجرس الثانية (480Hz)
+    const f1 = 440;
+    const f2 = 480;
     const pulseDuration = 0.038;
     const pulseGap = 0.022;
-    const pulsesPerRing = 16; // عدد نبضات المطرقة في كل رنة
+    const pulsesPerRing = 12;
 
-    // رنتين متتاليتين تحاكي جرس الهاتف الأرضي الكلاسيكي النقي
     for (let ring = 0; ring < 2; ring++) {
-      const ringStart = now + ring * 0.75;
+      const ringStart = now + ring * 0.65;
       for (let i = 0; i < pulsesPerRing; i++) {
         const t = ringStart + i * (pulseDuration + pulseGap);
-        // التردد الأساسي يتناوب بين جرس الـ 440 وجرس الـ 480 لمحاكاة ضربات المطرقة
         const baseFreq = i % 2 === 0 ? f1 : f2;
-
-        // مذبذب النغمة الأساسية
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(baseFreq, t);
-
-        gain.gain.setValueAtTime(0.0001, t);
-        gain.gain.exponentialRampToValueAtTime(0.18, t + 0.003);
-        gain.gain.exponentialRampToValueAtTime(0.0001, t + pulseDuration);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(t);
-        osc.stop(t + pulseDuration);
-
-        // لمسة رنين ميكانيكي نحاسي خفيف متوافق (Harmonic Overtones)
-        const harmOsc = ctx.createOscillator();
-        const harmGain = ctx.createGain();
-        harmOsc.type = 'triangle';
-        harmOsc.frequency.setValueAtTime(baseFreq * 2.2, t);
-
-        harmGain.gain.setValueAtTime(0.0001, t);
-        harmGain.gain.exponentialRampToValueAtTime(0.04, t + 0.002);
-        harmGain.gain.exponentialRampToValueAtTime(0.0001, t + pulseDuration * 0.7);
-
-        harmOsc.connect(harmGain);
-        harmGain.connect(ctx.destination);
-        harmOsc.start(t);
-        harmOsc.stop(t + pulseDuration * 0.7);
+        playTone(ctx, baseFreq, t, pulseDuration, 0.16, 'sine');
       }
     }
-  } catch (err) {
-    console.warn('[Posta Sound] AudioContext error:', err);
+  } catch {}
+}
+
+export function playPostaNotificationSound(): void {
+  markSoundPlayed();
+  if (!isSoundEnabled()) return;
+
+  const audio = getMailRingtoneAudio();
+  if (audio) {
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = 0.85;
+      const playPromise = audio.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch((err) => {
+          // Only fall back to Web Audio if the media itself failed to load/decode
+          if (err && err.name !== 'NotAllowedError' && err.name !== 'AbortError') {
+            playSynthesizedPostaFallback();
+          }
+        });
+      }
+      return;
+    } catch (err) {
+      console.warn('[Mail Ringtone #7] Fallback triggered:', err);
+    }
   }
+
+  playSynthesizedPostaFallback();
 }
 
 // Aliases for clear semantic usage

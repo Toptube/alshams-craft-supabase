@@ -296,15 +296,21 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 onOpenNotifications();
                 onClose();
               }}
-              className="min-h-[42px] px-3 py-2 rounded-xl border bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24] text-xs font-black flex items-center justify-center gap-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C]"
+              className="min-h-[42px] px-2.5 py-2 rounded-xl border bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24] text-xs font-black flex items-center justify-center gap-1.5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C]"
             >
               <Bell className="w-4 h-4 shrink-0 text-[#C2410C] dark:text-[#FBBF24]" />
               <span className="truncate">الإشعارات</span>
-              {totalUnreadAlerts > 0 && (
-                <span className="min-w-[20px] h-5 px-1.5 rounded-md bg-[#EA580C] text-white text-[11px] font-mono tabular-nums font-black flex items-center justify-center shrink-0">
-                  {totalUnreadAlerts}
+              {unreadNotificationsCount > 0 && (
+                <span className="min-w-[18px] h-5 px-1 rounded-md bg-[#EA580C] text-white text-[10px] font-mono tabular-nums font-black flex items-center justify-center shrink-0">
+                  {unreadNotificationsCount}
                 </span>
               )}
+              {unreadMessagesCount > 0 && (
+                <span className="min-w-[18px] h-5 px-1 rounded-md bg-[#1E3A8A] text-white dark:bg-[#EDE3CF] dark:text-[#0C1427] text-[10px] font-mono tabular-nums font-black flex items-center justify-center shrink-0">
+                  {unreadMessagesCount}
+                </span>
+              )}
+              {totalUnreadAlerts === 0 && null}
             </button>
           </div>
 

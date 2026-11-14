@@ -613,9 +613,14 @@ export const App: React.FC = () => {
     if (!wid || wid === 'workshop_demo' || wid === '00000000-0000-0000-0000-000000000000') return;
 
     try {
-      const res = await fetch(`/api/announcements?workshopId=${encodeURIComponent(wid)}`);
+      const res = await fetch(`/api/announcements?workshopId=${encodeURIComponent(wid)}`, {
+        headers: {
+          'x-workshop-id': wid,
+          ...(profile.email ? { 'x-user-email': profile.email } : {}),
+        },
+      });
       const data = await res.json();
-      if (data.success && Array.isArray(data.announcements)) {
+      if (res.ok && Array.isArray(data.announcements)) {
         setAnnouncements(data.announcements);
       }
     } catch (err) {

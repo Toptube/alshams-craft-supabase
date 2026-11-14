@@ -1713,7 +1713,7 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
           receipt: receiptsMap.get(a.id) || localReceipts.find((r) => r.message_id === a.id && r.workshop_id === wid) || null,
         }));
 
-      return res.json({ announcements: merged });
+      return res.json({ success: true, announcements: merged });
     }
   } catch {
     // ignore
@@ -1727,7 +1727,7 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
     receipt: localReceipts.find((r) => r.message_id === a.id && r.workshop_id === wid) || null,
   }));
 
-  res.json({ announcements: merged });
+  res.json({ success: true, announcements: merged });
 });
 
 // 6a. Unified Super Admin Notifications Bell (Pending Products, Applications, Appeals & System Alerts)
