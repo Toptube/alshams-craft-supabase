@@ -19,6 +19,7 @@ import {
   Plus,
   BarChart2,
   FileText,
+  CheckCheck,
 } from 'lucide-react';
 import { UserProfile, isUserAdmin } from '../../types';
 import { ArtisanAvatar } from '../brand/BrandAssets';
@@ -26,7 +27,7 @@ import { authedFetch } from '../../lib/apiClient';
 import { supabase } from '../../lib/supabase';
 import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
 
-export type FamilyReactionType = 'like' | 'love' | 'clap' | 'rose';
+export type FamilyReactionType = 'like' | 'dislike' | 'love' | 'clap' | 'rose';
 
 export interface FamilyPollOption {
   id: string;
@@ -140,6 +141,7 @@ const REACTION_CONFIG: Array<{
   label: string;
 }> = [
   { type: 'like', emoji: '👍', label: 'أعجبني' },
+  { type: 'dislike', emoji: '👎', label: 'لم يعجبني' },
   { type: 'love', emoji: '❤️', label: 'أحببته' },
   { type: 'clap', emoji: '👏', label: 'عاش' },
   { type: 'rose', emoji: '🌹', label: 'تحية' },
@@ -332,10 +334,37 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const isChatOpenRef = useRef<boolean>(isChatOpen);
+  const chatReadStorageKey = `alshams_family_chat_last_read_${(myWorkshopId || myEmail || 'member').toLowerCase()}`;
+
+  const getLastReadTimestamp = useCallback((): number => {
+    try {
+      const raw = localStorage.getItem(chatReadStorageKey);
+      const parsed = raw ? Number(raw) : 0;
+      return Number.isFinite(parsed) ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  }, [chatReadStorageKey]);
+
+  const handleMarkAllChatRead = useCallback(
+    (playSound = true) => {
+      if (playSound) playButtonClickSound();
+      const latestMsgTime = chatMessages.reduce((maxTs, m) => {
+        const ts = new Date(m.createdAt).getTime();
+        return Number.isFinite(ts) && ts > maxTs ? ts : maxTs;
+      }, 0);
+      const nextTs = Math.max(Date.now(), latestMsgTime);
+      try {
+        localStorage.setItem(chatReadStorageKey, String(nextTs));
+      } catch {}
+      setUnreadChatCount(0);
+    },
+    [chatMessages, chatReadStorageKey]
+  );
+
   useEffect(() => {
     isChatOpenRef.current = isChatOpen;
     if (isChatOpen) {
-      setUnreadChatCount(0);
       setTimeout(() => {
         if (chatScrollRef.current) {
           chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
@@ -349,7 +378,7 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
     if (typeof window === 'undefined') return { x: 20, y: 500 };
     return {
       x: 16,
-      y: Math.max(80, window.innerHeight - 86),
+      y: Math.max(80, window.innerHeight - 90),
     };
   });
   const dragStateRef = useRef<{
@@ -363,13 +392,13 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
 
   const clampPosition = useCallback((x: number, y: number, expanded: boolean) => {
     if (typeof window === 'undefined') return { x, y };
-    const width = expanded ? Math.min(window.innerWidth * 0.92, 360) : 175;
-    const height = expanded ? Math.min(window.innerHeight * 0.72, 430) : 52;
+    const width = expanded ? Math.min(window.innerWidth * 0.92, 360) : 64;
+    const height = expanded ? Math.min(window.innerHeight * 0.72, 430) : 68;
     const maxX = Math.max(8, window.innerWidth - width - 8);
-    const maxY = Math.max(72, window.innerHeight - height - 8);
+    const maxY = Math.max(76, window.innerHeight - height - 8);
     return {
       x: Math.min(Math.max(8, x), maxX),
-      y: Math.min(Math.max(72, y), maxY),
+      y: Math.min(Math.max(76, y), maxY),
     };
   }, []);
 
@@ -443,7 +472,17 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
       setBlocked(Boolean(data.blocked));
       setMyRestriction(data.restriction || null);
       setPosts(Array.isArray(data.posts) ? data.posts : []);
-      setChatMessages(Array.isArray(data.chatMessages) ? data.chatMessages : []);
+      const loadedChat: FamilyChatMessage[] = Array.isArray(data.chatMessages) ? data.chatMessages : [];
+      setChatMessages(loadedChat);
+      const lastReadTs = getLastReadTimestamp();
+      const unread = loadedChat.filter((m) => {
+        const ts = new Date(m.createdAt).getTime();
+        const isFromMe =
+          (myEmail && m.authorEmail?.toLowerCase() === myEmail) ||
+          (myWorkshopId && m.workshopId === myWorkshopId);
+        return !isFromMe && Number.isFinite(ts) && ts > lastReadTs;
+      }).length;
+      setUnreadChatCount(unread);
       setMembers(Array.isArray(data.members) ? data.members : []);
       setRestrictions(Array.isArray(data.restrictions) ? data.restrictions : []);
     } catch (err: any) {
@@ -451,7 +490,7 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [myWorkshopId]);
+  }, [myWorkshopId, myEmail, getLastReadTimestamp]);
 
   useEffect(() => {
     fetchFeed();
@@ -545,9 +584,13 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                 if (prev.some((m) => m.id === msg.payload.id)) return prev;
                 return [...prev, msg.payload].slice(-120);
               });
-              if (!isChatOpenRef.current) {
+              const isFromMe =
+                (myEmail && String(msg.payload.authorEmail || '').toLowerCase() === myEmail) ||
+                (myWorkshopId && String(msg.payload.workshopId || '') === myWorkshopId);
+              if (!isFromMe) {
                 setUnreadChatCount((n) => n + 1);
-              } else {
+              }
+              if (isChatOpenRef.current) {
                 setTimeout(() => {
                   if (chatScrollRef.current) {
                     chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
@@ -1245,7 +1288,19 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
             const isCommentsCollapsed = Boolean(collapsedComments[post.id]);
             const isPoll = post.postType === 'poll' && Array.isArray(post.pollOptions) && post.pollOptions.length >= 2;
             const totalVotes = Number(post.totalVotes || 0);
-            const reactions = post.reactions || { like: 0, love: 0, clap: 0, rose: 0 };
+            const reactions: Record<FamilyReactionType, number> = {
+              like: 0,
+              dislike: 0,
+              love: 0,
+              clap: 0,
+              rose: 0,
+              ...(post.reactions || {}),
+            };
+            const activeReactionItems = REACTION_CONFIG.filter((rx) => (reactions[rx.type] || 0) > 0);
+            const totalReactionsCount = activeReactionItems.reduce(
+              (sum, rx) => sum + (reactions[rx.type] || 0),
+              0
+            );
 
             return (
               <article
@@ -1380,9 +1435,49 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                   </div>
                 )}
 
-                {/* Standard Group Reactions + Comments Toggle Bar */}
-                <div className="mt-4 pt-3 border-t border-[#D4CCBC]/80 dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2">
-                  {/* تفاعلات المنشور العادية */}
+                {/* Facebook-Style Reactions Summary Bar */}
+                {(totalReactionsCount > 0 || post.comments.length > 0) && (
+                  <div className="mt-3.5 pt-2.5 border-t border-[#D4CCBC]/60 dark:border-[#22355E]/70 flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-[#475569] dark:text-[#CBD5E1]">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {totalReactionsCount > 0 && (
+                        <>
+                          <div className="flex items-center -space-x-1 space-x-reverse">
+                            {activeReactionItems.map((rx) => (
+                              <span
+                                key={rx.type}
+                                title={`${rx.label}: ${reactions[rx.type]}`}
+                                className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs leading-none shadow-2xs"
+                              >
+                                {rx.emoji}
+                              </span>
+                            ))}
+                          </div>
+                          <span className="font-mono font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                            {totalReactionsCount}
+                          </span>
+                          <span className="text-[10px] text-[#64748B] dark:text-[#94A3B8]">
+                            ({activeReactionItems.map((rx) => `${rx.label} ${reactions[rx.type]}`).join(' · ')})
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {post.comments.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCollapsedComments((prev) => ({ ...prev, [post.id]: !prev[post.id] }))
+                        }
+                        className="text-[11px] font-bold hover:text-[#EA580C] dark:hover:text-[#FBBF24] cursor-pointer"
+                      >
+                        {post.comments.length} تعليق
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Standard Group Reactions (incl. Like & Dislike) + Comments Toggle Bar */}
+                <div className="mt-2.5 pt-2.5 border-t border-[#D4CCBC]/80 dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-1.5">
                     {REACTION_CONFIG.map((rx) => {
                       const count = reactions[rx.type] || 0;
@@ -1395,13 +1490,19 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                           disabled={isRestricted}
                           onClick={() => handleReact(post.id, rx.type)}
                           title={rx.label}
+                          aria-label={rx.label}
                           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border text-xs font-bold cursor-pointer transition active:scale-95 disabled:opacity-60 ${
                             isActive
-                              ? 'bg-[#EA580C] text-white border-[#C2410C] shadow-xs'
+                              ? rx.type === 'dislike'
+                                ? 'bg-[#0C1427] text-[#FBBF24] border-[#EA580C] shadow-xs dark:bg-[#1A2B54]'
+                                : 'bg-[#EA580C] text-white border-[#C2410C] shadow-xs'
                               : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
                           }`}
                         >
                           <span className="text-sm leading-none">{rx.emoji}</span>
+                          {(rx.type === 'like' || rx.type === 'dislike') && (
+                            <span className="text-[11px] font-bold hidden sm:inline">{rx.label}</span>
+                          )}
                           {count > 0 && (
                             <span className="font-mono text-[11px] font-black">{count}</span>
                           )}
@@ -1544,27 +1645,45 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
         dir="rtl"
       >
         {!isChatOpen ? (
-          <button
-            type="button"
-            onPointerDown={handleDragPointerDown}
-            title="اسحب للتحريك لأي زاوية أو اضغط لفتح شات العيلة المباشر"
-            className="touch-none select-none cursor-grab active:cursor-grabbing flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-gradient-to-b from-[#0C1427] to-[#132040] dark:from-[#EA580C] dark:to-[#C2410C] text-[#F7F3EA] border border-[#EA580C]/70 dark:border-[#FBBF24]/70 shadow-xl hover:brightness-110 transition-transform active:scale-95"
-          >
-            <Move className="w-3.5 h-3.5 text-[#FBBF24] dark:text-amber-100 shrink-0" />
-            <MessageSquare className="w-4 h-4 text-[#FB923C] dark:text-white shrink-0" />
-            <span className="text-xs font-black whitespace-nowrap">شات العيلة</span>
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                wsConnected ? 'bg-emerald-400' : 'bg-amber-400'
-              }`}
-              title={wsConnected ? 'متصل الآن' : 'جاري الاتصال'}
-            />
+          <div className="relative flex flex-col items-center gap-1">
             {unreadChatCount > 0 && (
-              <span className="min-w-[18px] h-[18px] px-1 rounded-md bg-[#EA580C] dark:bg-[#0C1427] text-white text-[10px] font-mono font-black flex items-center justify-center">
-                {unreadChatCount}
+              <span
+                title={`${unreadChatCount} رسائل غير مقروءة`}
+                className="pointer-events-none absolute -top-2.5 -right-2 z-10 min-w-[20px] h-5 px-1.5 rounded-full bg-[#EA580C] text-white border-2 border-[#0C1427] dark:border-[#F7F3EA] text-[10px] font-mono font-black flex items-center justify-center shadow-md"
+              >
+                {unreadChatCount > 99 ? '+99' : unreadChatCount}
               </span>
             )}
-          </button>
+
+            <button
+              type="button"
+              onPointerDown={handleDragPointerDown}
+              title="شات العيلة — اسحب للتحريك أو اضغط للفتح"
+              aria-label="شات العيلة المباشر"
+              className="touch-none select-none cursor-grab active:cursor-grabbing relative w-12 h-12 rounded-2xl bg-gradient-to-b from-[#1E3A8A] to-[#0C1427] text-[#FB923C] border-2 border-[#EA580C] shadow-[0_6px_18px_rgba(12,20,39,0.45)] flex items-center justify-center hover:brightness-110 transition-transform active:scale-95"
+            >
+              <MessageSquare className="w-6 h-6 text-[#FB923C] fill-[#EA580C]/25 drop-shadow-xs" />
+              <span
+                className={`absolute bottom-1 left-1 w-2 h-2 rounded-full border border-[#0C1427] ${
+                  wsConnected ? 'bg-emerald-400' : 'bg-amber-300'
+                }`}
+                title={wsConnected ? 'متصل الآن' : 'جاري الاتصال'}
+              />
+            </button>
+
+            {unreadChatCount > 0 && (
+              <button
+                type="button"
+                data-no-drag="true"
+                onClick={() => handleMarkAllChatRead(true)}
+                title="تحديد كل رسائل الشات كمقروءة لإخفاء العداد"
+                className="px-2 py-0.5 rounded-lg bg-[#0C1427] hover:bg-[#1E3A8A] text-[#F7F3EA] border border-[#EA580C]/70 text-[10px] font-black flex items-center gap-1 shadow-md cursor-pointer active:scale-95 whitespace-nowrap"
+              >
+                <CheckCheck className="w-3 h-3 text-[#FB923C]" />
+                <span>تم قراءة الكل</span>
+              </button>
+            )}
+          </div>
         ) : (
           <div className="w-[min(92vw,360px)] rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#EA580C]/70 dark:border-[#FBBF24]/60 shadow-2xl overflow-hidden flex flex-col">
             {/* Draggable Header */}
@@ -1590,15 +1709,31 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                data-no-drag="true"
-                onClick={() => setIsChatOpen(false)}
-                aria-label="تصغير شات العيلة"
-                className="w-7 h-7 rounded-lg bg-[#1A2B54] hover:bg-[#EA580C] text-[#F7F3EA] flex items-center justify-center cursor-pointer shrink-0 transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0" data-no-drag="true">
+                <button
+                  type="button"
+                  onClick={() => handleMarkAllChatRead(true)}
+                  disabled={unreadChatCount === 0}
+                  title="تم قراءة الكل"
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer transition ${
+                    unreadChatCount > 0
+                      ? 'bg-[#EA580C] hover:bg-[#C2410C] text-white shadow-xs active:scale-95'
+                      : 'bg-[#1A2B54] text-emerald-300 opacity-80 cursor-default'
+                  }`}
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  <span>تم قراءة الكل</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsChatOpen(false)}
+                  aria-label="تصغير شات العيلة"
+                  className="w-7 h-7 rounded-lg bg-[#1A2B54] hover:bg-[#EA580C] text-[#F7F3EA] flex items-center justify-center cursor-pointer shrink-0 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Chat Messages Stream */}

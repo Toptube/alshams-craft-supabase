@@ -2486,7 +2486,7 @@ async function resolveFamilyAuthorContext(req: AuthenticatedRequest, client: Sup
   };
 }
 
-const VALID_REACTION_TYPES = ['like', 'love', 'clap', 'rose'] as const;
+const VALID_REACTION_TYPES = ['like', 'dislike', 'love', 'clap', 'rose'] as const;
 type FamilyReactionType = typeof VALID_REACTION_TYPES[number];
 
 function getActorVoteKey(wid: string, email: string, userId?: string): string {
@@ -2569,6 +2569,7 @@ function buildPostPollAndReactions(
   const postReactions = allReactions.filter((r) => r.post_id === postId);
   const reactions: Record<FamilyReactionType, number> = {
     like: 0,
+    dislike: 0,
     love: 0,
     clap: 0,
     rose: 0,
@@ -2828,7 +2829,7 @@ app.post('/api/family/posts', requireAuth, async (req: AuthenticatedRequest, res
     postType: requestedType,
     pollOptions: formattedOptions.map((o) => ({ ...o, votesCount: 0, votedByMe: false })),
     totalVotes: 0,
-    reactions: { like: 0, love: 0, clap: 0, rose: 0 },
+    reactions: { like: 0, dislike: 0, love: 0, clap: 0, rose: 0 },
     myReaction: null,
     comments: [],
   };
@@ -2977,7 +2978,7 @@ app.post('/api/family/posts/:id/react', requireAuth, async (req: AuthenticatedRe
 
   const mergedReactions = await loadAllPostReactions();
   const postReactions = mergedReactions.filter((r) => r.post_id === postId);
-  const reactions: Record<FamilyReactionType, number> = { like: 0, love: 0, clap: 0, rose: 0 };
+  const reactions: Record<FamilyReactionType, number> = { like: 0, dislike: 0, love: 0, clap: 0, rose: 0 };
   for (const r of postReactions) {
     const rt = r.reaction_type as FamilyReactionType;
     if (VALID_REACTION_TYPES.includes(rt)) reactions[rt] += 1;
