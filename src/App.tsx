@@ -1260,7 +1260,7 @@ export const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] font-sans transition-colors duration-200" dir="rtl">
+    <div className="min-h-screen w-full max-w-full overflow-x-clip flex flex-col bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] font-sans transition-colors duration-200" dir="rtl">
       {/* Top Navbar */}
       <Navbar
         profile={profile}
@@ -1363,16 +1363,16 @@ export const App: React.FC = () => {
 
       {/* Global Sub-Page Bar: زر الرجوع للصفحة السابقة بجوار الخروج للصفحة الرئيسية */}
       {activeView !== 'home' && (
-        <aside aria-label="شريط التنقل السريع" className="sticky top-0 z-30 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] px-3 sm:px-6 py-2.5 shadow-xs flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <aside aria-label="شريط التنقل السريع" className="sticky top-0 z-30 w-full max-w-full bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] px-2.5 sm:px-6 py-2 sm:py-2.5 shadow-xs flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* زر الرجوع للصفحة السابقة */}
             <button
               type="button"
               onClick={navigateBack}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-b from-[#FFEDD5] to-[#FED7AA] dark:from-[#1A294B] dark:to-[#0D162E] text-[#9A3412] dark:text-[#FDBA74] border border-[#EA580C]/45 dark:border-[#EA580C]/50 hover:border-[#EA580C] text-xs font-black transition cursor-pointer"
+              className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-gradient-to-b from-[#FFEDD5] to-[#FED7AA] dark:from-[#1A294B] dark:to-[#0D162E] text-[#9A3412] dark:text-[#FDBA74] border border-[#EA580C]/45 dark:border-[#EA580C]/50 hover:border-[#EA580C] text-[11px] sm:text-xs font-black transition cursor-pointer shrink-0"
               title="الرجوع للصفحة السابقة"
             >
-              <ArrowRight className="w-4 h-4 text-[#EA580C] dark:text-amber-400" />
+              <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#EA580C] dark:text-amber-400" />
               <span>رجوع</span>
             </button>
 
@@ -1380,17 +1380,17 @@ export const App: React.FC = () => {
             <button
               type="button"
               onClick={goHome}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-bold transition cursor-pointer"
+              className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-bold transition cursor-pointer shrink-0"
               title="الخروج للصفحة الرئيسية"
             >
-              <Home className="w-4 h-4 text-[#C2410C] dark:text-amber-300" />
+              <Home className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#C2410C] dark:text-amber-300" />
               <span className="hidden sm:inline">الرئيسية</span>
             </button>
           </div>
 
           {/* Current Page Title */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] truncate max-w-[200px] sm:max-w-none px-3 py-1 rounded-xl bg-[#E9E2D4]/90 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] truncate max-w-[150px] sm:max-w-[320px] md:max-w-none px-2.5 sm:px-3 py-1 rounded-xl bg-[#E9E2D4]/90 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
               {VIEW_TITLES[activeView]}
             </span>
           </div>
@@ -1398,7 +1398,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Content View Switcher */}
-      <main className="flex-1 pb-16 overflow-x-hidden">
+      <main className="flex-1 pb-16 w-full max-w-full overflow-x-clip">
         <AnimatePresence mode={isPerformanceMode ? undefined : 'wait'}>
           <motion.div
             key={activeView}

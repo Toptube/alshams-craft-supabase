@@ -370,9 +370,9 @@ export const ProductsInventoryModal: React.FC<ProductsInventoryModalProps> = ({
         )}
 
         {/* Action Bar */}
-        <div className="px-6 py-3 border-b border-slate-800/80 bg-slate-900/60 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 flex-1 min-w-[280px]">
-            <div className="relative flex-1">
+        <div className="px-3 sm:px-6 py-3 border-b border-slate-800/80 bg-slate-900/60 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 sm:gap-3 flex-1 w-full sm:w-auto min-w-0 sm:min-w-[260px]">
+            <div className="relative flex-1 min-w-[160px]">
               <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
@@ -386,7 +386,7 @@ export const ProductsInventoryModal: React.FC<ProductsInventoryModalProps> = ({
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-2 rounded-xl bg-slate-800/90 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-amber-500"
+              className="w-full sm:w-auto px-3 py-2 rounded-xl bg-slate-800/90 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-amber-500"
             >
               <option value="all">كل التصنيفات ({products.length})</option>
               {categories.filter(c => c !== 'all').map(cat => (

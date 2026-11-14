@@ -429,7 +429,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
   return (
     <div
-      className="min-h-screen bg-[#F2ECE1] text-[#0C1427] dark:bg-[#060B18] dark:text-[#F7F3EA] font-sans selection:bg-[#EA580C] selection:text-white transition-colors duration-200"
+      className="min-h-screen w-full max-w-full overflow-x-clip bg-[#F2ECE1] text-[#0C1427] dark:bg-[#060B18] dark:text-[#F7F3EA] font-sans selection:bg-[#EA580C] selection:text-white transition-colors duration-200"
       dir="rtl"
     >
       {/* Toast Notification */}
@@ -441,7 +441,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
       {/* 1. Clean Three-Zone Top Header */}
       <header className="sticky top-0 z-30 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4 sm:gap-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-8">
           {/* Zone 1: Workshop Brand (Clean lockup, zero redundant pill clutter) */}
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center overflow-hidden p-0.5 shrink-0">

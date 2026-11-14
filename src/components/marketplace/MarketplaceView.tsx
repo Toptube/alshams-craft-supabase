@@ -533,21 +533,21 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
   return (
     <div
-      className="min-h-screen bg-[#F2ECE1] text-[#0C1427] dark:bg-[#060B18] dark:text-[#F7F3EA] font-sans pb-16 max-w-full overflow-x-hidden transition-colors duration-200"
+      className="min-h-screen bg-[#F2ECE1] text-[#0C1427] dark:bg-[#060B18] dark:text-[#F7F3EA] font-sans pb-16 w-full max-w-full overflow-x-clip transition-colors duration-200"
       dir="rtl"
     >
       {/* 1. Unified Clean Top Navigation Header */}
-      <header className="sticky top-0 z-40 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] px-4 sm:px-6 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 sm:gap-8">
+      <header className="sticky top-0 z-40 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] px-3 sm:px-6 py-2.5 sm:py-3">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-8">
           {/* Zone 1: Brand Wordmark (single line, zero descriptor clutter) */}
           <button
             type="button"
             onClick={resetAllFilters}
-            className="flex items-center gap-2.5 cursor-pointer text-right shrink-0 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] rounded-xl"
+            className="flex items-center gap-2 sm:gap-2.5 cursor-pointer text-right min-w-0 shrink-0 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] rounded-xl"
             title="سوق الشمساوية"
           >
             <AlShamsBrandIcon size="sm" />
-            <span className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA] whitespace-nowrap">
+            <span className="text-sm sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA] whitespace-nowrap">
               سوق الشمساوية
             </span>
           </button>
