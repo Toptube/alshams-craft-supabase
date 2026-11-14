@@ -44,10 +44,8 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   profile,
   onOpenPurchaseForMaterial,
 }) => {
-  if (!isOpen) return null;
-
-  const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
-  const currencySymbol = profile.currencySymbol || 'ج.م';
+  const workshopId = profile?.tenantId || profile?.workshopId || profile?.id || '';
+  const currencySymbol = profile?.currencySymbol || 'ج.م';
 
   const [materials, setMaterials] = useState<any[]>([]);
   const [units, setUnits] = useState<SupabaseUnit[]>([]);
@@ -97,14 +95,16 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
 
       // 1. From Supabase
       (sbMats.data || []).forEach((sm) => {
-        const local = dexieMap.get(sm.id) || dexieMap.get(sm.name.trim());
+        const safeName = (sm.name || '').trim();
+        if (!safeName) return;
+        const local = dexieMap.get(sm.id) || dexieMap.get(safeName);
         const unitObj = unts.find((u) => u.id === sm.unit_id);
         const unitName = unitObj?.name || local?.unit || 'كيلو';
 
-        seenNames.add(sm.name.trim().toLowerCase());
+        seenNames.add(safeName.toLowerCase());
         mergedList.push({
           id: sm.id,
-          name: sm.name,
+          name: safeName,
           category: local?.category || sm.market_name || (sm.kind === 'extra' ? 'إكسسوارات' : 'خيوط'),
           quantity: local?.currentStock !== undefined ? local.currentStock : 10,
           minThreshold: local?.minAlertThreshold !== undefined ? local.minAlertThreshold : 5,
@@ -117,12 +117,13 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
 
       // 2. Add remaining local items if not yet synced
       dexieMats.forEach((dm) => {
-        const norm = (dm.materialName || '').trim().toLowerCase();
+        const safeName = (dm.materialName || '').trim();
+        const norm = safeName.toLowerCase();
         if (norm && !seenNames.has(norm)) {
           seenNames.add(norm);
           mergedList.push({
             id: dm.id,
-            name: dm.materialName,
+            name: safeName,
             category: dm.category || 'خيوط',
             quantity: dm.currentStock || 0,
             minThreshold: dm.minAlertThreshold || 5,
@@ -142,8 +143,10 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   };
 
   useEffect(() => {
-    loadData();
-  }, [workshopId]);
+    if (isOpen && workshopId) {
+      loadData();
+    }
+  }, [workshopId, isOpen]);
 
   const handleOpenAdd = () => {
     setEditingItem(null);
@@ -262,6 +265,7 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
       }
 
       setIsFormOpen(false);
+      window.dispatchEvent(new CustomEvent('alshams_materials_changed'));
       await loadData();
       setTimeout(() => setNotice(null), 3500);
     } catch (err: any) {
@@ -299,15 +303,17 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   };
 
   const filteredMaterials = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
     return materials.filter((m) => {
       const matchCat = selectedCategoryFilter === 'all' || m.category === selectedCategoryFilter;
-      const matchSearch =
-        !searchQuery.trim() ||
-        m.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
-        (m.category && m.category.toLowerCase().includes(searchQuery.toLowerCase().trim()));
+      const matName = String(m.name || '').toLowerCase();
+      const matCat = String(m.category || '').toLowerCase();
+      const matchSearch = !q || matName.includes(q) || matCat.includes(q);
       return matchCat && matchSearch;
     });
   }, [materials, selectedCategoryFilter, searchQuery]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200" dir="rtl">

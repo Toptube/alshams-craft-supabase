@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { UserProfile, WorkshopProfile, isUserAdmin } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
@@ -70,7 +70,6 @@ import {
   Activity,
   FileSpreadsheet,
   UserCheck,
-  Volume2,
   Store,
   Truck,
   QrCode,
@@ -114,6 +113,7 @@ export interface AdminDashboardProps {
   onSelectActiveWorkshop?: (workshop: WorkshopProfile) => void;
   initialTab?: ExecutiveTab;
   onOpenMessagesHub?: () => void;
+  onOpenNotificationsCenter?: () => void;
   onOpenUnifiedAI?: () => void;
   onLogout?: () => void;
 }
@@ -226,6 +226,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   onSelectActiveWorkshop,
   initialTab = 'materials',
   onOpenMessagesHub,
+  onOpenNotificationsCenter,
   onOpenUnifiedAI,
   onLogout,
 }) => {
@@ -282,7 +283,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const [cloudRejectingProduct, setCloudRejectingProduct] = useState<CloudMarketplaceProduct | null>(null);
   const [cloudRejectReason, setCloudRejectReason] = useState<string>('');
   const [adminAlerts, setAdminAlerts] = useState<any[]>([]);
-  const [isAdminNotificationsOpen, setIsAdminNotificationsOpen] = useState<boolean>(false);
 
   // Live Workshop Join Applications (قراءة حية لطلبات الانضمام من Supabase)
   const [workshopApplications, setWorkshopApplications] = useState<any[]>([]);
@@ -1308,17 +1308,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, profile.email]);
 
-  const handleDismissAdminNotification = async (notifId: string) => {
-    setAdminAlerts((prev) => prev.filter((n) => n.id !== notifId));
-    try {
-      const headers = await getAdminAuthHeaders();
-      await fetch(`/api/admin/notifications/${encodeURIComponent(notifId)}`, {
-        method: 'DELETE',
-        headers,
-      });
-    } catch {}
-  };
-
   useEffect(() => {
     if (isAdmin) {
       loadWorkshops();
@@ -1331,12 +1320,40 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications, loadMarketplaceControlData, loadAdminNotifications]);
 
+  const adminRealtimeCallbacksRef = useRef({
+    loadWorkshops,
+    loadAppeals,
+    loadMessagingHub,
+    loadCloudMarketplaceProducts,
+    loadWorkshopApplications,
+    loadAdminNotifications,
+  });
+  adminRealtimeCallbacksRef.current = {
+    loadWorkshops,
+    loadAppeals,
+    loadMessagingHub,
+    loadCloudMarketplaceProducts,
+    loadWorkshopApplications,
+    loadAdminNotifications,
+  };
+
+  useEffect(() => {
+    const onAlertsChanged = () => {
+      loadAdminNotifications();
+    };
+    window.addEventListener('alshams_admin_alerts_changed', onAlertsChanged);
+    return () => {
+      window.removeEventListener('alshams_admin_alerts_changed', onAlertsChanged);
+    };
+  }, [loadAdminNotifications]);
+
   // 2. Realtime Subscriptions (Workshops, Marketplace Products, Join Applications, Announcements, Replies)
   useEffect(() => {
     if (!isAdmin) return;
 
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const channel = supabase
-      .channel('admin:realtime:hub')
+      .channel(`admin_realtime_hub_${uniqueSuffix}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'workshops' }, (payload) => {
         const newRow = payload.new as any;
         if (newRow && newRow.id) {
@@ -1346,19 +1363,20 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
           playAlertSound();
           setRealtimeToast(`🔔 تم تسجيل ورشة جديدة: [${brand}] - صاحبها: [${artist}]${phone ? ` - هاتف: [${phone}]` : ''}`);
-          loadWorkshops(true);
-          loadAdminNotifications();
+          adminRealtimeCallbacksRef.current.loadWorkshops(true);
+          adminRealtimeCallbacksRef.current.loadAdminNotifications();
+          window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'workshops' }, (payload) => {
         const updatedRow = payload.new as any;
         if (updatedRow && updatedRow.id) {
-          // If appeal was submitted, play notification sound
           if (updatedRow.appeal_status === 'pending') {
             playPostaNotificationSound();
             setRealtimeToast(`⚖️ طعن جديد مقدم من ورشة: [${updatedRow.brand_name || 'ورشة'}]`);
-            loadAppeals();
-            loadAdminNotifications();
+            adminRealtimeCallbacksRef.current.loadAppeals();
+            adminRealtimeCallbacksRef.current.loadAdminNotifications();
+            window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
           }
           setWorkshops((prev) =>
             prev.map((w) =>
@@ -1379,8 +1397,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'marketplace_products' }, (payload) => {
-        loadCloudMarketplaceProducts();
-        loadAdminNotifications();
+        adminRealtimeCallbacksRef.current.loadCloudMarketplaceProducts();
+        adminRealtimeCallbacksRef.current.loadAdminNotifications();
+        window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
         const row = (payload.new as any) || {};
         if (payload.eventType === 'INSERT' || (payload.eventType === 'UPDATE' && row.status === 'pending_approval')) {
           playPostaNotificationSound();
@@ -1389,8 +1408,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, (payload) => {
         const row = (payload.new as any) || {};
-        loadCloudMarketplaceProducts();
-        loadAdminNotifications();
+        adminRealtimeCallbacksRef.current.loadCloudMarketplaceProducts();
+        adminRealtimeCallbacksRef.current.loadAdminNotifications();
+        window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
         if (row.product_name) {
           setRealtimeToast(`📦 تم حفظ مشغولة جديدة بالكتالوج: [${row.product_name}]`);
         }
@@ -1400,13 +1420,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         if (newAnn?.recipient_type === 'super_admin_alert') {
           playPostaNotificationSound();
           setRealtimeToast(newAnn.title || '🔔 إشعار جديد لإدارة المنظومة');
-          loadAdminNotifications();
-          loadCloudMarketplaceProducts();
+          adminRealtimeCallbacksRef.current.loadAdminNotifications();
+          adminRealtimeCallbacksRef.current.loadCloudMarketplaceProducts();
+          window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workshop_applications' }, (payload) => {
-        loadWorkshopApplications();
-        loadAdminNotifications();
+        adminRealtimeCallbacksRef.current.loadWorkshopApplications();
+        adminRealtimeCallbacksRef.current.loadAdminNotifications();
+        window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
         if (payload.eventType === 'INSERT') {
           playPostaNotificationSound();
           setRealtimeToast(`🏛️ طلب انضمام جديد من ورشة: [${(payload.new as any)?.brand_name || 'ورشة'}]`);
@@ -1417,7 +1439,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         if (newReceipt?.reply_text) {
           playPostaNotificationSound();
           setRealtimeToast(`✉️ استلمت رداً جديداً من ورشة عبر مركز المراسلات!`);
-          loadMessagingHub();
+          adminRealtimeCallbacksRef.current.loadMessagingHub();
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'workshop_messages_receipts' }, (payload) => {
@@ -1425,15 +1447,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         if (updReceipt?.reply_text) {
           playPostaNotificationSound();
           setRealtimeToast(`✉️ استلمت رداً جديداً من ورشة عبر مركز المراسلات!`);
-          loadMessagingHub();
+          adminRealtimeCallbacksRef.current.loadMessagingHub();
         }
       })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(channel).catch(() => {});
     };
-  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications, loadAdminNotifications]);
+  }, [isAdmin]);
 
   // 3. Load Deep Executive ERP Data
   const loadDeepData = useCallback(async (workshopId: string) => {
@@ -1829,7 +1851,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         throw new Error(errJson.error || 'تعذر إرسال التوجيه عبر الخادم');
       }
 
-      playPostaNotificationSound();
+      playSuccessSound();
       setSuccessNotice('تم إرسال الرسالة بنجاح عبر مركز المراسلات لكافة الورش المحددة!');
       setNewAnnTitle('');
       setNewAnnContent('');
@@ -1894,7 +1916,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || 'تعذر إرسال الرد المباشر');
       }
-      playPostaNotificationSound();
+      playSuccessSound();
       setSuccessNotice(`✓ تم إرسال الرد المباشر إلى ورشة "${targetMsg.workshops?.brand_name || 'الفنان'}" بنجاح!`);
       setDirectReplyTarget(null);
       setDirectReplyContent('');
@@ -2184,109 +2206,45 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
-            {/* Admin Approvals & System Alerts Bell */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAdminNotificationsOpen((prev) => !prev);
-                  loadAdminNotifications();
-                }}
-                className="relative p-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition cursor-pointer shadow-xs"
-                title="إشعارات الاعتمادات وطلبات السوق والورش"
-              >
-                <Bell size={17} className="text-amber-400" />
-                {adminAlerts.length > 0 && (
-                  <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-amber-500 text-stone-950 rounded-full text-[10px] font-black font-mono animate-pulse">
-                    {adminAlerts.length}
-                  </span>
-                )}
-              </button>
-
-              {isAdminNotificationsOpen && (
-                <div className="absolute left-0 top-full mt-2 w-80 sm:w-96 max-h-96 overflow-y-auto rounded-2xl bg-stone-900 border border-amber-500/40 shadow-2xl z-50 p-3 space-y-2 text-right">
-                  <div className="flex items-center justify-between pb-2 border-b border-stone-800">
-                    <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
-                      <Bell size={14} />
-                      <span>تنبيهات وطلبات الاعتماد ({adminAlerts.length})</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsAdminNotificationsOpen(false)}
-                      className="p-1 text-stone-400 hover:text-white cursor-pointer"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-
-                  {adminAlerts.length === 0 ? (
-                    <p className="text-[11px] text-stone-400 text-center py-6 font-bold">
-                      لا توجد طلبات اعتماد أو تنبيهات معلقة حالياً ✓
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {adminAlerts.map((notif: any) => (
-                        <div
-                          key={notif.id}
-                          className="p-2.5 rounded-xl bg-stone-800/80 hover:bg-stone-800 border border-stone-700/80 transition space-y-1"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (notif.targetTab) {
-                                  setActiveExecutiveTab(notif.targetTab);
-                                  if (notif.targetTab === 'product_approvals') loadCloudMarketplaceProducts();
-                                  if (notif.targetTab === 'applications') loadWorkshopApplications();
-                                  if (notif.targetTab === 'appeals') loadAppeals();
-                                }
-                                setIsAdminNotificationsOpen(false);
-                              }}
-                              className="text-right flex-1 cursor-pointer"
-                            >
-                              <div className="text-[11px] font-black text-amber-300 leading-snug">
-                                {notif.title}
-                              </div>
-                              <div className="text-[10px] text-stone-300 leading-relaxed mt-0.5">
-                                {notif.message}
-                              </div>
-                            </button>
-                            {notif.dismissible && (
-                              <button
-                                type="button"
-                                onClick={() => handleDismissAdminNotification(notif.id)}
-                                className="p-1 text-stone-500 hover:text-rose-400 cursor-pointer shrink-0"
-                                title="إخفاء التنبيه"
-                              >
-                                <X size={12} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Top Messages Icon with Vintage Phone Bell */}
+            {/* Admin Approvals & System Alerts Bell (opens Unified Center on Admin Tab) */}
             <button
               type="button"
               onClick={() => {
-                playPostaNotificationSound();
-                if (onOpenMessagesHub) {
+                loadAdminNotifications();
+                if (onOpenNotificationsCenter) {
+                  onOpenNotificationsCenter();
+                } else if (onOpenMessagesHub) {
                   onOpenMessagesHub();
                 } else {
-                  setActiveExecutiveTab('messaging');
+                  setActiveExecutiveTab('product_approvals');
                 }
               }}
               className="relative p-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition cursor-pointer shadow-xs"
-              title="مركز المراسلات الحية والرسائل (رنة الهاتف الكلاسيكية)"
+              title="مركز الإشعارات الإدارية وطلبات الاعتماد"
+            >
+              <Bell size={17} className="text-amber-400" />
+              {adminAlerts.length > 0 && (
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-[#EA580C] text-white rounded-full text-[10px] font-black font-mono">
+                  {adminAlerts.length}
+                </span>
+              )}
+            </button>
+
+            {/* Top Messages Icon: switches directly to Admin Messaging Hub */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveExecutiveTab('messaging');
+                setTimeout(() => {
+                  document.getElementById('admin-messaging-hub')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 80);
+              }}
+              className="relative p-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition cursor-pointer shadow-xs"
+              title="مركز المراسلات الحية وإرسال رسائل للورش"
             >
               <Mail size={17} className="text-amber-400" />
               {inboxList.length > 0 && (
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-rose-600 text-white rounded-full text-[10px] font-black font-mono animate-pulse">
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-[#1E3A8A] text-white rounded-full text-[10px] font-black font-mono">
                   {inboxList.length}
                 </span>
               )}
@@ -2677,8 +2635,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* 6 Executive Tabs Switcher */}
-        <div className="flex items-center gap-1.5 bg-stone-100 dark:bg-stone-800/80 p-1.5 rounded-2xl overflow-x-auto">
+        {/* Executive Tabs Switcher (wraps cleanly on mobile) */}
+        <div className="flex flex-wrap items-center gap-1.5 bg-stone-100 dark:bg-stone-800/80 p-1.5 rounded-2xl">
           <button
             type="button"
             onClick={() => setActiveExecutiveTab('materials')}
@@ -3476,7 +3434,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
         {/* Tab 6: In-App Messaging Hub (المراسلات التفاعلية والرسائل الحية) */}
         {activeExecutiveTab === 'messaging' && (
-          <div className="space-y-6 animate-in fade-in">
+          <div id="admin-messaging-hub" className="space-y-6 animate-in fade-in">
             {/* 1. Compose Announcement */}
             <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-4">
               <div className="flex items-center justify-between">
@@ -3486,14 +3444,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                     إرسال توجيه أو رسالة جديدة عبر المنظومة
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => playPostaNotificationSound()}
-                  className="px-3 py-1.5 rounded-xl bg-[#1E3A8A] hover:bg-[#172554] text-white dark:bg-[#EDE3CF] dark:hover:bg-[#E2D5BC] dark:text-[#0C1427] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <Volume2 size={13} />
-                  <span>اختبار نغمة البريد</span>
-                </button>
               </div>
 
               <form onSubmit={handleSendAnnouncement} className="space-y-3 text-xs font-bold">

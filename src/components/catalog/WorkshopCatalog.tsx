@@ -40,6 +40,9 @@ import {
   Globe,
   Eye,
   EyeOff,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -122,8 +125,16 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedMainSection, setSelectedMainSection] = useState<string>('all');
   const [selectedCraft, setSelectedCraft] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'serial' | 'name' | 'retailPrice' | 'wholesalePrice' | 'costPrice'>('serial');
+  const [sortBy, setSortBy] = useState<'priority' | 'serial' | 'name' | 'retailPrice' | 'wholesalePrice' | 'costPrice'>('priority');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Custom Drag & Drop Priority State (Products & Categories)
+  const [categoryOrder, setCategoryOrder] = useState<string[]>([]);
+  const [productOrder, setProductOrder] = useState<string[]>([]);
+  const [draggedProductId, setDraggedProductId] = useState<string | null>(null);
+  const [dragOverProductId, setDragOverProductId] = useState<string | null>(null);
+  const [draggedCategory, setDraggedCategory] = useState<string | null>(null);
+  const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
 
   // Specs Editing Modal State
   const [editingRecord, setEditingRecord] = useState<SavedProductRecord | null>(null);
@@ -167,6 +178,24 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
 
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
   const printTemplateRef = useRef<HTMLDivElement>(null);
+
+  // Load saved Drag & Drop priorities from localStorage
+  useEffect(() => {
+    try {
+      const savedCats = localStorage.getItem(`alshams_catalog_cat_order_${tenantId}`);
+      if (savedCats) {
+        const parsed = JSON.parse(savedCats);
+        if (Array.isArray(parsed)) setCategoryOrder(parsed);
+      }
+      const savedProds = localStorage.getItem(`alshams_catalog_prod_order_${tenantId}`);
+      if (savedProds) {
+        const parsed = JSON.parse(savedProds);
+        if (Array.isArray(parsed)) setProductOrder(parsed);
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [tenantId]);
 
   // Load all products ONCE from database
   const loadCatalogData = async () => {
@@ -274,6 +303,149 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     return (p.category as string) || 'مكرمية';
   };
 
+  // Ordered unique categories for Category Priority Drag & Drop bar
+  const orderedCategories = useMemo(() => {
+    const counts = new Map<string, number>();
+    allProducts.forEach((p) => {
+      const cat = getCraftDisplay(p);
+      counts.set(cat, (counts.get(cat) || 0) + 1);
+    });
+    const uniqueCats = Array.from(counts.keys());
+    const rankMap = new Map(categoryOrder.map((c, i) => [c, i]));
+    uniqueCats.sort((a, b) => {
+      const ra = rankMap.has(a) ? rankMap.get(a)! : Number.MAX_SAFE_INTEGER;
+      const rb = rankMap.has(b) ? rankMap.get(b)! : Number.MAX_SAFE_INTEGER;
+      if (ra !== rb) return ra - rb;
+      return a.localeCompare(b, 'ar');
+    });
+    return uniqueCats.map((name) => ({ name, count: counts.get(name) || 0 }));
+  }, [allProducts, categoryOrder]);
+
+  // Master priority index lookup combining localStorage order + sortOrder property + category order
+  const productPriorityRankMap = useMemo(() => {
+    const orderIdx = new Map(productOrder.map((id, idx) => [id, idx]));
+    const catIdx = new Map(orderedCategories.map((c, idx) => [c.name, idx]));
+    const sortedMaster = [...allProducts].sort((a, b) => {
+      const oa = orderIdx.get(a.id);
+      const ob = orderIdx.get(b.id);
+      if (oa !== undefined && ob !== undefined) return oa - ob;
+      if (oa !== undefined) return -1;
+      if (ob !== undefined) return 1;
+      const sa = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+      const sb = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+      if (sa !== sb) return sa - sb;
+      const ca = catIdx.get(getCraftDisplay(a)) ?? Number.MAX_SAFE_INTEGER;
+      const cb = catIdx.get(getCraftDisplay(b)) ?? Number.MAX_SAFE_INTEGER;
+      if (ca !== cb) return ca - cb;
+      return (a.productSerialNumber || 0) - (b.productSerialNumber || 0);
+    });
+    return new Map(sortedMaster.map((p, idx) => [p.id, idx]));
+  }, [allProducts, productOrder, orderedCategories]);
+
+  // Persist custom product display priority order to localStorage + IndexedDB
+  const persistProductPriorityOrder = async (nextOrderedIds: string[], feedbackMsg?: string) => {
+    setProductOrder(nextOrderedIds);
+    setSortBy('priority');
+    setSortOrder('asc');
+    try {
+      localStorage.setItem(`alshams_catalog_prod_order_${tenantId}`, JSON.stringify(nextOrderedIds));
+    } catch {}
+
+    const rankById = new Map(nextOrderedIds.map((id, index) => [id, index + 1]));
+    const changedRecords: SavedProductRecord[] = [];
+    setAllProducts((prev) =>
+      prev.map((item) => {
+        const nextRank = rankById.get(item.id);
+        if (nextRank !== undefined && item.sortOrder !== nextRank) {
+          const updated = { ...item, sortOrder: nextRank, updatedAt: Date.now() };
+          changedRecords.push(updated);
+          return updated;
+        }
+        return item;
+      })
+    );
+
+    if (changedRecords.length > 0) {
+      Promise.all(changedRecords.map((rec) => tenantStorage.mutateProduct(rec))).catch(() => {});
+      window.dispatchEvent(new CustomEvent('alshams_products_changed'));
+    }
+
+    if (feedbackMsg) {
+      playSuccessSound();
+      setNotice(feedbackMsg);
+      setTimeout(() => setNotice(''), 3000);
+    }
+  };
+
+  // Reorder individual products (Drag & Drop or Up/Down arrows)
+  const handleReorderProducts = async (sourceId: string, targetId: string) => {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    const baseOrdered = [...allProducts]
+      .sort((a, b) => (productPriorityRankMap.get(a.id) ?? 9999) - (productPriorityRankMap.get(b.id) ?? 9999))
+      .map((p) => p.id);
+
+    const fromIdx = baseOrdered.indexOf(sourceId);
+    const toIdx = baseOrdered.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const [moved] = baseOrdered.splice(fromIdx, 1);
+    baseOrdered.splice(toIdx, 0, moved);
+    const movedProd = allProducts.find((p) => p.id === sourceId);
+    await persistProductPriorityOrder(
+      baseOrdered,
+      `✓ تم تحديث أولوية عرض "${movedProd?.productName || 'المنتج'}" في الكتالوج`
+    );
+  };
+
+  const handleMoveProductStep = async (prodId: string, direction: -1 | 1) => {
+    const visibleIdx = filteredProducts.findIndex((p) => p.id === prodId);
+    const targetVisibleIdx = visibleIdx + direction;
+    if (visibleIdx === -1 || targetVisibleIdx < 0 || targetVisibleIdx >= filteredProducts.length) return;
+    await handleReorderProducts(prodId, filteredProducts[targetVisibleIdx].id);
+  };
+
+  // Reorder categories & regroup product priority accordingly
+  const persistCategoryPriorityOrder = async (nextCategories: string[], movedCategoryName?: string) => {
+    setCategoryOrder(nextCategories);
+    try {
+      localStorage.setItem(`alshams_catalog_cat_order_${tenantId}`, JSON.stringify(nextCategories));
+    } catch {}
+
+    const catRank = new Map(nextCategories.map((c, idx) => [c, idx]));
+    const regroupedProductIds = [...allProducts]
+      .sort((a, b) => {
+        const ca = catRank.get(getCraftDisplay(a)) ?? Number.MAX_SAFE_INTEGER;
+        const cb = catRank.get(getCraftDisplay(b)) ?? Number.MAX_SAFE_INTEGER;
+        if (ca !== cb) return ca - cb;
+        return (productPriorityRankMap.get(a.id) ?? 9999) - (productPriorityRankMap.get(b.id) ?? 9999);
+      })
+      .map((p) => p.id);
+
+    await persistProductPriorityOrder(
+      regroupedProductIds,
+      `✓ تم إعادة ترتيب أولوية تصنيف "${movedCategoryName || 'التصنيفات'}" وتحديث ترتيب المنتجات`
+    );
+  };
+
+  const handleReorderCategories = async (sourceCat: string, targetCat: string) => {
+    if (!sourceCat || !targetCat || sourceCat === targetCat) return;
+    const list = orderedCategories.map((c) => c.name);
+    const fromIdx = list.indexOf(sourceCat);
+    const toIdx = list.indexOf(targetCat);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    await persistCategoryPriorityOrder(list, sourceCat);
+  };
+
+  const handleMoveCategoryStep = async (catName: string, direction: -1 | 1) => {
+    const list = orderedCategories.map((c) => c.name);
+    const idx = list.indexOf(catName);
+    const targetIdx = idx + direction;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= list.length) return;
+    await handleReorderCategories(catName, list[targetIdx]);
+  };
+
   // Purely in-memory search and filtering
   const filteredProducts = useMemo(() => {
     let result = [...allProducts];
@@ -318,7 +490,11 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     // 4. Sort
     result.sort((a, b) => {
       let comparison = 0;
-      if (sortBy === 'serial') {
+      if (sortBy === 'priority') {
+        const rankA = productPriorityRankMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+        const rankB = productPriorityRankMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+        comparison = rankA - rankB;
+      } else if (sortBy === 'serial') {
         const serialA = a.productSerialNumber || 0;
         const serialB = b.productSerialNumber || 0;
         comparison = serialA - serialB;
@@ -335,7 +511,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     });
 
     return result;
-  }, [allProducts, selectedMainSection, selectedCraft, searchQuery, sortBy, sortOrder]);
+  }, [allProducts, selectedMainSection, selectedCraft, searchQuery, sortBy, sortOrder, productPriorityRankMap]);
 
   // Target products for exports/shares (selected products if any are selected, else all filtered)
   const targetProductsForExport = useMemo(() => {
@@ -653,22 +829,24 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     window.open(`https://wa.me/?text=${encoded}`, '_blank');
   };
 
-  // Store products filtered list
+  // Store products filtered & ordered by artisan priority
   const storeProducts = useMemo(() => {
-    return allProducts.filter((p) => {
-      if (!p.inStore) return false;
-      if (storeStatusFilter === 'published' && p.isPublishedInStore === false) return false;
-      if (storeStatusFilter === 'draft' && p.isPublishedInStore !== false) return false;
-      if (storeSearchQuery.trim()) {
-        const q = storeSearchQuery.trim().toLowerCase();
-        const name = (p.productName || '').toLowerCase();
-        const code = (p.productCode || '').toLowerCase();
-        const desc = (p.storeDescription || '').toLowerCase();
-        return name.includes(q) || code.includes(q) || desc.includes(q);
-      }
-      return true;
-    });
-  }, [allProducts, storeStatusFilter, storeSearchQuery]);
+    return allProducts
+      .filter((p) => {
+        if (!p.inStore) return false;
+        if (storeStatusFilter === 'published' && p.isPublishedInStore === false) return false;
+        if (storeStatusFilter === 'draft' && p.isPublishedInStore !== false) return false;
+        if (storeSearchQuery.trim()) {
+          const q = storeSearchQuery.trim().toLowerCase();
+          const name = (p.productName || '').toLowerCase();
+          const code = (p.productCode || '').toLowerCase();
+          const desc = (p.storeDescription || '').toLowerCase();
+          return name.includes(q) || code.includes(q) || desc.includes(q);
+        }
+        return true;
+      })
+      .sort((a, b) => (productPriorityRankMap.get(a.id) ?? 9999) - (productPriorityRankMap.get(b.id) ?? 9999));
+  }, [allProducts, storeStatusFilter, storeSearchQuery, productPriorityRankMap]);
 
   // PDF Export Function
   const handleExportPDF = async () => {
@@ -1113,6 +1291,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               onChange={(e) => setSortBy(e.target.value as any)}
               className="px-2.5 py-1 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-[11px] font-bold text-stone-700 dark:text-stone-300 outline-none"
             >
+              <option value="priority">أولوية العرض (السحب والإفلات)</option>
               <option value="serial">رقم وكود الصنف</option>
               <option value="name">اسم المنتج</option>
               <option value="retailPrice">سعر القطاعي</option>
@@ -1130,6 +1309,108 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Category Priority Drag & Drop Strip */}
+      {orderedCategories.length > 0 && (
+        <div className="p-4 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-xs space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+              <GripVertical className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
+              <span>ترتيب أولوية تصنيفات الكتالوج (اسحب وأفلت التصنيف لتعديل أولوية العرض)</span>
+            </div>
+            <span className="text-[11px] font-bold text-[#475569] dark:text-[#CBD5E1]">
+              {orderedCategories.length} تصنيف نشط
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {orderedCategories.map((cat, idx) => {
+              const isDraggingCat = draggedCategory === cat.name;
+              const isDropTargetCat = dragOverCategory === cat.name && draggedCategory !== cat.name;
+              const isActiveFilter = selectedCraft === cat.name;
+
+              return (
+                <div
+                  key={cat.name}
+                  draggable
+                  onDragStart={(e) => {
+                    setDraggedCategory(cat.name);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', cat.name);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverCategory !== cat.name) setDragOverCategory(cat.name);
+                  }}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    const src = draggedCategory || e.dataTransfer.getData('text/plain');
+                    setDraggedCategory(null);
+                    setDragOverCategory(null);
+                    if (src && src !== cat.name) {
+                      await handleReorderCategories(src, cat.name);
+                    }
+                  }}
+                  onDragEnd={() => {
+                    setDraggedCategory(null);
+                    setDragOverCategory(null);
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl border text-xs font-black transition cursor-grab active:cursor-grabbing select-none ${
+                    isDraggingCat
+                      ? 'opacity-50 scale-95 border-[#EA580C]'
+                      : isDropTargetCat
+                      ? 'ring-2 ring-[#EA580C] scale-105 bg-amber-100 dark:bg-amber-950/50 border-[#EA580C]'
+                      : isActiveFilter
+                      ? 'bg-[#EA580C] text-white border-[#EA580C] shadow-xs'
+                      : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
+                  }`}
+                >
+                  <GripVertical className={`w-3.5 h-3.5 shrink-0 ${isActiveFilter ? 'text-white/90' : 'text-[#EA580C] dark:text-[#FBBF24]'}`} />
+                  <span className="font-mono text-[10px] opacity-75">#{idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCraft(selectedCraft === cat.name ? 'all' : cat.name)}
+                    className="cursor-pointer font-black"
+                    title="تصفية الكتالوج بهذا التصنيف"
+                  >
+                    {cat.name}
+                  </button>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isActiveFilter ? 'bg-white/20 text-white' : 'bg-[#F7F3EA] dark:bg-[#060B18] text-[#C2410C] dark:text-[#FBBF24]'}`}>
+                    {cat.count}
+                  </span>
+                  <div className="flex items-center gap-0.5 mr-1">
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveCategoryStep(cat.name, -1);
+                      }}
+                      title="تقديم التصنيف للأعلى"
+                      className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-30 cursor-pointer"
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={idx === orderedCategories.length - 1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveCategoryStep(cat.name, 1);
+                      }}
+                      title="تأخير التصنيف للأسفل"
+                      className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-30 cursor-pointer"
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Bulk Export to Store Action Banner */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-2xl bg-gradient-to-r from-amber-600/15 via-amber-500/10 to-transparent border border-amber-500/30">
@@ -1190,6 +1471,8 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               <table className="w-full text-right text-xs">
                 <thead>
                   <tr className="bg-stone-50 dark:bg-stone-800/60 border-b border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-300 font-black">
+                    {/* Priority Drag Handle Column */}
+                    <th className="py-3.5 px-2 text-center w-16">الأولوية</th>
                     {/* Checkbox Select All */}
                     <th className="py-3.5 px-3 text-center w-10">
                       <button
@@ -1240,17 +1523,79 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                     const category = getCraftDisplay(p);
                     const isSelected = selectedIds.has(p.id);
                     const imgUrl = p.imageUrl || p.input?.productImageUrl;
+                    const isDraggingRow = draggedProductId === p.id;
+                    const isDragOverRow = dragOverProductId === p.id && draggedProductId !== p.id;
 
                     return (
                       <tr
                         key={p.id}
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggedProductId(p.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', p.id);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverProductId !== p.id) setDragOverProductId(p.id);
+                        }}
+                        onDrop={async (e) => {
+                          e.preventDefault();
+                          const srcId = draggedProductId || e.dataTransfer.getData('text/plain');
+                          setDraggedProductId(null);
+                          setDragOverProductId(null);
+                          if (srcId && srcId !== p.id) {
+                            await handleReorderProducts(srcId, p.id);
+                          }
+                        }}
+                        onDragEnd={() => {
+                          setDraggedProductId(null);
+                          setDragOverProductId(null);
+                        }}
                         onClick={() => handleOpenEditSpecs(p)}
                         className={`transition cursor-pointer group ${
-                          isSelected
+                          isDraggingRow
+                            ? 'opacity-45 bg-amber-500/15'
+                            : isDragOverRow
+                            ? 'border-t-2 border-[#EA580C] bg-amber-500/15 dark:bg-amber-950/40'
+                            : isSelected
                             ? 'bg-amber-500/10 dark:bg-amber-950/30'
                             : 'hover:bg-amber-50/50 dark:hover:bg-stone-800/40'
                         }`}
                       >
+                        {/* Drag & Drop Priority Controls */}
+                        <td className="py-3 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1">
+                            <span
+                              className="p-1 text-[#EA580C] dark:text-[#FBBF24] cursor-grab active:cursor-grabbing"
+                              title="اسحب وأفلت لتغيير أولوية المنتج"
+                            >
+                              <GripVertical className="w-4 h-4" />
+                            </span>
+                            <div className="flex flex-col gap-0.5">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMoveProductStep(p.id, -1)}
+                                title="رفع للأعلى"
+                                className="p-0.5 rounded hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-500 disabled:opacity-25 cursor-pointer"
+                              >
+                                <ArrowUp className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === filteredProducts.length - 1}
+                                onClick={() => handleMoveProductStep(p.id, 1)}
+                                title="تنزيل للأسفل"
+                                className="p-0.5 rounded hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-500 disabled:opacity-25 cursor-pointer"
+                              >
+                                <ArrowDown className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+
                         {/* Checkbox */}
                         <td className="py-3 px-3 text-center" onClick={(e) => handleToggleSelect(p.id, e)}>
                           <button
@@ -1430,31 +1775,87 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               const category = getCraftDisplay(p);
               const isSelected = selectedIds.has(p.id);
               const imgUrl = p.imageUrl || p.input?.productImageUrl;
+              const isDraggingCard = draggedProductId === p.id;
+              const isDropTargetCard = dragOverProductId === p.id && draggedProductId !== p.id;
 
               return (
                 <div
                   key={p.id}
+                  draggable
+                  onDragStart={(e) => {
+                    setDraggedProductId(p.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', p.id);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverProductId !== p.id) setDragOverProductId(p.id);
+                  }}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    const srcId = draggedProductId || e.dataTransfer.getData('text/plain');
+                    setDraggedProductId(null);
+                    setDragOverProductId(null);
+                    if (srcId && srcId !== p.id) {
+                      await handleReorderProducts(srcId, p.id);
+                    }
+                  }}
+                  onDragEnd={() => {
+                    setDraggedProductId(null);
+                    setDragOverProductId(null);
+                  }}
                   onClick={() => handleOpenEditSpecs(p)}
                   className={`p-4 rounded-3xl border shadow-sm space-y-3 transition cursor-pointer ${
-                    isSelected
+                    isDraggingCard
+                      ? 'opacity-50 border-[#EA580C]'
+                      : isDropTargetCard
+                      ? 'ring-2 ring-[#EA580C] bg-amber-500/10 border-[#EA580C]'
+                      : isSelected
                       ? 'bg-amber-500/10 border-amber-400 dark:border-amber-700'
                       : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800'
                   }`}
                 >
-                  {/* Top Bar: Checkbox & Badges */}
+                  {/* Top Bar: Drag Handle, Reorder Arrows, Checkbox & Badges */}
                   <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={(e) => handleToggleSelect(p.id, e)}
-                      className="flex items-center gap-2 p-1 text-xs font-bold text-stone-700 dark:text-stone-300"
-                    >
-                      {isSelected ? (
-                        <CheckSquare className="w-4 h-4 text-amber-600" />
-                      ) : (
-                        <Square className="w-4 h-4 text-stone-400" />
-                      )}
-                      <span className="font-mono text-stone-900 dark:text-stone-100">{code}</span>
-                    </button>
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <span
+                        className="p-1 rounded-lg bg-[#E9E2D4] dark:bg-[#132040] text-[#EA580C] dark:text-[#FBBF24] cursor-grab active:cursor-grabbing"
+                        title="اسحب وأفلت لتغيير الأولوية"
+                      >
+                        <GripVertical className="w-4 h-4" />
+                      </span>
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => handleMoveProductStep(p.id, -1)}
+                        title="رفع للأعلى"
+                        className="p-1 rounded-lg border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 disabled:opacity-30 cursor-pointer"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === filteredProducts.length - 1}
+                        onClick={() => handleMoveProductStep(p.id, 1)}
+                        title="تنزيل للأسفل"
+                        className="p-1 rounded-lg border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 disabled:opacity-30 cursor-pointer"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleSelect(p.id, e)}
+                        className="flex items-center gap-1.5 p-1 text-xs font-bold text-stone-700 dark:text-stone-300"
+                      >
+                        {isSelected ? (
+                          <CheckSquare className="w-4 h-4 text-amber-600" />
+                        ) : (
+                          <Square className="w-4 h-4 text-stone-400" />
+                        )}
+                        <span className="font-mono text-stone-900 dark:text-stone-100">{code}</span>
+                      </button>
+                    </div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
                         {mainType}

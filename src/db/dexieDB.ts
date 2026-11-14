@@ -354,26 +354,47 @@ export const tenantStorage = {
   },
 
   async saveRawMaterial(material: RawMaterialItem, options?: { skipCloudQueue?: boolean }): Promise<void> {
-    material.costPerGram = material.unit === 'كيلو' ? material.costPerUnit / 1000 : material.costPerUnit;
-    material.isActive = material.isActive !== false;
-    material.minAlertThreshold = Number(material.minAlertThreshold ?? material.reorderLevel ?? 5);
-    await db.rawMaterials.put(material);
-    await this.generateProactiveNotifications(material.tenantId || material.workshopId || 'default');
+    const safeCostPerUnit = Number(material.costPerUnit) || 0;
+    const safeStock = Number(material.currentStock) || 0;
+    const safeThreshold = Number(material.minAlertThreshold ?? material.reorderLevel ?? 5);
+    const safeName = String(material.materialName || 'خامة').trim() || 'خامة';
+    const tenantId = material.tenantId || material.workshopId || 'default';
+
+    const cleanMaterial: RawMaterialItem = {
+      ...material,
+      tenantId,
+      workshopId: material.workshopId || tenantId,
+      materialName: safeName,
+      unit: material.unit || 'كيلو',
+      currentStock: Number.isFinite(safeStock) ? safeStock : 0,
+      costPerUnit: Number.isFinite(safeCostPerUnit) ? safeCostPerUnit : 0,
+      costPerGram: (material.unit || 'كيلو') === 'كيلو' ? safeCostPerUnit / 1000 : safeCostPerUnit,
+      isActive: material.isActive !== false,
+      minAlertThreshold: Number.isFinite(safeThreshold) ? safeThreshold : 5,
+      reorderLevel: Number.isFinite(safeThreshold) ? safeThreshold : 5,
+    };
+
+    await db.rawMaterials.put(cleanMaterial);
+    try {
+      await this.generateProactiveNotifications(tenantId);
+    } catch (notifErr) {
+      console.warn('Proactive notification warning:', notifErr);
+    }
 
     if (!options?.skipCloudQueue) {
-      const wid = material.workshopId || material.tenantId || '';
+      const wid = cleanMaterial.workshopId || cleanMaterial.tenantId || '';
       if (wid && wid !== 'default' && wid !== 'workshop_demo') {
         enqueueOfflineMutation({
           workshopId: wid,
           type: 'material_upsert',
           payload: {
-            id: material.id,
+            id: cleanMaterial.id,
             workshop_id: wid,
-            name: material.materialName,
-            purchase_price: Number(material.costPerUnit) || 0,
-            current_stock: Number(material.currentStock) || 0,
-            min_limit: Number(material.minAlertThreshold) || 5,
-            ...((material as any).unitId ? { unit_id: (material as any).unitId, kind: material.category === 'خامة إضافية' ? 'extra' : 'primary' } : {}),
+            name: cleanMaterial.materialName,
+            purchase_price: cleanMaterial.costPerUnit,
+            current_stock: cleanMaterial.currentStock,
+            min_limit: cleanMaterial.minAlertThreshold,
+            ...((cleanMaterial as any).unitId ? { unit_id: (cleanMaterial as any).unitId, kind: cleanMaterial.category === 'خامة إضافية' ? 'extra' : 'primary' } : {}),
           },
         });
         if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -1334,6 +1355,35 @@ export const tenantStorage = {
     this.broadcastNotificationsUpdated();
   },
 
+  getDismissedNotificationSignatures(tenantId: string): Record<string, string> {
+    try {
+      if (typeof localStorage === 'undefined') return {};
+      const raw = localStorage.getItem(`alshams_dismissed_notifs_${tenantId}`);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  },
+
+  setDismissedNotificationSignature(tenantId: string, notifId: string, signature: string) {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const map = this.getDismissedNotificationSignatures(tenantId);
+      map[notifId] = signature;
+      localStorage.setItem(`alshams_dismissed_notifs_${tenantId}`, JSON.stringify(map));
+    } catch {}
+  },
+
+  async deleteNotification(id: string): Promise<void> {
+    const item = await db.notifications.get(id);
+    if (item) {
+      const tenantId = item.tenantId || 'default';
+      this.setDismissedNotificationSignature(tenantId, item.id, `${item.title || ''}::${item.message || ''}`);
+      await db.notifications.delete(id);
+      this.broadcastNotificationsUpdated();
+    }
+  },
+
   async putNotification(notification: NotificationItem): Promise<void> {
     await db.notifications.put(notification);
     this.broadcastNotificationsUpdated();
@@ -1367,6 +1417,7 @@ export const tenantStorage = {
       const now = Date.now();
       const existingNotifs = await db.notifications.where('tenantId').equals(tenantId).toArray();
       const existingTitles = new Set(existingNotifs.map((n) => n.title));
+      const dismissedMap = this.getDismissedNotificationSignatures(tenantId);
 
       // 1. Automatic Stock Depletion Alerts (تنبيهات تلقائية عند الوصول لحد الطلب الأدنى بالمخزن)
       const materials = await this.getRawMaterials(tenantId);
@@ -1386,6 +1437,11 @@ export const tenantStorage = {
             currentStock <= 0
               ? `نفدت خامة "${mat.materialName}" بالكامل من المخزن (الرصيد: 0 ${mat.unit})! حد الطلب الأدنى المحدد هو (${threshold} ${mat.unit}). يرجى إصدار أمر شراء وتوريد عاجل لمنع توقف الإنتاج.`
               : `انخفض رصيد الخامة "${mat.materialName}" إلى (${currentStock} ${mat.unit}) وهو أقل من أو يساوي حد الطلب الأدنى المحدد (${threshold} ${mat.unit}) بنقص (${shortage} ${mat.unit}). يرجى المبادرة بإصدار أمر توريد عاجل.`;
+
+          const sig = `${title}::${message}`;
+          if (dismissedMap[alertId] === sig) {
+            continue;
+          }
 
           if (!existingStockAlert) {
             await db.notifications.put({
@@ -1532,15 +1588,18 @@ export const tenantStorage = {
         }
 
         if (!existingDailyNotif) {
-          await db.notifications.put({
-            id: dailyNotifId,
-            tenantId,
-            type: 'daily_sales_reminder',
-            title,
-            message,
-            isRead: false,
-            createdAt: now,
-          });
+          const dailySig = `${title}::${todayStr}`;
+          if (dismissedMap[dailyNotifId] !== dailySig) {
+            await db.notifications.put({
+              id: dailyNotifId,
+              tenantId,
+              type: 'daily_sales_reminder',
+              title,
+              message,
+              isRead: false,
+              createdAt: now,
+            });
+          }
         } else {
           // Keep message in sync with any updated reminder settings
           await db.notifications.put({
@@ -1571,16 +1630,18 @@ export const tenantStorage = {
             const daysOverdue = Math.abs(diffDays);
             const title = `🚨 تأخر استحقاق التزام مالي: ${rem.title}`;
             const message = `تأخر سداد/تسوية ${rem.targetType === 'custody' ? 'العهدة' : 'الالتزام'} "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) المستحق بتاريخ ${rem.dueDate} بمقدار ${daysOverdue} يوم. يرجى المتابعة وسداد المبلغ فوراً.`;
-            await db.notifications.put({
-              id: alertId,
-              tenantId,
-              type: 'overdue_deposit',
-              title,
-              message,
-              isRead: false,
-              relatedItemId: rem.id,
-              createdAt: now,
-            });
+            if (dismissedMap[alertId] !== `${title}::${message}`) {
+              await db.notifications.put({
+                id: alertId,
+                tenantId,
+                type: 'overdue_deposit',
+                title,
+                message,
+                isRead: false,
+                relatedItemId: rem.id,
+                createdAt: now,
+              });
+            }
           } else if (diffDays <= alertThresholdDays) {
             // Due today or approaching within alert window
             const title = diffDays === 0
@@ -1591,16 +1652,18 @@ export const tenantStorage = {
               : `متبقي ${diffDays} يوم على موعد استحقاق "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) المحدد بتاريخ ${rem.dueDate}.`;
 
             if (!existingRemNotif) {
-              await db.notifications.put({
-                id: alertId,
-                tenantId,
-                type: 'upcoming_deposit',
-                title,
-                message,
-                isRead: false,
-                relatedItemId: rem.id,
-                createdAt: now,
-              });
+              if (dismissedMap[alertId] !== `${title}::${message}`) {
+                await db.notifications.put({
+                  id: alertId,
+                  tenantId,
+                  type: 'upcoming_deposit',
+                  title,
+                  message,
+                  isRead: false,
+                  relatedItemId: rem.id,
+                  createdAt: now,
+                });
+              }
             } else {
               // Update message if days changed
               await db.notifications.put({

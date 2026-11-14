@@ -328,8 +328,9 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
     fetchMarketplace();
 
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const channel = supabase
-      .channel('public_marketplace_realtime_sync')
+      .channel(`public_marketplace_realtime_sync_${uniqueSuffix}`)
       .on(
         'postgres_changes',
         {
@@ -345,7 +346,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
     return () => {
       isMounted = false;
-      supabase.removeChannel(channel);
+      supabase.removeChannel(channel).catch(() => {});
     };
   }, [profile]);
 

@@ -6,14 +6,12 @@ import {
   Check,
   Send,
   MessageCircle,
-  Volume2,
   Clock,
   Sparkles,
   Lock,
   Globe,
-  Bell,
 } from 'lucide-react';
-import { playPostaNotificationSound, playSuccessSound, playAlertSound, playErrorSound } from '../../lib/sounds';
+import { playSuccessSound, playAlertSound, playErrorSound } from '../../lib/sounds';
 import { supabase } from '../../lib/supabase';
 
 interface MessagesHubModalProps {

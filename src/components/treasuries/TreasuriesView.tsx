@@ -370,8 +370,9 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
     loadLocalSettings();
 
     // Attach Supabase real-time listener for instant multi-tab & multi-device balance updates
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const realtimeChannel = supabase
-      .channel(`treasuries_realtime_${workshopId}`)
+      .channel(`treasuries_realtime_${workshopId}_${uniqueSuffix}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'treasuries', filter: `workshop_id=eq.${workshopId}` },
@@ -411,7 +412,7 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
     window.addEventListener('alshams_treasury_updated', handleFinancialsUpdated);
 
     return () => {
-      supabase.removeChannel(realtimeChannel);
+      supabase.removeChannel(realtimeChannel).catch(() => {});
       window.removeEventListener('alshams_treasury_categories_updated', handleCatsUpdated);
       window.removeEventListener('alshams_treasury_alerts_updated', handleAlertsUpdated);
       window.removeEventListener('alshams_payment_reminders_changed', handleRemindersUpdated);

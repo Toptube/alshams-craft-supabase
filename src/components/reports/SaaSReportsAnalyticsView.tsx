@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   UserProfile,
   SupplierProfile,
@@ -63,6 +63,8 @@ import {
   Legend,
   AreaChart,
   Area,
+  ComposedChart,
+  Line,
 } from 'recharts';
 import { MonthlyFinancialTrendsChart } from './MonthlyFinancialTrendsChart';
 
@@ -233,9 +235,10 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
     window.addEventListener('alshams_currency_rates_changed', handleDataUpdate);
     window.addEventListener('storage', handleDataUpdate);
 
-    // Attach Supabase real-time listener for instant live updates across tabs & devices
+    // Attach Supabase real-time listener with unique per-mount channel name
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const realtimeChannel = supabase
-      .channel(`reports_realtime_${tenantId}`)
+      .channel(`reports_realtime_${tenantId || 'workshop'}_${uniqueSuffix}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'treasuries', filter: `workshop_id=eq.${tenantId}` },
@@ -256,7 +259,7 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
     const intervalId = setInterval(loadAllFinancials, 10000);
 
     return () => {
-      supabase.removeChannel(realtimeChannel);
+      supabase.removeChannel(realtimeChannel).catch(() => {});
       window.removeEventListener('alshams_financials_updated', handleDataUpdate);
       window.removeEventListener('alshams_treasury_updated', handleDataUpdate);
       window.removeEventListener('alshams_fixed_assets_changed', handleDataUpdate);
@@ -330,6 +333,95 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
   const totalAdminOperatingExpenses = filteredAdminCosts.reduce((sum, a) => sum + (a.baseCurrencyAmount || a.amount || 0), 0);
   const totalOperatingCosts = totalMaterialPurchasesPaid + totalPayrollOperatingExpenses + totalAdminOperatingExpenses + periodDepreciation;
   const netEstimatedProfit = totalSalesRevenue - totalOperatingCosts;
+
+  // Interactive 6-Month Breakdown for Monthly Sales Distribution & Costs vs. Profits Comparison
+  const monthlyFinancialBreakdown = useMemo(() => {
+    const arabicMonths = [
+      'يناير',
+      'فبراير',
+      'مارس',
+      'أبريل',
+      'مايو',
+      'يونيو',
+      'يوليو',
+      'أغسطس',
+      'سبتمبر',
+      'أكتوبر',
+      'نوفمبر',
+      'ديسمبر',
+    ];
+    const now = new Date();
+    const baseYear = timePeriod === 'year' || timePeriod === 'half_year' || timePeriod === 'quarter' ? selectedYear : now.getFullYear();
+    const baseMonthIdx = baseYear === now.getFullYear() ? now.getMonth() : 11;
+    const monthlyDep = Math.round(totalAnnualDepreciation / 12);
+
+    const slots: Array<{ monthLabel: string; startTs: number; endTs: number }> = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(baseYear, baseMonthIdx - i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      slots.push({
+        monthLabel: `${arabicMonths[m]}${y !== now.getFullYear() ? ` '${String(y).slice(2)}` : ''}`,
+        startTs: new Date(y, m, 1).getTime(),
+        endTs: new Date(y, m + 1, 0, 23, 59, 59, 999).getTime(),
+      });
+    }
+
+    const rawRows = slots.map((slot) => {
+      const monthOrders = orders.filter((ord) => {
+        const t = ord.createdAt || (ord.date ? new Date(ord.date).getTime() : 0);
+        return t >= slot.startTs && t <= slot.endTs && ord.status !== 'cancelled';
+      });
+      const salesRevenue = Math.round(
+        monthOrders.reduce((s, ord) => s + (Number(ord.amountPaid || ord.finalTotal || ord.totalAmount || ord.subtotal) || 0), 0)
+      );
+      const materialsCost = Math.round(
+        supplierInvoices
+          .filter((inv) => {
+            const t = inv.createdAt || (inv.date ? new Date(inv.date).getTime() : 0);
+            return t >= slot.startTs && t <= slot.endTs;
+          })
+          .reduce((s, inv) => s + (Number(inv.paidAmount || inv.totalAmount) || 0), 0)
+      );
+      const payrollCost = Math.round(
+        employeePayouts
+          .filter((p) => {
+            const t = p.createdAt || (p.date ? new Date(p.date).getTime() : 0);
+            return t >= slot.startTs && t <= slot.endTs;
+          })
+          .reduce((s, p) => s + (Number(p.amount) || 0), 0)
+      );
+      const adminCost = Math.round(
+        adminCosts
+          .filter((a) => {
+            const t = a.createdAt || (a.date ? new Date(a.date).getTime() : 0);
+            return t >= slot.startTs && t <= slot.endTs;
+          })
+          .reduce((s, a) => s + (Number(a.baseCurrencyAmount || a.amount) || 0), 0)
+      );
+
+      const hasAnyActivity = salesRevenue > 0 || materialsCost > 0 || payrollCost > 0 || adminCost > 0;
+      const totalCosts = materialsCost + payrollCost + adminCost + (hasAnyActivity ? monthlyDep : 0);
+      const netProfit = Math.round(salesRevenue - totalCosts);
+
+      return {
+        month: slot.monthLabel,
+        salesRevenue,
+        ordersCount: monthOrders.length,
+        materialsCost,
+        payrollCost,
+        adminCost,
+        totalCosts,
+        netProfit,
+      };
+    });
+
+    const sixMonthSalesSum = rawRows.reduce((s, r) => s + r.salesRevenue, 0);
+    return rawRows.map((r) => ({
+      ...r,
+      salesSharePercent: sixMonthSalesSum > 0 ? Math.round((r.salesRevenue / sixMonthSalesSum) * 100) : 0,
+    }));
+  }, [orders, supplierInvoices, employeePayouts, adminCosts, totalAnnualDepreciation, timePeriod, selectedYear]);
 
   // Double-Entry Ledger Matrix:
   const currentInventoryStockValue = materials.reduce(
@@ -1463,6 +1555,146 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
             currencySymbol={profile.currencySymbol}
           />
 
+          {/* Interactive Recharts Grid: Monthly Sales Distribution + Costs vs Profits */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* 1. توزيع المبيعات الشهرية */}
+            <div className="p-5 sm:p-6 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-md space-y-4">
+              <div className="flex items-center justify-between border-b border-[#D4CCBC]/70 dark:border-[#22355E] pb-3">
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
+                    <span>توزيع المبيعات الشهرية</span>
+                  </h3>
+                  <p className="text-xs text-[#475569] dark:text-[#CBD5E1] font-medium mt-0.5">
+                    تطور إيرادات المبيعات وعدد الطلبات المحققة خلال آخر 6 أشهر
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-xl bg-[#EA580C]/10 dark:bg-[#FBBF24]/15 text-[#C2410C] dark:text-[#FBBF24] text-[11px] font-black">
+                  Recharts
+                </span>
+              </div>
+
+              <div className="h-72 w-full" dir="ltr">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={monthlyFinancialBreakdown} margin={{ top: 10, right: 12, left: 4, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.22} vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fontWeight: 700, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="right" orientation="right" allowDecimals={false} tick={{ fontSize: 10, fill: '#1D4ED8' }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const row = payload[0]?.payload;
+                        return (
+                          <div className="p-3 rounded-2xl bg-[#0C1427] text-[#F7F3EA] border border-[#EA580C]/60 shadow-xl text-xs text-right space-y-1" dir="rtl">
+                            <div className="font-black text-[#FBBF24] border-b border-white/10 pb-1">{label}</div>
+                            <div className="flex items-center justify-between gap-4 font-mono">
+                              <span className="text-slate-300">المبيعات:</span>
+                              <span className="font-black text-[#FB923C]">{Number(row.salesRevenue || 0).toLocaleString()} {profile.currencySymbol}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-4 font-mono">
+                              <span className="text-slate-300">نسبة التوزيع:</span>
+                              <span className="font-bold text-emerald-400">{row.salesSharePercent || 0}%</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-4 font-mono">
+                              <span className="text-slate-300">عدد الطلبات:</span>
+                              <span className="font-bold text-sky-300">{row.ordersCount || 0} طلب</span>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
+                    <Bar
+                      yAxisId="left"
+                      dataKey="salesRevenue"
+                      name={`قيمة المبيعات (${profile.currencySymbol})`}
+                      fill="#EA580C"
+                      radius={[8, 8, 0, 0]}
+                      maxBarSize={38}
+                    />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="ordersCount"
+                      name="عدد الطلبات"
+                      stroke="#1D4ED8"
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: '#1D4ED8', strokeWidth: 2, stroke: '#F7F3EA' }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* 2. مقارنة التكاليف مقابل الأرباح */}
+            <div className="p-5 sm:p-6 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-md space-y-4">
+              <div className="flex items-center justify-between border-b border-[#D4CCBC]/70 dark:border-[#22355E] pb-3">
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>مقارنة التكاليف مقابل الأرباح</span>
+                  </h3>
+                  <p className="text-xs text-[#475569] dark:text-[#CBD5E1] font-medium mt-0.5">
+                    مقارنة شهرية لإجمالي تكاليف التشغيل (خامات وأجور ومصاريف) مقابل صافي الربح
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-xl bg-emerald-600/10 text-emerald-700 dark:text-emerald-300 text-[11px] font-black">
+                  شهري
+                </span>
+              </div>
+
+              <div className="h-72 w-full" dir="ltr">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyFinancialBreakdown} margin={{ top: 10, right: 12, left: 4, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" strokeOpacity={0.22} vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fontWeight: 700, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const row = payload[0]?.payload;
+                        return (
+                          <div className="p-3 rounded-2xl bg-[#0C1427] text-[#F7F3EA] border border-[#22355E] shadow-xl text-xs text-right space-y-1" dir="rtl">
+                            <div className="font-black text-[#FBBF24] border-b border-white/10 pb-1">{label}</div>
+                            <div className="flex items-center justify-between gap-4 font-mono">
+                              <span className="text-slate-300">إجمالي التكاليف:</span>
+                              <span className="font-black text-rose-400">{Number(row.totalCosts || 0).toLocaleString()} {profile.currencySymbol}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              خامات: {Number(row.materialsCost || 0).toLocaleString()} • أجور: {Number(row.payrollCost || 0).toLocaleString()} • إدارية: {Number(row.adminCost || 0).toLocaleString()}
+                            </div>
+                            <div className="flex items-center justify-between gap-4 font-mono pt-1 border-t border-white/10">
+                              <span className="text-slate-300">صافي الربح:</span>
+                              <span className={`font-black ${row.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {Number(row.netProfit || 0).toLocaleString()} {profile.currencySymbol}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} />
+                    <Bar
+                      dataKey="totalCosts"
+                      name={`إجمالي التكاليف (${profile.currencySymbol})`}
+                      fill="#E11D48"
+                      radius={[8, 8, 0, 0]}
+                      maxBarSize={28}
+                    />
+                    <Bar
+                      dataKey="netProfit"
+                      name={`صافي الأرباح (${profile.currencySymbol})`}
+                      fill="#10B981"
+                      radius={[8, 8, 0, 0]}
+                      maxBarSize={28}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
           {/* Fixed Assets Financial Section */}
           <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-md space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-stone-100 dark:border-stone-800 pb-3">
@@ -1957,6 +2189,64 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
             adminCosts={adminCosts}
             currencySymbol={profile.currencySymbol}
           />
+
+          {/* Interactive Monthly Sales Distribution & Costs vs. Profits Charts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="p-5 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA]">
+                    توزيع المبيعات الشهرية
+                  </h4>
+                  <p className="text-xs text-[#475569] dark:text-[#CBD5E1]">توزيع قيمة المبيعات وعدد الطلبات خلال آخر 6 أشهر</p>
+                </div>
+                <span className="p-2 rounded-xl bg-[#EA580C]/10 text-[#EA580C] dark:text-[#FBBF24]">
+                  <TrendingUp className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="h-64 w-full" dir="ltr">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={monthlyFinancialBreakdown} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis yAxisId="left" tick={{ fontSize: 10 }} />
+                    <YAxis yAxisId="right" orientation="right" allowDecimals={false} tick={{ fontSize: 10 }} />
+                    <Tooltip formatter={(val: any, name: any) => [Number(val).toLocaleString(), name]} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar yAxisId="left" dataKey="salesRevenue" name={`المبيعات (${profile.currencySymbol})`} fill="#EA580C" radius={[6, 6, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="ordersCount" name="الطلبات" stroke="#1D4ED8" strokeWidth={2.5} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="p-5 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA]">
+                    مقارنة التكاليف مقابل الأرباح
+                  </h4>
+                  <p className="text-xs text-[#475569] dark:text-[#CBD5E1]">إجمالي التكاليف الشهرية مقارنة بصافي الربح</p>
+                </div>
+                <span className="p-2 rounded-xl bg-emerald-600/10 text-emerald-600 dark:text-emerald-400">
+                  <BarChart3 className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="h-64 w-full" dir="ltr">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={monthlyFinancialBreakdown} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip formatter={(val: any, name: any) => [`${Number(val).toLocaleString()} ${profile.currencySymbol}`, name]} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="totalCosts" name="إجمالي التكاليف" fill="#E11D48" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="netProfit" name="صافي الأرباح" fill="#10B981" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Chart 1: Profit & Loss Analysis */}

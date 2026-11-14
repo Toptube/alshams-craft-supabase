@@ -1471,34 +1471,67 @@ export async function updateMaterialInSupabase(
     purchase_price?: number;
     market_name?: string | null;
     market_unit_factor?: number;
+    current_stock?: number;
+    min_limit?: number;
   }
 ): Promise<{ data: SupabaseMaterial | null; error: SupabaseErrorResult | null }> {
   try {
     await ensureValidSupabaseSession();
-    const updates: any = {};
-    if (payload.name !== undefined) updates.name = payload.name.trim();
-    if (payload.kind !== undefined) updates.kind = payload.kind === 'extra' ? 'extra' : 'primary';
+    const coreUpdates: any = {};
+    if (payload.name !== undefined) coreUpdates.name = String(payload.name || '').trim();
+    if (payload.kind !== undefined) coreUpdates.kind = payload.kind === 'extra' ? 'extra' : 'primary';
     if (payload.supplier_id !== undefined) {
-      updates.supplier_id = payload.supplier_id && isValidUuid(payload.supplier_id) ? payload.supplier_id : null;
+      coreUpdates.supplier_id = payload.supplier_id && isValidUuid(payload.supplier_id) ? payload.supplier_id : null;
     }
-    if (payload.unit_id !== undefined && isValidUuid(payload.unit_id)) updates.unit_id = payload.unit_id;
+    if (payload.unit_id !== undefined && isValidUuid(payload.unit_id)) coreUpdates.unit_id = payload.unit_id;
     if (payload.purchase_price !== undefined) {
-      updates.purchase_price = Number(payload.purchase_price) >= 0 ? Number(payload.purchase_price) : 0;
+      coreUpdates.purchase_price = Number(payload.purchase_price) >= 0 ? Number(payload.purchase_price) : 0;
     }
     if (payload.market_name !== undefined) {
-      updates.market_name = payload.market_name ? payload.market_name.trim() : null;
+      coreUpdates.market_name = payload.market_name ? String(payload.market_name).trim() : null;
     }
     if (payload.market_unit_factor !== undefined) {
-      updates.market_unit_factor = Number(payload.market_unit_factor) > 0 ? Number(payload.market_unit_factor) : 1;
+      coreUpdates.market_unit_factor = Number(payload.market_unit_factor) > 0 ? Number(payload.market_unit_factor) : 1;
     }
 
-    const { data, error } = await supabase
+    const extendedUpdates: any = { ...coreUpdates };
+    if (payload.current_stock !== undefined && Number.isFinite(Number(payload.current_stock))) {
+      extendedUpdates.current_stock = Math.max(0, Number(payload.current_stock));
+    }
+    if (payload.min_limit !== undefined && Number.isFinite(Number(payload.min_limit))) {
+      extendedUpdates.min_limit = Math.max(0, Number(payload.min_limit));
+    }
+
+    if (Object.keys(extendedUpdates).length === 0) {
+      const cached = readLocalCache<SupabaseMaterial>(MATERIALS_CACHE_PREFIX + workshopId);
+      const found = cached.find((m) => m.id === materialId) || null;
+      return { data: found, error: null };
+    }
+
+    let { data, error } = await supabase
       .from('materials')
-      .update(updates)
+      .update(extendedUpdates)
       .eq('id', materialId)
       .eq('workshop_id', workshopId)
       .select('id, workshop_id, name, kind, supplier_id, unit_id, purchase_price, market_name, market_unit_factor')
       .single();
+
+    // Fallback cleanly if current_stock / min_limit columns are not yet present in DB
+    if (error && (String(error.message || '').includes('current_stock') || String(error.message || '').includes('min_limit') || error.code === '42703')) {
+      if (Object.keys(coreUpdates).length === 0) {
+        const cached = readLocalCache<SupabaseMaterial>(MATERIALS_CACHE_PREFIX + workshopId);
+        return { data: cached.find((m) => m.id === materialId) || null, error: null };
+      }
+      const retry = await supabase
+        .from('materials')
+        .update(coreUpdates)
+        .eq('id', materialId)
+        .eq('workshop_id', workshopId)
+        .select('id, workshop_id, name, kind, supplier_id, unit_id, purchase_price, market_name, market_unit_factor')
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       return { data: null, error: getArabicSupabaseError(error) };

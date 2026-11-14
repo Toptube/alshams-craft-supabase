@@ -13,7 +13,6 @@ import {
   MessageSquare,
   ShoppingBag,
   Globe,
-  Bell,
   Home,
   Calculator,
   Hammer,
@@ -87,9 +86,6 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   activeView,
   onSelectView,
   onNavigateToCatalog,
-  unreadNotificationsCount = 0,
-  unreadMessagesCount = 0,
-  onOpenNotifications,
   onOpenProfileSettings,
   onOpenUserGuide,
   onOpenCloudMigration,
@@ -187,7 +183,6 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
   const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64;
   const isAdmin = isUserAdmin(profile);
-  const totalUnreadAlerts = unreadNotificationsCount + unreadMessagesCount;
 
   const toggleGroup = (key: SectionKey) => {
     setOpenGroups((prev) => ({
@@ -270,10 +265,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           </div>
         </div>
 
-        {/* جسم القائمة: شريط سريع (الرئيسية + الإشعارات) ثم الأقسام الرئيسية القابلة للطي */}
+        {/* جسم القائمة: الرئيسية ثم الأقسام الرئيسية القابلة للطي */}
         <nav className="flex-1 overflow-y-auto p-3.5 space-y-2.5">
-          {/* أزرار سريعة في أعلى القائمة */}
-          <div className="grid grid-cols-2 gap-2">
+          {/* زر الرئيسية السريع */}
+          <div className="grid grid-cols-1 gap-2">
             <button
               type="button"
               onClick={() => {
@@ -288,29 +283,6 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             >
               <Home className={`w-4 h-4 shrink-0 ${activeView === 'home' ? 'text-[#FBBF24] dark:text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'}`} />
               <span className="truncate">الرئيسية</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                onOpenNotifications();
-                onClose();
-              }}
-              className="min-h-[42px] px-2.5 py-2 rounded-xl border bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24] text-xs font-black flex items-center justify-center gap-1.5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C]"
-            >
-              <Bell className="w-4 h-4 shrink-0 text-[#C2410C] dark:text-[#FBBF24]" />
-              <span className="truncate">الإشعارات</span>
-              {unreadNotificationsCount > 0 && (
-                <span className="min-w-[18px] h-5 px-1 rounded-md bg-[#EA580C] text-white text-[10px] font-mono tabular-nums font-black flex items-center justify-center shrink-0">
-                  {unreadNotificationsCount}
-                </span>
-              )}
-              {unreadMessagesCount > 0 && (
-                <span className="min-w-[18px] h-5 px-1 rounded-md bg-[#1E3A8A] text-white dark:bg-[#EDE3CF] dark:text-[#0C1427] text-[10px] font-mono tabular-nums font-black flex items-center justify-center shrink-0">
-                  {unreadMessagesCount}
-                </span>
-              )}
-              {totalUnreadAlerts === 0 && null}
             </button>
           </div>
 
@@ -453,7 +425,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 <RefreshCw className="w-4 h-4 shrink-0 text-[#FBBF24]" />
-                <span className="text-xs font-black truncate">إدارة المنظومة والتبديل بين الورش</span>
+                <span className="text-xs font-black leading-snug">إدارة المنظومة والورش</span>
               </div>
               <ChevronLeft className="w-4 h-4 shrink-0 text-[#FBBF24]" />
             </button>

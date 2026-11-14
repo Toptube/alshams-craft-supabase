@@ -270,6 +270,8 @@ export const App: React.FC = () => {
 
   // Notifications state
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [adminAlerts, setAdminAlerts] = useState<any[]>([]);
+  const [notificationsInitialTab, setNotificationsInitialTab] = useState<'admin' | 'notifications' | 'messages'>('notifications');
 
   // Messaging Hub (بوسطة) & Announcements state
   const [isMessagesHubOpen, setIsMessagesHubOpen] = useState<boolean>(false);
@@ -443,11 +445,13 @@ export const App: React.FC = () => {
     };
 
     window.addEventListener('alshams_notifications_updated', handleRefreshNotifications);
+    window.addEventListener('alshams_notifications_changed', handleRefreshNotifications);
     window.addEventListener('alshams_new_order_received', handleNewOrder);
     window.addEventListener('online', handleOnlineReconnect);
 
     return () => {
       window.removeEventListener('alshams_notifications_updated', handleRefreshNotifications);
+      window.removeEventListener('alshams_notifications_changed', handleRefreshNotifications);
       window.removeEventListener('alshams_new_order_received', handleNewOrder);
       window.removeEventListener('online', handleOnlineReconnect);
     };
@@ -628,13 +632,67 @@ export const App: React.FC = () => {
     }
   }, [profile?.workshopId, profile?.id]);
 
+  // Load Super Admin notifications (product approvals, workshop applications, appeals)
+  const loadAdminAlerts = useCallback(async () => {
+    if (!profile || !isUserAdmin(profile)) {
+      setAdminAlerts([]);
+      return;
+    }
+    try {
+      const headers: Record<string, string> = {
+        'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+      };
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.access_token) {
+          headers['Authorization'] = `Bearer ${data.session.access_token}`;
+        }
+      } catch {}
+      const res = await fetch('/api/admin/notifications', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.notifications)) {
+          setAdminAlerts(data.notifications);
+        }
+      }
+    } catch {}
+  }, [profile?.email, profile?.role]);
+
+  const handleDismissAdminAlert = useCallback(async (alertId: string) => {
+    setAdminAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    try {
+      const headers: Record<string, string> = {
+        'x-user-email': profile?.email || 'hmb.top.tube@gmail.com',
+      };
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.access_token) {
+          headers['Authorization'] = `Bearer ${data.session.access_token}`;
+        }
+      } catch {}
+      await fetch(`/api/admin/notifications/${encodeURIComponent(alertId)}`, {
+        method: 'DELETE',
+        headers,
+      });
+      window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
+    } catch {}
+  }, [profile?.email]);
+
   // Initial and periodic check on profile mount
   useEffect(() => {
     if (profile?.id) {
       checkWorkshopStatus();
       loadAnnouncements();
+      loadAdminAlerts();
     }
-  }, [profile?.id, profile?.workshopId, checkWorkshopStatus, loadAnnouncements]);
+    const handleAdminAlertsChanged = () => {
+      loadAdminAlerts();
+    };
+    window.addEventListener('alshams_admin_alerts_changed', handleAdminAlertsChanged);
+    return () => {
+      window.removeEventListener('alshams_admin_alerts_changed', handleAdminAlertsChanged);
+    };
+  }, [profile?.id, profile?.workshopId, checkWorkshopStatus, loadAnnouncements, loadAdminAlerts]);
 
   // Realtime subscription for incoming announcements and status changes
   useEffect(() => {
@@ -642,8 +700,9 @@ export const App: React.FC = () => {
     const wid = profile.workshopId || profile.id;
     if (!wid || wid === 'workshop_demo' || wid === '00000000-0000-0000-0000-000000000000') return;
 
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const announcementsChannel = supabase
-      .channel('public:admin_announcements_live')
+      .channel(`public_admin_announcements_live_${wid}_${uniqueSuffix}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'admin_announcements' },
@@ -658,7 +717,7 @@ export const App: React.FC = () => {
       .subscribe();
 
     const workshopChannel = supabase
-      .channel(`public:workshops_live_${wid}`)
+      .channel(`public_workshops_live_${wid}_${uniqueSuffix}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'workshops', filter: `id=eq.${wid}` },
@@ -669,8 +728,8 @@ export const App: React.FC = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(announcementsChannel);
-      supabase.removeChannel(workshopChannel);
+      supabase.removeChannel(announcementsChannel).catch(() => {});
+      supabase.removeChannel(workshopChannel).catch(() => {});
     };
   }, [profile?.workshopId, profile?.id, loadAnnouncements, checkWorkshopStatus]);
 
@@ -1154,9 +1213,14 @@ export const App: React.FC = () => {
       <Navbar
         profile={profile}
         hasActiveSession={true}
-        unreadNotificationsCount={notifications.filter((n) => !n.isRead).length}
+        unreadNotificationsCount={
+          notifications.filter((n) => !n.isRead).length + (isUserAdmin(profile) ? adminAlerts.length : 0)
+        }
         unreadMessagesCount={unreadMessagesCount}
-        onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
+        onOpenMessagesHub={() => {
+          setNotificationsInitialTab('messages');
+          setIsMessagesHubOpen(true);
+        }}
         onToggleSidebar={() => setIsSidebarOpen(true)}
         onOpenGlobalSearch={() => {
           loadSearchCacheAndNotifications();
@@ -1165,6 +1229,8 @@ export const App: React.FC = () => {
         onGoHome={goHome}
         onOpenNotifications={() => {
           loadSearchCacheAndNotifications();
+          if (isUserAdmin(profile)) loadAdminAlerts();
+          setNotificationsInitialTab(isUserAdmin(profile) ? 'admin' : 'notifications');
           setIsNotificationsOpen(true);
         }}
         onOpenNewMaterialModal={() => setIsNewMaterialOpen(true)}
@@ -1288,7 +1354,16 @@ export const App: React.FC = () => {
               profile={profile}
               initialTab={adminInitialTab}
               onNavigateHome={goHome}
-              onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
+              onOpenMessagesHub={() => {
+                setNotificationsInitialTab('messages');
+                setIsMessagesHubOpen(true);
+              }}
+              onOpenNotificationsCenter={() => {
+                loadAdminAlerts();
+                loadSearchCacheAndNotifications();
+                setNotificationsInitialTab('admin');
+                setIsNotificationsOpen(true);
+              }}
               onOpenUnifiedAI={() => navigateTo('ai_agent')}
               onLogout={handleLogout}
               onProfileUpdated={(updated) => {
@@ -1552,7 +1627,16 @@ export const App: React.FC = () => {
                 : adminInitialTab
             }
             onNavigateHome={goHome}
-            onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
+            onOpenMessagesHub={() => {
+              setNotificationsInitialTab('messages');
+              setIsMessagesHubOpen(true);
+            }}
+            onOpenNotificationsCenter={() => {
+              loadAdminAlerts();
+              loadSearchCacheAndNotifications();
+              setNotificationsInitialTab('admin');
+              setIsNotificationsOpen(true);
+            }}
             onOpenUnifiedAI={() => navigateTo('ai_agent')}
             onLogout={handleLogout}
             onProfileUpdated={(updated) => {
@@ -1649,13 +1733,20 @@ export const App: React.FC = () => {
             }
             setIsSidebarOpen(false);
           }}
-          unreadNotificationsCount={notifications.filter((n) => !n.isRead).length}
+          unreadNotificationsCount={
+            notifications.filter((n) => !n.isRead).length + (isUserAdmin(profile) ? adminAlerts.length : 0)
+          }
           unreadMessagesCount={unreadMessagesCount}
           onOpenNotifications={() => {
             loadSearchCacheAndNotifications();
+            if (isUserAdmin(profile)) loadAdminAlerts();
+            setNotificationsInitialTab(isUserAdmin(profile) ? 'admin' : 'notifications');
             setIsNotificationsOpen(true);
           }}
-          onOpenMessagesHub={() => setIsMessagesHubOpen(true)}
+          onOpenMessagesHub={() => {
+            setNotificationsInitialTab('messages');
+            setIsMessagesHubOpen(true);
+          }}
           onOpenProfileSettings={() => setIsProfileSettingsOpen(true)}
           onOpenCraftsSelector={() => setIsCraftsSelectorOpen(true)}
           onOpenUserGuide={(sec) => {
@@ -1703,8 +1794,15 @@ export const App: React.FC = () => {
             setIsNotificationsOpen(false);
             setIsMessagesHubOpen(false);
           }}
-          initialTab={isMessagesHubOpen ? 'messages' : 'notifications'}
+          initialTab={isMessagesHubOpen ? 'messages' : notificationsInitialTab}
           notifications={notifications}
+          adminAlerts={isUserAdmin(profile) ? adminAlerts : []}
+          onDismissAdminAlert={handleDismissAdminAlert}
+          onNavigateToAdminTab={(tab) => {
+            setAdminInitialTab(tab as any);
+            navigateTo('admin');
+          }}
+          onNavigateToView={(v) => navigateTo(v as ActiveView)}
           profile={profile}
           unreadMessagesCount={unreadMessagesCount}
           onRefreshNotifications={loadSearchCacheAndNotifications}
@@ -1862,7 +1960,10 @@ export const App: React.FC = () => {
           isOpen={isNewMaterialOpen}
           onClose={() => setIsNewMaterialOpen(false)}
           profile={profile}
-          onSuccess={() => {}}
+          onSuccess={() => {
+            loadSearchCacheAndNotifications();
+            window.dispatchEvent(new CustomEvent('alshams_materials_changed'));
+          }}
         />
       )}
 

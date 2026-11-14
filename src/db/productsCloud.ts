@@ -518,8 +518,9 @@ export function startProductSync(workshopId: string): () => void {
 
   let channel: any = null;
   try {
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     channel = supabase
-      .channel(`products-sync-${workshopId}`)
+      .channel(`products-sync-${workshopId}-${uniqueSuffix}`)
       .on(
         'postgres_changes' as any,
         { event: '*', schema: 'public', table: 'products', filter: `workshop_id=eq.${workshopId}` },

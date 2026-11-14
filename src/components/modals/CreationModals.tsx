@@ -156,12 +156,12 @@ export const NewMaterialModal: React.FC<{
   }, [units, selectedUnitId]);
 
   const filteredSuppliers = useMemo(() => {
-    if (!supplierSearch.trim()) return suppliers;
-    const q = supplierSearch.toLowerCase();
+    const q = supplierSearch.trim().toLowerCase();
+    if (!q) return suppliers;
     return suppliers.filter(
       (s) =>
-        s.name.toLowerCase().includes(q) ||
-        (s.phone && s.phone.includes(supplierSearch))
+        String(s?.name || '').toLowerCase().includes(q) ||
+        (s?.phone && String(s.phone).includes(supplierSearch))
     );
   }, [suppliers, supplierSearch]);
 
@@ -233,6 +233,7 @@ export const NewMaterialModal: React.FC<{
         console.warn('Dexie mirror warning in NewMaterialModal:', dexieErr);
       }
 
+      window.dispatchEvent(new CustomEvent('alshams_materials_changed'));
       onSuccess();
       onClose();
     } catch (err: any) {

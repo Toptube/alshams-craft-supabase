@@ -1011,6 +1011,7 @@ export interface SavedProductRecord {
   availableColors?: string[];
   availableSizes?: string[];
   decorCategory?: string;
+  sortOrder?: number;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;

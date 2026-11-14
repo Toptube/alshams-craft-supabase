@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { NotificationItem, UserProfile } from '../../types';
+import { NotificationItem, UserProfile, isUserAdmin } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
 import {
   playNotificationChimeSound,
   playUrgentNotificationSound,
-  playPostaNotificationSound,
   playButtonClickSound,
   playTabSwitchSound,
   playSuccessSound,
@@ -27,16 +26,20 @@ import {
   Check,
   Lock,
   Globe,
-  Volume2,
   Package,
   ExternalLink,
+  ShieldCheck,
 } from 'lucide-react';
 
 export interface UnifiedAlertsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'notifications' | 'messages';
+  initialTab?: 'admin' | 'notifications' | 'messages';
   notifications: NotificationItem[];
+  adminAlerts?: any[];
+  onDismissAdminAlert?: (id: string) => void;
+  onNavigateToAdminTab?: (tab: string) => void;
+  onNavigateToView?: (view: string) => void;
   profile: UserProfile;
   unreadMessagesCount?: number;
   onRefreshNotifications: () => void;
@@ -50,6 +53,10 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
   onClose,
   initialTab = 'notifications',
   notifications,
+  adminAlerts = [],
+  onDismissAdminAlert,
+  onNavigateToAdminTab,
+  onNavigateToView,
   profile,
   unreadMessagesCount = 0,
   onRefreshNotifications,
@@ -57,7 +64,19 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
   onNavigateToInventory,
   onReceiptUpdate,
 }) => {
-  const [activeMainTab, setActiveMainTab] = useState<'notifications' | 'messages'>(initialTab);
+  const isSuperAdmin = isUserAdmin(profile);
+  const resolvedInitialTab: 'admin' | 'notifications' | 'messages' =
+    initialTab === 'admin' && isSuperAdmin
+      ? 'admin'
+      : initialTab === 'messages'
+      ? 'messages'
+      : isSuperAdmin && initialTab === 'notifications' && adminAlerts.length > 0
+      ? 'admin'
+      : initialTab === 'admin' && !isSuperAdmin
+      ? 'notifications'
+      : initialTab;
+
+  const [activeMainTab, setActiveMainTab] = useState<'admin' | 'notifications' | 'messages'>(resolvedInitialTab);
   const [notifSubTab, setNotifSubTab] = useState<'all' | 'urgent' | 'daily'>('all');
 
   // Messages / Mail State
@@ -88,9 +107,9 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setActiveMainTab(initialTab);
+      setActiveMainTab(resolvedInitialTab);
     }
-  }, [isOpen, initialTab]);
+  }, [isOpen, resolvedInitialTab]);
 
   const fetchAnnouncements = async () => {
     if (!effectiveWorkshopId) return;
@@ -114,17 +133,13 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
     }
   };
 
-  // Fetch mail and trigger appropriate sound on open
+  // Fetch mail and trigger subtle chime on non-mail notification open
   useEffect(() => {
     if (!isOpen) return;
     fetchAnnouncements();
 
     if (initialTab === 'messages') {
-      if (unreadMessagesCount > 0) {
-        playPostaNotificationSound();
-      } else {
-        playTabSwitchSound();
-      }
+      playTabSwitchSound();
       return;
     }
 
@@ -133,10 +148,10 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
     );
     if (hasUrgent) {
       playUrgentNotificationSound();
-    } else if (unreadMessagesCount > 0 && notifications.every((n) => n.isRead)) {
-      playPostaNotificationSound();
-    } else {
+    } else if (notifications.some((n) => !n.isRead)) {
       playNotificationChimeSound();
+    } else {
+      playTabSwitchSound();
     }
   }, [isOpen, effectiveWorkshopId]);
 
@@ -227,6 +242,51 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
     playButtonClickSound();
     await tenantStorage.markNotificationAsRead(id);
     onRefreshNotifications();
+  };
+
+  const handleDismissNotification = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    playButtonClickSound();
+    await tenantStorage.deleteNotification(id);
+    onRefreshNotifications();
+  };
+
+  const handleNotificationNavigate = async (item: NotificationItem) => {
+    playButtonClickSound();
+    if (!item.isRead) {
+      await tenantStorage.markNotificationAsRead(item.id);
+      onRefreshNotifications();
+    }
+    if (item.relatedOrderId && onNavigateToOrder) {
+      onNavigateToOrder(item.relatedOrderId);
+      onClose();
+      return;
+    }
+    if (item.type === 'stock_depletion') {
+      if (onNavigateToInventory) {
+        onNavigateToInventory();
+      } else if (onNavigateToView) {
+        onNavigateToView('materials');
+      }
+      onClose();
+      return;
+    }
+    if (item.type === 'overdue_deposit' || item.type === 'upcoming_deposit') {
+      onNavigateToView?.('treasuries');
+      onClose();
+      return;
+    }
+    if (item.type === 'daily_sales_reminder' || item.type === 'milestone_sales') {
+      onNavigateToView?.('sales');
+      onClose();
+      return;
+    }
+    if (item.type === 'upcoming_delivery') {
+      onNavigateToView?.('sales');
+      onClose();
+      return;
+    }
+    onClose();
   };
 
   const handleMarkAllRead = async () => {
@@ -346,22 +406,49 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
           </button>
         </div>
 
-        {/* Unified 2 Main Tabs: الإشعارات | رسائل (البريد) */}
-        <div className="p-2.5 bg-[#E9E2D4] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] grid grid-cols-2 gap-2 shrink-0">
+        {/* Tabs Header: 3 tabs for Super Admin, 2 tabs for Workshop */}
+        <div
+          className={`p-2.5 bg-[#E9E2D4] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] grid ${
+            isSuperAdmin ? 'grid-cols-3' : 'grid-cols-2'
+          } gap-2 shrink-0`}
+        >
+          {isSuperAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                playTabSwitchSound();
+                setActiveMainTab('admin');
+              }}
+              className={`py-2.5 px-2 sm:px-3 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 transition cursor-pointer border ${
+                activeMainTab === 'admin'
+                  ? 'bg-[#F7F3EA] dark:bg-[#132040] text-[#C2410C] dark:text-[#FBBF24] border-[#EA580C]/60 shadow-sm'
+                  : 'bg-transparent border-transparent text-[#334155] dark:text-[#CBD5E1] hover:bg-[#DFD7C6]/60 dark:hover:bg-[#132040]/60'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
+              <span className="truncate">إشعارات إدارية</span>
+              {adminAlerts.length > 0 && (
+                <span className="min-w-[20px] h-5 px-1.5 rounded-md bg-[#EA580C] text-white text-[11px] font-mono tabular-nums font-black flex items-center justify-center shrink-0">
+                  {adminAlerts.length}
+                </span>
+              )}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {
               playTabSwitchSound();
               setActiveMainTab('notifications');
             }}
-            className={`py-2.5 px-3 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer border ${
+            className={`py-2.5 px-2 sm:px-3 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 transition cursor-pointer border ${
               activeMainTab === 'notifications'
                 ? 'bg-[#F7F3EA] dark:bg-[#132040] text-[#C2410C] dark:text-[#FBBF24] border-[#EA580C]/60 shadow-sm'
                 : 'bg-transparent border-transparent text-[#334155] dark:text-[#CBD5E1] hover:bg-[#DFD7C6]/60 dark:hover:bg-[#132040]/60'
             }`}
           >
             <Bell className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
-            <span className="truncate">الإشعارات</span>
+            <span className="truncate">{isSuperAdmin ? 'إشعارات الورشة' : 'الإشعارات'}</span>
             {unreadNotifTotal > 0 && (
               <span className="min-w-[20px] h-5 px-1.5 rounded-md bg-[#EA580C] text-white text-[11px] font-mono tabular-nums font-black flex items-center justify-center shrink-0">
                 {unreadNotifTotal}
@@ -375,7 +462,7 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
               playTabSwitchSound();
               setActiveMainTab('messages');
             }}
-            className={`py-2.5 px-3 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer border ${
+            className={`py-2.5 px-2 sm:px-3 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 transition cursor-pointer border ${
               activeMainTab === 'messages'
                 ? 'bg-[#F7F3EA] dark:bg-[#132040] text-[#1E3A8A] dark:text-[#EDE3CF] border-[#1E3A8A]/50 dark:border-[#EDE3CF]/50 shadow-sm'
                 : 'bg-transparent border-transparent text-[#334155] dark:text-[#CBD5E1] hover:bg-[#DFD7C6]/60 dark:hover:bg-[#132040]/60'
@@ -395,6 +482,75 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
           <div className="mx-4 mt-3 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-400/60 text-emerald-900 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
             <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <span>{actionNotice}</span>
+          </div>
+        )}
+
+        {/* Admin Alerts Tab (Super Admin Only) */}
+        {isSuperAdmin && activeMainTab === 'admin' && (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>تنبيهات وطلبات اعتماد المنتجات والورش ({adminAlerts.length})</span>
+              </div>
+            </div>
+
+            {adminAlerts.length === 0 ? (
+              <div className="text-center py-12 text-[#475569] dark:text-[#CBD5E1] space-y-2">
+                <ShieldCheck className="w-10 h-10 mx-auto opacity-45 text-[#C2410C] dark:text-[#FBBF24]" />
+                <p className="text-xs font-bold">لا توجد طلبات اعتماد منتجات أو تنبيهات إدارية معلقة حالياً ✓</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {adminAlerts.map((alertItem: any) => (
+                  <div
+                    key={alertItem.id}
+                    onClick={() => {
+                      playButtonClickSound();
+                      onNavigateToAdminTab?.(alertItem.targetTab || 'product_approvals');
+                      onClose();
+                    }}
+                    className="p-3.5 rounded-2xl border bg-[#FFF7ED] dark:bg-[#132040] border-[#EA580C]/55 dark:border-[#FBBF24]/50 hover:border-[#EA580C] transition-all text-right space-y-2 cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="mt-0.5 p-2 rounded-xl bg-[#E9E2D4] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] shrink-0">
+                          <ShieldCheck className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                            {alertItem.title}
+                          </h4>
+                          <p className="text-xs text-[#334155] dark:text-[#CBD5E1] mt-1 leading-relaxed font-medium">
+                            {alertItem.message}
+                          </p>
+                          <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-black text-[#C2410C] dark:text-[#FBBF24]">
+                            <ExternalLink className="w-3 h-3" />
+                            <span>اضغط للانتقال مباشرة للمراجعة والاعتماد</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {onDismissAdminAlert && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            playButtonClickSound();
+                            onDismissAdminAlert(alertItem.id);
+                          }}
+                          className="p-1.5 rounded-lg bg-[#E9E2D4] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#475569] dark:text-[#CBD5E1] hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer shrink-0"
+                          title="إخفاء وحذف التنبيه"
+                          aria-label="إخفاء وحذف التنبيه"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -474,7 +630,8 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
                   return (
                     <div
                       key={item.id}
-                      className={`p-3.5 rounded-2xl border transition-all text-right space-y-2 ${
+                      onClick={() => handleNotificationNavigate(item)}
+                      className={`p-3.5 rounded-2xl border transition-all text-right space-y-2 cursor-pointer hover:border-[#EA580C] ${
                         !item.isRead
                           ? urgentItem
                             ? 'bg-rose-50/90 dark:bg-rose-950/35 border-rose-300 dark:border-rose-700/70'
@@ -482,13 +639,13 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
                           : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start justify-between gap-2">
                         <div className="flex items-start gap-3 min-w-0">
                           <div className="mt-0.5 p-2 rounded-xl bg-[#E9E2D4] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] shrink-0">
                             {getNotificationIcon(item.type)}
                           </div>
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <h4 className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
                                 {item.title}
                               </h4>
@@ -513,16 +670,30 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
                           </div>
                         </div>
 
-                        {!item.isRead && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {!item.isRead && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarkAsRead(item.id);
+                              }}
+                              className="p-1.5 rounded-lg bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] hover:text-[#EA580C] dark:hover:text-[#FBBF24] transition cursor-pointer shrink-0"
+                              title="تحديد كمقروء"
+                            >
+                              <CheckCheck className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => handleMarkAsRead(item.id)}
-                            className="p-1.5 rounded-lg bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] hover:text-[#EA580C] dark:hover:text-[#FBBF24] transition cursor-pointer shrink-0"
-                            title="تحديد كمقروء"
+                            onClick={(e) => handleDismissNotification(item.id, e)}
+                            className="p-1.5 rounded-lg bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#475569] dark:text-[#CBD5E1] hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer shrink-0"
+                            title="حذف وإخفاء الإشعار"
+                            aria-label="حذف وإخفاء الإشعار"
                           >
-                            <CheckCheck className="w-3.5 h-3.5" />
+                            <X className="w-3.5 h-3.5" />
                           </button>
-                        )}
+                        </div>
                       </div>
 
                       {(item.relatedOrderId && onNavigateToOrder) ||
@@ -569,21 +740,12 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
         {/* Tab 2 Content: Mail & Messages */}
         {activeMainTab === 'messages' && (
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-            {/* Mail Toolbar with Tone #7 preview */}
+            {/* Mail Toolbar */}
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="text-xs font-black text-[#1E3A8A] dark:text-[#EDE3CF] flex items-center gap-1.5">
                 <Mail className="w-4 h-4 shrink-0" />
                 <span>صندوق البريد والمراسلات ({announcements.length})</span>
               </div>
-              <button
-                type="button"
-                onClick={() => playPostaNotificationSound()}
-                className="px-3 py-1.5 rounded-xl bg-[#1E3A8A] hover:bg-[#172554] text-white dark:bg-[#EDE3CF] dark:hover:bg-[#E2D5BC] dark:text-[#0C1427] border border-[#172554] dark:border-[#D4CCBC] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
-                title="سماع نغمة البريد المعتمدة"
-              >
-                <Volume2 className="w-3.5 h-3.5" />
-                <span>استماع لنغمة البريد</span>
-              </button>
             </div>
 
             {loadingMessages && announcements.length === 0 ? (

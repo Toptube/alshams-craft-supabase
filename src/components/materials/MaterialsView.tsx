@@ -295,6 +295,13 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
 
   useEffect(() => {
     loadData();
+    const handleMaterialsChanged = () => {
+      loadData();
+    };
+    window.addEventListener('alshams_materials_changed', handleMaterialsChanged);
+    return () => {
+      window.removeEventListener('alshams_materials_changed', handleMaterialsChanged);
+    };
   }, [workshopId]);
 
   useEffect(() => {
@@ -366,8 +373,22 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       setNotice({ text: 'يرجى إدخال اسم الخامة.', isError: true });
       return;
     }
-    if (!selectedUnitId) {
-      setNotice({ text: 'يرجى اختيار وحدة قياس صالحة.', isError: true });
+
+    const effectiveUnit = currentUnitRecord || units[0] || null;
+    let effectiveUnitId = selectedUnitId || effectiveUnit?.id || '';
+    if (!effectiveUnitId) {
+      try {
+        const ensured = await ensureDefaultUnitsInSupabase(workshopId);
+        if (ensured.length > 0) {
+          setUnits(ensured);
+          effectiveUnitId = ensured[0].id;
+          setSelectedUnitId(ensured[0].id);
+        }
+      } catch {}
+    }
+
+    if (!effectiveUnitId) {
+      setNotice({ text: 'يرجى اختيار وحدة قياس صالحة أو إنشاء وحدة قياس أولاً.', isError: true });
       return;
     }
 
@@ -375,13 +396,6 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     setNotice(null);
 
     try {
-      const effectiveUnit = currentUnitRecord || units[0] || null;
-      const effectiveUnitId = selectedUnitId || effectiveUnit?.id || '';
-      if (!effectiveUnitId) {
-        setNotice({ text: 'يرجى اختيار وحدة قياس صالحة.', isError: true });
-        setSavingMaterial(false);
-        return;
-      }
 
       const materialId = editingMaterial?.id || generateUuid();
       const payload = {
@@ -586,12 +600,14 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     const cleanScanned = code.replace(/^MAT-/i, '').toLowerCase();
 
     const matched = materials.find((m) => {
-      const cleanId = m.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toLowerCase();
+      const idStr = String(m?.id || '');
+      const cleanId = idStr.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toLowerCase();
+      const nameStr = String(m?.name || '').toLowerCase();
       return (
-        m.id.toLowerCase() === code.toLowerCase() ||
+        idStr.toLowerCase() === code.toLowerCase() ||
         cleanId === cleanScanned ||
-        m.name.toLowerCase() === code.toLowerCase() ||
-        code.includes(cleanId)
+        nameStr === code.toLowerCase() ||
+        (cleanId && code.includes(cleanId))
       );
     });
 
@@ -993,12 +1009,14 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
 
       if (onlyLowStock && !isLow) return false;
 
+      const q = (searchQuery || '').toLowerCase().trim();
       const matchesSearch =
-        m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (sup && sup.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (unt && unt.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (catObj && catObj.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (m.market_name && m.market_name.toLowerCase().includes(searchQuery.toLowerCase()));
+        !q ||
+        String(m.name || '').toLowerCase().includes(q) ||
+        (sup && String(sup.name || '').toLowerCase().includes(q)) ||
+        (unt && String(unt.name || '').toLowerCase().includes(q)) ||
+        (catObj && String(catObj.name || '').toLowerCase().includes(q)) ||
+        (m.market_name && String(m.market_name).toLowerCase().includes(q));
 
       if (!matchesSearch) return false;
 
