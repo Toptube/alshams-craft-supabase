@@ -46,6 +46,9 @@ const FAMILY_RESTRICTIONS_FILE = path.resolve(__dirname, 'data/family_restrictio
 const FAMILY_POLL_VOTES_FILE = path.resolve(__dirname, 'data/family_poll_votes.json');
 const FAMILY_REACTIONS_FILE = path.resolve(__dirname, 'data/family_reactions.json');
 const STORE_LAYOUTS_FILE = path.resolve(__dirname, 'data/store_layouts.json');
+const ADMIN_ANNOUNCEMENTS_FILE = path.resolve(__dirname, 'data/admin_announcements.json');
+const ANNOUNCEMENT_RECEIPTS_FILE = path.resolve(__dirname, 'data/announcement_receipts.json');
+const ADMIN_INBOX_READS_FILE = path.resolve(__dirname, 'data/admin_inbox_reads.json');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUuid(val?: string | null): boolean {
@@ -159,6 +162,34 @@ function loadPersistentStoreLayouts(): Record<string, { layoutCols: 1 | 2 | 3; p
 }
 function savePersistentStoreLayouts(map: Record<string, { layoutCols: 1 | 2 | 3; productOrder: string[]; updatedAt: string }>): void {
   writeJsonData(STORE_LAYOUTS_FILE, map);
+}
+
+function loadPersistentAnnouncements(): any[] {
+  return readJsonArray(ADMIN_ANNOUNCEMENTS_FILE);
+}
+function savePersistentAnnouncements(list: any[]): void {
+  writeJsonData(ADMIN_ANNOUNCEMENTS_FILE, list);
+}
+
+function loadPersistentReceipts(): any[] {
+  return readJsonArray(ANNOUNCEMENT_RECEIPTS_FILE);
+}
+function savePersistentReceipts(list: any[]): void {
+  writeJsonData(ANNOUNCEMENT_RECEIPTS_FILE, list);
+}
+
+function loadPersistentAdminInboxReads(): Record<string, string> {
+  try {
+    if (fs.existsSync(ADMIN_INBOX_READS_FILE)) {
+      const raw = fs.readFileSync(ADMIN_INBOX_READS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return {};
+}
+function savePersistentAdminInboxReads(map: Record<string, string>): void {
+  writeJsonData(ADMIN_INBOX_READS_FILE, map);
 }
 
 const DEFAULT_PLATFORM_SETTINGS = {
@@ -1312,8 +1343,51 @@ interface WorkshopStatusRecord {
 }
 
 const localWorkshopStatusMap = new Map<string, WorkshopStatusRecord>();
-const localAnnouncements: any[] = [];
-const localReceipts: any[] = [];
+const localAnnouncements: any[] = loadPersistentAnnouncements();
+const localReceipts: any[] = loadPersistentReceipts();
+
+async function resolveWorkshopLookupMaps(): Promise<{
+  byId: Map<string, any>;
+  byEmail: Map<string, any>;
+}> {
+  const byId = new Map<string, any>();
+  const byEmail = new Map<string, any>();
+
+  const register = (raw: any) => {
+    if (!raw) return;
+    const id = String(raw.id || raw.workshopId || raw.workshop_id || '').trim();
+    const ownerId = String(raw.owner_id || raw.ownerUid || raw.owner_uid || '').trim();
+    const email = String(raw.email || '').trim().toLowerCase();
+    const brandName = String(raw.brand_name || raw.brandName || raw.workshopName || '').trim();
+    const artistName = String(raw.artist_name || raw.artistName || raw.ownerName || '').trim();
+    const phone = String(raw.phone_number || raw.phoneNumber || raw.phone || '').trim();
+
+    const mergeRecord = (prev: any = {}) => ({
+      id: id || prev.id || ownerId || '',
+      brand_name: (brandName && brandName !== 'ورشة الشمساوية' ? brandName : '') || prev.brand_name || brandName || '',
+      artist_name: (artistName && artistName !== 'فنان الشمساوية' ? artistName : '') || prev.artist_name || artistName || '',
+      phone_number: phone || prev.phone_number || '',
+      email: email || prev.email || '',
+    });
+
+    if (id) byId.set(id, mergeRecord(byId.get(id)));
+    if (ownerId) byId.set(ownerId, mergeRecord(byId.get(ownerId)));
+    if (email) byEmail.set(email, mergeRecord(byEmail.get(email)));
+  };
+
+  loadPersistentWorkshops().forEach(register);
+
+  try {
+    const { data: wsRows } = await supabaseAdminClient
+      .from('workshops')
+      .select('id, owner_id, owner_uid, brand_name, artist_name, phone, phone_number, email');
+    if (Array.isArray(wsRows)) {
+      wsRows.forEach(register);
+    }
+  } catch {}
+
+  return { byId, byEmail };
+}
 
 async function checkWorkshopStatusAndAutoUnfreeze(
   client: any,
@@ -2031,6 +2105,7 @@ app.post('/api/admin/announcements', requireAuth, async (req: AuthenticatedReque
   }
 
   localAnnouncements.unshift(newAnn);
+  savePersistentAnnouncements(localAnnouncements);
   res.json({ success: true, cloudSynced, cloudError, announcement: newAnn });
 });
 
@@ -2045,7 +2120,10 @@ app.delete('/api/admin/announcements/:id', requireAuth, async (req: Authenticate
     await client.from('admin_announcements').delete().eq('id', annId);
   } catch {}
   const idx = localAnnouncements.findIndex((a) => a.id === annId);
-  if (idx >= 0) localAnnouncements.splice(idx, 1);
+  if (idx >= 0) {
+    localAnnouncements.splice(idx, 1);
+    savePersistentAnnouncements(localAnnouncements);
+  }
   res.json({ success: true });
 });
 
@@ -2053,10 +2131,27 @@ app.delete('/api/admin/announcements/:id', requireAuth, async (req: Authenticate
 app.post('/api/announcements/:id/receipt', async (req: Request, res: Response) => {
   const wid = (req.body?.workshopId || req.headers['x-workshop-id'] || (req as any).workshopId || '') as string;
   const messageId = req.params.id;
-  const { action, reply_text } = req.body || {};
+  const { action, reply_text, brandName, artistName, phoneNumber, email } = req.body || {};
 
   const client = supabaseAdminClient;
   const nowIso = new Date().toISOString();
+
+  // Resolve full workshop metadata so replies never appear as "مرسل خارجي"
+  const normalizedEmail = String(email || req.headers['x-user-email'] || '').trim().toLowerCase();
+  const { byId, byEmail } = await resolveWorkshopLookupMaps();
+  const lookupWs = (wid && byId.get(wid)) || (normalizedEmail && byEmail.get(normalizedEmail)) || null;
+  const resolvedBrandName =
+    String(brandName || '').trim() ||
+    lookupWs?.brand_name ||
+    '';
+  const resolvedArtistName =
+    String(artistName || '').trim() ||
+    lookupWs?.artist_name ||
+    '';
+  const resolvedPhone =
+    String(phoneNumber || '').trim() ||
+    lookupWs?.phone_number ||
+    '';
 
   const receiptUpdate: any = {};
   if (action === 'read') {
@@ -2105,13 +2200,37 @@ app.post('/api/announcements/:id/receipt', async (req: Request, res: Response) =
     } catch {}
   }
 
+  const localPayload = {
+    ...receiptUpdate,
+    ...(resolvedBrandName ? { brand_name: resolvedBrandName, workshop_name: resolvedBrandName } : {}),
+    ...(resolvedArtistName ? { artist_name: resolvedArtistName } : {}),
+    ...(resolvedPhone ? { phone_number: resolvedPhone } : {}),
+    ...(normalizedEmail ? { email: normalizedEmail } : {}),
+  };
+
   const existingIdx = localReceipts.findIndex(
     (r) => r.message_id === messageId && r.workshop_id === wid
   );
   if (existingIdx >= 0) {
-    localReceipts[existingIdx] = { ...localReceipts[existingIdx], ...receiptUpdate };
+    localReceipts[existingIdx] = { ...localReceipts[existingIdx], ...localPayload };
   } else {
-    localReceipts.push({ message_id: messageId, workshop_id: wid, ...receiptUpdate });
+    localReceipts.push({
+      id: `${messageId}_${wid}`,
+      message_id: messageId,
+      workshop_id: wid,
+      ...localPayload,
+    });
+  }
+  savePersistentReceipts(localReceipts);
+
+  // If a new reply arrived, ensure Super Admin sees it as unread in Mail Inbox
+  if (action === 'reply') {
+    const readsMap = loadPersistentAdminInboxReads();
+    const inboxKey = `${messageId}_${wid}`;
+    if (readsMap[inboxKey]) {
+      delete readsMap[inboxKey];
+      savePersistentAdminInboxReads(readsMap);
+    }
   }
 
   res.json({ success: true, cloudSynced, receipt: receiptUpdate });
@@ -2124,15 +2243,26 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
-  const client = getDbClient(req);
-  let dbReceipts: any[] = [];
-  try {
-    const { data: receipts } = await client
-      .from('workshop_messages_receipts')
-      .select('*, admin_announcements(*), workshops(id, brand_name, artist_name, phone, phone_number, email)')
-      .not('reply_text', 'is', null)
-      .order('replied_at', { ascending: false });
+  const { byId, byEmail } = await resolveWorkshopLookupMaps();
+  const readsMap = loadPersistentAdminInboxReads();
 
+  let dbReceipts: any[] = [];
+  let dbAnnouncementsMap = new Map<string, any>();
+  try {
+    const [{ data: receipts }, { data: anns }] = await Promise.all([
+      supabaseAdminClient
+        .from('workshop_messages_receipts')
+        .select('*, admin_announcements(*), workshops(id, brand_name, artist_name, phone, phone_number, email)')
+        .not('reply_text', 'is', null)
+        .order('replied_at', { ascending: false }),
+      supabaseAdminClient
+        .from('admin_announcements')
+        .select('*'),
+    ]);
+
+    if (Array.isArray(anns)) {
+      anns.forEach((a: any) => dbAnnouncementsMap.set(a.id, a));
+    }
     if (Array.isArray(receipts)) {
       dbReceipts = receipts;
     }
@@ -2140,49 +2270,173 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
     // ignore
   }
 
+  const enrichReceipt = (r: any) => {
+    const localRec = localReceipts.find(
+      (lr) => lr.message_id === r.message_id && lr.workshop_id === r.workshop_id
+    );
+    const rEmail = String(r.email || r.workshops?.email || localRec?.email || '').trim().toLowerCase();
+    const wsLookup =
+      (r.workshop_id && byId.get(r.workshop_id)) ||
+      (rEmail && byEmail.get(rEmail)) ||
+      null;
+
+    const resolvedBrand =
+      wsLookup?.brand_name ||
+      r.workshops?.brand_name ||
+      r.brand_name ||
+      localRec?.brand_name ||
+      r.workshop_name ||
+      localRec?.workshop_name ||
+      (r.workshop_id ? 'ورشة حرفية بالشمساوية' : 'زائر المنظومة');
+
+    const resolvedArtist =
+      wsLookup?.artist_name ||
+      r.workshops?.artist_name ||
+      r.artist_name ||
+      localRec?.artist_name ||
+      (r.workshop_id ? 'صاحب الورشة' : 'زائر خارجي');
+
+    const resolvedPhone =
+      wsLookup?.phone_number ||
+      r.workshops?.phone_number ||
+      r.workshops?.phone ||
+      r.phone_number ||
+      localRec?.phone_number ||
+      '';
+
+    const resolvedAnn =
+      r.admin_announcements ||
+      dbAnnouncementsMap.get(r.message_id) ||
+      localAnnouncements.find((a) => a.id === r.message_id) ||
+      null;
+
+    const inboxKey = r.message_id && r.workshop_id ? `${r.message_id}_${r.workshop_id}` : String(r.id || '');
+    const readTimestamp = readsMap[inboxKey] || readsMap[String(r.id || '')] || null;
+    const isUnreadAfterRead =
+      readTimestamp && r.replied_at
+        ? new Date(r.replied_at).getTime() > new Date(readTimestamp).getTime()
+        : false;
+
+    return {
+      ...r,
+      id: r.id || inboxKey,
+      inbox_key: inboxKey,
+      brand_name: resolvedBrand,
+      workshop_name: resolvedBrand,
+      artist_name: resolvedArtist,
+      phone_number: resolvedPhone,
+      admin_announcements: resolvedAnn,
+      admin_read_at: isUnreadAfterRead ? null : readTimestamp,
+      workshops: {
+        id: r.workshop_id || wsLookup?.id || r.workshops?.id || null,
+        brand_name: resolvedBrand,
+        artist_name: resolvedArtist,
+        phone_number: resolvedPhone,
+        email: rEmail || wsLookup?.email || r.workshops?.email || '',
+      },
+    };
+  };
+
+  const enrichedDbReceipts = dbReceipts.map(enrichReceipt);
+
   const feedbackItems = loadPersistentFeedback().map((fb: any) => {
     const isStorefront = fb.source === 'artisan_storefront';
-    const storeTag = fb.workshopName ? `متجر ${fb.workshopName}` : 'متجر فنان';
+    const wsLookup = fb.workshopId ? byId.get(fb.workshopId) : null;
+    const resolvedBrand =
+      wsLookup?.brand_name ||
+      (fb.workshopName ? fb.workshopName : isStorefront ? 'متجر فنان' : fb.name);
+    const resolvedArtist =
+      wsLookup?.artist_name ||
+      fb.name ||
+      fb.craft ||
+      (isStorefront ? 'صاحب المتجر' : 'زائر للمنظومة');
+    const storeTag = resolvedBrand ? `متجر ${resolvedBrand}` : 'متجر فنان';
+    const readTimestamp = readsMap[String(fb.id)] || null;
+
     return {
       id: fb.id,
+      inbox_key: String(fb.id),
       message_id: isStorefront ? 'storefront_support' : 'public_feedback',
       workshop_id: fb.workshopId || null,
+      brand_name: isStorefront ? storeTag : resolvedBrand,
       workshop_name: isStorefront
-        ? `${fb.name} — ${storeTag}`
+        ? `${resolvedArtist} — ${storeTag}`
         : `${fb.name} (${fb.craft || 'زائر'})`,
+      artist_name: resolvedArtist,
+      phone_number: fb.contact || wsLookup?.phone_number || '',
       reply_text: isStorefront
         ? `[شكوى / استفسار من ${storeTag}] التصنيف: ${fb.craft || 'عام'} | المرسل: ${fb.name} | التواصل: ${fb.contact || 'غير محدد'}\n\n${fb.message}`
         : `[رأي ومقترح من صفحة الهبوط] الاسم: ${fb.name} (${fb.craft || 'مشغولات يدوية'}) | التقييم: ${fb.rating || 5}/5 نجوم | التواصل: ${fb.contact || 'غير محدد'}\n\n${fb.message}`,
       replied_at: fb.created_at,
+      admin_read_at: readTimestamp,
       admin_announcements: {
         title: isStorefront
           ? `📩 دعم فني وشكاوى المتاجر (${storeTag})`
           : '⭐ رأي / رسالة زائر من صفحة الهبوط',
       },
       workshops: {
-        brand_name: isStorefront ? storeTag : fb.name,
-        artist_name: fb.name || fb.craft || 'زائر للمنظومة',
-        phone_number: fb.contact || '',
+        id: fb.workshopId || null,
+        brand_name: isStorefront ? storeTag : resolvedBrand,
+        artist_name: resolvedArtist,
+        phone_number: fb.contact || wsLookup?.phone_number || '',
       },
     };
   });
 
   const localReplies = localReceipts
     .filter((r) => r.reply_text && !dbReceipts.some((d) => d.message_id === r.message_id && d.workshop_id === r.workshop_id))
-    .map((r) => {
-      const ann = localAnnouncements.find((a) => a.id === r.message_id);
-      return {
-        ...r,
-        admin_announcements: ann,
-        workshop_name: r.workshop_name || 'ورشة الشمساوية',
-      };
-    });
+    .map(enrichReceipt);
 
-  const combined = [...dbReceipts, ...feedbackItems, ...localReplies].sort(
+  const combined = [...enrichedDbReceipts, ...feedbackItems, ...localReplies].sort(
     (a, b) => new Date(b.replied_at || b.created_at || 0).getTime() - new Date(a.replied_at || a.created_at || 0).getTime()
   );
 
-  res.json({ inbox: combined });
+  const unreadCount = combined.filter((item) => !item.admin_read_at).length;
+  res.json({ inbox: combined, unreadCount });
+});
+
+app.post('/api/admin/inbox/mark-read', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+
+  const { ids, markAll } = req.body || {};
+  const readsMap = loadPersistentAdminInboxReads();
+  const nowIso = new Date().toISOString();
+
+  if (Array.isArray(ids)) {
+    ids.forEach((id: string) => {
+      if (id) readsMap[String(id)] = nowIso;
+    });
+  }
+
+  if (markAll || !Array.isArray(ids) || ids.length === 0) {
+    try {
+      const { data: receipts } = await supabaseAdminClient
+        .from('workshop_messages_receipts')
+        .select('id, message_id, workshop_id')
+        .not('reply_text', 'is', null);
+      (receipts || []).forEach((r: any) => {
+        if (r.message_id && r.workshop_id) readsMap[`${r.message_id}_${r.workshop_id}`] = nowIso;
+        if (r.id) readsMap[String(r.id)] = nowIso;
+      });
+    } catch {}
+
+    localReceipts.forEach((r) => {
+      if (r.reply_text) {
+        if (r.message_id && r.workshop_id) readsMap[`${r.message_id}_${r.workshop_id}`] = nowIso;
+        if (r.id) readsMap[String(r.id)] = nowIso;
+      }
+    });
+
+    loadPersistentFeedback().forEach((fb: any) => {
+      if (fb?.id) readsMap[String(fb.id)] = nowIso;
+    });
+  }
+
+  savePersistentAdminInboxReads(readsMap);
+  res.json({ success: true, unreadCount: 0 });
 });
 
 // 10. Public Feedback, Proposals & Storefront Direct Admin Support Endpoint

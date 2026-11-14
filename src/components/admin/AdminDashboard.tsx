@@ -352,6 +352,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   // Messaging Hub State
   const [announcementsList, setAnnouncementsList] = useState<any[]>([]);
   const [inboxList, setInboxList] = useState<any[]>([]);
+  const [unreadInboxCount, setUnreadInboxCount] = useState<number>(0);
   const [newAnnTitle, setNewAnnTitle] = useState('');
   const [newAnnContent, setNewAnnContent] = useState('');
   const [newAnnRecipientType, setNewAnnRecipientType] = useState<'all' | 'specific'>('all');
@@ -1222,11 +1223,33 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       }
       if (inboxRes.ok) {
         const data = await inboxRes.json();
-        setInboxList(data.inbox || []);
+        const items = data.inbox || [];
+        setInboxList(items);
+        setUnreadInboxCount(
+          typeof data.unreadCount === 'number'
+            ? data.unreadCount
+            : items.filter((m: any) => !m.admin_read_at).length
+        );
       }
     } catch (e) {
       console.warn('Load messaging hub warning:', e);
     }
+  }, [isAdmin, profile.email]);
+
+  const markInboxAllRead = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const headers = await getAdminAuthHeaders(true);
+      await fetch('/api/admin/inbox/mark-read', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ markAll: true }),
+      });
+      const nowIso = new Date().toISOString();
+      setInboxList((prev) => prev.map((m) => ({ ...m, admin_read_at: m.admin_read_at || nowIso })));
+      setUnreadInboxCount(0);
+      window.dispatchEvent(new CustomEvent('alshams_admin_inbox_changed'));
+    } catch {}
   }, [isAdmin, profile.email]);
 
   // Load Central Marketplace Cloud Products for Super Admin Review
@@ -1341,11 +1364,16 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     const onAlertsChanged = () => {
       loadAdminNotifications();
     };
+    const onInboxChanged = () => {
+      loadMessagingHub();
+    };
     window.addEventListener('alshams_admin_alerts_changed', onAlertsChanged);
+    window.addEventListener('alshams_admin_inbox_changed', onInboxChanged);
     return () => {
       window.removeEventListener('alshams_admin_alerts_changed', onAlertsChanged);
+      window.removeEventListener('alshams_admin_inbox_changed', onInboxChanged);
     };
-  }, [loadAdminNotifications]);
+  }, [loadAdminNotifications, loadMessagingHub]);
 
   // 2. Realtime Subscriptions (Workshops, Marketplace Products, Join Applications, Announcements, Replies)
   useEffect(() => {
@@ -1438,16 +1466,18 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         const newReceipt = payload.new as any;
         if (newReceipt?.reply_text) {
           playPostaNotificationSound();
-          setRealtimeToast(`✉️ استلمت رداً جديداً من ورشة عبر مركز المراسلات!`);
+          setRealtimeToast(`✉️ وصلتك رسالة بريد جديدة في صندوق الوارد!`);
           adminRealtimeCallbacksRef.current.loadMessagingHub();
+          window.dispatchEvent(new CustomEvent('alshams_admin_inbox_changed'));
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'workshop_messages_receipts' }, (payload) => {
         const updReceipt = payload.new as any;
         if (updReceipt?.reply_text) {
           playPostaNotificationSound();
-          setRealtimeToast(`✉️ استلمت رداً جديداً من ورشة عبر مركز المراسلات!`);
+          setRealtimeToast(`✉️ وصلتك رسالة بريد جديدة في صندوق الوارد!`);
           adminRealtimeCallbacksRef.current.loadMessagingHub();
+          window.dispatchEvent(new CustomEvent('alshams_admin_inbox_changed'));
         }
       })
       .subscribe();
@@ -1891,7 +1921,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
   // 6c. Direct Reply to Workshop Inbox Message
   const handleSendDirectReply = async (targetMsg: any) => {
-    if (!targetMsg?.workshop_id || !isValidUuid(targetMsg.workshop_id)) {
+    const targetWid = targetMsg?.workshop_id || targetMsg?.workshops?.id || '';
+    if (!targetWid || !isValidUuid(targetWid)) {
       showError('لا يوجد معرف ورشة صالح للرد الداخلي — استخدم واتساب للتواصل الخارجي.');
       return;
     }
@@ -1907,7 +1938,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         headers,
         body: JSON.stringify({
           recipient_type: 'specific',
-          recipient_workshop_id: targetMsg.workshop_id,
+          recipient_workshop_id: targetWid,
+          recipient_workshop_name: targetMsg?.workshops?.brand_name || targetMsg?.brand_name || '',
           title: `✉️ رد إداري مباشر على استفساركم`,
           content: directReplyContent.trim(),
         }),
@@ -2230,22 +2262,24 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               )}
             </button>
 
-            {/* Top Messages Icon: switches directly to Admin Messaging Hub */}
+            {/* Top Messages Icon: opens Admin Inbox & Mail Center directly */}
             <button
               type="button"
               onClick={() => {
                 setActiveExecutiveTab('messaging');
+                loadMessagingHub();
+                markInboxAllRead();
                 setTimeout(() => {
-                  document.getElementById('admin-messaging-hub')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }, 80);
+                  document.getElementById('admin-inbox-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 100);
               }}
               className="relative p-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition cursor-pointer shadow-xs"
-              title="مركز المراسلات الحية وإرسال رسائل للورش"
+              title="صندوق البريد الوارد وردود الفنانين"
             >
               <Mail size={17} className="text-amber-400" />
-              {inboxList.length > 0 && (
+              {(unreadInboxCount > 0 || inboxList.length > 0) && (
                 <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-[#1E3A8A] text-white rounded-full text-[10px] font-black font-mono">
-                  {inboxList.length}
+                  {unreadInboxCount > 0 ? unreadInboxCount : inboxList.length}
                 </span>
               )}
             </button>
@@ -2363,6 +2397,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           onClick={() => {
             setActiveExecutiveTab('messaging');
             loadMessagingHub();
+            markInboxAllRead();
+            setTimeout(() => {
+              document.getElementById('admin-inbox-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
           }}
           className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-blue-500 transition flex items-center justify-between text-right shadow-xs cursor-pointer"
         >
@@ -2722,7 +2760,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
           <button
             type="button"
-            onClick={() => setActiveExecutiveTab('messaging')}
+            onClick={() => {
+              setActiveExecutiveTab('messaging');
+              loadMessagingHub();
+              markInboxAllRead();
+            }}
             className={`flex-1 min-w-[140px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
               activeExecutiveTab === 'messaging'
                 ? 'bg-white dark:bg-stone-900 text-blue-700 dark:text-blue-400 shadow-sm'
@@ -2731,9 +2773,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           >
             <Mail size={15} />
             <span>المراسلات الحية</span>
-            {inboxList.length > 0 && (
+            {(unreadInboxCount > 0 || inboxList.length > 0) && (
               <span className="px-1.5 py-0.2 bg-blue-600 text-white rounded-full text-[9px] font-mono font-black">
-                {inboxList.length}
+                {unreadInboxCount > 0 ? unreadInboxCount : inboxList.length}
               </span>
             )}
           </button>
@@ -3435,7 +3477,147 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         {/* Tab 6: In-App Messaging Hub (المراسلات التفاعلية والرسائل الحية) */}
         {activeExecutiveTab === 'messaging' && (
           <div id="admin-messaging-hub" className="space-y-6 animate-in fade-in">
-            {/* 1. Compose Announcement */}
+            {/* 1. Admin Inbox FIRST so clicking Messages always reveals artist replies immediately */}
+            <div id="admin-inbox-section" className="p-5 rounded-2xl bg-blue-50/40 dark:bg-stone-850 border border-blue-200/80 dark:border-stone-800 space-y-3">
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-blue-200/60 dark:border-stone-800 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-5 h-5 text-blue-700 dark:text-blue-400" />
+                  <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
+                    صندوق البريد الوارد — ردود الفنانين ورسائل الدعم ({inboxList.length})
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  {unreadInboxCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={markInboxAllRead}
+                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-black cursor-pointer"
+                    >
+                      تحديد الكل كمقروء
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={loadMessagingHub}
+                    className="p-1.5 rounded-lg text-stone-500 hover:text-blue-600 cursor-pointer"
+                    title="تحديث صندوق الوارد"
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {inboxList.length === 0 ? (
+                <div className="p-8 text-center text-stone-500 dark:text-stone-400 text-xs font-bold">
+                  لا توجد ردود أو استفسارات واردة من الفنانين حتى الآن.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {inboxList.map((msg, idx) => {
+                    const msgKey = msg.id || msg.inbox_key || String(idx);
+                    const isReplyingHere = directReplyTarget?.id === msg.id && msg.id;
+                    const resolvedWid = msg.workshop_id || msg.workshops?.id || '';
+                    const canDirectReply = Boolean(resolvedWid && isValidUuid(resolvedWid));
+                    const resolvedBrand =
+                      msg.workshops?.brand_name ||
+                      msg.brand_name ||
+                      msg.workshop_name ||
+                      (resolvedWid ? 'ورشة بالشمساوية' : 'زائر المنظومة');
+                    const resolvedArtist =
+                      msg.workshops?.artist_name ||
+                      msg.artist_name ||
+                      (resolvedWid ? 'صاحب الورشة' : 'زائر خارجي');
+                    const phoneDigits = String(msg.workshops?.phone_number || msg.phone_number || '').replace(/\D/g, '');
+                    const waDigits = phoneDigits.startsWith('01') ? `2${phoneDigits}` : phoneDigits;
+
+                    return (
+                      <div
+                        key={msgKey}
+                        className={`p-4 rounded-2xl border space-y-2 shadow-xs ${
+                          !msg.admin_read_at
+                            ? 'bg-white dark:bg-stone-900 border-blue-400 dark:border-blue-600'
+                            : 'bg-white dark:bg-stone-850 border-stone-200 dark:border-stone-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap font-black text-xs sm:text-sm text-stone-900 dark:text-stone-100">
+                            <span>{resolvedBrand}</span>
+                            <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
+                              صاحب الورشة: {resolvedArtist}
+                            </span>
+                            {!msg.admin_read_at && (
+                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-blue-600 text-white">
+                                جديد
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-stone-400 font-mono">
+                            {msg.replied_at ? new Date(msg.replied_at).toLocaleString('ar-EG') : ''}
+                          </span>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-750 text-xs font-bold text-stone-800 dark:text-stone-200 whitespace-pre-wrap">
+                          "{msg.reply_text}"
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+                          {canDirectReply && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDirectReplyTarget(isReplyingHere ? null : msg);
+                                setDirectReplyContent('');
+                              }}
+                              className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                            >
+                              <Send size={12} />
+                              <span>رد عبر المنظومة ✉️</span>
+                            </button>
+                          )}
+
+                          {waDigits && (
+                            <a
+                              href={`https://wa.me/${waDigits}?text=${encodeURIComponent(`أهلاً يا ${resolvedArtist} (${resolvedBrand})، بخصوص ردكم في منظومة الشمساوية`)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1"
+                            >
+                              <MessageCircle size={12} />
+                              <span>رد عبر واتساب</span>
+                            </a>
+                          )}
+                          <span className="text-[11px] text-stone-400">
+                            بخصوص رسالة: {msg.admin_announcements?.title || 'إعلان إداري'}
+                          </span>
+                        </div>
+
+                        {isReplyingHere && (
+                          <div className="pt-2 border-t border-stone-200 dark:border-stone-800 flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={directReplyContent}
+                              onChange={(e) => setDirectReplyContent(e.target.value)}
+                              placeholder={`اكتب ردك الرسمي لورشة ${resolvedBrand}...`}
+                              className="flex-1 px-3 py-2 rounded-xl border border-amber-400 bg-stone-50 dark:bg-stone-900 text-xs font-bold outline-none"
+                            />
+                            <button
+                              type="button"
+                              disabled={sendingAnnouncement}
+                              onClick={() => handleSendDirectReply(msg)}
+                              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs cursor-pointer"
+                            >
+                              إرسال الرد
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 2. Compose Announcement */}
             <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -3577,7 +3759,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               </form>
             </div>
 
-            {/* 1.5 Sent Announcements Log & Read/Acknowledge Analytics */}
+            {/* 3. Sent Announcements Log & Read/Acknowledge Analytics */}
             <div className="space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-800">
                 <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
@@ -3656,105 +3838,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                       )}
                     </div>
                   ))}
-                </div>
-              )}
-            </div>
-
-            {/* 2. Admin Inbox (Artisans Replies & Public Feedback) */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-800">
-                <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
-                  صندوق الوارد (Admin Inbox) — ردود الفنانين ورسائل البوابة العامة
-                </h3>
-                <span className="text-xs font-mono font-bold text-stone-500">
-                  {inboxList.length} رسالة واردة
-                </span>
-              </div>
-
-              {inboxList.length === 0 ? (
-                <div className="p-8 text-center text-stone-400 text-xs font-bold">
-                  لا توجد ردود أو استفسارات واردة من الفنانين حتى الآن.
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {inboxList.map((msg, idx) => {
-                    const msgKey = msg.id || String(idx);
-                    const isReplyingHere = directReplyTarget?.id === msg.id && msg.id;
-                    const canDirectReply = Boolean(msg.workshop_id && isValidUuid(msg.workshop_id));
-                    return (
-                      <div
-                        key={msgKey}
-                        className="p-4 rounded-2xl bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-2 shadow-xs"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="font-black text-xs sm:text-sm text-stone-900 dark:text-stone-100">
-                            {msg.workshops?.brand_name || msg.workshop_name || 'زائر المنظومة'}
-                            <span className="text-xs font-normal text-stone-500 mr-1.5">
-                              ({msg.workshops?.artist_name || 'مرسل خارجي'})
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-stone-400 font-mono">
-                            {msg.replied_at ? new Date(msg.replied_at).toLocaleString('ar-EG') : ''}
-                          </span>
-                        </div>
-
-                        <div className="p-3 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-750 text-xs font-bold text-stone-800 dark:text-stone-200">
-                          "{msg.reply_text}"
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                          {canDirectReply && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDirectReplyTarget(isReplyingHere ? null : msg);
-                                setDirectReplyContent('');
-                              }}
-                              className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-                            >
-                              <Send size={12} />
-                              <span>رد عبر المنظومة ✉️</span>
-                            </button>
-                          )}
-
-                          {msg.workshops?.phone_number && (
-                            <a
-                              href={`https://wa.me/${msg.workshops.phone_number.replace(/\D/g, '')}?text=${encodeURIComponent('بخصوص ردكم الأخير على منظومة الشمساوية')}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1"
-                            >
-                              <MessageCircle size={12} />
-                              <span>رد عبر واتساب</span>
-                            </a>
-                          )}
-                          <span className="text-[11px] text-stone-400">
-                            بخصوص رسالة: {msg.admin_announcements?.title || 'إعلان إداري'}
-                          </span>
-                        </div>
-
-                        {isReplyingHere && (
-                          <div className="pt-2 border-t border-stone-200 dark:border-stone-800 flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={directReplyContent}
-                              onChange={(e) => setDirectReplyContent(e.target.value)}
-                              placeholder="اكتب ردك الرسمي ليصل لصندوق بريد الورشة..."
-                              className="flex-1 px-3 py-2 rounded-xl border border-amber-400 bg-stone-50 dark:bg-stone-900 text-xs font-bold outline-none"
-                            />
-                            <button
-                              type="button"
-                              disabled={sendingAnnouncement}
-                              onClick={() => handleSendDirectReply(msg)}
-                              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs cursor-pointer"
-                            >
-                              إرسال الرد
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
                 </div>
               )}
             </div>

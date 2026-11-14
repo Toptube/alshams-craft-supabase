@@ -898,20 +898,20 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       )}
 
       {/* 4. Global E-Commerce Product Grid */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-2">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-2">
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-5">
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
                 className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden animate-pulse"
               >
                 <div className="w-full aspect-[4/3] bg-[#E9E2D4] dark:bg-[#132040]" />
-                <div className="p-4 space-y-3">
+                <div className="p-2.5 sm:p-4 space-y-2.5 sm:space-y-3">
                   <div className="h-3 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-1/2" />
                   <div className="h-4 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-4/5" />
                   <div className="h-5 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-1/3" />
-                  <div className="h-9 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded-xl w-full" />
+                  <div className="h-8 sm:h-9 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded-xl w-full" />
                 </div>
               </div>
             ))}
@@ -936,7 +936,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-5">
             {filteredProducts.map((p) => {
               const hasStock = (p.currentStock || 0) > 0;
               const price = p.storePrice || p.retailPrice || 0;
@@ -950,9 +950,9 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 <article
                   key={p.id}
                   onClick={() => handleOpenProductDetails(p)}
-                  className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 transition-all duration-200 flex flex-col justify-between cursor-pointer group hover:-translate-y-0.5 hover:shadow-lg"
+                  className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 transition-all duration-200 flex flex-col justify-between cursor-pointer group hover:-translate-y-0.5 hover:shadow-lg min-w-0"
                 >
-                  <div>
+                  <div className="min-w-0">
                     {/* Product Image (clean photography, no pill overlays) */}
                     <div className="w-full aspect-[4/3] bg-[#E9E2D4] dark:bg-[#132040] overflow-hidden border-b border-[#D4CCBC]/70 dark:border-[#22355E]">
                       <img
@@ -968,31 +968,31 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     </div>
 
                     {/* Card Details */}
-                    <div className="p-4 space-y-2">
+                    <div className="p-2.5 sm:p-4 space-y-1.5 sm:space-y-2">
                       {/* Unboxed Metadata + Rating */}
-                      <div className="flex items-center justify-between gap-2 text-xs text-[#475569] dark:text-[#94A3B8]">
+                      <div className="flex items-center justify-between gap-1.5 text-[10px] sm:text-xs text-[#475569] dark:text-[#94A3B8]">
                         <span className="truncate font-medium">
-                          {p.craftName || p.category} · {hasStock ? 'متوفر' : 'تنفيذ بالطلب'}
+                          {p.craftName || p.category} · {hasStock ? 'متوفر' : 'بالطلب'}
                         </span>
-                        <span className="flex items-center gap-1 font-mono tabular-nums text-[#0C1427] dark:text-[#F7F3EA] font-bold shrink-0">
-                          <Star className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
+                        <span className="flex items-center gap-0.5 sm:gap-1 font-mono tabular-nums text-[#0C1427] dark:text-[#F7F3EA] font-bold shrink-0">
+                          <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
                           <span>{avgRating}</span>
                         </span>
                       </div>
 
-                      <h3 className="font-bold text-sm sm:text-base text-[#0C1427] dark:text-[#F7F3EA] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
+                      <h3 className="font-bold text-xs sm:text-base text-[#0C1427] dark:text-[#F7F3EA] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
                         {p.productName}
                       </h3>
 
                       {p.storeDescription && (
-                        <p className="text-xs text-[#334155] dark:text-[#CBD5E1] line-clamp-1">
+                        <p className="text-[11px] sm:text-xs text-[#334155] dark:text-[#CBD5E1] line-clamp-1">
                           {p.storeDescription}
                         </p>
                       )}
 
                       {/* Super Admin ONLY: Quiet internal ownership line (completely hidden from customers) */}
                       {isSuperAdmin && (
-                        <p className="text-[11px] font-bold text-[#C2410C] dark:text-[#FBBF24] truncate pt-0.5">
+                        <p className="text-[10px] sm:text-[11px] font-bold text-[#C2410C] dark:text-[#FBBF24] truncate pt-0.5">
                           الورشة: {p.brandName || 'الشمساوية'} · {p.artistName || 'فنان'}
                         </p>
                       )}
@@ -1000,12 +1000,12 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   </div>
 
                   {/* Aligned Price & CTA Footer */}
-                  <div className="px-4 pb-4 pt-1 space-y-3">
+                  <div className="px-2.5 pb-2.5 sm:px-4 sm:pb-4 pt-1 space-y-2 sm:space-y-3">
                     <div className="flex items-baseline gap-1 font-mono tabular-nums">
-                      <span className="text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                      <span className="text-sm sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
                         {price.toLocaleString('ar-EG')}
                       </span>
-                      <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">ج.م</span>
+                      <span className="text-[10px] sm:text-xs font-bold text-[#475569] dark:text-[#94A3B8]">ج.م</span>
                     </div>
 
                     <button
@@ -1014,10 +1014,10 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         e.stopPropagation();
                         handleAddToCart(p, 1);
                       }}
-                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                      className="w-full py-2 px-2.5 sm:py-2.5 sm:px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 transition active:scale-95 cursor-pointer"
                     >
-                      <ShoppingBag className="w-4 h-4" />
-                      <span>أضف للسلة</span>
+                      <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                      <span className="truncate">أضف للسلة</span>
                     </button>
                   </div>
                 </article>

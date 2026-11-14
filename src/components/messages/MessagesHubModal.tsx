@@ -102,7 +102,14 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
           return fetch(`/api/announcements/${encodeURIComponent(a.id)}/receipt`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ action: 'read', workshopId: effectiveWorkshopId }),
+            body: JSON.stringify({
+              action: 'read',
+              workshopId: effectiveWorkshopId,
+              brandName: profile?.brandName || workshopName || '',
+              artistName: profile?.artistName || '',
+              phoneNumber: profile?.phoneNumber || '',
+              email: profile?.email || '',
+            }),
           });
         })
       );
@@ -130,7 +137,14 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
       const res = await fetch(`/api/announcements/${encodeURIComponent(messageId)}/receipt`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ action: 'acknowledge', workshopId: effectiveWorkshopId }),
+        body: JSON.stringify({
+          action: 'acknowledge',
+          workshopId: effectiveWorkshopId,
+          brandName: profile?.brandName || workshopName || '',
+          artistName: profile?.artistName || '',
+          phoneNumber: profile?.phoneNumber || '',
+          email: profile?.email || '',
+        }),
       });
       if (res.ok) {
         playSuccessSound();
@@ -157,6 +171,10 @@ export const MessagesHubModal: React.FC<MessagesHubModalProps> = ({
           action: 'reply',
           reply_text: replyText.trim(),
           workshopId: effectiveWorkshopId,
+          brandName: profile?.brandName || workshopName || '',
+          artistName: profile?.artistName || '',
+          phoneNumber: profile?.phoneNumber || '',
+          email: profile?.email || '',
         }),
       });
       if (res.ok) {

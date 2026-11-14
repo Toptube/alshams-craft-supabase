@@ -297,6 +297,7 @@ export const App: React.FC = () => {
     return !localStorage.getItem('alshams_permissions_prompted');
   });
   const [announcements, setAnnouncements] = useState<(AdminAnnouncement & { receipt?: WorkshopMessageReceipt })[]>([]);
+  const [adminInboxUnreadCount, setAdminInboxUnreadCount] = useState<number>(0);
 
   // Super Admin Multi-Tenant Workshop Switcher Context
   const [switchedWorkshopContext, setSwitchedWorkshopContext] = useState<any | null>(null);
@@ -695,23 +696,56 @@ export const App: React.FC = () => {
     } catch {}
   }, [profile?.email]);
 
+  const loadAdminInboxUnreadCount = useCallback(async () => {
+    if (!profile || !isUserAdmin(profile) || switchedWorkshopContext) {
+      setAdminInboxUnreadCount(0);
+      return;
+    }
+    try {
+      const headers: Record<string, string> = {
+        'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+      };
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.access_token) {
+          headers['Authorization'] = `Bearer ${data.session.access_token}`;
+        }
+      } catch {}
+      const res = await fetch('/api/admin/inbox', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.unreadCount === 'number') {
+          setAdminInboxUnreadCount(data.unreadCount);
+        } else if (Array.isArray(data.inbox)) {
+          setAdminInboxUnreadCount(data.inbox.filter((m: any) => !m.admin_read_at).length);
+        }
+      }
+    } catch {}
+  }, [profile?.email, profile?.role, switchedWorkshopContext]);
+
   // Initial and periodic check on profile mount
   useEffect(() => {
     if (profile?.id) {
       checkWorkshopStatus();
       loadAnnouncements();
       loadAdminAlerts();
+      loadAdminInboxUnreadCount();
     }
     const handleAdminAlertsChanged = () => {
       loadAdminAlerts();
     };
+    const handleAdminInboxChanged = () => {
+      loadAdminInboxUnreadCount();
+    };
     window.addEventListener('alshams_admin_alerts_changed', handleAdminAlertsChanged);
+    window.addEventListener('alshams_admin_inbox_changed', handleAdminInboxChanged);
     return () => {
       window.removeEventListener('alshams_admin_alerts_changed', handleAdminAlertsChanged);
+      window.removeEventListener('alshams_admin_inbox_changed', handleAdminInboxChanged);
     };
-  }, [profile?.id, profile?.workshopId, checkWorkshopStatus, loadAnnouncements, loadAdminAlerts]);
+  }, [profile?.id, profile?.workshopId, checkWorkshopStatus, loadAnnouncements, loadAdminAlerts, loadAdminInboxUnreadCount]);
 
-  // Realtime subscription for incoming announcements and status changes
+  // Realtime subscription for incoming announcements, artist replies, and status changes
   useEffect(() => {
     if (!profile) return;
     const wid = profile.workshopId || profile.id;
@@ -725,8 +759,10 @@ export const App: React.FC = () => {
         { event: 'INSERT', schema: 'public', table: 'admin_announcements' },
         (payload) => {
           const newAnn = payload.new as any;
-          if (newAnn.recipient_type === 'all' || newAnn.recipient_workshop_id === wid) {
-            playPostaNotificationSound();
+          if (newAnn?.recipient_type !== 'super_admin_alert' && (newAnn.recipient_type === 'all' || newAnn.recipient_workshop_id === wid)) {
+            if (!isUserAdmin(profile) || switchedWorkshopContext) {
+              playPostaNotificationSound();
+            }
             loadAnnouncements();
           }
         }
@@ -744,16 +780,39 @@ export const App: React.FC = () => {
       )
       .subscribe();
 
+    const adminInboxChannel =
+      isUserAdmin(profile) && !switchedWorkshopContext
+        ? supabase
+            .channel(`admin_inbox_live_${wid}_${uniqueSuffix}`)
+            .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'workshop_messages_receipts' },
+              (payload) => {
+                const row = (payload.new as any) || {};
+                if (row.reply_text) {
+                  playPostaNotificationSound();
+                  loadAdminInboxUnreadCount();
+                  window.dispatchEvent(new CustomEvent('alshams_admin_inbox_changed'));
+                }
+              }
+            )
+            .subscribe()
+        : null;
+
     return () => {
       supabase.removeChannel(announcementsChannel).catch(() => {});
       supabase.removeChannel(workshopChannel).catch(() => {});
+      if (adminInboxChannel) {
+        supabase.removeChannel(adminInboxChannel).catch(() => {});
+      }
     };
-  }, [profile?.workshopId, profile?.id, loadAnnouncements, checkWorkshopStatus]);
+  }, [profile?.workshopId, profile?.id, profile?.role, switchedWorkshopContext, loadAnnouncements, checkWorkshopStatus, loadAdminInboxUnreadCount]);
 
-  // Calculate unread announcements count
-  const unreadMessagesCount = announcements.filter(
-    (a) => !a.receipt || !a.receipt.read_at
-  ).length;
+  // Calculate unread Mail messages count cleanly (Super Admin -> incoming inbox; Artist -> incoming announcements)
+  const unreadMessagesCount =
+    isUserAdmin(profile) && !switchedWorkshopContext
+      ? adminInboxUnreadCount
+      : announcements.filter((a) => !a.receipt || !a.receipt.read_at).length;
 
   // Register Web Push Service Worker for real-time background workshop alerts & offline sync
   useEffect(() => {
@@ -1283,8 +1342,14 @@ export const App: React.FC = () => {
         onGoHome={goHome}
         onOpenNotifications={() => {
           loadSearchCacheAndNotifications();
-          if (isUserAdmin(profile)) loadAdminAlerts();
-          setNotificationsInitialTab(isUserAdmin(profile) ? 'admin' : 'notifications');
+          if (isUserAdmin(profile)) {
+            loadAdminAlerts();
+            loadAdminInboxUnreadCount();
+            const unreadTotalNotif = notifications.filter((n) => !n.isRead).length + adminAlerts.length;
+            setNotificationsInitialTab(unreadTotalNotif === 0 && adminInboxUnreadCount > 0 ? 'messages' : 'admin');
+          } else {
+            setNotificationsInitialTab('notifications');
+          }
           setIsNotificationsOpen(true);
         }}
         onOpenNewMaterialModal={() => setIsNewMaterialOpen(true)}
@@ -1880,7 +1945,10 @@ export const App: React.FC = () => {
           onRefreshNotifications={loadSearchCacheAndNotifications}
           onNavigateToOrder={() => navigateTo('sales')}
           onNavigateToInventory={() => navigateTo('materials')}
-          onReceiptUpdate={loadAnnouncements}
+          onReceiptUpdate={() => {
+            loadAnnouncements();
+            loadAdminInboxUnreadCount();
+          }}
         />
       )}
 
