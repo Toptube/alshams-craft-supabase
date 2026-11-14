@@ -45,6 +45,7 @@ const FAMILY_CHAT_FILE = path.resolve(__dirname, 'data/family_chat.json');
 const FAMILY_RESTRICTIONS_FILE = path.resolve(__dirname, 'data/family_restrictions.json');
 const FAMILY_POLL_VOTES_FILE = path.resolve(__dirname, 'data/family_poll_votes.json');
 const FAMILY_REACTIONS_FILE = path.resolve(__dirname, 'data/family_reactions.json');
+const STORE_LAYOUTS_FILE = path.resolve(__dirname, 'data/store_layouts.json');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUuid(val?: string | null): boolean {
@@ -142,6 +143,22 @@ function loadPersistentFamilyReactions(): any[] {
 }
 function savePersistentFamilyReactions(list: any[]): void {
   writeJsonData(FAMILY_REACTIONS_FILE, list);
+}
+
+function loadPersistentStoreLayouts(): Record<string, { layoutCols: 1 | 2 | 3; productOrder: string[]; updatedAt: string }> {
+  try {
+    if (fs.existsSync(STORE_LAYOUTS_FILE)) {
+      const raw = fs.readFileSync(STORE_LAYOUTS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn('[JSON Read] store_layouts.json error:', err);
+  }
+  return {};
+}
+function savePersistentStoreLayouts(map: Record<string, { layoutCols: 1 | 2 | 3; productOrder: string[]; updatedAt: string }>): void {
+  writeJsonData(STORE_LAYOUTS_FILE, map);
 }
 
 const DEFAULT_PLATFORM_SETTINGS = {
@@ -4403,6 +4420,75 @@ app.patch('/api/admin/marketplace/orders/:id', requireAuth, async (req: Authenti
   res.json({ success: true, cloudSynced, order: targetOrder });
 });
 
+// Save Storefront Layout (1, 2, or 3 columns) & Product Display Order
+app.post('/api/store/layout', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const body = req.body || {};
+    const requestedWid = typeof body.workshopId === 'string' ? body.workshopId.trim() : '';
+    const targetWid = requestedWid || (req.workshopId && req.workshopId !== 'ALL_WORKSHOPS' ? req.workshopId : '');
+    if (!targetWid) {
+      return res.status(400).json({ error: 'تعذر تحديد الورشة المطلوبة' });
+    }
+
+    // Verify ownership unless Super Admin
+    if (!req.isSuperAdmin && req.workshopId && req.workshopId !== 'ALL_WORKSHOPS' && targetWid !== req.workshopId && targetWid !== req.user?.id) {
+      const localWs = loadPersistentWorkshops().find((w: any) => w.id === targetWid || w.workshopId === targetWid);
+      const emailMatches = localWs && req.userEmail && (localWs.email || '').toLowerCase() === req.userEmail.toLowerCase();
+      if (!emailMatches) {
+        return res.status(403).json({ error: 'صلاحيات غير كافية لتعديل تنسيق هذا المتجر' });
+      }
+    }
+
+    const rawCols = Number(body.layoutCols);
+    const layoutCols: 1 | 2 | 3 = rawCols === 1 ? 1 : rawCols === 3 ? 3 : 2;
+    const productOrder: string[] = Array.isArray(body.productOrder)
+      ? Array.from(new Set(body.productOrder.filter((id: any) => typeof id === 'string' && id.trim()).map((id: string) => id.trim())))
+      : [];
+    const nowIso = new Date().toISOString();
+
+    const layouts = loadPersistentStoreLayouts();
+    layouts[targetWid] = { layoutCols, productOrder, updatedAt: nowIso };
+    savePersistentStoreLayouts(layouts);
+
+    const localList = loadPersistentWorkshops();
+    const idx = localList.findIndex((w: any) => w.id === targetWid || w.workshopId === targetWid);
+    if (idx >= 0) {
+      localList[idx] = {
+        ...localList[idx],
+        storeLayoutCols: layoutCols,
+        storeProductOrder: productOrder,
+        updatedAt: Date.now(),
+      };
+      savePersistentWorkshops(localList);
+    }
+
+    let cloudSynced = false;
+    try {
+      const client = getDbClient(req);
+      const { error } = await client
+        .from('workshops')
+        .update({
+          store_layout_cols: layoutCols,
+          store_product_order: productOrder,
+          updated_at: nowIso,
+        })
+        .eq('id', targetWid);
+      if (!error) cloudSynced = true;
+    } catch {}
+
+    res.json({
+      success: true,
+      cloudSynced,
+      workshopId: targetWid,
+      layoutCols,
+      productOrder,
+    });
+  } catch (err: any) {
+    console.error('[POST /api/store/layout] error:', err);
+    res.status(500).json({ error: 'تعذر حفظ تنسيق المتجر' });
+  }
+});
+
 // 5. Public Storefront Data by Workshop Slug or ID (Blocks banned/suspended storefronts)
 app.get('/api/store/:slug', async (req: Request, res: Response) => {
   try {
@@ -4545,6 +4631,20 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
       }
     } catch {}
 
+    const savedLayouts = loadPersistentStoreLayouts();
+    const localLayoutEntry = savedLayouts[wid];
+    const rawCols = Number(ws.store_layout_cols ?? ws.storeLayoutCols ?? localLayoutEntry?.layoutCols ?? 2);
+    const storeLayoutCols: 1 | 2 | 3 = rawCols === 1 ? 1 : rawCols === 3 ? 3 : 2;
+    const storeProductOrder: string[] = Array.isArray(ws.store_product_order)
+      ? ws.store_product_order
+      : Array.isArray(ws.storeProductOrder)
+      ? ws.storeProductOrder
+      : Array.isArray(localLayoutEntry?.productOrder)
+      ? localLayoutEntry.productOrder
+      : [];
+
+    const orderRankMap = new Map(storeProductOrder.map((id, idx) => [id, idx]));
+
     const storeProducts = Array.from(prodsMap.values())
       .filter((p: any) => p.status !== 'rejected' && (p.workshop_id === wid || p.workshopId === wid))
       .map((p: any) =>
@@ -4556,7 +4656,13 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
           logo_url: p.logo_url || logoUrl,
           store_slug: storeSlug,
         })
-      );
+      )
+      .sort((a: any, b: any) => {
+        const ra = orderRankMap.has(a.id) ? orderRankMap.get(a.id)! : Number.MAX_SAFE_INTEGER;
+        const rb = orderRankMap.has(b.id) ? orderRankMap.get(b.id)! : Number.MAX_SAFE_INTEGER;
+        if (ra !== rb) return ra - rb;
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      });
 
     res.json({
       success: true,
@@ -4575,6 +4681,8 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
         selectedCrafts: ws.selected_crafts || ws.selectedCrafts || ['macrame'],
         ratingStars: ws.rating_stars || ws.ratingStars || 5,
         medal: ws.medal || null,
+        storeLayoutCols,
+        storeProductOrder,
       },
       products: storeProducts,
     });

@@ -1147,7 +1147,9 @@ export const App: React.FC = () => {
           setActiveRoute({ type: 'app' });
         }}
         onOpenStoreModal={() => {
+          setCatalogInitialTab('store');
           setActiveView('catalog');
+          if (window.location.hash) window.location.hash = '';
           setActiveRoute({ type: 'app' });
         }}
       />
@@ -1524,6 +1526,10 @@ export const App: React.FC = () => {
             initialTab={catalogInitialTab}
             onSelectRecordToLoad={handleSelectRecordToLoad}
             onOpenWhatsAppShare={handleOpenWhatsAppShare}
+            onOpenMarketplace={() => {
+              window.location.hash = '#/market';
+              setActiveRoute({ type: 'market' });
+            }}
           />
         )}
 

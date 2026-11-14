@@ -17,12 +17,21 @@ import {
   Send,
   Check,
   ArrowUpDown,
+  LayoutList,
+  Columns2,
+  Grid3x3,
+  GripVertical,
+  ChevronRight,
+  ChevronLeft,
+  Eye,
 } from 'lucide-react';
 import {
   fetchPublicStorefrontBySlug,
   normalizeCloudProduct,
   CloudMarketplaceProduct,
   PublicWorkshopStoreData,
+  getLocalWorkshopStoreLayout,
+  saveWorkshopStoreLayout,
 } from '../../db/marketplaceCloud';
 import { supabase } from '../../lib/supabase';
 import {
@@ -34,7 +43,7 @@ import {
 } from '../../services/marketplaceCartService';
 import { MarketplaceCartModal } from '../marketplace/MarketplaceCartModal';
 import { CustomerAuthModal } from '../marketplace/CustomerAuthModal';
-import { CustomerAuthUser } from '../../types';
+import { CustomerAuthUser, SavedProductRecord, UserProfile } from '../../types';
 import { playSuccessSound, playAddToCartSound, triggerHaptic } from '../../lib/sounds';
 import { tenantStorage } from '../../db/dexieDB';
 import { matchesWorkshopSlug } from '../../utils/slugify';
@@ -43,12 +52,26 @@ interface PublicStorefrontViewProps {
   slug: string;
   onNavigateToApp?: () => void;
   onNavigateToMarket?: () => void;
+  isOwnerPreview?: boolean;
+  onClosePreview?: () => void;
+  localFallbackProducts?: SavedProductRecord[];
+  ownerProfile?: UserProfile;
+  initialLayoutCols?: 1 | 2 | 3;
+  initialProductOrder?: string[];
+  onLayoutChanged?: (cols: 1 | 2 | 3, order: string[]) => void;
 }
 
 export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   slug,
   onNavigateToApp,
   onNavigateToMarket,
+  isOwnerPreview = false,
+  onClosePreview,
+  localFallbackProducts,
+  ownerProfile,
+  initialLayoutCols,
+  initialProductOrder,
+  onLayoutChanged,
 }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [storeData, setStoreData] = useState<PublicWorkshopStoreData | null>(null);
@@ -61,6 +84,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const [isCustomerAuthOpen, setIsCustomerAuthOpen] = useState<boolean>(false);
   const [customerUser, setCustomerUser] = useState<CustomerAuthUser | null>(getStoredCustomerSession());
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
+
+  // Storefront Display Layout (1, 2, or 3 cols) & Product Ordering
+  const [layoutCols, setLayoutCols] = useState<1 | 2 | 3>(initialLayoutCols || 2);
+  const [productOrder, setProductOrder] = useState<string[]>(initialProductOrder || []);
+  const [draggedProductId, setDraggedProductId] = useState<string | null>(null);
+  const [dragOverProductId, setDragOverProductId] = useState<string | null>(null);
+  const [savingLayout, setSavingLayout] = useState<boolean>(false);
 
   // Selected product modal
   const [selectedProduct, setSelectedProduct] = useState<CloudMarketplaceProduct | null>(null);
@@ -239,12 +269,15 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             if (typeof window !== 'undefined') {
               try {
                 const rawProf = localStorage.getItem('alshams_profile');
-                const localProf = rawProf ? JSON.parse(rawProf) : null;
+                const localProf = ownerProfile || (rawProf ? JSON.parse(rawProf) : null);
                 const localWid = localProf?.tenantId || localProf?.workshopId || localProf?.id;
-                if (localWid && localWid === targetWorkshopId) {
-                  const localProds = await tenantStorage.getProducts(targetWorkshopId);
+                if (isOwnerPreview || (localWid && localWid === targetWorkshopId)) {
+                  const localProds =
+                    Array.isArray(localFallbackProducts) && localFallbackProducts.length > 0
+                      ? localFallbackProducts
+                      : await tenantStorage.getProducts(targetWorkshopId);
                   localProds
-                    .filter((p) => p.inStore && p.isPublishedInStore !== false && !rejectedIds.has(p.id))
+                    .filter((p) => p.inStore && (isOwnerPreview || p.isPublishedInStore !== false) && !rejectedIds.has(p.id))
                     .forEach((p) => {
                       if (!mergedMap.has(p.id)) {
                         mergedMap.set(p.id, {
@@ -264,7 +297,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           wholesale_price: p.wholesalePrice || 0,
                           cost_price: p.costPrice || 0,
                           current_stock: p.currentStock ?? 1,
-                          image_url: p.imageUrl || '/alshams_falcon_emblem.png',
+                          image_url: p.imageUrl || p.input?.productImageUrl || '/alshams_falcon_emblem.png',
                           store_description: p.storeDescription || (p as any).notes || '',
                           available_colors: p.availableColors || [],
                           available_sizes: p.availableSizes || [],
@@ -277,9 +310,29 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             }
 
             const finalProducts = Array.from(mergedMap.values());
+            const localLayout = getLocalWorkshopStoreLayout(targetWorkshopId);
+            const resolvedCols = (
+              initialLayoutCols ||
+              data.workshop.storeLayoutCols ||
+              localLayout.layoutCols ||
+              2
+            ) as 1 | 2 | 3;
+            const resolvedOrder =
+              initialProductOrder && initialProductOrder.length > 0
+                ? initialProductOrder
+                : data.workshop.storeProductOrder && data.workshop.storeProductOrder.length > 0
+                ? data.workshop.storeProductOrder
+                : localLayout.productOrder;
+
+            setLayoutCols(resolvedCols === 1 ? 1 : resolvedCols === 3 ? 3 : 2);
+            setProductOrder(resolvedOrder || []);
 
             setStoreData({
-              workshop: data.workshop,
+              workshop: {
+                ...data.workshop,
+                storeLayoutCols: resolvedCols,
+                storeProductOrder: resolvedOrder,
+              },
               products: finalProducts
                 .filter(
                   (p: any) =>
@@ -299,20 +352,59 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 ),
             });
           } else {
+            const fallbackWid = ownerProfile?.tenantId || ownerProfile?.workshopId || ownerProfile?.id || slug;
+            const localLayout = getLocalWorkshopStoreLayout(fallbackWid);
+            const resolvedCols = (initialLayoutCols || localLayout.layoutCols || 2) as 1 | 2 | 3;
+            const resolvedOrder =
+              initialProductOrder && initialProductOrder.length > 0 ? initialProductOrder : localLayout.productOrder;
+            setLayoutCols(resolvedCols === 1 ? 1 : resolvedCols === 3 ? 3 : 2);
+            setProductOrder(resolvedOrder || []);
+
             const decoded = decodeURIComponent(slug).replace(/-/g, ' ');
+            const fallbackMapped = (localFallbackProducts || [])
+              .filter((p) => p.inStore && (isOwnerPreview || p.isPublishedInStore !== false))
+              .map((p) =>
+                normalizeCloudProduct({
+                  id: p.id,
+                  workshop_id: fallbackWid,
+                  brand_name: ownerProfile?.brandName || decoded || 'متجر حرفي',
+                  artist_name: ownerProfile?.artistName || 'فنان الشمساوية',
+                  phone_number: ownerProfile?.phoneNumber || OFFICIAL_SUPPORT_PHONE,
+                  logo_url: ownerProfile?.logoUrl || ownerProfile?.logoBase64,
+                  store_slug: slug,
+                  product_name: p.productName,
+                  category: p.category || p.craftName || 'أعمال يدوية',
+                  craft_name: p.craftName || p.category || 'أعمال يدوية',
+                  decor_category: p.decorCategory || 'all',
+                  store_price: p.storePrice || p.retailPrice || 0,
+                  retail_price: p.retailPrice || p.storePrice || 0,
+                  wholesale_price: p.wholesalePrice || 0,
+                  cost_price: p.costPrice || 0,
+                  current_stock: p.currentStock ?? 1,
+                  image_url: p.imageUrl || p.input?.productImageUrl || '/alshams_falcon_emblem.png',
+                  store_description: p.storeDescription || (p as any).notes || '',
+                  available_colors: p.availableColors || [],
+                  available_sizes: p.availableSizes || [],
+                  status: p.isMarketplaceApproved ? 'approved' : 'pending_approval',
+                })
+              );
+
             setStoreData({
               workshop: {
-                id: slug,
-                brandName: decoded || 'متجر حرفي',
-                artistName: 'فنان الشمساوية',
-                phoneNumber: OFFICIAL_SUPPORT_PHONE,
-                country: 'مصر',
-                currencySymbol: 'ج.م',
-                ratingStars: 5,
-                medal: 'gold',
-                logoUrl: undefined,
+                id: fallbackWid,
+                brandName: ownerProfile?.brandName || decoded || 'متجر حرفي',
+                artistName: ownerProfile?.artistName || 'فنان الشمساوية',
+                phoneNumber: ownerProfile?.phoneNumber || OFFICIAL_SUPPORT_PHONE,
+                country: ownerProfile?.country || 'مصر',
+                currencySymbol: ownerProfile?.currencySymbol || 'ج.م',
+                ratingStars: ownerProfile?.ratingStars || 5,
+                medal: ownerProfile?.medal || 'gold',
+                logoUrl: ownerProfile?.logoUrl || ownerProfile?.logoBase64,
+                storeSlug: slug,
+                storeLayoutCols: resolvedCols,
+                storeProductOrder: resolvedOrder,
               },
-              products: [],
+              products: fallbackMapped,
             });
           }
         }
@@ -329,7 +421,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [slug]);
+  }, [slug, isOwnerPreview]);
 
   const categories = useMemo(() => {
     if (!storeData?.products || storeData.products.length === 0) {
@@ -361,6 +453,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       return matchSearch && matchCat;
     });
 
+    const orderRankMap = new Map(productOrder.map((id, idx) => [id, idx]));
+
     if (sortBy === 'price_asc') {
       return [...list].sort(
         (a, b) => (a.store_price || a.retail_price || 0) - (b.store_price || b.retail_price || 0)
@@ -371,8 +465,93 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         (a, b) => (b.store_price || b.retail_price || 0) - (a.store_price || a.retail_price || 0)
       );
     }
+    if (orderRankMap.size > 0) {
+      return [...list].sort((a, b) => {
+        const ra = orderRankMap.has(a.id) ? orderRankMap.get(a.id)! : Number.MAX_SAFE_INTEGER;
+        const rb = orderRankMap.has(b.id) ? orderRankMap.get(b.id)! : Number.MAX_SAFE_INTEGER;
+        if (ra !== rb) return ra - rb;
+        return 0;
+      });
+    }
     return list;
-  }, [storeData, searchQuery, selectedCategory, sortBy]);
+  }, [storeData, searchQuery, selectedCategory, sortBy, productOrder]);
+
+  const activeWorkshopId =
+    storeData?.workshop?.id || ownerProfile?.tenantId || ownerProfile?.workshopId || ownerProfile?.id || '';
+
+  const persistStorefrontPreferences = async (nextCols: 1 | 2 | 3, nextOrder: string[], toastMsg: string) => {
+    setLayoutCols(nextCols);
+    setProductOrder(nextOrder);
+    onLayoutChanged?.(nextCols, nextOrder);
+    setSavingLayout(true);
+    try {
+      let email = ownerProfile?.email;
+      if (!email && typeof window !== 'undefined') {
+        try {
+          const rawProf = localStorage.getItem('alshams_profile');
+          email = rawProf ? JSON.parse(rawProf)?.email : undefined;
+        } catch {}
+      }
+      if (activeWorkshopId) {
+        await saveWorkshopStoreLayout(activeWorkshopId, nextCols, nextOrder, email);
+        if (nextOrder.length > 0) {
+          const rankMap = new Map(nextOrder.map((id, idx) => [id, idx + 1]));
+          const existingLocal = await tenantStorage.getProducts(activeWorkshopId).catch(() => []);
+          const dirty = existingLocal
+            .filter((item) => rankMap.has(item.id) && item.sortOrder !== rankMap.get(item.id))
+            .map((item) => ({ ...item, sortOrder: rankMap.get(item.id)!, updatedAt: Date.now() }));
+          if (dirty.length > 0) {
+            Promise.all(dirty.map((rec) => tenantStorage.mutateProduct(rec))).catch(() => {});
+          }
+        }
+      }
+      playSuccessSound();
+      setAddedToast(toastMsg);
+      setTimeout(() => setAddedToast(null), 2500);
+    } finally {
+      setSavingLayout(false);
+    }
+  };
+
+  const handleChangeLayoutCols = (nextCols: 1 | 2 | 3) => {
+    const labelMap: Record<1 | 2 | 3, string> = {
+      1: 'تم تحويل العرض إلى: منتج تلو الآخر',
+      2: 'تم تحويل العرض إلى: مصفوفة ثنائية (×2)',
+      3: 'تم تحويل العرض إلى: مصفوفة ثلاثية (×3)',
+    };
+    const currentOrder =
+      productOrder.length > 0 ? productOrder : (storeData?.products || []).map((p) => p.id);
+    persistStorefrontPreferences(nextCols, currentOrder, labelMap[nextCols]);
+  };
+
+  const handleReorderStoreProducts = (sourceId: string, targetId: string) => {
+    if (!sourceId || !targetId || sourceId === targetId || !storeData?.products) return;
+    const orderRankMap = new Map(productOrder.map((id, idx) => [id, idx]));
+    const baseIds = [...storeData.products]
+      .sort((a, b) => {
+        const ra = orderRankMap.has(a.id) ? orderRankMap.get(a.id)! : Number.MAX_SAFE_INTEGER;
+        const rb = orderRankMap.has(b.id) ? orderRankMap.get(b.id)! : Number.MAX_SAFE_INTEGER;
+        if (ra !== rb) return ra - rb;
+        return 0;
+      })
+      .map((p) => p.id);
+
+    const fromIdx = baseIds.indexOf(sourceId);
+    const toIdx = baseIds.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const [moved] = baseIds.splice(fromIdx, 1);
+    baseIds.splice(toIdx, 0, moved);
+    setSortBy('featured');
+    persistStorefrontPreferences(layoutCols, baseIds, '✓ تم تحديث ترتيب المنتجات في متجرك للعملاء');
+  };
+
+  const handleStepMoveProduct = (prodId: string, direction: -1 | 1) => {
+    const idx = filteredProducts.findIndex((p) => p.id === prodId);
+    const targetIdx = idx + direction;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= filteredProducts.length) return;
+    handleReorderStoreProducts(prodId, filteredProducts[targetIdx].id);
+  };
 
   const workshop = storeData?.workshop;
   const brandName = workshop?.brandName || 'ورشة الشمساوية';
@@ -479,12 +658,23 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             )}
           </nav>
 
-          {/* Zone 3: Share & Cart Actions */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Zone 3: Share & Cart Actions (plus Owner Preview Close button) */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {isOwnerPreview && onClosePreview && (
+              <button
+                type="button"
+                onClick={onClosePreview}
+                className="px-2.5 sm:px-3.5 py-2 rounded-xl bg-[#0C1427] hover:bg-[#132040] text-[#F7F3EA] dark:bg-[#F7F3EA] dark:hover:bg-[#E9E2D4] dark:text-[#0C1427] text-[11px] sm:text-xs font-black transition flex items-center gap-1 cursor-pointer whitespace-nowrap shadow-xs active:scale-95"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                <span>عودة لمتجري</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleShareStore}
-              className="px-3 py-2 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              className="px-2.5 sm:px-3 py-2 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               title="مشاركة رابط المتجر"
             >
               {copiedLink ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Share2 className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />}
@@ -494,11 +684,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className="relative px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs transition flex items-center gap-2 cursor-pointer active:scale-95 whitespace-nowrap"
+              className="relative px-3 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs transition flex items-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 whitespace-nowrap"
               title="سلة المشتريات"
             >
               <ShoppingBag className="w-4 h-4" />
-              <span>السلة</span>
+              <span className="hidden xs:inline sm:inline">السلة</span>
               {cartItemsCount > 0 && (
                 <span className="min-w-5 h-5 px-1.5 rounded-full bg-[#0C1427] text-[#FBBF24] font-mono tabular-nums text-[11px] font-black flex items-center justify-center">
                   {cartItemsCount}
@@ -592,6 +782,69 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
         )}
 
+        {/* Owner Store Layout & Drag-and-Drop Customization Bar */}
+        {isOwnerPreview && (
+          <div className="p-3 sm:p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#EA580C]/50 dark:border-[#F59E0B]/40 shadow-sm space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24] shrink-0" />
+                  <h3 className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                    معاينة المتجر كما يراه العميل + تنسيق العرض والترتيب
+                  </h3>
+                </div>
+                <p className="text-[11px] font-medium text-[#475569] dark:text-[#CBD5E1]">
+                  اسحب أي منتج وأفلته لتغيير ترتيبه (أو استخدم الأسهم)، واختر شكل عرض المنتجات للزوار:
+                </p>
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-[#E9E2D4] dark:bg-[#132040] p-1 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] w-full md:w-auto">
+                <button
+                  type="button"
+                  onClick={() => handleChangeLayoutCols(1)}
+                  disabled={savingLayout}
+                  className={`flex-1 md:flex-none px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
+                    layoutCols === 1
+                      ? 'bg-[#EA580C] text-white shadow-xs'
+                      : 'text-[#334155] dark:text-[#CBD5E1] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54]'
+                  }`}
+                >
+                  <LayoutList className="w-3.5 h-3.5 shrink-0" />
+                  <span>منتج ورا منتج</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleChangeLayoutCols(2)}
+                  disabled={savingLayout}
+                  className={`flex-1 md:flex-none px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
+                    layoutCols === 2
+                      ? 'bg-[#EA580C] text-white shadow-xs'
+                      : 'text-[#334155] dark:text-[#CBD5E1] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54]'
+                  }`}
+                >
+                  <Columns2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>مصفوفة ثنائية</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleChangeLayoutCols(3)}
+                  disabled={savingLayout}
+                  className={`flex-1 md:flex-none px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
+                    layoutCols === 3
+                      ? 'bg-[#EA580C] text-white shadow-xs'
+                      : 'text-[#334155] dark:text-[#CBD5E1] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54]'
+                  }`}
+                >
+                  <Grid3x3 className="w-3.5 h-3.5 shrink-0" />
+                  <span>مصفوفة ثلاثية</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Search, Categories & Sort Toolbar */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
@@ -632,7 +885,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               aria-label="ترتيب المنتجات"
               className="h-10 pr-8 pl-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C] cursor-pointer"
             >
-              <option value="featured">الأحدث</option>
+              <option value="featured">ترتيب الورشة المختار</option>
               <option value="price_asc">السعر: الأقل للأعلى</option>
               <option value="price_desc">السعر: الأعلى للأقل</option>
             </select>
@@ -641,14 +894,22 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
         {/* Loading Skeleton */}
         {loading && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {Array.from({ length: 8 }).map((_, i) => (
+          <div
+            className={`grid ${
+              layoutCols === 1
+                ? 'grid-cols-1 max-w-2xl mx-auto gap-5'
+                : layoutCols === 2
+                ? 'grid-cols-2 gap-3 sm:gap-5'
+                : 'grid-cols-3 gap-2 sm:gap-5'
+            }`}
+          >
+            {Array.from({ length: 6 }).map((_, i) => (
               <div
                 key={i}
                 className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden animate-pulse"
               >
                 <div className="w-full aspect-[4/3] bg-[#E9E2D4] dark:bg-[#132040]" />
-                <div className="p-4 space-y-3">
+                <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
                   <div className="h-3 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-1/2" />
                   <div className="h-4 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-4/5" />
                   <div className="h-5 bg-[#E9E2D4] dark:bg-[#1A2B54] rounded w-1/3" />
@@ -665,22 +926,107 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
         )}
 
-        {/* Clean Products Grid */}
+        {/* Clean Products Grid (1, 2, or 3 Columns Selected by Artist) */}
         {!loading && filteredProducts.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {filteredProducts.map((p) => {
+          <div
+            className={`grid ${
+              layoutCols === 1
+                ? 'grid-cols-1 max-w-2xl mx-auto gap-4 sm:gap-5'
+                : layoutCols === 2
+                ? 'grid-cols-2 gap-2.5 sm:gap-5'
+                : 'grid-cols-3 gap-1.5 sm:gap-4 lg:gap-5'
+            }`}
+          >
+            {filteredProducts.map((p, idx) => {
               const displayPrice = p.store_price || p.retail_price || 0;
               const hasColors = p.available_colors && p.available_colors.length > 0;
+              const isDragging = draggedProductId === p.id;
+              const isDragOver = dragOverProductId === p.id && draggedProductId !== p.id;
+              const isCompact3Col = layoutCols === 3;
 
               return (
                 <article
                   key={p.id}
+                  draggable={isOwnerPreview}
+                  onDragStart={(e) => {
+                    if (!isOwnerPreview) return;
+                    setDraggedProductId(p.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    try {
+                      e.dataTransfer.setData('text/plain', p.id);
+                    } catch {}
+                  }}
+                  onDragOver={(e) => {
+                    if (!isOwnerPreview) return;
+                    e.preventDefault();
+                    if (dragOverProductId !== p.id) setDragOverProductId(p.id);
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverProductId === p.id) setDragOverProductId(null);
+                  }}
+                  onDrop={(e) => {
+                    if (!isOwnerPreview) return;
+                    e.preventDefault();
+                    const srcId = draggedProductId || e.dataTransfer.getData('text/plain');
+                    setDraggedProductId(null);
+                    setDragOverProductId(null);
+                    if (srcId && srcId !== p.id) {
+                      handleReorderStoreProducts(srcId, p.id);
+                    }
+                  }}
+                  onDragEnd={() => {
+                    setDraggedProductId(null);
+                    setDragOverProductId(null);
+                  }}
                   onClick={() => handleOpenProduct(p)}
-                  className="group rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg flex flex-col justify-between overflow-hidden cursor-pointer"
+                  className={`group rounded-xl sm:rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border transition-all duration-200 flex flex-col justify-between overflow-hidden cursor-pointer ${
+                    isDragOver
+                      ? 'border-[#EA580C] ring-2 ring-[#EA580C] scale-[1.02] shadow-lg'
+                      : isDragging
+                      ? 'opacity-50 border-dashed border-[#EA580C]'
+                      : 'border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60 dark:hover:border-[#FBBF24]/50 hover:-translate-y-0.5 hover:shadow-lg'
+                  }`}
                 >
                   <div>
-                    {/* Clean Photography (Zero overlay badges) */}
-                    <div className="w-full aspect-[4/3] bg-[#E9E2D4] dark:bg-[#132040] overflow-hidden border-b border-[#D4CCBC]/70 dark:border-[#22355E]">
+                    {/* Owner Drag & Reorder Control Strip */}
+                    {isOwnerPreview && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="px-1.5 sm:px-3 py-1 bg-[#E9E2D4] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-1 text-[10px] font-black text-[#0C1427] dark:text-[#F7F3EA] cursor-grab active:cursor-grabbing"
+                      >
+                        <div className="flex items-center gap-1 min-w-0">
+                          <GripVertical className="w-3 h-3 text-[#C2410C] dark:text-[#FBBF24] shrink-0" />
+                          <span className="truncate">#{idx + 1}</span>
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleStepMoveProduct(p.id, -1)}
+                            disabled={idx === 0}
+                            title="تقديم للأول"
+                            className="p-0.5 rounded hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] disabled:opacity-30 cursor-pointer"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStepMoveProduct(p.id, 1)}
+                            disabled={idx === filteredProducts.length - 1}
+                            title="تأخير"
+                            className="p-0.5 rounded hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] disabled:opacity-30 cursor-pointer"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Clean Photography */}
+                    <div
+                      className={`w-full ${
+                        isCompact3Col ? 'aspect-square sm:aspect-[4/3]' : 'aspect-[4/3]'
+                      } bg-[#E9E2D4] dark:bg-[#132040] overflow-hidden border-b border-[#D4CCBC]/70 dark:border-[#22355E]`}
+                    >
                       <img
                         src={p.image_url || '/alshams_falcon_emblem.png'}
                         alt={p.product_name}
@@ -693,24 +1039,43 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       />
                     </div>
 
-                    <div className="p-4 space-y-2">
-                      {/* Unboxed Metadata */}
-                      <p className="text-xs font-medium text-[#475569] dark:text-[#94A3B8] truncate">
+                    <div className={`${isCompact3Col ? 'p-1.5 sm:p-3.5 space-y-1 sm:space-y-1.5' : layoutCols === 2 ? 'p-2.5 sm:p-4 space-y-1.5 sm:space-y-2' : 'p-4 space-y-2'}`}>
+                      <p
+                        className={`${
+                          isCompact3Col ? 'text-[9px] sm:text-xs' : 'text-[10px] sm:text-xs'
+                        } font-medium text-[#475569] dark:text-[#94A3B8] truncate`}
+                      >
                         {p.craft_name || p.category} · {p.current_stock > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
                       </p>
 
-                      <h3 className="font-bold text-sm sm:text-base text-[#0C1427] dark:text-[#F7F3EA] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
+                      <h3
+                        className={`font-bold ${
+                          isCompact3Col
+                            ? 'text-[11px] sm:text-sm md:text-base'
+                            : layoutCols === 2
+                            ? 'text-xs sm:text-base'
+                            : 'text-base sm:text-lg'
+                        } text-[#0C1427] dark:text-[#F7F3EA] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors`}
+                      >
                         {p.product_name}
                       </h3>
 
                       {p.store_description && (
-                        <p className="text-xs text-[#334155] dark:text-[#CBD5E1] line-clamp-1">
+                        <p
+                          className={`${
+                            isCompact3Col ? 'hidden sm:block text-xs' : 'text-[11px] sm:text-xs'
+                          } text-[#334155] dark:text-[#CBD5E1] line-clamp-1`}
+                        >
                           {p.store_description}
                         </p>
                       )}
 
                       {hasColors && (
-                        <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] truncate">
+                        <p
+                          className={`${
+                            isCompact3Col ? 'hidden sm:block text-[11px]' : 'text-[10px] sm:text-[11px]'
+                          } text-[#475569] dark:text-[#94A3B8] truncate`}
+                        >
                           الألوان: {p.available_colors!.slice(0, 3).join('، ')}
                         </p>
                       )}
@@ -718,12 +1083,28 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   </div>
 
                   {/* Price & CTA Baseline */}
-                  <div className="px-4 pb-4 pt-1 space-y-3">
+                  <div
+                    className={`${
+                      isCompact3Col
+                        ? 'px-1.5 pb-2 pt-0.5 space-y-1.5 sm:px-3.5 sm:pb-3.5 sm:space-y-2.5'
+                        : layoutCols === 2
+                        ? 'px-2.5 pb-2.5 pt-1 space-y-2 sm:px-4 sm:pb-4 sm:space-y-3'
+                        : 'px-4 pb-4 pt-1 space-y-3'
+                    }`}
+                  >
                     <div className="flex items-baseline gap-1 font-mono tabular-nums">
-                      <span className="text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                      <span
+                        className={`${
+                          isCompact3Col ? 'text-xs sm:text-lg' : layoutCols === 2 ? 'text-sm sm:text-lg' : 'text-lg sm:text-xl'
+                        } font-black text-[#0C1427] dark:text-[#F7F3EA]`}
+                      >
                         {displayPrice.toLocaleString('ar-EG')}
                       </span>
-                      <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
+                      <span
+                        className={`${
+                          isCompact3Col ? 'text-[9px] sm:text-xs' : 'text-[10px] sm:text-xs'
+                        } font-bold text-[#475569] dark:text-[#94A3B8]`}
+                      >
                         {currencySymbol}
                       </span>
                     </div>
@@ -734,10 +1115,14 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         e.stopPropagation();
                         handleAddToCart(p, 1);
                       }}
-                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                      className={`w-full ${
+                        isCompact3Col
+                          ? 'py-1.5 px-1.5 text-[10px] sm:py-2 sm:px-3 sm:text-xs'
+                          : 'py-2 px-3 text-[11px] sm:py-2.5 sm:px-4 sm:text-xs'
+                      } rounded-lg sm:rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold flex items-center justify-center gap-1 sm:gap-2 transition active:scale-95 cursor-pointer`}
                     >
-                      <ShoppingBag className="w-4 h-4" />
-                      <span>أضف للسلة</span>
+                      <ShoppingBag className={`${isCompact3Col ? 'w-3 h-3 sm:w-4 sm:h-4' : 'w-3.5 h-3.5 sm:w-4 sm:h-4'} shrink-0`} />
+                      <span className="truncate">أضف للسلة</span>
                     </button>
                   </div>
                 </article>

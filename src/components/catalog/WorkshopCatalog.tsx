@@ -43,10 +43,15 @@ import {
   GripVertical,
   ArrowUp,
   ArrowDown,
+  Copy,
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { publishProductToMarketplace } from '../../db/marketplaceCloud';
+import {
+  publishProductToMarketplace,
+  getLocalWorkshopStoreLayout,
+  saveWorkshopStoreLayout,
+} from '../../db/marketplaceCloud';
 import {
   generateArtisanQuotationPDF,
   extractQuotationDataFromRecord,
@@ -55,12 +60,15 @@ import { flushProductSync, syncAllWorkshopProductsAndStore } from '../../db/prod
 import { flushOfflineMutations, getPendingOfflineMutationsCount } from '../../db/offlineMutationQueue';
 import { pendingCount, PRODUCTS_PULLED_EVENT } from '../../db/productSyncQueue';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
+import { PublicStorefrontView } from '../store/PublicStorefrontView';
+import { getWorkshopCleanSlug, getWorkshopStoreUrl } from '../../utils/slugify';
 
 interface WorkshopCatalogProps {
   profile: UserProfile;
   initialTab?: 'catalog' | 'store';
   onSelectRecordToLoad: (record: SavedProductRecord) => void;
   onOpenWhatsAppShare: (record: SavedProductRecord) => void;
+  onOpenMarketplace?: () => void;
 }
 
 export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
@@ -68,6 +76,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   initialTab,
   onSelectRecordToLoad,
   onOpenWhatsAppShare,
+  onOpenMarketplace,
 }) => {
   const { t: tr } = useTranslation();
 
@@ -117,6 +126,9 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   const [storeStatusFilter, setStoreStatusFilter] = useState<'all' | 'published' | 'draft'>('all');
   const [storePrices, setStorePrices] = useState<Record<string, number>>({});
   const [storeDescriptions, setStoreDescriptions] = useState<Record<string, string>>({});
+  const [isCustomerPreviewOpen, setIsCustomerPreviewOpen] = useState<boolean>(false);
+  const [storeLayoutCols, setStoreLayoutCols] = useState<1 | 2 | 3>(2);
+  const [copiedFooterTarget, setCopiedFooterTarget] = useState<'store' | 'market' | null>(null);
 
   // Multi-selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -179,7 +191,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
   const printTemplateRef = useRef<HTMLDivElement>(null);
 
-  // Load saved Drag & Drop priorities from localStorage
+  // Load saved Drag & Drop priorities & store grid layout from localStorage
   useEffect(() => {
     try {
       const savedCats = localStorage.getItem(`alshams_catalog_cat_order_${tenantId}`);
@@ -192,9 +204,25 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         const parsed = JSON.parse(savedProds);
         if (Array.isArray(parsed)) setProductOrder(parsed);
       }
+      const localStoreLayout = getLocalWorkshopStoreLayout(tenantId);
+      setStoreLayoutCols(localStoreLayout.layoutCols);
+      if (localStoreLayout.productOrder.length > 0 && !savedProds) {
+        setProductOrder(localStoreLayout.productOrder);
+      }
     } catch {
       // ignore storage errors
     }
+
+    const handleLayoutEvt = (e: any) => {
+      if (e?.detail?.workshopId === tenantId) {
+        if (e.detail.layoutCols) setStoreLayoutCols(e.detail.layoutCols);
+        if (Array.isArray(e.detail.productOrder) && e.detail.productOrder.length > 0) {
+          setProductOrder(e.detail.productOrder);
+        }
+      }
+    };
+    window.addEventListener('alshams_store_layout_updated', handleLayoutEvt);
+    return () => window.removeEventListener('alshams_store_layout_updated', handleLayoutEvt);
   }, [tenantId]);
 
   // Load all products ONCE from database
@@ -368,6 +396,10 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     if (changedRecords.length > 0) {
       Promise.all(changedRecords.map((rec) => tenantStorage.mutateProduct(rec))).catch(() => {});
       window.dispatchEvent(new CustomEvent('alshams_products_changed'));
+    }
+
+    if (tenantId) {
+      saveWorkshopStoreLayout(tenantId, storeLayoutCols, nextOrderedIds, profile.email).catch(() => {});
     }
 
     if (feedbackMsg) {
@@ -2133,15 +2165,58 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                 const imgUrl = p.imageUrl || p.input?.productImageUrl;
                 const serial = getProductSerialDisplay(p, idx);
                 const craft = getCraftDisplay(p);
+                const isDragging = draggedProductId === p.id;
+                const isDragOver = dragOverProductId === p.id && draggedProductId !== p.id;
 
                 return (
                   <div
                     key={p.id}
-                    className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm overflow-hidden flex flex-col justify-between hover:border-amber-300 dark:hover:border-amber-700 transition artisan-card-hover"
+                    draggable
+                    onDragStart={(e) => {
+                      setDraggedProductId(p.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      try {
+                        e.dataTransfer.setData('text/plain', p.id);
+                      } catch {}
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (dragOverProductId !== p.id) setDragOverProductId(p.id);
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverProductId === p.id) setDragOverProductId(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const srcId = draggedProductId || e.dataTransfer.getData('text/plain');
+                      setDraggedProductId(null);
+                      setDragOverProductId(null);
+                      if (srcId && srcId !== p.id) {
+                        handleReorderProducts(srcId, p.id);
+                      }
+                    }}
+                    onDragEnd={() => {
+                      setDraggedProductId(null);
+                      setDragOverProductId(null);
+                    }}
+                    className={`bg-white dark:bg-stone-900 rounded-3xl border shadow-sm overflow-hidden flex flex-col justify-between transition artisan-card-hover ${
+                      isDragOver
+                        ? 'border-amber-500 ring-2 ring-amber-500 scale-[1.01]'
+                        : isDragging
+                        ? 'opacity-50 border-dashed border-amber-500'
+                        : 'border-stone-200 dark:border-stone-800 hover:border-amber-300 dark:hover:border-amber-700'
+                    }`}
                   >
                     <div className="p-4 space-y-3">
-                      {/* رأس البطاقة: الصورة والبيانات */}
-                      <div className="flex gap-3 items-start">
+                      {/* رأس البطاقة: الصورة والبيانات + مقبض السحب والترتيب */}
+                      <div className="flex gap-2.5 items-start">
+                        <div
+                          className="pt-1 text-stone-400 hover:text-amber-600 cursor-grab active:cursor-grabbing shrink-0"
+                          title="اسحب لتغيير ترتيب عرض المشغولة في متجرك"
+                        >
+                          <GripVertical className="w-4 h-4" />
+                        </div>
+
                         <div className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-stone-800 shrink-0 overflow-hidden border border-stone-200 dark:border-stone-700 flex items-center justify-center">
                           {imgUrl ? (
                             <img src={imgUrl} alt={p.productName} className="w-full h-full object-cover" />
@@ -2151,13 +2226,42 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 text-[10px] font-mono text-stone-600 dark:text-stone-300">
-                              {serial}
-                            </span>
-                            <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-[10px] font-bold text-amber-800 dark:text-amber-300">
-                              {craft}
-                            </span>
+                          <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                              <span className="px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 text-[10px] font-mono text-stone-600 dark:text-stone-300">
+                                {serial}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-[10px] font-bold text-amber-800 dark:text-amber-300">
+                                {craft}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const prev = storeProducts[idx - 1];
+                                  if (prev) handleReorderProducts(p.id, prev.id);
+                                }}
+                                disabled={idx === 0}
+                                title="تقديم"
+                                className="p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 disabled:opacity-30 cursor-pointer"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = storeProducts[idx + 1];
+                                  if (next) handleReorderProducts(p.id, next.id);
+                                }}
+                                disabled={idx === storeProducts.length - 1}
+                                title="تأخير"
+                                className="p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 disabled:opacity-30 cursor-pointer"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                           <h4 className="text-sm font-black text-stone-900 dark:text-stone-100 mt-1 truncate">
                             {p.productName}
@@ -2281,6 +2385,122 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               })}
             </div>
           )}
+
+          {/* تذييل متجري الموحد في سطر واحد: زران + علامتي نسخ الرابط */}
+          <footer className="mt-4 p-2.5 sm:p-3 rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-xs w-full">
+            <div className="flex items-center justify-between gap-1.5 sm:gap-3 flex-nowrap w-full">
+              {/* الزر الأول + أيقونة نسخ رابط متجري */}
+              <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setIsCustomerPreviewOpen(true)}
+                  className="flex-1 min-w-0 py-2 sm:py-2.5 px-2 sm:px-3.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-black text-[11px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 shadow-sm active:scale-95 transition cursor-pointer whitespace-nowrap"
+                  title="معاينة متجرك كما يراه العميل مع تخصيص الشكل والترتيب"
+                >
+                  <Eye className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">مشاهدة المتجر</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = getWorkshopStoreUrl(profile);
+                    if (navigator?.clipboard?.writeText) {
+                      navigator.clipboard.writeText(url).catch(() => {});
+                    }
+                    setCopiedFooterTarget('store');
+                    playSuccessSound();
+                    setNotice('تم نسخ رابط متجرك المباشر بنجاح ✨');
+                    setTimeout(() => {
+                      setCopiedFooterTarget((prev) => (prev === 'store' ? null : prev));
+                      setNotice('');
+                    }, 2500);
+                  }}
+                  aria-label="نسخ رابط متجري"
+                  title="نسخ رابط المتجر"
+                  className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer transition active:scale-95"
+                >
+                  {copiedFooterTarget === 'store' ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
+                  )}
+                </button>
+              </div>
+
+              {/* الزر الثاني + أيقونة نسخ رابط سوق الشمساوية */}
+              <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenMarketplace) onOpenMarketplace();
+                    else window.location.hash = '#/market';
+                  }}
+                  className="flex-1 min-w-0 py-2 sm:py-2.5 px-2 sm:px-3.5 rounded-xl bg-[#0C1427] hover:bg-[#132040] dark:bg-[#1A2B54] dark:hover:bg-[#22355E] text-[#F7F3EA] border border-[#22355E] font-black text-[11px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 shadow-sm active:scale-95 transition cursor-pointer whitespace-nowrap"
+                  title="الانتقال إلى سوق الشمساوية العام كما يراه العملاء"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5 text-[#FBBF24] shrink-0" />
+                  <span className="truncate">سوق الشمساوية</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const mktUrl =
+                      typeof window !== 'undefined'
+                        ? `${window.location.origin}/#/market`
+                        : 'https://alshamsawiyah.ai.studio/#/market';
+                    if (navigator?.clipboard?.writeText) {
+                      navigator.clipboard.writeText(mktUrl).catch(() => {});
+                    }
+                    setCopiedFooterTarget('market');
+                    playSuccessSound();
+                    setNotice('تم نسخ رابط سوق الشمساوية العام بنجاح ✨');
+                    setTimeout(() => {
+                      setCopiedFooterTarget((prev) => (prev === 'market' ? null : prev));
+                      setNotice('');
+                    }, 2500);
+                  }}
+                  aria-label="نسخ رابط سوق الشمساوية"
+                  title="نسخ رابط سوق الشمساوية"
+                  className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer transition active:scale-95"
+                >
+                  {copiedFooterTarget === 'market' ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </footer>
+        </div>
+      )}
+
+      {/* Fullscreen Store Customer Preview & Layout Editor Overlay */}
+      {isCustomerPreviewOpen && (
+        <div className="fixed inset-0 z-[70] overflow-y-auto bg-[#F2ECE1] dark:bg-[#060B18]">
+          <PublicStorefrontView
+            slug={getWorkshopCleanSlug(profile)}
+            isOwnerPreview={true}
+            ownerProfile={profile}
+            localFallbackProducts={allProducts.filter((p) => p.inStore)}
+            initialLayoutCols={storeLayoutCols}
+            initialProductOrder={productOrder}
+            onClosePreview={() => setIsCustomerPreviewOpen(false)}
+            onNavigateToApp={() => setIsCustomerPreviewOpen(false)}
+            onNavigateToMarket={() => {
+              setIsCustomerPreviewOpen(false);
+              if (onOpenMarketplace) onOpenMarketplace();
+              else window.location.hash = '#/market';
+            }}
+            onLayoutChanged={(cols, nextOrder) => {
+              setStoreLayoutCols(cols);
+              if (Array.isArray(nextOrder) && nextOrder.length > 0) {
+                setProductOrder(nextOrder);
+                setSortBy('priority');
+                setSortOrder('asc');
+              }
+            }}
+          />
         </div>
       )}
 

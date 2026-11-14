@@ -75,6 +75,8 @@ export interface PublicWorkshopStoreData {
     status?: string;
     suspended?: boolean;
     suspensionReason?: string | null;
+    storeLayoutCols?: 1 | 2 | 3;
+    storeProductOrder?: string[];
   };
   products: CloudMarketplaceProduct[];
 }
@@ -589,6 +591,14 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
         } catch {}
 
         const prodsData = Array.from(prodsMap.values());
+        const rawCols = Number(found.store_layout_cols ?? found.storeLayoutCols ?? 2);
+        const storeLayoutCols: 1 | 2 | 3 = rawCols === 1 ? 1 : rawCols === 3 ? 3 : 2;
+        const storeProductOrder: string[] = Array.isArray(found.store_product_order)
+          ? found.store_product_order
+          : Array.isArray(found.storeProductOrder)
+          ? found.storeProductOrder
+          : [];
+        const orderRankMap = new Map(storeProductOrder.map((id, idx) => [id, idx]));
 
         return {
           workshop: {
@@ -606,6 +616,8 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
             status: wsStatus,
             suspended: false,
             selectedCrafts: Array.isArray(found.selected_crafts) ? found.selected_crafts : ['macrame'],
+            storeLayoutCols,
+            storeProductOrder,
           },
           products: (prodsData || [])
             .filter((p: any) => p.status !== 'rejected' && (p.workshop_id === wid || p.workshopId === wid))
@@ -618,7 +630,13 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
                 logo_url: p.logo_url || logo,
                 store_slug: storeSlug,
               })
-            ),
+            )
+            .sort((a: any, b: any) => {
+              const ra = orderRankMap.has(a.id) ? orderRankMap.get(a.id)! : Number.MAX_SAFE_INTEGER;
+              const rb = orderRankMap.has(b.id) ? orderRankMap.get(b.id)! : Number.MAX_SAFE_INTEGER;
+              if (ra !== rb) return ra - rb;
+              return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+            }),
         };
       }
     }
@@ -700,3 +718,83 @@ export async function updateCloudMarketplaceOrder(
   }
 }
 
+export interface StoredWorkshopStoreLayout {
+  layoutCols: 1 | 2 | 3;
+  productOrder: string[];
+  updatedAt?: number;
+}
+
+export function getLocalWorkshopStoreLayout(workshopId?: string): StoredWorkshopStoreLayout {
+  if (!workshopId || typeof window === 'undefined') {
+    return { layoutCols: 2, productOrder: [] };
+  }
+  try {
+    const raw = localStorage.getItem(`alshams_store_layout_${workshopId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const rawCols = Number(parsed?.layoutCols);
+      const layoutCols: 1 | 2 | 3 = rawCols === 1 ? 1 : rawCols === 3 ? 3 : 2;
+      const productOrder = Array.isArray(parsed?.productOrder) ? parsed.productOrder : [];
+      return { layoutCols, productOrder, updatedAt: parsed?.updatedAt };
+    }
+    const fallbackOrderRaw = localStorage.getItem(`alshams_catalog_prod_order_${workshopId}`);
+    if (fallbackOrderRaw) {
+      const fallbackOrder = JSON.parse(fallbackOrderRaw);
+      if (Array.isArray(fallbackOrder)) {
+        return { layoutCols: 2, productOrder: fallbackOrder };
+      }
+    }
+  } catch {}
+  return { layoutCols: 2, productOrder: [] };
+}
+
+export async function saveWorkshopStoreLayout(
+  workshopId: string,
+  layoutCols: 1 | 2 | 3,
+  productOrder: string[],
+  userEmail?: string
+): Promise<{ success: boolean; cloudSynced?: boolean; layoutCols: 1 | 2 | 3; productOrder: string[] }> {
+  const safeCols: 1 | 2 | 3 = layoutCols === 1 ? 1 : layoutCols === 3 ? 3 : 2;
+  const safeOrder = Array.from(new Set(productOrder.filter((id) => typeof id === 'string' && id.trim())));
+
+  if (typeof window !== 'undefined' && workshopId) {
+    try {
+      localStorage.setItem(
+        `alshams_store_layout_${workshopId}`,
+        JSON.stringify({ layoutCols: safeCols, productOrder: safeOrder, updatedAt: Date.now() })
+      );
+      if (safeOrder.length > 0) {
+        localStorage.setItem(`alshams_catalog_prod_order_${workshopId}`, JSON.stringify(safeOrder));
+      }
+      window.dispatchEvent(
+        new CustomEvent('alshams_store_layout_updated', {
+          detail: { workshopId, layoutCols: safeCols, productOrder: safeOrder },
+        })
+      );
+    } catch {}
+  }
+
+  try {
+    const headers = await getOptionalAuthHeaders(userEmail, { 'Content-Type': 'application/json' });
+    const res = await fetch('/api/store/layout', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        workshopId,
+        layoutCols: safeCols,
+        productOrder: safeOrder,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: true,
+        cloudSynced: Boolean(data.cloudSynced),
+        layoutCols: safeCols,
+        productOrder: safeOrder,
+      };
+    }
+  } catch {}
+
+  return { success: true, cloudSynced: false, layoutCols: safeCols, productOrder: safeOrder };
+}
