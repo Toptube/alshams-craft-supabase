@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ShoppingBag,
   Phone,
@@ -23,6 +23,7 @@ import {
   GripVertical,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   Eye,
 } from 'lucide-react';
 import {
@@ -87,10 +88,27 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
   // Storefront Display Layout (1, 2, or 3 cols) & Product Ordering
   const [layoutCols, setLayoutCols] = useState<1 | 2 | 3>(initialLayoutCols || 2);
+  const [isLayoutMenuOpen, setIsLayoutMenuOpen] = useState<boolean>(false);
+  const layoutMenuRef = useRef<HTMLDivElement>(null);
   const [productOrder, setProductOrder] = useState<string[]>(initialProductOrder || []);
   const [draggedProductId, setDraggedProductId] = useState<string | null>(null);
   const [dragOverProductId, setDragOverProductId] = useState<string | null>(null);
   const [savingLayout, setSavingLayout] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isLayoutMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (layoutMenuRef.current && !layoutMenuRef.current.contains(event.target as Node)) {
+        setIsLayoutMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isLayoutMenuOpen]);
 
   // Selected product modal
   const [selectedProduct, setSelectedProduct] = useState<CloudMarketplaceProduct | null>(null);
@@ -798,48 +816,72 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 </p>
               </div>
 
-              <div className="flex items-center gap-1.5 bg-[#E9E2D4] dark:bg-[#132040] p-1 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] w-full md:w-auto">
+              <div className="relative shrink-0" ref={layoutMenuRef}>
                 <button
                   type="button"
-                  onClick={() => handleChangeLayoutCols(1)}
+                  onClick={() => setIsLayoutMenuOpen((prev) => !prev)}
                   disabled={savingLayout}
-                  className={`flex-1 md:flex-none px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
-                    layoutCols === 1
-                      ? 'bg-[#EA580C] text-white shadow-xs'
-                      : 'text-[#334155] dark:text-[#CBD5E1] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54]'
-                  }`}
+                  aria-expanded={isLayoutMenuOpen}
+                  aria-haspopup="listbox"
+                  className="w-full md:w-auto px-3.5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center justify-between md:justify-center gap-2 shadow-sm active:scale-95 transition cursor-pointer whitespace-nowrap"
                 >
-                  <LayoutList className="w-3.5 h-3.5 shrink-0" />
-                  <span>منتج ورا منتج</span>
+                  <span className="flex items-center gap-1.5">
+                    {layoutCols === 1 ? (
+                      <LayoutList className="w-4 h-4 shrink-0" />
+                    ) : layoutCols === 2 ? (
+                      <Columns2 className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <Grid3x3 className="w-4 h-4 shrink-0" />
+                    )}
+                    <span>عرض منتجات متجري</span>
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 shrink-0 transition-transform ${
+                      isLayoutMenuOpen ? 'rotate-180' : ''
+                    }`}
+                  />
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleChangeLayoutCols(2)}
-                  disabled={savingLayout}
-                  className={`flex-1 md:flex-none px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
-                    layoutCols === 2
-                      ? 'bg-[#EA580C] text-white shadow-xs'
-                      : 'text-[#334155] dark:text-[#CBD5E1] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54]'
-                  }`}
-                >
-                  <Columns2 className="w-3.5 h-3.5 shrink-0" />
-                  <span>مصفوفة ثنائية</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleChangeLayoutCols(3)}
-                  disabled={savingLayout}
-                  className={`flex-1 md:flex-none px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
-                    layoutCols === 3
-                      ? 'bg-[#EA580C] text-white shadow-xs'
-                      : 'text-[#334155] dark:text-[#CBD5E1] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54]'
-                  }`}
-                >
-                  <Grid3x3 className="w-3.5 h-3.5 shrink-0" />
-                  <span>مصفوفة ثلاثية</span>
-                </button>
+                {isLayoutMenuOpen && (
+                  <div
+                    role="listbox"
+                    aria-label="اختيار نظام عرض منتجات متجري"
+                    className="absolute left-0 right-0 md:right-auto md:left-0 md:w-56 mt-1.5 z-50 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-xl p-1.5 space-y-1"
+                  >
+                    {[
+                      { cols: 1 as const, label: 'منتج ورا منتج', Icon: LayoutList },
+                      { cols: 2 as const, label: 'مصفوفة ثنائية (×2)', Icon: Columns2 },
+                      { cols: 3 as const, label: 'مصفوفة ثلاثية (×3)', Icon: Grid3x3 },
+                    ].map(({ cols, label, Icon }) => {
+                      const active = layoutCols === cols;
+                      return (
+                        <button
+                          key={cols}
+                          type="button"
+                          role="option"
+                          aria-selected={active}
+                          onClick={() => {
+                            setIsLayoutMenuOpen(false);
+                            handleChangeLayoutCols(cols);
+                          }}
+                          className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer ${
+                            active
+                              ? 'bg-[#EA580C]/15 text-[#C2410C] dark:text-[#FBBF24]'
+                              : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54]'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <Icon className="w-4 h-4 shrink-0" />
+                            <span>{label}</span>
+                          </span>
+                          {active && (
+                            <Check className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24] shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>

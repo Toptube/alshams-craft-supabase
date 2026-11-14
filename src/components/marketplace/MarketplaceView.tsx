@@ -628,39 +628,47 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       {/* 2. Editorial Showcase Hero (Hidden while searching/filtering so results rise straight to top) */}
       {!hasActiveFilters && (
         <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-2">
-          <div className="grid grid-cols-1 lg:grid-cols-12 items-stretch rounded-2xl overflow-hidden bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E]">
-            <div className="lg:col-span-5 p-6 sm:p-8 flex flex-col justify-center gap-4 text-right">
+          <div className="relative rounded-2xl overflow-hidden bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] min-h-[210px] sm:min-h-[245px] lg:min-h-[270px] flex items-center">
+            {/* Background Image for Mobile & Tablet (portrait framing) */}
+            <img
+              src="/assets/aistudio/1794679233184_3747c8da.jpg"
+              alt=""
+              aria-hidden="true"
+              className="lg:hidden absolute inset-0 w-full h-full object-cover object-center opacity-[0.18] dark:opacity-[0.16] pointer-events-none select-none"
+            />
+            {/* Background Image for Desktop (widescreen landscape framing) */}
+            <img
+              src="/assets/aistudio/1794679364029_8e8e9eb9.jpg"
+              alt=""
+              aria-hidden="true"
+              className="hidden lg:block absolute inset-0 w-full h-full object-cover object-center opacity-[0.18] dark:opacity-[0.17] pointer-events-none select-none"
+            />
+            {/* Readability wash preserving text contrast in both Warm Sand Light and Deep Navy Dark */}
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 bg-gradient-to-l from-[#F7F3EA]/80 via-[#F7F3EA]/45 to-transparent dark:from-[#0D162E]/85 dark:via-[#0D162E]/55 dark:to-transparent pointer-events-none"
+            />
+
+            <div className="relative z-10 p-6 sm:p-8 lg:p-10 flex flex-col justify-center gap-3.5 sm:gap-4 text-right max-w-2xl">
               <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
                 مشغولات يدوية · ديكور وأثاث منزلي
               </p>
               <h1 className="text-2xl sm:text-3xl font-black leading-tight text-[#0C1427] dark:text-[#F7F3EA] text-balance">
                 اقتنِ قطعاً يدوية أصيلة لمنزلك
               </h1>
-              <p className="text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed max-w-md">
+              <p className="text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed max-w-md font-medium">
                 تشكيلة مختارة من الديكورات والمشغولات الحرفية بتصنيع متقن وتوصيل لكافة المحافظات.
               </p>
-              <div className="pt-1 flex items-center gap-4">
+              <div className="pt-1 flex items-center">
                 <button
                   type="button"
                   onClick={scrollToCatalog}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-sm inline-flex items-center gap-2 transition cursor-pointer active:scale-95 whitespace-nowrap"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-sm inline-flex items-center gap-2 transition cursor-pointer active:scale-95 whitespace-nowrap shadow-sm"
                 >
                   <span>تصفح المعروضات</span>
                   <ArrowLeft className="w-4 h-4" />
                 </button>
-                <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8] tabular-nums">
-                  {products.length} قطعة متاحة
-                </span>
               </div>
-            </div>
-
-            <div className="lg:col-span-7 min-h-[190px] sm:min-h-[250px] bg-gradient-to-br from-[#E9E2D4] to-[#DFD7C6] dark:from-[#0D162E] dark:to-[#132040] relative overflow-hidden">
-              <img
-                src="/src/assets/images/hero_shamsawiyah_market_1794585781201.jpg"
-                alt="تشكيلة مشغولات يدوية وديكور منزلي في سوق الشمساوية"
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover lg:absolute lg:inset-0"
-              />
             </div>
           </div>
         </section>
@@ -861,12 +869,8 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             )}
           </div>
 
-          {/* Sort + Results Summary */}
-          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-            <span className="text-xs font-medium text-[#475569] dark:text-[#94A3B8] tabular-nums">
-              {filteredProducts.length} منتج
-            </span>
-
+          {/* Sort Selector */}
+          <div className="flex items-center justify-end gap-3 shrink-0">
             <div className="relative flex items-center">
               <ArrowUpDown className="w-3.5 h-3.5 text-[#475569] dark:text-[#94A3B8] absolute right-3 pointer-events-none" />
               <select
