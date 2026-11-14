@@ -82,6 +82,7 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
   // Messages / Mail State
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [adminInbox, setAdminInbox] = useState<any[]>([]);
+  const [adminWorkshopsList, setAdminWorkshopsList] = useState<any[]>([]);
   const [adminInboxLoaded, setAdminInboxLoaded] = useState<boolean>(false);
   const [showSentBroadcastsForAdmin, setShowSentBroadcastsForAdmin] = useState<boolean>(false);
   const [loadingMessages, setLoadingMessages] = useState<boolean>(false);
@@ -143,9 +144,18 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
     setLoadingMessages(true);
     try {
       const headers = await getHeaders(false);
-      const res = await fetch('/api/admin/inbox', { headers });
-      if (res.ok) {
-        const data = await res.json();
+      const [inboxRes, wsRes] = await Promise.all([
+        fetch('/api/admin/inbox', { headers }),
+        fetch('/api/admin/workshops', { headers }),
+      ]);
+      if (wsRes.ok) {
+        const wsData = await wsRes.json();
+        if (Array.isArray(wsData.workshops)) {
+          setAdminWorkshopsList(wsData.workshops);
+        }
+      }
+      if (inboxRes.ok) {
+        const data = await inboxRes.json();
         if (Array.isArray(data.inbox)) {
           setAdminInbox(data.inbox);
         }
@@ -911,18 +921,29 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
                     <div className="space-y-3">
                       {adminInbox.map((msg, idx) => {
                         const itemKey = String(msg.id || msg.inbox_key || idx);
+                        const msgWid = msg.workshop_id || msg.workshops?.id || '';
+                        const msgEmail = String(msg.email || msg.workshops?.email || '').trim().toLowerCase();
+                        const matchedWs = adminWorkshopsList.find(
+                          (w) =>
+                            (msgWid && (w.id === msgWid || w.ownerUid === msgWid)) ||
+                            (msgEmail && w.email?.toLowerCase() === msgEmail)
+                        );
+                        const resolvedWid = matchedWs?.id || msgWid;
+
+                        const placeholderBrands = new Set(['', 'ورشة الشمساوية', 'الشمساوية هاند ميد', 'ورشة حرفية بالشمساوية', 'ورشة بالشمساوية', 'ورشة مسجلة بالشمساوية', 'ورشة الشمس', 'زائر المنظومة']);
+                        const placeholderArtists = new Set(['', 'فنان الشمساوية', 'صاحب الورشة', 'فنان', 'زائر خارجي', 'مرسل خارجي']);
+                        const pickBrand = (...vals: any[]) => vals.map((v) => String(v || '').trim()).find((s) => s && !placeholderBrands.has(s));
+                        const pickArtist = (...vals: any[]) => vals.map((v) => String(v || '').trim()).find((s) => s && !placeholderArtists.has(s));
+
                         const brandLabel =
-                          msg.workshops?.brand_name ||
-                          msg.brand_name ||
-                          msg.workshop_name ||
-                          (msg.workshop_id ? 'ورشة بالشمساوية' : 'زائر المنظومة');
+                          pickBrand(matchedWs?.brandName, msg.workshops?.brand_name, msg.brand_name, msg.workshop_name) ||
+                          (resolvedWid ? 'ورشة حرفية بالشمساوية' : 'زائر المنظومة');
                         const artistLabel =
-                          msg.workshops?.artist_name ||
-                          msg.artist_name ||
-                          (msg.workshop_id ? 'صاحب الورشة' : 'زائر خارجي');
-                        const phoneRaw = String(msg.workshops?.phone_number || msg.phone_number || '').replace(/\D/g, '');
+                          pickArtist(matchedWs?.artistName, msg.workshops?.artist_name, msg.artist_name) ||
+                          (msgEmail ? msgEmail.split('@')[0] : resolvedWid ? 'صاحب الورشة' : 'زائر خارجي');
+                        const phoneRaw = String(matchedWs?.phoneNumber || msg.workshops?.phone_number || msg.phone_number || '').replace(/\D/g, '');
                         const waPhone = phoneRaw.startsWith('01') ? `2${phoneRaw}` : phoneRaw;
-                        const canDirectReply = Boolean(msg.workshop_id || msg.workshops?.id);
+                        const canDirectReply = Boolean(resolvedWid);
                         const isUnread = !msg.admin_read_at;
 
                         return (
@@ -987,7 +1008,7 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
                                   <button
                                     type="button"
                                     disabled={submittingReply || !replyText.trim()}
-                                    onClick={() => handleAdminDirectReply(msg)}
+                                    onClick={() => handleAdminDirectReply({ ...msg, workshop_id: resolvedWid, brand_name: brandLabel })}
                                     className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                                   >
                                     <Send className="w-3 h-3" />

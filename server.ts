@@ -1346,47 +1346,188 @@ const localWorkshopStatusMap = new Map<string, WorkshopStatusRecord>();
 const localAnnouncements: any[] = loadPersistentAnnouncements();
 const localReceipts: any[] = loadPersistentReceipts();
 
-async function resolveWorkshopLookupMaps(): Promise<{
-  byId: Map<string, any>;
-  byEmail: Map<string, any>;
+const PLACEHOLDER_WORKSHOP_NAMES = new Set([
+  'ورشة الشمساوية',
+  'الشمساوية هاند ميد',
+  'ورشة حرفية بالشمساوية',
+  'ورشة بالشمساوية',
+  'ورشة مسجلة بالشمساوية',
+  'ورشة الشمس',
+  'ورشة محددة',
+  'زائر المنظومة',
+  'كافة ورش المنظومة',
+  'متجر فنان',
+]);
+
+const PLACEHOLDER_ARTIST_NAMES = new Set([
+  'فنان الشمساوية',
+  'صاحب الورشة',
+  'فنان',
+  'زائر خارجي',
+  'مرسل خارجي',
+  'زائر للمنظومة',
+  'صاحب المتجر',
+]);
+
+function cleanRealBrandName(val?: unknown): string {
+  const s = String(val || '').trim();
+  return s && !PLACEHOLDER_WORKSHOP_NAMES.has(s) ? s : '';
+}
+
+function cleanRealArtistName(val?: unknown): string {
+  const s = String(val || '').trim();
+  return s && !PLACEHOLDER_ARTIST_NAMES.has(s) ? s : '';
+}
+
+async function getOptionalUserContext(req: Request): Promise<{
+  authUser: any | null;
+  userClient: SupabaseClient | null;
 }> {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
+      if (!error && user) {
+        const userClient = createClient(supabaseServerUrl, supabaseConfig.publishableKey, {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+        });
+        return { authUser: user, userClient };
+      }
+    } catch {}
+  }
+  return { authUser: null, userClient: null };
+}
+
+interface WorkshopLookupMaps {
+  byId: Map<string, any>;
+  byOwnerId: Map<string, any>;
+  byEmail: Map<string, any>;
+}
+
+async function resolveWorkshopLookupMaps(client: SupabaseClient = supabaseAdminClient): Promise<WorkshopLookupMaps> {
   const byId = new Map<string, any>();
+  const byOwnerId = new Map<string, any>();
   const byEmail = new Map<string, any>();
 
-  const register = (raw: any) => {
+  const register = (raw: any, opts?: { treatIdAsOwnerOnly?: boolean }) => {
     if (!raw) return;
-    const id = String(raw.id || raw.workshopId || raw.workshop_id || '').trim();
-    const ownerId = String(raw.owner_id || raw.ownerUid || raw.owner_uid || '').trim();
+    const treatIdAsOwnerOnly = Boolean(opts?.treatIdAsOwnerOnly);
+    const id = String(
+      raw.workshop_id || raw.workshopId || (!treatIdAsOwnerOnly ? raw.id : '') || ''
+    ).trim();
+    const ownerId = String(
+      raw.owner_id || raw.ownerUid || raw.owner_uid || raw.user_id || (treatIdAsOwnerOnly ? raw.id : '') || ''
+    ).trim();
     const email = String(raw.email || '').trim().toLowerCase();
-    const brandName = String(raw.brand_name || raw.brandName || raw.workshopName || '').trim();
-    const artistName = String(raw.artist_name || raw.artistName || raw.ownerName || '').trim();
+    const brandName = cleanRealBrandName(
+      raw.brand_name || raw.brandName || raw.workshopName || raw.workshop_name
+    );
+    const artistName = cleanRealArtistName(
+      raw.artist_name || raw.artistName || raw.full_name || raw.fullName || raw.ownerName || raw.owner_name || raw.name
+    );
     const phone = String(raw.phone_number || raw.phoneNumber || raw.phone || '').trim();
 
     const mergeRecord = (prev: any = {}) => ({
-      id: id || prev.id || ownerId || '',
-      brand_name: (brandName && brandName !== 'ورشة الشمساوية' ? brandName : '') || prev.brand_name || brandName || '',
-      artist_name: (artistName && artistName !== 'فنان الشمساوية' ? artistName : '') || prev.artist_name || artistName || '',
-      phone_number: phone || prev.phone_number || '',
-      email: email || prev.email || '',
+      id: prev.id || id || '',
+      owner_id: prev.owner_id || ownerId || '',
+      brand_name: prev.brand_name || brandName || '',
+      artist_name: prev.artist_name || artistName || '',
+      phone_number: prev.phone_number || phone || '',
+      email: prev.email || email || '',
     });
 
     if (id) byId.set(id, mergeRecord(byId.get(id)));
-    if (ownerId) byId.set(ownerId, mergeRecord(byId.get(ownerId)));
+    if (ownerId) byOwnerId.set(ownerId, mergeRecord(byOwnerId.get(ownerId)));
     if (email) byEmail.set(email, mergeRecord(byEmail.get(email)));
   };
 
-  loadPersistentWorkshops().forEach(register);
+  loadPersistentWorkshops().forEach((w) => register(w));
 
-  try {
-    const { data: wsRows } = await supabaseAdminClient
-      .from('workshops')
-      .select('id, owner_id, owner_uid, brand_name, artist_name, phone, phone_number, email');
-    if (Array.isArray(wsRows)) {
-      wsRows.forEach(register);
+  const queryClientTables = async (c: SupabaseClient) => {
+    const [wsRes, profRes, appRes] = await Promise.allSettled([
+      c.from('workshops').select('*'),
+      c.from('profiles').select('*'),
+      c.from('workshop_applications').select('*'),
+    ]);
+
+    if (wsRes.status === 'fulfilled') {
+      if (wsRes.value.error) {
+        console.warn('[LookupMaps] workshops query error:', wsRes.value.error.message);
+      } else if (Array.isArray(wsRes.value.data)) {
+        wsRes.value.data.forEach((r: any) => register(r, { treatIdAsOwnerOnly: false }));
+      }
     }
-  } catch {}
+    if (profRes.status === 'fulfilled') {
+      if (profRes.value.error) {
+        console.warn('[LookupMaps] profiles query notice:', profRes.value.error.message);
+      } else if (Array.isArray(profRes.value.data)) {
+        profRes.value.data.forEach((r: any) => register(r, { treatIdAsOwnerOnly: true }));
+      }
+    }
+    if (appRes.status === 'fulfilled' && !appRes.value.error && Array.isArray(appRes.value.data)) {
+      appRes.value.data.forEach((r: any) => register(r, { treatIdAsOwnerOnly: false }));
+    }
+  };
 
-  return { byId, byEmail };
+  await queryClientTables(client);
+  if (client !== supabaseAdminClient) {
+    await queryClientTables(supabaseAdminClient);
+  }
+
+  // Harvest Supabase Auth user metadata when service role permissions allow
+  try {
+    const { data: authUsersData } = await supabaseAdminClient.auth.admin.listUsers({ perPage: 500 });
+    if (Array.isArray(authUsersData?.users)) {
+      authUsersData.users.forEach((u: any) => {
+        const meta = u.user_metadata || {};
+        register(
+          {
+            id: u.id,
+            workshop_id: meta.workshop_id || meta.workshopId || meta.tenant_id || '',
+            owner_id: u.id,
+            email: u.email || meta.email || '',
+            brand_name: meta.brand_name || meta.brandName || '',
+            artist_name: meta.artist_name || meta.artistName || meta.full_name || meta.name || '',
+            phone: meta.phone_number || meta.phone || u.phone || '',
+          },
+          { treatIdAsOwnerOnly: true }
+        );
+      });
+    }
+  } catch {
+    // Non-service-role anon fallback cannot call auth.admin.listUsers — expected
+  }
+
+  return { byId, byOwnerId, byEmail };
+}
+
+function findWorkshopFromLookupMaps(
+  maps: WorkshopLookupMaps,
+  keys: { workshopId?: string | null; ownerId?: string | null; email?: string | null }
+): any | null {
+  const wid = String(keys.workshopId || '').trim();
+  const oid = String(keys.ownerId || '').trim();
+  const em = String(keys.email || '').trim().toLowerCase();
+
+  const candidates = [
+    wid ? maps.byId.get(wid) : null,
+    wid ? maps.byOwnerId.get(wid) : null,
+    oid ? maps.byId.get(oid) : null,
+    oid ? maps.byOwnerId.get(oid) : null,
+    em ? maps.byEmail.get(em) : null,
+  ].filter(Boolean);
+
+  if (candidates.length === 0) return null;
+
+  return {
+    id: candidates.map((c) => c.id).find(Boolean) || '',
+    owner_id: candidates.map((c) => c.owner_id).find(Boolean) || '',
+    brand_name: candidates.map((c) => cleanRealBrandName(c.brand_name)).find(Boolean) || '',
+    artist_name: candidates.map((c) => cleanRealArtistName(c.artist_name)).find(Boolean) || '',
+    phone_number: candidates.map((c) => String(c.phone_number || '').trim()).find(Boolean) || '',
+    email: candidates.map((c) => String(c.email || '').trim().toLowerCase()).find(Boolean) || '',
+  };
 }
 
 async function checkWorkshopStatusAndAutoUnfreeze(
@@ -1817,7 +1958,8 @@ app.get('/api/admin/appeals', requireAuth, async (req: AuthenticatedRequest, res
 app.get('/api/announcements', async (req: Request, res: Response) => {
   const wid = ((req.query.workshopId as string) || (req.body?.workshopId as string) || (req.headers['x-workshop-id'] as string) || '') as string;
   const wantAll = req.query.all === '1' || wid === 'ALL_WORKSHOPS' || !wid;
-  const client = supabaseAdminClient;
+  const { userClient } = await getOptionalUserContext(req);
+  const client = userClient || supabaseAdminClient;
 
   try {
     let query = client.from('admin_announcements').select('*').order('created_at', { ascending: false });
@@ -2129,28 +2271,49 @@ app.delete('/api/admin/announcements/:id', requireAuth, async (req: Authenticate
 
 // 8. Workshop Message Receipt & Reply Handler (select-then-update-or-insert safe even without composite unique index)
 app.post('/api/announcements/:id/receipt', async (req: Request, res: Response) => {
-  const wid = (req.body?.workshopId || req.headers['x-workshop-id'] || (req as any).workshopId || '') as string;
+  const wid = String(req.body?.workshopId || req.headers['x-workshop-id'] || (req as any).workshopId || '').trim();
   const messageId = req.params.id;
   const { action, reply_text, brandName, artistName, phoneNumber, email } = req.body || {};
 
-  const client = supabaseAdminClient;
+  const { authUser, userClient } = await getOptionalUserContext(req);
+  const dbClient = userClient || supabaseAdminClient;
   const nowIso = new Date().toISOString();
 
-  // Resolve full workshop metadata so replies never appear as "مرسل خارجي"
-  const normalizedEmail = String(email || req.headers['x-user-email'] || '').trim().toLowerCase();
-  const { byId, byEmail } = await resolveWorkshopLookupMaps();
-  const lookupWs = (wid && byId.get(wid)) || (normalizedEmail && byEmail.get(normalizedEmail)) || null;
+  // Resolve full workshop metadata so replies never appear as placeholder/external sender
+  const normalizedEmail = String(
+    email || authUser?.email || req.headers['x-user-email'] || ''
+  ).trim().toLowerCase();
+  const authOwnerId = String(authUser?.id || '').trim();
+  const authMeta = authUser?.user_metadata || {};
+
+  const lookupMaps = await resolveWorkshopLookupMaps(dbClient);
+  const lookupWs = findWorkshopFromLookupMaps(lookupMaps, {
+    workshopId: wid,
+    ownerId: authOwnerId,
+    email: normalizedEmail,
+  });
+
+  const canonicalWid =
+    (lookupWs?.id && isValidUuid(lookupWs.id) ? lookupWs.id : '') ||
+    (isValidUuid(wid) ? wid : '') ||
+    wid;
+
   const resolvedBrandName =
-    String(brandName || '').trim() ||
     lookupWs?.brand_name ||
+    cleanRealBrandName(brandName) ||
+    cleanRealBrandName(authMeta.brand_name || authMeta.brandName) ||
     '';
+
   const resolvedArtistName =
-    String(artistName || '').trim() ||
     lookupWs?.artist_name ||
+    cleanRealArtistName(artistName) ||
+    cleanRealArtistName(authMeta.artist_name || authMeta.artistName || authMeta.full_name || authMeta.name) ||
     '';
+
   const resolvedPhone =
     String(phoneNumber || '').trim() ||
     lookupWs?.phone_number ||
+    String(authMeta.phone_number || authMeta.phone || '').trim() ||
     '';
 
   const receiptUpdate: any = {};
@@ -2166,71 +2329,117 @@ app.post('/api/announcements/:id/receipt', async (req: Request, res: Response) =
   }
 
   let cloudSynced = false;
-  if (isValidUuid(messageId) && isValidUuid(wid)) {
-    try {
-      const { data: existingRow } = await client
-        .from('workshop_messages_receipts')
-        .select('id, read_at')
-        .eq('message_id', messageId)
-        .eq('workshop_id', wid)
-        .maybeSingle();
+  const tryClients = Array.from(new Set([dbClient, supabaseAdminClient]));
+  const tryWids = Array.from(new Set([canonicalWid, wid].filter((w) => isValidUuid(w))));
 
-      if (existingRow?.id) {
-        const patch = { ...receiptUpdate };
-        if (existingRow.read_at && action === 'read') {
-          cloudSynced = true;
-        } else {
-          const { error: uErr } = await client
+  if (isValidUuid(messageId) && tryWids.length > 0) {
+    outer: for (const activeClient of tryClients) {
+      for (const targetWid of tryWids) {
+        try {
+          const { data: existingRow, error: selErr } = await activeClient
             .from('workshop_messages_receipts')
-            .update(patch)
-            .eq('id', existingRow.id);
-          if (!uErr) cloudSynced = true;
+            .select('id, read_at')
+            .eq('message_id', messageId)
+            .eq('workshop_id', targetWid)
+            .maybeSingle();
+
+          if (selErr) {
+            console.warn('[Receipt] select notice:', selErr.message);
+          }
+
+          if (existingRow?.id) {
+            if (existingRow.read_at && action === 'read') {
+              cloudSynced = true;
+              break outer;
+            }
+            const { error: uErr } = await activeClient
+              .from('workshop_messages_receipts')
+              .update({ ...receiptUpdate })
+              .eq('id', existingRow.id);
+            if (!uErr) {
+              cloudSynced = true;
+              break outer;
+            }
+            console.warn('[Receipt] update error:', uErr.message);
+          } else {
+            const { error: iErr } = await activeClient
+              .from('workshop_messages_receipts')
+              .insert({
+                id: crypto.randomUUID(),
+                message_id: messageId,
+                workshop_id: targetWid,
+                ...receiptUpdate,
+              });
+            if (!iErr) {
+              cloudSynced = true;
+              break outer;
+            }
+            console.warn('[Receipt] insert error:', iErr.message);
+          }
+        } catch (err: any) {
+          console.warn('[Receipt] exception:', err?.message);
         }
-      } else {
-        const { error: iErr } = await client
-          .from('workshop_messages_receipts')
-          .insert({
-            id: crypto.randomUUID(),
-            message_id: messageId,
-            workshop_id: wid,
-            ...receiptUpdate,
-          });
-        if (!iErr) cloudSynced = true;
       }
-    } catch {}
+    }
   }
 
-  const localPayload = {
-    ...receiptUpdate,
-    ...(resolvedBrandName ? { brand_name: resolvedBrandName, workshop_name: resolvedBrandName } : {}),
-    ...(resolvedArtistName ? { artist_name: resolvedArtistName } : {}),
-    ...(resolvedPhone ? { phone_number: resolvedPhone } : {}),
-    ...(normalizedEmail ? { email: normalizedEmail } : {}),
-  };
+  const effectiveLocalWid = canonicalWid || wid || authOwnerId || normalizedEmail || 'unknown_workshop';
+  const resolvedEmail = normalizedEmail || lookupWs?.email || '';
 
   const existingIdx = localReceipts.findIndex(
-    (r) => r.message_id === messageId && r.workshop_id === wid
+    (r) =>
+      r.message_id === messageId &&
+      (r.workshop_id === effectiveLocalWid || (wid && r.workshop_id === wid) || (authOwnerId && r.owner_id === authOwnerId))
   );
+
+  const prevRec = existingIdx >= 0 ? localReceipts[existingIdx] : {};
+  const finalBrand =
+    resolvedBrandName ||
+    cleanRealBrandName(prevRec.brand_name) ||
+    cleanRealBrandName(prevRec.workshop_name) ||
+    '';
+  const finalArtist =
+    resolvedArtistName ||
+    cleanRealArtistName(prevRec.artist_name) ||
+    '';
+
+  const mergedRecord = {
+    ...prevRec,
+    id: prevRec.id || `${messageId}_${effectiveLocalWid}`,
+    message_id: messageId,
+    workshop_id: effectiveLocalWid,
+    owner_id: authOwnerId || lookupWs?.owner_id || prevRec.owner_id || '',
+    ...receiptUpdate,
+    brand_name: finalBrand,
+    workshop_name: finalBrand,
+    artist_name: finalArtist,
+    phone_number: resolvedPhone || prevRec.phone_number || '',
+    email: resolvedEmail || prevRec.email || '',
+  };
+
   if (existingIdx >= 0) {
-    localReceipts[existingIdx] = { ...localReceipts[existingIdx], ...localPayload };
+    localReceipts[existingIdx] = mergedRecord;
   } else {
-    localReceipts.push({
-      id: `${messageId}_${wid}`,
-      message_id: messageId,
-      workshop_id: wid,
-      ...localPayload,
-    });
+    localReceipts.push(mergedRecord);
   }
   savePersistentReceipts(localReceipts);
 
   // If a new reply arrived, ensure Super Admin sees it as unread in Mail Inbox
   if (action === 'reply') {
     const readsMap = loadPersistentAdminInboxReads();
-    const inboxKey = `${messageId}_${wid}`;
-    if (readsMap[inboxKey]) {
-      delete readsMap[inboxKey];
-      savePersistentAdminInboxReads(readsMap);
-    }
+    const keysToClear = [
+      `${messageId}_${effectiveLocalWid}`,
+      wid ? `${messageId}_${wid}` : '',
+      mergedRecord.id ? String(mergedRecord.id) : '',
+    ].filter(Boolean);
+    let changed = false;
+    keysToClear.forEach((k) => {
+      if (readsMap[k]) {
+        delete readsMap[k];
+        changed = true;
+      }
+    });
+    if (changed) savePersistentAdminInboxReads(readsMap);
   }
 
   res.json({ success: true, cloudSynced, receipt: receiptUpdate });
@@ -2243,57 +2452,74 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
-  const { byId, byEmail } = await resolveWorkshopLookupMaps();
+  const client = getDbClient(req);
+  const lookupMaps = await resolveWorkshopLookupMaps(client);
   const readsMap = loadPersistentAdminInboxReads();
 
   let dbReceipts: any[] = [];
-  let dbAnnouncementsMap = new Map<string, any>();
-  try {
-    const [{ data: receipts }, { data: anns }] = await Promise.all([
-      supabaseAdminClient
+  const dbAnnouncementsMap = new Map<string, any>();
+
+  const queryInboxFromClient = async (c: SupabaseClient) => {
+    const [recRes, annRes] = await Promise.all([
+      c
         .from('workshop_messages_receipts')
-        .select('*, admin_announcements(*), workshops(id, brand_name, artist_name, phone, phone_number, email)')
+        .select('*')
         .not('reply_text', 'is', null)
         .order('replied_at', { ascending: false }),
-      supabaseAdminClient
-        .from('admin_announcements')
-        .select('*'),
+      c.from('admin_announcements').select('*'),
     ]);
 
-    if (Array.isArray(anns)) {
-      anns.forEach((a: any) => dbAnnouncementsMap.set(a.id, a));
+    if (annRes.error) {
+      console.warn('[Admin Inbox] announcements query notice:', annRes.error.message);
+    } else if (Array.isArray(annRes.data)) {
+      annRes.data.forEach((a: any) => dbAnnouncementsMap.set(a.id, a));
     }
-    if (Array.isArray(receipts)) {
-      dbReceipts = receipts;
+
+    if (recRes.error) {
+      console.warn('[Admin Inbox] receipts query error:', recRes.error.message);
+      return [] as any[];
     }
-  } catch {
-    // ignore
+    return Array.isArray(recRes.data) ? recRes.data : [];
+  };
+
+  try {
+    dbReceipts = await queryInboxFromClient(client);
+    if (dbReceipts.length === 0 && client !== supabaseAdminClient) {
+      dbReceipts = await queryInboxFromClient(supabaseAdminClient);
+    }
+  } catch (err: any) {
+    console.warn('[Admin Inbox] query exception:', err?.message);
   }
 
   const enrichReceipt = (r: any) => {
     const localRec = localReceipts.find(
-      (lr) => lr.message_id === r.message_id && lr.workshop_id === r.workshop_id
+      (lr) =>
+        lr.message_id === r.message_id &&
+        (lr.workshop_id === r.workshop_id || (r.owner_id && lr.owner_id === r.owner_id))
     );
     const rEmail = String(r.email || r.workshops?.email || localRec?.email || '').trim().toLowerCase();
-    const wsLookup =
-      (r.workshop_id && byId.get(r.workshop_id)) ||
-      (rEmail && byEmail.get(rEmail)) ||
-      null;
+    const rOwnerId = String(r.owner_id || localRec?.owner_id || '').trim();
+    const wsLookup = findWorkshopFromLookupMaps(lookupMaps, {
+      workshopId: r.workshop_id,
+      ownerId: rOwnerId,
+      email: rEmail,
+    });
 
     const resolvedBrand =
-      wsLookup?.brand_name ||
-      r.workshops?.brand_name ||
-      r.brand_name ||
-      localRec?.brand_name ||
-      r.workshop_name ||
-      localRec?.workshop_name ||
+      cleanRealBrandName(wsLookup?.brand_name) ||
+      cleanRealBrandName(r.workshops?.brand_name) ||
+      cleanRealBrandName(r.brand_name) ||
+      cleanRealBrandName(localRec?.brand_name) ||
+      cleanRealBrandName(r.workshop_name) ||
+      cleanRealBrandName(localRec?.workshop_name) ||
       (r.workshop_id ? 'ورشة حرفية بالشمساوية' : 'زائر المنظومة');
 
     const resolvedArtist =
-      wsLookup?.artist_name ||
-      r.workshops?.artist_name ||
-      r.artist_name ||
-      localRec?.artist_name ||
+      cleanRealArtistName(wsLookup?.artist_name) ||
+      cleanRealArtistName(r.workshops?.artist_name) ||
+      cleanRealArtistName(r.artist_name) ||
+      cleanRealArtistName(localRec?.artist_name) ||
+      (rEmail ? rEmail.split('@')[0] : '') ||
       (r.workshop_id ? 'صاحب الورشة' : 'زائر خارجي');
 
     const resolvedPhone =
@@ -2304,6 +2530,8 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
       localRec?.phone_number ||
       '';
 
+    const resolvedWid = wsLookup?.id || r.workshop_id || r.workshops?.id || null;
+
     const resolvedAnn =
       r.admin_announcements ||
       dbAnnouncementsMap.get(r.message_id) ||
@@ -2311,7 +2539,12 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
       null;
 
     const inboxKey = r.message_id && r.workshop_id ? `${r.message_id}_${r.workshop_id}` : String(r.id || '');
-    const readTimestamp = readsMap[inboxKey] || readsMap[String(r.id || '')] || null;
+    const altKey = r.message_id && resolvedWid ? `${r.message_id}_${resolvedWid}` : '';
+    const readTimestamp =
+      readsMap[inboxKey] ||
+      (altKey ? readsMap[altKey] : null) ||
+      readsMap[String(r.id || '')] ||
+      null;
     const isUnreadAfterRead =
       readTimestamp && r.replied_at
         ? new Date(r.replied_at).getTime() > new Date(readTimestamp).getTime()
@@ -2321,14 +2554,16 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
       ...r,
       id: r.id || inboxKey,
       inbox_key: inboxKey,
+      workshop_id: resolvedWid,
       brand_name: resolvedBrand,
       workshop_name: resolvedBrand,
       artist_name: resolvedArtist,
       phone_number: resolvedPhone,
+      email: rEmail || wsLookup?.email || r.workshops?.email || '',
       admin_announcements: resolvedAnn,
       admin_read_at: isUnreadAfterRead ? null : readTimestamp,
       workshops: {
-        id: r.workshop_id || wsLookup?.id || r.workshops?.id || null,
+        id: resolvedWid,
         brand_name: resolvedBrand,
         artist_name: resolvedArtist,
         phone_number: resolvedPhone,
@@ -2341,13 +2576,17 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
 
   const feedbackItems = loadPersistentFeedback().map((fb: any) => {
     const isStorefront = fb.source === 'artisan_storefront';
-    const wsLookup = fb.workshopId ? byId.get(fb.workshopId) : null;
+    const wsLookup = findWorkshopFromLookupMaps(lookupMaps, {
+      workshopId: fb.workshopId,
+      email: fb.email,
+    });
     const resolvedBrand =
-      wsLookup?.brand_name ||
-      (fb.workshopName ? fb.workshopName : isStorefront ? 'متجر فنان' : fb.name);
+      cleanRealBrandName(wsLookup?.brand_name) ||
+      cleanRealBrandName(fb.workshopName) ||
+      (isStorefront ? 'متجر فنان' : fb.name);
     const resolvedArtist =
-      wsLookup?.artist_name ||
-      fb.name ||
+      cleanRealArtistName(wsLookup?.artist_name) ||
+      cleanRealArtistName(fb.name) ||
       fb.craft ||
       (isStorefront ? 'صاحب المتجر' : 'زائر للمنظومة');
     const storeTag = resolvedBrand ? `متجر ${resolvedBrand}` : 'متجر فنان';
@@ -2357,7 +2596,7 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
       id: fb.id,
       inbox_key: String(fb.id),
       message_id: isStorefront ? 'storefront_support' : 'public_feedback',
-      workshop_id: fb.workshopId || null,
+      workshop_id: wsLookup?.id || fb.workshopId || null,
       brand_name: isStorefront ? storeTag : resolvedBrand,
       workshop_name: isStorefront
         ? `${resolvedArtist} — ${storeTag}`
@@ -2375,7 +2614,7 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
           : '⭐ رأي / رسالة زائر من صفحة الهبوط',
       },
       workshops: {
-        id: fb.workshopId || null,
+        id: wsLookup?.id || fb.workshopId || null,
         brand_name: isStorefront ? storeTag : resolvedBrand,
         artist_name: resolvedArtist,
         phone_number: fb.contact || wsLookup?.phone_number || '',
@@ -2383,8 +2622,25 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
     };
   });
 
+  const dbReplySignatures = new Set(
+    enrichedDbReceipts.map((d) => `${d.message_id}_${d.workshop_id || ''}`)
+  );
+
   const localReplies = localReceipts
-    .filter((r) => r.reply_text && !dbReceipts.some((d) => d.message_id === r.message_id && d.workshop_id === r.workshop_id))
+    .filter((r) => {
+      if (!r.reply_text) return false;
+      const directSig = `${r.message_id}_${r.workshop_id || ''}`;
+      if (dbReplySignatures.has(directSig)) return false;
+      const resolvedWs = findWorkshopFromLookupMaps(lookupMaps, {
+        workshopId: r.workshop_id,
+        ownerId: r.owner_id,
+        email: r.email,
+      });
+      if (resolvedWs?.id && dbReplySignatures.has(`${r.message_id}_${resolvedWs.id}`)) {
+        return false;
+      }
+      return true;
+    })
     .map(enrichReceipt);
 
   const combined = [...enrichedDbReceipts, ...feedbackItems, ...localReplies].sort(
@@ -2401,6 +2657,7 @@ app.post('/api/admin/inbox/mark-read', requireAuth, async (req: AuthenticatedReq
     return res.status(403).json({ error: 'صلاحيات غير كافية' });
   }
 
+  const client = getDbClient(req);
   const { ids, markAll } = req.body || {};
   const readsMap = loadPersistentAdminInboxReads();
   const nowIso = new Date().toISOString();
@@ -2413,7 +2670,7 @@ app.post('/api/admin/inbox/mark-read', requireAuth, async (req: AuthenticatedReq
 
   if (markAll || !Array.isArray(ids) || ids.length === 0) {
     try {
-      const { data: receipts } = await supabaseAdminClient
+      const { data: receipts } = await client
         .from('workshop_messages_receipts')
         .select('id, message_id, workshop_id')
         .not('reply_text', 'is', null);

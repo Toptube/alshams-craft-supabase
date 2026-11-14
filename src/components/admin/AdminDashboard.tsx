@@ -3517,17 +3517,27 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                     const msgKey = msg.id || msg.inbox_key || String(idx);
                     const isReplyingHere = directReplyTarget?.id === msg.id && msg.id;
                     const resolvedWid = msg.workshop_id || msg.workshops?.id || '';
-                    const canDirectReply = Boolean(resolvedWid && isValidUuid(resolvedWid));
+                    const msgEmail = String(msg.email || msg.workshops?.email || '').trim().toLowerCase();
+                    const matchedWs = workshops.find(
+                      (w) =>
+                        (resolvedWid && (w.id === resolvedWid || w.ownerUid === resolvedWid)) ||
+                        (msgEmail && w.email?.toLowerCase() === msgEmail)
+                    );
+                    const finalWid = matchedWs?.id || resolvedWid;
+                    const canDirectReply = Boolean(finalWid && isValidUuid(finalWid));
+
+                    const placeholderBrands = new Set(['', 'ورشة الشمساوية', 'الشمساوية هاند ميد', 'ورشة حرفية بالشمساوية', 'ورشة بالشمساوية', 'ورشة مسجلة بالشمساوية', 'ورشة الشمس', 'زائر المنظومة']);
+                    const placeholderArtists = new Set(['', 'فنان الشمساوية', 'صاحب الورشة', 'فنان', 'زائر خارجي', 'مرسل خارجي']);
+                    const pickBrand = (...vals: any[]) => vals.map((v) => String(v || '').trim()).find((s) => s && !placeholderBrands.has(s));
+                    const pickArtist = (...vals: any[]) => vals.map((v) => String(v || '').trim()).find((s) => s && !placeholderArtists.has(s));
+
                     const resolvedBrand =
-                      msg.workshops?.brand_name ||
-                      msg.brand_name ||
-                      msg.workshop_name ||
-                      (resolvedWid ? 'ورشة بالشمساوية' : 'زائر المنظومة');
+                      pickBrand(matchedWs?.brandName, msg.workshops?.brand_name, msg.brand_name, msg.workshop_name) ||
+                      (finalWid ? 'ورشة حرفية بالشمساوية' : 'زائر المنظومة');
                     const resolvedArtist =
-                      msg.workshops?.artist_name ||
-                      msg.artist_name ||
-                      (resolvedWid ? 'صاحب الورشة' : 'زائر خارجي');
-                    const phoneDigits = String(msg.workshops?.phone_number || msg.phone_number || '').replace(/\D/g, '');
+                      pickArtist(matchedWs?.artistName, msg.workshops?.artist_name, msg.artist_name) ||
+                      (msgEmail ? msgEmail.split('@')[0] : finalWid ? 'صاحب الورشة' : 'زائر خارجي');
+                    const phoneDigits = String(matchedWs?.phoneNumber || msg.workshops?.phone_number || msg.phone_number || '').replace(/\D/g, '');
                     const waDigits = phoneDigits.startsWith('01') ? `2${phoneDigits}` : phoneDigits;
 
                     return (

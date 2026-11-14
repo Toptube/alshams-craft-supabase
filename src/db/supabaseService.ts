@@ -610,9 +610,43 @@ export async function getCurrentWorkshopFromSupabase(): Promise<{
       return { workshop: null, rawRow: null, error: null };
     }
 
-    console.log('[SupabaseService] Owned workshop fetched:', data.brand_name || data.id, 'id:', data.id);
-    const userProfile = mapWorkshopRowToUserProfile(data, data.email || user.email);
-    return { workshop: userProfile, rawRow: data, error: null };
+    let enrichedRow = { ...data };
+    const meta = (user.user_metadata || {}) as Record<string, any>;
+    const placeholderArtists = new Set(['', 'فنان', 'فنان الشمساوية', 'صاحب الورشة']);
+    const placeholderBrands = new Set(['', 'ورشة الشمس', 'ورشة الشمساوية', 'الشمساوية هاند ميد']);
+
+    const curArtist = String(enrichedRow.artist_name || '').trim();
+    const curBrand = String(enrichedRow.brand_name || '').trim();
+
+    if (placeholderArtists.has(curArtist) || placeholderBrands.has(curBrand) || !enrichedRow.phone) {
+      try {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const profArtist = String(prof?.artist_name || prof?.full_name || prof?.name || meta.artist_name || meta.full_name || meta.name || '').trim();
+        const profBrand = String(prof?.brand_name || meta.brand_name || '').trim();
+        const profPhone = String(prof?.phone_number || prof?.phone || meta.phone_number || meta.phone || '').trim();
+
+        if (placeholderArtists.has(curArtist) && profArtist && !placeholderArtists.has(profArtist)) {
+          enrichedRow.artist_name = profArtist;
+        }
+        if (placeholderBrands.has(curBrand) && profBrand && !placeholderBrands.has(profBrand)) {
+          enrichedRow.brand_name = profBrand;
+        }
+        if (!enrichedRow.phone && profPhone) {
+          enrichedRow.phone = profPhone;
+        }
+      } catch {
+        // profiles fallback optional
+      }
+    }
+
+    console.log('[SupabaseService] Owned workshop fetched:', enrichedRow.brand_name || enrichedRow.id, 'id:', enrichedRow.id);
+    const userProfile = mapWorkshopRowToUserProfile(enrichedRow, enrichedRow.email || user.email);
+    return { workshop: userProfile, rawRow: enrichedRow, error: null };
   } catch (err: any) {
     console.warn('[SupabaseService] Exception in getCurrentWorkshopFromSupabase:', err);
     const cached = getLocalCachedProfile();
