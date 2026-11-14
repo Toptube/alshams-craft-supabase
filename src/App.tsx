@@ -78,6 +78,7 @@ import { ExecutiveTab } from './components/admin/AdminDashboard';
 import { MarketplaceView } from './components/marketplace/MarketplaceView';
 import { ArtisanStorefrontModal } from './components/store/ArtisanStorefrontModal';
 import { PublicStorefrontView } from './components/store/PublicStorefrontView';
+import { FamilyCommunityView } from './components/family/FamilyCommunityView';
 import {
   registerServiceWorker,
   checkAndDispatchEquipmentMaintenanceAlerts,
@@ -109,7 +110,8 @@ export type ActiveView =
   | 'admin'
   | 'appeals'
   | 'messaging'
-  | 'marketplace';
+  | 'marketplace'
+  | 'family';
 
 const VIEW_TITLES: Record<ActiveView, string> = {
   home: 'لوحة تحكم الورشة',
@@ -133,6 +135,7 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   appeals: 'مركز الطعون والشكاوى الرقابي',
   messaging: 'مركز المراسلات الحية (بوسطة)',
   marketplace: 'سوق الشمساوية المركزي (متعدد التجار)',
+  family: 'مجتمع عيلة الشمساويه',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -204,8 +207,22 @@ export const App: React.FC = () => {
     }
   }, [profile, showWelcomeBanner]);
 
-  // Navigation & View state
-  const [activeView, setActiveView] = useState<ActiveView>('home');
+  // Navigation & View state (supports direct deep-link to /family or /#/family)
+  const [activeView, setActiveView] = useState<ActiveView>(() => {
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname || '';
+      const h = window.location.hash || '';
+      const s = window.location.search || '';
+      if (
+        /^\/family(?:\/|$)/i.test(p) ||
+        /^#\/?family(?:\/|$)/i.test(h) ||
+        /[?&]view=family(?:&|$)/i.test(s)
+      ) {
+        return 'family';
+      }
+    }
+    return 'home';
+  });
   const [historyStack, setHistoryStack] = useState<ActiveView[]>([]);
   const [adminInitialTab, setAdminInitialTab] = useState<ExecutiveTab>('materials');
   const [catalogInitialTab, setCatalogInitialTab] = useState<'catalog' | 'store'>('catalog');
@@ -817,11 +834,26 @@ export const App: React.FC = () => {
   }, [handleOpenPurchaseForMaterial]);
 
   // Navigation handlers with history tracking (يدعم الرجوع للصفحة السابقة)
+  const syncFamilyUrl = (targetView: ActiveView) => {
+    if (typeof window === 'undefined') return;
+    if (targetView === 'family') {
+      if (window.location.hash !== '#/family') {
+        window.history.replaceState({}, '', '/#/family');
+      }
+    } else if (
+      /^#\/?family/i.test(window.location.hash || '') ||
+      /^\/family/i.test(window.location.pathname || '')
+    ) {
+      window.history.replaceState({}, '', '/');
+    }
+  };
+
   const navigateTo = useCallback(
     (view: ActiveView) => {
       if (view === activeView) return;
       setHistoryStack((prev) => [...prev, activeView]);
       setActiveView(view);
+      syncFamilyUrl(view);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
     [activeView]
@@ -852,11 +884,13 @@ export const App: React.FC = () => {
       const previous = historyStack[historyStack.length - 1];
       setHistoryStack((prev) => prev.slice(0, -1));
       setActiveView(previous);
+      syncFamilyUrl(previous);
       window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
     } else {
       window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
       if (activeView !== 'home') {
         setActiveView('home');
+        syncFamilyUrl('home');
       }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -864,6 +898,7 @@ export const App: React.FC = () => {
 
   const goHome = useCallback(() => {
     window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
+    syncFamilyUrl('home');
     if (activeView === 'home') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
@@ -1078,7 +1113,20 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handleRouteNav = () => {
-      setActiveRoute(parseAppRoute());
+      const parsed = parseAppRoute();
+      setActiveRoute(parsed);
+      if (parsed.type === 'app' && typeof window !== 'undefined') {
+        const p = window.location.pathname || '';
+        const h = window.location.hash || '';
+        const s = window.location.search || '';
+        if (
+          /^\/family(?:\/|$)/i.test(p) ||
+          /^#\/?family(?:\/|$)/i.test(h) ||
+          /[?&]view=family(?:&|$)/i.test(s)
+        ) {
+          setActiveView('family');
+        }
+      }
     };
     window.addEventListener('hashchange', handleRouteNav);
     window.addEventListener('popstate', handleRouteNav);
@@ -1115,6 +1163,10 @@ export const App: React.FC = () => {
           if (window.location.hash) window.location.hash = '';
           if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
           setActiveRoute({ type: 'app' });
+        }}
+        onNavigateToMarket={() => {
+          window.location.hash = '#/market';
+          setActiveRoute({ type: 'market' });
         }}
       />
     );
@@ -1242,6 +1294,13 @@ export const App: React.FC = () => {
         onNavigateToCatalog={handleNavigateToCatalog}
         onNavigateToMarketplace={() => navigateTo('marketplace')}
         onOpenArtisanStore={() => handleNavigateToCatalog('store')}
+        onNavigateToFamily={() => {
+          if (window.location.hash !== '#/family') {
+            window.location.hash = '#/family';
+          }
+          navigateTo('family');
+        }}
+        activeView={activeView}
         isDarkMode={isDarkMode}
         onToggleTheme={handleToggleTheme}
         themeMode={themeMode}
@@ -1675,12 +1734,19 @@ export const App: React.FC = () => {
             onOpenStoreModal={() => setIsArtisanStoreModalOpen(true)}
           />
         )}
+
+        {activeView === 'family' && (
+          <FamilyCommunityView
+            profile={profile}
+            isSwitchedWorkshop={Boolean(switchedWorkshopContext)}
+          />
+        )}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {/* Floating Shamousa Chat Assistant: Active across workshops, strictly auto-hidden inside Falcon AI chat screen */}
-      {profile && activeView !== 'ai_agent' && (
+      {/* Floating Shamousa Chat Assistant: Active across workshops, strictly auto-hidden inside Falcon AI and Family chat screens */}
+      {profile && activeView !== 'ai_agent' && activeView !== 'family' && (
         <ShamousaChatWidget
           profile={profile}
           onOpenFalcon={() => navigateTo('ai_agent')}

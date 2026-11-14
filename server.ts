@@ -1,4 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
+import http from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -37,6 +39,12 @@ const MARKETPLACE_PRODUCTS_FILE = path.resolve(__dirname, 'data/marketplace_prod
 const MARKETPLACE_ORDERS_FILE = path.resolve(__dirname, 'data/marketplace_orders.json');
 const PLATFORM_SETTINGS_FILE = path.resolve(__dirname, 'data/platform_settings.json');
 const PUBLIC_FEEDBACK_FILE = path.resolve(__dirname, 'data/public_feedback.json');
+const FAMILY_POSTS_FILE = path.resolve(__dirname, 'data/family_posts.json');
+const FAMILY_COMMENTS_FILE = path.resolve(__dirname, 'data/family_comments.json');
+const FAMILY_CHAT_FILE = path.resolve(__dirname, 'data/family_chat.json');
+const FAMILY_RESTRICTIONS_FILE = path.resolve(__dirname, 'data/family_restrictions.json');
+const FAMILY_POLL_VOTES_FILE = path.resolve(__dirname, 'data/family_poll_votes.json');
+const FAMILY_REACTIONS_FILE = path.resolve(__dirname, 'data/family_reactions.json');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUuid(val?: string | null): boolean {
@@ -92,6 +100,48 @@ function loadPersistentFeedback(): any[] {
 }
 function savePersistentFeedback(list: any[]): void {
   writeJsonData(PUBLIC_FEEDBACK_FILE, list);
+}
+
+function loadPersistentFamilyPosts(): any[] {
+  return readJsonArray(FAMILY_POSTS_FILE);
+}
+function savePersistentFamilyPosts(list: any[]): void {
+  writeJsonData(FAMILY_POSTS_FILE, list);
+}
+
+function loadPersistentFamilyComments(): any[] {
+  return readJsonArray(FAMILY_COMMENTS_FILE);
+}
+function savePersistentFamilyComments(list: any[]): void {
+  writeJsonData(FAMILY_COMMENTS_FILE, list);
+}
+
+function loadPersistentFamilyChat(): any[] {
+  return readJsonArray(FAMILY_CHAT_FILE);
+}
+function savePersistentFamilyChat(list: any[]): void {
+  writeJsonData(FAMILY_CHAT_FILE, list);
+}
+
+function loadPersistentFamilyRestrictions(): any[] {
+  return readJsonArray(FAMILY_RESTRICTIONS_FILE);
+}
+function savePersistentFamilyRestrictions(list: any[]): void {
+  writeJsonData(FAMILY_RESTRICTIONS_FILE, list);
+}
+
+function loadPersistentFamilyPollVotes(): any[] {
+  return readJsonArray(FAMILY_POLL_VOTES_FILE);
+}
+function savePersistentFamilyPollVotes(list: any[]): void {
+  writeJsonData(FAMILY_POLL_VOTES_FILE, list);
+}
+
+function loadPersistentFamilyReactions(): any[] {
+  return readJsonArray(FAMILY_REACTIONS_FILE);
+}
+function savePersistentFamilyReactions(list: any[]): void {
+  writeJsonData(FAMILY_REACTIONS_FILE, list);
 }
 
 const DEFAULT_PLATFORM_SETTINGS = {
@@ -2073,16 +2123,32 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
     // ignore
   }
 
-  const feedbackItems = loadPersistentFeedback().map((fb: any) => ({
-    id: fb.id,
-    message_id: 'public_feedback',
-    workshop_id: null,
-    workshop_name: `${fb.name} (${fb.craft || 'زائر'})`,
-    reply_text: `[رأي ومقترح من صفحة الهبوط] الاسم: ${fb.name} (${fb.craft || 'مشغولات يدوية'}) | التقييم: ${fb.rating || 5}/5 نجوم | التواصل: ${fb.contact || 'غير محدد'}\n\n${fb.message}`,
-    replied_at: fb.created_at,
-    admin_announcements: { title: '⭐ رأي / رسالة زائر من صفحة الهبوط' },
-    workshops: { brand_name: fb.name, artist_name: fb.craft || 'زائر للمنظومة', phone_number: fb.contact || '' },
-  }));
+  const feedbackItems = loadPersistentFeedback().map((fb: any) => {
+    const isStorefront = fb.source === 'artisan_storefront';
+    const storeTag = fb.workshopName ? `متجر ${fb.workshopName}` : 'متجر فنان';
+    return {
+      id: fb.id,
+      message_id: isStorefront ? 'storefront_support' : 'public_feedback',
+      workshop_id: fb.workshopId || null,
+      workshop_name: isStorefront
+        ? `${fb.name} — ${storeTag}`
+        : `${fb.name} (${fb.craft || 'زائر'})`,
+      reply_text: isStorefront
+        ? `[شكوى / استفسار من ${storeTag}] التصنيف: ${fb.craft || 'عام'} | المرسل: ${fb.name} | التواصل: ${fb.contact || 'غير محدد'}\n\n${fb.message}`
+        : `[رأي ومقترح من صفحة الهبوط] الاسم: ${fb.name} (${fb.craft || 'مشغولات يدوية'}) | التقييم: ${fb.rating || 5}/5 نجوم | التواصل: ${fb.contact || 'غير محدد'}\n\n${fb.message}`,
+      replied_at: fb.created_at,
+      admin_announcements: {
+        title: isStorefront
+          ? `📩 دعم فني وشكاوى المتاجر (${storeTag})`
+          : '⭐ رأي / رسالة زائر من صفحة الهبوط',
+      },
+      workshops: {
+        brand_name: isStorefront ? storeTag : fb.name,
+        artist_name: fb.name || fb.craft || 'زائر للمنظومة',
+        phone_number: fb.contact || '',
+      },
+    };
+  });
 
   const localReplies = localReceipts
     .filter((r) => r.reply_text && !dbReceipts.some((d) => d.message_id === r.message_id && d.workshop_id === r.workshop_id))
@@ -2102,20 +2168,36 @@ app.get('/api/admin/inbox', requireAuth, async (req: AuthenticatedRequest, res: 
   res.json({ inbox: combined });
 });
 
-// 10. Public Feedback & Proposals Endpoint (Persisted to data/public_feedback.json & cloud announcement)
+// 10. Public Feedback, Proposals & Storefront Direct Admin Support Endpoint
 app.post('/api/public/feedback', async (req: Request, res: Response) => {
-  const { name, craft, rating, message, contact } = req.body || {};
+  const {
+    name,
+    craft,
+    rating,
+    message,
+    contact,
+    source,
+    workshopId,
+    workshopName,
+    storeSlug,
+  } = req.body || {};
+
   if (!name || !message) {
     return res.status(400).json({ error: 'الاسم ونص الرسالة مطلوبان' });
   }
 
+  const isStorefront = source === 'artisan_storefront';
   const feedbackItem = {
     id: 'fb_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     name: String(name).trim(),
-    craft: String(craft || 'مشغولات يدوية').trim(),
+    craft: String(craft || (isStorefront ? 'شكوى أو استفسار متجر' : 'مشغولات يدوية')).trim(),
     rating: Number(rating) || 5,
     message: String(message).trim(),
     contact: String(contact || '').trim(),
+    source: isStorefront ? 'artisan_storefront' : 'landing',
+    workshopId: workshopId ? String(workshopId).trim() : null,
+    workshopName: workshopName ? String(workshopName).trim() : null,
+    storeSlug: storeSlug ? String(storeSlug).trim() : null,
     created_at: new Date().toISOString(),
   };
 
@@ -2125,7 +2207,1118 @@ app.post('/api/public/feedback', async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    message: 'شكراً لمشاركتك رأيك القيّم مع عيلة الشمساوية! تم إرسال رسالتك مباشرة لصندوق الإدارة.',
+    message: isStorefront
+      ? 'تم إرسال رسالتك مباشرة إلى إدارة منظومة الشمساوية والدعم الفني بنجاح! سيتم مراجعتها والرد عليك في أقرب وقت.'
+      : 'شكراً لمشاركتك رأيك القيّم مع عيلة الشمساوية! تم إرسال رسالتك مباشرة لصندوق الإدارة.',
+  });
+});
+
+// -------------------------------------------------------------
+// Family Community («مجتمع عيلة الشمساوية») — Real-Time WebSocket + REST API
+// -------------------------------------------------------------
+interface FamilyWsClient {
+  ws: WebSocket;
+  userId: string;
+  email: string;
+  workshopId: string;
+  isSuperAdmin: boolean;
+}
+
+const familyWsClients = new Set<FamilyWsClient>();
+const familyWss = new WebSocketServer({ noServer: true });
+
+function isMissingSupabaseRelationError(err: any): boolean {
+  const code = String(err?.code || '');
+  const msg = String(err?.message || '').toLowerCase();
+  return (
+    code === '42P01' ||
+    code === 'PGRST205' ||
+    msg.includes('does not exist') ||
+    msg.includes('could not find the table') ||
+    msg.includes('schema cache')
+  );
+}
+
+async function getWorkshopDirectoryMap(_client?: SupabaseClient): Promise<Map<string, any>> {
+  const map = new Map<string, any>();
+  const registerEntry = (raw: any) => {
+    const wid = String(raw.id || raw.workshopId || raw.workshop_id || '').trim();
+    const ownerId = String(raw.owner_id || raw.ownerUid || raw.owner_uid || raw.user_id || '').trim();
+    const email = String(raw.email || '').trim().toLowerCase();
+    const artistName = String(
+      raw.artistName || raw.artist_name || raw.ownerName || raw.owner_name || ''
+    ).trim();
+    const brandName = String(
+      raw.brandName || raw.brand_name || raw.workshopName || raw.workshop_name || ''
+    ).trim();
+    const normalized = {
+      id: wid || ownerId,
+      ownerId,
+      artistName: artistName && artistName !== 'فنان الشمساوية' ? artistName : '',
+      brandName: brandName && brandName !== 'ورشة الشمساوية' ? brandName : '',
+      avatarUrl:
+        raw.logoUrl ||
+        raw.logo_url ||
+        raw.logoBase64 ||
+        raw.logo_base64 ||
+        raw.logoData ||
+        raw.logo_data ||
+        raw.avatarUrl ||
+        raw.avatar_url ||
+        null,
+      medal: raw.medal || null,
+      ratingStars: Number(raw.ratingStars || raw.rating_stars || 5) || 5,
+      email,
+    };
+    if (wid) map.set(`id:${wid}`, normalized);
+    if (ownerId) map.set(`owner:${ownerId}`, normalized);
+    if (email) map.set(`email:${email}`, normalized);
+  };
+
+  const localWorkshops = loadPersistentWorkshops();
+  for (const w of localWorkshops) {
+    registerEntry(w);
+  }
+
+  try {
+    const { data: rows, error } = await supabaseAdminClient
+      .from('workshops')
+      .select('*');
+    if (!error && Array.isArray(rows)) {
+      for (const r of rows) {
+        registerEntry(r);
+      }
+    }
+  } catch {
+    // fallback to local list already loaded
+  }
+  return map;
+}
+
+async function loadAllFamilyRestrictions(client: SupabaseClient): Promise<any[]> {
+  const local = loadPersistentFamilyRestrictions();
+  const merged = new Map<string, any>();
+  for (const r of local) {
+    const key = String(r.workshop_id || r.workshopId || r.author_email || r.email || r.id).toLowerCase();
+    merged.set(key, {
+      id: r.id,
+      workshopId: r.workshop_id || r.workshopId || '',
+      authorEmail: (r.author_email || r.email || '').toLowerCase(),
+      artistName: r.artist_name || r.artistName || '',
+      brandName: r.brand_name || r.brandName || '',
+      status: r.status || 'active',
+      reason: r.reason || '',
+      updatedAt: r.updated_at || r.updatedAt || r.created_at || new Date().toISOString(),
+    });
+  }
+
+  try {
+    const { data, error } = await client.from('family_restrictions').select('*');
+    if (!error && Array.isArray(data)) {
+      for (const r of data) {
+        const key = String(r.workshop_id || r.author_email || r.id).toLowerCase();
+        merged.set(key, {
+          id: r.id,
+          workshopId: r.workshop_id || '',
+          authorEmail: (r.author_email || '').toLowerCase(),
+          artistName: r.artist_name || '',
+          brandName: r.brand_name || '',
+          status: r.status || 'active',
+          reason: r.reason || '',
+          updatedAt: r.updated_at || r.created_at || new Date().toISOString(),
+        });
+      }
+    }
+  } catch {
+    // ignore if table not created yet
+  }
+
+  return Array.from(merged.values());
+}
+
+function findUserRestriction(restrictions: any[], workshopId: string, email: string): any | null {
+  if (isSuperAdmin(email)) return null;
+  const cleanWid = (workshopId || '').trim().toLowerCase();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const hit = restrictions.find(
+    (r) =>
+      r.status !== 'active' &&
+      ((cleanWid && String(r.workshopId || '').toLowerCase() === cleanWid) ||
+        (cleanEmail && String(r.authorEmail || '').toLowerCase() === cleanEmail))
+  );
+  return hit || null;
+}
+
+function enrichFamilyRecord(raw: any, dirMap: Map<string, any>) {
+  const email = String(raw.author_email || raw.authorEmail || '').trim().toLowerCase();
+  const wid = String(raw.workshop_id || raw.workshopId || '').trim();
+  const isAdminAuthor = Boolean(raw.is_super_admin || raw.isSuperAdmin);
+
+  if (isAdminAuthor) {
+    return {
+      ...raw,
+      id: raw.id,
+      content: raw.content || '',
+      createdAt: raw.created_at || raw.createdAt || new Date().toISOString(),
+      workshopId: wid || 'super_admin',
+      authorEmail: email,
+      isSuperAdmin: true,
+      authorName: 'كبير العيلة',
+      brandName: '',
+      avatarUrl: raw.avatar_url || raw.avatarUrl || '/brand icon light.png',
+      medal: 'diamond',
+      ratingStars: 5,
+    };
+  }
+
+  const profileMatch =
+    (wid && (dirMap.get(`id:${wid}`) || dirMap.get(`owner:${wid}`))) ||
+    (email && dirMap.get(`email:${email}`)) ||
+    null;
+
+  const rawArtist = String(raw.author_name || raw.authorName || '').trim();
+  const rawBrand = String(raw.brand_name || raw.brandName || '').trim();
+
+  const resolvedArtist =
+    profileMatch?.artistName ||
+    (rawArtist && rawArtist !== 'فنان الشمساوية' ? rawArtist : '') ||
+    'فنان الشمساوية';
+  const resolvedBrand =
+    profileMatch?.brandName ||
+    (rawBrand && rawBrand !== 'ورشة الشمساوية' ? rawBrand : '') ||
+    'ورشة الشمساوية';
+
+  return {
+    ...raw,
+    id: raw.id,
+    content: raw.content || '',
+    createdAt: raw.created_at || raw.createdAt || new Date().toISOString(),
+    workshopId: wid,
+    authorEmail: email,
+    isSuperAdmin: false,
+    authorName: resolvedArtist,
+    brandName: resolvedBrand,
+    avatarUrl: profileMatch?.avatarUrl || raw.avatar_url || raw.avatarUrl || null,
+    medal: profileMatch?.medal !== undefined ? profileMatch.medal : (raw.medal || null),
+    ratingStars: Number(profileMatch?.ratingStars || raw.rating_stars || raw.ratingStars || 5) || 5,
+  };
+}
+
+function broadcastFamilyEvent(type: string, payload: any, restrictionsSnapshot: any[] = []) {
+  const message = JSON.stringify({ type, payload, timestamp: Date.now() });
+  for (const client of familyWsClients) {
+    if (client.ws.readyState !== WebSocket.OPEN) continue;
+    const restriction = findUserRestriction(restrictionsSnapshot, client.workshopId, client.email);
+    if (restriction?.status === 'banned') continue;
+    try {
+      client.ws.send(message);
+    } catch {
+      // ignore closed socket race
+    }
+  }
+}
+
+async function resolveFamilyAuthorContext(req: AuthenticatedRequest, client: SupabaseClient) {
+  const email = (req.userEmail || req.user?.email || '').trim();
+  const clientAuthor = req.body?.authorProfile || {};
+  const wid = String(clientAuthor.workshopId || req.workshopId || req.user?.id || '').trim();
+  const uid = String(req.user?.id || '').trim();
+  const isSwitchedWorkshop = Boolean(clientAuthor.isSwitchedWorkshop);
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email)) && !isSwitchedWorkshop;
+  const dirMap = await getWorkshopDirectoryMap(client);
+
+  if (superAdmin) {
+    return {
+      isSuperAdmin: true,
+      workshopId: 'super_admin',
+      email,
+      authorName: 'كبير العيلة',
+      brandName: '',
+      avatarUrl: '/brand icon light.png',
+      medal: 'diamond',
+      ratingStars: 5,
+    };
+  }
+
+  const profileMatch =
+    (wid && wid !== 'ALL_WORKSHOPS' && (dirMap.get(`id:${wid}`) || dirMap.get(`owner:${wid}`))) ||
+    (uid && (dirMap.get(`owner:${uid}`) || dirMap.get(`id:${uid}`))) ||
+    (email && dirMap.get(`email:${email.toLowerCase()}`)) ||
+    null;
+
+  const clientArtist = String(clientAuthor.artistName || '').trim();
+  const clientBrand = String(clientAuthor.brandName || '').trim();
+  const metaArtist = String(
+    req.user?.user_metadata?.artist_name ||
+    req.user?.user_metadata?.artistName ||
+    req.user?.user_metadata?.full_name ||
+    req.user?.user_metadata?.name ||
+    ''
+  ).trim();
+  const metaBrand = String(
+    req.user?.user_metadata?.brand_name ||
+    req.user?.user_metadata?.brandName ||
+    req.user?.user_metadata?.workshop_name ||
+    ''
+  ).trim();
+
+  const resolvedArtist =
+    profileMatch?.artistName ||
+    (clientArtist && clientArtist !== 'فنان الشمساوية' ? clientArtist : '') ||
+    (metaArtist && metaArtist !== 'فنان الشمساوية' ? metaArtist : '') ||
+    'فنان الشمساوية';
+
+  const resolvedBrand =
+    profileMatch?.brandName ||
+    (clientBrand && clientBrand !== 'ورشة الشمساوية' ? clientBrand : '') ||
+    (metaBrand && metaBrand !== 'ورشة الشمساوية' ? metaBrand : '') ||
+    'ورشة الشمساوية';
+
+  return {
+    isSuperAdmin: false,
+    workshopId: profileMatch?.id || (wid && wid !== 'ALL_WORKSHOPS' ? wid : uid) || 'workshop_member',
+    email,
+    authorName: resolvedArtist,
+    brandName: resolvedBrand,
+    avatarUrl: profileMatch?.avatarUrl || clientAuthor.avatarUrl || null,
+    medal: profileMatch?.medal !== undefined ? profileMatch.medal : (clientAuthor.medal || null),
+    ratingStars: Number(profileMatch?.ratingStars || clientAuthor.ratingStars || 5) || 5,
+  };
+}
+
+const VALID_REACTION_TYPES = ['like', 'love', 'clap', 'rose'] as const;
+type FamilyReactionType = typeof VALID_REACTION_TYPES[number];
+
+function getActorVoteKey(wid: string, email: string, userId?: string): string {
+  const cleanWid = (wid || '').trim().toLowerCase();
+  if (cleanWid && cleanWid !== 'all_workshops') return `w:${cleanWid}`;
+  const cleanEmail = (email || '').trim().toLowerCase();
+  if (cleanEmail) return `e:${cleanEmail}`;
+  return `u:${String(userId || 'anon').trim().toLowerCase()}`;
+}
+
+async function loadAllPollVotes(): Promise<any[]> {
+  const local = loadPersistentFamilyPollVotes();
+  const byKey = new Map<string, any>();
+  for (const v of local) {
+    const pid = String(v.post_id || v.postId || '');
+    const vk = String(v.voter_key || v.voterKey || '');
+    if (pid && vk) byKey.set(`${pid}:${vk}`, { post_id: pid, option_id: v.option_id || v.optionId, voter_key: vk });
+  }
+  try {
+    const { data, error } = await supabaseAdminClient.from('family_poll_votes').select('*').limit(5000);
+    if (!error && Array.isArray(data)) {
+      for (const v of data) {
+        const pid = String(v.post_id || '');
+        const vk = String(v.voter_key || '');
+        if (pid && vk) byKey.set(`${pid}:${vk}`, { post_id: pid, option_id: v.option_id, voter_key: vk });
+      }
+    }
+  } catch {}
+  return Array.from(byKey.values());
+}
+
+async function loadAllPostReactions(): Promise<any[]> {
+  const local = loadPersistentFamilyReactions();
+  const byKey = new Map<string, any>();
+  for (const r of local) {
+    const pid = String(r.post_id || r.postId || '');
+    const rk = String(r.reactor_key || r.reactorKey || '');
+    if (pid && rk) byKey.set(`${pid}:${rk}`, { post_id: pid, reaction_type: r.reaction_type || r.reactionType, reactor_key: rk });
+  }
+  try {
+    const { data, error } = await supabaseAdminClient.from('family_post_reactions').select('*').limit(5000);
+    if (!error && Array.isArray(data)) {
+      for (const r of data) {
+        const pid = String(r.post_id || '');
+        const rk = String(r.reactor_key || '');
+        if (pid && rk) byKey.set(`${pid}:${rk}`, { post_id: pid, reaction_type: r.reaction_type, reactor_key: rk });
+      }
+    }
+  } catch {}
+  return Array.from(byKey.values());
+}
+
+function buildPostPollAndReactions(
+  rawPost: any,
+  allVotes: any[],
+  allReactions: any[],
+  currentActorKey: string
+) {
+  const postId = String(rawPost.id);
+  const rawOptions = Array.isArray(rawPost.poll_options || rawPost.pollOptions)
+    ? (rawPost.poll_options || rawPost.pollOptions)
+    : [];
+  const postType: 'text' | 'poll' =
+    (rawPost.post_type === 'poll' || rawPost.postType === 'poll') && rawOptions.length >= 2
+      ? 'poll'
+      : 'text';
+
+  const postVotes = allVotes.filter((v) => v.post_id === postId);
+  const pollOptions = rawOptions.map((opt: any) => {
+    const optId = String(opt.id);
+    const optVotes = postVotes.filter((v) => v.option_id === optId);
+    return {
+      id: optId,
+      text: String(opt.text || ''),
+      votesCount: optVotes.length,
+      votedByMe: optVotes.some((v) => v.voter_key === currentActorKey),
+    };
+  });
+
+  const postReactions = allReactions.filter((r) => r.post_id === postId);
+  const reactions: Record<FamilyReactionType, number> = {
+    like: 0,
+    love: 0,
+    clap: 0,
+    rose: 0,
+  };
+  let myReaction: FamilyReactionType | null = null;
+  for (const r of postReactions) {
+    const rt = r.reaction_type as FamilyReactionType;
+    if (VALID_REACTION_TYPES.includes(rt)) {
+      reactions[rt] += 1;
+      if (r.reactor_key === currentActorKey) {
+        myReaction = rt;
+      }
+    }
+  }
+
+  return {
+    postType,
+    pollOptions,
+    totalVotes: postVotes.length,
+    reactions,
+    myReaction,
+  };
+}
+
+app.get('/api/family/feed', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const client = getDbClient(req);
+  const email = req.userEmail || req.user?.email || '';
+  const wid = (req.headers['x-workshop-id'] as string) || req.workshopId || '';
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+  const actorKey = getActorVoteKey(wid, email, req.user?.id);
+
+  try {
+    const restrictions = await loadAllFamilyRestrictions(client);
+    const myRestriction = findUserRestriction(restrictions, wid, email);
+
+    if (myRestriction?.status === 'banned' && !superAdmin) {
+      return res.json({
+        blocked: true,
+        restriction: myRestriction,
+        posts: [],
+        chatMessages: [],
+        members: [],
+        restrictions: [],
+      });
+    }
+
+    const dirMap = await getWorkshopDirectoryMap(client);
+
+    // Load posts (prefer supabaseAdminClient so community posts are visible across workshops)
+    let postsRaw = loadPersistentFamilyPosts();
+    try {
+      const { data, error } = await supabaseAdminClient
+        .from('family_posts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(120);
+      if (!error && Array.isArray(data)) {
+        const byId = new Map<string, any>();
+        for (const p of postsRaw) byId.set(p.id, p);
+        for (const p of data) {
+          const existing = byId.get(p.id);
+          byId.set(p.id, {
+            ...p,
+            post_type: p.post_type || existing?.post_type || 'text',
+            poll_options: p.poll_options || existing?.poll_options || [],
+          });
+        }
+        postsRaw = Array.from(byId.values());
+      }
+    } catch {}
+
+    // Load comments
+    let commentsRaw = loadPersistentFamilyComments();
+    try {
+      const { data, error } = await supabaseAdminClient
+        .from('family_comments')
+        .select('*')
+        .order('created_at', { ascending: true })
+        .limit(500);
+      if (!error && Array.isArray(data)) {
+        const byId = new Map<string, any>();
+        for (const c of data) byId.set(c.id, c);
+        for (const c of commentsRaw) {
+          if (!byId.has(c.id)) byId.set(c.id, c);
+        }
+        commentsRaw = Array.from(byId.values());
+      }
+    } catch {}
+
+    // Load chat messages
+    let chatRaw = loadPersistentFamilyChat();
+    try {
+      const { data, error } = await supabaseAdminClient
+        .from('family_chat_messages')
+        .select('*')
+        .order('created_at', { ascending: true })
+        .limit(150);
+      if (!error && Array.isArray(data)) {
+        const byId = new Map<string, any>();
+        for (const m of data) byId.set(m.id, m);
+        for (const m of chatRaw) {
+          if (!byId.has(m.id)) byId.set(m.id, m);
+        }
+        chatRaw = Array.from(byId.values());
+      }
+    } catch {}
+
+    const [allVotes, allReactions] = await Promise.all([
+      loadAllPollVotes(),
+      loadAllPostReactions(),
+    ]);
+
+    const commentsByPost = new Map<string, any[]>();
+    for (const rawC of commentsRaw) {
+      const pid = String(rawC.post_id || rawC.postId || '');
+      if (!pid) continue;
+      const enrichedC = enrichFamilyRecord(rawC, dirMap);
+      const bucket = commentsByPost.get(pid) || [];
+      bucket.push({ ...enrichedC, postId: pid });
+      commentsByPost.set(pid, bucket);
+    }
+
+    const enrichedPosts = postsRaw
+      .map((rawP) => {
+        const ep = enrichFamilyRecord(rawP, dirMap);
+        const postComments = (commentsByPost.get(ep.id) || []).sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        const pollAndReactions = buildPostPollAndReactions(rawP, allVotes, allReactions, actorKey);
+        return { ...ep, ...pollAndReactions, comments: postComments };
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const enrichedChat = chatRaw
+      .map((m) => enrichFamilyRecord(m, dirMap))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .slice(-120);
+
+    // Members directory for Super Admin moderation panel
+    const membersMap = new Map<string, any>();
+    if (superAdmin) {
+      for (const [k, v] of dirMap.entries()) {
+        if (!k.startsWith('id:')) continue;
+        if (isSuperAdmin(v.email)) continue;
+        const restr = findUserRestriction(restrictions, v.id, v.email);
+        membersMap.set(v.id, {
+          workshopId: v.id,
+          email: v.email,
+          artistName: v.artistName || 'فنان الشمساوية',
+          brandName: v.brandName || 'ورشة الشمساوية',
+          avatarUrl: v.avatarUrl,
+          medal: v.medal,
+          ratingStars: v.ratingStars,
+          restrictionStatus: restr?.status || 'active',
+          restrictionReason: restr?.reason || '',
+        });
+      }
+    }
+
+    res.json({
+      blocked: false,
+      restriction: myRestriction,
+      isSuperAdmin: superAdmin,
+      posts: enrichedPosts,
+      chatMessages: enrichedChat,
+      restrictions: superAdmin ? restrictions.filter((r) => r.status !== 'active') : [],
+      members: superAdmin ? Array.from(membersMap.values()) : [],
+    });
+  } catch (err: any) {
+    console.error('[Family Feed Error]:', err);
+    res.status(500).json({ error: 'تعذر تحميل منشورات مجتمع عيلة الشمساوية' });
+  }
+});
+
+app.post('/api/family/posts', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const client = getDbClient(req);
+  const email = req.userEmail || req.user?.email || '';
+  const wid = (req.headers['x-workshop-id'] as string) || req.workshopId || '';
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+  const rawContent = typeof req.body?.content === 'string' ? req.body.content.trim() : '';
+  const requestedType = req.body?.postType === 'poll' ? 'poll' : 'text';
+  const rawPollOptions: string[] = Array.isArray(req.body?.pollOptions)
+    ? req.body.pollOptions
+        .map((o: any) => (typeof o === 'string' ? o.trim() : ''))
+        .filter((o: string) => o.length > 0)
+        .slice(0, 6)
+    : [];
+
+  if (!rawContent) {
+    return res.status(400).json({ error: 'نص المنشور لا يمكن أن يكون فارغاً' });
+  }
+  if (rawContent.length > 2000) {
+    return res.status(400).json({ error: 'الحد الأقصى للمنشور هو 2000 حرف فقط' });
+  }
+  if (requestedType === 'poll' && rawPollOptions.length < 2) {
+    return res.status(400).json({ error: 'التصويت يتطلب كتابة اختيارين على الأقل' });
+  }
+
+  const restrictions = await loadAllFamilyRestrictions(client);
+  const myRestriction = findUserRestriction(restrictions, wid, email);
+  if (myRestriction && !superAdmin) {
+    return res.status(403).json({
+      error:
+        myRestriction.status === 'banned'
+          ? 'تم حظر حسابك من مجتمع عيلة الشمساوية'
+          : 'حسابك مقيد من المشاركة في مجتمع عيلة الشمساوية',
+      restriction: myRestriction,
+    });
+  }
+
+  const author = await resolveFamilyAuthorContext(req, client);
+  const nowIso = new Date().toISOString();
+  const formattedOptions =
+    requestedType === 'poll'
+      ? rawPollOptions.map((text, idx) => ({
+          id: `opt_${idx + 1}_${crypto.randomUUID().slice(0, 8)}`,
+          text: text.slice(0, 120),
+        }))
+      : [];
+
+  const postRecord: any = {
+    id: crypto.randomUUID(),
+    workshop_id: author.workshopId,
+    author_email: author.email,
+    author_name: author.authorName,
+    brand_name: author.brandName,
+    avatar_url: author.avatarUrl,
+    medal: author.medal,
+    rating_stars: author.ratingStars,
+    is_super_admin: author.isSuperAdmin,
+    post_type: requestedType,
+    poll_options: formattedOptions,
+    content: rawContent,
+    created_at: nowIso,
+  };
+
+  const posts = loadPersistentFamilyPosts();
+  posts.unshift(postRecord);
+  savePersistentFamilyPosts(posts);
+
+  try {
+    const { error } = await supabaseAdminClient.from('family_posts').insert(postRecord);
+    if (error) {
+      // Fallback insert without poll columns if user hasn't run SQL migration yet
+      if (String(error.message || '').toLowerCase().includes('column')) {
+        const { post_type: _pt, poll_options: _po, ...baseRecord } = postRecord;
+        await supabaseAdminClient.from('family_posts').insert(baseRecord);
+      } else if (!isMissingSupabaseRelationError(error)) {
+        console.warn('[Family Post Insert Warning]:', error.message);
+      }
+    }
+  } catch {}
+
+  const dirMap = await getWorkshopDirectoryMap(client);
+  const enriched = {
+    ...enrichFamilyRecord(postRecord, dirMap),
+    postType: requestedType,
+    pollOptions: formattedOptions.map((o) => ({ ...o, votesCount: 0, votedByMe: false })),
+    totalVotes: 0,
+    reactions: { like: 0, love: 0, clap: 0, rose: 0 },
+    myReaction: null,
+    comments: [],
+  };
+  broadcastFamilyEvent('post:created', enriched, restrictions);
+  res.json({ success: true, post: enriched });
+});
+
+app.post('/api/family/posts/:id/vote', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const client = getDbClient(req);
+  const postId = req.params.id;
+  const optionId = String(req.body?.optionId || '').trim();
+  const email = req.userEmail || req.user?.email || '';
+  const wid = (req.headers['x-workshop-id'] as string) || req.workshopId || '';
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+  const actorKey = getActorVoteKey(wid, email, req.user?.id);
+
+  if (!optionId) {
+    return res.status(400).json({ error: 'يرجى اختيار رأي للتصويت' });
+  }
+
+  const restrictions = await loadAllFamilyRestrictions(client);
+  const myRestriction = findUserRestriction(restrictions, wid, email);
+  if (myRestriction && !superAdmin) {
+    return res.status(403).json({ error: 'حسابك مقيد من التصويت والمشاركة', restriction: myRestriction });
+  }
+
+  let posts = loadPersistentFamilyPosts();
+  let targetPost = posts.find((p) => p.id === postId);
+  if (!targetPost) {
+    try {
+      const { data } = await supabaseAdminClient.from('family_posts').select('*').eq('id', postId).maybeSingle();
+      if (data) targetPost = data;
+    } catch {}
+  }
+
+  if (!targetPost) {
+    return res.status(404).json({ error: 'التصويت غير موجود' });
+  }
+
+  const rawOptions = Array.isArray(targetPost.poll_options || targetPost.pollOptions)
+    ? (targetPost.poll_options || targetPost.pollOptions)
+    : [];
+  if (!rawOptions.some((o: any) => String(o.id) === optionId)) {
+    return res.status(400).json({ error: 'الاختيار المحدد غير صالح' });
+  }
+
+  let allVotes = loadPersistentFamilyPollVotes();
+  allVotes = allVotes.filter((v) => !(v.post_id === postId && v.voter_key === actorKey));
+  allVotes.push({
+    id: crypto.randomUUID(),
+    post_id: postId,
+    option_id: optionId,
+    voter_key: actorKey,
+    created_at: new Date().toISOString(),
+  });
+  savePersistentFamilyPollVotes(allVotes);
+
+  try {
+    await supabaseAdminClient
+      .from('family_poll_votes')
+      .delete()
+      .eq('post_id', postId)
+      .eq('voter_key', actorKey);
+    await supabaseAdminClient.from('family_poll_votes').insert({
+      id: crypto.randomUUID(),
+      post_id: postId,
+      option_id: optionId,
+      voter_key: actorKey,
+    });
+  } catch {}
+
+  const mergedVotes = await loadAllPollVotes();
+  const postVotes = mergedVotes.filter((v) => v.post_id === postId);
+  const pollOptions = rawOptions.map((opt: any) => {
+    const oid = String(opt.id);
+    const cnt = postVotes.filter((v) => v.option_id === oid).length;
+    return {
+      id: oid,
+      text: String(opt.text || ''),
+      votesCount: cnt,
+      votedByMe: oid === optionId,
+    };
+  });
+
+  const payload = {
+    postId,
+    totalVotes: postVotes.length,
+    voterKey: actorKey,
+    selectedOptionId: optionId,
+    pollOptions,
+  };
+  broadcastFamilyEvent('post:voted', payload, restrictions);
+  res.json({ success: true, ...payload });
+});
+
+app.post('/api/family/posts/:id/react', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const client = getDbClient(req);
+  const postId = req.params.id;
+  const reactionType = String(req.body?.reactionType || '').trim() as FamilyReactionType;
+  const email = req.userEmail || req.user?.email || '';
+  const wid = (req.headers['x-workshop-id'] as string) || req.workshopId || '';
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+  const actorKey = getActorVoteKey(wid, email, req.user?.id);
+
+  if (!VALID_REACTION_TYPES.includes(reactionType)) {
+    return res.status(400).json({ error: 'نوع التفاعل غير مدعوم' });
+  }
+
+  const restrictions = await loadAllFamilyRestrictions(client);
+  const myRestriction = findUserRestriction(restrictions, wid, email);
+  if (myRestriction && !superAdmin) {
+    return res.status(403).json({ error: 'حسابك مقيد من التفاعل والمشاركة', restriction: myRestriction });
+  }
+
+  let allReactions = loadPersistentFamilyReactions();
+  const existing = allReactions.find((r) => r.post_id === postId && r.reactor_key === actorKey);
+  const isRemoving = existing && existing.reaction_type === reactionType;
+
+  allReactions = allReactions.filter((r) => !(r.post_id === postId && r.reactor_key === actorKey));
+  if (!isRemoving) {
+    allReactions.push({
+      id: crypto.randomUUID(),
+      post_id: postId,
+      reaction_type: reactionType,
+      reactor_key: actorKey,
+      created_at: new Date().toISOString(),
+    });
+  }
+  savePersistentFamilyReactions(allReactions);
+
+  try {
+    await supabaseAdminClient
+      .from('family_post_reactions')
+      .delete()
+      .eq('post_id', postId)
+      .eq('reactor_key', actorKey);
+    if (!isRemoving) {
+      await supabaseAdminClient.from('family_post_reactions').insert({
+        id: crypto.randomUUID(),
+        post_id: postId,
+        reaction_type: reactionType,
+        reactor_key: actorKey,
+      });
+    }
+  } catch {}
+
+  const mergedReactions = await loadAllPostReactions();
+  const postReactions = mergedReactions.filter((r) => r.post_id === postId);
+  const reactions: Record<FamilyReactionType, number> = { like: 0, love: 0, clap: 0, rose: 0 };
+  for (const r of postReactions) {
+    const rt = r.reaction_type as FamilyReactionType;
+    if (VALID_REACTION_TYPES.includes(rt)) reactions[rt] += 1;
+  }
+
+  const myReaction = isRemoving ? null : reactionType;
+  const payload = {
+    postId,
+    reactions,
+    reactorKey: actorKey,
+    myReaction,
+  };
+  broadcastFamilyEvent('post:reacted', payload, restrictions);
+  res.json({ success: true, ...payload });
+});
+
+app.delete('/api/family/posts/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const client = getDbClient(req);
+  const postId = req.params.id;
+  const email = (req.userEmail || req.user?.email || '').toLowerCase();
+  const wid = (req.workshopId || '').trim();
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+
+  let posts = loadPersistentFamilyPosts();
+  let target = posts.find((p) => p.id === postId);
+
+  if (!target) {
+    try {
+      const { data } = await supabaseAdminClient.from('family_posts').select('*').eq('id', postId).maybeSingle();
+      if (data) target = data;
+    } catch {}
+  }
+
+  if (!target) {
+    return res.status(404).json({ error: 'المنشور غير موجود' });
+  }
+
+  const isOwner =
+    (wid && target.workshop_id === wid) ||
+    (email && String(target.author_email || '').toLowerCase() === email);
+
+  if (!superAdmin && !isOwner) {
+    return res.status(403).json({ error: 'لا تملك صلاحية حذف هذا المنشور' });
+  }
+
+  posts = posts.filter((p) => p.id !== postId);
+  savePersistentFamilyPosts(posts);
+
+  const comments = loadPersistentFamilyComments().filter((c) => (c.post_id || c.postId) !== postId);
+  savePersistentFamilyComments(comments);
+
+  try {
+    await supabaseAdminClient.from('family_comments').delete().eq('post_id', postId);
+    await supabaseAdminClient.from('family_posts').delete().eq('id', postId);
+  } catch {}
+
+  const restrictions = await loadAllFamilyRestrictions(client);
+  broadcastFamilyEvent('post:deleted', { id: postId }, restrictions);
+  res.json({ success: true, id: postId });
+});
+
+app.post('/api/family/posts/:id/comments', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const client = getDbClient(req);
+  const postId = req.params.id;
+  const email = req.userEmail || req.user?.email || '';
+  const wid = req.workshopId || '';
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+  const rawContent = typeof req.body?.content === 'string' ? req.body.content.trim() : '';
+
+  if (!rawContent) {
+    return res.status(400).json({ error: 'نص التعليق فارغ' });
+  }
+  if (rawContent.length > 1000) {
+    return res.status(400).json({ error: 'الحد الأقصى للتعليق هو 1000 حرف' });
+  }
+
+  const restrictions = await loadAllFamilyRestrictions(client);
+  const myRestriction = findUserRestriction(restrictions, wid, email);
+  if (myRestriction && !superAdmin) {
+    return res.status(403).json({
+      error:
+        myRestriction.status === 'banned'
+          ? 'تم حظر حسابك من مجتمع عيلة الشمساوية'
+          : 'حسابك مقيد من التعليق والمشاركة',
+      restriction: myRestriction,
+    });
+  }
+
+  const author = await resolveFamilyAuthorContext(req, client);
+  const nowIso = new Date().toISOString();
+  const commentRecord = {
+    id: crypto.randomUUID(),
+    post_id: postId,
+    workshop_id: author.workshopId,
+    author_email: author.email,
+    author_name: author.authorName,
+    brand_name: author.brandName,
+    avatar_url: author.avatarUrl,
+    medal: author.medal,
+    rating_stars: author.ratingStars,
+    is_super_admin: author.isSuperAdmin,
+    content: rawContent,
+    created_at: nowIso,
+  };
+
+  const comments = loadPersistentFamilyComments();
+  comments.push(commentRecord);
+  savePersistentFamilyComments(comments);
+
+  try {
+    const { error } = await supabaseAdminClient.from('family_comments').insert(commentRecord);
+    if (error && !isMissingSupabaseRelationError(error)) {
+      console.warn('[Family Comment Insert Warning]:', error.message);
+    }
+  } catch {}
+
+  const dirMap = await getWorkshopDirectoryMap(client);
+  const enriched = { ...enrichFamilyRecord(commentRecord, dirMap), postId };
+  broadcastFamilyEvent('comment:created', enriched, restrictions);
+  res.json({ success: true, comment: enriched });
+});
+
+app.delete('/api/family/comments/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const client = getDbClient(req);
+  const commentId = req.params.id;
+  const email = (req.userEmail || req.user?.email || '').toLowerCase();
+  const wid = (req.workshopId || '').trim();
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+
+  let comments = loadPersistentFamilyComments();
+  let target = comments.find((c) => c.id === commentId);
+
+  if (!target) {
+    try {
+      const { data } = await supabaseAdminClient.from('family_comments').select('*').eq('id', commentId).maybeSingle();
+      if (data) target = data;
+    } catch {}
+  }
+
+  if (!target) {
+    return res.status(404).json({ error: 'التعليق غير موجود' });
+  }
+
+  const isOwner =
+    (wid && target.workshop_id === wid) ||
+    (email && String(target.author_email || '').toLowerCase() === email);
+
+  if (!superAdmin && !isOwner) {
+    return res.status(403).json({ error: 'لا تملك صلاحية حذف هذا التعليق' });
+  }
+
+  const targetPostId = target.post_id || target.postId;
+  comments = comments.filter((c) => c.id !== commentId);
+  savePersistentFamilyComments(comments);
+
+  try {
+    await supabaseAdminClient.from('family_comments').delete().eq('id', commentId);
+  } catch {}
+
+  const restrictions = await loadAllFamilyRestrictions(client);
+  broadcastFamilyEvent('comment:deleted', { id: commentId, postId: targetPostId }, restrictions);
+  res.json({ success: true, id: commentId, postId: targetPostId });
+});
+
+app.post('/api/family/chat', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const client = getDbClient(req);
+  const email = req.userEmail || req.user?.email || '';
+  const wid = req.workshopId || '';
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+  const rawContent = typeof req.body?.content === 'string' ? req.body.content.trim() : '';
+
+  if (!rawContent) {
+    return res.status(400).json({ error: 'الرسالة فارغة' });
+  }
+  if (rawContent.length > 600) {
+    return res.status(400).json({ error: 'الحد الأقصى للرسالة في الشات هو 600 حرف' });
+  }
+
+  const restrictions = await loadAllFamilyRestrictions(client);
+  const myRestriction = findUserRestriction(restrictions, wid, email);
+  if (myRestriction && !superAdmin) {
+    return res.status(403).json({
+      error:
+        myRestriction.status === 'banned'
+          ? 'تم حظر حسابك من مجتمع عيلة الشمساوية'
+          : 'حسابك مقيد من إرسال رسائل في شات العيلة',
+      restriction: myRestriction,
+    });
+  }
+
+  const author = await resolveFamilyAuthorContext(req, client);
+  const nowIso = new Date().toISOString();
+  const chatRecord = {
+    id: crypto.randomUUID(),
+    workshop_id: author.workshopId,
+    author_email: author.email,
+    author_name: author.authorName,
+    brand_name: author.brandName,
+    avatar_url: author.avatarUrl,
+    medal: author.medal,
+    rating_stars: author.ratingStars,
+    is_super_admin: author.isSuperAdmin,
+    content: rawContent,
+    created_at: nowIso,
+  };
+
+  let chatList = loadPersistentFamilyChat();
+  chatList.push(chatRecord);
+  if (chatList.length > 250) chatList = chatList.slice(-250);
+  savePersistentFamilyChat(chatList);
+
+  try {
+    const { error } = await supabaseAdminClient.from('family_chat_messages').insert(chatRecord);
+    if (error && !isMissingSupabaseRelationError(error)) {
+      console.warn('[Family Chat Insert Warning]:', error.message);
+    }
+  } catch {}
+
+  const dirMap = await getWorkshopDirectoryMap(client);
+  const enriched = enrichFamilyRecord(chatRecord, dirMap);
+  broadcastFamilyEvent('chat:created', enriched, restrictions);
+  res.json({ success: true, message: enriched });
+});
+
+app.delete('/api/family/chat/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const client = getDbClient(req);
+  const msgId = req.params.id;
+  const email = (req.userEmail || req.user?.email || '').toLowerCase();
+  const wid = (req.workshopId || '').trim();
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+
+  let chatList = loadPersistentFamilyChat();
+  let target = chatList.find((m) => m.id === msgId);
+
+  if (!target) {
+    try {
+      const { data } = await supabaseAdminClient.from('family_chat_messages').select('*').eq('id', msgId).maybeSingle();
+      if (data) target = data;
+    } catch {}
+  }
+
+  if (!target) {
+    return res.status(404).json({ error: 'الرسالة غير موجودة' });
+  }
+
+  const isOwner =
+    (wid && target.workshop_id === wid) ||
+    (email && String(target.author_email || '').toLowerCase() === email);
+
+  if (!superAdmin && !isOwner) {
+    return res.status(403).json({ error: 'لا تملك صلاحية حذف هذه الرسالة' });
+  }
+
+  chatList = chatList.filter((m) => m.id !== msgId);
+  savePersistentFamilyChat(chatList);
+
+  try {
+    await supabaseAdminClient.from('family_chat_messages').delete().eq('id', msgId);
+  } catch {}
+
+  const restrictions = await loadAllFamilyRestrictions(client);
+  broadcastFamilyEvent('chat:deleted', { id: msgId }, restrictions);
+  res.json({ success: true, id: msgId });
+});
+
+app.post('/api/family/moderation', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'هذه الصلاحية مخصصة حصرياً لكبير العيلة (السوبر أدمن)' });
+  }
+
+  const { workshopId, authorEmail, artistName, brandName, status, reason } = req.body || {};
+  const normalizedStatus = ['banned', 'restricted', 'active'].includes(status) ? status : 'restricted';
+  const cleanWid = String(workshopId || '').trim();
+  const cleanEmail = String(authorEmail || '').trim().toLowerCase();
+
+  if (!cleanWid && !cleanEmail) {
+    return res.status(400).json({ error: 'يجب تحديد الورشة أو العضو المراد إدارته' });
+  }
+  if (isSuperAdmin(cleanEmail)) {
+    return res.status(400).json({ error: 'لا يمكن تقييد أو حظر حساب كبير العيلة' });
+  }
+
+  const nowIso = new Date().toISOString();
+  const record = {
+    id: crypto.randomUUID(),
+    workshop_id: cleanWid || cleanEmail,
+    author_email: cleanEmail,
+    artist_name: String(artistName || '').trim(),
+    brand_name: String(brandName || '').trim(),
+    status: normalizedStatus,
+    reason: String(reason || '').trim(),
+    moderated_by: email,
+    updated_at: nowIso,
+  };
+
+  let restrictionsList = loadPersistentFamilyRestrictions().filter(
+    (r) =>
+      !(
+        (cleanWid && String(r.workshop_id || r.workshopId || '').trim() === cleanWid) ||
+        (cleanEmail && String(r.author_email || r.email || '').trim().toLowerCase() === cleanEmail)
+      )
+  );
+  if (normalizedStatus !== 'active') {
+    restrictionsList.unshift(record);
+  }
+  savePersistentFamilyRestrictions(restrictionsList);
+
+  try {
+    if (normalizedStatus === 'active') {
+      if (cleanWid) await supabaseAdminClient.from('family_restrictions').delete().eq('workshop_id', cleanWid);
+      if (cleanEmail) await supabaseAdminClient.from('family_restrictions').delete().eq('author_email', cleanEmail);
+    } else {
+      if (cleanWid) await supabaseAdminClient.from('family_restrictions').delete().eq('workshop_id', cleanWid);
+      const { error } = await supabaseAdminClient.from('family_restrictions').insert(record);
+      if (error && !isMissingSupabaseRelationError(error)) {
+        console.warn('[Family Moderation Insert Warning]:', error.message);
+      }
+    }
+  } catch {}
+
+  const allRestrictions = await loadAllFamilyRestrictions(supabaseAdminClient);
+  broadcastFamilyEvent('member:moderated', {
+    workshopId: cleanWid,
+    authorEmail: cleanEmail,
+    status: normalizedStatus,
+    reason: record.reason,
+  });
+
+  res.json({
+    success: true,
+    restriction: {
+      workshopId: cleanWid,
+      authorEmail: cleanEmail,
+      artistName: record.artist_name,
+      brandName: record.brand_name,
+      status: normalizedStatus,
+      reason: record.reason,
+      updatedAt: nowIso,
+    },
+    restrictions: allRestrictions.filter((r) => r.status !== 'active'),
   });
 });
 
@@ -3420,8 +4613,40 @@ function normalizeCloudProductRow(row: any) {
 }
 
 // -------------------------------------------------------------
-// Real Social Preview & Dynamic Open Graph Meta for Central Market & Artisan Stores
+// Real Social Preview & Dynamic Open Graph Meta for Central Market, Family Community & Artisan Stores
 // -------------------------------------------------------------
+app.get('/family', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const pageTitle = `مجتمع عيلة الشمساوية | ملتقى فناني المشغولات اليدوية`;
+    const pageDesc = `ملتقى فناني الشمساوية لتبادل الخبرات والملاحظات اليومية والنقاش المباشر تحت إشراف كبير العيلة.`;
+    const pageImage = '/brand icon light.png';
+
+    const indexPath = isProduction
+      ? path.resolve(__dirname, 'dist/index.html')
+      : path.resolve(__dirname, 'index.html');
+
+    if (fs.existsSync(indexPath)) {
+      let html = fs.readFileSync(indexPath, 'utf-8');
+      html = html.replace(/<title>.*?<\/title>/, `<title>${pageTitle}</title>`);
+      html = html.replace(/<meta name="description" content=".*?" \/>/, `<meta name="description" content="${pageDesc}" />`);
+      html = html.replace(/<meta property="og:title" content=".*?" \/>/, `<meta property="og:title" content="${pageTitle}" />`);
+      html = html.replace(/<meta property="og:description" content=".*?" \/>/, `<meta property="og:description" content="${pageDesc}" />`);
+      html = html.replace(/<meta property="og:image" content=".*?" \/>/, `<meta property="og:image" content="${pageImage}" />`);
+      html = html.replace(/<meta name="twitter:title" content=".*?" \/>/, `<meta name="twitter:title" content="${pageTitle}" />`);
+      html = html.replace(/<meta name="twitter:description" content=".*?" \/>/, `<meta name="twitter:description" content="${pageDesc}" />`);
+      html = html.replace(/<meta name="twitter:image" content=".*?" \/>/, `<meta name="twitter:image" content="${pageImage}" />`);
+
+      if (!isProduction && viteDevServer) {
+        html = await viteDevServer.transformIndexHtml(req.originalUrl, html);
+      }
+      return res.status(200).set({ 'Content-Type': 'text/html' }).send(html);
+    }
+  } catch (err) {
+    console.warn('[Family OG Render Error]:', err);
+  }
+  next();
+});
+
 app.get(['/market', '/marketplace'], async (req: Request, res: Response, next: NextFunction) => {
   try {
     const pageTitle = `سوق الشمساوية المركزي | أرقى المشغولات اليدوية والديكورات الحرفية`;
@@ -3561,12 +4786,87 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, HOST, () => {
+  const httpServer = http.createServer(app);
+
+  familyWss.on('connection', (ws: WebSocket, reqMeta: { userId: string; email: string; workshopId: string; isSuperAdmin: boolean }) => {
+    const clientEntry: FamilyWsClient = {
+      ws,
+      userId: reqMeta.userId,
+      email: reqMeta.email,
+      workshopId: reqMeta.workshopId,
+      isSuperAdmin: reqMeta.isSuperAdmin,
+    };
+    familyWsClients.add(clientEntry);
+
+    try {
+      ws.send(JSON.stringify({ type: 'connected', onlineCount: familyWsClients.size }));
+    } catch {}
+
+    ws.on('close', () => {
+      familyWsClients.delete(clientEntry);
+    });
+    ws.on('error', () => {
+      familyWsClients.delete(clientEntry);
+    });
+  });
+
+  httpServer.on('upgrade', async (request, socket, head) => {
+    try {
+      const urlObj = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
+      if (urlObj.pathname !== '/ws/family') {
+        return;
+      }
+
+      const token = urlObj.searchParams.get('token') || '';
+      const queryEmail = urlObj.searchParams.get('email') || '';
+      const queryWid = urlObj.searchParams.get('workshopId') || '';
+
+      let userId = '';
+      let email = queryEmail;
+      let workshopId = queryWid;
+      let superAdmin = false;
+
+      if (token) {
+        const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
+        if (!error && user) {
+          userId = user.id;
+          email = user.email || queryEmail || '';
+          superAdmin = isSuperAdmin(email);
+          workshopId =
+            queryWid ||
+            user.user_metadata?.workshop_id ||
+            user.user_metadata?.workshopId ||
+            user.user_metadata?.tenant_id ||
+            user.id;
+        }
+      } else if (queryEmail && isSuperAdmin(queryEmail)) {
+        userId = 'super_admin_hossam';
+        email = queryEmail;
+        superAdmin = true;
+        workshopId = queryWid || 'super_admin';
+      }
+
+      if (!userId && !superAdmin) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      familyWss.handleUpgrade(request, socket, head, (ws) => {
+        familyWss.emit('connection', ws, { userId, email, workshopId, isSuperAdmin: superAdmin });
+      });
+    } catch {
+      socket.destroy();
+    }
+  });
+
+  httpServer.listen(PORT, HOST, () => {
     console.log('================================================================');
     console.log('☀️  [منظومة الشمساوية SaaS] خادم إدارة الورش الحرفية والإدارة العليا');
     console.log(`🔌 حالة ربط قاعدة البيانات (Supabase URL): ${supabaseConfig.url ? 'متصل بنجاح ✅' : 'غير متصل ❌'}`);
     console.log(`🛡️  صلاحيات السوبر أدمن (Service Role): ${process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY ? 'مفعل (تجاوز عزل RLS بالكامل) ✅' : 'قيد العمل بالمفتاح المنشور (Publishable Key) ⚠️'}`);
     console.log(`🛍️  سوق الشمساوية المركزي السحابي: نشط ومتزامن سحابياً بنجاح ✅`);
+    console.log(`👥 مجتمع عيلة الشمساوية (WebSocket /ws/family): متصل ونشط ✅`);
     console.log(`🌐 خادم الويب يستمع على المنفذ: http://${HOST}:${PORT}`);
     console.log('================================================================');
   });

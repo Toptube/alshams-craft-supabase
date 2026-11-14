@@ -13,6 +13,8 @@ import {
   Plus,
   Minus,
   MessageCircle,
+  Mail,
+  Send,
   Check,
   ArrowUpDown,
 } from 'lucide-react';
@@ -40,11 +42,13 @@ import { matchesWorkshopSlug } from '../../utils/slugify';
 interface PublicStorefrontViewProps {
   slug: string;
   onNavigateToApp?: () => void;
+  onNavigateToMarket?: () => void;
 }
 
 export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   slug,
   onNavigateToApp,
+  onNavigateToMarket,
 }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [storeData, setStoreData] = useState<PublicWorkshopStoreData | null>(null);
@@ -65,6 +69,62 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [customNotes, setCustomNotes] = useState<string>('');
   const [addedToast, setAddedToast] = useState<string | null>(null);
+
+  // Direct Admin Support Modal (Store & Catalog complaints / inquiries)
+  const [isAdminSupportModalOpen, setIsAdminSupportModalOpen] = useState<boolean>(false);
+  const [supportName, setSupportName] = useState<string>('');
+  const [supportContact, setSupportContact] = useState<string>('');
+  const [supportCategory, setSupportCategory] = useState<string>('شكوى بخصوص المتجر أو الكتالوج');
+  const [supportMessage, setSupportMessage] = useState<string>('');
+  const [supportSubmitting, setSupportSubmitting] = useState<boolean>(false);
+  const [supportFeedbackStatus, setSupportFeedbackStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleSendAdminSupport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supportName.trim() || !supportMessage.trim()) {
+      setSupportFeedbackStatus({ type: 'error', text: 'يرجى كتابة الاسم ونص الرسالة أو الشكوى.' });
+      return;
+    }
+    setSupportSubmitting(true);
+    setSupportFeedbackStatus(null);
+    try {
+      const res = await fetch('/api/public/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: supportName.trim(),
+          contact: supportContact.trim(),
+          craft: supportCategory,
+          message: supportMessage.trim(),
+          source: 'artisan_storefront',
+          workshopId: storeData?.workshop?.id || null,
+          workshopName: storeData?.workshop?.brandName || slug,
+          storeSlug: storeData?.workshop?.storeSlug || slug,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json?.error || 'تعذر إرسال الرسالة، يرجى المحاولة مرة أخرى.');
+      }
+      playSuccessSound();
+      setSupportFeedbackStatus({
+        type: 'success',
+        text: json?.message || 'تم إرسال رسالتك إلى الإدارة بنجاح.',
+      });
+      setSupportMessage('');
+      setTimeout(() => {
+        setIsAdminSupportModalOpen(false);
+        setSupportFeedbackStatus(null);
+      }, 2200);
+    } catch (err: any) {
+      setSupportFeedbackStatus({
+        type: 'error',
+        text: err?.message || 'حدث خطأ أثناء الإرسال للإدارة.',
+      });
+    } finally {
+      setSupportSubmitting(false);
+    }
+  };
 
   const refreshCartCount = () => {
     try {
@@ -902,25 +962,176 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         }}
       />
 
+      {/* Direct Message to Admin Modal (Store & Catalog Complaints / Technical Support) */}
+      {isAdminSupportModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-xs animate-in fade-in duration-150"
+          dir="rtl"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsAdminSupportModalOpen(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl overflow-hidden text-right">
+            <div className="px-5 py-4 bg-[#E9E2D4] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[#EA580C] text-white flex items-center justify-center shrink-0">
+                  <Mail className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
+                    الدعم الفني — رسالة مباشرة للإدارة
+                  </h3>
+                  <p className="text-[11px] font-bold text-[#C2410C] dark:text-[#FBBF24] truncate">
+                    الشكاوى والاستفسارات بخصوص المتجر أو الكتالوج
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAdminSupportModalOpen(false)}
+                aria-label="إغلاق نافذة الدعم الفني"
+                className="w-8 h-8 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center hover:border-[#EA580C] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendAdminSupport} className="p-5 space-y-3.5">
+              <div className="rounded-xl bg-[#EFE9DC] dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] px-3 py-2 text-xs text-[#334155] dark:text-[#CBD5E1]">
+                تصل رسالتك مباشرة إلى <strong className="text-[#0C1427] dark:text-[#F7F3EA]">إدارة منظومة الشمساوية</strong> بخصوص متجر <strong className="text-[#C2410C] dark:text-[#FBBF24]">{storeData?.workshop?.brandName || slug}</strong> أو منتجات الكتالوج.
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] mb-1">
+                  نوع الرسالة *
+                </label>
+                <select
+                  value={supportCategory}
+                  onChange={(e) => setSupportCategory(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] focus:outline-none focus:border-[#EA580C]"
+                >
+                  <option value="شكوى بخصوص المتجر أو الكتالوج">شكوى بخصوص المتجر أو الكتالوج</option>
+                  <option value="استفسار عن منتج في الكتالوج">استفسار عن منتج في الكتالوج</option>
+                  <option value="متابعة طلب أو شحن">متابعة طلب أو شحن</option>
+                  <option value="ملاحظة فنية أو اقتراح">ملاحظة فنية أو اقتراح</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] mb-1">
+                    الاسم *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={supportName}
+                    onChange={(e) => setSupportName(e.target.value)}
+                    placeholder="اسمك الكريم"
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs text-[#0C1427] dark:text-[#F7F3EA] focus:outline-none focus:border-[#EA580C]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] mb-1">
+                    رقم الهاتف / التواصل
+                  </label>
+                  <input
+                    type="text"
+                    value={supportContact}
+                    onChange={(e) => setSupportContact(e.target.value)}
+                    placeholder="010xxxxxxxx"
+                    dir="ltr"
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs text-right text-[#0C1427] dark:text-[#F7F3EA] focus:outline-none focus:border-[#EA580C]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] mb-1">
+                  تفاصيل الشكوى أو الاستفسار *
+                </label>
+                <textarea
+                  rows={4}
+                  required
+                  value={supportMessage}
+                  onChange={(e) => setSupportMessage(e.target.value)}
+                  placeholder="اكتب رسالتك لإدارة المنظومة بخصوص المتجر أو أي منتج في الكتالوج..."
+                  className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs text-[#0C1427] dark:text-[#F7F3EA] focus:outline-none focus:border-[#EA580C] resize-none"
+                />
+              </div>
+
+              {supportFeedbackStatus && (
+                <div
+                  className={`px-3 py-2.5 rounded-xl text-xs font-bold border ${
+                    supportFeedbackStatus.type === 'success'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200'
+                      : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-200'
+                  }`}
+                >
+                  {supportFeedbackStatus.text}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsAdminSupportModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  disabled={supportSubmitting}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] disabled:opacity-60 text-white text-xs font-black cursor-pointer shadow-sm active:scale-95 transition"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{supportSubmitting ? 'جاري الإرسال...' : 'إرسال للإدارة'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Minimal Unified Footer */}
-      <footer className="mt-16 bg-[#F7F3EA] dark:bg-[#0D162E] border-t border-[#D4CCBC] dark:border-[#22355E] py-5 px-4 sm:px-6">
-        <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-4">
+      <footer className="mt-16 bg-[#F7F3EA] dark:bg-[#0D162E] border-t border-[#D4CCBC] dark:border-[#22355E] py-4 px-4 sm:px-6">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+          {/* اليمين: سوق الشمساوية بالبرتقالي */}
           <a
             href="/#/market"
-            className="text-xs sm:text-sm font-black text-[#C2410C] dark:text-[#FBBF24] hover:underline transition-colors"
+            onClick={(e) => {
+              if (onNavigateToMarket) {
+                e.preventDefault();
+                onNavigateToMarket();
+              }
+            }}
+            className="inline-flex items-center gap-2 text-sm sm:text-base font-black text-[#EA580C] hover:text-[#C2410C] dark:text-[#FB923C] dark:hover:text-[#FDBA74] transition-colors"
           >
-            سوق الشمساوية للفنون اليدوية
+            <ShoppingBag className="w-4 h-4 shrink-0" />
+            <span>سوق الشمساوية</span>
           </a>
 
-          <a
-            href="https://wa.me/201000996059"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition cursor-pointer active:scale-95 shrink-0"
-          >
-            <MessageCircle className="w-3.5 h-3.5" />
-            <span>الدعم الفني</span>
-          </a>
+          {/* الشمال من تحت: الدعم الفني بعلامة الرسالة لإرسال رسالة مباشرة للأدمن للشكاوى بخصوص المتجر أو الكتالوج */}
+          <div className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setSupportName(customerUser?.name || '');
+                setSupportContact(customerUser?.phone || '');
+                setSupportFeedbackStatus(null);
+                setIsAdminSupportModalOpen(true);
+              }}
+              title="الشكاوى والاستفسارات بخصوص المتجر أو الكتالوج — تواصل مباشر مع الإدارة"
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#0C1427] hover:bg-[#EA580C] dark:bg-[#132040] dark:hover:bg-[#EA580C] text-[#F7F3EA] border border-[#22355E] font-bold text-xs transition cursor-pointer active:scale-95 shrink-0 shadow-xs"
+            >
+              <Mail className="w-3.5 h-3.5 text-[#FBBF24]" />
+              <span>الدعم الفني</span>
+            </button>
+            <span className="text-[10px] font-bold text-[#475569] dark:text-[#CBD5E1]">
+              للشكاوى والاستفسارات بخصوص المتجر أو الكتالوج
+            </span>
+          </div>
         </div>
       </footer>
     </div>

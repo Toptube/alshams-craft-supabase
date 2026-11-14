@@ -267,7 +267,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
         {/* جسم القائمة: الرئيسية ثم الأقسام الرئيسية القابلة للطي */}
         <nav className="flex-1 overflow-y-auto p-3.5 space-y-2.5">
-          {/* زر الرئيسية السريع */}
+          {/* زر الرئيسية ومجتمع عيلة الشمساويه السريع */}
           <div className="grid grid-cols-1 gap-2">
             <button
               type="button"
@@ -283,6 +283,22 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             >
               <Home className={`w-4 h-4 shrink-0 ${activeView === 'home' ? 'text-[#FBBF24] dark:text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'}`} />
               <span className="truncate">الرئيسية</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                onSelectView('family');
+                onClose();
+              }}
+              className={`min-h-[42px] px-3 py-2 rounded-xl border text-xs font-black flex items-center justify-center gap-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
+                activeView === 'family'
+                  ? 'bg-[#EA580C] text-white border-[#FBBF24]'
+                  : 'bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24]'
+              }`}
+            >
+              <Users className={`w-4 h-4 shrink-0 ${activeView === 'family' ? 'text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'}`} />
+              <span className="truncate">مجتمع عيلة الشمساويه</span>
             </button>
           </div>
 

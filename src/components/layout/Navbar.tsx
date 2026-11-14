@@ -7,6 +7,7 @@ import {
   Store,
   Bell,
   Mail,
+  Users,
 } from 'lucide-react';
 import { AlShamsBrandLogo } from '../brand/BrandAssets';
 
@@ -35,6 +36,8 @@ export interface NavbarProps {
   onSelectThemeMode?: (mode: ThemeMode) => void;
   onNavigateToMarketplace?: () => void;
   onOpenArtisanStore?: () => void;
+  onNavigateToFamily?: () => void;
+  activeView?: string;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -49,6 +52,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleTheme,
   onNavigateToCatalog,
   onOpenArtisanStore,
+  onNavigateToFamily,
+  activeView,
 }) => {
   const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64;
   const hasAnyUnread = unreadNotificationsCount > 0 || unreadMessagesCount > 0;
@@ -77,7 +82,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         )}
       </div>
 
-      {/* الوسط: زر الوصول المباشر للمتجر */}
+      {/* الوسط: زر الوصول المباشر للمتجر وزر العيلة */}
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         {(onOpenArtisanStore || onNavigateToCatalog) && (
           <button
@@ -94,6 +99,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Store className="w-3.5 h-3.5 text-amber-100 shrink-0" />
             <span>متجري 🏪</span>
+          </button>
+        )}
+
+        {onNavigateToFamily && (
+          <button
+            type="button"
+            onClick={onNavigateToFamily}
+            title="مجتمع عيلة الشمساويه"
+            className={`px-2.5 sm:px-3.5 py-1.5 rounded-xl border font-black text-[11px] sm:text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 ${
+              activeView === 'family'
+                ? 'bg-[#0C1427] text-[#FBBF24] border-[#EA580C] dark:bg-[#FBBF24] dark:text-[#0C1427] dark:border-[#EA580C]'
+                : 'bg-[#E9E2D4] hover:bg-[#DFD7C6] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#132040] dark:hover:bg-[#1A2B54] dark:text-[#F7F3EA] dark:border-[#22355E]'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
+            <span>العيلة</span>
           </button>
         )}
       </div>
