@@ -389,6 +389,7 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
     origX: number;
     origY: number;
   }>({ dragging: false, moved: false, startX: 0, startY: 0, origX: 16, origY: 500 });
+  const suppressNextClickRef = useRef<boolean>(false);
 
   const clampPosition = useCallback((x: number, y: number, expanded: boolean) => {
     if (typeof window === 'undefined') return { x, y };
@@ -417,8 +418,9 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
   const handleDragPointerDown = (e: React.PointerEvent<HTMLElement>) => {
     const targetEl = e.target as HTMLElement;
     if (targetEl.closest('[data-no-drag="true"]')) return;
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
 
-    e.preventDefault();
+    suppressNextClickRef.current = false;
     dragStateRef.current = {
       dragging: true,
       moved: false,
@@ -432,30 +434,49 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
       if (!dragStateRef.current.dragging) return;
       const dx = moveEvt.clientX - dragStateRef.current.startX;
       const dy = moveEvt.clientY - dragStateRef.current.startY;
-      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      if (!dragStateRef.current.moved && Math.hypot(dx, dy) > 10) {
         dragStateRef.current.moved = true;
+        suppressNextClickRef.current = true;
       }
-      const clamped = clampPosition(
-        dragStateRef.current.origX + dx,
-        dragStateRef.current.origY + dy,
-        isChatOpenRef.current
-      );
-      setChatPos(clamped);
+      if (dragStateRef.current.moved) {
+        const clamped = clampPosition(
+          dragStateRef.current.origX + dx,
+          dragStateRef.current.origY + dy,
+          isChatOpenRef.current
+        );
+        setChatPos(clamped);
+      }
+    };
+
+    const cleanup = () => {
+      dragStateRef.current.dragging = false;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', cleanup);
     };
 
     const handlePointerUp = () => {
       const wasDrag = dragStateRef.current.moved;
-      dragStateRef.current.dragging = false;
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      if (!wasDrag && !isChatOpenRef.current) {
-        playButtonClickSound();
-        setIsChatOpen(true);
+      cleanup();
+      if (wasDrag) {
+        setTimeout(() => {
+          suppressNextClickRef.current = false;
+        }, 120);
       }
     };
 
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', cleanup);
+  };
+
+  const handleOpenChatFromButton = () => {
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      return;
+    }
+    playButtonClickSound();
+    setIsChatOpen(true);
   };
 
   const fetchFeed = useCallback(async () => {
@@ -1658,13 +1679,14 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
             <button
               type="button"
               onPointerDown={handleDragPointerDown}
-              title="شات العيلة — اسحب للتحريك أو اضغط للفتح"
+              onClick={handleOpenChatFromButton}
+              title="شات العيلة — اضغط من أي مكان للفتح أو اسحب للتحريك"
               aria-label="شات العيلة المباشر"
-              className="touch-none select-none cursor-grab active:cursor-grabbing relative w-12 h-12 rounded-2xl bg-gradient-to-b from-[#1E3A8A] to-[#0C1427] text-[#FB923C] border-2 border-[#EA580C] shadow-[0_6px_18px_rgba(12,20,39,0.45)] flex items-center justify-center hover:brightness-110 transition-transform active:scale-95"
+              className="touch-none select-none cursor-pointer relative w-12 h-12 rounded-2xl bg-gradient-to-b from-[#1E3A8A] to-[#0C1427] text-[#FB923C] border-2 border-[#EA580C] shadow-[0_6px_18px_rgba(12,20,39,0.45)] flex items-center justify-center hover:brightness-110 transition-transform active:scale-95"
             >
-              <MessageSquare className="w-6 h-6 text-[#FB923C] fill-[#EA580C]/25 drop-shadow-xs" />
+              <MessageSquare className="w-6 h-6 text-[#FB923C] fill-[#EA580C]/25 drop-shadow-xs pointer-events-none" />
               <span
-                className={`absolute bottom-1 left-1 w-2 h-2 rounded-full border border-[#0C1427] ${
+                className={`pointer-events-none absolute bottom-1 left-1 w-2 h-2 rounded-full border border-[#0C1427] ${
                   wsConnected ? 'bg-emerald-400' : 'bg-amber-300'
                 }`}
                 title={wsConnected ? 'متصل الآن' : 'جاري الاتصال'}
