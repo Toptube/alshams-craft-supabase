@@ -628,21 +628,20 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       {/* 2. Editorial Showcase Hero (Hidden while searching/filtering so results rise straight to top) */}
       {!hasActiveFilters && (
         <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-2">
-          <div className="relative rounded-2xl overflow-hidden bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] min-h-[210px] sm:min-h-[245px] lg:min-h-[270px] flex items-center">
-            {/* Background Image for Mobile & Tablet (portrait framing) */}
-            <img
-              src="/assets/aistudio/1794679233184_3747c8da.jpg"
-              alt=""
-              aria-hidden="true"
-              className="lg:hidden absolute inset-0 w-full h-full object-cover object-center opacity-[0.18] dark:opacity-[0.16] pointer-events-none select-none"
-            />
-            {/* Background Image for Desktop (widescreen landscape framing) */}
-            <img
-              src="/assets/aistudio/1794679364029_8e8e9eb9.jpg"
-              alt=""
-              aria-hidden="true"
-              className="hidden lg:block absolute inset-0 w-full h-full object-cover object-center opacity-[0.18] dark:opacity-[0.17] pointer-events-none select-none"
-            />
+          <div className="relative rounded-2xl overflow-hidden bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] min-h-[340px] sm:min-h-[270px] lg:min-h-[340px] flex items-center">
+            {/* Background Image: Desktop/Laptop/Landscape (16:9 2752x1536) vs Mobile Portrait (9:16 1536x2752) */}
+            <picture className="contents pointer-events-none select-none">
+              <source
+                media="(min-width: 640px), (orientation: landscape)"
+                srcSet="/assets/aistudio/1794679364029_8e8e9eb9.jpg"
+              />
+              <img
+                src="/assets/aistudio/1794679233184_3747c8da.jpg"
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 w-full h-full object-cover object-[50%_45%] sm:object-center opacity-[0.18] dark:opacity-[0.17] pointer-events-none select-none"
+              />
+            </picture>
             {/* Readability wash preserving text contrast in both Warm Sand Light and Deep Navy Dark */}
             <div
               aria-hidden="true"
