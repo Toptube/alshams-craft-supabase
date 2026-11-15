@@ -110,6 +110,7 @@ export interface WorkshopHomeScreenProps {
   onNavigateToMaterials: (openAdd?: boolean) => void;
   onNavigateToSuppliers: () => void;
   onNavigateToSales: (mode?: string) => void;
+  onNavigateToCustomers?: () => void;
   onNavigateToInvoices: (filter?: string) => void;
   onNavigateToWorkOrders: (mode?: string) => void;
   onNavigateToTreasuries: () => void;
@@ -144,6 +145,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onNavigateToMaterials,
   onNavigateToSuppliers,
   onNavigateToSales,
+  onNavigateToCustomers,
   onNavigateToInvoices,
   onNavigateToWorkOrders,
   onNavigateToTreasuries,
@@ -915,14 +917,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           icon: Users,
           items: [
             {
+              label: 'عملائي',
+              icon: Users,
+              onClick: () =>
+                onNavigateToCustomers ? onNavigateToCustomers() : onNavigateToSales(),
+            },
+            {
               label: 'إضافة عميل جديد',
               icon: UserPlus,
               onClick: onOpenNewClientModal,
-            },
-            {
-              label: 'سجل ودليل العملاء',
-              icon: Users,
-              onClick: () => onNavigateToSales(),
             },
             {
               label: 'كشف حساب العملاء والمستحقات',

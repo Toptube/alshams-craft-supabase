@@ -157,7 +157,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           { id: 'marketplace', label: 'سوق الشمساوية', icon: ShoppingBag },
           { id: 'sales', label: 'تسجيل مبيعات الورشة', icon: ShoppingCart },
           { id: 'invoices', label: 'الفواتير وعروض الأسعار', icon: FileText },
-          { id: 'customers', label: 'سجل العملاء', icon: Users },
+          { id: 'customers', label: 'عملائي', icon: Users },
         ],
       },
       {

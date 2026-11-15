@@ -844,7 +844,8 @@ export const NewClientModal: React.FC<{
 }> = ({ isOpen, onClose, profile, onSuccess }) => {
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [city, setCity] = useState('القاهرة');
+  const [country, setCountry] = useState(profile?.country || 'مصر');
+  const [governorate, setGovernorate] = useState('القاهرة');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -857,11 +858,12 @@ export const NewClientModal: React.FC<{
 
     setSaving(true);
     setErrorMsg('');
+    const formattedAddress = [country.trim(), governorate.trim()].filter(Boolean).join(' · ');
     try {
       const res = await createCustomerInSupabase(workshopId, {
         name: fullName.trim(),
         phone: phoneNumber.trim() || undefined,
-        address: city.trim() || undefined,
+        address: formattedAddress || undefined,
         notes: notes.trim() || undefined,
       });
 
@@ -877,14 +879,23 @@ export const NewClientModal: React.FC<{
           id: res.data?.id || 'cust_' + Date.now(),
           tenantId: workshopId,
           fullName: fullName.trim(),
+          name: fullName.trim(),
           phoneNumber: phoneNumber.trim() || '01000000000',
-          city: city.trim(),
+          phone: phoneNumber.trim() || '01000000000',
+          country: country.trim() || 'مصر',
+          governorate: governorate.trim() || 'القاهرة',
+          city: governorate.trim() || 'القاهرة',
+          address: formattedAddress,
           totalPurchases: 0,
           outstandingBalance: 0,
           notes: notes.trim(),
           createdAt: Date.now(),
         });
       } catch {}
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('alshams_customers_changed', { detail: { workshopId } }));
+      }
 
       onSuccess();
       onClose();
@@ -901,15 +912,15 @@ export const NewClientModal: React.FC<{
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <form
         onSubmit={handleSubmit}
-        className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-emerald-300 dark:border-stone-700 w-full max-w-md space-y-3 text-right"
+        className="bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] rounded-3xl p-6 border border-[#D4CCBC] dark:border-[#22355E] w-full max-w-md space-y-3 text-right shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b pb-3">
-          <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-700">
+        <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
+          <button type="button" onClick={onClose} className="text-[#475569] hover:text-[#0C1427] dark:hover:text-white cursor-pointer">
             <X className="w-5 h-5" />
           </button>
-          <h3 className="font-extrabold text-sm text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
-            <UserPlus className="w-4 h-4 text-emerald-600" />
-            <span>تسجيل عميل جديد بالدفتر [زر عميل]</span>
+          <h3 className="font-extrabold text-sm text-[#C2410C] dark:text-amber-300 flex items-center gap-1.5">
+            <UserPlus className="w-4 h-4 text-[#EA580C]" />
+            <span>تسجيل عميل جديد بالدفتر</span>
           </h3>
         </div>
 
@@ -927,7 +938,7 @@ export const NewClientModal: React.FC<{
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             placeholder="الاسم الكريم أو اسم المعرض"
-            className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs"
+            className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#060B18] text-xs outline-none focus:border-[#EA580C]"
           />
         </div>
 
@@ -939,19 +950,32 @@ export const NewClientModal: React.FC<{
             value={phoneNumber}
             onChange={(e) => setPhoneNumber(e.target.value)}
             placeholder="01012345678"
-            className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-xs text-left"
+            className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#060B18] font-mono text-xs text-left outline-none focus:border-[#EA580C]"
             dir="ltr"
           />
         </div>
 
-        <div>
-          <label className="block text-xs font-bold mb-1">المدينة / المحافظة</label>
-          <input
-            type="text"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs"
-          />
+        <div className="grid grid-cols-2 gap-2.5">
+          <div>
+            <label className="block text-xs font-bold mb-1">الدولة</label>
+            <input
+              type="text"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              placeholder="مصر"
+              className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#060B18] text-xs outline-none focus:border-[#EA580C]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold mb-1">المحافظة / المدينة</label>
+            <input
+              type="text"
+              value={governorate}
+              onChange={(e) => setGovernorate(e.target.value)}
+              placeholder="القاهرة"
+              className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#060B18] text-xs outline-none focus:border-[#EA580C]"
+            />
+          </div>
         </div>
 
         <div>
@@ -961,18 +985,18 @@ export const NewClientModal: React.FC<{
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="مثال: يفضل ألوان بيج وبوهيمي، طلبيات ديكور فنادق"
-            className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs"
+            className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#060B18] text-xs outline-none focus:border-[#EA580C]"
           />
         </div>
 
-        <div className="pt-2 flex justify-end gap-2 border-t">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-bold text-stone-500">
+        <div className="pt-2 flex justify-end gap-2 border-t border-[#D4CCBC] dark:border-[#22355E]">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-bold text-[#475569] dark:text-[#94A3B8] cursor-pointer">
             إلغاء
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl cursor-pointer disabled:opacity-50"
+            className="px-5 py-2 text-xs font-black text-white bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] rounded-xl cursor-pointer disabled:opacity-50"
           >
             {saving ? 'جاري الحفظ...' : 'حفظ العميل'}
           </button>

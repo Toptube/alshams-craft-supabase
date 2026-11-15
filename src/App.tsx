@@ -124,7 +124,7 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   materials: 'المخزن وإدارة الخامات',
   purchases: 'المشتريات وفواتير الخامات',
   suppliers: 'سجل الموردين',
-  customers: 'سجل العملاء',
+  customers: 'عملائي',
   sales: 'طلبيات ومبيعات الورشة',
   invoices: 'الفواتير وعروض الأسعار',
   work_orders: 'أوامر الشغل والتصنيع',
@@ -1647,6 +1647,7 @@ export const App: React.FC = () => {
               onNavigateToMaterials={() => navigateTo('materials')}
               onNavigateToSuppliers={() => navigateTo('suppliers')}
               onNavigateToSales={() => navigateTo('sales')}
+              onNavigateToCustomers={() => navigateTo('customers')}
               onNavigateToInvoices={() => navigateTo('invoices')}
               onNavigateToWorkOrders={handleNavigateToWorkOrders}
               onNavigateToTreasuries={() => navigateTo('treasuries')}

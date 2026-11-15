@@ -300,6 +300,8 @@ export interface CustomerRecord {
   fullName?: string;
   phone?: string;
   phoneNumber?: string;
+  country?: string;
+  governorate?: string;
   city?: string;
   address?: string;
   totalInvoiced?: number;
