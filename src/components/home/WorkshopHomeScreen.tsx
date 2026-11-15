@@ -105,6 +105,7 @@ export interface WorkshopHomeScreenProps {
   onNavigateToCalculator: () => void;
   onNavigateToArchive: () => void;
   onNavigateToCatalog: (tab?: 'catalog' | 'store') => void;
+  onOpenArtisanStore?: (tab?: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr') => void;
   onNavigateToAIAgent: () => void;
   onNavigateToMaterials: (openAdd?: boolean) => void;
   onNavigateToSuppliers: () => void;
@@ -138,6 +139,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onNavigateToCalculator,
   onNavigateToArchive,
   onNavigateToCatalog,
+  onOpenArtisanStore,
   onNavigateToAIAgent,
   onNavigateToMaterials,
   onNavigateToSuppliers,
@@ -1121,9 +1123,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               onClick: () => onNavigateToCatalog('catalog'),
             },
             {
-              label: 'متجري',
+              label: 'لوحة التحكم بالمتجر',
               icon: Store,
-              onClick: () => onNavigateToCatalog('store'),
+              onClick: () =>
+                onOpenArtisanStore ? onOpenArtisanStore('products') : onNavigateToCatalog('store'),
+            },
+            {
+              label: 'أوردراتي',
+              icon: ShoppingBag,
+              onClick: () =>
+                onOpenArtisanStore ? onOpenArtisanStore('orders') : onNavigateToSales(),
             },
           ],
         };
@@ -1288,11 +1297,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                   key={card.id}
                   type="button"
                   onClick={() => {
-                    if (card.id === 'my_platform') {
-                      onNavigateToCatalog('catalog');
-                    } else {
-                      setActiveSubSection(card.id);
-                    }
+                    setActiveSubSection(card.id);
                   }}
                   className="p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#F7F3EA] to-[#EFE9DC] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] hover:shadow-md transition-all duration-200 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 cursor-pointer group min-h-[82px] sm:min-h-[100px]"
                 >

@@ -306,27 +306,60 @@ export function getCentralMarketplaceOrders(): InvoiceRecord[] {
   return [];
 }
 
+export function resolveOrderSource(
+  order: Partial<InvoiceRecord> | Record<string, any> | null | undefined
+): 'direct_store' | 'marketplace' | 'manual' {
+  if (!order) return 'manual';
+  const explicit = (order as any).orderSource || (order as any).order_source;
+  if (explicit === 'direct_store' || explicit === 'marketplace' || explicit === 'manual') {
+    return explicit;
+  }
+  const rawNotes = String((order as any).notes || '');
+  const metaMatch = rawNotes.match(/\[META:([^\]]+)\]/);
+  if (metaMatch) {
+    const srcMatch = metaMatch[1].match(/source=(direct_store|marketplace|manual)/);
+    if (srcMatch) {
+      return srcMatch[1] as 'direct_store' | 'marketplace' | 'manual';
+    }
+  }
+  const orderNum = String((order as any).invoiceNumber || (order as any).orderNumber || (order as any).order_number || '');
+  if (
+    orderNum.startsWith('SHAMS-') ||
+    Boolean((order as any).marketplaceStatus) ||
+    Boolean((order as any).governorate) ||
+    (order as any).isClientDataHiddenFromArtisan === true
+  ) {
+    return 'marketplace';
+  }
+  return 'manual';
+}
+
 export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
   try {
+    const resolvedSource = resolveOrderSource(order);
+    const normalizedOrder: InvoiceRecord = {
+      ...order,
+      orderSource: order.orderSource || resolvedSource,
+    };
     const orders = getCentralMarketplaceOrders();
-    const existingIndex = orders.findIndex((o) => o.id === order.id);
+    const existingIndex = orders.findIndex((o) => o.id === normalizedOrder.id);
     if (existingIndex > -1) {
-      orders[existingIndex] = order;
+      orders[existingIndex] = normalizedOrder;
     } else {
-      orders.unshift(order);
+      orders.unshift(normalizedOrder);
     }
     localStorage.setItem(MARKETPLACE_ORDERS_KEY, JSON.stringify(orders));
 
     // Also persist to Dexie tenant storage under the order's workshopId or 'central'
-    const workshopId = order.workshopId || order.tenantId || 'central';
-    tenantStorage.saveOrder(order).catch((err) => console.warn('Dexie save order error:', err));
+    const workshopId = normalizedOrder.workshopId || normalizedOrder.tenantId || 'central';
+    tenantStorage.saveOrder(normalizedOrder).catch((err) => console.warn('Dexie save order error:', err));
 
     // 1. Instant Artisan & Workshop Notification in Dexie
     const notifItem = {
       id: 'notif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       tenantId: workshopId,
-      title: `🛍️ طلبية جديدة برقم #${order.invoiceNumber}!`,
-      message: `تم استلام طلبية جديدة بقيمة ${order.finalTotal} ج.م (عربون: ${order.advancePaymentAmount} ج.م) من العميل: ${order.customerName}`,
+      title: `🛍️ طلبية جديدة برقم #${normalizedOrder.invoiceNumber}!`,
+      message: `تم استلام طلبية جديدة (${resolvedSource === 'direct_store' ? 'متجرك المباشر' : 'سوق الشمساوية'}) بقيمة ${normalizedOrder.finalTotal} ج.م`,
       type: 'order' as const,
       isRead: false,
       timestamp: Date.now(),
@@ -340,44 +373,45 @@ export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
     } catch {}
 
     // 3. Web Push Notification
-    dispatchArtisanNotification(`🛍️ طلبية شراء جديدة #${order.invoiceNumber}`, {
-      body: `طلب جديد بقيمة ${order.finalTotal} ج.م - مطلوب تجهيز المشغولات لتسليم الطلبية.`,
-      tag: `order-${order.id}`,
+    dispatchArtisanNotification(`🛍️ طلبية شراء جديدة #${normalizedOrder.invoiceNumber}`, {
+      body: `طلب جديد بقيمة ${normalizedOrder.finalTotal} ج.م - مطلوب تجهيز المشغولات لتسليم الطلبية.`,
+      tag: `order-${normalizedOrder.id}`,
     }).catch(() => {});
 
     // 4. Broadcast global event for live panels
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('alshams_new_order_received', { detail: order }));
+      window.dispatchEvent(new CustomEvent('alshams_new_order_received', { detail: normalizedOrder }));
     }
 
     // 5. Cloud Sync via server /api/marketplace/orders (with Supabase & offline queue fallback)
     const cloudPayload = {
-      id: order.id,
-      order_number: order.invoiceNumber || `SHAMS-${Date.now().toString().slice(-5)}`,
+      id: normalizedOrder.id,
+      order_number: normalizedOrder.invoiceNumber || `SHAMS-${Date.now().toString().slice(-5)}`,
       workshop_id: workshopId,
-      customer_name: order.customerName,
-      customer_phone: order.customerPhone,
-      customer_address: order.detailedAddress || '',
-      governorate: order.governorate || 'القاهرة',
-      items: order.items || [],
-      subtotal: order.subtotal || 0,
-      shipping_fee: order.shipping || order.shippingCost || 0,
-      total_amount: order.finalTotal || order.totalAmount || 0,
-      deposit_paid: order.advancePaymentAmount || order.paidAmount || 0,
-      remaining_amount: order.remainingAmount || 0,
-      payment_method: order.paymentMethod || 'vodafone_cash',
+      customer_name: normalizedOrder.customerName,
+      customer_phone: normalizedOrder.customerPhone,
+      customer_address: normalizedOrder.detailedAddress || '',
+      governorate: normalizedOrder.governorate || 'القاهرة',
+      items: normalizedOrder.items || [],
+      subtotal: normalizedOrder.subtotal || 0,
+      shipping_fee: normalizedOrder.shipping || normalizedOrder.shippingCost || 0,
+      total_amount: normalizedOrder.finalTotal || normalizedOrder.totalAmount || 0,
+      deposit_paid: normalizedOrder.advancePaymentAmount || normalizedOrder.paidAmount || 0,
+      remaining_amount: normalizedOrder.remainingAmount || 0,
+      payment_method: normalizedOrder.paymentMethod || 'vodafone_cash',
       status: 'pending',
-      marketplaceStatus: order.marketplaceStatus || 'pending_approval',
-      advancePaymentConfirmed: Boolean(order.advancePaymentConfirmed),
-      isClientDataHiddenFromArtisan: order.isClientDataHiddenFromArtisan !== false,
+      marketplaceStatus: normalizedOrder.marketplaceStatus || 'pending_approval',
+      advancePaymentConfirmed: Boolean(normalizedOrder.advancePaymentConfirmed),
+      isClientDataHiddenFromArtisan: normalizedOrder.isClientDataHiddenFromArtisan !== false,
+      orderSource: resolvedSource,
       notes: [
-        order.notes,
-        order.couponApplied ? `كوبون: ${order.couponApplied} (خصم ${order.discount || 0} ج.م)` : '',
+        normalizedOrder.notes,
+        normalizedOrder.couponApplied ? `كوبون: ${normalizedOrder.couponApplied} (خصم ${normalizedOrder.discount || 0} ج.م)` : '',
       ]
         .filter(Boolean)
         .join(' | '),
-      created_at: new Date(order.createdAt || Date.now()).toISOString(),
-      updated_at: new Date(order.updatedAt || Date.now()).toISOString(),
+      created_at: new Date(normalizedOrder.createdAt || Date.now()).toISOString(),
+      updated_at: new Date(normalizedOrder.updatedAt || Date.now()).toISOString(),
     };
 
     if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -438,6 +472,7 @@ export function mergeCloudOrdersIntoLocal(cloudOrders: any[]): InvoiceRecord[] {
     let hidden = row.isClientDataHiddenFromArtisan;
     let confirmed = row.advancePaymentConfirmed;
     let mpStatus = row.marketplaceStatus;
+    let orderSource = row.orderSource || row.order_source;
     if (metaMatch) {
       if (hidden === undefined) hidden = !metaMatch[1].includes('hidden=0');
       if (confirmed === undefined) confirmed = metaMatch[1].includes('confirmed=1');
@@ -445,8 +480,17 @@ export function mergeCloudOrdersIntoLocal(cloudOrders: any[]): InvoiceRecord[] {
         const mSt = metaMatch[1].match(/mpStatus=([^;\]]+)/);
         if (mSt) mpStatus = mSt[1];
       }
+      if (!orderSource) {
+        const mSrc = metaMatch[1].match(/source=(direct_store|marketplace|manual)/);
+        if (mSrc) orderSource = mSrc[1];
+      }
     }
     const cleanNotes = String(row.notes || prev.notes || '').replace(/\[META:[^\]]+\]/g, '').trim();
+    const resolvedSource = resolveOrderSource({
+      ...prev,
+      ...row,
+      orderSource: orderSource || prev.orderSource,
+    });
     map.set(row.id, {
       ...prev,
       id: row.id,
@@ -470,6 +514,7 @@ export function mergeCloudOrdersIntoLocal(cloudOrders: any[]): InvoiceRecord[] {
       marketplaceStatus: mpStatus || prev.marketplaceStatus || 'pending_approval',
       advancePaymentConfirmed: confirmed !== undefined ? Boolean(confirmed) : Boolean(prev.advancePaymentConfirmed),
       isClientDataHiddenFromArtisan: hidden !== undefined ? Boolean(hidden) : (prev.isClientDataHiddenFromArtisan !== false),
+      orderSource: resolvedSource,
       notes: cleanNotes || undefined,
       targetDeliveryDate: row.targetDeliveryDate || prev.targetDeliveryDate,
       createdAt: prev.createdAt || (row.created_at ? new Date(row.created_at).getTime() : Date.now()),

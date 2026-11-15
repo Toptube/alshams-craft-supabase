@@ -31,10 +31,18 @@ import {
 import { resolveProductOfferPricing } from '../../types/artisanStoreBuilder';
 import {
   SUPPORTED_CURRENCIES,
+  convertBetweenCurrencies,
+  getCurrencyInfo,
   getStoredCustomerDisplayCurrency,
   saveStoredCustomerDisplayCurrency,
   toEgpAmount,
 } from '../../lib/currency';
+import {
+  WishlistItem,
+  getWishlistItems,
+  toggleWishlistItem,
+  removeWishlistItem,
+} from '../../services/wishlistService';
 import {
   ShoppingBag,
   Store,
@@ -59,6 +67,8 @@ import {
   MessageCircle,
   Clock,
   Sparkles,
+  Heart,
+  Trash2,
 } from 'lucide-react';
 
 interface MarketplaceProductRecord extends SavedProductRecord {
@@ -201,18 +211,34 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   const [modalSelectedSize, setModalSelectedSize] = useState<string>('');
   const [modalCustomNotes, setModalCustomNotes] = useState<string>('');
 
-  // Customer Display Currency (Auto converts from EGP base to shopper's currency)
+  // Customer Display Currency & Wishlist & FX Live Refresh
   const [customerCurrency, setCustomerCurrency] = useState<string>(() =>
     getStoredCustomerDisplayCurrency()
   );
+  const [fxVersion, setFxVersion] = useState<number>(0);
+  const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>(() => getWishlistItems());
+  const [isWishlistOpen, setIsWishlistOpen] = useState<boolean>(false);
+
+  const wishlistIds = useMemo(() => new Set(wishlistItems.map((i) => i.id)), [wishlistItems]);
 
   useEffect(() => {
     const onCurrUpdate = (e: any) => {
       if (e?.detail) setCustomerCurrency(String(e.detail));
       else setCustomerCurrency(getStoredCustomerDisplayCurrency());
     };
+    const onWishlistUpdate = (e: any) => {
+      if (Array.isArray(e?.detail)) setWishlistItems(e.detail);
+      else setWishlistItems(getWishlistItems());
+    };
+    const onFxBuilderUpdate = () => setFxVersion((v) => v + 1);
     window.addEventListener('alshams_customer_currency_updated', onCurrUpdate);
-    return () => window.removeEventListener('alshams_customer_currency_updated', onCurrUpdate);
+    window.addEventListener('alshams_wishlist_updated', onWishlistUpdate);
+    window.addEventListener('alshams_market_builder_updated', onFxBuilderUpdate);
+    return () => {
+      window.removeEventListener('alshams_customer_currency_updated', onCurrUpdate);
+      window.removeEventListener('alshams_wishlist_updated', onWishlistUpdate);
+      window.removeEventListener('alshams_market_builder_updated', onFxBuilderUpdate);
+    };
   }, []);
 
   // Cart & Customer modals
@@ -604,6 +630,24 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     setIsCartOpen(true);
   };
 
+  const handleToggleWishlistMarket = (p: MarketplaceProductRecord, egpPrice: number, isFreeShip?: boolean) => {
+    const res = toggleWishlistItem({
+      id: p.id,
+      productName: p.productName,
+      imageUrl: p.imageUrl,
+      egpPrice,
+      craftName: p.craftName || p.category,
+      workshopId: p.workshopId || p.tenantId || 'central',
+      brandName: p.brandName,
+      artistName: p.artistName,
+      storeSlug: p.storeSlug,
+      isFreeShipping: isFreeShip,
+    });
+    setWishlistItems(res.items);
+    setFeedback(res.added ? `♥ تمت إضافة "${p.productName}" إلى قائمة المفضلة` : `تمت إزالة "${p.productName}" من المفضلة`);
+    setTimeout(() => setFeedback(''), 2600);
+  };
+
   // Add Verified Review
   const handleAddReview = (productId: string) => {
     setReviewGuardError('');
@@ -723,6 +767,22 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 {displayBadge}
               </span>
             )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleWishlistMarket(p, pricing.egpFinalPrice, pricing.isFreeShipping);
+              }}
+              aria-label={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
+              title={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'أضف للمفضلة'}
+              className="absolute top-2 left-2 z-10 w-8 h-8 rounded-full bg-[#F7F3EA]/90 dark:bg-[#0C1427]/85 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-xs hover:scale-105 active:scale-95 transition cursor-pointer"
+            >
+              <Heart
+                className={`w-4 h-4 transition ${
+                  wishlistIds.has(p.id) ? 'fill-rose-500 text-rose-500' : 'text-[#334155] dark:text-[#CBD5E1]'
+                }`}
+              />
+            </button>
             <img
               src={p.imageUrl || '/alshams_falcon_emblem.png'}
               alt={p.productName}
@@ -1012,6 +1072,21 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 <span className="hidden lg:inline">متجري</span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={() => setIsWishlistOpen(true)}
+              className="relative px-2.5 sm:px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] font-bold text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+              title="قائمة المفضلة"
+            >
+              <Heart className={`w-4 h-4 ${wishlistItems.length > 0 ? 'fill-rose-500 text-rose-500' : 'text-[#C2410C] dark:text-[#FBBF24]'}`} />
+              <span className="hidden md:inline">المفضلة</span>
+              {wishlistItems.length > 0 && (
+                <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[10px] font-black flex items-center justify-center">
+                  {wishlistItems.length}
+                </span>
+              )}
+            </button>
 
             <button
               type="button"
@@ -1557,6 +1632,26 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         {modalPricing.badgeText}
                       </span>
                     )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleToggleWishlistMarket(
+                          selectedProductDetails,
+                          modalPricing.egpFinalPrice,
+                          modalPricing.isFreeShipping
+                        )
+                      }
+                      aria-label={wishlistIds.has(selectedProductDetails.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
+                      className="absolute top-2.5 left-2.5 z-10 w-9 h-9 rounded-full bg-[#F7F3EA]/90 dark:bg-[#0C1427]/85 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 transition cursor-pointer"
+                    >
+                      <Heart
+                        className={`w-4 h-4 ${
+                          wishlistIds.has(selectedProductDetails.id)
+                            ? 'fill-rose-500 text-rose-500'
+                            : 'text-[#334155] dark:text-[#CBD5E1]'
+                        }`}
+                      />
+                    </button>
                     <img
                       src={modalActiveImage || selectedProductDetails.imageUrl || '/alshams_falcon_emblem.png'}
                       alt={selectedProductDetails.productName}
@@ -1884,6 +1979,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         onClose={() => setIsCartOpen(false)}
         customerUser={customerUser}
         onOpenCustomerAuth={() => setIsCustomerAuthOpen(true)}
+        checkoutSource="marketplace"
         onOrderSuccess={(order) => {
           setFeedback(`تم تسجيل طلبك بنجاح برقم #${order.invoiceNumber}`);
         }}
@@ -1919,6 +2015,104 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           </a>
         </div>
       </footer>
+
+      {/* Wishlist Drawer Modal */}
+      {isWishlistOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-xs"
+          dir="rtl"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsWishlistOpen(false);
+          }}
+        >
+          <div className="w-full max-w-lg rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl overflow-hidden text-right flex flex-col max-h-[84vh]">
+            <div className="px-5 py-3.5 bg-[#E9E2D4] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Heart className="w-4 h-4 fill-rose-500 text-rose-500" />
+                <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                  قائمة المفضلة ({wishlistItems.length})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWishlistOpen(false)}
+                className="w-8 h-8 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-2.5 flex-1">
+              {wishlistItems.length === 0 ? (
+                <div className="py-10 text-center space-y-2 text-xs text-[#475569] dark:text-[#94A3B8]">
+                  <Heart className="w-8 h-8 mx-auto opacity-50 text-rose-500" />
+                  <p className="font-bold">لم تقم بحفظ أي مشغولات في المفضلة بعد.</p>
+                </div>
+              ) : (
+                wishlistItems.map((wi) => {
+                  const displayPrice = convertBetweenCurrencies(wi.egpPrice, 'EGP', customerCurrency);
+                  const displayCurr = getCurrencyInfo(customerCurrency);
+                  return (
+                    <div
+                      key={wi.id}
+                      className="p-2.5 rounded-xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2.5 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <img
+                          src={wi.imageUrl || '/alshams_falcon_emblem.png'}
+                          alt={wi.productName}
+                          className="w-12 h-12 rounded-lg object-cover bg-[#E9E2D4] shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <h4 className="font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
+                            {wi.productName}
+                          </h4>
+                          <p className="font-mono font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                            {displayPrice.toLocaleString('ar-EG')} {displayCurr.symbol}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addToCart({
+                              id: 'cart_' + Date.now(),
+                              productId: wi.id,
+                              productName: wi.productName,
+                              price: wi.egpPrice,
+                              quantity: 1,
+                              imageUrl: wi.imageUrl || '',
+                              craftName: wi.craftName,
+                              workshopId: wi.workshopId || 'central',
+                              artistName: wi.artistName || 'فنان الشمساوية',
+                              isFreeShipping: wi.isFreeShipping,
+                            });
+                            playSuccessSound();
+                            setFeedback(`تمت إضافة "${wi.productName}" إلى السلة`);
+                            setTimeout(() => setFeedback(''), 2600);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white font-black text-[11px] cursor-pointer"
+                        >
+                          أضف للسلة
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWishlistItems(removeWishlistItem(wi.id))}
+                          className="p-1.5 rounded-lg bg-[#E9E2D4] dark:bg-[#0D162E] text-rose-600 hover:bg-rose-50 cursor-pointer"
+                          title="إزالة"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Optional Floating WhatsApp Support Button */}
       {builderConfig.whatsappSupport?.enabled && (

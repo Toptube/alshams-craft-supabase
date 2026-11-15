@@ -43,6 +43,35 @@ export interface ArtisanStorePromoBanner {
   bgColor: string;
 }
 
+export type ArtisanContactDisplayMode = 'both' | 'footer' | 'floating_bubble';
+
+export interface ArtisanSocialLinksConfig {
+  displayMode: ArtisanContactDisplayMode;
+  bubbleLabel: string;
+  phone: string;
+  showPhone: boolean;
+  whatsapp: string;
+  showWhatsapp: boolean;
+  facebook: string;
+  showFacebook: boolean;
+  instagram: string;
+  showInstagram: boolean;
+  tiktok: string;
+  showTiktok: boolean;
+  youtube: string;
+  showYoutube: boolean;
+  website: string;
+  showWebsite: boolean;
+}
+
+export interface ArtisanBundleDealConfig {
+  enabled: boolean;
+  minQuantity: number;
+  discountType: 'percent' | 'fixed';
+  discountValue: number;
+  label: string;
+}
+
 export interface ArtisanStoreConfig {
   themePreset: MarketThemePresetId;
   storeCurrency: string;
@@ -67,6 +96,8 @@ export interface ArtisanStoreConfig {
   promoBanner: ArtisanStorePromoBanner;
   couponsEnabled: boolean;
   coupons: MarketCouponConfig[];
+  bundleDeal: ArtisanBundleDealConfig;
+  socialLinks: ArtisanSocialLinksConfig;
   showPortfolioGallery: boolean;
   portfolioTitle: string;
   portfolioItems: ArtisanPortfolioGalleryItem[];
@@ -75,6 +106,7 @@ export interface ArtisanStoreConfig {
 
 export const ARTISAN_STORE_CONFIG_PREFIX = 'alshams_artisan_store_cfg_';
 export const ARTISAN_STORE_COUPONS_INDEX_KEY = 'alshams_artisan_store_coupons_index';
+export const ARTISAN_STORE_BUNDLES_INDEX_KEY = 'alshams_artisan_store_bundles_index';
 
 export const DEFAULT_ARTISAN_STORE_CONFIG: ArtisanStoreConfig = {
   themePreset: 'shams_sand',
@@ -111,6 +143,31 @@ export const DEFAULT_ARTISAN_STORE_CONFIG: ArtisanStoreConfig = {
   },
   couponsEnabled: true,
   coupons: [],
+  bundleDeal: {
+    enabled: false,
+    minQuantity: 2,
+    discountType: 'percent',
+    discountValue: 10,
+    label: 'عرض الباقة: اشترِ قطعتين أو أكثر واحصل على خصم إضافي تلقائي بالسلة',
+  },
+  socialLinks: {
+    displayMode: 'both',
+    bubbleLabel: 'تواصل معي',
+    phone: '',
+    showPhone: true,
+    whatsapp: '',
+    showWhatsapp: true,
+    facebook: '',
+    showFacebook: true,
+    instagram: '',
+    showInstagram: true,
+    tiktok: '',
+    showTiktok: true,
+    youtube: '',
+    showYoutube: true,
+    website: '',
+    showWebsite: true,
+  },
   showPortfolioGallery: false,
   portfolioTitle: 'معرض أعمالنا السابقة ولمسات التنفيذ (قبل وبعد)',
   portfolioItems: [],
@@ -123,6 +180,8 @@ export function normalizeArtisanStoreConfig(
     return {
       ...DEFAULT_ARTISAN_STORE_CONFIG,
       promoBanner: { ...DEFAULT_ARTISAN_STORE_CONFIG.promoBanner },
+      bundleDeal: { ...DEFAULT_ARTISAN_STORE_CONFIG.bundleDeal },
+      socialLinks: { ...DEFAULT_ARTISAN_STORE_CONFIG.socialLinks },
       coupons: [],
       portfolioItems: [],
     };
@@ -131,6 +190,13 @@ export function normalizeArtisanStoreConfig(
     raw.themePreset && raw.themePreset in MARKET_THEME_PRESETS
       ? raw.themePreset
       : DEFAULT_ARTISAN_STORE_CONFIG.themePreset;
+
+  const validDisplayMode: ArtisanContactDisplayMode =
+    raw.socialLinks?.displayMode === 'footer' ||
+    raw.socialLinks?.displayMode === 'floating_bubble' ||
+    raw.socialLinks?.displayMode === 'both'
+      ? raw.socialLinks.displayMode
+      : 'both';
 
   return {
     ...DEFAULT_ARTISAN_STORE_CONFIG,
@@ -141,8 +207,38 @@ export function normalizeArtisanStoreConfig(
       ...DEFAULT_ARTISAN_STORE_CONFIG.promoBanner,
       ...(raw.promoBanner || {}),
     },
+    bundleDeal: {
+      ...DEFAULT_ARTISAN_STORE_CONFIG.bundleDeal,
+      ...(raw.bundleDeal || {}),
+      minQuantity: Math.max(2, Number(raw.bundleDeal?.minQuantity) || 2),
+      discountValue: Math.max(0, Number(raw.bundleDeal?.discountValue) || 0),
+    },
+    socialLinks: {
+      ...DEFAULT_ARTISAN_STORE_CONFIG.socialLinks,
+      ...(raw.socialLinks || {}),
+      displayMode: validDisplayMode,
+      bubbleLabel: raw.socialLinks?.bubbleLabel?.trim() || 'تواصل معي',
+    },
     coupons: Array.isArray(raw.coupons) ? raw.coupons : [],
     portfolioItems: Array.isArray(raw.portfolioItems) ? raw.portfolioItems : [],
+  };
+}
+
+export function seedArtisanSocialDefaults(
+  cfg: ArtisanStoreConfig,
+  fallbackPhone?: string
+): ArtisanStoreConfig {
+  const cleanPhone = (fallbackPhone || '').trim();
+  if (!cleanPhone) return cfg;
+  const sl = cfg.socialLinks || DEFAULT_ARTISAN_STORE_CONFIG.socialLinks;
+  if (sl.phone?.trim() && sl.whatsapp?.trim()) return cfg;
+  return {
+    ...cfg,
+    socialLinks: {
+      ...sl,
+      phone: sl.phone?.trim() || cleanPhone,
+      whatsapp: sl.whatsapp?.trim() || cleanPhone,
+    },
   };
 }
 
@@ -166,6 +262,11 @@ function updateLocalCouponsIndex(workshopId: string, cfg: ArtisanStoreConfig): v
     const map: Record<string, MarketCouponConfig[]> = rawIdx ? JSON.parse(rawIdx) : {};
     map[workshopId] = cfg.couponsEnabled ? cfg.coupons.filter((c) => c.active) : [];
     localStorage.setItem(ARTISAN_STORE_COUPONS_INDEX_KEY, JSON.stringify(map));
+
+    const rawBundles = localStorage.getItem(ARTISAN_STORE_BUNDLES_INDEX_KEY);
+    const bMap: Record<string, ArtisanBundleDealConfig | null> = rawBundles ? JSON.parse(rawBundles) : {};
+    bMap[workshopId] = cfg.bundleDeal?.enabled ? cfg.bundleDeal : null;
+    localStorage.setItem(ARTISAN_STORE_BUNDLES_INDEX_KEY, JSON.stringify(bMap));
   } catch {}
 }
 
@@ -175,6 +276,22 @@ export function getLocalWorkshopCouponsMap(): Record<string, MarketCouponConfig[
     const raw = localStorage.getItem(ARTISAN_STORE_COUPONS_INDEX_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getLocalWorkshopBundlesMap(): Record<string, ArtisanBundleDealConfig> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(ARTISAN_STORE_BUNDLES_INDEX_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== 'object') return {};
+    const cleaned: Record<string, ArtisanBundleDealConfig> = {};
+    Object.entries(parsed).forEach(([wid, b]: [string, any]) => {
+      if (b && b.enabled) cleaned[wid] = b;
+    });
+    return cleaned;
   } catch {
     return {};
   }

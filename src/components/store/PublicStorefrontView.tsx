@@ -28,6 +28,9 @@ import {
   Clock,
   Sparkles,
   Coins,
+  Heart,
+  Gift,
+  Trash2,
 } from 'lucide-react';
 import {
   fetchPublicStorefrontBySlug,
@@ -45,10 +48,16 @@ import {
   OFFICIAL_SUPPORT_PHONE,
   syncPlatformSettingsFromCloud,
 } from '../../services/marketplaceCartService';
+import {
+  WishlistItem,
+  getWishlistItems,
+  toggleWishlistItem,
+  removeWishlistItem,
+} from '../../services/wishlistService';
 import { MarketplaceCartModal } from '../marketplace/MarketplaceCartModal';
 import { CustomerAuthModal } from '../marketplace/CustomerAuthModal';
 import { CustomerAuthUser, SavedProductRecord, UserProfile } from '../../types';
-import { playSuccessSound, playAddToCartSound, triggerHaptic } from '../../lib/sounds';
+import { playSuccessSound, playAddToCartSound, playTapSound, triggerHaptic } from '../../lib/sounds';
 import { tenantStorage } from '../../db/dexieDB';
 import { matchesWorkshopSlug } from '../../utils/slugify';
 import { MARKET_THEME_PRESETS } from '../../types/marketplaceBuilder';
@@ -57,13 +66,17 @@ import {
   normalizeArtisanStoreConfig,
   getStoredArtisanStoreConfig,
   resolveProductOfferPricing,
+  seedArtisanSocialDefaults,
 } from '../../types/artisanStoreBuilder';
 import {
   SUPPORTED_CURRENCIES,
+  convertBetweenCurrencies,
+  getCurrencyInfo,
   getStoredCustomerDisplayCurrency,
   saveStoredCustomerDisplayCurrency,
   toEgpAmount,
 } from '../../lib/currency';
+import { ContactBubbleDock, ArtisanFooterContacts } from './ContactBubbleDock';
 
 interface PublicStorefrontViewProps {
   slug: string;
@@ -135,16 +148,35 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const [customNotes, setCustomNotes] = useState<string>('');
   const [addedToast, setAddedToast] = useState<string | null>(null);
 
-  // Customer display currency & Theme & Artisan Store Config
+  // Customer display currency & Theme & Artisan Store Config & Wishlist & Live FX
   const [customerCurrency, setCustomerCurrency] = useState<string>(() =>
     getStoredCustomerDisplayCurrency()
   );
   const [localArtisanConfigOverride, setLocalArtisanConfigOverride] =
     useState<ArtisanStoreConfig | null>(null);
   const [promoRemainingMs, setPromoRemainingMs] = useState<number>(0);
+  const [fxTick, setFxTick] = useState<number>(0);
+  const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>(() => getWishlistItems());
+  const [isWishlistOpen, setIsWishlistOpen] = useState<boolean>(false);
   const [isDarkTheme, setIsDarkTheme] = useState<boolean>(() =>
     typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : false
   );
+
+  const wishlistIds = useMemo(() => new Set(wishlistItems.map((i) => i.id)), [wishlistItems]);
+
+  useEffect(() => {
+    const onWishlistUpdate = (e: any) => {
+      if (Array.isArray(e?.detail)) setWishlistItems(e.detail);
+      else setWishlistItems(getWishlistItems());
+    };
+    const onFxUpdate = () => setFxTick((t) => t + 1);
+    window.addEventListener('alshams_wishlist_updated', onWishlistUpdate);
+    window.addEventListener('alshams_market_builder_updated', onFxUpdate);
+    return () => {
+      window.removeEventListener('alshams_wishlist_updated', onWishlistUpdate);
+      window.removeEventListener('alshams_market_builder_updated', onFxUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -589,15 +621,21 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   }, [activeWorkshopId]);
 
   const artisanConfig = useMemo<ArtisanStoreConfig>(() => {
-    if (localArtisanConfigOverride) return localArtisanConfigOverride;
+    const fallbackTel = storeData?.workshop?.phoneNumber || ownerProfile?.phoneNumber;
+    if (localArtisanConfigOverride) {
+      return seedArtisanSocialDefaults(localArtisanConfigOverride, fallbackTel);
+    }
     if (storeData?.workshop?.storeConfig) {
-      return normalizeArtisanStoreConfig(storeData.workshop.storeConfig);
+      return seedArtisanSocialDefaults(
+        normalizeArtisanStoreConfig(storeData.workshop.storeConfig),
+        fallbackTel
+      );
     }
     if (activeWorkshopId) {
-      return getStoredArtisanStoreConfig(activeWorkshopId);
+      return seedArtisanSocialDefaults(getStoredArtisanStoreConfig(activeWorkshopId), fallbackTel);
     }
-    return normalizeArtisanStoreConfig(null);
-  }, [localArtisanConfigOverride, storeData?.workshop?.storeConfig, activeWorkshopId]);
+    return seedArtisanSocialDefaults(normalizeArtisanStoreConfig(null), fallbackTel);
+  }, [localArtisanConfigOverride, storeData?.workshop?.storeConfig, storeData?.workshop?.phoneNumber, ownerProfile?.phoneNumber, activeWorkshopId]);
 
   useEffect(() => {
     const pb = artisanConfig.promoBanner;
@@ -767,7 +805,26 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const selectedModalPricing = useMemo(() => {
     if (!selectedProduct) return null;
     return resolveProductOfferPricing(selectedProduct, selectedSize, customerCurrency, true);
-  }, [selectedProduct, selectedSize, customerCurrency]);
+  }, [selectedProduct, selectedSize, customerCurrency, fxTick]);
+
+  const handleToggleWishlistProduct = (p: CloudMarketplaceProduct, egpPrice: number, isFreeShip?: boolean) => {
+    playTapSound();
+    const res = toggleWishlistItem({
+      id: p.id,
+      productName: p.product_name,
+      imageUrl: p.image_url,
+      egpPrice,
+      craftName: p.craft_name || p.category,
+      workshopId: p.workshop_id || workshop?.id,
+      brandName,
+      artistName,
+      storeSlug: workshop?.storeSlug || slug,
+      isFreeShipping: isFreeShip,
+    });
+    setWishlistItems(res.items);
+    setAddedToast(res.added ? `♥ تمت إضافة "${p.product_name}" إلى المفضلة` : `تمت إزالة "${p.product_name}" من المفضلة`);
+    setTimeout(() => setAddedToast(null), 2600);
+  };
 
   const selectedModalGallery = useMemo(() => {
     if (!selectedProduct) return [];
@@ -868,6 +925,21 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             >
               {copiedLink ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> : <Share2 className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />}
               <span className="hidden sm:inline">{copiedLink ? 'تم النسخ' : 'مشاركة'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsWishlistOpen(true)}
+              className="relative px-2.5 sm:px-3 py-2 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              title="قائمة المفضلة"
+            >
+              <Heart className={`w-4 h-4 ${wishlistItems.length > 0 ? 'fill-rose-500 text-rose-500' : 'text-[#C2410C] dark:text-[#FBBF24]'}`} />
+              <span className="hidden md:inline">المفضلة</span>
+              {wishlistItems.length > 0 && (
+                <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[10px] font-black flex items-center justify-center">
+                  {wishlistItems.length}
+                </span>
+              )}
             </button>
 
             <button
@@ -1277,6 +1349,29 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
         )}
 
+        {/* Bundle Deal Incentive Strip */}
+        {artisanConfig.bundleDeal?.enabled && (
+          <div className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-l from-emerald-600/15 via-[#F7F3EA] to-amber-500/15 dark:from-emerald-950/50 dark:via-[#0D162E] dark:to-amber-950/30 border border-emerald-500/40 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 font-black text-emerald-800 dark:text-emerald-300">
+              <Gift className="w-4 h-4 shrink-0 text-[#EA580C] dark:text-[#FBBF24]" />
+              <span>
+                {artisanConfig.bundleDeal.label ||
+                  `عرض الباقة: اشترِ ${artisanConfig.bundleDeal.minQuantity} قطع أو أكثر واحصل على خصم ${
+                    artisanConfig.bundleDeal.discountType === 'percent'
+                      ? `${artisanConfig.bundleDeal.discountValue}%`
+                      : `${artisanConfig.bundleDeal.discountValue} ج.م`
+                  } تلقائياً بالسلة`}
+              </span>
+            </div>
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-mono text-[11px] font-black shrink-0">
+              {artisanConfig.bundleDeal.minQuantity}+ قطع = خصم{' '}
+              {artisanConfig.bundleDeal.discountType === 'percent'
+                ? `${artisanConfig.bundleDeal.discountValue}%`
+                : `${artisanConfig.bundleDeal.discountValue} ج.م`}
+            </span>
+          </div>
+        )}
+
         {/* Error Notice */}
         {errorNotice && (
           <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-900 text-rose-800 dark:text-rose-200 text-xs font-bold text-center">
@@ -1395,6 +1490,24 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           {pricing.badgeText}
                         </span>
                       )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleWishlistProduct(p, pricing.egpFinalPrice, pricing.isFreeShipping);
+                        }}
+                        aria-label={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
+                        title={wishlistIds.has(p.id) ? 'إزالة من المفضلة' : 'أضف للمفضلة'}
+                        className="absolute top-2 left-2 z-10 w-8 h-8 rounded-full bg-[#F7F3EA]/90 dark:bg-[#0C1427]/85 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-xs hover:scale-105 active:scale-95 transition cursor-pointer"
+                      >
+                        <Heart
+                          className={`w-4 h-4 transition ${
+                            wishlistIds.has(p.id)
+                              ? 'fill-rose-500 text-rose-500'
+                              : 'text-[#334155] dark:text-[#CBD5E1]'
+                          }`}
+                        />
+                      </button>
                       <img
                         src={p.image_url || '/alshams_falcon_emblem.png'}
                         alt={p.product_name}
@@ -1627,6 +1740,26 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       {selectedModalPricing.badgeText}
                     </span>
                   )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleToggleWishlistProduct(
+                        selectedProduct,
+                        selectedModalPricing.egpFinalPrice,
+                        selectedModalPricing.isFreeShipping
+                      )
+                    }
+                    aria-label={wishlistIds.has(selectedProduct.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
+                    className="absolute top-2.5 left-2.5 z-10 w-9 h-9 rounded-full bg-[#F7F3EA]/90 dark:bg-[#0C1427]/85 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 transition cursor-pointer"
+                  >
+                    <Heart
+                      className={`w-4 h-4 ${
+                        wishlistIds.has(selectedProduct.id)
+                          ? 'fill-rose-500 text-rose-500'
+                          : 'text-[#334155] dark:text-[#CBD5E1]'
+                      }`}
+                    />
+                  </button>
                   <img
                     src={modalActiveImage || selectedProduct.image_url || '/alshams_falcon_emblem.png'}
                     alt={selectedProduct.product_name}
@@ -1823,6 +1956,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           onClose={() => setIsCartOpen(false)}
           customerUser={customerUser}
           onOpenCustomerAuth={() => setIsCustomerAuthOpen(true)}
+          checkoutSource="direct_store"
           onOrderSuccess={() => {
             setIsCartOpen(false);
             setAddedToast('تم تسجيل طلبك بنجاح! سيتواصل معك فريق العمل لتأكيد الشحن.');
@@ -1976,6 +2110,113 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         </div>
       )}
 
+      {/* Wishlist Drawer Modal */}
+      {isWishlistOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-xs"
+          dir="rtl"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsWishlistOpen(false);
+          }}
+        >
+          <div className="w-full max-w-lg rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl overflow-hidden text-right flex flex-col max-h-[84vh]">
+            <div className="px-5 py-3.5 bg-[#E9E2D4] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Heart className="w-4 h-4 fill-rose-500 text-rose-500" />
+                <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                  قائمة المفضلة ({wishlistItems.length})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWishlistOpen(false)}
+                className="w-8 h-8 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-2.5 flex-1">
+              {wishlistItems.length === 0 ? (
+                <div className="py-10 text-center space-y-2 text-xs text-[#475569] dark:text-[#94A3B8]">
+                  <Heart className="w-8 h-8 mx-auto opacity-50 text-rose-500" />
+                  <p className="font-bold">لم تقم بحفظ أي مشغولات في المفضلة بعد.</p>
+                </div>
+              ) : (
+                wishlistItems.map((wi) => {
+                  const displayPrice = convertBetweenCurrencies(wi.egpPrice, 'EGP', customerCurrency);
+                  const displayCurr = getCurrencyInfo(customerCurrency);
+                  return (
+                    <div
+                      key={wi.id}
+                      className="p-2.5 rounded-xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2.5 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <img
+                          src={wi.imageUrl || '/alshams_falcon_emblem.png'}
+                          alt={wi.productName}
+                          className="w-12 h-12 rounded-lg object-cover bg-[#E9E2D4] shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <h4 className="font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
+                            {wi.productName}
+                          </h4>
+                          <p className="font-mono font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                            {displayPrice.toLocaleString('ar-EG')} {displayCurr.symbol}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addToCart({
+                              id: 'cart_' + Date.now(),
+                              productId: wi.id,
+                              productName: wi.productName,
+                              price: wi.egpPrice,
+                              quantity: 1,
+                              imageUrl: wi.imageUrl || '',
+                              craftName: wi.craftName,
+                              workshopId: wi.workshopId || workshop?.id,
+                              artistName: wi.artistName || artistName,
+                              isFreeShipping: wi.isFreeShipping,
+                            });
+                            playAddToCartSound();
+                            setAddedToast(`تم إضافة "${wi.productName}" إلى السلة`);
+                            setTimeout(() => setAddedToast(null), 2600);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white font-black text-[11px] cursor-pointer"
+                        >
+                          أضف للسلة
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWishlistItems(removeWishlistItem(wi.id))}
+                          className="p-1.5 rounded-lg bg-[#E9E2D4] dark:bg-[#0D162E] text-rose-600 hover:bg-rose-50 cursor-pointer"
+                          title="إزالة"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Animated Contact Bubble Dock ("تواصل معي") */}
+      {(artisanConfig.socialLinks?.displayMode || 'both') !== 'footer' && (
+        <ContactBubbleDock
+          social={artisanConfig.socialLinks}
+          fallbackPhone={phone}
+          accentHex={isCustomTheme ? themeMeta.accentBg : '#EA580C'}
+        />
+      )}
+
       {/* Minimal Unified Footer */}
       <footer className="mt-16 bg-[#F7F3EA] dark:bg-[#0D162E] border-t border-[#D4CCBC] dark:border-[#22355E] py-4 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
@@ -1993,6 +2234,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <ShoppingBag className="w-4 h-4 shrink-0" />
             <span>سوق الشمساوية</span>
           </a>
+
+          {/* الوسط: قنوات التواصل وروابط السوشيال المفعلة من لوحة الفنان */}
+          {(artisanConfig.socialLinks?.displayMode || 'both') !== 'floating_bubble' && (
+            <ArtisanFooterContacts social={artisanConfig.socialLinks} fallbackPhone={phone} />
+          )}
 
           {/* الشمال من تحت: الدعم الفني بعلامة الرسالة لإرسال رسالة مباشرة للأدمن للشكاوى بخصوص المتجر أو الكتالوج */}
           <div className="flex flex-col items-end gap-1">

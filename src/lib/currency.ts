@@ -101,6 +101,66 @@ export function formatCurrencyAmount(
 }
 
 export const CUSTOMER_DISPLAY_CURRENCY_KEY = 'alshams_customer_display_currency';
+const BUILDER_FX_STORAGE_KEY = 'alshams_market_builder_v1';
+
+interface CachedFxState {
+  rates: Record<string, number>;
+  silentBankBufferPercent: number;
+  readAt: number;
+}
+
+let cachedFxState: CachedFxState | null = null;
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('alshams_market_builder_updated', () => {
+    cachedFxState = null;
+  });
+  window.addEventListener('storage', (e) => {
+    if (e.key === BUILDER_FX_STORAGE_KEY) {
+      cachedFxState = null;
+    }
+  });
+}
+
+function getActiveFxState(): CachedFxState {
+  const now = Date.now();
+  if (cachedFxState && now - cachedFxState.readAt < 3000) {
+    return cachedFxState;
+  }
+  const defaults: Record<string, number> = {};
+  SUPPORTED_CURRENCIES.forEach((c) => {
+    defaults[c.code] = c.defaultRateAgainstEGP;
+  });
+  let silentBankBufferPercent = 2.5;
+  try {
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem(BUILDER_FX_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const fx = parsed?.fxConfig;
+        if (fx && typeof fx === 'object') {
+          if (fx.ratesAgainstEgp && typeof fx.ratesAgainstEgp === 'object') {
+            Object.entries(fx.ratesAgainstEgp).forEach(([k, v]) => {
+              const num = Number(v);
+              if (num > 0 && Number.isFinite(num)) {
+                defaults[k.toUpperCase()] = num;
+              }
+            });
+          }
+          if (fx.silentBankBufferPercent !== undefined) {
+            const pct = Number(fx.silentBankBufferPercent);
+            if (Number.isFinite(pct) && pct >= 0 && pct <= 25) {
+              silentBankBufferPercent = pct;
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+  defaults.EGP = 1.0;
+  cachedFxState = { rates: defaults, silentBankBufferPercent, readAt: now };
+  return cachedFxState;
+}
 
 export function getCurrencyInfo(code?: string): CurrencyMetadata {
   const upper = String(code || 'EGP').trim().toUpperCase();
@@ -110,27 +170,47 @@ export function getCurrencyInfo(code?: string): CurrencyMetadata {
   );
 }
 
+export function getLiveCurrencyRateAgainstEgp(code?: string): number {
+  const meta = getCurrencyInfo(code);
+  if (meta.code === 'EGP') return 1.0;
+  const fx = getActiveFxState();
+  return fx.rates[meta.code] || meta.defaultRateAgainstEGP || 1;
+}
+
+export function getSilentFxBufferPercent(): number {
+  return getActiveFxState().silentBankBufferPercent;
+}
+
 /**
  * Converts an amount in any supported currency TO Egyptian Pounds (EGP),
- * which is the unified base currency of سوق الشمساوية.
+ * using the Super Admin live FX table as the unified base of سوق الشمساوية.
  */
 export function toEgpAmount(amount: number, sourceCurrency = 'EGP'): number {
   const numeric = Number(amount) || 0;
   if (numeric <= 0) return 0;
   const meta = getCurrencyInfo(sourceCurrency);
   if (meta.code === 'EGP') return Math.round(numeric * 100) / 100;
-  return Math.round(numeric * meta.defaultRateAgainstEGP);
+  const liveRate = getLiveCurrencyRateAgainstEgp(meta.code);
+  return Math.round(numeric * liveRate);
 }
 
 /**
- * Converts an amount from Egyptian Pounds (EGP) TO any customer display currency.
+ * Converts an amount from Egyptian Pounds (EGP) TO any customer display currency,
+ * silently protecting the artist from bank FX conversion fees via Super Admin buffer.
  */
-export function fromEgpAmount(egpAmount: number, targetCurrency = 'EGP'): number {
+export function fromEgpAmount(
+  egpAmount: number,
+  targetCurrency = 'EGP',
+  includeSilentFxBuffer = true
+): number {
   const numeric = Number(egpAmount) || 0;
   if (numeric <= 0) return 0;
   const meta = getCurrencyInfo(targetCurrency);
   if (meta.code === 'EGP') return Math.round(numeric * 100) / 100;
-  const converted = numeric / (meta.defaultRateAgainstEGP || 1);
+  const liveRate = getLiveCurrencyRateAgainstEgp(meta.code);
+  const bufferPct = includeSilentFxBuffer ? getSilentFxBufferPercent() : 0;
+  const multiplier = 1 + Math.max(0, bufferPct) / 100;
+  const converted = (numeric / (liveRate || 1)) * multiplier;
   return converted >= 100 ? Math.round(converted) : Math.round(converted * 100) / 100;
 }
 
@@ -140,13 +220,14 @@ export function fromEgpAmount(egpAmount: number, targetCurrency = 'EGP'): number
 export function convertBetweenCurrencies(
   amount: number,
   fromCurrency = 'EGP',
-  toCurrency = 'EGP'
+  toCurrency = 'EGP',
+  includeSilentFxBuffer = true
 ): number {
   const fromMeta = getCurrencyInfo(fromCurrency);
   const toMeta = getCurrencyInfo(toCurrency);
   if (fromMeta.code === toMeta.code) return Number(amount) || 0;
   const egp = toEgpAmount(amount, fromMeta.code);
-  return fromEgpAmount(egp, toMeta.code);
+  return fromEgpAmount(egp, toMeta.code, includeSilentFxBuffer);
 }
 
 export function getStoredCustomerDisplayCurrency(): string {

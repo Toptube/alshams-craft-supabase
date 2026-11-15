@@ -356,11 +356,15 @@ export interface InvoiceReturnRecord {
   createdAt: number;
 }
 
+export type OrderSourceType = 'direct_store' | 'marketplace' | 'manual';
+
 export interface InvoiceRecord {
   id: string;
   workshopId?: string;
   tenantId?: string;
   invoiceNumber?: string; // INV-0001
+  orderNumber?: string;
+  orderSource?: OrderSourceType;
   customerId?: string;
   customerName?: string;
   customerPhone?: string;

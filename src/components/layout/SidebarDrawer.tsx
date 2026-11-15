@@ -33,6 +33,7 @@ import {
   Users2,
   Sparkles,
   RefreshCw,
+  Package,
 } from 'lucide-react';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 
@@ -43,7 +44,7 @@ interface SidebarDrawerProps {
   activeView: string;
   onSelectView: (view: string) => void;
   onNavigateToCatalog?: (tab?: 'catalog' | 'store') => void;
-  onOpenArtisanStore?: () => void;
+  onOpenArtisanStore?: (tab?: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr') => void;
   unreadNotificationsCount?: number;
   unreadMessagesCount?: number;
   onOpenNotifications: () => void;
@@ -87,6 +88,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   activeView,
   onSelectView,
   onNavigateToCatalog,
+  onOpenArtisanStore,
   onOpenProfileSettings,
   onOpenUserGuide,
   onOpenCloudMigration,
@@ -128,18 +130,32 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           },
           {
             id: 'store',
-            label: 'متجري الإلكتروني',
+            label: 'لوحة التحكم بالمتجر',
             icon: Store,
             action: () => {
-              if (onNavigateToCatalog) {
+              if (onOpenArtisanStore) {
+                onOpenArtisanStore('products');
+              } else if (onNavigateToCatalog) {
                 onNavigateToCatalog('store');
               } else {
                 onSelectView('store');
               }
             },
           },
+          {
+            id: 'my_orders',
+            label: 'أوردراتي',
+            icon: Package,
+            action: () => {
+              if (onOpenArtisanStore) {
+                onOpenArtisanStore('orders');
+              } else {
+                onSelectView('my_orders');
+              }
+            },
+          },
           { id: 'marketplace', label: 'سوق الشمساوية', icon: ShoppingBag },
-          { id: 'sales', label: 'طلبات ومبيعات الورشة', icon: ShoppingCart },
+          { id: 'sales', label: 'تسجيل مبيعات الورشة', icon: ShoppingCart },
           { id: 'invoices', label: 'الفواتير وعروض الأسعار', icon: FileText },
           { id: 'customers', label: 'سجل العملاء', icon: Users },
         ],
@@ -164,7 +180,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         items: [{ id: 'hr', label: 'شؤون العاملين والأجور', icon: Users2 }],
       },
     ],
-    [onNavigateToCatalog, onSelectView]
+    [onNavigateToCatalog, onOpenArtisanStore, onSelectView]
   );
 
   // Determine initial open group from activeView (default: ERP open if home)

@@ -4875,9 +4875,15 @@ app.post('/api/marketplace/orders', async (req: Request, res: Response) => {
     const orderNumber = body.order_number || body.invoiceNumber || `SHAMS-${Date.now().toString().slice(-5)}`;
     const nowIso = new Date().toISOString();
     const isClientHidden = body.isClientDataHiddenFromArtisan !== false;
+    const orderSource =
+      body.orderSource === 'direct_store' || body.order_source === 'direct_store'
+        ? 'direct_store'
+        : body.orderSource === 'manual' || body.order_source === 'manual'
+        ? 'manual'
+        : 'marketplace';
 
     const cleanNotes = String(body.notes || '').replace(/\[META:[^\]]+\]/g, '').trim();
-    const metaTag = `[META:hidden=${isClientHidden ? 1 : 0};confirmed=${body.advancePaymentConfirmed ? 1 : 0};mpStatus=${body.marketplaceStatus || 'pending_approval'}]`;
+    const metaTag = `[META:hidden=${isClientHidden ? 1 : 0};confirmed=${body.advancePaymentConfirmed ? 1 : 0};mpStatus=${body.marketplaceStatus || 'pending_approval'};source=${orderSource}]`;
 
     const supaRow = {
       id: orderId,
@@ -4902,7 +4908,12 @@ app.post('/api/marketplace/orders', async (req: Request, res: Response) => {
 
     const existingList = loadPersistentMarketplaceOrders();
     const idx = existingList.findIndex((o) => o.id === orderId);
-    const storedRecord = { ...supaRow, isClientDataHiddenFromArtisan: isClientHidden, advancePaymentConfirmed: Boolean(body.advancePaymentConfirmed) };
+    const storedRecord = {
+      ...supaRow,
+      orderSource,
+      isClientDataHiddenFromArtisan: isClientHidden,
+      advancePaymentConfirmed: Boolean(body.advancePaymentConfirmed),
+    };
     if (idx >= 0) existingList[idx] = storedRecord;
     else existingList.unshift(storedRecord);
     savePersistentMarketplaceOrders(existingList);
@@ -4957,14 +4968,18 @@ app.get('/api/admin/marketplace/orders', requireAuth, async (req: AuthenticatedR
         let hidden = true;
         let confirmed = false;
         let mpStatus = 'pending_approval';
+        let orderSource: 'direct_store' | 'marketplace' | 'manual' = 'marketplace';
         if (metaMatch) {
           hidden = !metaMatch[1].includes('hidden=0');
           confirmed = metaMatch[1].includes('confirmed=1');
           const mSt = metaMatch[1].match(/mpStatus=([^;\]]+)/);
           if (mSt) mpStatus = mSt[1];
+          const mSrc = metaMatch[1].match(/source=(direct_store|marketplace|manual)/);
+          if (mSrc) orderSource = mSrc[1] as 'direct_store' | 'marketplace' | 'manual';
         }
+        const prevLocal = map.get(row.id) || {};
         map.set(row.id, {
-          ...map.get(row.id),
+          ...prevLocal,
           ...row,
           invoiceNumber: row.order_number,
           workshopId: row.workshop_id,
@@ -4979,6 +4994,7 @@ app.get('/api/admin/marketplace/orders', requireAuth, async (req: AuthenticatedR
           isClientDataHiddenFromArtisan: hidden,
           advancePaymentConfirmed: confirmed,
           marketplaceStatus: mpStatus,
+          orderSource: prevLocal.orderSource || orderSource,
         });
       });
     }
@@ -5021,9 +5037,12 @@ app.patch('/api/admin/marketplace/orders/:id', requireAuth, async (req: Authenti
     ? Boolean(updates.advancePaymentConfirmed)
     : Boolean(targetOrder.advancePaymentConfirmed);
   const nextMpStatus = updates.marketplaceStatus || targetOrder.marketplaceStatus || 'pending_approval';
+  const prevMetaMatch = String(targetOrder.notes || '').match(/\[META:([^\]]+)\]/);
+  const prevMetaSource = prevMetaMatch?.[1].match(/source=(direct_store|marketplace|manual)/)?.[1];
+  const preservedSource = updates.orderSource || targetOrder.orderSource || prevMetaSource || 'marketplace';
 
   const cleanNotes = String(targetOrder.notes || '').replace(/\[META:[^\]]+\]/g, '').trim();
-  const nextNotes = `${cleanNotes ? cleanNotes + ' ' : ''}[META:hidden=${nextHidden ? 1 : 0};confirmed=${nextConfirmed ? 1 : 0};mpStatus=${nextMpStatus}]`;
+  const nextNotes = `${cleanNotes ? cleanNotes + ' ' : ''}[META:hidden=${nextHidden ? 1 : 0};confirmed=${nextConfirmed ? 1 : 0};mpStatus=${nextMpStatus};source=${preservedSource}]`;
 
   targetOrder = {
     ...targetOrder,
@@ -5034,6 +5053,7 @@ app.patch('/api/admin/marketplace/orders/:id', requireAuth, async (req: Authenti
     isClientDataHiddenFromArtisan: nextHidden,
     advancePaymentConfirmed: nextConfirmed,
     marketplaceStatus: nextMpStatus,
+    orderSource: preservedSource,
     notes: nextNotes,
     updated_at: nowIso,
     updatedAt: Date.now(),
@@ -5078,6 +5098,117 @@ app.patch('/api/admin/marketplace/orders/:id', requireAuth, async (req: Authenti
   }
 
   res.json({ success: true, cloudSynced, order: targetOrder });
+});
+
+app.get('/api/workshop/orders', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const requestedWid = typeof req.query?.workshopId === 'string' ? req.query.workshopId.trim() : '';
+    const targetWid =
+      req.isSuperAdmin && requestedWid
+        ? requestedWid
+        : req.workshopId && req.workshopId !== 'ALL_WORKSHOPS'
+        ? req.workshopId
+        : requestedWid || req.user?.id || '';
+
+    if (!targetWid) {
+      return res.json({ success: true, orders: [] });
+    }
+
+    const map = new Map<string, any>();
+    loadPersistentMarketplaceOrders().forEach((o: any) => {
+      const wid = o.workshopId || o.workshop_id || o.tenantId || '';
+      if (wid === targetWid) {
+        map.set(o.id, o);
+      }
+    });
+
+    try {
+      const client = getDbClient(req);
+      const { data, error } = await client
+        .from('marketplace_orders')
+        .select('*')
+        .eq('workshop_id', targetWid)
+        .order('created_at', { ascending: false });
+      if (!error && Array.isArray(data)) {
+        data.forEach((row: any) => {
+          const prev = map.get(row.id) || {};
+          map.set(row.id, { ...prev, ...row });
+        });
+      }
+    } catch {}
+
+    const orders = Array.from(map.values())
+      .map((row: any) => {
+        const rawNotes = String(row.notes || '');
+        const metaMatch = rawNotes.match(/\[META:([^\]]+)\]/);
+        let hidden = row.isClientDataHiddenFromArtisan;
+        let confirmed = row.advancePaymentConfirmed;
+        let mpStatus = row.marketplaceStatus;
+        let orderSource = row.orderSource || row.order_source;
+        if (metaMatch) {
+          if (hidden === undefined) hidden = !metaMatch[1].includes('hidden=0');
+          if (confirmed === undefined) confirmed = metaMatch[1].includes('confirmed=1');
+          if (!mpStatus) {
+            const mSt = metaMatch[1].match(/mpStatus=([^;\]]+)/);
+            if (mSt) mpStatus = mSt[1];
+          }
+          if (!orderSource) {
+            const mSrc = metaMatch[1].match(/source=(direct_store|marketplace|manual)/);
+            if (mSrc) orderSource = mSrc[1];
+          }
+        }
+        const isHidden = hidden !== false;
+        const cleanNotes = rawNotes.replace(/\[META:[^\]]+\]/g, '').trim();
+        const total = Number(row.finalTotal ?? row.total_amount ?? row.totalAmount ?? 0);
+        const paid = Number(row.paidAmount ?? row.deposit_paid ?? row.advancePaymentAmount ?? 0);
+        const remaining = Number(row.remainingAmount ?? row.remaining_amount ?? Math.max(0, total - paid));
+
+        return {
+          id: row.id,
+          workshopId: row.workshopId || row.workshop_id || targetWid,
+          tenantId: row.tenantId || row.workshopId || row.workshop_id || targetWid,
+          invoiceNumber: row.invoiceNumber || row.order_number || row.orderNumber || row.id,
+          orderSource:
+            orderSource === 'direct_store' || orderSource === 'marketplace' || orderSource === 'manual'
+              ? orderSource
+              : 'marketplace',
+          customerName: isHidden
+            ? 'عميل سوق الشمساوية (الشحن المركزي)'
+            : row.customerName || row.customer_name || 'عميل المتجر',
+          customerPhone: isHidden
+            ? 'محمي لإدارة الشحن المركزي'
+            : row.customerPhone || row.customer_phone || '',
+          governorate: row.governorate || 'القاهرة',
+          detailedAddress: isHidden
+            ? `محافظة ${row.governorate || 'مصر'} — الشحن عبر منظومة الشمساوية`
+            : row.detailedAddress || row.customer_address || '',
+          items: Array.isArray(row.items) ? row.items : [],
+          subtotal: Number(row.subtotal ?? 0),
+          shipping: Number(row.shipping ?? row.shippingCost ?? row.shipping_fee ?? 0),
+          shippingCost: Number(row.shippingCost ?? row.shipping_fee ?? 0),
+          finalTotal: total,
+          totalAmount: total,
+          paidAmount: paid,
+          amountPaid: paid,
+          advancePaymentAmount: paid,
+          remainingAmount: remaining,
+          paymentMethod: row.paymentMethod || row.payment_method || 'instapay',
+          status: row.status || 'pending',
+          marketplaceStatus: mpStatus || 'pending_approval',
+          advancePaymentConfirmed: Boolean(confirmed),
+          isClientDataHiddenFromArtisan: isHidden,
+          targetDeliveryDate: row.targetDeliveryDate || row.deliveryDate,
+          notes: cleanNotes || undefined,
+          createdAt: row.createdAt || (row.created_at ? new Date(row.created_at).getTime() : Date.now()),
+          updatedAt: row.updatedAt || (row.updated_at ? new Date(row.updated_at).getTime() : Date.now()),
+        };
+      })
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    res.json({ success: true, orders });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر تحميل أوردرات الورشة' });
+  }
 });
 
 // Save Storefront Layout (1, 2, or 3 columns) & Product Display Order
@@ -5180,21 +5311,86 @@ app.post('/api/store/config', requireAuth, async (req: AuthenticatedRequest, res
   }
 });
 
-// Public lookup of active artisan store coupons (for cart redemption)
+// Public lookup of active artisan store coupons & bundle deals (for cart redemption)
 app.get('/api/store/coupons', (_req: Request, res: Response) => {
   try {
     const configs = loadPersistentStoreConfigs();
     const couponsByWorkshop: Record<string, any[]> = {};
+    const bundlesByWorkshop: Record<string, any> = {};
     Object.entries(configs).forEach(([wid, cfg]: [string, any]) => {
       if (cfg && cfg.couponsEnabled !== false && Array.isArray(cfg.coupons)) {
         const active = cfg.coupons.filter((c: any) => c && c.active && c.code);
         if (active.length > 0) couponsByWorkshop[wid] = active;
       }
+      if (cfg && cfg.bundleDeal && cfg.bundleDeal.enabled && Number(cfg.bundleDeal.discountValue) > 0) {
+        bundlesByWorkshop[wid] = cfg.bundleDeal;
+      }
     });
-    res.json({ success: true, couponsByWorkshop });
+    res.json({ success: true, couponsByWorkshop, bundlesByWorkshop });
   } catch {
-    res.json({ success: true, couponsByWorkshop: {} });
+    res.json({ success: true, couponsByWorkshop: {}, bundlesByWorkshop: {} });
   }
+});
+
+// Super Admin: Fetch Live Interbank FX Rates against EGP
+app.get('/api/admin/fx-rates/live', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+
+  const fallbackRates: Record<string, number> = {
+    EGP: 1.0,
+    USD: 50.5,
+    EUR: 54.2,
+    SAR: 13.45,
+    AED: 13.75,
+    KWD: 164.2,
+    QAR: 13.85,
+    GBP: 64.8,
+    TRY: 1.45,
+  };
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5500);
+    const fxRes = await fetch('https://open.er-api.com/v6/latest/EGP', {
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (fxRes.ok) {
+      const json: any = await fxRes.json();
+      const rawRates = json?.rates;
+      if (rawRates && typeof rawRates === 'object') {
+        const ratesAgainstEgp: Record<string, number> = { EGP: 1.0 };
+        Object.keys(fallbackRates).forEach((code) => {
+          if (code === 'EGP') return;
+          const perEgp = Number(rawRates[code]);
+          if (perEgp > 0 && Number.isFinite(perEgp)) {
+            ratesAgainstEgp[code] = Math.round((1 / perEgp) * 100) / 100;
+          } else {
+            ratesAgainstEgp[code] = fallbackRates[code];
+          }
+        });
+        return res.json({
+          success: true,
+          liveSynced: true,
+          ratesAgainstEgp,
+          fetchedAt: new Date().toISOString(),
+          sourceLabel: 'تحديث لحظي من السوق المصرفي العالمي',
+        });
+      }
+    }
+  } catch {}
+
+  res.json({
+    success: true,
+    liveSynced: false,
+    ratesAgainstEgp: fallbackRates,
+    fetchedAt: new Date().toISOString(),
+    sourceLabel: 'أسعار احتياطية معتمدة (تعذر الاتصال اللحظي)',
+  });
 });
 
 // Workshop Order Lifecycle Sync (Artisan progresses pending -> in_progress -> packed -> shipped -> delivered)

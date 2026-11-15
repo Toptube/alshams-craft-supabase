@@ -193,6 +193,14 @@ export interface MarketCouponConfig {
 
 export type ClientVisibilityMode = 'show_all' | 'hide_all' | 'custom_per_workshop';
 
+export interface MarketFxConfig {
+  autoSyncEnabled: boolean;
+  silentBankBufferPercent: number;
+  ratesAgainstEgp: Record<string, number>;
+  lastSyncedAt?: string;
+  sourceLabel?: string;
+}
+
 export interface MarketplaceBuilderConfig {
   promoBanner: {
     enabled: boolean;
@@ -266,6 +274,7 @@ export interface MarketplaceBuilderConfig {
   pageBlocksOrder: MarketPageBlock[];
   decorCategoriesOrder: MarketDecorCategoryConfig[];
   productMatrices: MarketProductMatrixConfig[];
+  fxConfig: MarketFxConfig;
   updatedAt?: string;
 }
 
@@ -392,6 +401,23 @@ export const DEFAULT_MARKET_BUILDER_CONFIG: MarketplaceBuilderConfig = {
       enabled: false,
     },
   ],
+  fxConfig: {
+    autoSyncEnabled: true,
+    silentBankBufferPercent: 2.5,
+    ratesAgainstEgp: {
+      EGP: 1.0,
+      USD: 50.5,
+      EUR: 54.2,
+      SAR: 13.45,
+      AED: 13.75,
+      KWD: 164.2,
+      QAR: 13.85,
+      GBP: 64.8,
+      TRY: 1.45,
+    },
+    lastSyncedAt: '',
+    sourceLabel: 'أسعار الصرف الافتراضية',
+  },
 };
 
 export function isClientHiddenForWorkshop(
@@ -480,6 +506,19 @@ export function normalizeMarketBuilderConfig(raw?: Partial<MarketplaceBuilderCon
       Array.isArray(raw.productMatrices)
         ? raw.productMatrices
         : DEFAULT_MARKET_BUILDER_CONFIG.productMatrices,
+    fxConfig: {
+      ...DEFAULT_MARKET_BUILDER_CONFIG.fxConfig,
+      ...(raw.fxConfig || {}),
+      silentBankBufferPercent:
+        raw.fxConfig?.silentBankBufferPercent !== undefined && Number.isFinite(Number(raw.fxConfig.silentBankBufferPercent))
+          ? Math.max(0, Math.min(25, Number(raw.fxConfig.silentBankBufferPercent)))
+          : DEFAULT_MARKET_BUILDER_CONFIG.fxConfig.silentBankBufferPercent,
+      ratesAgainstEgp: {
+        ...DEFAULT_MARKET_BUILDER_CONFIG.fxConfig.ratesAgainstEgp,
+        ...(raw.fxConfig?.ratesAgainstEgp || {}),
+        EGP: 1.0,
+      },
+    },
   };
 }
 

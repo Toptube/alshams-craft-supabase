@@ -55,6 +55,8 @@ import {
 import { GovernoratesShippingConfig } from '../../services/marketplaceCartService';
 import { CloudMarketplaceProduct } from '../../db/marketplaceCloud';
 import { SUB_CRAFTS_REGISTRY } from '../../registry/craftsRegistry';
+import { SUPPORTED_CURRENCIES } from '../../lib/currency';
+import { supabase } from '../../lib/supabase';
 
 interface WorkshopVisibilityEntry {
   id: string;
@@ -89,6 +91,7 @@ interface AdminMarketplaceBuilderPageProps {
 type BuilderTabId =
   | 'builder'
   | 'promotions_loyalty'
+  | 'fx_rates'
   | 'categories_matrices'
   | 'products_search'
   | 'orders_shipping'
@@ -121,6 +124,7 @@ export const AdminMarketplaceBuilderPage: React.FC<AdminMarketplaceBuilderPagePr
   const [dragCatIndex, setDragCatIndex] = useState<number | null>(null);
   const [dragMatrixIndex, setDragMatrixIndex] = useState<number | null>(null);
   const [editingGovRates, setEditingGovRates] = useState(false);
+  const [syncingFxRates, setSyncingFxRates] = useState(false);
 
   // Category/Matrix Adders
   const [newCatName, setNewCatName] = useState('');
@@ -154,6 +158,53 @@ export const AdminMarketplaceBuilderPage: React.FC<AdminMarketplaceBuilderPagePr
     setBuilder(stamped);
     saveStoredMarketBuilderConfig(stamped);
     await onSaveMarketControlSettings(stamped);
+  };
+
+  const handleSyncLiveFxRates = async () => {
+    setSyncingFxRates(true);
+    try {
+      const headers: Record<string, string> = {};
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.access_token) {
+          headers['Authorization'] = `Bearer ${data.session.access_token}`;
+        }
+        const rawProf = localStorage.getItem('alshams_profile');
+        const profEmail = rawProf ? JSON.parse(rawProf)?.email : '';
+        if (profEmail) headers['x-user-email'] = profEmail;
+      } catch {}
+
+      const res = await fetch('/api/admin/fx-rates/live', { headers });
+      const json = await res.json();
+      if (!res.ok || !json?.ratesAgainstEgp) {
+        throw new Error(json?.error || 'تعذر جلب أسعار الصرف الحالية');
+      }
+      const nextBuilder: MarketplaceBuilderConfig = {
+        ...builder,
+        fxConfig: {
+          ...builder.fxConfig,
+          ratesAgainstEgp: {
+            ...builder.fxConfig?.ratesAgainstEgp,
+            ...json.ratesAgainstEgp,
+            EGP: 1.0,
+          },
+          lastSyncedAt: json.fetchedAt || new Date().toISOString(),
+          sourceLabel: json.sourceLabel || 'تحديث لحظي من السوق المصرفي',
+        },
+      };
+      setBuilder(nextBuilder);
+      saveStoredMarketBuilderConfig(nextBuilder);
+      await onSaveMarketControlSettings(nextBuilder);
+      onNotifySuccess(
+        json.liveSynced
+          ? 'تم تحديث أسعار الصرف لحظياً ومزامنتها مع كافة المتاجر وسوق الشمساوية!'
+          : 'تم تحميل الأسعار الاحتياطية المعتمدة بنجاح'
+      );
+    } catch (err: any) {
+      onNotifyError(err?.message || 'حدث خطأ أثناء تحديث أسعار الصرف');
+    } finally {
+      setSyncingFxRates(false);
+    }
   };
 
   // Drag & Drop Reorder Helper
@@ -393,6 +444,7 @@ export const AdminMarketplaceBuilderPage: React.FC<AdminMarketplaceBuilderPagePr
   const builderTabs: { id: BuilderTabId; label: string }[] = [
     { id: 'builder', label: 'الواجهة والثيمات' },
     { id: 'promotions_loyalty', label: `الكوبونات والولاء (${activeCoupons.filter((c) => c.active).length})` },
+    { id: 'fx_rates', label: 'العملات وأسعار الصرف' },
     { id: 'categories_matrices', label: 'التصنيفات والمصفوفات' },
     { id: 'products_search', label: `المنتجات والأقسام (${cloudProducts.length})` },
     { id: 'orders_shipping', label: `الطلبات والشحن (${ordersList.length})` },
@@ -2001,7 +2053,174 @@ export const AdminMarketplaceBuilderPage: React.FC<AdminMarketplaceBuilderPagePr
         </div>
       )}
 
-      {/* TAB 3: Categories & Product Matrices Drag & Drop */}
+      {/* TAB 3: Live Currency Exchange Rates & Silent Bank Fee Protection */}
+      {activeTab === 'fx_rates' && (
+        <div className="space-y-5">
+          <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 sm:p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
+              <div className="space-y-0.5">
+                <h2 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
+                  <span>إدارة أسعار الصرف اللحظية وحماية أرباح الفنانين</span>
+                </h2>
+                <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                  يتم ربط كافة أسعار السوق ومتاجر الفنانين لحظياً بسعر الجنيه المصري، مع إضافة نسبة حماية تحويل العملة تلقائياً بصمت دون إظهار أي رسوم إضافية للعميل.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={syncingFxRates}
+                  onClick={handleSyncLiveFxRates}
+                  className="px-3.5 py-2 rounded-xl bg-[#0C1427] dark:bg-[#132040] hover:bg-[#EA580C] text-[#FBBF24] hover:text-white border border-[#22355E] text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-60 transition"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${syncingFxRates ? 'animate-spin' : ''}`} />
+                  <span>{syncingFxRates ? 'جاري التحديث اللحظي...' : 'تحديث أسعار الصرف لحظياً الآن'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={savingMarketSettings}
+                  onClick={() => applyAndSaveBuilder(builder)}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>اعتماد وحفظ الأسعار</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Silent FX Conversion Buffer Setting (Admin-Only Control) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-3.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border-2 border-[#EA580C]/35 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                    نسبة عمولة تحويل البنوك الصامتة (%)
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-600/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-black">
+                    تُطبق بصمت (مخفية عن العميل)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={25}
+                    step={0.1}
+                    value={builder.fxConfig?.silentBankBufferPercent ?? 2.5}
+                    onChange={(e) => {
+                      const val = Math.max(0, Math.min(25, parseFloat(e.target.value) || 0));
+                      const nextBuilder: MarketplaceBuilderConfig = {
+                        ...builder,
+                        fxConfig: {
+                          ...builder.fxConfig,
+                          silentBankBufferPercent: val,
+                        },
+                      };
+                      setBuilder(nextBuilder);
+                      saveStoredMarketBuilderConfig(nextBuilder);
+                    }}
+                    className="w-28 h-10 px-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono tabular-nums text-sm font-black text-[#C2410C] dark:text-[#FBBF24]"
+                  />
+                  <span className="text-xs font-bold text-[#334155] dark:text-[#CBD5E1]">
+                    % زيادة صامتة عند التحويل للعملات الأجنبية لضمان صافي ربح الفنان
+                  </span>
+                </div>
+                <p className="text-[10px] text-[#475569] dark:text-[#94A3B8]">
+                  لا تظهر هذه النسبة نهائياً في واجهة العميل أو السلة؛ تُدمج داخل سعر العملة الأجنبية المختارة فقط (ولا تُضاف عند الدفع بالجنيه المصري).
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-2 text-xs">
+                <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">حالة الربط والمزامنة الحالية</p>
+                <div className="space-y-1 text-[11px] text-[#334155] dark:text-[#CBD5E1]">
+                  <p>
+                    المصدر: <strong className="text-[#C2410C] dark:text-[#FBBF24]">{builder.fxConfig?.sourceLabel || 'الافتراضي'}</strong>
+                  </p>
+                  <p className="font-mono tabular-nums">
+                    آخر تحديث:{' '}
+                    {builder.fxConfig?.lastSyncedAt
+                      ? new Date(builder.fxConfig.lastSyncedAt).toLocaleString('ar-EG')
+                      : 'لم يتم التحديث بعد (اضغط تحديث لحظي)'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Per-Currency Editable Rates Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {SUPPORTED_CURRENCIES.map((curr) => {
+                const isBase = curr.code === 'EGP';
+                const currentRate = isBase
+                  ? 1
+                  : builder.fxConfig?.ratesAgainstEgp?.[curr.code] ?? curr.defaultRateAgainstEGP;
+                const effectiveDisplayRate = isBase
+                  ? 1
+                  : Math.round(
+                      (currentRate / (1 + (builder.fxConfig?.silentBankBufferPercent ?? 2.5) / 100)) * 100
+                    ) / 100;
+
+                return (
+                  <div
+                    key={curr.code}
+                    className="p-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-black text-xs text-[#0C1427] dark:text-[#F7F3EA]">
+                        {curr.flag} {curr.nameAr}
+                      </span>
+                      <span className="font-mono text-[11px] font-black text-[#C2410C] dark:text-[#FBBF24]">
+                        {curr.code} ({curr.symbol})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8] shrink-0">
+                        1 {curr.code} =
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        disabled={isBase}
+                        value={currentRate}
+                        onChange={(e) => {
+                          const num = Math.max(0.01, parseFloat(e.target.value) || curr.defaultRateAgainstEGP);
+                          const nextBuilder: MarketplaceBuilderConfig = {
+                            ...builder,
+                            fxConfig: {
+                              ...builder.fxConfig,
+                              ratesAgainstEgp: {
+                                ...builder.fxConfig?.ratesAgainstEgp,
+                                [curr.code]: num,
+                                EGP: 1.0,
+                              },
+                            },
+                          };
+                          setBuilder(nextBuilder);
+                          saveStoredMarketBuilderConfig(nextBuilder);
+                        }}
+                        className="flex-1 h-8 px-2 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono tabular-nums text-xs font-black disabled:opacity-60"
+                      />
+                      <span className="text-[10px] font-bold">ج.م</span>
+                    </div>
+                    {!isBase && (
+                      <p className="text-[10px] text-[#475569] dark:text-[#94A3B8] font-mono tabular-nums">
+                        مثال 1000 ج.م ← يظهر للعميل ~{' '}
+                        {Math.round(
+                          (1000 / Math.max(0.01, effectiveDisplayRate)) * 100
+                        ) / 100}{' '}
+                        {curr.symbol}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: Categories & Product Matrices Drag & Drop */}
       {activeTab === 'categories_matrices' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Draggable Categories */}

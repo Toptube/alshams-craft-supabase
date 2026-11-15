@@ -245,6 +245,14 @@ export async function hydrateWorkshopIntoDexie(
           ? !metaMatch[1].includes('hidden=0')
           : ro.isClientDataHiddenFromArtisan !== false
         : false;
+      const metaSourceMatch = metaMatch?.[1].match(/source=(direct_store|marketplace|manual)/);
+      const explicitSource = ro.orderSource || ro.order_source || metaSourceMatch?.[1];
+      const orderSource =
+        explicitSource === 'direct_store' || explicitSource === 'marketplace' || explicitSource === 'manual'
+          ? explicitSource
+          : isMarketplaceOrder
+          ? 'marketplace'
+          : (localOrd as any)?.orderSource || 'manual';
       const cleanNotes = rawNotes.replace(/\[META:[^\]]+\]/g, '').trim();
 
       await db.orders.put({
@@ -253,6 +261,8 @@ export async function hydrateWorkshopIntoDexie(
         tenantId: workshopId,
         workshopId,
         orderNumber: ro.order_number || (localOrd as any)?.orderNumber || localOrd?.invoiceNumber || ro.id?.slice(-6),
+        invoiceNumber: ro.order_number || localOrd?.invoiceNumber || (localOrd as any)?.orderNumber || ro.id?.slice(-6),
+        orderSource,
         customerId: ro.customer_id || localOrd?.customerId || '',
         customerName: isClientHidden ? 'عميل سوق الشمساوية (شحن المنظومة)' : (ro.customer_name || localOrd?.customerName || 'عميل'),
         customerPhone: isClientHidden ? 'محجوب — الشحن عبر المنظومة' : (ro.customer_phone || localOrd?.customerPhone || ''),

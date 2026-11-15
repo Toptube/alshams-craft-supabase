@@ -285,6 +285,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       returns: [],
       date: new Date().toISOString().split('T')[0],
       status: 'in_progress',
+      orderSource: 'manual',
       createdAt: Date.now(),
       updatedAt: Date.now(),
       createdBy: profile.email,

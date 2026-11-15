@@ -287,6 +287,17 @@ export const App: React.FC = () => {
   // Dedicated Artisan Storefront & Central Marketplace state
   const [isArtisanStoreModalOpen, setIsArtisanStoreModalOpen] = useState<boolean>(false);
   const [selectedStoreOrderId, setSelectedStoreOrderId] = useState<string | undefined>(undefined);
+  const [artisanStoreInitialTab, setArtisanStoreInitialTab] = useState<
+    'products' | 'appearance' | 'promotions' | 'orders' | 'qr'
+  >('products');
+
+  const handleOpenArtisanStore = (
+    tab: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr' = 'products'
+  ) => {
+    setSelectedStoreOrderId(undefined);
+    setArtisanStoreInitialTab(tab);
+    setIsArtisanStoreModalOpen(true);
+  };
 
   // Calculator interaction state
   const [calculatorInitialRecord, setCalculatorInitialRecord] = useState<SavedProductRecord | null>(null);
@@ -918,12 +929,19 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('alshams_open_permissions_modal', handleOpenPermissions);
   }, []);
 
-  // Listen to store opening events (with optional targeted order ID)
+  // Listen to store opening events (with optional targeted order ID / tab)
   useEffect(() => {
     const handleOpenStore = (e: Event) => {
-      const customEvent = e as CustomEvent<{ orderId?: string }>;
+      const customEvent = e as CustomEvent<{
+        orderId?: string;
+        tab?: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr';
+      }>;
       if (customEvent.detail?.orderId) {
         setSelectedStoreOrderId(customEvent.detail.orderId);
+        setArtisanStoreInitialTab('orders');
+      } else {
+        setSelectedStoreOrderId(undefined);
+        setArtisanStoreInitialTab(customEvent.detail?.tab || 'products');
       }
       setIsArtisanStoreModalOpen(true);
     };
@@ -942,7 +960,11 @@ export const App: React.FC = () => {
         return;
       }
       if (view === 'store') {
-        setIsArtisanStoreModalOpen(true);
+        handleOpenArtisanStore('products');
+        return;
+      }
+      if (view === 'my_orders') {
+        handleOpenArtisanStore('orders');
         return;
       }
       if (view && VIEW_TITLES[view as ActiveView]) {
@@ -1454,7 +1476,7 @@ export const App: React.FC = () => {
         onOpenNewEmployeeModal={() => setIsNewEmployeeOpen(true)}
         onNavigateToCatalog={handleNavigateToCatalog}
         onNavigateToMarketplace={() => navigateTo('marketplace')}
-        onOpenArtisanStore={() => handleNavigateToCatalog('store')}
+        onOpenArtisanStore={() => handleOpenArtisanStore('products')}
         onNavigateToFamily={() => {
           if (window.location.hash !== '#/family') {
             window.location.hash = '#/family';
@@ -1620,6 +1642,7 @@ export const App: React.FC = () => {
               onNavigateToCalculator={() => navigateTo('calculator')}
               onNavigateToArchive={() => navigateTo('archive')}
               onNavigateToCatalog={handleNavigateToCatalog}
+              onOpenArtisanStore={handleOpenArtisanStore}
               onNavigateToAIAgent={() => navigateTo('ai_agent')}
               onNavigateToMaterials={() => navigateTo('materials')}
               onNavigateToSuppliers={() => navigateTo('suppliers')}
@@ -1929,7 +1952,7 @@ export const App: React.FC = () => {
           profile={profile}
           activeView={activeView}
           onNavigateToCatalog={handleNavigateToCatalog}
-          onOpenArtisanStore={() => handleNavigateToCatalog('store')}
+          onOpenArtisanStore={handleOpenArtisanStore}
           onSelectView={(v) => {
             if (v === 'appeals') {
               setAdminInitialTab('appeals');
@@ -1964,7 +1987,9 @@ export const App: React.FC = () => {
             } else if (v === 'marketplace') {
               navigateTo('marketplace');
             } else if (v === 'store') {
-              handleNavigateToCatalog('store');
+              handleOpenArtisanStore('products');
+            } else if (v === 'my_orders') {
+              handleOpenArtisanStore('orders');
             } else if (v === 'catalog') {
               handleNavigateToCatalog('catalog');
             } else {
@@ -2247,6 +2272,7 @@ export const App: React.FC = () => {
         }}
         profile={profile}
         initialOrderId={selectedStoreOrderId}
+        initialTab={artisanStoreInitialTab}
         onOpenCalculatorForRecord={(rec: any) => {
           setCalculatorInitialRecord(rec);
           navigateTo('calculator');

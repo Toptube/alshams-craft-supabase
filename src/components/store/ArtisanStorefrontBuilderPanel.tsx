@@ -29,12 +29,19 @@ import {
   Copy,
   Save,
   ExternalLink,
+  Phone,
+  MessageCircle,
+  Globe,
+  Gift,
 } from 'lucide-react';
+import { ArtisanContactDisplayMode } from '../../types/artisanStoreBuilder';
 
 interface ArtisanStorefrontBuilderPanelProps {
   mode: 'appearance' | 'promotions';
   config: ArtisanStoreConfig;
   saving: boolean;
+  brandName?: string;
+  artistName?: string;
   onChange: (next: ArtisanStoreConfig) => void;
   onSaveCloud: (next: ArtisanStoreConfig) => Promise<void> | void;
   onOpenPreview?: () => void;
@@ -44,11 +51,15 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
   mode,
   config,
   saving,
+  brandName = 'متجر الورشة',
+  artistName = 'فنان الشمساوية',
   onChange,
   onSaveCloud,
   onOpenPreview,
 }) => {
   const activeCurr = getCurrencyInfo(config.storeCurrency);
+  const previewTheme =
+    MARKET_THEME_PRESETS[config.themePreset || 'shams_sand'] || MARKET_THEME_PRESETS.shams_sand;
 
   // Portfolio uploader temp state
   const [portTitle, setPortTitle] = useState('');
@@ -190,6 +201,104 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
               <Save className="w-3.5 h-3.5" />
               <span>{saving ? 'جاري الحفظ...' : 'حفظ تصميم المتجر ✓'}</span>
             </button>
+          </div>
+        </div>
+
+        {/* 0. Instant Live Mini-Preview Card */}
+        <div
+          className="p-4 rounded-2xl border-2 space-y-3 transition-colors"
+          style={{
+            backgroundColor: previewTheme.pageBgLight,
+            borderColor: previewTheme.borderLight,
+            color: previewTheme.inkLight,
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-black text-xs flex items-center gap-1.5">
+              <Eye className="w-4 h-4" style={{ color: previewTheme.accentBg }} />
+              <span>معاينة فورية مصغرة لواجهة متجرك ({previewTheme.nameAr})</span>
+            </span>
+            <span
+              className="px-2 py-0.5 rounded-md text-[10px] font-black text-white"
+              style={{ backgroundColor: previewTheme.accentBg }}
+            >
+              تحديث مباشر
+            </span>
+          </div>
+
+          <div
+            className="rounded-xl border overflow-hidden"
+            style={{
+              backgroundColor: previewTheme.surfaceLight,
+              borderColor: previewTheme.borderLight,
+            }}
+          >
+            {config.showCover && config.coverUrl && (
+              <div className="h-20 w-full overflow-hidden border-b" style={{ borderColor: previewTheme.borderLight }}>
+                <img src={config.coverUrl} alt="" className="w-full h-full object-cover" />
+              </div>
+            )}
+            {config.promoBanner.enabled && (
+              <div
+                className="px-3 py-1 text-[10px] font-black text-white flex items-center justify-between"
+                style={{ backgroundColor: config.promoBanner.bgColor || '#C2410C' }}
+              >
+                <span className="truncate">{config.promoBanner.text}</span>
+                {config.promoBanner.showDiscountLabel && config.promoBanner.discountLabel && (
+                  <span className="px-1.5 py-0.5 rounded bg-black/25 shrink-0">
+                    {config.promoBanner.discountLabel}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="p-3 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+              <div className="sm:col-span-8 space-y-1">
+                {config.showArtistSubtitle && (
+                  <p className="text-[10px] font-bold" style={{ color: previewTheme.accentTextLight }}>
+                    بأنامل: {artistName}
+                    {config.showCraftBadge && config.craftBadge ? ` · ${config.craftBadge}` : ''}
+                  </p>
+                )}
+                {config.showBrandTitle && (
+                  <h6 className="font-black text-sm">{brandName}</h6>
+                )}
+                {config.showWelcomeMessage && (
+                  <p className="text-[11px] opacity-85 line-clamp-1">{config.welcomeMessage}</p>
+                )}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px]">
+                  <span
+                    className="px-2 py-0.5 rounded-lg text-white font-bold"
+                    style={{ backgroundColor: previewTheme.accentBg }}
+                  >
+                    {config.socialLinks?.displayMode === 'footer'
+                      ? 'أيقونات التواصل بالتذييل'
+                      : config.socialLinks?.displayMode === 'floating_bubble'
+                      ? `فقاعة عائمة: ${config.socialLinks.bubbleLabel || 'تواصل معي'}`
+                      : `التذييل + فقاعة (${config.socialLinks?.bubbleLabel || 'تواصل معي'})`}
+                  </span>
+                </div>
+              </div>
+              <div
+                className="sm:col-span-4 rounded-xl border p-2 flex items-center justify-between gap-2"
+                style={{
+                  backgroundColor: previewTheme.pageBgLight,
+                  borderColor: previewTheme.borderLight,
+                }}
+              >
+                <div className="min-w-0">
+                  <p className="font-black text-[11px] truncate">مشغولة يدوية مميزة</p>
+                  <p className="font-mono font-black text-xs" style={{ color: previewTheme.accentTextLight }}>
+                    450 {activeCurr.symbol}
+                  </p>
+                </div>
+                <span
+                  className="px-2 py-1 rounded-lg text-[10px] font-black text-white shrink-0"
+                  style={{ backgroundColor: previewTheme.accentBg }}
+                >
+                  أضف للسلة
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -397,6 +506,178 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* 3.5 Contact Channels, Social Links & Floating "تواصل معي" Bubble Dock */}
+        <div className="p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h5 className="font-black flex items-center gap-2">
+                <MessageCircle className="w-4 h-4 text-[#EA580C]" />
+                <span>قنوات التواصل والروابط الاجتماعية + زر "تواصل معي" العائم</span>
+              </h5>
+              <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                فعّل القنوات التي يظهر بها متجرك، واختر عرضها في تذييل الصفحة أو داخل جعبة عائمة تنبثق أيقوناتها للعميل.
+              </p>
+            </div>
+          </div>
+
+          {/* Display Mode & Floating Pouch Label */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="sm:col-span-2">
+              <label className="block font-bold mb-1">مكان ظهور قنوات التواصل للعميل</label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: 'both' as ArtisanContactDisplayMode, label: 'التذييل + الجعبة العائمة ✨' },
+                  { id: 'floating_bubble' as ArtisanContactDisplayMode, label: 'الجعبة العائمة فقط 🎈' },
+                  { id: 'footer' as ArtisanContactDisplayMode, label: 'تذييل الصفحة فقط 📌' },
+                ].map((opt) => {
+                  const active = (config.socialLinks?.displayMode || 'both') === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() =>
+                        onChange({
+                          ...config,
+                          socialLinks: { ...config.socialLinks, displayMode: opt.id },
+                        })
+                      }
+                      className={`px-2.5 py-2 rounded-xl border text-[11px] font-black cursor-pointer transition text-center ${
+                        active
+                          ? 'bg-[#EA580C] text-white border-[#C2410C] shadow-xs'
+                          : 'bg-[#F2ECE1] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">عنوان الجعبة العائمة</label>
+              <input
+                type="text"
+                value={config.socialLinks?.bubbleLabel ?? 'تواصل معي'}
+                onChange={(e) =>
+                  onChange({
+                    ...config,
+                    socialLinks: { ...config.socialLinks, bubbleLabel: e.target.value },
+                  })
+                }
+                placeholder="تواصل معي"
+                className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+              />
+            </div>
+          </div>
+
+          {/* Individual Channel Rows */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {[
+              {
+                key: 'phone' as const,
+                toggleKey: 'showPhone' as const,
+                label: 'رقم الهاتف المباشر',
+                placeholder: '010XXXXXXXX',
+                icon: Phone,
+                dir: 'ltr' as const,
+              },
+              {
+                key: 'whatsapp' as const,
+                toggleKey: 'showWhatsapp' as const,
+                label: 'رقم الواتساب',
+                placeholder: '010XXXXXXXX',
+                icon: MessageCircle,
+                dir: 'ltr' as const,
+              },
+              {
+                key: 'facebook' as const,
+                toggleKey: 'showFacebook' as const,
+                label: 'فيسبوك (رابط أو اسم الصفحة)',
+                placeholder: 'https://facebook.com/...',
+                icon: Globe,
+                dir: 'ltr' as const,
+              },
+              {
+                key: 'instagram' as const,
+                toggleKey: 'showInstagram' as const,
+                label: 'إنستجرام (رابط أو @username)',
+                placeholder: '@workshop_art',
+                icon: Globe,
+                dir: 'ltr' as const,
+              },
+              {
+                key: 'tiktok' as const,
+                toggleKey: 'showTiktok' as const,
+                label: 'تيك توك',
+                placeholder: '@workshop_tiktok',
+                icon: Globe,
+                dir: 'ltr' as const,
+              },
+              {
+                key: 'youtube' as const,
+                toggleKey: 'showYoutube' as const,
+                label: 'قناة يوتيوب',
+                placeholder: 'https://youtube.com/...',
+                icon: Globe,
+                dir: 'ltr' as const,
+              },
+              {
+                key: 'website' as const,
+                toggleKey: 'showWebsite' as const,
+                label: 'موقع إلكتروني / معرض خارجي',
+                placeholder: 'https://...',
+                icon: Globe,
+                dir: 'ltr' as const,
+              },
+            ].map((field) => {
+              const IconComp = field.icon;
+              const isVisible = config.socialLinks?.[field.toggleKey] !== false;
+              const val = config.socialLinks?.[field.key] || '';
+              return (
+                <div
+                  key={field.key}
+                  className={`p-2.5 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5 ${
+                    field.key === 'website' ? 'sm:col-span-2' : ''
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="font-black flex items-center gap-1.5 text-[11px]">
+                      <IconComp className="w-3.5 h-3.5 text-[#EA580C]" />
+                      <span>{field.label}</span>
+                    </label>
+                    {renderToggleChip(isVisible, () =>
+                      onChange({
+                        ...config,
+                        socialLinks: {
+                          ...config.socialLinks,
+                          [field.toggleKey]: !isVisible,
+                        },
+                      })
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    dir={field.dir}
+                    value={val}
+                    onChange={(e) =>
+                      onChange({
+                        ...config,
+                        socialLinks: {
+                          ...config.socialLinks,
+                          [field.key]: e.target.value,
+                        },
+                      })
+                    }
+                    placeholder={field.placeholder}
+                    className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-mono text-[11px] text-right"
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -695,6 +976,119 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
               />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* 1.5 Workshop Automatic Bundle Deals ("اشتري X واحصل على خصم") */}
+      <div className="p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h5 className="font-black flex items-center gap-2">
+              <Gift className="w-4 h-4 text-[#EA580C]" />
+              <span>عروض الباقات التلقائية بالسلة (اشتري أكثر ووفّر)</span>
+            </h5>
+            <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+              عند تفعيل العرض، يُحسب الخصم تلقائياً في سلة العميل بمجرد شراء العدد المحدد من قطع ورشتك.
+            </p>
+          </div>
+          {renderToggleChip(
+            config.bundleDeal?.enabled ?? false,
+            () =>
+              onChange({
+                ...config,
+                bundleDeal: {
+                  ...config.bundleDeal,
+                  enabled: !(config.bundleDeal?.enabled ?? false),
+                },
+              }),
+            'عرض الباقة مفعل',
+            'عرض الباقة متوقف'
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div>
+            <label className="block font-bold mb-1">الحد الأدنى لعدد القطع</label>
+            <input
+              type="number"
+              min={2}
+              max={20}
+              value={config.bundleDeal?.minQuantity ?? 2}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  bundleDeal: {
+                    ...config.bundleDeal,
+                    minQuantity: Math.max(2, parseInt(e.target.value, 10) || 2),
+                  },
+                })
+              }
+              className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black"
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold mb-1">نوع الخصم</label>
+            <select
+              value={config.bundleDeal?.discountType || 'percent'}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  bundleDeal: {
+                    ...config.bundleDeal,
+                    discountType: e.target.value === 'fixed' ? 'fixed' : 'percent',
+                  },
+                })
+              }
+              className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+            >
+              <option value="percent">نسبة مئوية %</option>
+              <option value="fixed">مبلغ ثابت بالجنيه (ج.م)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-bold mb-1">
+              قيمة الخصم ({config.bundleDeal?.discountType === 'fixed' ? 'ج.م' : '%'})
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={config.bundleDeal?.discountType === 'fixed' ? 50000 : 80}
+              value={config.bundleDeal?.discountValue ?? 10}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  bundleDeal: {
+                    ...config.bundleDeal,
+                    discountValue: Math.max(0, parseFloat(e.target.value) || 0),
+                  },
+                })
+              }
+              className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block font-bold mb-1">النص التحفيزي الظاهر فوق المنتجات وداخل السلة</label>
+          <input
+            type="text"
+            value={
+              config.bundleDeal?.label ??
+              'عرض الباقة: اشترِ قطعتين أو أكثر واحصل على خصم إضافي تلقائي بالسلة'
+            }
+            onChange={(e) =>
+              onChange({
+                ...config,
+                bundleDeal: {
+                  ...config.bundleDeal,
+                  label: e.target.value,
+                },
+              })
+            }
+            className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+          />
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserProfile, SavedProductRecord, InvoiceRecord } from '../../types';
+import { UserProfile, SavedProductRecord, InvoiceRecord, OrderSourceType } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import {
   playSuccessSound,
@@ -37,8 +37,13 @@ import {
   Edit3,
   PackageCheck,
   Coins,
+  MessageCircle,
 } from 'lucide-react';
-import { addToCart } from '../../services/marketplaceCartService';
+import {
+  addToCart,
+  getCentralMarketplaceOrders,
+  resolveOrderSource,
+} from '../../services/marketplaceCartService';
 import { getWorkshopCleanSlug, getWorkshopStoreUrl } from '../../utils/slugify';
 import { AlShamsBrandLogo } from '../brand/BrandAssets';
 import {
@@ -47,6 +52,7 @@ import {
   saveStoredArtisanStoreConfig,
   saveArtisanStoreConfigCloud,
   resolveProductOfferPricing,
+  seedArtisanSocialDefaults,
 } from '../../types/artisanStoreBuilder';
 import { SUPPORTED_CURRENCIES, getCurrencyInfo, toEgpAmount } from '../../lib/currency';
 import {
@@ -63,28 +69,30 @@ interface TreasuryAccountOption {
   balance: number;
 }
 
+export type BuilderTabId = 'products' | 'appearance' | 'promotions' | 'orders' | 'qr';
+
 interface ArtisanStorefrontModalProps {
   isOpen: boolean;
   onClose: () => void;
   profile: UserProfile;
   initialOrderId?: string;
+  initialTab?: BuilderTabId;
   onOpenCalculatorForRecord?: (record: SavedProductRecord) => void;
 }
-
-type BuilderTabId = 'products' | 'appearance' | 'promotions' | 'orders' | 'qr';
 
 export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   isOpen,
   onClose,
   profile,
   initialOrderId,
+  initialTab = 'products',
   onOpenCalculatorForRecord,
 }) => {
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
   const artisanSlug = getWorkshopCleanSlug(profile);
   const storeUrl = getWorkshopStoreUrl(profile);
 
-  const [activeTab, setActiveTab] = useState<BuilderTabId>('products');
+  const [activeTab, setActiveTab] = useState<BuilderTabId>(initialOrderId ? 'orders' : initialTab);
   const [products, setProducts] = useState<SavedProductRecord[]>([]);
   const [orders, setOrders] = useState<InvoiceRecord[]>([]);
   const [treasuries, setTreasuries] = useState<TreasuryAccountOption[]>([]);
@@ -93,7 +101,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
   // Storefront Builder Config (Themes, Currency, Identity, Promo Banner, Coupons, Portfolio)
   const [storeConfig, setStoreConfig] = useState<ArtisanStoreConfig>(() =>
-    getStoredArtisanStoreConfig(tenantId)
+    seedArtisanSocialDefaults(getStoredArtisanStoreConfig(tenantId), profile.phoneNumber)
   );
   const [savingConfig, setSavingConfig] = useState(false);
   const [isOwnerPreviewOpen, setIsOwnerPreviewOpen] = useState(false);
@@ -106,6 +114,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   // Orders filtering & modals
   const [orderSearch, setOrderSearch] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
+  const [orderSourceFilter, setOrderSourceFilter] = useState<'all' | OrderSourceType>('all');
   const [collectingOrder, setCollectingOrder] = useState<InvoiceRecord | null>(null);
   const [selectedTreasuryId, setSelectedTreasuryId] = useState<string>('');
   const [collectionMethod, setCollectionMethod] = useState<'cash' | 'instapay' | 'vodafone_cash' | 'bank'>('instapay');
@@ -125,6 +134,15 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   };
 
   useEffect(() => {
+    if (!isOpen) return;
+    if (initialOrderId) {
+      setActiveTab('orders');
+    } else if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab, initialOrderId]);
+
+  useEffect(() => {
     if (!isOpen || !tenantId) return;
 
     let isMounted = true;
@@ -136,13 +154,60 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
           tenantStorage.getOrders(tenantId),
         ]);
 
+        // Fetch server-persisted online orders for this workshop (if online & signed in)
+        let remoteOrders: InvoiceRecord[] = [];
+        try {
+          if (typeof navigator === 'undefined' || navigator.onLine) {
+            const headers: Record<string, string> = {};
+            if (profile.email) headers['x-user-email'] = profile.email;
+            try {
+              const { data } = await supabase.auth.getSession();
+              if (data?.session?.access_token) headers['Authorization'] = `Bearer ${data.session.access_token}`;
+            } catch {}
+            const res = await fetch(`/api/workshop/orders?workshopId=${encodeURIComponent(tenantId)}`, { headers });
+            if (res.ok) {
+              const json = await res.json();
+              if (Array.isArray(json?.orders)) remoteOrders = json.orders;
+            }
+          }
+        } catch {}
+
+        // Merge local Dexie orders + central localStorage orders + server orders without duplicates
+        const centralLocalOrders = getCentralMarketplaceOrders().filter(
+          (o) => o.workshopId === tenantId || o.tenantId === tenantId
+        );
+        const orderMap = new Map<string, InvoiceRecord>();
+        const pushOrder = (o: InvoiceRecord) => {
+          if (!o || !o.id) return;
+          const prev = orderMap.get(o.id);
+          const merged: InvoiceRecord = {
+            ...(prev || {}),
+            ...o,
+            invoiceNumber: o.invoiceNumber || (o as any).orderNumber || prev?.invoiceNumber || o.id.slice(-6),
+            orderSource: resolveOrderSource(o.orderSource ? o : prev?.orderSource ? { ...o, orderSource: prev.orderSource } : o),
+          };
+          orderMap.set(o.id, merged);
+        };
+        centralLocalOrders.forEach(pushOrder);
+        remoteOrders.forEach(pushOrder);
+        (ords as InvoiceRecord[]).forEach(pushOrder);
+        const mergedOrders = Array.from(orderMap.values()).sort(
+          (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+        );
+
         // Hydrate store config from server if available, else local cache
-        const localCfg = getStoredArtisanStoreConfig(tenantId);
+        const localCfg = seedArtisanSocialDefaults(
+          getStoredArtisanStoreConfig(tenantId),
+          profile.phoneNumber
+        );
         if (isMounted) setStoreConfig(localCfg);
         try {
           const remoteStore = await fetchPublicStorefrontBySlug(artisanSlug || tenantId);
           if (isMounted && remoteStore?.workshop?.storeConfig) {
-            const merged = saveStoredArtisanStoreConfig(tenantId, remoteStore.workshop.storeConfig);
+            const merged = saveStoredArtisanStoreConfig(
+              tenantId,
+              seedArtisanSocialDefaults(remoteStore.workshop.storeConfig, profile.phoneNumber)
+            );
             setStoreConfig(merged);
           }
         } catch {}
@@ -173,7 +238,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
         if (isMounted) {
           setProducts(prods || []);
-          setOrders(ords as InvoiceRecord[]);
+          setOrders(mergedOrders);
           setTreasuries(trs);
           if (trs.length > 0) setSelectedTreasuryId(trs[0].id);
 
@@ -192,12 +257,14 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
     const handleRefresh = () => loadData();
     window.addEventListener('alshams:products-pulled', handleRefresh);
     window.addEventListener('alshams_products_changed', handleRefresh);
+    window.addEventListener('alshams_new_order_received', handleRefresh);
     return () => {
       isMounted = false;
       window.removeEventListener('alshams:products-pulled', handleRefresh);
       window.removeEventListener('alshams_products_changed', handleRefresh);
+      window.removeEventListener('alshams_new_order_received', handleRefresh);
     };
-  }, [isOpen, tenantId, initialOrderId, artisanSlug]);
+  }, [isOpen, tenantId, initialOrderId, artisanSlug, profile.email, profile.phoneNumber]);
 
   const handleSaveStoreConfigCloud = async (nextCfg: ArtisanStoreConfig) => {
     setSavingConfig(true);
@@ -484,6 +551,51 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
     }
   };
 
+  // Automated 1-Click WhatsApp Order Stage Notification (Strictly disabled when client data is hidden)
+  const handleNotifyCustomerStageWhatsApp = (
+    order: InvoiceRecord,
+    stage: 'in_progress' | 'packed' | 'shipped' | 'delivered'
+  ) => {
+    if (order.isClientDataHiddenFromArtisan) return;
+    playTapSound();
+    const workshopBrand = profile.brandName || profile.artistName || 'ورشة الشمساوية';
+    const remaining = Math.max(0, (order.finalTotal || 0) - (order.paidAmount || 0));
+    const itemNames = order.items?.map((i) => i.productName).join(' + ') || 'مشغولة يدوية';
+    const currSym = profile.currencySymbol || 'ج.م';
+
+    let message = '';
+    if (stage === 'in_progress') {
+      message =
+        `أهلاً بحضرتك يا ${order.customerName || 'فندم'} 🌸\n` +
+        `نحب نبشرك إننا بدأنا بالفعل تنفيذ طلبك رقم #${order.invoiceNumber} (${itemNames}) داخل ورشة "${workshopBrand}".\n` +
+        (order.deliveryDate || order.targetDeliveryDate
+          ? `📅 الموعد المتوقع للانتهاء: ${order.deliveryDate || order.targetDeliveryDate}\n`
+          : '') +
+        `بنشكرك على ثقتك وبنتمنى القطعة تعجبك جداً! ☀️`;
+    } else if (stage === 'packed') {
+      message =
+        `مساء الخير يا ${order.customerName || 'فندم'} ✨\n` +
+        `طلبك رقم #${order.invoiceNumber} (${itemNames}) من ورشة "${workshopBrand}" خلص تماماً وتم تغليفه بعناية وجاهز الآن لمرحلة الشحن! 📦💛`;
+    } else if (stage === 'shipped') {
+      message =
+        `أهلاً بحضرتك يا ${order.customerName || 'فندم'} 🚚✨\n` +
+        `طلبك رقم #${order.invoiceNumber} (${itemNames}) من ورشة "${workshopBrand}" خرج الآن مع شركة الشحن وفي طريقه لحضرتك!\n` +
+        `💰 المتبقي عند الاستلام: ${remaining} ${currSym}\n` +
+        `شكراً لاختيارك عائلة الشمساوية ☀️`;
+    } else {
+      message =
+        `أهلاً بحضرتك يا ${order.customerName || 'فندم'} 🌿\n` +
+        `سعداء جداً بوصول طلبك رقم #${order.invoiceNumber} من ورشة "${workshopBrand}"!\n` +
+        `نتمنى القطعة تنور بيتك وتنال إعجابك، ويشرفنا رأيك أو مشاركة صورة للقطعة في أي وقت 🌟`;
+    }
+
+    const rawDigits = (order.customerPhone || '').replace(/\D/g, '');
+    if (!rawDigits) return;
+    const intlPhone = rawDigits.startsWith('0') ? `2${rawDigits}` : rawDigits;
+    window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(message)}`, '_blank');
+    showNotice(`✓ تم فتح إشعار واتساب لمرحلة الطلب للعميل #${order.invoiceNumber}`);
+  };
+
   // Order Lifecycle 4: Collect Remaining -> Deposit into Treasury
   const handleConfirmCollection = async () => {
     if (!collectingOrder) return;
@@ -598,9 +710,22 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
     });
   }, [products, prodSearch, prodVisibilityFilter]);
 
+  const orderSourceCounts = useMemo(() => {
+    const counts = { all: orders.length, direct_store: 0, marketplace: 0, manual: 0 };
+    orders.forEach((o) => {
+      const src = resolveOrderSource(o);
+      counts[src] += 1;
+    });
+    return counts;
+  }, [orders]);
+
   const filteredOrders = useMemo(() => {
     const q = orderSearch.toLowerCase().trim();
     return orders.filter((o) => {
+      const src = resolveOrderSource(o);
+      if (orderSourceFilter !== 'all' && src !== orderSourceFilter) {
+        return false;
+      }
       if (orderStatusFilter !== 'all') {
         const st = o.status || 'pending';
         if (orderStatusFilter === 'shipped') {
@@ -613,13 +738,13 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
       }
       if (!q) return true;
       return (
-        String(o.invoiceNumber || '').toLowerCase().includes(q) ||
+        String(o.invoiceNumber || (o as any).orderNumber || '').toLowerCase().includes(q) ||
         (!o.isClientDataHiddenFromArtisan &&
           ((o.customerName || '').toLowerCase().includes(q) ||
             (o.customerPhone || '').toLowerCase().includes(q)))
       );
     });
-  }, [orders, orderSearch, orderStatusFilter]);
+  }, [orders, orderSearch, orderStatusFilter, orderSourceFilter]);
 
   const storeStats = useMemo(() => {
     const visibleProductsCount = products.filter(
@@ -731,7 +856,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             },
             {
               id: 'orders' as BuilderTabId,
-              label: `الطلبات والتجهيز (${orders.length})`,
+              label: `أوردراتي والطلبات (${orders.length})`,
               icon: Package,
               badge: pendingOrdersCount,
             },
@@ -1012,6 +1137,8 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             mode="appearance"
             config={storeConfig}
             saving={savingConfig}
+            brandName={profile.brandName || profile.artistName}
+            artistName={profile.artistName}
             onChange={(next) => {
               setStoreConfig(next);
               saveStoredArtisanStoreConfig(tenantId, next);
@@ -1027,6 +1154,8 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             mode="promotions"
             config={storeConfig}
             saving={savingConfig}
+            brandName={profile.brandName || profile.artistName}
+            artistName={profile.artistName}
             onChange={(next) => {
               setStoreConfig(next);
               saveStoredArtisanStoreConfig(tenantId, next);
@@ -1035,9 +1164,45 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
           />
         )}
 
-        {/* TAB 4: Orders & 5-Stage Fulfillment Lifecycle (Client Privacy Protected) */}
+        {/* TAB 4: أوردراتي — Unified Multi-Source Orders & 5-Stage Fulfillment Lifecycle */}
         {activeTab === 'orders' && (
           <div className="p-4 sm:p-5 flex-1 overflow-y-auto space-y-4">
+            {/* 4-Way Order Source Filter Bar */}
+            <div className="p-2.5 rounded-2xl bg-[#E9E2D4]/80 dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center gap-1.5">
+              {[
+                { id: 'all' as const, label: 'الكل', count: orderSourceCounts.all },
+                { id: 'direct_store' as const, label: 'من متجري مباشرة', count: orderSourceCounts.direct_store },
+                { id: 'marketplace' as const, label: 'من سوق الشمساوية', count: orderSourceCounts.marketplace },
+                { id: 'manual' as const, label: 'مسجلة بنفسي', count: orderSourceCounts.manual },
+              ].map((srcTab) => {
+                const isActive = orderSourceFilter === srcTab.id;
+                return (
+                  <button
+                    key={srcTab.id}
+                    type="button"
+                    onClick={() => {
+                      playTapSound();
+                      setOrderSourceFilter(srcTab.id);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer ${
+                      isActive
+                        ? 'bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] text-white shadow-sm'
+                        : 'bg-[#F7F3EA] dark:bg-[#132040] text-[#334155] dark:text-[#CBD5E1] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
+                    }`}
+                  >
+                    <span>{srcTab.label}</span>
+                    <span
+                      className={`font-mono tabular-nums text-[11px] ${
+                        isActive ? 'text-amber-100' : 'text-[#C2410C] dark:text-amber-300'
+                      }`}
+                    >
+                      ({srcTab.count})
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
               <div className="flex items-center gap-2 flex-1">
                 <div className="relative flex-1 max-w-xs">
@@ -1046,7 +1211,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                     type="text"
                     value={orderSearch}
                     onChange={(e) => setOrderSearch(e.target.value)}
-                    placeholder="ابحث برقم الطلب..."
+                    placeholder="ابحث برقم الطلب أو اسم العميل..."
                     className="w-full h-9 pr-9 pl-3 rounded-xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold outline-none focus:border-[#EA580C]"
                   />
                 </div>
@@ -1071,9 +1236,9 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             {filteredOrders.length === 0 ? (
               <div className="p-12 text-center rounded-3xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
                 <Package className="w-12 h-12 mx-auto text-[#EA580C]/70" />
-                <h4 className="text-sm font-black text-[#0C1427] dark:text-amber-200">لا توجد طلبيات مطابقة حالياً</h4>
+                <h4 className="text-sm font-black text-[#0C1427] dark:text-amber-200">لا توجد أوردرات في هذا التصنيف حالياً</h4>
                 <p className="text-xs text-[#334155] dark:text-[#CBD5E1] max-w-md mx-auto">
-                  عند قيام العملاء بالطلب عبر رابط متجرك أو سوق الشمساوية، ستظهر الطلبات هنا بالترتيب.
+                  ستظهر هنا جميع الطلبيات الواردة من متجرك المباشر أو سوق الشمساوية أو الطلبيات التي تسجلها بنفسك في الورشة.
                 </p>
               </div>
             ) : (
@@ -1081,6 +1246,13 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 {filteredOrders.map((order) => {
                   const remaining = Math.max(0, (order.finalTotal || 0) - (order.paidAmount || 0));
                   const clientHidden = Boolean(order.isClientDataHiddenFromArtisan);
+                  const orderSource = resolveOrderSource(order);
+                  const sourceText =
+                    orderSource === 'direct_store'
+                      ? 'متجري مباشرة'
+                      : orderSource === 'marketplace'
+                      ? 'سوق الشمساوية'
+                      : 'مسجل بالورشة';
                   const displayName = clientHidden
                     ? 'عميل سوق الشمساوية (الشحن المركزي)'
                     : order.customerName || 'عميل المتجر';
@@ -1103,13 +1275,24 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#D4CCBC] dark:border-[#22355E] pb-2.5">
                         <div className="flex items-center gap-2.5">
                           <span className="px-2.5 h-8 rounded-xl bg-[#E9E2D4] dark:bg-amber-500/20 text-[#C2410C] dark:text-amber-300 flex items-center justify-center font-mono font-bold text-xs">
-                            #{order.invoiceNumber}
+                            #{order.invoiceNumber || (order as any).orderNumber || order.id.slice(-5)}
                           </span>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <h5 className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA]">{displayName}</h5>
+                              <span
+                                className={`text-[11px] font-black ${
+                                  orderSource === 'direct_store'
+                                    ? 'text-[#C2410C] dark:text-amber-300'
+                                    : orderSource === 'marketplace'
+                                    ? 'text-indigo-700 dark:text-sky-300'
+                                    : 'text-emerald-700 dark:text-emerald-400'
+                                }`}
+                              >
+                                · مصدر الطلب: {sourceText}
+                              </span>
                               {clientHidden && (
-                                <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-black flex items-center gap-1">
+                                <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
                                   <ShieldCheck className="w-3 h-3" />
                                   <span>وضع الخصوصية</span>
                                 </span>
@@ -1268,6 +1451,44 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                             <span>مرتجع</span>
                           </button>
                         )}
+
+                        {!clientHidden &&
+                          (order.customerPhone || '').replace(/\D/g, '').length >= 8 &&
+                          (st === 'in_progress' ||
+                            st === 'packed' ||
+                            st === 'shipped' ||
+                            st === 'shipping' ||
+                            st === 'delivered' ||
+                            st === 'completed') && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleNotifyCustomerStageWhatsApp(
+                                  order,
+                                  st === 'delivered' || st === 'completed'
+                                    ? 'delivered'
+                                    : st === 'shipped' || st === 'shipping'
+                                    ? 'shipped'
+                                    : st === 'packed'
+                                    ? 'packed'
+                                    : 'in_progress'
+                                )
+                              }
+                              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                              title="إرسال رسالة واتساب جاهزة للعميل حسب مرحلة الطلب الحالية"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>
+                                {st === 'delivered' || st === 'completed'
+                                  ? 'واتساب تهنئة الاستلام'
+                                  : st === 'shipped' || st === 'shipping'
+                                  ? 'إبلاغ الشحن واتساب'
+                                  : st === 'packed'
+                                  ? 'إبلاغ الجاهزية واتساب'
+                                  : 'تطمين بدء التنفيذ واتساب'}
+                              </span>
+                            </button>
+                          )}
                       </div>
                     </div>
                   );

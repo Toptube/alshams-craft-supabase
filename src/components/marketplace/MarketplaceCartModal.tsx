@@ -25,7 +25,11 @@ import {
   getStoredMarketBuilderConfig,
   isClientHiddenForWorkshop,
 } from '../../types/marketplaceBuilder';
-import { getLocalWorkshopCouponsMap } from '../../types/artisanStoreBuilder';
+import {
+  ArtisanBundleDealConfig,
+  getLocalWorkshopBundlesMap,
+  getLocalWorkshopCouponsMap,
+} from '../../types/artisanStoreBuilder';
 import {
   fromEgpAmount,
   getCurrencyInfo,
@@ -48,6 +52,7 @@ import {
   Sparkles,
   Coins,
   Calendar,
+  Gift,
 } from 'lucide-react';
 
 interface MarketplaceCartModalProps {
@@ -56,6 +61,7 @@ interface MarketplaceCartModalProps {
   customerUser: CustomerAuthUser | null;
   onOpenCustomerAuth: () => void;
   onOrderSuccess: (order: InvoiceRecord) => void;
+  checkoutSource?: 'direct_store' | 'marketplace';
 }
 
 export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
@@ -64,6 +70,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   customerUser,
   onOpenCustomerAuth,
   onOrderSuccess,
+  checkoutSource = 'marketplace',
 }) => {
   const [cartItems, setCartItems] = useState<MarketplaceCartItem[]>(() => {
     try {
@@ -81,6 +88,9 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   const [appliedWorkshopScope, setAppliedWorkshopScope] = useState<string | null>(null);
   const [workshopCouponsMap, setWorkshopCouponsMap] = useState<Record<string, MarketCouponConfig[]>>(() =>
     getLocalWorkshopCouponsMap()
+  );
+  const [workshopBundlesMap, setWorkshopBundlesMap] = useState<Record<string, ArtisanBundleDealConfig>>(() =>
+    getLocalWorkshopBundlesMap()
   );
   const [couponError, setCouponError] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'vodafone_cash' | 'instapay'>('instapay');
@@ -150,9 +160,16 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
           const rawCloud = json?.couponsByWorkshop ?? json?.coupons;
           const cloudMap = rawCloud && typeof rawCloud === 'object' ? rawCloud : {};
           setWorkshopCouponsMap({ ...localMap, ...cloudMap });
+
+          const localBundles = getLocalWorkshopBundlesMap();
+          const rawCloudBundles = json?.bundlesByWorkshop;
+          const cloudBundles =
+            rawCloudBundles && typeof rawCloudBundles === 'object' ? rawCloudBundles : {};
+          setWorkshopBundlesMap({ ...localBundles, ...cloudBundles });
         })
         .catch(() => {
           setWorkshopCouponsMap(getLocalWorkshopCouponsMap());
+          setWorkshopBundlesMap(getLocalWorkshopBundlesMap());
         });
 
       try {
@@ -243,7 +260,43 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
     return 0;
   }, [appliedCoupon, appliedWorkshopScope, cartItems, subtotal]);
 
-  const finalTotal = Math.max(0, subtotal - discountAmount + shippingCost);
+  const bundleDiscountsBreakdown = useMemo(() => {
+    if (!Array.isArray(cartItems) || cartItems.length === 0) {
+      return { total: 0, matchedWorkshops: [] as { workshopId: string; amount: number; minQty: number }[] };
+    }
+    const perWorkshop = new Map<string, { qty: number; subtotal: number }>();
+    cartItems.forEach((item: any) => {
+      const wid = item?.workshopId || 'central';
+      const qty = Math.max(1, Number(item?.quantity) || 1);
+      const price = Number(item?.price ?? item?.storePrice ?? item?.store_price ?? 0) || 0;
+      const prev = perWorkshop.get(wid) || { qty: 0, subtotal: 0 };
+      perWorkshop.set(wid, { qty: prev.qty + qty, subtotal: prev.subtotal + price * qty });
+    });
+
+    let total = 0;
+    const matchedWorkshops: { workshopId: string; amount: number; minQty: number }[] = [];
+    perWorkshop.forEach((stats, wid) => {
+      const bundle = workshopBundlesMap[wid];
+      if (!bundle || !bundle.enabled) return;
+      const minQ = Math.max(2, Number(bundle.minQuantity) || 2);
+      if (stats.qty < minQ || stats.subtotal <= 0) return;
+      let amt = 0;
+      if (bundle.discountType === 'percent') {
+        amt = Math.round(stats.subtotal * (Math.min(80, Math.max(0, Number(bundle.discountValue) || 0)) / 100));
+      } else {
+        amt = Math.min(stats.subtotal, Math.max(0, Math.round(Number(bundle.discountValue) || 0)));
+      }
+      if (amt > 0) {
+        total += amt;
+        matchedWorkshops.push({ workshopId: wid, amount: amt, minQty: minQ });
+      }
+    });
+
+    return { total, matchedWorkshops };
+  }, [cartItems, workshopBundlesMap]);
+
+  const totalBundleDiscount = bundleDiscountsBreakdown.total;
+  const finalTotal = Math.max(0, subtotal - discountAmount - totalBundleDiscount + shippingCost);
   const advancePaymentAmount = Math.round(finalTotal * ADVANCE_PAYMENT_MIN_RATIO);
   const remainingAtDelivery = Math.max(0, finalTotal - advancePaymentAmount);
 
@@ -412,15 +465,22 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
         deliveryEstimate?.isoTarget ||
         new Date(Date.now() + targetDays * 864e5).toISOString().split('T')[0];
 
-      const couponLabel = appliedCoupon
-        ? `${appliedCoupon.code} (${
+      const couponParts: string[] = [];
+      if (appliedCoupon) {
+        couponParts.push(
+          `${appliedCoupon.code} (${
             appliedCoupon.type === 'free_shipping'
               ? 'شحن مجاني'
               : appliedCoupon.type === 'percent'
               ? `${appliedCoupon.value}%`
               : `${appliedCoupon.value} ج.م`
           })`
-        : undefined;
+        );
+      }
+      if (totalBundleDiscount > 0) {
+        couponParts.push(`خصم باقة الورش (-${totalBundleDiscount} ج.م)`);
+      }
+      const couponLabel = couponParts.length > 0 ? couponParts.join(' + ') : undefined;
 
       const newOrder: InvoiceRecord = {
         id: 'ord_' + Date.now(),
@@ -446,7 +506,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
           notes: ci.customNotes,
         })),
         subtotal,
-        discount: discountAmount,
+        discount: discountAmount + totalBundleDiscount,
         couponApplied: couponLabel,
         shipping: shippingCost,
         shippingCost,
@@ -466,6 +526,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
         isClientDataHiddenFromArtisan: isOrderClientHidden,
         isGuest: !customerUser,
         loyaltyPointsEarned: estimatedLoyaltyPoints,
+        orderSource: checkoutSource,
         notes: cartItems.map((i) => i.customNotes).filter(Boolean).join(' | ') || undefined,
         date: new Date().toISOString(),
         createdAt: Date.now(),
@@ -542,7 +603,9 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
             </div>
             <div>
               <h3 className="font-black text-base sm:text-lg text-[#0C1427] dark:text-amber-300">
-                سلة مشترياتك في سوق الشمساوية
+                {checkoutSource === 'direct_store'
+                  ? 'سلة مشترياتك من متجر الورشة المباشر'
+                  : 'سلة مشترياتك في سوق الشمساوية'}
               </h3>
               <p className="text-xs text-[#334155] dark:text-[#CBD5E1]">
                 {cartItems.length} قطعة مختارة بعناية ومضمونة من منظومة الشمساوية
@@ -1025,6 +1088,17 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                 </div>
               )}
 
+              {/* Automatic Workshop Bundle Discount Row */}
+              {totalBundleDiscount > 0 && (
+                <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-300 font-black py-1 px-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                  <span className="flex items-center gap-1.5">
+                    <Gift className="w-3.5 h-3.5 shrink-0" />
+                    <span>خصم باقات الورش التلقائي:</span>
+                  </span>
+                  <span className="font-mono">- {totalBundleDiscount.toLocaleString('ar-EG')} ج.م ✓</span>
+                </div>
+              )}
+
               {/* Free Shipping Threshold Progress Hint */}
               {builderConfig.freeShippingThresholdEnabled &&
                 builderConfig.freeShippingThresholdAmount > 0 &&
@@ -1078,10 +1152,22 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
                 <div className="text-[#9A3412] dark:text-amber-300">
                   <span>الدفعة التعاقدية للبدء (33%): </span>
                   <span className="font-mono font-black text-[#0C1427] dark:text-[#F7F3EA]">{advancePaymentAmount} ج.م</span>
+                  {customerCurrency !== 'EGP' && (
+                    <span className="font-mono text-[10px] text-[#475569] dark:text-[#94A3B8] mr-1">
+                      (≈ {fromEgpAmount(advancePaymentAmount, customerCurrency).toLocaleString('ar-EG')}{' '}
+                      {getCurrencyInfo(customerCurrency).symbol})
+                    </span>
+                  )}
                 </div>
                 <div className="text-emerald-800 dark:text-emerald-300">
                   <span>الباقي عند التسليم: </span>
                   <span className="font-mono font-black text-[#0C1427] dark:text-[#F7F3EA]">{remainingAtDelivery} ج.م</span>
+                  {customerCurrency !== 'EGP' && (
+                    <span className="font-mono text-[10px] text-[#475569] dark:text-[#94A3B8] mr-1">
+                      (≈ {fromEgpAmount(remainingAtDelivery, customerCurrency).toLocaleString('ar-EG')}{' '}
+                      {getCurrencyInfo(customerCurrency).symbol})
+                    </span>
+                  )}
                 </div>
               </div>
 
