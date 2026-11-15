@@ -2,7 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { UserProfile, WorkshopProfile, isUserAdmin } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
-import { playSuccessSound, playErrorSound, playAlertSound, playPostaNotificationSound } from '../../lib/sounds';
+import {
+  playSuccessSound,
+  playErrorSound,
+  playAlertSound,
+  playPostaNotificationSound,
+} from '../../lib/sounds';
 import { COUNTRIES_CONFIG } from '../../utils/macrameMath';
 import {
   getShippingConfig,
@@ -23,88 +28,42 @@ import {
 } from '../../db/marketplaceCloud';
 import { getWorkshopCleanSlug } from '../../utils/slugify';
 import {
+  MarketplaceBuilderConfig,
+  getStoredMarketBuilderConfig,
+  saveStoredMarketBuilderConfig,
+  isClientHiddenForWorkshop,
+} from '../../types/marketplaceBuilder';
+import {
   ShieldAlert,
-  ShieldCheck,
-  Building2,
-  Search,
   RefreshCw,
-  Edit3,
-  Trash2,
-  Snowflake,
-  Play,
-  PlusCircle,
   X,
   Check,
   AlertTriangle,
-  Globe,
-  Phone,
-  Mail,
   ArrowRight,
-  Boxes,
-  Package,
-  Wallet,
-  ShoppingCart,
-  Users,
-  MessageCircle,
-  ExternalLink,
-  ChevronDown,
-  Layers,
   Sparkles,
-  DollarSign,
-  TrendingUp,
-  Scale,
-  Send,
-  Ban,
-  Clock,
-  CheckCircle2,
   XCircle,
-  Lock,
-  Download,
-  Eye,
-  EyeOff,
-  Key,
-  Copy,
-  BarChart2,
-  Award,
-  Star,
-  Activity,
-  FileSpreadsheet,
-  UserCheck,
-  Store,
-  Truck,
-  QrCode,
-  Printer,
-  Share2,
-  Bell,
 } from 'lucide-react';
-import { QRCodeCanvas } from 'qrcode.react';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  PieChart,
-  Pie,
-  Cell,
-  AreaChart,
-  Area,
-  CartesianGrid,
-} from 'recharts';
 
-export type ExecutiveTab =
-  | 'materials'
-  | 'products'
-  | 'contacts'
-  | 'treasuries'
-  | 'orders'
-  | 'appeals'
-  | 'messaging'
-  | 'marketplace'
-  | 'product_approvals'
-  | 'applications';
+import {
+  AdminPageId,
+  ExecutiveTab,
+  EnrichedWorkshopProfile,
+  mapExecutiveTabToPage,
+} from './adminTypes';
+import { AdminHomeView } from './AdminHomeView';
+import { AdminWorkshopsPage } from './AdminWorkshopsPage';
+import { AdminMarketplaceBuilderPage } from './AdminMarketplaceBuilderPage';
+import { AdminStoresPage, AdminCatalogsPage } from './AdminStoresCatalogPages';
+import {
+  AdminApplicationsPage,
+  AdminProductApprovalsPage,
+  AdminAppealsPage,
+} from './AdminOperationsPages';
+import { AdminReportsPage } from './AdminReportsPage';
+import { AdminNotificationPages } from './AdminNotificationPages';
+import { AdminWorkshopModals } from './AdminWorkshopModals';
+
+export type { ExecutiveTab };
 
 export interface AdminDashboardProps {
   profile: UserProfile;
@@ -112,6 +71,7 @@ export interface AdminDashboardProps {
   onProfileUpdated?: (updated: UserProfile) => void;
   onSelectActiveWorkshop?: (workshop: WorkshopProfile) => void;
   initialTab?: ExecutiveTab;
+  navigationKey?: number;
   onOpenMessagesHub?: () => void;
   onOpenNotificationsCenter?: () => void;
   onOpenUnifiedAI?: () => void;
@@ -129,7 +89,10 @@ interface AdminErrorBoundaryState {
   error: Error | null;
 }
 
-export class AdminErrorBoundary extends React.Component<AdminErrorBoundaryProps, AdminErrorBoundaryState> {
+export class AdminErrorBoundary extends React.Component<
+  AdminErrorBoundaryProps,
+  AdminErrorBoundaryState
+> {
   constructor(props: AdminErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -161,22 +124,22 @@ export class AdminErrorBoundary extends React.Component<AdminErrorBoundaryProps,
     if (this.state.hasError) {
       return (
         <div className="min-h-[75vh] flex items-center justify-center p-4 sm:p-6" dir="rtl">
-          <div className="max-w-xl w-full p-6 sm:p-8 rounded-3xl bg-white dark:bg-stone-900 border-2 border-rose-300 dark:border-rose-900/60 shadow-2xl text-center space-y-5">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 flex items-center justify-center shadow-inner">
+          <div className="max-w-xl w-full p-6 sm:p-8 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-rose-400/50 dark:border-rose-700/60 shadow-2xl text-center space-y-5">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center">
               <ShieldAlert size={36} />
             </div>
 
             <div className="space-y-2">
-              <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100">
-                حدث تنبيه رقابي في مركز القيادة
+              <h2 className="text-xl sm:text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                حدث تنبيه تقني في لوحة التحكم
               </h2>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed max-w-md mx-auto">
-                تم استيعاب الخطأ بأمان عبر حاجز الأخطاء (Error Boundary) لمنع انهيار المنظومة. يمكنك إعادة المحاولة أو تسجيل الخروج للعودة لشاشة الدخول.
+              <p className="text-xs sm:text-sm text-[#475569] dark:text-[#94A3B8] leading-relaxed max-w-md mx-auto">
+                تم احتواء التنبيه بأمان. يمكنك إعادة تحميل اللوحة أو العودة للرئيسية دون فقد أي بيانات.
               </p>
             </div>
 
             {this.state.error?.message && (
-              <div className="p-3 rounded-xl bg-stone-100 dark:bg-stone-800 text-[11px] font-mono text-rose-700 dark:text-rose-300 text-right overflow-x-auto max-h-32 border border-stone-200 dark:border-stone-700">
+              <div className="p-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] text-[11px] font-mono text-rose-700 dark:text-rose-300 text-right overflow-x-auto max-h-32 border border-[#D4CCBC] dark:border-[#22355E]">
                 {this.state.error.message}
               </div>
             )}
@@ -185,26 +148,26 @@ export class AdminErrorBoundary extends React.Component<AdminErrorBoundaryProps,
               <button
                 type="button"
                 onClick={() => this.setState({ hasError: false, error: null })}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 <RefreshCw size={15} />
-                <span>إعادة محاولة تحميل اللوحة</span>
+                <span>إعادة تحميل اللوحة</span>
               </button>
 
               <button
                 type="button"
                 onClick={this.handleLogout}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 <XCircle size={15} />
-                <span>تسجيل الخروج والعودة لشاشة الدخول</span>
+                <span>تسجيل الخروج</span>
               </button>
 
               {this.props.onNavigateHome && (
                 <button
                   type="button"
                   onClick={this.props.onNavigateHome}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <ArrowRight size={15} />
                   <span>الرئيسية</span>
@@ -224,16 +187,21 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   onNavigateHome,
   onProfileUpdated,
   onSelectActiveWorkshop,
-  initialTab = 'materials',
-  onOpenMessagesHub,
-  onOpenNotificationsCenter,
-  onOpenUnifiedAI,
+  initialTab = 'home',
+  navigationKey = 0,
   onLogout,
 }) => {
   const isAdmin = isUserAdmin(profile);
 
-  // Workshops State (Loaded dynamically, unlimited scale)
-  const [workshops, setWorkshops] = useState<WorkshopProfile[]>([]);
+  // Page & SubTab Navigation
+  const initialRoute = mapExecutiveTabToPage(initialTab);
+  const [currentPage, setCurrentPage] = useState<AdminPageId>(initialRoute.page);
+  const [catalogSubTab, setCatalogSubTab] = useState<
+    'materials' | 'products' | 'contacts' | 'treasuries' | 'orders'
+  >(initialRoute.catalogSubTab || 'products');
+
+  // Workshops State (Enriched with real product & order metrics)
+  const [workshops, setWorkshops] = useState<EnrichedWorkshopProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -244,6 +212,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     setErrorMsg(msg);
     playErrorSound();
     setTimeout(() => setErrorMsg(''), 6000);
+  };
+
+  const showSuccess = (msg: string) => {
+    setSuccessNotice(msg);
+    setTimeout(() => setSuccessNotice(''), 4500);
   };
 
   const isValidUuid = (val?: string | null): boolean =>
@@ -263,33 +236,30 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     return headers;
   };
 
-  // Master ERP Workshop Switcher State
+  // Selected Workshop & Deep ERP State
   const [selectedWorkshopId, setSelectedWorkshopId] = useState<string>(profile.id);
-  const [activeExecutiveTab, setActiveExecutiveTab] = useState<ExecutiveTab>(initialTab);
-  const [centralShippingPrivacy, setCentralShippingPrivacy] = useState<boolean>(() => getClientPrivacyActive());
-  const [shippingConfig, setShippingConfig] = useState<GovernoratesShippingConfig>(() => getShippingConfig());
-  const [marketplaceOrdersList, setMarketplaceOrdersList] = useState<any[]>(() => getCentralMarketplaceOrders());
-  const [editingGovRates, setEditingGovRates] = useState<boolean>(false);
+  const [centralShippingPrivacy, setCentralShippingPrivacy] = useState<boolean>(() =>
+    isClientHiddenForWorkshop(getStoredMarketBuilderConfig(), undefined, getClientPrivacyActive())
+  );
+  const [shippingConfig, setShippingConfig] = useState<GovernoratesShippingConfig>(() =>
+    getShippingConfig()
+  );
+  const [marketplaceOrdersList, setMarketplaceOrdersList] = useState<any[]>(() =>
+    getCentralMarketplaceOrders()
+  );
   const [savingMarketSettings, setSavingMarketSettings] = useState<boolean>(false);
   const [deletingAnnId, setDeletingAnnId] = useState<string | null>(null);
-  const [initialRatingForApprove, setInitialRatingForApprove] = useState<number>(5);
-  const [rejectingProduct, setRejectingProduct] = useState<any | null>(null);
-  const [rejectReason, setRejectReason] = useState<string>('');
 
-  // Central Marketplace Cloud Products Review & Super Admin Approvals
+  // Cloud Marketplace Products & Admin Alerts
   const [cloudProductsForReview, setCloudProductsForReview] = useState<CloudMarketplaceProduct[]>([]);
-  const [cloudProductsFilter, setCloudProductsFilter] = useState<'pending_approval' | 'approved' | 'rejected' | 'all'>('pending_approval');
   const [loadingCloudProducts, setLoadingCloudProducts] = useState<boolean>(false);
   const [cloudRejectingProduct, setCloudRejectingProduct] = useState<CloudMarketplaceProduct | null>(null);
   const [cloudRejectReason, setCloudRejectReason] = useState<string>('');
   const [adminAlerts, setAdminAlerts] = useState<any[]>([]);
 
-  // Live Workshop Join Applications (قراءة حية لطلبات الانضمام من Supabase)
+  // Live Workshop Join Applications
   const [workshopApplications, setWorkshopApplications] = useState<any[]>([]);
   const [loadingApplications, setLoadingApplications] = useState<boolean>(false);
-  const [reviewingApp, setReviewingApp] = useState<any | null>(null);
-  const [appReviewNotes, setAppReviewNotes] = useState<string>('');
-  const [appFilter, setAppFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
   const [deepDataLoading, setDeepDataLoading] = useState(false);
   const [deepData, setDeepData] = useState<{
@@ -302,7 +272,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     employees?: any[];
   } | null>(null);
 
-  // Gamification & Recognition (التقييم والقلائد التكريمية) State
+  // Gamification & Recognition State
   const [awardingWorkshop, setAwardingWorkshop] = useState<WorkshopProfile | null>(null);
   const [selectedStars, setSelectedStars] = useState<number>(5);
   const [selectedMedal, setSelectedMedal] = useState<'bronze' | 'silver' | 'gold' | 'diamond'>('gold');
@@ -314,19 +284,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const [auditData, setAuditData] = useState<any | null>(null);
   const [loadingAudit, setLoadingAudit] = useState(false);
 
-  // Filters & Search
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'banned'>('all');
-  const [selectedCountryFilter, setSelectedCountryFilter] = useState<string>('all');
-
-  // Synchronize tab when parent navigates to specific multi-tenant hub
-  useEffect(() => {
-    if (initialTab) {
-      setActiveExecutiveTab(initialTab);
-    }
-  }, [initialTab]);
-
-  // Modals state
+  // Modals State
   const [editingWorkshop, setEditingWorkshop] = useState<WorkshopProfile | null>(null);
   const [isSuspendingModalOpen, setIsSuspendingModalOpen] = useState(false);
   const [suspensionDurationChoice, setSuspensionDurationChoice] = useState('أسبوع');
@@ -336,7 +294,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
   // Selective Deletion Modal State
   const [deletingWorkshop, setDeletingWorkshop] = useState<WorkshopProfile | null>(null);
-  const [selectiveDeleteMode, setSelectiveDeleteMode] = useState<'cascade' | 'catalog_inventory' | 'finance_orders'>('cascade');
+  const [selectiveDeleteMode, setSelectiveDeleteMode] = useState<
+    'cascade' | 'catalog_inventory' | 'finance_orders'
+  >('cascade');
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Quick edit material price modal state
@@ -352,7 +312,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   // Messaging Hub State
   const [announcementsList, setAnnouncementsList] = useState<any[]>([]);
   const [inboxList, setInboxList] = useState<any[]>([]);
-  const [unreadInboxCount, setUnreadInboxCount] = useState<number>(0);
   const [newAnnTitle, setNewAnnTitle] = useState('');
   const [newAnnContent, setNewAnnContent] = useState('');
   const [newAnnRecipientType, setNewAnnRecipientType] = useState<'all' | 'specific'>('all');
@@ -371,9 +330,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const [newCountry, setNewCountry] = useState('مصر');
   const [newRole, setNewRole] = useState<'artisan' | 'manager' | 'admin'>('artisan');
 
-  // Dropdown Live Filter
-  const [dropdownSearch, setDropdownSearch] = useState('');
-
   // Admin Credential Override Modal State
   const [editNewPassword, setEditNewPassword] = useState('');
   const [showPasswordPlain, setShowPasswordPlain] = useState(false);
@@ -385,674 +341,260 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     phone: string;
   } | null>(null);
   const [copiedNotice, setCopiedNotice] = useState(false);
-  const [copiedMarketUrl, setCopiedMarketUrl] = useState(false);
 
-  // Currently inspected workshop object
-  const currentSelectedWorkshop = useMemo(() => {
-    const list = workshops || [];
-    const found = list.find((w) => w?.id === selectedWorkshopId) || list[0] || profile;
-    return {
-      ...found,
-      brandName: found?.brandName || 'ورشة الشمساوية',
-      artistName: found?.artistName || 'فنان الشمساوية',
-      phoneNumber: found?.phoneNumber || '',
-      country: found?.country || 'مصر',
-      currencySymbol: found?.currencySymbol || 'ج.م',
-      currency: found?.currency || 'EGP',
-      status: found?.status || (found?.isFrozen ? 'suspended' : 'active'),
+  // Sync external navigation triggers from Top Navbar Bell / Sidebar / Header Logo
+  useEffect(() => {
+    const mapped = mapExecutiveTabToPage(initialTab);
+    setCurrentPage(mapped.page);
+    if (mapped.catalogSubTab) {
+      setCatalogSubTab(mapped.catalogSubTab);
+    }
+  }, [initialTab, navigationKey]);
+
+  // Listen to global reset subview event (Header logo / Home button)
+  useEffect(() => {
+    const handleReset = () => {
+      setCurrentPage('home');
     };
-  }, [workshops, selectedWorkshopId, profile]);
+    window.addEventListener('alshams_reset_subview', handleReset);
+    return () => window.removeEventListener('alshams_reset_subview', handleReset);
+  }, []);
 
-  // Live Filtered Workshops for Dropdown
-  const liveFilteredWorkshops = useMemo(() => {
-    const list = workshops || [];
-    if (!dropdownSearch.trim()) return list;
-    const q = dropdownSearch.toLowerCase().trim();
-    return list.filter((w) => {
-      if (!w) return false;
-      const b = (w.brandName || '').toLowerCase();
-      const a = (w.artistName || '').toLowerCase();
-      const e = (w.email || '').toLowerCase();
-      const p = (w.phoneNumber || '').toLowerCase();
-      return b.includes(q) || a.includes(q) || e.includes(q) || p.includes(q);
-    });
-  }, [workshops, dropdownSearch]);
+  // Load All Workshops (with server-enriched product/showcase/activity metrics)
+  const loadWorkshops = useCallback(
+    async (isSilent = false) => {
+      if (!isAdmin) return;
+      if (!isSilent) setLoading(true);
+      setRefreshing(true);
+      setErrorMsg('');
 
-  // Recharts Data 1: Craft Distribution
-  const craftDistributionData = useMemo(() => {
-    const counts: Record<string, number> = {
-      'مكرمية': 0,
-      'كروشيه': 0,
-      'ريزن': 0,
-      'سجاد': 0,
-      'أخشاب': 0,
-      'أخرى': 0,
-    };
-    (workshops || []).forEach((w) => {
-      if (!w) return;
-      const crafts = w.selectedCrafts || [];
-      if (crafts.includes('macrame') || crafts.includes('tapestry')) counts['مكرمية']++;
-      else if (crafts.includes('crochet') || crafts.includes('embroidery')) counts['كروشيه']++;
-      else if (crafts.includes('resin')) counts['ريزن']++;
-      else if (crafts.includes('rugs') || crafts.includes('leather')) counts['سجاد']++;
-      else if (crafts.includes('wood') || crafts.includes('pottery')) counts['أخشاب']++;
-      else counts['أخرى']++;
-    });
-    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-  }, [workshops]);
-
-  // Recharts Data 2: Status Distribution
-  const statusDistributionData = useMemo(() => {
-    let active = 0;
-    let suspended = 0;
-    let banned = 0;
-    (workshops || []).forEach((w) => {
-      if (!w) return;
-      const s = w.status || (w.isFrozen ? 'suspended' : 'active');
-      if (s === 'banned') banned++;
-      else if (s === 'suspended' || w.isFrozen) suspended++;
-      else active++;
-    });
-    return [
-      { name: 'نشطة 🟢', value: active, color: '#10b981' },
-      { name: 'موقوفة 🟡', value: suspended, color: '#f59e0b' },
-      { name: 'محظورة 🔴', value: banned, color: '#ef4444' },
-    ];
-  }, [workshops]);
-
-  // Recharts Data 3: Platform Daily Operations (Volume & Transactions Trend)
-  const dailyOperationsData = useMemo(() => {
-    const days = ['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
-    const totalWs = Math.max((workshops || []).length, 1);
-    return days.map((day, idx) => {
-      const ops = Math.round(totalWs * (4.5 + (idx % 3) * 1.5 + Math.sin(idx) * 1.1));
-      const volume = Math.round(ops * 390 + idx * 480);
-      return {
-        day,
-        operations: ops,
-        volumeEgp: volume,
-      };
-    });
-  }, [workshops]);
-
-  // Export System Report CSV (Super Admin Service Role Pipeline)
-  const exportSystemReportCSV = async () => {
-    try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
-      const res = await fetch('/api/admin/system-report', {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      let reportData: any[] = [];
-      if (res.ok) {
-        const json = await res.json();
-        if (Array.isArray(json.report)) {
-          reportData = json.report;
-        }
-      }
-
-      // Fallback if network issue or empty report
-      if (reportData.length === 0) {
-        reportData = (workshops || []).map((w) => {
-          const s = w.status || (w.isFrozen ? 'suspended' : 'active');
-          const statusLabel = s === 'banned' ? 'محظورة' : s === 'suspended' || w.isFrozen ? 'موقوفة مؤقتاً' : 'نشطة';
-          const prodCount = (w.selectedCrafts?.length || 1) * 8 + 4;
-          const invoiceTotal = prodCount * 1450 + 2500;
-          return {
-            brandName: w.brandName || '',
-            artistName: w.artistName || '',
-            email: w.email || '',
-            phoneNumber: w.phoneNumber || '',
-            status: statusLabel,
-            productsCount: prodCount,
-            transactionsTotal: invoiceTotal,
-          };
-        });
-      }
-
-      const rows = [
-        ['اسم الورشة', 'اسم الفنان', 'البريد الإلكتروني', 'رقم الهاتف', 'الحالة الرقابية', 'عدد المنتجات', 'إجمالي المعاملات والفواتير (ج.م)'],
-      ];
-
-      reportData.forEach((item) => {
-        rows.push([
-          `"${(item.brandName || '').replace(/"/g, '""')}"`,
-          `"${(item.artistName || '').replace(/"/g, '""')}"`,
-          `"${(item.email || '').replace(/"/g, '""')}"`,
-          `"${(item.phoneNumber || '').replace(/"/g, '""')}"`,
-          `"${(item.status || 'نشطة').replace(/"/g, '""')}"`,
-          String(item.productsCount ?? 0),
-          String(item.transactionsTotal ?? 0),
-        ]);
-      });
-
-      const csvContent = '\uFEFF' + rows.map((r) => r.join(',')).join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `تقرير_منظومة_الشمساوية_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      playSuccessSound();
-      setSuccessNotice('تم تصدير تقرير المنظومة الشامل (CSV) بنجاح!');
-      setTimeout(() => setSuccessNotice(''), 4000);
-    } catch (err: any) {
-      showError('تعذر استخراج التقرير: ' + (err?.message || 'خطأ في الاتصال'));
-    }
-  };
-
-  // Central Marketplace QR & Poster Logic
-  const centralMarketUrl = typeof window !== 'undefined' ? `${window.location.origin}/#/market` : '/#/market';
-
-  const handleCopyMarketUrl = () => {
-    navigator.clipboard.writeText(centralMarketUrl);
-    playSuccessSound();
-    setSuccessNotice('✓ تم نسخ رابط سوق الشمساوية المركزي إلى الحافظة!');
-  };
-
-  const handleShareMarketWhatsApp = () => {
-    const text = `تفضلوا بزيارة سوق الشمساوية المركزي 🛍️✨\nأرقى المشغولات اليدوية والديكورات الحرفية بضمان جودة منظومة الشمساوية والتسليم لباب البيت!\n${centralMarketUrl}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-  };
-
-  const handleDownloadMarketPoster = () => {
-    const qrCanvas = document.getElementById('central-market-qr-canvas') as HTMLCanvasElement | null;
-    if (!qrCanvas) return;
-
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = 1200;
-      canvas.height = 1600;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      // Background - Deep Midnight Navy
-      ctx.fillStyle = '#060B18';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Outer Golden Border
-      ctx.strokeStyle = '#D97706';
-      ctx.lineWidth = 16;
-      ctx.strokeRect(36, 36, canvas.width - 72, canvas.height - 72);
-
-      // Inner Golden Border
-      ctx.strokeStyle = '#F59E0B';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(54, 54, canvas.width - 108, canvas.height - 108);
-
-      // Header Emblem and Subtitle
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#F59E0B';
-      ctx.font = 'bold 36px Cairo, sans-serif';
-      ctx.fillText('☀️ عائلة الشمساوية • منظومة الحرف اليدوية 🦅', 600, 160);
-
-      // Central Title
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = '900 62px Cairo, sans-serif';
-      ctx.fillText('سوق الشمساوية المركزي', 600, 260);
-
-      // Subtitle
-      ctx.fillStyle = '#CBD5E1';
-      ctx.font = '500 30px Cairo, sans-serif';
-      ctx.fillText('منصة كبرى تجمع نخبة ورش وحرفيي الهاند ميد والديكور الراقي', 600, 330);
-
-      // QR Card Container (White Card)
-      ctx.fillStyle = '#FFFFFF';
-      if (ctx.roundRect) {
-        ctx.beginPath();
-        ctx.roundRect(260, 410, 680, 740, 32);
-        ctx.fill();
-      } else {
-        ctx.fillRect(260, 410, 680, 740);
-      }
-
-      // Draw QR code centered
-      ctx.drawImage(qrCanvas, 320, 460, 560, 560);
-
-      // Text inside card
-      ctx.fillStyle = '#0C1427';
-      ctx.font = 'bold 28px Cairo, sans-serif';
-      ctx.fillText('امسح الكود بكاميرا الهاتف لتصفح وتسوق كافة المعروضات', 600, 1075);
-
-      // URL inside card
-      ctx.fillStyle = '#D97706';
-      ctx.font = 'bold 22px monospace';
-      ctx.fillText(centralMarketUrl, 600, 1115);
-
-      // Guarantee Badge
-      ctx.fillStyle = '#10B981';
-      ctx.font = 'bold 34px Cairo, sans-serif';
-      ctx.fillText('🛡️ ضمان جودة منظومة الشمساوية: فحص المشغولات والتسليم لباب البيت', 600, 1260);
-
-      // Delivery and Quality
-      ctx.fillStyle = '#CBD5E1';
-      ctx.font = '500 26px Cairo, sans-serif';
-      ctx.fillText('شحن لكافة محافظات مصر • فحص واستلام بأعلى معايير الجودة اليدوية', 600, 1320);
-
-      // Hotline
-      ctx.fillStyle = '#F59E0B';
-      ctx.font = 'bold 30px Cairo, sans-serif';
-      ctx.fillText('📞 الخط الساخن المركزي وخدمة العملاء: 01000996059', 600, 1400);
-
-      // Footer note
-      ctx.fillStyle = '#94A3B8';
-      ctx.font = '400 20px Cairo, sans-serif';
-      ctx.fillText('منظومة الشمساوية لإدارة الإنتاج والتسويق الحرفي ©', 600, 1480);
-
-      const link = document.createElement('a');
-      link.download = `بوستر_سوق_الشمساوية_المركزي.png`;
-      link.href = canvas.toDataURL('image/png', 1.0);
-      link.click();
-      playSuccessSound();
-      setSuccessNotice('✓ تم تنزيل بوستر سوق الشمساوية المركزي عالي الدقة (1200x1600) للطباعة بنجاح! 🖼️');
-    } catch (err: any) {
-      setErrorMsg('تعذر توليد بوستر السوق.');
-    }
-  };
-
-  // Generate Strong Random Password
-  const generateRandomPassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-    let pwd = 'Shams@';
-    for (let i = 0; i < 6; i++) {
-      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    pwd += '#26';
-    setEditNewPassword(pwd);
-  };
-
-  const [overridingCredentials, setOverridingCredentials] = useState(false);
-
-  // Admin Credential Override Handler
-  const handleCredentialOverride = async (ws: WorkshopProfile) => {
-    if (!ws) return;
-    if (!editNewPassword && !ws.email && !ws.phoneNumber) {
-      showError('يرجى إدخال كلمة سر جديدة أو تحديث البريد أو الهاتف');
-      return;
-    }
-
-    setOverridingCredentials(true);
-    try {
-      const headers = await getAdminAuthHeaders(true);
-      const res = await fetch(`/api/admin/workshops/${ws.id}/credentials`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          email: ws.email,
-          newEmail: ws.email,
-          phoneNumber: ws.phoneNumber,
-          newPhone: ws.phoneNumber,
-          password: editNewPassword || undefined,
-          newPassword: editNewPassword || undefined,
-        }),
-      });
-
-      const resJson = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(resJson.error || 'فشل تحديث بيانات الدخول');
-      }
-
-      playSuccessSound();
-
-      // Show formatted credentials popup modal
-      setCredentialSuccessModal({
-        brandName: ws.brandName,
-        artistName: ws.artistName,
-        email: ws.email,
-        phone: ws.phoneNumber || '',
-        password: editNewPassword || 'تم تثبيت البريد والهاتف بدون تغيير كلمة السر',
-      });
-
-      if (editNewPassword && resJson.authPasswordSynced === false) {
-        setSuccessNotice(
-          `تم تحديث البريد والهاتف سحابياً لورشة "${ws.brandName}". ملاحظة: تغيير كلمة السر في Supabase Auth مباشرة يتطلب مفتاح الخدمة أو استخدام رابط استعادة كلمة السر.`
-        );
-      } else {
-        setSuccessNotice(`تم تحديث بيانات الدخول لورشة "${ws.brandName}" بنجاح!`);
-      }
-      setTimeout(() => setSuccessNotice(''), 5500);
-      setEditNewPassword('');
-    } catch (err: any) {
-      showError('تعذر تحديث بيانات الدخول: ' + (err.message || 'خطأ غير معروف'));
-    } finally {
-      setOverridingCredentials(false);
-    }
-  };
-
-  // Gamification & Recognition Handler
-  const handleSaveAward = async () => {
-    if (!awardingWorkshop) return;
-    setSavingAward(true);
-    const awardedAt = new Date().toISOString();
-    const medalArabic =
-      selectedMedal === 'diamond'
-        ? 'الماسية 💎'
-        : selectedMedal === 'gold'
-        ? 'الذهبية 🥇'
-        : selectedMedal === 'silver'
-        ? 'الفضية 🥈'
-        : 'البرونزية 🥉';
-
-    try {
-      // 1. Server endpoint sync (updates workshops + creates valid UUID official announcement)
-      const headers = await getAdminAuthHeaders(true);
-      const res = await fetch(`/api/admin/workshops/${awardingWorkshop.id}/award`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          rating_stars: selectedStars,
-          medal: selectedMedal,
-          custom_note: awardCustomNote,
-        }),
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || 'تعذر حفظ التكريم على الخادم');
-      }
-
-      // 2. Ensure Supabase workshops row reflects the award even under direct client policy
       try {
-        await supabase
-          .from('workshops')
-          .update({
-            rating_stars: selectedStars,
-            medal: selectedMedal,
-            medal_awarded_at: awardedAt,
-            medal_note: awardCustomNote || null,
-            updated_at: awardedAt,
+        let serverWorkshops: EnrichedWorkshopProfile[] = [];
+        let directSupaWorkshops: EnrichedWorkshopProfile[] = [];
+
+        try {
+          const token = (await supabase.auth.getSession()).data.session?.access_token;
+          const res = await fetch('/api/admin/workshops', {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (Array.isArray(json.workshops)) {
+              serverWorkshops = json.workshops.map((row: any) => ({
+                id: row.id,
+                workshopId: row.id,
+                ownerUid: row.owner_uid || row.ownerUid || row.id,
+                brandName: row.brand_name || row.brandName || 'ورشة',
+                artistName: row.artist_name || row.artistName || 'فنان',
+                email: row.email || '',
+                phoneNumber: row.phone_number || row.phoneNumber || row.phone || '',
+                country: row.country || 'مصر',
+                currency: row.currency || 'EGP',
+                currencySymbol: row.currency_symbol || row.currencySymbol || 'ج.م',
+                callingCode: row.calling_code || row.callingCode || '+20',
+                selectedCrafts: row.selected_crafts || row.selectedCrafts || ['macrame'],
+                defaultVatPercent: row.default_vat_percent ?? 14,
+                showTaxInfoOnInvoice: false,
+                role: row.role || 'artisan',
+                status: row.status || (row.is_frozen || row.isFrozen ? 'suspended' : 'active'),
+                isFrozen: Boolean(
+                  row.is_frozen ||
+                    row.isFrozen ||
+                    row.status === 'suspended' ||
+                    row.status === 'banned'
+                ),
+                suspension_reason: row.suspension_reason || row.frozen_reason,
+                suspension_duration: row.suspension_duration,
+                suspended_until: row.suspended_until,
+                appeal_status: row.appeal_status || 'none',
+                appeal_message: row.appeal_message,
+                rejection_reason: row.rejection_reason,
+                appeal_submitted_at: row.appeal_submitted_at,
+                rating_stars: row.rating_stars || row.ratingStars || 5,
+                ratingStars: row.rating_stars || row.ratingStars || 5,
+                medal: row.medal || null,
+                medal_awarded_at: row.medal_awarded_at || row.medalAwardedAt || null,
+                medalAwardedAt: row.medal_awarded_at || row.medalAwardedAt || null,
+                medal_note: row.medal_note || row.medalNote || null,
+                medalNote: row.medal_note || row.medalNote || null,
+                storeSlug: row.store_slug || row.storeSlug || undefined,
+                productsCount: Number(row.productsCount ?? row.products_count ?? 0),
+                marketplaceProductsCount: Number(
+                  row.marketplaceProductsCount ?? row.marketplace_products_count ?? 0
+                ),
+                ordersCount: Number(row.ordersCount ?? row.orders_count ?? 0),
+                totalCatalogAndShowcase: Number(
+                  row.totalCatalogAndShowcase ?? row.total_catalog_and_showcase ?? 0
+                ),
+                activityScore: Number(row.activityScore ?? row.activity_score ?? 0),
+                lastActiveAt: row.lastActiveAt
+                  ? Number(row.lastActiveAt)
+                  : row.updated_at
+                  ? new Date(row.updated_at).getTime()
+                  : Date.now(),
+                createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+                updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+                createdBy: row.created_by || 'system',
+              }));
+            }
+          }
+        } catch (err: any) {
+          console.warn('[Admin Dashboard] Server workshops fetch notice:', err?.message);
+        }
+
+        try {
+          const { data: wsRows, error: wsErr } = await supabase
+            .from('workshops')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+          if (!wsErr && Array.isArray(wsRows)) {
+            directSupaWorkshops = wsRows.map((row: any) => ({
+              id: row.id,
+              workshopId: row.id,
+              ownerUid: row.owner_id || row.owner_uid || row.id,
+              brandName: row.brand_name || 'ورشة الشمساوية',
+              artistName: row.artist_name || 'فنان',
+              gender: row.gender || 'female',
+              email: row.email || '',
+              phoneNumber: row.phone || row.phone_number || row.phoneNumber || '',
+              country: row.country || 'مصر',
+              currency: row.currency || 'EGP',
+              currencySymbol: row.currency_symbol || 'ج.م',
+              callingCode: row.calling_code || '+20',
+              selectedCrafts: Array.isArray(row.selected_crafts) ? row.selected_crafts : ['macrame'],
+              defaultVatPercent: row.default_vat_percent ?? 14,
+              showTaxInfoOnInvoice: false,
+              role: row.role || 'artisan',
+              status: row.status || (row.is_frozen ? 'suspended' : 'active'),
+              isFrozen: Boolean(
+                row.is_frozen || row.status === 'suspended' || row.status === 'banned'
+              ),
+              suspension_reason: row.suspension_reason || row.suspended_reason,
+              suspension_duration: row.suspension_duration || null,
+              suspended_until: row.suspended_until || null,
+              appeal_status: row.appeal_status || 'none',
+              appeal_message: row.appeal_message || '',
+              rejection_reason: row.rejection_reason || '',
+              rating_stars: row.rating_stars || 5,
+              ratingStars: row.rating_stars || 5,
+              medal: row.medal || null,
+              medal_awarded_at: row.medal_awarded_at || null,
+              medalAwardedAt: row.medal_awarded_at || null,
+              medal_note: row.medal_note || null,
+              medalNote: row.medal_note || null,
+              storeSlug: row.store_slug || undefined,
+              createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+              updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+              createdBy: row.created_by || row.owner_id || row.id || 'system',
+            }));
+          }
+        } catch (supaErr: any) {
+          console.warn('[Admin Dashboard] Direct Supabase sync notice:', supaErr?.message);
+        }
+
+        const map = new Map<string, EnrichedWorkshopProfile>();
+        directSupaWorkshops.forEach((w) => {
+          if (w.id) map.set(w.id, w);
+        });
+        serverWorkshops.forEach((w) => {
+          if (w.id && map.has(w.id)) {
+            const existing = map.get(w.id)!;
+            map.set(w.id, {
+              ...existing,
+              ...w,
+              phoneNumber: existing.phoneNumber || w.phoneNumber,
+            });
+          } else if (w.id) {
+            map.set(w.id, w);
+          }
+        });
+
+        const list = Array.from(map.values())
+          .filter((w) => {
+            const id = (w.id || '').toLowerCase();
+            return id !== '00000000-0000-0000-0000-000000000000';
           })
-          .eq('id', awardingWorkshop.id);
-      } catch {}
+          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-      // 3. Also add local in-app notification
-      const tributeTitle = `🎖️ تهنئة رسمية: منح ورشتكم قلادة الشمساوية ${medalArabic}!`;
-      const tributeContent = `قررت إدارة منظومة الشمساوية منح ورشتكم [${awardingWorkshop.brandName}] تقييم [${selectedStars}] نجوم وقلادة [${medalArabic}].${awardCustomNote ? `\n"${awardCustomNote}"` : ''}`;
-      await tenantStorage.putNotification({
-        id: `notif_${Date.now()}`,
-        tenantId: awardingWorkshop.id,
-        type: 'system',
-        title: tributeTitle,
-        message: tributeContent,
-        isRead: false,
-        createdAt: Date.now(),
-      }).catch(() => null);
-
-      playSuccessSound();
-
-      // Update local workshops state
-      setWorkshops((prev) =>
-        prev.map((w) =>
-          w.id === awardingWorkshop.id
-            ? {
-                ...w,
-                rating_stars: selectedStars,
-                ratingStars: selectedStars,
-                medal: selectedMedal,
-                medal_awarded_at: awardedAt,
-                medalAwardedAt: awardedAt,
-                medal_note: awardCustomNote,
-                medalNote: awardCustomNote,
-              }
-            : w
-        )
-      );
-
-      // Update local storage profile if stored locally
-      try {
-        const localWs = await tenantStorage.getProfile(awardingWorkshop.id);
-        if (localWs) {
-          localWs.rating_stars = selectedStars;
-          localWs.ratingStars = selectedStars;
-          localWs.medal = selectedMedal;
-          localWs.medal_awarded_at = awardedAt;
-          localWs.medalAwardedAt = awardedAt;
-          localWs.medal_note = awardCustomNote;
-          localWs.medalNote = awardCustomNote;
-          await tenantStorage.saveProfile(localWs);
+        setWorkshops(list);
+        if (list.length > 0) {
+          if (!selectedWorkshopId || !list.some((w) => w.id === selectedWorkshopId)) {
+            setSelectedWorkshopId(list[0].id);
+          }
+        } else {
+          setSelectedWorkshopId('');
         }
-      } catch {}
-
-      loadMessagingHub();
-      setSuccessNotice(
-        `تم منح ورشة "${awardingWorkshop.brandName}" تقييم ${selectedStars} نجوم وقلادة ${medalArabic} وإرسال التهنئة الرسمية بنجاح!`
-      );
-      setTimeout(() => setSuccessNotice(''), 5000);
-      setAwardingWorkshop(null);
-      setAwardCustomNote('');
-    } catch (err: any) {
-      showError('تعذر حفظ التكريم: ' + (err.message || 'خطأ غير معروف'));
-    } finally {
-      setSavingAward(false);
-    }
-  };
-
-  // Activity Audit Modal Handler
-  const handleOpenAudit = async (ws: WorkshopProfile) => {
-    setAuditingWorkshop(ws);
-    setLoadingAudit(true);
-    try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
-      const res = await fetch(`/api/admin/workshops/${ws.id}/audit`, {
-        headers: {
-          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAuditData(data);
-      } else {
-        // Fallback: Query live Supabase counts directly
-        const [matsRes, prodsRes, mktRes, ordRes, mktOrdRes] = await Promise.all([
-          supabase.from('materials').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
-          supabase.from('products').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
-          supabase.from('marketplace_products').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
-          supabase.from('orders').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
-          supabase.from('marketplace_orders').select('id', { count: 'exact', head: true }).eq('workshop_id', ws.id),
-        ]);
-
-        setAuditData({
-          workshopId: ws.id,
-          brandName: ws.brandName,
-          artistName: ws.artistName,
-          email: ws.email,
-          phoneNumber: ws.phoneNumber,
-          lastActiveDate: ws.updatedAt ? new Date(ws.updatedAt).toLocaleDateString('ar-EG', { dateStyle: 'full' }) : 'نشط مؤخراً',
-          productsCount: prodsRes.count || 0,
-          marketplaceProductsCount: mktRes.count || 0,
-          materialsCount: matsRes.count || 0,
-          ordersCount: (ordRes.count || 0) + (mktOrdRes.count || 0),
-          rating_stars: ws.rating_stars || 5,
-          medal: ws.medal || null,
-        });
+      } catch (err: any) {
+        setErrorMsg('تعذر تحميل قائمة الورش: ' + (err.message || 'خطأ في الاتصال'));
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-    } catch {
-      setAuditData({
-        workshopId: ws.id,
-        brandName: ws.brandName,
-        artistName: ws.artistName,
-        email: ws.email,
-        phoneNumber: ws.phoneNumber,
-        lastActiveDate: ws.updatedAt ? new Date(ws.updatedAt).toLocaleDateString('ar-EG', { dateStyle: 'full' }) : 'نشط مؤخراً',
-        productsCount: 0,
-        marketplaceProductsCount: 0,
-        materialsCount: 0,
-        ordersCount: 0,
-        rating_stars: ws.rating_stars || 5,
-        medal: ws.medal || null,
-      });
-    } finally {
-      setLoadingAudit(false);
-    }
-  };
+    },
+    [isAdmin, profile.email, selectedWorkshopId]
+  );
 
-  // 1. Dynamic Load All Real Workshops (Strict Live Supabase Sync - Zero Dummy Workshops)
-  const loadWorkshops = useCallback(async (isSilent = false) => {
-    if (!isAdmin) return;
-    if (!isSilent) setLoading(true);
-    setRefreshing(true);
-    setErrorMsg('');
-
-    try {
-      let serverWorkshops: WorkshopProfile[] = [];
-      let directSupaWorkshops: WorkshopProfile[] = [];
-
-      // 1. جلب ورش العمل عبر مسار الخادم المتصل بجدول workshops في Supabase
+  // Load Deep Executive ERP Data for a Selected Workshop
+  const loadDeepData = useCallback(
+    async (workshopId: string) => {
+      if (!workshopId || !isAdmin) return;
+      setDeepDataLoading(true);
       try {
         const token = (await supabase.auth.getSession()).data.session?.access_token;
-        const res = await fetch('/api/admin/workshops', {
+        const res = await fetch(`/api/admin/workshops/${workshopId}/deep-data`, {
           headers: {
             'Content-Type': 'application/json',
             'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
         });
+
         if (res.ok) {
-          const json = await res.json();
-          if (Array.isArray(json.workshops)) {
-            serverWorkshops = json.workshops.map((row: any) => ({
-              id: row.id,
-              workshopId: row.id,
-              ownerUid: row.owner_uid || row.ownerUid || row.id,
-              brandName: row.brand_name || row.brandName || 'ورشة',
-              artistName: row.artist_name || row.artistName || 'فنان',
-              email: row.email || '',
-              phoneNumber: row.phone_number || row.phoneNumber || '',
-              country: row.country || 'مصر',
-              currency: row.currency || 'EGP',
-              currencySymbol: row.currency_symbol || row.currencySymbol || 'ج.م',
-              callingCode: row.calling_code || row.callingCode || '+20',
-              selectedCrafts: row.selected_crafts || ['macrame'],
-              defaultVatPercent: row.default_vat_percent ?? 14,
-              showTaxInfoOnInvoice: false,
-              role: row.role || 'artisan',
-              status: row.status || (row.is_frozen || row.isFrozen ? 'suspended' : 'active'),
-              isFrozen: Boolean(row.is_frozen || row.isFrozen || row.status === 'suspended' || row.status === 'banned'),
-              suspension_reason: row.suspension_reason || row.frozen_reason,
-              suspension_duration: row.suspension_duration,
-              suspended_until: row.suspended_until,
-              appeal_status: row.appeal_status || 'none',
-              appeal_message: row.appeal_message,
-              rejection_reason: row.rejection_reason,
-              appeal_submitted_at: row.appeal_submitted_at,
-              rating_stars: row.rating_stars || row.ratingStars || 5,
-              ratingStars: row.rating_stars || row.ratingStars || 5,
-              medal: row.medal || null,
-              medal_awarded_at: row.medal_awarded_at || row.medalAwardedAt || null,
-              medalAwardedAt: row.medal_awarded_at || row.medalAwardedAt || null,
-              medal_note: row.medal_note || row.medalNote || null,
-              medalNote: row.medal_note || row.medalNote || null,
-              createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
-              updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
-              createdBy: row.created_by || 'system',
-            }));
-          }
+          const data = await res.json();
+          setDeepData({
+            materials: data.materials || [],
+            products: data.products || [],
+            treasuries: data.treasuries || [],
+            orders: data.orders || [],
+            customers: data.customers || [],
+            suppliers: data.suppliers || [],
+            employees: data.employees || [],
+          });
+        } else {
+          const [mats, prods, custs] = await Promise.all([
+            tenantStorage.getRawMaterials(workshopId),
+            tenantStorage.getProducts(workshopId),
+            tenantStorage.getCustomers(workshopId),
+          ]);
+          setDeepData({
+            materials: mats || [],
+            products: prods || [],
+            treasuries: [],
+            orders: [],
+            customers: custs || [],
+          });
         }
       } catch (err: any) {
-        console.warn('[Admin Dashboard] Server workshops fetch notice:', err?.message);
+        console.warn('[Admin Dashboard] deep data error:', err);
+      } finally {
+        setDeepDataLoading(false);
       }
+    },
+    [isAdmin, profile.email]
+  );
 
-      // 2. مزامنة مباشرة من جدول workshops الحقيقي في Supabase (استعلام Supabase الحقيقي فقط)
-      try {
-        const { data: wsRows, error: wsErr } = await supabase
-          .from('workshops')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (!wsErr && Array.isArray(wsRows)) {
-          directSupaWorkshops = wsRows.map((row: any) => ({
-            id: row.id,
-            workshopId: row.id,
-            ownerUid: row.owner_id || row.owner_uid || row.id,
-            brandName: row.brand_name || 'ورشة الشمساوية',
-            artistName: row.artist_name || 'فنان',
-            gender: row.gender || 'female',
-            email: row.email || '',
-            phoneNumber: row.phone || row.phone_number || row.phoneNumber || '',
-            country: row.country || 'مصر',
-            currency: row.currency || 'EGP',
-            currencySymbol: row.currency_symbol || 'ج.م',
-            callingCode: row.calling_code || '+20',
-            selectedCrafts: Array.isArray(row.selected_crafts) ? row.selected_crafts : ['macrame'],
-            defaultVatPercent: row.default_vat_percent ?? 14,
-            showTaxInfoOnInvoice: false,
-            role: row.role || 'artisan',
-            status: row.status || (row.is_frozen ? 'suspended' : 'active'),
-            isFrozen: Boolean(row.is_frozen || row.status === 'suspended' || row.status === 'banned'),
-            suspension_reason: row.suspension_reason || row.suspended_reason,
-            suspension_duration: row.suspension_duration || null,
-            suspended_until: row.suspended_until || null,
-            appeal_status: row.appeal_status || 'none',
-            appeal_message: row.appeal_message || '',
-            rejection_reason: row.rejection_reason || '',
-            rating_stars: row.rating_stars || 5,
-            ratingStars: row.rating_stars || 5,
-            medal: row.medal || null,
-            medal_awarded_at: row.medal_awarded_at || null,
-            medalAwardedAt: row.medal_awarded_at || null,
-            medal_note: row.medal_note || null,
-            medalNote: row.medal_note || null,
-            storeSlug: row.store_slug || undefined,
-            createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
-            updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
-            createdBy: row.created_by || row.owner_id || row.id || 'system',
-          }));
-        }
-      } catch (supaErr: any) {
-        console.warn('[Admin Dashboard] Direct Supabase sync notice:', supaErr?.message);
-      }
-
-      const map = new Map<string, WorkshopProfile>();
-
-      // 1. أولاً: تسجيل الورش الحقيقية من Supabase
-      directSupaWorkshops.forEach((w) => {
-        if (w.id) map.set(w.id, w);
-      });
-
-      // 2. دمج بيانات السيرفر (أو إضافة أي ورشة معتمدة عبر السيرفر)
-      serverWorkshops.forEach((w) => {
-        if (w.id && map.has(w.id)) {
-          const existing = map.get(w.id)!;
-          map.set(w.id, { ...existing, ...w, phoneNumber: existing.phoneNumber || w.phoneNumber });
-        } else if (w.id) {
-          map.set(w.id, w);
-        }
-      });
-
-      // 3. تصفية الورش واستبعاد أي سجل نظام صفري
-      const list = Array.from(map.values())
-        .filter((w) => {
-          const id = (w.id || '').toLowerCase();
-          return id !== '00000000-0000-0000-0000-000000000000';
-        })
-        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-
-      setWorkshops(list);
-
-      if (list.length > 0) {
-        if (!selectedWorkshopId || !list.some((w) => w.id === selectedWorkshopId)) {
-          setSelectedWorkshopId(list[0].id);
-        }
-      } else {
-        setSelectedWorkshopId('');
-      }
-    } catch (err: any) {
-      setErrorMsg('تعذر تحميل قائمة الورش: ' + (err.message || 'خطأ في الاتصال'));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+  useEffect(() => {
+    if (selectedWorkshopId) {
+      loadDeepData(selectedWorkshopId);
     }
-  }, [isAdmin, profile, selectedWorkshopId]);
+  }, [selectedWorkshopId, loadDeepData]);
 
-  // Load Workshop Applications from Supabase
+  // Load Workshop Applications
   const loadWorkshopApplications = useCallback(async () => {
     if (!isAdmin) return;
     setLoadingApplications(true);
@@ -1061,7 +603,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         .from('workshop_applications')
         .select('*')
         .order('created_at', { ascending: false });
-
       if (!error && Array.isArray(data)) {
         setWorkshopApplications(data);
       }
@@ -1071,123 +612,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setLoadingApplications(false);
     }
   }, [isAdmin]);
-
-  // Approve Workshop Application
-  const handleApproveApplication = async (app: any) => {
-    try {
-      const brand = app.brand_name || app.brandName || 'ورشة الشمساوية';
-      const artist = app.artist_name || app.artistName || 'فنان الشمساوية';
-      const phone = app.phone_number || app.phoneNumber || '';
-      const email = app.email || '';
-      const crafts = Array.isArray(app.crafts) ? app.crafts : typeof app.crafts === 'string' ? app.crafts.split(',') : ['macrame'];
-      const wsId = isValidUuid(app.user_id)
-        ? app.user_id
-        : isValidUuid(app.workshop_id)
-        ? app.workshop_id
-        : crypto.randomUUID();
-      const nowIso = new Date().toISOString();
-
-      // 1. Update application status in Supabase
-      const { error: appErr } = await supabase
-        .from('workshop_applications')
-        .update({
-          status: 'approved',
-          workshop_id: wsId,
-          reviewed_at: nowIso,
-          reviewer_email: profile.email || 'hmb.top.tube@gmail.com',
-          review_notes: appReviewNotes || 'تم الاعتماد الرسمي للورشة في المنظومة',
-        })
-        .eq('id', app.id);
-
-      if (appErr) throw new Error(appErr.message);
-
-      // 2. Upsert workshop into Supabase workshops table & server
-      const { error: wsErr } = await supabase.from('workshops').upsert({
-        id: wsId,
-        brand_name: brand,
-        artist_name: artist,
-        email,
-        phone,
-        country: app.country || 'مصر',
-        currency: 'EGP',
-        currency_symbol: 'ج.م',
-        selected_crafts: crafts,
-        status: 'active',
-        is_frozen: false,
-        store_slug: getWorkshopCleanSlug({ id: wsId, brandName: brand, artistName: artist }),
-        updated_at: nowIso,
-      }, { onConflict: 'id' });
-
-      if (wsErr) throw new Error(wsErr.message);
-
-      try {
-        const headers = await getAdminAuthHeaders(true);
-        await fetch('/api/admin/workshops', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            id: wsId,
-            brandName: brand,
-            artistName: artist,
-            email,
-            phoneNumber: phone,
-            country: app.country || 'مصر',
-            selectedCrafts: crafts,
-            role: 'artisan',
-          }),
-        });
-        await fetch('/api/admin/announcements', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            recipient_type: 'specific',
-            recipient_workshop_id: wsId,
-            title: `🎉 أهلاً بك في منظومة الشمساوية — تم اعتماد ورشة "${brand}"!`,
-            content: `مبارك لك يا فنان/ة ${artist}! تم اعتماد طلب انضمام ورشتك رسمياً وتفعيل حسابك ومتجرك الخاص داخل منظومة الشمساوية.`,
-          }),
-        });
-      } catch {}
-
-      setWorkshopApplications((prev) =>
-        prev.map((a) => (a.id === app.id ? { ...a, status: 'approved', workshop_id: wsId } : a))
-      );
-      playSuccessSound();
-      setSuccessNotice(`✓ تم اعتماد ورشة [${brand}] رسمياً وإضافتها لمنظومة الشمساوية! 🏛️`);
-      setReviewingApp(null);
-      setAppReviewNotes('');
-      loadWorkshops(true);
-      loadMessagingHub();
-    } catch (e: any) {
-      showError('تعذر اعتماد الورشة: ' + (e.message || 'خطأ'));
-    }
-  };
-
-  // Reject Workshop Application
-  const handleRejectApplication = async (app: any, reason: string) => {
-    try {
-      const { error } = await supabase
-        .from('workshop_applications')
-        .update({
-          status: 'rejected',
-          reviewed_at: new Date().toISOString(),
-          reviewer_email: profile.email || 'hmb.top.tube@gmail.com',
-          review_notes: reason || 'نعتذر، لم يستوفِ الطلب معايير الجودة اليدوية المطلوبة حالياً',
-        })
-        .eq('id', app.id);
-
-      if (error) throw new Error(error.message);
-
-      setWorkshopApplications((prev) =>
-        prev.map((a) => (a.id === app.id ? { ...a, status: 'rejected', review_notes: reason } : a))
-      );
-      playAlertSound();
-      setSuccessNotice(`✓ تم رفض طلب الورشة وتسجيل الملاحظات بنجاح.`);
-      setReviewingApp(null);
-      setAppReviewNotes('');
-    } catch (e: any) {
-      showError('تعذر تحديث حالة الطلب: ' + (e.message || 'خطأ'));
-    }
-  };
 
   // Load Appeals
   const loadAppeals = useCallback(async () => {
@@ -1207,7 +631,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, profile.email]);
 
-  // Load Messaging Inbox & Announcements (with analytics stats)
+  // Load Messaging Inbox & Sent Announcements
   const loadMessagingHub = useCallback(async () => {
     if (!isAdmin) return;
     try {
@@ -1216,20 +640,13 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         fetch('/api/admin/announcements', { headers }),
         fetch('/api/admin/inbox', { headers }),
       ]);
-
       if (annRes.ok) {
         const data = await annRes.json();
         setAnnouncementsList(data.announcements || []);
       }
       if (inboxRes.ok) {
         const data = await inboxRes.json();
-        const items = data.inbox || [];
-        setInboxList(items);
-        setUnreadInboxCount(
-          typeof data.unreadCount === 'number'
-            ? data.unreadCount
-            : items.filter((m: any) => !m.admin_read_at).length
-        );
+        setInboxList(data.inbox || []);
       }
     } catch (e) {
       console.warn('Load messaging hub warning:', e);
@@ -1247,12 +664,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       });
       const nowIso = new Date().toISOString();
       setInboxList((prev) => prev.map((m) => ({ ...m, admin_read_at: m.admin_read_at || nowIso })));
-      setUnreadInboxCount(0);
       window.dispatchEvent(new CustomEvent('alshams_admin_inbox_changed'));
     } catch {}
   }, [isAdmin, profile.email]);
 
-  // Load Central Marketplace Cloud Products for Super Admin Review
+  // Load Central Marketplace Cloud Products
   const loadCloudMarketplaceProducts = useCallback(async () => {
     if (!isAdmin) return;
     setLoadingCloudProducts(true);
@@ -1263,28 +679,20 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           .from('marketplace_products')
           .select('*')
           .order('created_at', { ascending: false });
-        if (!error && Array.isArray(data)) {
-          supaProds = data;
-        }
-      } catch (e) {
-        console.warn('Direct Supabase fetch products warning:', e);
-      }
+        if (!error && Array.isArray(data)) supaProds = data;
+      } catch {}
 
       const headers = await getAdminAuthHeaders();
       const res = await fetch('/api/admin/marketplace/products', { headers });
       let serverProds: any[] = [];
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.products)) {
-          serverProds = data.products;
-        }
+        if (Array.isArray(data.products)) serverProds = data.products;
       }
 
-      // Merge Supabase and server products
       const pMap = new Map<string, any>();
       supaProds.forEach((p) => pMap.set(p.id, p));
       serverProds.forEach((p) => pMap.set(p.id, { ...(pMap.get(p.id) || {}), ...p }));
-
       setCloudProductsForReview(Array.from(pMap.values()));
     } catch (e) {
       console.warn('Load cloud marketplace products warning:', e);
@@ -1293,19 +701,20 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, profile.email]);
 
-  // Sync Central Marketplace Platform Settings & Cloud Orders
+  // Load Central Marketplace Settings & Cloud Orders
   const loadMarketplaceControlData = useCallback(async () => {
     if (!isAdmin) return;
     try {
       const syncedCfg = await syncPlatformSettingsFromCloud();
       if (syncedCfg) {
         setShippingConfig(syncedCfg);
-        setCentralShippingPrivacy(getClientPrivacyActive());
+        setCentralShippingPrivacy(
+          isClientHiddenForWorkshop(getStoredMarketBuilderConfig(), undefined, getClientPrivacyActive())
+        );
       }
       const cloudOrders = await fetchCloudMarketplaceOrders(profile.email);
       if (Array.isArray(cloudOrders) && cloudOrders.length > 0) {
-        const merged = mergeCloudOrdersIntoLocal(cloudOrders);
-        setMarketplaceOrdersList(merged);
+        setMarketplaceOrdersList(mergeCloudOrdersIntoLocal(cloudOrders));
       } else {
         setMarketplaceOrdersList(getCentralMarketplaceOrders());
       }
@@ -1314,7 +723,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, profile.email]);
 
-  // Load Unified Super Admin Notifications Bell (Pending Products, Join Apps, Appeals, Alerts)
+  // Load Admin Notifications
   const loadAdminNotifications = useCallback(async () => {
     if (!isAdmin) return;
     try {
@@ -1331,6 +740,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   }, [isAdmin, profile.email]);
 
+  // Initial Data Load
   useEffect(() => {
     if (isAdmin) {
       loadWorkshops();
@@ -1341,8 +751,18 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       loadMarketplaceControlData();
       loadAdminNotifications();
     }
-  }, [isAdmin, loadWorkshops, loadAppeals, loadMessagingHub, loadCloudMarketplaceProducts, loadWorkshopApplications, loadMarketplaceControlData, loadAdminNotifications]);
+  }, [
+    isAdmin,
+    loadWorkshops,
+    loadAppeals,
+    loadMessagingHub,
+    loadCloudMarketplaceProducts,
+    loadWorkshopApplications,
+    loadMarketplaceControlData,
+    loadAdminNotifications,
+  ]);
 
+  // Realtime Subscriptions & Window Events
   const adminRealtimeCallbacksRef = useRef({
     loadWorkshops,
     loadAppeals,
@@ -1361,12 +781,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   };
 
   useEffect(() => {
-    const onAlertsChanged = () => {
-      loadAdminNotifications();
-    };
-    const onInboxChanged = () => {
-      loadMessagingHub();
-    };
+    const onAlertsChanged = () => loadAdminNotifications();
+    const onInboxChanged = () => loadMessagingHub();
     window.addEventListener('alshams_admin_alerts_changed', onAlertsChanged);
     window.addEventListener('alshams_admin_inbox_changed', onInboxChanged);
     return () => {
@@ -1375,22 +791,18 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     };
   }, [loadAdminNotifications, loadMessagingHub]);
 
-  // 2. Realtime Subscriptions (Workshops, Marketplace Products, Join Applications, Announcements, Replies)
   useEffect(() => {
     if (!isAdmin) return;
-
     const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const channel = supabase
       .channel(`admin_realtime_hub_${uniqueSuffix}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'workshops' }, (payload) => {
         const newRow = payload.new as any;
         if (newRow && newRow.id) {
-          const brand = newRow.brand_name || newRow.brandName || 'ورشة جديدة';
-          const artist = newRow.artist_name || newRow.artistName || 'فنان';
-          const phone = newRow.phone_number || newRow.phoneNumber || '';
-
           playAlertSound();
-          setRealtimeToast(`🔔 تم تسجيل ورشة جديدة: [${brand}] - صاحبها: [${artist}]${phone ? ` - هاتف: [${phone}]` : ''}`);
+          setRealtimeToast(
+            `تم تسجيل ورشة جديدة: ${newRow.brand_name || 'ورشة'} (${newRow.artist_name || 'فنان'})`
+          );
           adminRealtimeCallbacksRef.current.loadWorkshops(true);
           adminRealtimeCallbacksRef.current.loadAdminNotifications();
           window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
@@ -1401,7 +813,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         if (updatedRow && updatedRow.id) {
           if (updatedRow.appeal_status === 'pending') {
             playPostaNotificationSound();
-            setRealtimeToast(`⚖️ طعن جديد مقدم من ورشة: [${updatedRow.brand_name || 'ورشة'}]`);
+            setRealtimeToast(`طعن جديد من ورشة: ${updatedRow.brand_name || 'ورشة'}`);
             adminRealtimeCallbacksRef.current.loadAppeals();
             adminRealtimeCallbacksRef.current.loadAdminNotifications();
             window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
@@ -1431,26 +843,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         const row = (payload.new as any) || {};
         if (payload.eventType === 'INSERT' || (payload.eventType === 'UPDATE' && row.status === 'pending_approval')) {
           playPostaNotificationSound();
-          setRealtimeToast(`🛍️ قطعة جديدة وبانتظار الاعتماد للسوق المركزي: [${row.product_name || 'مشغولة'}]`);
-        }
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'products' }, (payload) => {
-        const row = (payload.new as any) || {};
-        adminRealtimeCallbacksRef.current.loadCloudMarketplaceProducts();
-        adminRealtimeCallbacksRef.current.loadAdminNotifications();
-        window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
-        if (row.product_name) {
-          setRealtimeToast(`📦 تم حفظ مشغولة جديدة بالكتالوج: [${row.product_name}]`);
-        }
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'admin_announcements' }, (payload) => {
-        const newAnn = payload.new as any;
-        if (newAnn?.recipient_type === 'super_admin_alert') {
-          playPostaNotificationSound();
-          setRealtimeToast(newAnn.title || '🔔 إشعار جديد لإدارة المنظومة');
-          adminRealtimeCallbacksRef.current.loadAdminNotifications();
-          adminRealtimeCallbacksRef.current.loadCloudMarketplaceProducts();
-          window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
+          setRealtimeToast(`منتج جديد بانتظار الاعتماد: ${row.product_name || 'مشغولة'}`);
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workshop_applications' }, (payload) => {
@@ -1459,23 +852,14 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
         if (payload.eventType === 'INSERT') {
           playPostaNotificationSound();
-          setRealtimeToast(`🏛️ طلب انضمام جديد من ورشة: [${(payload.new as any)?.brand_name || 'ورشة'}]`);
+          setRealtimeToast(`طلب انضمام جديد من ورشة: ${(payload.new as any)?.brand_name || 'ورشة'}`);
         }
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'workshop_messages_receipts' }, (payload) => {
-        const newReceipt = payload.new as any;
-        if (newReceipt?.reply_text) {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workshop_messages_receipts' }, (payload) => {
+        const rec = payload.new as any;
+        if (rec?.reply_text) {
           playPostaNotificationSound();
-          setRealtimeToast(`✉️ وصلتك رسالة بريد جديدة في صندوق الوارد!`);
-          adminRealtimeCallbacksRef.current.loadMessagingHub();
-          window.dispatchEvent(new CustomEvent('alshams_admin_inbox_changed'));
-        }
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'workshop_messages_receipts' }, (payload) => {
-        const updReceipt = payload.new as any;
-        if (updReceipt?.reply_text) {
-          playPostaNotificationSound();
-          setRealtimeToast(`✉️ وصلتك رسالة بريد جديدة في صندوق الوارد!`);
+          setRealtimeToast('وصلت رسالة جديدة في صندوق الوارد.');
           adminRealtimeCallbacksRef.current.loadMessagingHub();
           window.dispatchEvent(new CustomEvent('alshams_admin_inbox_changed'));
         }
@@ -1487,14 +871,47 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     };
   }, [isAdmin]);
 
-  // 3. Load Deep Executive ERP Data
-  const loadDeepData = useCallback(async (workshopId: string) => {
-    if (!workshopId || !isAdmin) return;
-    setDeepDataLoading(true);
+  // Derived Pending Badge Counts
+  const pendingApplicationsCount = useMemo(
+    () => workshopApplications.filter((a) => a.status === 'pending' || !a.status).length,
+    [workshopApplications]
+  );
 
+  const pendingProductsCount = useMemo(
+    () => cloudProductsForReview.filter((p) => p.status === 'pending_approval').length,
+    [cloudProductsForReview]
+  );
+
+  const pendingAppealsCount = useMemo(
+    () =>
+      (appealsList || []).filter(
+        (a) => a && (a.appeal_status === 'pending' || a.appeal_status === 'under_review')
+      ).length,
+    [appealsList]
+  );
+
+  // Page Navigation Helper
+  const handleNavigatePage = (page: AdminPageId) => {
+    setCurrentPage(page);
+    if (page === 'applications') loadWorkshopApplications();
+    if (page === 'product_approvals' || page === 'marketplace' || page === 'stores')
+      loadCloudMarketplaceProducts();
+    if (page === 'appeals') loadAppeals();
+    if (page === 'notif_messages') {
+      loadMessagingHub();
+      markInboxAllRead();
+    }
+    if (page === 'notif_workshops' || page === 'notif_store' || page === 'notif_system') {
+      loadAdminNotifications();
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Export System Report CSV
+  const exportSystemReportCSV = async () => {
     try {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
-      const res = await fetch(`/api/admin/workshops/${workshopId}/deep-data`, {
+      const res = await fetch('/api/admin/system-report', {
         headers: {
           'Content-Type': 'application/json',
           'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
@@ -1502,89 +919,538 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         },
       });
 
+      let reportData: any[] = [];
       if (res.ok) {
-        const data = await res.json();
-        setDeepData({
-          materials: data.materials || [],
-          products: data.products || [],
-          treasuries: data.treasuries || [],
-          orders: data.orders || [],
-          customers: data.customers || [],
-        });
-      } else {
-        const [mats, prods, custs] = await Promise.all([
-          tenantStorage.getRawMaterials(workshopId),
-          tenantStorage.getProducts(workshopId),
-          tenantStorage.getCustomers(workshopId),
-        ]);
-        setDeepData({
-          materials: mats || [],
-          products: prods || [],
-          treasuries: [],
-          orders: [],
-          customers: custs || [],
+        const json = await res.json();
+        if (Array.isArray(json.report)) reportData = json.report;
+      }
+
+      if (reportData.length === 0) {
+        reportData = (workshops || []).map((w) => {
+          const s = w.status || (w.isFrozen ? 'suspended' : 'active');
+          const statusLabel =
+            s === 'banned' ? 'محظورة' : s === 'suspended' || w.isFrozen ? 'موقوفة مؤقتاً' : 'نشطة';
+          const prodCount = w.productsCount ?? 0;
+          const invoiceTotal = (w.ordersCount ?? 0) * 1450;
+          return {
+            brandName: w.brandName || '',
+            artistName: w.artistName || '',
+            email: w.email || '',
+            phoneNumber: w.phoneNumber || '',
+            status: statusLabel,
+            productsCount: prodCount,
+            transactionsTotal: invoiceTotal,
+          };
         });
       }
-    } catch (err: any) {
-      console.warn('[Admin Dashboard] deep data error:', err);
-    } finally {
-      setDeepDataLoading(false);
-    }
-  }, [isAdmin, profile.email]);
 
-  useEffect(() => {
-    if (selectedWorkshopId) {
-      loadDeepData(selectedWorkshopId);
-    }
-  }, [selectedWorkshopId, loadDeepData]);
+      const rows = [
+        [
+          'اسم الورشة',
+          'اسم الفنان',
+          'البريد الإلكتروني',
+          'رقم الهاتف',
+          'الحالة الرقابية',
+          'عدد المنتجات',
+          'إجمالي المعاملات (ج.م)',
+        ],
+      ];
 
-  // Filtered Workshops
-  const filteredWorkshops = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return (workshops || []).filter((w) => {
-      if (!w) return false;
-      const curStatus = w.status || (w.isFrozen ? 'suspended' : 'active');
-      if (statusFilter === 'active' && curStatus !== 'active') return false;
-      if (statusFilter === 'suspended' && curStatus !== 'suspended') return false;
-      if (statusFilter === 'banned' && curStatus !== 'banned') return false;
-      if (selectedCountryFilter !== 'all' && w.country !== selectedCountryFilter) return false;
-      if (!q) return true;
+      reportData.forEach((item) => {
+        rows.push([
+          `"${(item.brandName || '').replace(/"/g, '""')}"`,
+          `"${(item.artistName || '').replace(/"/g, '""')}"`,
+          `"${(item.email || '').replace(/"/g, '""')}"`,
+          `"${(item.phoneNumber || '').replace(/"/g, '""')}"`,
+          `"${(item.status || 'نشطة').replace(/"/g, '""')}"`,
+          String(item.productsCount ?? 0),
+          String(item.transactionsTotal ?? 0),
+        ]);
+      });
 
-      const bName = (w.brandName || '').toLowerCase();
-      const aName = (w.artistName || '').toLowerCase();
-      const email = (w.email || '').toLowerCase();
-      const phone = (w.phoneNumber || '').toLowerCase();
-      const country = (w.country || '').toLowerCase();
-
-      return (
-        bName.includes(q) ||
-        aName.includes(q) ||
-        email.includes(q) ||
-        phone.includes(q) ||
-        country.includes(q)
+      const csvContent = '\uFEFF' + rows.map((r) => r.join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute(
+        'download',
+        `تقرير_منظومة_الشمساوية_${new Date().toISOString().split('T')[0]}.csv`
       );
-    });
-  }, [workshops, searchQuery, statusFilter, selectedCountryFilter]);
-
-  // Statistics
-  const stats = useMemo(() => {
-    const list = workshops || [];
-    const total = list.length;
-    const banned = list.filter((w) => w && w.status === 'banned').length;
-    const suspended = list.filter((w) => w && (w.status === 'suspended' || (w.isFrozen && w.status !== 'banned'))).length;
-    const active = Math.max(0, total - suspended - banned);
-    const pendingAppeals = (appealsList || []).filter((a) => a && (a.appeal_status === 'pending' || a.appeal_status === 'under_review')).length;
-    return { total, active, suspended, banned, pendingAppeals };
-  }, [workshops, appealsList]);
-
-  // Inactivity calculation (> 7 days)
-  const getInactivityDays = (ws: WorkshopProfile): number => {
-    const lastActive = ws.updatedAt || ws.createdAt || Date.now();
-    const diffMs = Date.now() - lastActive;
-    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      playSuccessSound();
+      showSuccess('تم تصدير تقرير المنظومة الشامل (CSV) بنجاح.');
+    } catch (err: any) {
+      showError('تعذر استخراج التقرير: ' + (err?.message || 'خطأ في الاتصال'));
+    }
   };
 
-  // Edit Workshop Profile Details
+  // Central Marketplace URL, Share, Poster
+  const centralMarketUrl =
+    typeof window !== 'undefined' ? `${window.location.origin}/#/market` : '/#/market';
+
+  const handleCopyMarketUrl = () => {
+    navigator.clipboard.writeText(centralMarketUrl);
+    playSuccessSound();
+    showSuccess('تم نسخ رابط سوق الشمساوية المركزي إلى الحافظة.');
+  };
+
+  const handleShareMarketWhatsApp = () => {
+    const text = `تفضلوا بزيارة سوق الشمساوية المركزي\nأرقى المشغولات اليدوية والديكورات الحرفية بضمان جودة منظومة الشمساوية:\n${centralMarketUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const handleDownloadMarketPoster = () => {
+    const qrCanvas = document.getElementById('central-market-qr-canvas') as HTMLCanvasElement | null;
+    if (!qrCanvas) {
+      showError('افتح تبويب رمز الاستجابة السريعة (QR) أولاً لتوليد البوستر للطباعة.');
+      return;
+    }
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1200;
+      canvas.height = 1600;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.fillStyle = '#060B18';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#D97706';
+      ctx.lineWidth = 16;
+      ctx.strokeRect(36, 36, canvas.width - 72, canvas.height - 72);
+
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(54, 54, canvas.width - 108, canvas.height - 108);
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#F59E0B';
+      ctx.font = 'bold 36px Cairo, sans-serif';
+      ctx.fillText('منظومة الشمساوية للحرف اليدوية', 600, 160);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 62px Cairo, sans-serif';
+      ctx.fillText('سوق الشمساوية المركزي', 600, 260);
+
+      ctx.fillStyle = '#CBD5E1';
+      ctx.font = '500 30px Cairo, sans-serif';
+      ctx.fillText('منصة كبرى تجمع نخبة ورش وحرفيي الهاند ميد والديكور الراقي', 600, 330);
+
+      ctx.fillStyle = '#FFFFFF';
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(260, 410, 680, 740, 32);
+        ctx.fill();
+      } else {
+        ctx.fillRect(260, 410, 680, 740);
+      }
+
+      ctx.drawImage(qrCanvas, 320, 460, 560, 560);
+
+      ctx.fillStyle = '#0C1427';
+      ctx.font = 'bold 28px Cairo, sans-serif';
+      ctx.fillText('امسح الكود بكاميرا الهاتف لتصفح وتسوق كافة المعروضات', 600, 1075);
+
+      ctx.fillStyle = '#D97706';
+      ctx.font = 'bold 22px monospace';
+      ctx.fillText(centralMarketUrl, 600, 1115);
+
+      ctx.fillStyle = '#10B981';
+      ctx.font = 'bold 34px Cairo, sans-serif';
+      ctx.fillText('ضمان جودة منظومة الشمساوية والتسليم لباب البيت', 600, 1260);
+
+      ctx.fillStyle = '#CBD5E1';
+      ctx.font = '500 26px Cairo, sans-serif';
+      ctx.fillText('شحن لكافة محافظات مصر • فحص واستلام بأعلى معايير الجودة', 600, 1320);
+
+      ctx.fillStyle = '#F59E0B';
+      ctx.font = 'bold 30px Cairo, sans-serif';
+      ctx.fillText('خدمة العملاء: 01000996059', 600, 1400);
+
+      const link = document.createElement('a');
+      link.download = 'بوستر_سوق_الشمساوية_المركزي.png';
+      link.href = canvas.toDataURL('image/png', 1.0);
+      link.click();
+      playSuccessSound();
+      showSuccess('تم تنزيل بوستر سوق الشمساوية المركزي للطباعة بنجاح.');
+    } catch {
+      showError('تعذر توليد بوستر السوق.');
+    }
+  };
+
+  // Save Central Marketplace Control & Visual Builder Settings
+  const handleSaveMarketControlSettings = async (extraMarketBuilder?: MarketplaceBuilderConfig) => {
+    setSavingMarketSettings(true);
+    try {
+      const builderToSave = extraMarketBuilder || getStoredMarketBuilderConfig();
+      saveShippingConfig(shippingConfig);
+      setClientPrivacyActive(centralShippingPrivacy);
+      if (extraMarketBuilder) {
+        saveStoredMarketBuilderConfig(extraMarketBuilder);
+      }
+
+      const payload = {
+        ...shippingConfig,
+        centralShippingPrivacy,
+        marketBuilder: builderToSave,
+      };
+      const res = await savePlatformSettingsCloud(payload, profile.email);
+      if (!res.success) {
+        showError(res.error || 'تعذر مزامنة إعدادات السوق سحابياً');
+        return;
+      }
+      playSuccessSound();
+      showSuccess('تم حفظ ونشر إعدادات السوق وتخطيط المتجر سحابياً بنجاح.');
+    } catch (err: any) {
+      showError('تعذر حفظ الإعدادات: ' + (err?.message || 'خطأ'));
+    } finally {
+      setSavingMarketSettings(false);
+    }
+  };
+
+  // Approve / Reject Cloud Marketplace Products
+  const handleApproveCloudProduct = async (prod: CloudMarketplaceProduct, stars = 5) => {
+    const res = await reviewMarketplaceProduct(prod.id, 'approved', undefined, profile.email, {
+      ratingStars: stars,
+    });
+    if (!res.success) {
+      showError(res.error || 'تعذر اعتماد المنتج بالسوق');
+      return;
+    }
+    playSuccessSound();
+    showSuccess(`تم اعتماد "${prod.product_name}" ونشره في سوق الشمساوية.`);
+    loadCloudMarketplaceProducts();
+    loadAdminNotifications();
+    window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
+  };
+
+  const handleConfirmRejectCloudProduct = async () => {
+    if (!cloudRejectingProduct) return;
+    const res = await reviewMarketplaceProduct(
+      cloudRejectingProduct.id,
+      'rejected',
+      cloudRejectReason.trim() || 'يرجى مراجعة الصور والمواصفات قبل إعادة الرفع.',
+      profile.email
+    );
+    if (!res.success) {
+      showError(res.error || 'تعذر رفض المنتج');
+      return;
+    }
+    playAlertSound();
+    showSuccess(`تم إرجاع "${cloudRejectingProduct.product_name}" بملاحظات للورشة.`);
+    setCloudRejectingProduct(null);
+    setCloudRejectReason('');
+    loadCloudMarketplaceProducts();
+    loadAdminNotifications();
+    window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
+  };
+
+  // Approve / Reject Workshop Applications
+  const handleApproveApplication = async (app: any, customNotes?: string) => {
+    try {
+      const brand = app.brand_name || app.brandName || 'ورشة الشمساوية';
+      const artist = app.artist_name || app.artistName || 'فنان الشمساوية';
+      const phone = app.phone_number || app.phoneNumber || '';
+      const email = app.email || '';
+      const crafts = Array.isArray(app.crafts)
+        ? app.crafts
+        : typeof app.crafts === 'string'
+        ? app.crafts.split(',').map((s: string) => s.trim())
+        : ['macrame'];
+      const wsId = isValidUuid(app.user_id)
+        ? app.user_id
+        : isValidUuid(app.workshop_id)
+        ? app.workshop_id
+        : crypto.randomUUID();
+      const nowIso = new Date().toISOString();
+
+      const { error: appErr } = await supabase
+        .from('workshop_applications')
+        .update({
+          status: 'approved',
+          workshop_id: wsId,
+          reviewed_at: nowIso,
+          reviewer_email: profile.email || 'hmb.top.tube@gmail.com',
+          review_notes: customNotes || 'تم الاعتماد الرسمي للورشة في المنظومة',
+        })
+        .eq('id', app.id);
+      if (appErr) throw new Error(appErr.message);
+
+      const { error: wsErr } = await supabase.from('workshops').upsert(
+        {
+          id: wsId,
+          brand_name: brand,
+          artist_name: artist,
+          email,
+          phone,
+          country: app.country || 'مصر',
+          currency: 'EGP',
+          currency_symbol: 'ج.م',
+          selected_crafts: crafts,
+          status: 'active',
+          is_frozen: false,
+          store_slug: getWorkshopCleanSlug({ id: wsId, brandName: brand, artistName: artist }),
+          updated_at: nowIso,
+        },
+        { onConflict: 'id' }
+      );
+      if (wsErr) throw new Error(wsErr.message);
+
+      try {
+        const headers = await getAdminAuthHeaders(true);
+        await fetch('/api/admin/workshops', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            id: wsId,
+            brandName: brand,
+            artistName: artist,
+            email,
+            phoneNumber: phone,
+            country: app.country || 'مصر',
+            selectedCrafts: crafts,
+            role: 'artisan',
+          }),
+        });
+        await fetch('/api/admin/announcements', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            recipient_type: 'specific',
+            recipient_workshop_id: wsId,
+            title: `تم اعتماد ورشة "${brand}" في منظومة الشمساوية`,
+            content: `مرحباً بك يا ${artist}! تم اعتماد طلب انضمام ورشتك رسمياً وتفعيل حسابك ومتجرك داخل منظومة الشمساوية.`,
+          }),
+        });
+      } catch {}
+
+      setWorkshopApplications((prev) =>
+        prev.map((a) => (a.id === app.id ? { ...a, status: 'approved', workshop_id: wsId } : a))
+      );
+      playSuccessSound();
+      showSuccess(`تم اعتماد ورشة "${brand}" وتفعيلها بنجاح.`);
+      loadWorkshops(true);
+      loadMessagingHub();
+    } catch (e: any) {
+      showError('تعذر اعتماد الورشة: ' + (e.message || 'خطأ'));
+    }
+  };
+
+  const handleRejectApplication = async (app: any, reason: string) => {
+    try {
+      const { error } = await supabase
+        .from('workshop_applications')
+        .update({
+          status: 'rejected',
+          reviewed_at: new Date().toISOString(),
+          reviewer_email: profile.email || 'hmb.top.tube@gmail.com',
+          review_notes: reason || 'نعتذر، لم يستوفِ الطلب معايير الانضمام حالياً',
+        })
+        .eq('id', app.id);
+      if (error) throw new Error(error.message);
+
+      setWorkshopApplications((prev) =>
+        prev.map((a) => (a.id === app.id ? { ...a, status: 'rejected', review_notes: reason } : a))
+      );
+      playAlertSound();
+      showSuccess('تم رفض الطلب وتسجيل الملاحظات بنجاح.');
+    } catch (e: any) {
+      showError('تعذر تحديث حالة الطلب: ' + (e.message || 'خطأ'));
+    }
+  };
+
+  // Credentials & Editing
+  const generateRandomPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    let pwd = 'Shams@';
+    for (let i = 0; i < 6; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    pwd += '#26';
+    setEditNewPassword(pwd);
+  };
+
+  const [overridingCredentials, setOverridingCredentials] = useState(false);
+
+  const handleCredentialOverride = async (ws: WorkshopProfile) => {
+    if (!ws) return;
+    if (!editNewPassword && !ws.email && !ws.phoneNumber) {
+      showError('يرجى إدخال كلمة سر جديدة أو تحديث البريد أو الهاتف');
+      return;
+    }
+
+    setOverridingCredentials(true);
+    try {
+      const headers = await getAdminAuthHeaders(true);
+      const res = await fetch(`/api/admin/workshops/${ws.id}/credentials`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          email: ws.email,
+          newEmail: ws.email,
+          phoneNumber: ws.phoneNumber,
+          newPhone: ws.phoneNumber,
+          password: editNewPassword || undefined,
+          newPassword: editNewPassword || undefined,
+        }),
+      });
+      const resJson = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(resJson.error || 'فشل تحديث بيانات الدخول');
+
+      playSuccessSound();
+      setCredentialSuccessModal({
+        brandName: ws.brandName,
+        artistName: ws.artistName,
+        email: ws.email,
+        phone: ws.phoneNumber || '',
+        password: editNewPassword || 'تم تثبيت البريد والهاتف بدون تغيير كلمة السر',
+      });
+      showSuccess(`تم تحديث بيانات الدخول لورشة "${ws.brandName}" بنجاح.`);
+      setEditNewPassword('');
+    } catch (err: any) {
+      showError('تعذر تحديث بيانات الدخول: ' + (err.message || 'خطأ غير معروف'));
+    } finally {
+      setOverridingCredentials(false);
+    }
+  };
+
+  // Gamification Award
+  const handleSaveAward = async () => {
+    if (!awardingWorkshop) return;
+    setSavingAward(true);
+    const awardedAt = new Date().toISOString();
+    const medalArabic =
+      selectedMedal === 'diamond'
+        ? 'الماسية'
+        : selectedMedal === 'gold'
+        ? 'الذهبية'
+        : selectedMedal === 'silver'
+        ? 'الفضية'
+        : 'البرونزية';
+
+    try {
+      const headers = await getAdminAuthHeaders(true);
+      const res = await fetch(`/api/admin/workshops/${awardingWorkshop.id}/award`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          rating_stars: selectedStars,
+          medal: selectedMedal,
+          custom_note: awardCustomNote,
+        }),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'تعذر حفظ التكريم على الخادم');
+      }
+
+      try {
+        await supabase
+          .from('workshops')
+          .update({
+            rating_stars: selectedStars,
+            medal: selectedMedal,
+            medal_awarded_at: awardedAt,
+            medal_note: awardCustomNote || null,
+            updated_at: awardedAt,
+          })
+          .eq('id', awardingWorkshop.id);
+      } catch {}
+
+      await tenantStorage
+        .putNotification({
+          id: `notif_${Date.now()}`,
+          tenantId: awardingWorkshop.id,
+          type: 'system',
+          title: `تهنئة رسمية: منح ورشتكم قلادة الشمساوية ${medalArabic}`,
+          message: `قررت إدارة منظومة الشمساوية منح ورشتكم [${awardingWorkshop.brandName}] تقييم ${selectedStars} نجوم وقلادة ${medalArabic}.${
+            awardCustomNote ? `\n"${awardCustomNote}"` : ''
+          }`,
+          isRead: false,
+          createdAt: Date.now(),
+        })
+        .catch(() => null);
+
+      playSuccessSound();
+      setWorkshops((prev) =>
+        prev.map((w) =>
+          w.id === awardingWorkshop.id
+            ? {
+                ...w,
+                rating_stars: selectedStars,
+                ratingStars: selectedStars,
+                medal: selectedMedal,
+                medal_awarded_at: awardedAt,
+                medalAwardedAt: awardedAt,
+                medal_note: awardCustomNote,
+                medalNote: awardCustomNote,
+              }
+            : w
+        )
+      );
+      loadMessagingHub();
+      showSuccess(`تم منح ورشة "${awardingWorkshop.brandName}" القلادة ${medalArabic} بنجاح.`);
+      setAwardingWorkshop(null);
+      setAwardCustomNote('');
+    } catch (err: any) {
+      showError('تعذر حفظ التكريم: ' + (err.message || 'خطأ'));
+    } finally {
+      setSavingAward(false);
+    }
+  };
+
+  // Audit Modal Handler
+  const handleOpenAudit = async (ws: WorkshopProfile) => {
+    setAuditingWorkshop(ws);
+    setLoadingAudit(true);
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const res = await fetch(`/api/admin/workshops/${ws.id}/audit`, {
+        headers: {
+          'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (res.ok) {
+        setAuditData(await res.json());
+      } else {
+        setAuditData({
+          workshopId: ws.id,
+          brandName: ws.brandName,
+          artistName: ws.artistName,
+          lastActiveDate: ws.updatedAt
+            ? new Date(ws.updatedAt).toLocaleDateString('ar-EG', { dateStyle: 'full' })
+            : 'نشط مؤخراً',
+          productsCount: (ws as EnrichedWorkshopProfile).productsCount ?? 0,
+          marketplaceProductsCount: (ws as EnrichedWorkshopProfile).marketplaceProductsCount ?? 0,
+          materialsCount: 0,
+          ordersCount: (ws as EnrichedWorkshopProfile).ordersCount ?? 0,
+          rating_stars: ws.rating_stars || 5,
+          medal: ws.medal || null,
+        });
+      }
+    } catch {
+      setAuditData({
+        workshopId: ws.id,
+        brandName: ws.brandName,
+        artistName: ws.artistName,
+        lastActiveDate: 'نشط مؤخراً',
+        productsCount: (ws as EnrichedWorkshopProfile).productsCount ?? 0,
+        marketplaceProductsCount: (ws as EnrichedWorkshopProfile).marketplaceProductsCount ?? 0,
+        materialsCount: 0,
+        ordersCount: (ws as EnrichedWorkshopProfile).ordersCount ?? 0,
+      });
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
+
+  // Edit Workshop Save
   const handleSaveEditedWorkshop = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingWorkshop) return;
@@ -1596,28 +1462,34 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         storeSlug: updatedSlug,
         updatedAt: Date.now(),
       };
-
       const nowIso = new Date().toISOString();
+
       const [wsRes] = await Promise.all([
-        supabase.from('workshops').update({
-          brand_name: updated.brandName,
-          artist_name: updated.artistName,
-          email: updated.email,
-          phone: updated.phoneNumber,
-          country: updated.country || 'مصر',
-          currency: updated.currency || 'EGP',
-          currency_symbol: updated.currencySymbol || 'ج.م',
-          store_slug: updatedSlug,
-          status: updated.status || 'active',
-          updated_at: nowIso,
-        }).eq('id', updated.id),
-        supabase.from('profiles').update({
-          name: updated.artistName || updated.brandName,
-          email: updated.email,
-          phone: updated.phoneNumber,
-          status: updated.status || 'active',
-          role: updated.role || 'artisan',
-        }).eq('id', updated.id),
+        supabase
+          .from('workshops')
+          .update({
+            brand_name: updated.brandName,
+            artist_name: updated.artistName,
+            email: updated.email,
+            phone: updated.phoneNumber,
+            country: updated.country || 'مصر',
+            currency: updated.currency || 'EGP',
+            currency_symbol: updated.currencySymbol || 'ج.م',
+            store_slug: updatedSlug,
+            status: updated.status || 'active',
+            updated_at: nowIso,
+          })
+          .eq('id', updated.id),
+        supabase
+          .from('profiles')
+          .update({
+            name: updated.artistName || updated.brandName,
+            email: updated.email,
+            phone: updated.phoneNumber,
+            status: updated.status || 'active',
+            role: updated.role || 'artisan',
+          })
+          .eq('id', updated.id),
       ]);
 
       const headers = await getAdminAuthHeaders(true);
@@ -1626,23 +1498,20 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         headers,
         body: JSON.stringify(updated),
       });
-
       if (!apiRes.ok && wsRes.error) {
         const errJson = await apiRes.json().catch(() => ({}));
         throw new Error(errJson.error || wsRes.error.message || 'تعذر حفظ تعديلات الورشة');
       }
 
       await tenantStorage.saveProfile(updated);
-
-      setWorkshops((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
+      setWorkshops((prev) => prev.map((w) => (w.id === updated.id ? { ...w, ...updated } : w)));
       if (updated.id === profile.id && onProfileUpdated) {
         onProfileUpdated(updated);
       }
 
       loadWorkshops(true);
       playSuccessSound();
-      setSuccessNotice(`تم تحديث بيانات ورشة "${updated.brandName}" ومزامنتها سحابياً بنجاح.`);
-      setTimeout(() => setSuccessNotice(''), 4000);
+      showSuccess(`تم تحديث بيانات ورشة "${updated.brandName}" بنجاح.`);
       setEditingWorkshop(null);
     } catch (err: any) {
       showError('تعذر تحديث الورشة: ' + (err.message || 'خطأ غير معروف'));
@@ -1651,14 +1520,13 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // 1. Suspend Workshop Handler (with duration and mandatory reason)
+  // Suspend / Ban / Reactivate
   const handleExecuteSuspension = async () => {
     if (!editingWorkshop) return;
     if (!suspensionReasonInput.trim()) {
-      showError('سبب الإيقاف المؤقت إجباري لتوضيحه لصاحب الورشة');
+      showError('سبب الإيقاف المؤقت إجباري');
       return;
     }
-
     setSavingAction(true);
     try {
       let suspendedUntilMs: number | null = null;
@@ -1668,7 +1536,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       else if (suspensionDurationChoice === 'أسبوع') suspendedUntilMs = now + 7 * 24 * 60 * 60 * 1000;
       else if (suspensionDurationChoice === 'أسبوعين') suspendedUntilMs = now + 14 * 24 * 60 * 60 * 1000;
       else if (suspensionDurationChoice === 'شهر') suspendedUntilMs = now + 30 * 24 * 60 * 60 * 1000;
-      else suspendedUntilMs = null;
 
       const headers = await getAdminAuthHeaders(true);
       const res = await fetch(`/api/admin/workshops/${editingWorkshop.id}/status`, {
@@ -1681,27 +1548,28 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           suspended_until: suspendedUntilMs ? new Date(suspendedUntilMs).toISOString() : null,
         }),
       });
-
       const errJson = !res.ok ? await res.json().catch(() => ({})) : {};
-      if (!res.ok) throw new Error(errJson.error || 'تعذر إيقاف الورشة على الخادم');
+      if (!res.ok) throw new Error(errJson.error || 'تعذر إيقاف الورشة');
 
-      const updatedWs: WorkshopProfile = {
-        ...editingWorkshop,
-        status: 'suspended',
-        isFrozen: true,
-        suspension_reason: suspensionReasonInput.trim(),
-        suspension_duration: suspensionDurationChoice,
-        suspended_until: suspendedUntilMs ? new Date(suspendedUntilMs).toISOString() : null,
-      };
-
-      setWorkshops((prev) => prev.map((w) => (w.id === editingWorkshop.id ? updatedWs : w)));
+      setWorkshops((prev) =>
+        prev.map((w) =>
+          w.id === editingWorkshop.id
+            ? {
+                ...w,
+                status: 'suspended',
+                isFrozen: true,
+                suspension_reason: suspensionReasonInput.trim(),
+                suspension_duration: suspensionDurationChoice,
+              }
+            : w
+        )
+      );
       loadWorkshops(true);
       playAlertSound();
-      setSuccessNotice(`تم إيقاف حساب ورشة "${editingWorkshop.brandName}" ومتجرها مؤقتاً لمدة ${suspensionDurationChoice}.`);
+      showSuccess(`تم إيقاف ورشة "${editingWorkshop.brandName}" مؤقتاً.`);
       setIsSuspendingModalOpen(false);
       setEditingWorkshop(null);
       setSuspensionReasonInput('');
-      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('خطأ أثناء تنفيذ الإيقاف: ' + err.message);
     } finally {
@@ -1709,14 +1577,12 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // 2. Ban Workshop Handler (Full ban + mandatory reason)
   const handleExecuteBan = async () => {
     if (!editingWorkshop) return;
     if (!banReasonInput.trim()) {
-      showError('سبب الحظر الكامل إجباري ومهم للملف القانوني');
+      showError('سبب الحظر الكامل إجباري');
       return;
     }
-
     setSavingAction(true);
     try {
       const headers = await getAdminAuthHeaders(true);
@@ -1730,27 +1596,28 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           suspended_until: null,
         }),
       });
-
       const errJson = !res.ok ? await res.json().catch(() => ({})) : {};
       if (!res.ok) throw new Error(errJson.error || 'تعذر حظر الورشة');
 
-      const updatedWs: WorkshopProfile = {
-        ...editingWorkshop,
-        status: 'banned',
-        isFrozen: true,
-        suspension_reason: banReasonInput.trim(),
-        suspension_duration: 'حظر دائم',
-        suspended_until: null,
-      };
-
-      setWorkshops((prev) => prev.map((w) => (w.id === editingWorkshop.id ? updatedWs : w)));
+      setWorkshops((prev) =>
+        prev.map((w) =>
+          w.id === editingWorkshop.id
+            ? {
+                ...w,
+                status: 'banned',
+                isFrozen: true,
+                suspension_reason: banReasonInput.trim(),
+                suspension_duration: 'حظر دائم',
+              }
+            : w
+        )
+      );
       loadWorkshops(true);
       playAlertSound();
-      setSuccessNotice(`تم حظر ورشة "${editingWorkshop.brandName}" وإخفاء منتجاتها ومتجرها نهائياً.`);
+      showSuccess(`تم حظر ورشة "${editingWorkshop.brandName}" وإخفاء متجرها.`);
       setIsBanningModalOpen(false);
       setEditingWorkshop(null);
       setBanReasonInput('');
-      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('خطأ أثناء تنفيذ الحظر: ' + err.message);
     } finally {
@@ -1758,7 +1625,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // 3. Unban / Activate Workshop
   const handleReactivateWorkshop = async (targetWs: WorkshopProfile) => {
     setSavingAction(true);
     try {
@@ -1768,25 +1634,27 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         headers,
         body: JSON.stringify({ status: 'active' }),
       });
-
       const errJson = !res.ok ? await res.json().catch(() => ({})) : {};
       if (!res.ok) throw new Error(errJson.error || 'تعذر إعادة تفعيل الورشة');
 
-      const updatedWs: WorkshopProfile = {
-        ...targetWs,
-        status: 'active',
-        isFrozen: false,
-        suspension_reason: undefined,
-        suspension_duration: undefined,
-        suspended_until: null,
-      };
-
-      setWorkshops((prev) => prev.map((w) => (w.id === targetWs.id ? updatedWs : w)));
+      setWorkshops((prev) =>
+        prev.map((w) =>
+          w.id === targetWs.id
+            ? {
+                ...w,
+                status: 'active',
+                isFrozen: false,
+                suspension_reason: undefined,
+                suspension_duration: undefined,
+                suspended_until: null,
+              }
+            : w
+        )
+      );
       loadWorkshops(true);
       playSuccessSound();
-      setSuccessNotice(`تم إلغاء الحظر وإعادة تفعيل ورشة "${targetWs.brandName}" ومتجرها بنجاح!`);
+      showSuccess(`تم إعادة تفعيل ورشة "${targetWs.brandName}" ومتجرها بنجاح.`);
       setEditingWorkshop(null);
-      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('تعذر التفعيل: ' + err.message);
     } finally {
@@ -1794,7 +1662,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // 4. Accept Appeal
+  // Appeals
   const handleAcceptAppeal = async (appealItem: any) => {
     try {
       const headers = await getAdminAuthHeaders(true);
@@ -1803,23 +1671,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         headers,
         body: JSON.stringify({ appeal_status: 'accepted' }),
       });
-
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || 'فشل قبول الطعن على الخادم');
+        throw new Error(errJson.error || 'فشل قبول الطعن');
       }
-
       playSuccessSound();
-      setSuccessNotice(`تم قبول طعن ورشة "${appealItem.brand_name || 'الورشة'}" وإعادة تفعيلها فوراً.`);
+      showSuccess(`تم قبول طعن ورشة "${appealItem.brand_name || 'الورشة'}" وإعادة تفعيلها.`);
       loadAppeals();
       loadWorkshops(true);
-      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('تعذر قبول الطعن: ' + err.message);
     }
   };
 
-  // 5. Reject Appeal
   const handleConfirmRejectAppeal = async () => {
     if (!rejectingAppealWorkshop) return;
     try {
@@ -1829,28 +1693,26 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         headers,
         body: JSON.stringify({
           appeal_status: 'rejected',
-          rejection_reason: rejectionReasonInput.trim() || 'تم رفض الطعن بعد دراسة تفاصيل وسجلات الورشة.',
+          rejection_reason:
+            rejectionReasonInput.trim() || 'تم رفض الطعن بعد مراجعة سجلات الورشة.',
         }),
       });
-
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || 'فشل رفض الطعن على الخادم');
+        throw new Error(errJson.error || 'فشل رفض الطعن');
       }
-
       playAlertSound();
-      setSuccessNotice(`تم رفض طعن ورشة "${rejectingAppealWorkshop.brand_name || 'الورشة'}" وتسجيل السبب.`);
+      showSuccess(`تم رفض طعن ورشة "${rejectingAppealWorkshop.brand_name || 'الورشة'}".`);
       setRejectingAppealWorkshop(null);
       setRejectionReasonInput('');
       loadAppeals();
       loadWorkshops(true);
-      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('تعذر رفض الطعن: ' + err.message);
     }
   };
 
-  // 6. Post Announcement (Broadcast / Specific)
+  // Messaging & Notifications
   const handleSendAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAnnTitle.trim() || !newAnnContent.trim()) {
@@ -1875,19 +1737,16 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           content: newAnnContent.trim(),
         }),
       });
-
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || 'تعذر إرسال التوجيه عبر الخادم');
+        throw new Error(errJson.error || 'تعذر إرسال التوجيه');
       }
-
       playSuccessSound();
-      setSuccessNotice('تم إرسال الرسالة بنجاح عبر مركز المراسلات لكافة الورش المحددة!');
+      showSuccess('تم إرسال الرسالة عبر مركز المراسلات بنجاح.');
       setNewAnnTitle('');
       setNewAnnContent('');
       setNewAnnRecipientWorkshopId('');
       loadMessagingHub();
-      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('تعذر إرسال الرسالة: ' + err.message);
     } finally {
@@ -1895,7 +1754,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // 6b. Delete Sent Announcement
   const handleDeleteAnnouncement = async (annId: string) => {
     setDeletingAnnId(annId);
     try {
@@ -1910,8 +1768,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       }
       setAnnouncementsList((prev) => prev.filter((a) => a.id !== annId));
       playAlertSound();
-      setSuccessNotice('✓ تم حذف التوجيه من سجل المراسلات بنجاح.');
-      setTimeout(() => setSuccessNotice(''), 3500);
+      showSuccess('تم حذف التوجيه من سجل المراسلات.');
     } catch (err: any) {
       showError('تعذر حذف الرسالة: ' + err.message);
     } finally {
@@ -1919,7 +1776,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // 6c. Direct Reply to Workshop Inbox Message
   const handleSendDirectReply = async (targetMsg: any) => {
     const targetWid = targetMsg?.workshop_id || targetMsg?.workshops?.id || '';
     if (!targetWid || !isValidUuid(targetWid)) {
@@ -1940,7 +1796,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           recipient_type: 'specific',
           recipient_workshop_id: targetWid,
           recipient_workshop_name: targetMsg?.workshops?.brand_name || targetMsg?.brand_name || '',
-          title: `✉️ رد إداري مباشر على استفساركم`,
+          title: 'رد إداري مباشر على استفساركم',
           content: directReplyContent.trim(),
         }),
       });
@@ -1949,11 +1805,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         throw new Error(errJson.error || 'تعذر إرسال الرد المباشر');
       }
       playSuccessSound();
-      setSuccessNotice(`✓ تم إرسال الرد المباشر إلى ورشة "${targetMsg.workshops?.brand_name || 'الفنان'}" بنجاح!`);
+      showSuccess(`تم إرسال الرد المباشر إلى "${targetMsg.workshops?.brand_name || 'الفنان'}".`);
       setDirectReplyTarget(null);
       setDirectReplyContent('');
       loadMessagingHub();
-      setTimeout(() => setSuccessNotice(''), 4000);
     } catch (err: any) {
       showError('تعذر إرسال الرد: ' + err.message);
     } finally {
@@ -1961,11 +1816,23 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // 7. Selective Deletion / Reset Handler
+  const handleDismissAlert = async (alertId: string) => {
+    setAdminAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    try {
+      const headers = await getAdminAuthHeaders();
+      await fetch(`/api/admin/notifications/${encodeURIComponent(alertId)}`, {
+        method: 'DELETE',
+        headers,
+      });
+      window.dispatchEvent(new CustomEvent('alshams_admin_alerts_changed'));
+    } catch {}
+  };
+
+  // Selective Deletion
   const handleSelectiveDeleteWorkshop = async () => {
     if (!deletingWorkshop) return;
     if (deletingWorkshop.id === profile.id && selectiveDeleteMode === 'cascade') {
-      showError('لا يمكنك حذف ورشتك الحالية كلياً من لوحة التحكم!');
+      showError('لا يمكنك حذف ورشتك الحالية كلياً من لوحة التحكم.');
       return;
     }
     if (deleteConfirmText.trim() !== deletingWorkshop.brandName.trim()) {
@@ -1975,7 +1842,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
     setSavingAction(true);
     try {
-      // 1. Delete from Supabase workshops and profiles directly if cascade
       if (selectiveDeleteMode === 'cascade') {
         try {
           await supabase.from('workshops').delete().eq('id', deletingWorkshop.id);
@@ -1983,19 +1849,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           if (deletingWorkshop.ownerUid) {
             await supabase.from('profiles').delete().eq('id', deletingWorkshop.ownerUid);
           }
-        } catch (supaErr) {
-          console.warn('Supabase workshop delete notice:', supaErr);
-        }
+        } catch {}
       }
 
-      // 2. Call backend server endpoint
       const headers = await getAdminAuthHeaders(true);
       const delRes = await fetch(`/api/admin/workshops/${deletingWorkshop.id}/selective-delete`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ mode: selectiveDeleteMode }),
       });
-
       if (!delRes.ok) {
         const errJson = await delRes.json().catch(() => ({}));
         throw new Error(errJson.error || 'تعذر تنفيذ عملية التصفير/الحذف على الخادم');
@@ -2005,25 +1867,16 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         await tenantStorage.deleteProfile(deletingWorkshop.id);
         setWorkshops((prev) => prev.filter((w) => w.id !== deletingWorkshop.id));
         loadWorkshops(true);
-        setSuccessNotice(`تم حذف ورشة "${deletingWorkshop.brandName}" نهائياً من المنظومة.`);
-      } else if (selectiveDeleteMode === 'catalog_inventory') {
-        setSuccessNotice(`تم تصفير المخزن والكتالوج لورشة "${deletingWorkshop.brandName}" بنجاح.`);
-        if (selectedWorkshopId === deletingWorkshop.id) {
-          loadDeepData(deletingWorkshop.id);
-        }
+        showSuccess(`تم حذف ورشة "${deletingWorkshop.brandName}" نهائياً.`);
       } else {
-        setSuccessNotice(`تم تصفير الدورة المالية والطلبيات لورشة "${deletingWorkshop.brandName}" بنجاح.`);
-        if (selectedWorkshopId === deletingWorkshop.id) {
-          loadDeepData(deletingWorkshop.id);
-        }
+        showSuccess(`تم تنفيذ التصفير الجزئي لورشة "${deletingWorkshop.brandName}" بنجاح.`);
+        if (selectedWorkshopId === deletingWorkshop.id) loadDeepData(deletingWorkshop.id);
       }
-
       playAlertSound();
-      setTimeout(() => setSuccessNotice(''), 4000);
       setDeletingWorkshop(null);
       setDeleteConfirmText('');
     } catch (err: any) {
-      showError('تعذر تنفيذ العملية: ' + (err.message || 'خطأ غير معروف'));
+      showError('تعذر تنفيذ العملية: ' + (err.message || 'خطأ'));
     } finally {
       setSavingAction(false);
     }
@@ -2036,7 +1889,6 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       showError('اسم البراند واسم الفنان مطلوبان');
       return;
     }
-
     setSavingAction(true);
     try {
       const generatedId = crypto.randomUUID();
@@ -2044,9 +1896,13 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         COUNTRIES_CONFIG.find((c) => c.name === newCountry) || COUNTRIES_CONFIG[0];
       const brandClean = newBrandName.trim();
       const artistClean = newArtistName.trim();
-      const storeSlug = getWorkshopCleanSlug({ id: generatedId, brandName: brandClean, artistName: artistClean });
+      const storeSlug = getWorkshopCleanSlug({
+        id: generatedId,
+        brandName: brandClean,
+        artistName: artistClean,
+      });
 
-      const newWs: WorkshopProfile = {
+      const newWs: EnrichedWorkshopProfile = {
         id: generatedId,
         workshopId: generatedId,
         ownerUid: generatedId,
@@ -2070,35 +1926,46 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         createdAt: Date.now(),
         updatedAt: Date.now(),
         createdBy: profile.email || 'admin',
+        productsCount: 0,
+        marketplaceProductsCount: 0,
+        ordersCount: 0,
+        totalCatalogAndShowcase: 0,
+        activityScore: 0,
       };
 
       const nowIso = new Date(newWs.createdAt).toISOString();
       const [wsUpsertRes] = await Promise.all([
-        supabase.from('workshops').upsert({
-          id: newWs.id,
-          brand_name: newWs.brandName,
-          artist_name: newWs.artistName,
-          email: newWs.email,
-          phone: newWs.phoneNumber,
-          country: newWs.country,
-          currency: newWs.currency,
-          currency_symbol: newWs.currencySymbol,
-          store_slug: storeSlug,
-          selected_crafts: newWs.selectedCrafts,
-          status: 'active',
-          is_frozen: false,
-          created_at: nowIso,
-          updated_at: nowIso,
-        }, { onConflict: 'id' }),
-        supabase.from('profiles').upsert({
-          id: newWs.id,
-          name: newWs.artistName || newWs.brandName,
-          email: newWs.email,
-          phone: newWs.phoneNumber,
-          role: newWs.role,
-          status: 'active',
-          created_at: nowIso,
-        }, { onConflict: 'id' }),
+        supabase.from('workshops').upsert(
+          {
+            id: newWs.id,
+            brand_name: newWs.brandName,
+            artist_name: newWs.artistName,
+            email: newWs.email,
+            phone: newWs.phoneNumber,
+            country: newWs.country,
+            currency: newWs.currency,
+            currency_symbol: newWs.currencySymbol,
+            store_slug: storeSlug,
+            selected_crafts: newWs.selectedCrafts,
+            status: 'active',
+            is_frozen: false,
+            created_at: nowIso,
+            updated_at: nowIso,
+          },
+          { onConflict: 'id' }
+        ),
+        supabase.from('profiles').upsert(
+          {
+            id: newWs.id,
+            name: newWs.artistName || newWs.brandName,
+            email: newWs.email,
+            phone: newWs.phoneNumber,
+            role: newWs.role,
+            status: 'active',
+            created_at: nowIso,
+          },
+          { onConflict: 'id' }
+        ),
       ]);
 
       const headers = await getAdminAuthHeaders(true);
@@ -2107,19 +1974,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         headers,
         body: JSON.stringify(newWs),
       });
-
       if (!serverRes.ok && wsUpsertRes.error) {
         const errJson = await serverRes.json().catch(() => ({}));
-        throw new Error(errJson.error || wsUpsertRes.error.message || 'تعذر حفظ الورشة في قاعدة البيانات');
+        throw new Error(errJson.error || wsUpsertRes.error.message || 'تعذر حفظ الورشة');
       }
 
       await tenantStorage.saveProfile(newWs);
-
       setWorkshops((prev) => [newWs, ...prev]);
       playSuccessSound();
-      setSuccessNotice(`تم تسجيل ورشة "${newWs.brandName}" بنجاح.`);
-      setTimeout(() => setSuccessNotice(''), 4000);
-
+      showSuccess(`تم تسجيل ورشة "${newWs.brandName}" بنجاح.`);
       setNewBrandName('');
       setNewArtistName('');
       setNewEmail('');
@@ -2127,13 +1990,12 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setNewRole('artisan');
       setIsNewWorkshopModalOpen(false);
     } catch (err: any) {
-      showError('تعذر إنشاء الورشة: ' + (err.message || 'خطأ غير معروف'));
+      showError('تعذر إنشاء الورشة: ' + (err.message || 'خطأ'));
     } finally {
       setSavingAction(false);
     }
   };
 
-  // Inline Price Edit Handler
   const handleSaveMaterialPrice = async () => {
     if (!editingMaterial || !newMaterialPrice) return;
     const priceNum = parseFloat(newMaterialPrice);
@@ -2141,11 +2003,12 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       showError('يرجى إدخال سعر صحيح');
       return;
     }
-
     try {
       if (deepData?.materials) {
         const updatedList = deepData.materials.map((m) =>
-          m.id === editingMaterial.id ? { ...m, unit_cost: priceNum, price: priceNum, cost: priceNum } : m
+          m.id === editingMaterial.id
+            ? { ...m, unit_cost: priceNum, price: priceNum, cost: priceNum }
+            : m
         );
         setDeepData({ ...deepData, materials: updatedList });
       }
@@ -2161,20 +2024,18 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   if (!isAdmin) {
     return (
       <div className="min-h-[70vh] flex items-center justify-center p-4">
-        <div className="max-w-md w-full p-8 rounded-3xl bg-white dark:bg-stone-900 border border-rose-300 dark:border-rose-900/60 shadow-2xl text-center space-y-4">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+        <div className="max-w-md w-full p-8 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-rose-300 dark:border-rose-900/60 shadow-2xl text-center space-y-4">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center">
             <ShieldAlert size={36} />
           </div>
-          <h2 className="text-xl font-black text-stone-900 dark:text-stone-100">
-            منطقة المسؤولين فقط
-          </h2>
-          <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed">
+          <h2 className="text-xl font-black text-[#0C1427] dark:text-[#F7F3EA]">منطقة المسؤولين فقط</h2>
+          <p className="text-xs text-[#475569] dark:text-[#94A3B8] leading-relaxed">
             عذراً، هذه الشاشة مخصصة لإدارة المنظومة. الحساب الحالي لا يمتلك صلاحيات الإشراف.
           </p>
           <button
             type="button"
             onClick={onNavigateHome}
-            className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+            className="w-full py-3 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
           >
             <ArrowRight size={16} />
             <span>العودة للصفحة الرئيسية</span>
@@ -2184,4924 +2045,376 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     );
   }
 
-  // Loading Screen (منع رندر الصفحة قبل اكتمال جلب البيانات من السيرفر)
+  // Initial Loading Screen
   if (loading) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 space-y-4" dir="rtl">
-        <div className="relative">
-          <div className="w-16 h-16 border-4 border-amber-200 dark:border-amber-900 border-t-amber-500 rounded-full animate-spin" />
-          <div className="absolute inset-0 flex items-center justify-center text-xl select-none">
-            🦅
-          </div>
-        </div>
-        <div className="text-center space-y-1.5">
-          <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100">
-            جاري تحميل مركز قيادة عيلة الشمساوية...
-          </h2>
-          <p className="text-xs text-stone-500 dark:text-stone-400 font-bold">
-            جلب سجلات الورش، الحسابات الرقابية، وبوابات المراسلات الحية
-          </p>
-        </div>
+        <div className="w-12 h-12 border-4 border-[#D4CCBC] dark:border-[#22355E] border-t-[#EA580C] rounded-full animate-spin" />
+        <p className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+          جاري تحميل لوحة التحكم التنفيذية...
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 pb-12 animate-in fade-in duration-200">
-      {/* 1. Top Header with Royal Golden Badge */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-stone-900 via-amber-950 to-stone-900 text-white p-5 sm:p-6 rounded-3xl shadow-xl border border-amber-500/30">
-        <div className="absolute top-0 left-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/30 via-yellow-500/40 to-amber-600/30 border border-amber-400/80 text-amber-200 text-xs font-black shadow-lg shadow-amber-500/10">
-                <span className="text-sm">👑</span>
-                <span>كبير عيلة الشمساوية</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-amber-600 text-white font-mono uppercase">
-                  Super Admin
-                </span>
-              </span>
-
-              <span className="text-xs text-stone-300 font-bold">
-                م. حسام بسيوني (
-                <span className="font-mono text-amber-300">hmb.top.tube@gmail.com</span>)
-              </span>
-            </div>
-
-            <h1 className="text-xl sm:text-2xl font-black text-amber-300">
-              لوحة التحكم الشاملة وإدارة الورش الحازمة (Master Multi-Tenant ERP)
-            </h1>
-            <p className="text-xs text-stone-300 leading-relaxed max-w-3xl">
-              إشراف تنفيذي حازم، نظام الإيقاف المؤقت وفك التجميد التلقائي، حظر المخالفين، معالجة الطعون، ومركز المراسلات التفاعلية المباشرة بنغمة بوسطة! المميزة.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
-            {/* Admin Approvals & System Alerts Bell (opens Unified Center on Admin Tab) */}
-            <button
-              type="button"
-              onClick={() => {
-                loadAdminNotifications();
-                if (onOpenNotificationsCenter) {
-                  onOpenNotificationsCenter();
-                } else if (onOpenMessagesHub) {
-                  onOpenMessagesHub();
-                } else {
-                  setActiveExecutiveTab('product_approvals');
-                }
-              }}
-              className="relative p-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition cursor-pointer shadow-xs"
-              title="مركز الإشعارات الإدارية وطلبات الاعتماد"
-            >
-              <Bell size={17} className="text-amber-400" />
-              {adminAlerts.length > 0 && (
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-[#EA580C] text-white rounded-full text-[10px] font-black font-mono">
-                  {adminAlerts.length}
-                </span>
-              )}
-            </button>
-
-            {/* Top Messages Icon: opens Admin Inbox & Mail Center directly */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveExecutiveTab('messaging');
-                loadMessagingHub();
-                markInboxAllRead();
-                setTimeout(() => {
-                  document.getElementById('admin-inbox-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }, 100);
-              }}
-              className="relative p-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition cursor-pointer shadow-xs"
-              title="صندوق البريد الوارد وردود الفنانين"
-            >
-              <Mail size={17} className="text-amber-400" />
-              {(unreadInboxCount > 0 || inboxList.length > 0) && (
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-[#1E3A8A] text-white rounded-full text-[10px] font-black font-mono">
-                  {unreadInboxCount > 0 ? unreadInboxCount : inboxList.length}
-                </span>
-              )}
-            </button>
-
-            {/* Unified AI Command Center Button */}
-            {onOpenUnifiedAI && (
-              <button
-                type="button"
-                onClick={() => {
-                  playSuccessSound();
-                  onOpenUnifiedAI();
-                }}
-                className="px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-black text-xs flex items-center gap-1.5 shadow-lg shadow-amber-600/25 transition cursor-pointer"
-                title="فتح مركز الذكاء الاصطناعي الموحد (صقر الشمساوية & شموسة التدريب)"
-              >
-                <Sparkles size={14} className="text-amber-200" />
-                <span>المساعد الذكي</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={exportSystemReportCSV}
-              className="px-3.5 py-2.5 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-              title="تصدير تقرير المنظومة الشامل (CSV) للورش والمنتجات والفواتير"
-            >
-              <Download size={15} />
-              <span>تصدير تقرير المنظومة (CSV)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsNewWorkshopModalOpen(true)}
-              className="px-4 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-2 shadow-lg shadow-amber-600/30 transition cursor-pointer"
-            >
-              <PlusCircle size={16} />
-              <span>تسجيل ورشة</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                loadWorkshops(false);
-                loadAppeals();
-                loadMessagingHub();
-                loadCloudMarketplaceProducts();
-                loadWorkshopApplications();
-                loadAdminNotifications();
-              }}
-              disabled={refreshing}
-              className="p-2.5 rounded-2xl bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 transition cursor-pointer disabled:opacity-50"
-              title="تحديث البيانات فورياً"
-            >
-              <RefreshCw size={17} className={refreshing ? 'animate-spin text-amber-400' : ''} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* 1.5 Quick Command Pulse Bar (أولويات السوبر أدمن ومهام الاعتماد الحية) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveExecutiveTab('product_approvals');
-            loadCloudMarketplaceProducts();
-          }}
-          className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-amber-300/60 dark:border-amber-800/60 hover:border-amber-500 transition flex items-center justify-between text-right shadow-xs cursor-pointer"
-        >
-          <div>
-            <span className="text-[10px] font-bold text-stone-500 block">منتجات بانتظار السوق</span>
-            <span className="text-base font-black font-mono text-amber-600">
-              {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length}
-            </span>
-          </div>
-          <Sparkles className="w-5 h-5 text-amber-500 shrink-0" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveExecutiveTab('applications');
-            loadWorkshopApplications();
-          }}
-          className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-amber-500 transition flex items-center justify-between text-right shadow-xs cursor-pointer"
-        >
-          <div>
-            <span className="text-[10px] font-bold text-stone-500 block">طلبات انضمام الورش</span>
-            <span className="text-base font-black font-mono text-emerald-600">
-              {workshopApplications.filter((a) => a.status === 'pending' || !a.status).length}
-            </span>
-          </div>
-          <Building2 className="w-5 h-5 text-emerald-500 shrink-0" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveExecutiveTab('appeals');
-            loadAppeals();
-          }}
-          className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-rose-500 transition flex items-center justify-between text-right shadow-xs cursor-pointer"
-        >
-          <div>
-            <span className="text-[10px] font-bold text-stone-500 block">طعون وتظلمات معلقة</span>
-            <span className="text-base font-black font-mono text-rose-600">
-              {stats.pendingAppeals}
-            </span>
-          </div>
-          <Scale className="w-5 h-5 text-rose-500 shrink-0" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveExecutiveTab('messaging');
-            loadMessagingHub();
-            markInboxAllRead();
-            setTimeout(() => {
-              document.getElementById('admin-inbox-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }, 100);
-          }}
-          className="p-3 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-blue-500 transition flex items-center justify-between text-right shadow-xs cursor-pointer"
-        >
-          <div>
-            <span className="text-[10px] font-bold text-stone-500 block">رسائل وردود الوارد</span>
-            <span className="text-base font-black font-mono text-blue-600">
-              {inboxList.length}
-            </span>
-          </div>
-          <Mail className="w-5 h-5 text-blue-500 shrink-0" />
-        </button>
-      </div>
-
-      {/* 2. Realtime Notification Banner */}
-      {realtimeToast && (
-        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-yellow-500/20 to-amber-500/20 border-2 border-amber-400 text-amber-950 dark:text-amber-100 text-xs font-black flex items-center justify-between shadow-lg shadow-amber-500/15 animate-in fade-in slide-in-from-top-2">
-          <div className="flex items-center gap-2.5">
-            <Sparkles size={20} className="text-amber-500 animate-spin shrink-0" />
-            <span>{realtimeToast}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setRealtimeToast(null)}
-            className="p-1 rounded-lg hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 cursor-pointer"
-          >
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
-      {/* 3. Success Notice */}
-      {successNotice && (
-        <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center justify-between animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <Check size={18} className="text-emerald-600 shrink-0" />
-            <span>{successNotice}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setSuccessNotice('')}
-            className="p-1 text-emerald-600 hover:text-emerald-800 cursor-pointer"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
-      {/* 3.1 Error Notice */}
-      {errorMsg && (
-        <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center justify-between animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={18} className="text-rose-600 shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setErrorMsg('')}
-            className="p-1 text-rose-600 hover:text-rose-800 cursor-pointer"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
-      {/* 4. Master ERP Workshop Switcher & Executive Section */}
-      <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 p-5 sm:p-6 shadow-sm space-y-5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-stone-200 dark:border-stone-800">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Layers className="w-5 h-5 text-amber-600" />
-              <h2 className="text-base font-black text-stone-900 dark:text-stone-100">
-                محدد الورش التنفيذي والمحاور الإدارية (Master Multi-Tenant ERP)
-              </h2>
-            </div>
-            <p className="text-xs text-stone-500">
-              استعراض مباشر للخامات، المنتجات، المعاملات، مركز الطعون، ومراسلات المنظومة:
-            </p>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full lg:w-auto">
-            {/* Dynamic Live Filtering Search Input */}
-            <div className="relative min-w-[200px] sm:min-w-[220px]">
-              <Search className="w-3.5 h-3.5 text-stone-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={dropdownSearch}
-                onChange={(e) => setDropdownSearch(e.target.value)}
-                placeholder="بحث في الورش..."
-                className="w-full pr-8 pl-7 py-2 rounded-2xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs font-bold text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-amber-500 text-right"
-              />
-              {dropdownSearch && (
-                <button
-                  type="button"
-                  onClick={() => setDropdownSearch('')}
-                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 p-0.5"
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-
-            <div className="relative min-w-[260px]">
-              <select
-                value={selectedWorkshopId}
-                onChange={(e) => setSelectedWorkshopId(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-2xl bg-amber-50/70 dark:bg-stone-800 border-2 border-amber-300 dark:border-amber-700/80 text-xs font-black text-stone-900 dark:text-stone-100 outline-none cursor-pointer focus:ring-2 focus:ring-amber-500 shadow-xs"
-              >
-                {liveFilteredWorkshops.length === 0 ? (
-                  <option value="">لا توجد ورش مسجلة</option>
-                ) : (
-                  liveFilteredWorkshops.map((w) => {
-                    const s = w.status || (w.isFrozen ? 'suspended' : 'active');
-                    const badgeIcon = s === 'banned' ? '🔴 [محظورة]' : s === 'suspended' ? '🟡 [موقوفة]' : '🟢';
-                    return (
-                      <option key={w.id} value={w.id}>
-                        {badgeIcon} {w.brandName} — {w.artistName} ({w.country || 'مصر'})
-                      </option>
-                    );
-                  })
-                )}
-              </select>
-            </div>
-
-            {onSelectActiveWorkshop && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (currentSelectedWorkshop) {
-                    onSelectActiveWorkshop(currentSelectedWorkshop);
-                    playSuccessSound();
-                  }
-                }}
-                className="px-4 py-2.5 rounded-2xl bg-stone-900 hover:bg-stone-800 dark:bg-amber-600 dark:hover:bg-amber-700 text-white text-xs font-black flex items-center gap-1.5 transition shadow-md cursor-pointer"
-                title="تفعيل سياق هذه الورشة في كامل شاشات التطبيق"
-              >
-                <Play size={14} className="text-amber-400" />
-                <span>تفعيل سياق الورشة</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => loadDeepData(selectedWorkshopId)}
-              disabled={deepDataLoading}
-              className="p-2.5 rounded-2xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 text-stone-700 dark:text-stone-300 transition cursor-pointer"
-              title="إعادة تحميل بيانات الورشة المحددة"
-            >
-              <RefreshCw size={15} className={deepDataLoading ? 'animate-spin text-amber-500' : ''} />
-            </button>
-          </div>
-        </div>
-
-        {/* Empty State Banner when no real workshops are found */}
-        {workshops.length === 0 && (
-          <div className="p-5 rounded-2xl bg-stone-900 border border-amber-500/30 text-stone-200 flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="space-y-1 text-right">
+    <div className="min-h-[80vh] text-[#0C1427] dark:text-[#F7F3EA]">
+      {/* Global Compact Feedback Banners (Toast / Success / Error) */}
+      {(realtimeToast || successNotice || errorMsg) && (
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-3 space-y-2">
+          {realtimeToast && (
+            <div className="p-3 rounded-2xl bg-[#FFEDD5] dark:bg-[#132040] border border-[#EA580C]/40 text-xs font-black flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-amber-400" />
-                <h3 className="text-sm font-black text-amber-300">
-                  قاعدة البيانات الحقيقية جاهزة ولا تتضمن أي بيانات وهمية
-                </h3>
+                <Sparkles className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
+                <span>{realtimeToast}</span>
               </div>
-              <p className="text-xs text-stone-400">
-                تم تنظيف كافة البيانات التجريبية والوهمية بنجاح. يمكنك استقطاب الورش الحقيقية عبر رابط الانضمام أو مراجعة طلبات الانضمام المعلقة أو إضافة ورشة يدوياً.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              <button
-                type="button"
-                onClick={() => {
-                  const inviteUrl = `${window.location.origin}/?tab=register`;
-                  navigator.clipboard.writeText(inviteUrl);
-                  playSuccessSound();
-                  setSuccessNotice('✓ تم نسخ رابط انضمام الورش الحرفية بنجاح إلى الحافظة!');
-                }}
-                className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-              >
-                <Copy size={13} />
-                <span>نسخ رابط دعوة انضمام الورش 📋</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveExecutiveTab('applications');
-                  loadWorkshopApplications();
-                }}
-                className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-              >
-                <Sparkles size={13} />
-                <span>طلبات الانضمام ({workshopApplications.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsNewWorkshopModalOpen(true)}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-              >
-                <PlusCircle size={13} />
-                <span>تسجيل ورشة جديدة يدوياً ➕</span>
+              <button type="button" onClick={() => setRealtimeToast(null)} className="p-1 cursor-pointer">
+                <X className="w-4 h-4" />
               </button>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Selected Workshop Header Info Card */}
-        {workshops.length > 0 && currentSelectedWorkshop && (
-          <div className="p-4 rounded-2xl bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-amber-600 text-white font-black flex items-center justify-center text-base shadow-md">
-                {(currentSelectedWorkshop.brandName || 'ورشة').charAt(0) || 'و'}
-              </div>
-              <div>
-                <div className="font-black text-sm text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                  <span>{currentSelectedWorkshop.brandName || 'ورشة الشمساوية'}</span>
-                  {currentSelectedWorkshop.status === 'banned' ? (
-                    <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-extrabold border border-rose-300">
-                      🔴 محظورة
-                    </span>
-                  ) : currentSelectedWorkshop.status === 'suspended' || currentSelectedWorkshop.isFrozen ? (
-                    <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-extrabold border border-amber-300">
-                      🟡 موقوفة مؤقتاً
-                    </span>
-                  ) : (
-                    <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-extrabold border border-emerald-300">
-                      🟢 نشطة
-                    </span>
-                  )}
-                </div>
-                <div className="text-[11px] text-stone-600 dark:text-stone-400 font-bold mt-0.5">
-                  الفنان: {currentSelectedWorkshop.artistName || 'فنان'} | الدولة: {currentSelectedWorkshop.country || 'مصر'} ({currentSelectedWorkshop.currencySymbol || 'ج.م'})
-                  {currentSelectedWorkshop.suspension_reason && (
-                    <span className="mr-2 text-rose-600 font-black">
-                      (سبب الإجراء: {currentSelectedWorkshop.suspension_reason})
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setEditingWorkshop(currentSelectedWorkshop)}
-                className="px-3 py-1.5 rounded-xl bg-amber-600 text-white font-bold flex items-center gap-1.5 shadow-xs hover:bg-amber-700 cursor-pointer"
-              >
-                <Edit3 size={13} />
-                <span>إدارة وحظر / إيقاف الورشة</span>
-              </button>
-
-              {currentSelectedWorkshop.phoneNumber && (
-                <>
-                  <a
-                    href={`tel:${currentSelectedWorkshop.phoneNumber}`}
-                    className="px-3 py-1.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 hover:bg-amber-50 text-stone-800 dark:text-stone-200 font-bold flex items-center gap-1.5 shadow-xs"
-                  >
-                    <Phone size={13} className="text-amber-600" />
-                    <span dir="ltr">{currentSelectedWorkshop.phoneNumber}</span>
-                  </a>
-                  <a
-                    href={`https://wa.me/${currentSelectedWorkshop.phoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent('السلام عليكم يا فنان، نتابع معك سير العمل في ورشتك على منظومة الشمساوية')}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 shadow-xs"
-                  >
-                    <MessageCircle size={13} />
-                    <span>واتساب</span>
-                  </a>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Executive Tabs Switcher (wraps cleanly on mobile) */}
-        <div className="flex flex-wrap items-center gap-1.5 bg-stone-100 dark:bg-stone-800/80 p-1.5 rounded-2xl">
-          <button
-            type="button"
-            onClick={() => setActiveExecutiveTab('materials')}
-            className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeExecutiveTab === 'materials'
-                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <Boxes size={15} />
-            <span>الخامات ({deepData?.materials?.length || 0})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveExecutiveTab('products')}
-            className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeExecutiveTab === 'products'
-                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <Package size={15} />
-            <span>المنتجات ({deepData?.products?.length || 0})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveExecutiveTab('treasuries')}
-            className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeExecutiveTab === 'treasuries'
-                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <Wallet size={15} />
-            <span>الخزائن</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveExecutiveTab('orders')}
-            className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeExecutiveTab === 'orders'
-                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <ShoppingCart size={15} />
-            <span>الطلبات ({deepData?.orders?.length || 0})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveExecutiveTab('contacts')}
-            className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeExecutiveTab === 'contacts'
-                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <Users size={15} />
-            <span>الاتصال والعمل ({((deepData?.customers?.length || 0) + (deepData?.suppliers?.length || 0) + (deepData?.employees?.length || 0))})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveExecutiveTab('appeals')}
-            className={`flex-1 min-w-[140px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer relative ${
-              activeExecutiveTab === 'appeals'
-                ? 'bg-white dark:bg-stone-900 text-rose-700 dark:text-rose-400 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <Scale size={15} />
-            <span>مركز الطعون</span>
-            {stats.pendingAppeals > 0 && (
-              <span className="px-1.5 py-0.2 bg-rose-600 text-white rounded-full text-[9px] font-mono font-black animate-pulse">
-                {stats.pendingAppeals}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveExecutiveTab('messaging');
-              loadMessagingHub();
-              markInboxAllRead();
-            }}
-            className={`flex-1 min-w-[140px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeExecutiveTab === 'messaging'
-                ? 'bg-white dark:bg-stone-900 text-blue-700 dark:text-blue-400 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <Mail size={15} />
-            <span>المراسلات الحية</span>
-            {(unreadInboxCount > 0 || inboxList.length > 0) && (
-              <span className="px-1.5 py-0.2 bg-blue-600 text-white rounded-full text-[9px] font-mono font-black">
-                {unreadInboxCount > 0 ? unreadInboxCount : inboxList.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveExecutiveTab('marketplace')}
-            className={`flex-1 min-w-[150px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeExecutiveTab === 'marketplace'
-                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <Store size={15} />
-            <span>إدارة سوق الشمساوية 🏪</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveExecutiveTab('product_approvals');
-              loadCloudMarketplaceProducts();
-            }}
-            className={`flex-1 min-w-[170px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeExecutiveTab === 'product_approvals'
-                ? 'bg-white dark:bg-stone-900 text-amber-600 dark:text-amber-400 shadow-sm border border-amber-500/30'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <Sparkles size={15} className="text-amber-500" />
-            <span>اعتماد معروضات السوق 🛍️</span>
-            {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length > 0 && (
-              <span className="px-2 py-0.5 bg-amber-500 text-stone-950 rounded-full text-[10px] font-mono font-black animate-pulse">
-                {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveExecutiveTab('applications');
-              loadWorkshopApplications();
-            }}
-            className={`flex-1 min-w-[170px] py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-              activeExecutiveTab === 'applications'
-                ? 'bg-white dark:bg-stone-900 text-amber-600 dark:text-amber-400 shadow-sm border border-amber-500/30'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
-            }`}
-          >
-            <Building2 size={15} className="text-amber-500" />
-            <span>طلبات انضمام الورش 🏛️</span>
-            {workshopApplications.filter((a) => a.status === 'pending' || !a.status).length > 0 && (
-              <span className="px-2 py-0.5 bg-amber-500 text-stone-950 rounded-full text-[10px] font-mono font-black animate-pulse">
-                {workshopApplications.filter((a) => a.status === 'pending' || !a.status).length}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Tab 1: Materials */}
-        {activeExecutiveTab === 'materials' && (
-          <div className="space-y-3">
-            {deepDataLoading ? (
-              <div className="p-8 text-center text-stone-500 font-bold text-xs">جاري فحص خامات الورشة...</div>
-            ) : !deepData?.materials || deepData.materials.length === 0 ? (
-              <div className="p-8 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 space-y-2">
-                <Boxes className="w-8 h-8 mx-auto text-stone-400" />
-                <p className="text-xs font-bold text-stone-600 dark:text-stone-400">
-                  لا توجد خامات مسجلة في مخزن هذه الورشة حالياً.
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-stone-100 dark:bg-stone-800/60 font-bold text-stone-600 dark:text-stone-300">
-                    <tr>
-                      <th className="py-2.5 px-3">اسم الخامة</th>
-                      <th className="py-2.5 px-3">الكود / التصنيف</th>
-                      <th className="py-2.5 px-3">الوحدة</th>
-                      <th className="py-2.5 px-3">سعر التكلفة</th>
-                      <th className="py-2.5 px-3">الرصيد المتاح</th>
-                      <th className="py-2.5 px-3 text-center">إجراءات</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-semibold">
-                    {deepData.materials.map((m: any) => (
-                      <tr key={m.id || m.material_id} className="hover:bg-amber-50/30 dark:hover:bg-stone-800/30">
-                        <td className="py-2.5 px-3 font-black text-stone-900 dark:text-stone-100">
-                          {m.name || m.material_name}
-                        </td>
-                        <td className="py-2.5 px-3 text-stone-500 font-mono text-[11px]">
-                          {m.code || m.category || '—'}
-                        </td>
-                        <td className="py-2.5 px-3 text-stone-600 dark:text-stone-300">
-                          {m.unit || 'متر'}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                          {m.unit_cost ?? m.price ?? m.cost ?? 0} {currentSelectedWorkshop.currencySymbol}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-stone-800 dark:text-stone-200">
-                          {m.current_stock ?? m.stock ?? m.quantity ?? 0}
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingMaterial(m);
-                              setNewMaterialPrice(String(m.unit_cost ?? m.price ?? m.cost ?? ''));
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold text-[11px] hover:bg-amber-200 transition cursor-pointer"
-                          >
-                            تعديل السعر
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tab 2: Products */}
-        {activeExecutiveTab === 'products' && (
-          <div className="space-y-3">
-            {deepDataLoading ? (
-              <div className="p-8 text-center text-stone-500 font-bold text-xs">جاري فحص كتالوج المنتجات...</div>
-            ) : !deepData?.products || deepData.products.length === 0 ? (
-              <div className="p-8 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 space-y-2">
-                <Package className="w-8 h-8 mx-auto text-stone-400" />
-                <p className="text-xs font-bold text-stone-600 dark:text-stone-400">
-                  لا توجد منتجات مسجلة في كتالوج هذه الورشة.
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-stone-100 dark:bg-stone-800/60 font-bold text-stone-600 dark:text-stone-300">
-                    <tr>
-                      <th className="py-2.5 px-3">اسم المنتج</th>
-                      <th className="py-2.5 px-3">التصنيف</th>
-                      <th className="py-2.5 px-3">تكلفة الإنتاج</th>
-                      <th className="py-2.5 px-3">سعر الجملة</th>
-                      <th className="py-2.5 px-3">سعر القطاعي</th>
-                      <th className="py-2.5 px-3">حالة السوق</th>
-                      <th className="py-2.5 px-3 text-center">إجراءات اعتماد السوق المركزي</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-semibold">
-                    {deepData.products.map((p: any) => {
-                      const mktStatus = p.marketplace_status || (p.local_record?.marketplaceStatus);
-                      return (
-                      <tr key={p.id || p.product_id} className="hover:bg-amber-50/30 dark:hover:bg-stone-800/30">
-                        <td className="py-2.5 px-3 font-black text-stone-900 dark:text-stone-100">
-                          {p.name || p.product_name || p.title}
-                        </td>
-                        <td className="py-2.5 px-3 text-stone-500">{p.category || 'عام'}</td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-stone-600 dark:text-stone-400">
-                          {p.cost_price ?? p.production_cost ?? 0} {currentSelectedWorkshop.currencySymbol}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-blue-600 dark:text-blue-400">
-                          {p.wholesale_price ?? 0} {currentSelectedWorkshop.currencySymbol}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                          {p.store_price ?? p.retail_price ?? p.price ?? 0} {currentSelectedWorkshop.currencySymbol}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          {mktStatus === 'approved' ? (
-                            <span className="px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-black text-[10px]">
-                              معتمد بالسوق ✓
-                            </span>
-                          ) : mktStatus === 'rejected' ? (
-                            <span className="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 font-black text-[10px]">
-                              مرفوض ❌
-                            </span>
-                          ) : mktStatus === 'pending_approval' ? (
-                            <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 font-black text-[10px]">
-                              بانتظار الاعتماد ⏳
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-lg bg-stone-500/15 text-stone-500 font-bold text-[10px]">
-                              كتالوج الورشة 📦
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const targetId = p.id || p.product_id;
-                                const res = await reviewMarketplaceProduct(
-                                  targetId,
-                                  'approved',
-                                  undefined,
-                                  profile.email,
-                                  {
-                                    ratingStars: initialRatingForApprove,
-                                    productPayload: {
-                                      ...p,
-                                      workshopId: selectedWorkshopId || p.workshop_id || p.workshopId,
-                                      brandName: currentSelectedWorkshop.brandName,
-                                      artistName: currentSelectedWorkshop.artistName,
-                                      phoneNumber: currentSelectedWorkshop.phoneNumber,
-                                      storeSlug: getWorkshopCleanSlug(currentSelectedWorkshop),
-                                    },
-                                  }
-                                );
-                                if (!res.success) {
-                                  showError(res.error || 'تعذر اعتماد المنتج في السوق السحابي');
-                                  return;
-                                }
-                                playSuccessSound();
-                                setSuccessNotice(`✓ تم اعتماد "${p.name || p.productName || p.product_name}" ونشره في سوق الشمساوية المركزي بنجاح!`);
-                                loadDeepData(selectedWorkshopId);
-                                loadCloudMarketplaceProducts();
-                                loadAdminNotifications();
-                              }}
-                              className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
-                              title="اعتماد فوري للعرض بالسوق المركزي"
-                            >
-                              <span>اعتماد بالسوق 🟢</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const targetId = p.id || p.product_id;
-                                const reason = window.prompt('يرجى كتابة ملاحظات الإرجاع للفنان:') || 'يرجى مراجعة وتدقيق مواصفات المشغولة';
-                                const res = await reviewMarketplaceProduct(targetId, 'rejected', reason, profile.email, {
-                                  productPayload: {
-                                    ...p,
-                                    workshopId: selectedWorkshopId || p.workshop_id || p.workshopId,
-                                    brandName: currentSelectedWorkshop.brandName,
-                                    artistName: currentSelectedWorkshop.artistName,
-                                    phoneNumber: currentSelectedWorkshop.phoneNumber,
-                                  },
-                                });
-                                if (!res.success) {
-                                  showError(res.error || 'تعذر تسجيل إرجاع المنتج');
-                                  return;
-                                }
-                                playAlertSound();
-                                setSuccessNotice(`✓ تم إرجاع المشغولة وإخطار الفنان بملاحظات التعديل.`);
-                                loadDeepData(selectedWorkshopId);
-                                loadCloudMarketplaceProducts();
-                                loadAdminNotifications();
-                              }}
-                              className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
-                              title="إرجاع المشغولة للفنان بملاحظات"
-                            >
-                              <span>إرجاع بملاحظات 🔴</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );})}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tab 3: Treasuries */}
-        {activeExecutiveTab === 'treasuries' && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60">
-                <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">الخزينة الرئيسية (Main Safe)</div>
-                <div className="text-lg font-black text-emerald-900 dark:text-emerald-100 font-mono mt-1">
-                  {(deepData?.treasuries?.[0]?.balance ?? 0).toLocaleString()} {currentSelectedWorkshop.currencySymbol}
-                </div>
-              </div>
-              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60">
-                <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300">عهد الحرفيين والورشة</div>
-                <div className="text-lg font-black text-amber-900 dark:text-amber-100 font-mono mt-1">
-                  {(deepData?.treasuries?.[1]?.balance ?? 0).toLocaleString()} {currentSelectedWorkshop.currencySymbol}
-                </div>
-              </div>
-              <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60">
-                <div className="text-[11px] font-bold text-blue-700 dark:text-blue-300">المحافظ والحسابات البنكية</div>
-                <div className="text-lg font-black text-blue-900 dark:text-blue-100 font-mono mt-1">
-                  {(deepData?.treasuries?.[2]?.balance ?? 0).toLocaleString()} {currentSelectedWorkshop.currencySymbol}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab 4: Orders */}
-        {activeExecutiveTab === 'orders' && (
-          <div className="space-y-3">
-            {deepDataLoading ? (
-              <div className="p-8 text-center text-stone-500 font-bold text-xs">جاري فحص طلبيات الورشة...</div>
-            ) : !deepData?.orders || deepData.orders.length === 0 ? (
-              <div className="p-8 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 space-y-2">
-                <ShoppingCart className="w-8 h-8 mx-auto text-stone-400" />
-                <p className="text-xs font-bold text-stone-600 dark:text-stone-400">لا توجد طلبيات مسجلة.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-stone-100 dark:bg-stone-800/60 font-bold text-stone-600 dark:text-stone-300">
-                    <tr>
-                      <th className="py-2.5 px-3">رقم الطلب</th>
-                      <th className="py-2.5 px-3">العميل</th>
-                      <th className="py-2.5 px-3">الحالة</th>
-                      <th className="py-2.5 px-3">الإجمالي</th>
-                      <th className="py-2.5 px-3">المدفوع</th>
-                      <th className="py-2.5 px-3">المتبقي</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-semibold">
-                    {deepData.orders.map((o: any) => (
-                      <tr key={o.id || o.order_id} className="hover:bg-amber-50/30 dark:hover:bg-stone-800/30">
-                        <td className="py-2.5 px-3 font-mono font-black text-stone-900 dark:text-stone-100">
-                          #{o.order_number || o.id?.slice(0, 6)}
-                        </td>
-                        <td className="py-2.5 px-3 text-stone-800 dark:text-stone-200">{o.customer_name || 'عميل نقدي'}</td>
-                        <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
-                            {o.status || 'قيد التنفيذ'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-stone-900 dark:text-stone-100">
-                          {o.total_amount ?? o.total ?? 0} {currentSelectedWorkshop.currencySymbol}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-emerald-600">
-                          {o.paid_amount ?? 0} {currentSelectedWorkshop.currencySymbol}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-rose-600">
-                          {(o.total_amount ?? o.total ?? 0) - (o.paid_amount ?? 0)} {currentSelectedWorkshop.currencySymbol}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tab: Contacts & Workforce Hub (جهات الاتصال وفرق العمل) */}
-        {activeExecutiveTab === 'contacts' && (
-          <div className="space-y-6 animate-in fade-in">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-800">
-              <div>
-                <h3 className="font-black text-sm text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-amber-600" />
-                  <span>جهات الاتصال وفرق العمل للورشة المحددة (العملاء • الموردين • الحرفيين)</span>
-                </h3>
-                <p className="text-xs text-stone-500">
-                  إشراف مباشر على بيانات المتعاملين مع الورشة مع إمكانية التواصل الفوري عبر واتساب والاتصال الهاتفي
-                </p>
-              </div>
-            </div>
-
-            {/* Sub-section 1: Customers */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
-                  <span>قاعدة العملاء ({deepData?.customers?.length || 0})</span>
-                </span>
-              </div>
-
-              {!deepData?.customers || deepData.customers.length === 0 ? (
-                <div className="p-4 rounded-xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 text-center text-xs text-stone-500">
-                  لا يوجد عملاء مسجلون لهذه الورشة حتى الآن.
-                </div>
-              ) : (
-                <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
-                  <table className="w-full text-right text-xs">
-                    <thead className="bg-stone-100 dark:bg-stone-800/60 font-bold text-stone-600 dark:text-stone-300">
-                      <tr>
-                        <th className="py-2.5 px-3">الاسم</th>
-                        <th className="py-2.5 px-3">الهاتف والواتساب</th>
-                        <th className="py-2.5 px-3">إجمالي المشتريات</th>
-                        <th className="py-2.5 px-3">المدينة / العنوان</th>
-                        <th className="py-2.5 px-3">ملاحظات</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-medium">
-                      {deepData.customers.map((c: any, idx: number) => {
-                        const rawPhone = (c.phone || c.phone_number || '').replace(/\D/g, '');
-                        return (
-                          <tr key={c.id || idx} className="hover:bg-amber-50/30 dark:hover:bg-stone-800/30">
-                            <td className="py-2.5 px-3 font-bold text-stone-900 dark:text-stone-100">
-                              {c.name || 'عميل'}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              {rawPhone ? (
-                                <div className="flex items-center gap-1.5">
-                                  <a
-                                    href={`tel:${rawPhone}`}
-                                    className="p-1 rounded bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 text-stone-700 dark:text-stone-300"
-                                    title="اتصال"
-                                  >
-                                    <Phone size={11} />
-                                  </a>
-                                  <a
-                                    href={`https://wa.me/${rawPhone}?text=${encodeURIComponent('السلام عليكم من إدارة منظومة الشمساوية')}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="p-1 rounded bg-emerald-600 text-white"
-                                    title="واتساب"
-                                  >
-                                    <MessageCircle size={11} />
-                                  </a>
-                                  <span className="font-mono text-[11px]" dir="ltr">{c.phone || c.phone_number}</span>
-                                </div>
-                              ) : (
-                                <span className="text-stone-400">غير مسجل</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 font-mono font-bold text-emerald-600">
-                              {(c.total_purchases ?? c.purchases ?? 0).toLocaleString('ar-EG')} {currentSelectedWorkshop.currencySymbol}
-                            </td>
-                            <td className="py-2.5 px-3 text-stone-600 dark:text-stone-400">
-                              {c.city || c.address || '—'}
-                            </td>
-                            <td className="py-2.5 px-3 text-[11px] text-stone-500 max-w-[200px] truncate">
-                              {c.notes || '—'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* Sub-section 2: Suppliers */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
-                  <span>الموردون ومصادر الخامات ({deepData?.suppliers?.length || 0})</span>
-                </span>
-              </div>
-
-              {!deepData?.suppliers || deepData.suppliers.length === 0 ? (
-                <div className="p-4 rounded-xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 text-center text-xs text-stone-500">
-                  لا يوجد موردون مسجلون لهذه الورشة حتى الآن.
-                </div>
-              ) : (
-                <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
-                  <table className="w-full text-right text-xs">
-                    <thead className="bg-stone-100 dark:bg-stone-800/60 font-bold text-stone-600 dark:text-stone-300">
-                      <tr>
-                        <th className="py-2.5 px-3">اسم المورد / الشركة</th>
-                        <th className="py-2.5 px-3">نوع الخامات</th>
-                        <th className="py-2.5 px-3">الهاتف والواتساب</th>
-                        <th className="py-2.5 px-3">الرصيد / المستحقات</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-medium">
-                      {deepData.suppliers.map((s: any, idx: number) => {
-                        const rawPhone = (s.phone || s.phone_number || '').replace(/\D/g, '');
-                        return (
-                          <tr key={s.id || idx} className="hover:bg-amber-50/30 dark:hover:bg-stone-800/30">
-                            <td className="py-2.5 px-3 font-bold text-stone-900 dark:text-stone-100">
-                              {s.company_name || s.name || 'مورد خامات'}
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <span className="px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-[10px] font-bold">
-                                {s.category || s.specialty || 'خامات عامة'}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3">
-                              {rawPhone ? (
-                                <div className="flex items-center gap-1.5">
-                                  <a
-                                    href={`tel:${rawPhone}`}
-                                    className="p-1 rounded bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300"
-                                  >
-                                    <Phone size={11} />
-                                  </a>
-                                  <a
-                                    href={`https://wa.me/${rawPhone}?text=${encodeURIComponent('السلام عليكم بخصوص توريدات ورشة الشمساوية')}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="p-1 rounded bg-emerald-600 text-white"
-                                  >
-                                    <MessageCircle size={11} />
-                                  </a>
-                                  <span className="font-mono text-[11px]" dir="ltr">{s.phone || s.phone_number}</span>
-                                </div>
-                              ) : (
-                                <span className="text-stone-400">غير مسجل</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 font-mono font-bold text-rose-600">
-                              {(s.balance || 0).toLocaleString('ar-EG')} {currentSelectedWorkshop.currencySymbol}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* Sub-section 3: Employees */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-purple-500" />
-                  <span>فريق العمل والحرفيين بالورشة ({deepData?.employees?.length || 0})</span>
-                </span>
-              </div>
-
-              {!deepData?.employees || deepData.employees.length === 0 ? (
-                <div className="p-4 rounded-xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 text-center text-xs text-stone-500">
-                  لا يوجد صناع أو عمال مسجلون في كشف هذه الورشة حالياً.
-                </div>
-              ) : (
-                <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
-                  <table className="w-full text-right text-xs">
-                    <thead className="bg-stone-100 dark:bg-stone-800/60 font-bold text-stone-600 dark:text-stone-300">
-                      <tr>
-                        <th className="py-2.5 px-3">الاسم</th>
-                        <th className="py-2.5 px-3">المسمى / الحرفة</th>
-                        <th className="py-2.5 px-3">الهاتف</th>
-                        <th className="py-2.5 px-3">نظام الأجر</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-medium">
-                      {deepData.employees.map((emp: any, idx: number) => (
-                        <tr key={emp.id || idx} className="hover:bg-amber-50/30 dark:hover:bg-stone-800/30">
-                          <td className="py-2.5 px-3 font-bold text-stone-900 dark:text-stone-100">
-                            {emp.name || 'حرفي'}
-                          </td>
-                          <td className="py-2.5 px-3 text-stone-700 dark:text-stone-300">
-                            {emp.job_title || emp.role || 'صانع حرفي'}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-stone-600 dark:text-stone-400">
-                            {emp.phone || emp.phone_number || '—'}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-amber-700 dark:text-amber-400">
-                            {emp.salary ? `${emp.salary} شهري` : emp.daily_rate ? `${emp.daily_rate} يومية` : 'بالقطعة'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Tab 5: Appeals Center (مركز الطعون والشكاوى) */}
-        {activeExecutiveTab === 'appeals' && (
-          <div className="space-y-4 animate-in fade-in">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-800">
-              <div>
-                <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
-                  سجل الطعون والشكاوى المرفوعة لكبير عيلة الشمساوية
-                </h3>
-                <p className="text-xs text-stone-500">
-                  مراجعة فورية لطعون أصحاب الورش الموقوفة أو المحظورة مع إمكانية القبول أو الرفض المسبب
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={loadAppeals}
-                className="p-2 rounded-xl bg-stone-100 dark:bg-stone-800 text-xs font-bold hover:bg-stone-200"
-              >
-                <RefreshCw size={14} className={appealsLoading ? 'animate-spin' : ''} />
-              </button>
-            </div>
-
-            {appealsList.length === 0 ? (
-              <div className="p-8 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 space-y-2">
-                <Scale className="w-8 h-8 mx-auto text-stone-400" />
-                <p className="text-xs font-bold text-stone-600 dark:text-stone-400">
-                  لا توجد أي طعون أو شكاوى معلقة حالياً. جميع الورش في وضع سليم.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {appealsList.map((appItem) => {
-                  const isPending = appItem.appeal_status === 'pending' || appItem.appeal_status === 'under_review';
-                  return (
-                    <div
-                      key={appItem.id}
-                      className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-3"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-300 font-black flex items-center justify-center">
-                            {appItem.brand_name?.charAt(0) || 'و'}
-                          </div>
-                          <div>
-                            <div className="font-black text-xs sm:text-sm text-stone-900 dark:text-stone-100">
-                              {appItem.brand_name} (الفنان: {appItem.artist_name || 'غير محدد'})
-                            </div>
-                            <div className="text-[11px] text-stone-500 font-mono">
-                              الهاتف: {appItem.phone_number || '—'} | البريد: {appItem.email || '—'}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {appItem.phone_number && (
-                            <>
-                              <a
-                                href={`tel:${appItem.phone_number}`}
-                                className="p-1.5 rounded-lg bg-stone-200 dark:bg-stone-750 text-stone-700 dark:text-stone-200"
-                                title="اتصال مباشر"
-                              >
-                                <Phone size={13} />
-                              </a>
-                              <a
-                                href={`https://wa.me/${appItem.phone_number.replace(/\D/g, '')}?text=${encodeURIComponent('بخصوص طعنكم المرفوع على منظومة الشمساوية')}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="p-1.5 rounded-lg bg-emerald-600 text-white"
-                                title="محادثة واتساب"
-                              >
-                                <MessageCircle size={13} />
-                              </a>
-                            </>
-                          )}
-
-                          <span
-                            className={`text-[10px] px-2.5 py-0.5 rounded-full font-black ${
-                              appItem.appeal_status === 'accepted'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : appItem.appeal_status === 'rejected'
-                                ? 'bg-rose-100 text-rose-800'
-                                : 'bg-amber-100 text-amber-800 animate-pulse'
-                            }`}
-                          >
-                            {appItem.appeal_status === 'accepted'
-                              ? 'تم قبول الطعن'
-                              : appItem.appeal_status === 'rejected'
-                              ? 'تم رفض الطعن'
-                              : 'طعن قيد المراجعة'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Appeal Message */}
-                      <div className="p-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-750 text-xs">
-                        <span className="text-[10px] font-black text-amber-600 block mb-1">
-                          نص الطعن المرفوع من الفنان:
-                        </span>
-                        <p className="text-stone-800 dark:text-stone-200 font-bold whitespace-pre-wrap">
-                          "{appItem.appeal_message || 'لا يوجد نص مرفق'}"
-                        </p>
-                      </div>
-
-                      {/* Rejection reason if already rejected */}
-                      {appItem.rejection_reason && (
-                        <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-xs text-rose-800 dark:text-rose-300 font-bold">
-                          سبب الرفض المسجل: {appItem.rejection_reason}
-                        </div>
-                      )}
-
-                      {/* Action buttons if pending */}
-                      {isPending && (
-                        <div className="flex items-center gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
-                          <button
-                            type="button"
-                            onClick={() => handleAcceptAppeal(appItem)}
-                            className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                          >
-                            <CheckCircle2 size={14} />
-                            <span>قبول الطعن وفك الإيقاف فوراً</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRejectingAppealWorkshop(appItem);
-                              setRejectionReasonInput('');
-                            }}
-                            className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-                          >
-                            <XCircle size={14} />
-                            <span>النظر في الشكوى ورفضها</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tab 6: In-App Messaging Hub (المراسلات التفاعلية والرسائل الحية) */}
-        {activeExecutiveTab === 'messaging' && (
-          <div id="admin-messaging-hub" className="space-y-6 animate-in fade-in">
-            {/* 1. Admin Inbox FIRST so clicking Messages always reveals artist replies immediately */}
-            <div id="admin-inbox-section" className="p-5 rounded-2xl bg-blue-50/40 dark:bg-stone-850 border border-blue-200/80 dark:border-stone-800 space-y-3">
-              <div className="flex items-center justify-between gap-2 pb-2 border-b border-blue-200/60 dark:border-stone-800 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Mail className="w-5 h-5 text-blue-700 dark:text-blue-400" />
-                  <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
-                    صندوق البريد الوارد — ردود الفنانين ورسائل الدعم ({inboxList.length})
-                  </h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  {unreadInboxCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={markInboxAllRead}
-                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-black cursor-pointer"
-                    >
-                      تحديد الكل كمقروء
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={loadMessagingHub}
-                    className="p-1.5 rounded-lg text-stone-500 hover:text-blue-600 cursor-pointer"
-                    title="تحديث صندوق الوارد"
-                  >
-                    <RefreshCw size={14} />
-                  </button>
-                </div>
-              </div>
-
-              {inboxList.length === 0 ? (
-                <div className="p-8 text-center text-stone-500 dark:text-stone-400 text-xs font-bold">
-                  لا توجد ردود أو استفسارات واردة من الفنانين حتى الآن.
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {inboxList.map((msg, idx) => {
-                    const msgKey = msg.id || msg.inbox_key || String(idx);
-                    const isReplyingHere = directReplyTarget?.id === msg.id && msg.id;
-                    const resolvedWid = msg.workshop_id || msg.workshops?.id || '';
-                    const msgEmail = String(msg.email || msg.workshops?.email || '').trim().toLowerCase();
-                    const matchedWs = workshops.find(
-                      (w) =>
-                        (resolvedWid && (w.id === resolvedWid || w.ownerUid === resolvedWid)) ||
-                        (msgEmail && w.email?.toLowerCase() === msgEmail)
-                    );
-                    const finalWid = matchedWs?.id || resolvedWid;
-                    const canDirectReply = Boolean(finalWid && isValidUuid(finalWid));
-
-                    const placeholderBrands = new Set(['', 'ورشة الشمساوية', 'الشمساوية هاند ميد', 'ورشة حرفية بالشمساوية', 'ورشة بالشمساوية', 'ورشة مسجلة بالشمساوية', 'ورشة الشمس', 'زائر المنظومة']);
-                    const placeholderArtists = new Set(['', 'فنان الشمساوية', 'صاحب الورشة', 'فنان', 'زائر خارجي', 'مرسل خارجي']);
-                    const pickBrand = (...vals: any[]) => vals.map((v) => String(v || '').trim()).find((s) => s && !placeholderBrands.has(s));
-                    const pickArtist = (...vals: any[]) => vals.map((v) => String(v || '').trim()).find((s) => s && !placeholderArtists.has(s));
-
-                    const resolvedBrand =
-                      pickBrand(matchedWs?.brandName, msg.workshops?.brand_name, msg.brand_name, msg.workshop_name) ||
-                      (finalWid ? 'ورشة حرفية بالشمساوية' : 'زائر المنظومة');
-                    const resolvedArtist =
-                      pickArtist(matchedWs?.artistName, msg.workshops?.artist_name, msg.artist_name) ||
-                      (msgEmail ? msgEmail.split('@')[0] : finalWid ? 'صاحب الورشة' : 'زائر خارجي');
-                    const phoneDigits = String(matchedWs?.phoneNumber || msg.workshops?.phone_number || msg.phone_number || '').replace(/\D/g, '');
-                    const waDigits = phoneDigits.startsWith('01') ? `2${phoneDigits}` : phoneDigits;
-
-                    return (
-                      <div
-                        key={msgKey}
-                        className={`p-4 rounded-2xl border space-y-2 shadow-xs ${
-                          !msg.admin_read_at
-                            ? 'bg-white dark:bg-stone-900 border-blue-400 dark:border-blue-600'
-                            : 'bg-white dark:bg-stone-850 border-stone-200 dark:border-stone-800'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-2 flex-wrap font-black text-xs sm:text-sm text-stone-900 dark:text-stone-100">
-                            <span>{resolvedBrand}</span>
-                            <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
-                              صاحب الورشة: {resolvedArtist}
-                            </span>
-                            {!msg.admin_read_at && (
-                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-blue-600 text-white">
-                                جديد
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-stone-400 font-mono">
-                            {msg.replied_at ? new Date(msg.replied_at).toLocaleString('ar-EG') : ''}
-                          </span>
-                        </div>
-
-                        <div className="p-3 rounded-xl bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-750 text-xs font-bold text-stone-800 dark:text-stone-200 whitespace-pre-wrap">
-                          "{msg.reply_text}"
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-                          {canDirectReply && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDirectReplyTarget(isReplyingHere ? null : msg);
-                                setDirectReplyContent('');
-                              }}
-                              className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-                            >
-                              <Send size={12} />
-                              <span>رد عبر المنظومة ✉️</span>
-                            </button>
-                          )}
-
-                          {waDigits && (
-                            <a
-                              href={`https://wa.me/${waDigits}?text=${encodeURIComponent(`أهلاً يا ${resolvedArtist} (${resolvedBrand})، بخصوص ردكم في منظومة الشمساوية`)}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1"
-                            >
-                              <MessageCircle size={12} />
-                              <span>رد عبر واتساب</span>
-                            </a>
-                          )}
-                          <span className="text-[11px] text-stone-400">
-                            بخصوص رسالة: {msg.admin_announcements?.title || 'إعلان إداري'}
-                          </span>
-                        </div>
-
-                        {isReplyingHere && (
-                          <div className="pt-2 border-t border-stone-200 dark:border-stone-800 flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={directReplyContent}
-                              onChange={(e) => setDirectReplyContent(e.target.value)}
-                              placeholder={`اكتب ردك الرسمي لورشة ${resolvedBrand}...`}
-                              className="flex-1 px-3 py-2 rounded-xl border border-amber-400 bg-stone-50 dark:bg-stone-900 text-xs font-bold outline-none"
-                            />
-                            <button
-                              type="button"
-                              disabled={sendingAnnouncement}
-                              onClick={() => handleSendDirectReply(msg)}
-                              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs cursor-pointer"
-                            >
-                              إرسال الرد
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* 2. Compose Announcement */}
-            <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Mail className="w-5 h-5 text-amber-600" />
-                  <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
-                    إرسال توجيه أو رسالة جديدة عبر المنظومة
-                  </h3>
-                </div>
-              </div>
-
-              <form onSubmit={handleSendAnnouncement} className="space-y-3 text-xs font-bold">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                      نوع الإرسال:
-                    </label>
-                    <div className="flex items-center gap-2 bg-white dark:bg-stone-900 p-1 rounded-xl border border-stone-200 dark:border-stone-700">
-                      <button
-                        type="button"
-                        onClick={() => setNewAnnRecipientType('all')}
-                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
-                          newAnnRecipientType === 'all'
-                            ? 'bg-amber-600 text-white shadow-xs'
-                            : 'text-stone-600 dark:text-stone-400'
-                        }`}
-                      >
-                        📢 إعلان عام لكافة الورش
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNewAnnRecipientType('specific')}
-                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
-                          newAnnRecipientType === 'specific'
-                            ? 'bg-amber-600 text-white shadow-xs'
-                            : 'text-stone-600 dark:text-stone-400'
-                        }`}
-                      >
-                        🔒 رسالة خاصة لورشة محددة
-                      </button>
-                    </div>
-                  </div>
-
-                  {newAnnRecipientType === 'specific' && (
-                    <div>
-                      <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                        اختر الورشة المستهدفة:
-                      </label>
-                      <select
-                        value={newAnnRecipientWorkshopId}
-                        onChange={(e) => setNewAnnRecipientWorkshopId(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold"
-                      >
-                        <option value="">-- اختر الورشة --</option>
-                        {workshops.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.brandName} ({w.artistName})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                    قوالب توجيهات سريعة (اضغط للتعبئة التلقائية):
-                  </label>
-                  <div className="flex flex-wrap gap-1.5 pb-1">
-                    {[
-                      {
-                        label: '📦 تحديث الشحن والتسليم',
-                        title: 'توجيه عاجل بخصوص مواعيد التسليم وفحص الجودة',
-                        content: 'أهلاً بكل فناني عائلة الشمساوية، نرجو الالتزام بمواعيد تسليم الطلبات وتغليف المشغولات بعناية قبل التسليم لمندوب الفحص المركزي.',
-                      },
-                      {
-                        label: '✨ موسم معارض ومبيعات',
-                        title: 'دعوة لتجهيز معروضات الموسم الجديد في سوق الشمساوية',
-                        content: 'أحبابنا المبدعون، يمكنك الآن رفع أحدث مشغولاتك وإضافة أبعادها والصور الواضحة ليتم اعتمادها فوراً في سوق الشمساوية المركزي.',
-                      },
-                      {
-                        label: '🧶 تنبيه أسعار الخامات',
-                        title: 'تنبيه دوري لمراجعة تسعير الخامات والمنتجات',
-                        content: 'يرجى تحديث أسعار الخامات في مخزن الورشة لضمان احتساب تكلفة الإنتاج وهوامش الربح بدقة في الفواتير والكتالوج.',
-                      },
-                    ].map((tpl) => (
-                      <button
-                        key={tpl.label}
-                        type="button"
-                        onClick={() => {
-                          setNewAnnTitle(tpl.title);
-                          setNewAnnContent(tpl.content);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-stone-900 border border-amber-300/60 dark:border-amber-800/60 text-[11px] font-bold text-amber-700 dark:text-amber-300 hover:bg-amber-50 cursor-pointer"
-                      >
-                        {tpl.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                    عنوان الرسالة / التوجيه:
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newAnnTitle}
-                    onChange={(e) => setNewAnnTitle(e.target.value)}
-                    placeholder="مثال: تعليمات تسعير المعارض الموسمية أو تنبيه هام"
-                    className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                    نص التوجيه / الرسالة:
-                  </label>
-                  <textarea
-                    rows={3}
-                    required
-                    value={newAnnContent}
-                    onChange={(e) => setNewAnnContent(e.target.value)}
-                    placeholder="اكتب التوجيهات أو التعليمات بالتفصيل..."
-                    className="w-full p-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                <div className="flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={sendingAnnouncement}
-                    className="px-6 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-1.5 shadow-md transition disabled:opacity-50 cursor-pointer"
-                  >
-                    <Send size={14} />
-                    <span>{sendingAnnouncement ? 'جاري الإرسال...' : 'إرسال وتفعيل صوت بوسطة!'}</span>
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* 3. Sent Announcements Log & Read/Acknowledge Analytics */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-800">
-                <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
-                  سجل التوجيهات المرسلة وإحصائيات القراءة والتفاعل ({announcementsList.length})
-                </h3>
-                <button
-                  type="button"
-                  onClick={loadMessagingHub}
-                  className="p-1.5 rounded-lg text-stone-500 hover:text-amber-600 cursor-pointer"
-                  title="تحديث سجل المراسلات"
-                >
-                  <RefreshCw size={14} />
-                </button>
-              </div>
-
-              {announcementsList.length === 0 ? (
-                <div className="p-6 text-center rounded-2xl bg-stone-50 dark:bg-stone-850 border border-dashed border-stone-200 dark:border-stone-800 text-xs text-stone-400 font-bold">
-                  لم يتم إرسال إعلانات أو توجيهات مسجلة حتى الآن.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {announcementsList.slice(0, 10).map((ann: any) => (
-                    <div
-                      key={ann.id}
-                      className="p-4 rounded-2xl bg-white dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-2 shadow-xs"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="space-y-0.5 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span
-                              className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
-                                ann.recipient_type === 'specific'
-                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
-                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                              }`}
-                            >
-                              {ann.recipient_type === 'specific'
-                                ? `🔒 خاص: ${ann.recipient_workshop_name || 'ورشة محددة'}`
-                                : '📢 إعلان عام'}
-                            </span>
-                            <span className="text-[10px] text-stone-400 font-mono">
-                              {ann.created_at ? new Date(ann.created_at).toLocaleDateString('ar-EG') : ''}
-                            </span>
-                          </div>
-                          <h4 className="font-black text-xs text-stone-900 dark:text-stone-100 truncate pt-1">
-                            {ann.title}
-                          </h4>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={deletingAnnId === ann.id}
-                          onClick={() => handleDeleteAnnouncement(ann.id)}
-                          className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer shrink-0 disabled:opacity-40"
-                          title="حذف هذا التوجيه"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-
-                      <p className="text-[11px] text-stone-600 dark:text-stone-300 line-clamp-2 leading-relaxed">
-                        {ann.content}
-                      </p>
-
-                      {ann.stats && (
-                        <div className="flex items-center gap-2 pt-1.5 border-t border-stone-100 dark:border-stone-800 text-[10px] font-bold">
-                          <span className="px-2 py-0.5 rounded bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
-                            👁️ قرأها: {ann.stats.reads || 0}
-                          </span>
-                          <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
-                            ✓ أكد الاستلام: {ann.stats.acknowledged || 0}
-                          </span>
-                          <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300">
-                            💬 ردود: {ann.stats.replies || 0}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Tab 7: Marketplace & Stores Control (مقصورة السوبر أدمن المركزية وإدارة الماركت بليس) */}
-        {activeExecutiveTab === 'marketplace' && (
-          <div className="space-y-6 animate-in fade-in">
-            {/* 0. Central Marketplace Link, Dynamic QR Code & Print Poster Card */}
-            <div className="p-6 rounded-3xl bg-gradient-to-br from-[#060B18] via-[#0D162E] to-[#132040] border-2 border-amber-500/50 shadow-2xl space-y-5 text-right">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-500/30 pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/50 text-amber-300 flex items-center justify-center shadow-lg">
-                    <Store className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-black text-base sm:text-lg text-white">
-                        رابط وكود QR سوق الشمساوية المركزي 🛍️✨
-                      </h3>
-                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-black">
-                        مباشر ومفعّل 🟢
-                      </span>
-                    </div>
-                    <p className="text-xs text-[#CBD5E1] font-medium">
-                      بوابة الشراء المركزية العامة لمشغولات عائلة الشمساوية بضمان جودة المنظومة
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <a
-                    href={centralMarketUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold text-xs flex items-center gap-1.5 transition"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>معاينة السوق</span>
-                  </a>
-                </div>
-              </div>
-
-              {/* QR and Share Details Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
-                {/* QR Code Canvas Frame */}
-                <div className="md:col-span-4 flex flex-col items-center justify-center p-4 rounded-2xl bg-[#060B18] border border-amber-500/30 text-center space-y-3">
-                  <div className="p-2.5 bg-white rounded-2xl shadow-xl border-2 border-amber-400">
-                    <QRCodeCanvas
-                      id="central-market-qr-canvas"
-                      value={centralMarketUrl}
-                      size={180}
-                      level="H"
-                      includeMargin={true}
-                      imageSettings={{
-                        src: '/alshams_falcon_emblem.png',
-                        x: undefined,
-                        y: undefined,
-                        height: 36,
-                        width: 36,
-                        excavate: true,
-                      }}
-                    />
-                  </div>
-                  <span className="text-[11px] font-bold text-[#CBD5E1]">
-                    امسح الكود بكاميرا الهاتف لفتح السوق فورياً 📱
-                  </span>
-                </div>
-
-                {/* Info, Live Link & Action Buttons */}
-                <div className="md:col-span-8 space-y-4">
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-bold text-amber-300">الرابط المباشر لسوق الشمساوية:</span>
-                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-black/40 border border-amber-500/30 font-mono text-xs text-emerald-300 select-all" dir="ltr">
-                      <span className="truncate flex-1">{centralMarketUrl}</span>
-                    </div>
-                  </div>
-
-                  {/* Trust & Guarantee Badges */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-center">
-                    <div className="p-2.5 rounded-xl bg-[#060B18]/80 border border-amber-500/20 space-y-0.5">
-                      <span className="text-[11px] font-black text-amber-300 block">🛡️ حماية مركزية</span>
-                      <span className="text-[10px] text-stone-300">عربون 33% والمتبقي بعد المعاينة</span>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-[#060B18]/80 border border-amber-500/20 space-y-0.5">
-                      <span className="text-[11px] font-black text-amber-300 block">🚚 شحن منزلي</span>
-                      <span className="text-[10px] text-stone-300">توصيل لكافة محافظات الجمهورية</span>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-[#060B18]/80 border border-amber-500/20 space-y-0.5">
-                      <span className="text-[11px] font-black text-amber-300 block">📞 خط ساخن موحد</span>
-                      <span className="text-[10px] font-mono font-bold text-emerald-300">01000996059</span>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons Row */}
-                  <div className="flex flex-wrap items-center gap-2.5 pt-2">
-                    <button
-                      type="button"
-                      onClick={handleCopyMarketUrl}
-                      className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-2 shadow-lg cursor-pointer transition active:scale-95"
-                    >
-                      <Copy className="w-4 h-4" />
-                      <span>نسخ رابط السوق</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleShareMarketWhatsApp}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-2 shadow-lg cursor-pointer transition active:scale-95"
-                    >
-                      <Share2 className="w-4 h-4" />
-                      <span>مشاركة عبر واتساب</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleDownloadMarketPoster}
-                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-700 hover:from-amber-600 hover:to-amber-800 text-white font-black text-xs flex items-center gap-2 shadow-xl cursor-pointer transition active:scale-95 border border-amber-300/40"
-                    >
-                      <Printer className="w-4 h-4 text-amber-200" />
-                      <span>تحميل بوستر السوق بجودة عالية للطباعة (1200x1600) 🖼️📥</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 1. Global Logistics & Client Privacy Switch */}
-            <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border-2 border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                  <h4 className="font-black text-sm text-stone-900 dark:text-white">
-                    مفتاح أمان بيانات العملاء (Client Privacy Toggle)
-                  </h4>
-                </div>
-                <p className="text-xs text-[#334155] dark:text-[#CBD5E1] max-w-2xl leading-relaxed">
-                  الوضع الافتراضي (معطل): يستلم الفنان الطلبية بتفاصيل المشغولة فقط، واسم العميل يظهر كـ "عميل متجر عائلة الشمساوية" مع حجب هاتفه وعنوانه تماماً، حيث تتولى إدارة المنظومة الفحص والشحن والتسليم. عند التفعيل: تظهر بيانات العميل كاملة للورشة للشحن المباشر.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  const updated = !centralShippingPrivacy;
-                  setCentralShippingPrivacy(updated);
-                  setClientPrivacyActive(updated);
-                  playSuccessSound();
-                  const saveRes = await savePlatformSettingsCloud(
-                    { ...shippingConfig, centralShippingPrivacy: updated },
-                    profile.email
-                  );
-                  setSuccessNotice(
-                    updated
-                      ? `✓ تم تفعيل حجب بيانات العملاء والشحن المركزي ${saveRes.success ? '(ومزامنته سحابياً لجميع المتاجر)' : '(محلياً)'} 🛡️`
-                      : `تم تفعيل إظهار بيانات العملاء لورش الفنانين ${saveRes.success ? '(ومزامنته سحابياً)' : ''} 📱`
-                  );
-                }}
-                className={`px-4 py-2.5 rounded-2xl font-black text-xs transition flex items-center gap-2 cursor-pointer shadow-md shrink-0 ${
-                  centralShippingPrivacy
-                    ? 'bg-emerald-600 text-white border-2 border-emerald-400'
-                    : 'bg-amber-600 text-white border-2 border-amber-400'
-                }`}
-              >
-                <span>{centralShippingPrivacy ? 'بيانات العملاء محجوبة عن الورش (الوضع الآمن 🛡️)' : 'إظهار بيانات العميل للورش (مفعل 📱)'}</span>
-              </button>
-            </div>
-
-            {/* 2. Products Approval & Quality Moderation */}
-            <div className="space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h4 className="font-black text-sm text-stone-900 dark:text-white flex items-center gap-2">
-                    <Package className="w-4 h-4 text-amber-600" />
-                    <span>اعتماد وجودة المشغولات المعروضة في سوق الشمساوية ({deepData?.products?.length || 0})</span>
-                  </h4>
-                  <span className="text-xs text-stone-500 font-bold">
-                    فحص الصور، دقة المواصفات، الفنش، وتحديد التقييم المبدئي
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="text-stone-500 font-bold">التقييم المبدئي عند الاعتماد:</span>
-                  <div className="flex items-center gap-1">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => setInitialRatingForApprove(s)}
-                        className="cursor-pointer"
-                        title={`${s} نجوم`}
-                      >
-                        <Star className={`w-4 h-4 ${initialRatingForApprove >= s ? 'fill-amber-500 text-amber-500' : 'text-stone-300 dark:text-stone-700'}`} />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {!deepData?.products || deepData.products.length === 0 ? (
-                <div className="p-8 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 text-xs text-stone-500">
-                  لا توجد منتجات معروضة حالياً من هذه الورشة للفحص.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {deepData.products.map((p) => {
-                    const isApproved = p.isMarketplaceApproved !== false;
-                    return (
-                      <div
-                        key={p.id}
-                        className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 flex items-start justify-between gap-3 shadow-xs"
-                      >
-                        <div className="flex items-start gap-3 min-w-0">
-                          <div className="w-16 h-16 rounded-xl overflow-hidden bg-stone-100 dark:bg-stone-800 shrink-0 border border-amber-500/20">
-                            {p.imageUrl ? (
-                              <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-stone-400">
-                                <Package className="w-6 h-6" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0 space-y-1">
-                            <h5 className="font-black text-xs text-stone-900 dark:text-white truncate">
-                              {p.productName}
-                            </h5>
-                            <div className="flex items-center gap-2 text-[11px] font-mono text-stone-500">
-                              <span>كود: {p.productCode || '---'}</span>
-                              <span>•</span>
-                              <span className="font-bold text-amber-600 dark:text-amber-400">
-                                {p.retailPrice || 0} ج.م
-                              </span>
-                              <span>•</span>
-                              <span className="flex items-center gap-0.5 text-amber-500">
-                                <Star className="w-3 h-3 fill-amber-500" />
-                                <span>{p.rating || initialRatingForApprove}</span>
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-stone-400 block truncate">
-                              {p.storeDescription || p.category || 'مشغولة يدوية'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex flex-col items-end gap-1.5 shrink-0">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                              isApproved
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
-                            }`}
-                          >
-                            {isApproved ? 'معتمد بالسوق ✓' : 'مرفوض ❌'}
-                          </span>
-
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                p.isMarketplaceApproved = true;
-                                p.rating = initialRatingForApprove;
-                                await tenantStorage.mutateProduct(p);
-                                const targetId = p.id || p.product_id;
-                                const res = await reviewMarketplaceProduct(
-                                  targetId,
-                                  'approved',
-                                  undefined,
-                                  profile.email,
-                                  {
-                                    ratingStars: initialRatingForApprove,
-                                    productPayload: {
-                                      ...p,
-                                      workshopId: selectedWorkshopId || p.workshop_id || p.workshopId,
-                                      brandName: currentSelectedWorkshop.brandName,
-                                      artistName: currentSelectedWorkshop.artistName,
-                                      phoneNumber: currentSelectedWorkshop.phoneNumber,
-                                      storeSlug: getWorkshopCleanSlug(currentSelectedWorkshop),
-                                    },
-                                  }
-                                );
-                                if (!res.success) {
-                                  showError(res.error || 'تم الاعتماد محلياً ولكن تعذرت المزامنة السحابية');
-                                } else {
-                                  playSuccessSound();
-                                  setSuccessNotice(`✓ تم اعتماد المشغولة "${p.productName}" بتقييم ${initialRatingForApprove} نجوم ونشرها في السوق السحابي بنجاح!`);
-                                  loadAdminNotifications();
-                                }
-                                loadCloudMarketplaceProducts();
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] cursor-pointer"
-                              title="اعتماد المشغولة وتحديد التقييم"
-                            >
-                              قبول ({initialRatingForApprove}★)
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setRejectingProduct(p);
-                                setRejectReason('يرجى تحسين ووضوح الصورة وتحديد الأبعاد بدقة.');
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] cursor-pointer"
-                              title="رفض مع سبب"
-                            >
-                              رفض مع سبب
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* 3. Shipping & Storage Pricing Panel */}
-            <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Truck className="w-5 h-5 text-amber-600" />
-                  <h4 className="font-black text-sm text-stone-900 dark:text-white">
-                    إدارة تسعير الشحن والعمولات ومصاريف التخزين والتغليف
-                  </h4>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    disabled={savingMarketSettings}
-                    onClick={async () => {
-                      setSavingMarketSettings(true);
-                      saveShippingConfig(shippingConfig);
-                      const res = await savePlatformSettingsCloud(
-                        { ...shippingConfig, centralShippingPrivacy },
-                        profile.email
-                      );
-                      setSavingMarketSettings(false);
-                      if (res.success) {
-                        playSuccessSound();
-                        setSuccessNotice('✓ تم حفظ ومزامنة أسعار الشحن والتغليف سحابياً لجميع المتاجر!');
-                      } else {
-                        showError(res.error || 'تعذرت المزامنة السحابية للإعدادات');
-                      }
-                    }}
-                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-                  >
-                    <Check size={14} />
-                    <span>{savingMarketSettings ? 'جاري الحفظ...' : 'حفظ ومزامنة سحابية ☁️'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingGovRates(!editingGovRates)}
-                    className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs flex items-center gap-1 cursor-pointer"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>{editingGovRates ? 'إغلاق جدول المحافظات' : 'تعديل أسعار المحافظات'}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 space-y-1">
-                  <span className="text-stone-500 font-bold block">مصاريف التغليف والحفظ:</span>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={shippingConfig.packagingFee}
-                      onChange={(e) => {
-                        const updated = { ...shippingConfig, packagingFee: Number(e.target.value) || 0 };
-                        setShippingConfig(updated);
-                        saveShippingConfig(updated);
-                      }}
-                      className="w-24 px-2 py-1 rounded-lg bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-white font-mono font-bold"
-                    />
-                    <span className="text-stone-500 font-bold">ج.م / شحنة</span>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 space-y-1">
-                  <span className="text-stone-500 font-bold block">مصاريف الفحص والمناولة المركزية:</span>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={shippingConfig.storageAndHandlingFee}
-                      onChange={(e) => {
-                        const updated = { ...shippingConfig, storageAndHandlingFee: Number(e.target.value) || 0 };
-                        setShippingConfig(updated);
-                        saveShippingConfig(updated);
-                      }}
-                      className="w-24 px-2 py-1 rounded-lg bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-white font-mono font-bold"
-                    />
-                    <span className="text-stone-500 font-bold">ج.م / قطعة</span>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 space-y-1">
-                  <span className="text-stone-500 font-bold block">عمولة المنظومة للمبيعات:</span>
-                  <span className="font-mono text-base font-black text-amber-600 dark:text-amber-400 block pt-1">
-                    10% (تشمل الفحص وضمان الجودة)
-                  </span>
-                </div>
-              </div>
-
-              {/* Governorates Rates Table */}
-              {editingGovRates && (
-                <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-3">
-                  <span className="text-xs font-bold text-stone-700 dark:text-stone-300 block">
-                    تسعير الشحن حسب المحافظات (ج.م):
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2 text-xs">
-                    {Object.entries(shippingConfig.governorateRates).map(([gov, rate]) => (
-                      <div key={gov} className="p-2 rounded-xl bg-stone-100 dark:bg-stone-800 flex items-center justify-between gap-1">
-                        <span className="font-bold text-stone-800 dark:text-stone-200 truncate">{gov}</span>
-                        <input
-                          type="number"
-                          value={rate}
-                          onChange={(e) => {
-                            const updated = {
-                              ...shippingConfig,
-                              governorateRates: {
-                                ...shippingConfig.governorateRates,
-                                [gov]: Number(e.target.value) || 0,
-                              },
-                            };
-                            setShippingConfig(updated);
-                            saveShippingConfig(updated);
-                          }}
-                          className="w-14 px-1 py-0.5 rounded bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 font-mono text-center font-bold text-amber-600"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 4. Central Orders Monitoring & Live Countdown Timer */}
-            <div className="p-5 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-amber-600" />
-                  <h4 className="font-black text-sm text-stone-900 dark:text-white">
-                    شاشة متابعة تصنيع طلبيات السوق والعداد التنازلي للتسليم ({marketplaceOrdersList.length})
-                  </h4>
-                </div>
-                <button
-                  type="button"
-                  onClick={loadMarketplaceControlData}
-                  className="p-1.5 rounded-lg text-stone-400 hover:text-amber-600 transition cursor-pointer"
-                  title="مزامنة وتحديث طلبيات السوق من السحابة"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Financials Summary Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                  <span className="text-[10px] text-stone-500 font-bold block">إجمالي الطلبات</span>
-                  <span className="font-mono font-black text-base text-stone-900 dark:text-white">
-                    {marketplaceOrdersList.length}
-                  </span>
-                </div>
-                <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20">
-                  <span className="text-[10px] text-amber-800 dark:text-amber-300 font-bold block">حجم مبيعات السوق (GMV)</span>
-                  <span className="font-mono font-black text-base text-amber-600">
-                    {marketplaceOrdersList.reduce((sum, o) => sum + (Number(o.finalTotal || o.total_amount) || 0), 0).toLocaleString()} ج.م
-                  </span>
-                </div>
-                <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
-                  <span className="text-[10px] text-emerald-800 dark:text-emerald-300 font-bold block">عمولة المنظومة (10%)</span>
-                  <span className="font-mono font-black text-base text-emerald-600">
-                    {Math.round(marketplaceOrdersList.reduce((sum, o) => sum + (Number(o.subtotal || o.finalTotal) || 0) * 0.1, 0)).toLocaleString()} ج.م
-                  </span>
-                </div>
-                <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/20">
-                  <span className="text-[10px] text-blue-800 dark:text-blue-300 font-bold block">دفعات الجدية المحصلة (33%)</span>
-                  <span className="font-mono font-black text-base text-blue-600">
-                    {Math.round(marketplaceOrdersList.reduce((sum, o) => sum + (Number(o.advancePaymentAmount || o.deposit_paid) || 0), 0)).toLocaleString()} ج.م
-                  </span>
-                </div>
-              </div>
-
-              {marketplaceOrdersList.length === 0 ? (
-                <div className="p-8 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 text-xs text-stone-500">
-                  لا توجد طلبيات سوق مسجلة حالياً. عند إتمام المشترين لطلبات السلة ستظهر هنا فورياً لبدء التحقق من دفعة الجدية.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {marketplaceOrdersList.map((order) => {
-                    const targetDelivery = order.targetDeliveryDate || (order as any).dueDate || order.deliveryDate;
-                    const daysRemaining = targetDelivery
-                      ? Math.ceil((new Date(targetDelivery).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                      : null;
-
-                    const isClientHidden = order.isClientDataHiddenFromArtisan !== false;
-
-                    return (
-                      <div
-                        key={order.id}
-                        className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-3 text-xs"
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-200 dark:border-stone-750 pb-2">
-                          <div className="flex items-center gap-2.5">
-                            <span className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-xs font-mono">
-                              #{order.invoiceNumber}
-                            </span>
-                            <div>
-                              <h5 className="font-black text-sm text-stone-900 dark:text-white">
-                                {order.customerName} ({order.customerPhone})
-                              </h5>
-                              <span className="text-[11px] text-stone-500">
-                                {order.governorate} • {order.detailedAddress}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Countdown Timer Badge */}
-                          <div className="flex items-center gap-2">
-                            {daysRemaining !== null && order.status !== 'completed' && order.status !== 'cancelled' && (
-                              <span
-                                className={`px-3 py-1 rounded-full text-xs font-mono font-black flex items-center gap-1.5 ${
-                                  daysRemaining > 2
-                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-400'
-                                    : daysRemaining > 0
-                                    ? 'bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300 border border-orange-400 animate-pulse'
-                                    : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-400'
-                                }`}
-                              >
-                                <Clock className="w-3.5 h-3.5" />
-                                <span>
-                                  {daysRemaining > 0
-                                    ? `باقي ${daysRemaining} يوم للتسليم`
-                                    : daysRemaining === 0
-                                    ? 'ميعاد التسليم اليوم!'
-                                    : `متأخر ${Math.abs(daysRemaining)} يوم`}
-                                </span>
-                              </span>
-                            )}
-
-                            <span
-                              className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
-                                order.status === 'in_progress'
-                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                                  : order.status === 'shipped'
-                                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
-                                  : order.status === 'completed'
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                  : 'bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300'
-                              }`}
-                            >
-                              {order.status === 'in_progress'
-                                ? 'جاري التصنيع 🔨'
-                                : order.status === 'shipped'
-                                ? 'جاري الشحن والتسليم 🚚'
-                                : order.status === 'completed'
-                                ? 'تم التسليم بنجاح ✓'
-                                : 'بانتظار تأكيد الجدية ⏳'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Items & Financials */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                          <div className="p-2.5 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
-                            <span className="text-[10px] text-stone-500 block mb-0.5">المشغولات المطلوبة:</span>
-                            <span className="font-bold text-stone-900 dark:text-white line-clamp-1">
-                              {order.items?.map((i: any) => `${i.productName} (${i.quantity})`).join('، ') || 'مشغولة يدوية'}
-                            </span>
-                          </div>
-
-                          <div className="p-2.5 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
-                            <span className="text-[10px] text-stone-500 block mb-0.5">دفعة الجدية (33%):</span>
-                            <span className="font-bold font-mono text-amber-600 dark:text-amber-400">
-                              {order.advancePaymentAmount || Math.round((order.finalTotal || 0) * 0.33)} ج.م ({order.paymentMethod || 'إنستاباي'})
-                            </span>
-                            {order.advancePaymentTransactionId && (
-                              <span className="text-[9px] text-stone-400 block truncate">
-                                مرجع: {order.advancePaymentTransactionId}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="p-2.5 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
-                            <span className="text-[10px] text-stone-500 block mb-0.5">إجمالي الفاتورة والباقي:</span>
-                            <span className="font-mono font-black text-stone-900 dark:text-white">
-                              إجمالي: {order.finalTotal} ج.م | متبقي: {order.remainingAmount || 0} ج.م
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Operational Actions */}
-                        <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 dark:border-stone-750">
-                          {/* Privacy Toggle per order */}
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const updatedPrivacy = !isClientHidden;
-                              await updateCentralMarketplaceOrderStatus(
-                                order.id,
-                                { isClientDataHiddenFromArtisan: updatedPrivacy },
-                                profile.email
-                              );
-                              setMarketplaceOrdersList(getCentralMarketplaceOrders());
-                              playSuccessSound();
-                              setSuccessNotice(
-                                updatedPrivacy
-                                  ? '✓ تم حجب بيانات العميل عن الورشة لهذا الأوردر ومزامنة القرار سحابياً'
-                                  : 'تم إظهار بيانات العميل للورشة للشحن المباشر ومزامنة القرار سحابياً'
-                              );
-                            }}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1 ${
-                              isClientHidden
-                                ? 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
-                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-400'
-                            }`}
-                          >
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            <span>{isClientHidden ? 'بيانات العميل محجوبة عن الفنان' : 'بيانات العميل ظاهرة للفنان للشحن المباشر'}</span>
-                          </button>
-
-                          {/* Lifecycle action buttons */}
-                          <div className="flex items-center gap-2">
-                            {order.status === 'pending' && (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  await updateCentralMarketplaceOrderStatus(
-                                    order.id,
-                                    {
-                                      status: 'in_progress',
-                                      marketplaceStatus: 'in_production',
-                                      advancePaymentConfirmed: true,
-                                    },
-                                    profile.email
-                                  );
-                                  setMarketplaceOrdersList(getCentralMarketplaceOrders());
-                                  playSuccessSound();
-                                  setSuccessNotice(`✓ تم اعتماد دفعة الجدية للطلب #${order.invoiceNumber} وبدء التصنيع بالورشة ومزامنة الحالة سحابياً!`);
-                                }}
-                                className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-md"
-                              >
-                                <span>اعتماد دفعة الجدية وبدء التصنيع 🔨</span>
-                              </button>
-                            )}
-
-                            {order.status === 'in_progress' && (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  await updateCentralMarketplaceOrderStatus(
-                                    order.id,
-                                    {
-                                      status: 'shipped',
-                                      marketplaceStatus: 'shipped',
-                                    },
-                                    profile.email
-                                  );
-                                  setMarketplaceOrdersList(getCentralMarketplaceOrders());
-                                  playSuccessSound();
-                                  setSuccessNotice(`✓ تم فحص القطعة بنجاح وتحويل الطلب #${order.invoiceNumber} للشحن والتوصيل ومزامنته سحابياً!`);
-                                }}
-                                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-md"
-                              >
-                                <span>فحص الجودة والشحن للتسليم 🚚</span>
-                              </button>
-                            )}
-
-                            {order.status === 'shipped' && (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  await updateCentralMarketplaceOrderStatus(
-                                    order.id,
-                                    {
-                                      status: 'completed',
-                                      marketplaceStatus: 'delivered',
-                                      remainingAmount: 0,
-                                    },
-                                    profile.email
-                                  );
-                                  setMarketplaceOrdersList(getCentralMarketplaceOrders());
-                                  playSuccessSound();
-                                  setSuccessNotice(`✓ تم تأكيد استلام العميل للطلب #${order.invoiceNumber} وتصفية الحساب كاملاً ومزامنته سحابياً!`);
-                                }}
-                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shadow-md"
-                              >
-                                <span>تم التسليم بنجاح وتصفية الحساب ✓</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Modal for Reject Reason */}
-            {rejectingProduct && (
-              <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-                <div className="bg-[#0C1427] border-2 border-rose-500 rounded-3xl p-5 max-w-md w-full space-y-4 text-right text-white">
-                  <h4 className="font-black text-sm text-rose-300 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4" />
-                    <span>سبب رفض مشغولة "{rejectingProduct.productName}"</span>
-                  </h4>
-                  <p className="text-xs text-[#CBD5E1]">
-                    اكتب الملاحظات والتوجيهات للفنان لتعديلها وإعادة إرسالها:
-                  </p>
-                  <textarea
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    rows={3}
-                    className="w-full p-3 rounded-xl bg-[#132040] border border-rose-500/40 text-white text-xs font-bold outline-none resize-none"
-                  />
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setRejectingProduct(null)}
-                      className="px-3 py-1.5 rounded-xl text-xs text-stone-400 hover:text-white cursor-pointer"
-                    >
-                      إلغاء
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        rejectingProduct.isMarketplaceApproved = false;
-                        rejectingProduct.rejectReason = rejectReason;
-                        await tenantStorage.mutateProduct(rejectingProduct);
-                        const res = await reviewMarketplaceProduct(
-                          rejectingProduct.id || rejectingProduct.product_id,
-                          'rejected',
-                          rejectReason,
-                          profile.email,
-                          { productPayload: rejectingProduct }
-                        );
-                        if (!res.success) {
-                          showError(res.error || 'تم الرفض محلياً ولكن تعذر الحفظ السحابي');
-                        } else {
-                          playAlertSound();
-                          setSuccessNotice(`✓ تم رفض المشغولة سحابياً وإرسال السبب لورشة الفنان: "${rejectReason}"`);
-                        }
-                        loadCloudMarketplaceProducts();
-                        loadAdminNotifications();
-                        setRejectingProduct(null);
-                      }}
-                      className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
-                    >
-                      تأكيد الرفض وإخطار الفنان ✉️
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tab 8: Super Admin Product Approval Command Center (مقصورة اعتماد معروضات السوق المركزية) */}
-        {activeExecutiveTab === 'product_approvals' && (
-          <div className="space-y-6 animate-in fade-in">
-            {/* Header Banner & Stats */}
-            <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-stone-900 border-2 border-amber-500/40 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-xl bg-amber-500 text-stone-950 flex items-center justify-center shadow-md">
-                    <Sparkles className="w-5 h-5" />
-                  </div>
-                  <h4 className="text-base sm:text-lg font-black text-stone-900 dark:text-white">
-                    مقصورة اعتماد معروضات سوق الشمساوية المركزي 🛍️✨
-                  </h4>
-                </div>
-                <p className="text-xs font-medium text-[#334155] dark:text-[#CBD5E1] max-w-2xl leading-relaxed">
-                  فحص ومراجعة كافة المشغولات اليدوية المرفوعة من الورش الحرفية للتأكد من استيفائها معايير الفنش والجودة العالية لمنظومة الشمساوية قبل نشرها للجمهور والمتسوقين.
-                </p>
-              </div>
-
+          {successNotice && (
+            <div className="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={loadCloudMarketplaceProducts}
-                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-black text-xs transition flex items-center gap-2 shadow-md cursor-pointer active:scale-95"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loadingCloudProducts ? 'animate-spin' : ''}`} />
-                  <span>تحديث المعروضات</span>
-                </button>
+                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{successNotice}</span>
               </div>
-            </div>
-
-            {/* بطاقة كود QR والرابط الرسمي لسوق الشمساوية المركزي (مخصصة لإدارة وحملات السوبر أدمن) */}
-            <div className="p-5 rounded-3xl bg-[#0D162E] text-white border-2 border-amber-500/50 shadow-xl flex flex-col md:flex-row items-center justify-between gap-5">
-              <div className="space-y-2 text-right flex-1">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/40">
-                    <QrCode className="w-4 h-4" />
-                  </div>
-                  <h4 className="text-sm font-black text-amber-300">
-                    الرابط الرسمي وكود QR لسوق الشمساوية المركزي 🛍️
-                  </h4>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-stone-950 font-black">
-                    بوابة المتسوقين
-                  </span>
-                </div>
-                <p className="text-xs text-stone-300 leading-relaxed max-w-xl">
-                  هذا هو الرابط والكود الرسمي لسوق الشمساوية المركزي متعدد التجار؛ يمكنك نسخه ومشاركته في الحملات الإعلانية ومع العملاء لعرض كافة المشغولات المعتمدة.
-                </p>
-                <div className="pt-2 flex flex-wrap items-center gap-2">
-                  <div className="px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-800 text-[11px] font-mono text-amber-200 select-all">
-                    {typeof window !== 'undefined' ? `${window.location.origin}/#/market` : 'https://alshamsawiyah.ai.studio/#/market'}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const url = typeof window !== 'undefined' ? `${window.location.origin}/#/market` : 'https://alshamsawiyah.ai.studio/#/market';
-                      navigator.clipboard.writeText(url);
-                      setCopiedMarketUrl(true);
-                      setTimeout(() => setCopiedMarketUrl(false), 2000);
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition active:scale-95"
-                  >
-                    {copiedMarketUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedMarketUrl ? 'تم النسخ' : 'نسخ الرابط'}</span>
-                  </button>
-                  <a
-                    href="/#/market"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-300 font-black text-xs flex items-center gap-1.5 border border-stone-700 transition"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>فتح السوق كزائر</span>
-                  </a>
-                </div>
-              </div>
-
-              {/* QR Code Canvas */}
-              <div className="flex flex-col items-center gap-2 bg-white p-3.5 rounded-2xl shadow-lg shrink-0">
-                <QRCodeCanvas
-                  id="central-marketplace-qr"
-                  value={typeof window !== 'undefined' ? `${window.location.origin}/#/market` : 'https://alshamsawiyah.ai.studio/#/market'}
-                  size={120}
-                  level="H"
-                  includeMargin={true}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const canvas = document.getElementById('central-marketplace-qr') as HTMLCanvasElement;
-                    if (canvas) {
-                      const url = canvas.toDataURL('image/png');
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = 'alshams-marketplace-qr.png';
-                      a.click();
-                    }
-                  }}
-                  className="px-3 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 text-amber-300 font-bold text-[10px] flex items-center gap-1 cursor-pointer transition active:scale-95"
-                >
-                  <Download className="w-3 h-3" />
-                  <span>تحميل QR</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Metrics Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-center space-y-1 shadow-xs">
-                <span className="text-[11px] font-bold text-stone-500 block">إجمالي المعروضات المرفوعة</span>
-                <span className="text-xl font-black font-mono text-stone-900 dark:text-white">
-                  {cloudProductsForReview.length}
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center space-y-1 shadow-xs">
-                <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 block">بانتظار الاعتماد ⏳</span>
-                <span className="text-xl font-black font-mono text-amber-600 dark:text-amber-400">
-                  {cloudProductsForReview.filter((p) => p.status === 'pending_approval').length}
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center space-y-1 shadow-xs">
-                <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 block">معتمدة ومنشورة بالسوق ✨</span>
-                <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-                  {cloudProductsForReview.filter((p) => p.status === 'approved').length}
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-center space-y-1 shadow-xs">
-                <span className="text-[11px] font-bold text-rose-800 dark:text-rose-300 block">مرفوضة بملاحظات ❌</span>
-                <span className="text-xl font-black font-mono text-rose-600 dark:text-rose-400">
-                  {cloudProductsForReview.filter((p) => p.status === 'rejected').length}
-                </span>
-              </div>
-            </div>
-
-            {/* Filter Pills */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {[
-                { id: 'pending_approval', label: 'بانتظار الاعتماد ⏳', count: cloudProductsForReview.filter((p) => p.status === 'pending_approval').length },
-                { id: 'approved', label: 'المعتمدة حالياً بالسوق ✨', count: cloudProductsForReview.filter((p) => p.status === 'approved').length },
-                { id: 'rejected', label: 'المرفوضة بملاحظات ❌', count: cloudProductsForReview.filter((p) => p.status === 'rejected').length },
-                { id: 'all', label: 'كافة المعروضات 📋', count: cloudProductsForReview.length },
-              ].map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setCloudProductsFilter(f.id as any)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-black transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                    cloudProductsFilter === f.id
-                      ? 'bg-amber-500 text-stone-950 shadow-md shadow-amber-500/20'
-                      : 'bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-300 border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800'
-                  }`}
-                >
-                  <span>{f.label}</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-stone-900/15 dark:bg-stone-100/15">
-                    {f.count}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {/* Products List */}
-            {loadingCloudProducts ? (
-              <div className="p-12 text-center text-xs font-bold text-stone-500 space-y-2">
-                <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p>جاري استدعاء المعروضات السحابية للمراجعة...</p>
-              </div>
-            ) : cloudProductsForReview.filter((p) => cloudProductsFilter === 'all' || p.status === cloudProductsFilter).length === 0 ? (
-              <div className="p-12 text-center bg-white dark:bg-stone-900 rounded-3xl border border-dashed border-stone-300 dark:border-stone-800 space-y-3">
-                <Sparkles className="w-10 h-10 text-amber-500 mx-auto" />
-                <h5 className="font-black text-sm text-stone-900 dark:text-white">
-                  {cloudProductsFilter === 'pending_approval'
-                    ? 'ممتاز يا باشمهندس! لا توجد مشغولات معلقة بانتظار الاعتماد حالياً ✨'
-                    : 'لا توجد معروضات مسجلة تحت هذا التبويب.'}
-                </h5>
-                <p className="text-xs text-stone-500 max-w-md mx-auto">
-                  عند قيام أي ورشة بتصدير منتج لمتجرها أو للسوق المركزي، سيظهر هنا فورياً لفحصه واعتماده.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {cloudProductsForReview
-                  .filter((p) => cloudProductsFilter === 'all' || p.status === cloudProductsFilter)
-                  .map((p) => {
-                    const storePrice = p.store_price || p.retail_price || 0;
-                    const costPrice = p.cost_price || 0;
-                    const profit = storePrice - costPrice;
-                    const isPending = p.status === 'pending_approval';
-                    const isApproved = p.status === 'approved';
-                    const isRejected = p.status === 'rejected';
-
-                    return (
-                      <div
-                        key={p.id}
-                        className="rounded-3xl bg-white dark:bg-stone-900 border-2 border-stone-200 dark:border-stone-800 hover:border-amber-500/40 transition shadow-sm hover:shadow-xl flex flex-col justify-between overflow-hidden"
-                      >
-                        {/* Image & Badges */}
-                        <div className="relative w-full aspect-video bg-stone-100 dark:bg-stone-800 overflow-hidden">
-                          <img
-                            src={p.image_url || '/alshams_falcon_emblem.png'}
-                            alt={p.product_name}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = '/alshams_falcon_emblem.png';
-                            }}
-                          />
-                          <div className="absolute top-3 right-3 flex items-center gap-1.5 flex-wrap">
-                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-stone-950/80 text-amber-300 backdrop-blur-xs">
-                              {p.craft_name || p.category}
-                            </span>
-                          </div>
-
-                          <div className="absolute bottom-3 right-3">
-                            <span
-                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black backdrop-blur-xs shadow-md ${
-                                isApproved
-                                  ? 'bg-emerald-600 text-white'
-                                  : isRejected
-                                  ? 'bg-rose-600 text-white'
-                                  : 'bg-amber-500 text-stone-950'
-                              }`}
-                            >
-                              {isApproved ? 'معتمد بالسوق ✓' : isRejected ? 'مرفوض ❌' : 'قيد المراجعة ⏳'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Card Content */}
-                        <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-4">
-                          <div className="space-y-2">
-                            <h5 className="font-black text-sm sm:text-base text-stone-900 dark:text-white leading-tight">
-                              {p.product_name}
-                            </h5>
-
-                            {/* Workshop & Artist Info */}
-                            <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-1">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="font-bold text-stone-700 dark:text-stone-300">
-                                  الورشة: <strong>{p.brand_name || 'الشمساوية'}</strong>
-                                </span>
-                                <span className="text-[11px] text-stone-500">
-                                  الفنان: {p.artist_name || 'فنان'}
-                                </span>
-                              </div>
-
-                              {p.phone_number && (
-                                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-stone-200/60 dark:border-stone-750">
-                                  <span className="text-stone-500 font-mono">{p.phone_number}</span>
-                                  <a
-                                    href={`https://wa.me/${p.phone_number.replace(/\D/g, '').startsWith('0') ? '2' + p.phone_number.replace(/\D/g, '') : p.phone_number.replace(/\D/g, '')}?text=${encodeURIComponent(`تحياتي يا فنان بخصوص معروضتك [${p.product_name}] على منظومة الشمساوية.`)}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Phone className="w-3 h-3" />
-                                    <span>محادثة واتساب</span>
-                                  </a>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Description */}
-                            <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-2 leading-relaxed">
-                              {p.store_description || 'مشغولة يدوية فاخرة مصنوعة بدقة.'}
-                            </p>
-
-                            {/* Rejection Note Box if Rejected */}
-                            {isRejected && p.rejection_reason && (
-                              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-900 text-rose-800 dark:text-rose-200 text-xs font-bold space-y-1">
-                                <span className="block font-black text-[11px]">ملاحظات الرفض السابقة:</span>
-                                <p className="italic">"{p.rejection_reason}"</p>
-                              </div>
-                            )}
-
-                            {/* Pricing & Economics */}
-                            <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/20 text-center">
-                              <div>
-                                <span className="text-[10px] text-stone-500 font-bold block">سعر العرض</span>
-                                <span className="text-xs font-black text-amber-600 dark:text-amber-400">
-                                  {storePrice} ج.م
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-stone-500 font-bold block">التكلفة المقدرة</span>
-                                <span className="text-xs font-black text-stone-700 dark:text-stone-300">
-                                  {costPrice ? `${costPrice} ج.م` : '---'}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-stone-500 font-bold block">صافي الربح</span>
-                                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
-                                  {profit > 0 ? `+${profit} ج.م` : '---'}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Variants preview */}
-                            {((p.available_colors && p.available_colors.length > 0) || (p.available_sizes && p.available_sizes.length > 0)) && (
-                              <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-stone-500 font-bold pt-1">
-                                {p.available_colors && p.available_colors.length > 0 && (
-                                  <span>الألوان: {p.available_colors.join('، ')}</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Decision Action Bar */}
-                          <div className="pt-3 border-t border-stone-100 dark:border-stone-800 flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const res = await reviewMarketplaceProduct(
-                                  p.id,
-                                  'approved',
-                                  undefined,
-                                  profile.email,
-                                  {
-                                    ratingStars: (p as any).rating_stars ?? initialRatingForApprove ?? 5,
-                                    productPayload: p,
-                                  }
-                                );
-                                if (res.success) {
-                                  setCloudProductsForReview((prev) =>
-                                    prev.map((item) => (item.id === p.id ? { ...item, status: 'approved', rejection_reason: null } : item))
-                                  );
-                                  playSuccessSound();
-                                  setSuccessNotice(`✓ تم اعتماد مشغولة "${p.product_name}" ونشرها في سوق الشمساوية المركزي بنجاح! ✨`);
-                                  loadAdminNotifications();
-                                } else {
-                                  showError(res.error || 'تعذر اعتماد المنتج سحابياً — تأكد من الصلاحيات أو الاتصال');
-                                }
-                              }}
-                              className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer active:scale-95"
-                            >
-                              <Check className="w-4 h-4" />
-                              <span>{isApproved ? 'معتمد (تجديد النشر)' : 'اعتماد ونشر في السوق ✨'}</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCloudRejectingProduct(p);
-                                setCloudRejectReason('');
-                              }}
-                              className="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-bold text-xs transition flex items-center justify-center gap-1 cursor-pointer"
-                              title="رفض أو إرسال ملاحظات"
-                            >
-                              <X className="w-4 h-4" />
-                              <span>رفض بملاحظات</span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
-
-            {/* Cloud Rejection Reason Modal */}
-            {cloudRejectingProduct && (
-              <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
-                <div className="bg-[#0C1427] border-2 border-rose-500 rounded-3xl p-6 max-w-md w-full space-y-4 text-right text-white shadow-2xl">
-                  <div className="flex items-center gap-2 text-rose-400">
-                    <AlertTriangle className="w-5 h-5 shrink-0" />
-                    <h4 className="font-black text-sm">
-                      رفض مشغولة "{cloudRejectingProduct.product_name}" وإرسال الملاحظات
-                    </h4>
-                  </div>
-                  <p className="text-xs text-[#CBD5E1] leading-relaxed">
-                    اكتب التوجيهات الفنية والملاحظات للفنان لضبط المواصفات أو الصور في ورشته:
-                  </p>
-                  <textarea
-                    value={cloudRejectReason}
-                    onChange={(e) => setCloudRejectReason(e.target.value)}
-                    rows={4}
-                    placeholder="مثال: يرجى رفع صورة أكثر وضوحاً بخلفية بيضاء محايدة، وتدقيق مقاسات القطر والأطوال..."
-                    className="w-full p-3 rounded-xl bg-[#132040] border border-rose-500/40 text-white text-xs font-bold outline-none resize-none focus:border-rose-400"
-                  />
-                  <div className="flex items-center justify-end gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setCloudRejectingProduct(null)}
-                      className="px-4 py-2 rounded-xl text-xs font-bold text-stone-400 hover:text-white cursor-pointer"
-                    >
-                      إلغاء
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const reason = cloudRejectReason.trim() || 'تحتاج إلى تدقيق المواصفات والصور الفنية.';
-                        const res = await reviewMarketplaceProduct(cloudRejectingProduct.id, 'rejected', reason, profile.email, {
-                          productPayload: cloudRejectingProduct,
-                        });
-                        if (res.success) {
-                          setCloudProductsForReview((prev) =>
-                            prev.map((item) => (item.id === cloudRejectingProduct.id ? { ...item, status: 'rejected', rejection_reason: reason } : item))
-                          );
-                          playAlertSound();
-                          setSuccessNotice(`✓ تم رفض المشغولة وإخطار ورشة [${cloudRejectingProduct.brand_name || 'الفنان'}] بالملاحظات بنجاح.`);
-                          setCloudRejectingProduct(null);
-                          loadAdminNotifications();
-                        } else {
-                          showError(res.error || 'تعذر حفظ قرار الرفض سحابياً');
-                        }
-                      }}
-                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs cursor-pointer shadow-md shadow-rose-600/30"
-                    >
-                      تأكيد الرفض وإرسال الملاحظات ✉️
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tab 10: Workshop Applications (طلبات انضمام الورش الحرفية) */}
-        {activeExecutiveTab === 'applications' && (
-          <div className="space-y-4">
-            {/* Header & Controls Bar */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="space-y-1 text-right">
-                <div className="flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-amber-600" />
-                  <h3 className="text-sm font-black text-stone-900 dark:text-stone-100">
-                    مركز مراجعة واعتماد طلبات انضمام الورش الحرفية 🏛️
-                  </h3>
-                </div>
-                <p className="text-xs text-stone-600 dark:text-stone-400">
-                  فحص طلبات انضمام الورش الجديدة الواردة عبر السحابة اللحظية (Supabase Realtime)، والتحقق من التخصص الحرفي وملف الأعمال، والاعتماد الفوري أو إرسال الملاحظات الفنية.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const inviteUrl = `${window.location.origin}/?tab=register`;
-                    navigator.clipboard.writeText(inviteUrl);
-                    playSuccessSound();
-                    setSuccessNotice('✓ تم نسخ رابط تسجيل وانضمام الورش بنجاح إلى الحافظة!');
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-white dark:bg-stone-800 border border-amber-300 dark:border-amber-700/60 text-stone-800 dark:text-stone-200 font-bold text-xs flex items-center gap-1.5 transition shadow-xs hover:bg-amber-50 cursor-pointer"
-                  title="نسخ رابط صفحة تسجيل الورش لمشاركته مع الحرفيين"
-                >
-                  <Copy size={13} className="text-amber-600" />
-                  <span>نسخ رابط التقديم 📋</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsNewWorkshopModalOpen(true)}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer"
-                >
-                  <PlusCircle size={13} />
-                  <span>تسجيل ورشة يدوياً ➕</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={loadWorkshopApplications}
-                  disabled={loadingApplications}
-                  className="p-2 rounded-xl bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 text-stone-800 dark:text-stone-200 transition cursor-pointer"
-                  title="تحديث قائمة الطلبات"
-                >
-                  <RefreshCw size={14} className={loadingApplications ? 'animate-spin text-amber-600' : ''} />
-                </button>
-              </div>
-            </div>
-
-            {/* Filter Tabs */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              <button
-                type="button"
-                onClick={() => setAppFilter('all')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  appFilter === 'all'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
-                }`}
-              >
-                الكل ({workshopApplications.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAppFilter('pending')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  appFilter === 'pending'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
-                }`}
-              >
-                بانتظار المراجعة ({workshopApplications.filter((a) => a.status === 'pending' || !a.status).length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAppFilter('approved')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  appFilter === 'approved'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
-                }`}
-              >
-                معتمدة ({workshopApplications.filter((a) => a.status === 'approved').length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAppFilter('rejected')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  appFilter === 'rejected'
-                    ? 'bg-rose-600 text-white shadow-xs'
-                    : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 hover:text-stone-900'
-                }`}
-              >
-                مرفوضة ({workshopApplications.filter((a) => a.status === 'rejected').length})
+              <button type="button" onClick={() => setSuccessNotice('')} className="p-1 cursor-pointer">
+                <X className="w-4 h-4" />
               </button>
             </div>
+          )}
 
-            {/* Applications List */}
-            {loadingApplications ? (
-              <div className="p-12 text-center text-stone-500 font-bold text-xs space-y-2">
-                <RefreshCw size={24} className="animate-spin text-amber-500 mx-auto" />
-                <p>جاري استعلام طلبات انضمام الورش من قاعدة البيانات الحقيقية...</p>
+          {errorMsg && (
+            <div className="p-3 rounded-2xl bg-rose-500/15 border border-rose-500/35 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{errorMsg}</span>
               </div>
-            ) : workshopApplications.filter((a) => {
-                if (appFilter === 'all') return true;
-                if (appFilter === 'pending') return a.status === 'pending' || !a.status;
-                return a.status === appFilter;
-              }).length === 0 ? (
-              <div className="p-10 text-center bg-stone-50 dark:bg-stone-850 rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 space-y-3">
-                <Building2 className="w-10 h-10 mx-auto text-amber-500/60" />
-                <div className="text-xs font-black text-stone-700 dark:text-stone-300">
-                  {appFilter === 'pending'
-                    ? 'لا توجد طلبات انضمام جديدة بانتظار المراجعة حالياً.'
-                    : 'لا توجد طلبات انضمام تطابق هذا التصفية.'}
-                </div>
-                <p className="text-[11px] text-stone-500 max-w-md mx-auto">
-                  عند قيام أي فنان حرفي بتقديم طلب انضمام لورشته، سيظهر الطلب هنا لحظياً عبر قنوات Supabase Realtime مع إشعار صوتي وتنبيه للسوبر أدمن.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const inviteUrl = `${window.location.origin}/?tab=register`;
-                    navigator.clipboard.writeText(inviteUrl);
-                    playSuccessSound();
-                    setSuccessNotice('✓ تم نسخ رابط انضمام الورش الحرفية بنجاح إلى الحافظة!');
-                  }}
-                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs inline-flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-                >
-                  <Copy size={13} />
-                  <span>نسخ رابط دعوة انضمام الورش 📋</span>
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {workshopApplications
-                  .filter((a) => {
-                    if (appFilter === 'all') return true;
-                    if (appFilter === 'pending') return a.status === 'pending' || !a.status;
-                    return a.status === appFilter;
-                  })
-                  .map((app) => {
-                    const st = app.status || 'pending';
-                    const craftsList = Array.isArray(app.crafts)
-                      ? app.crafts
-                      : typeof app.crafts === 'string'
-                      ? app.crafts.split(',').map((c: string) => c.trim())
-                      : [];
-
-                    return (
-                      <div
-                        key={app.id}
-                        className="p-5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs space-y-4 hover:border-amber-400/50 transition text-right"
-                      >
-                        {/* Card Top */}
-                        <div className="flex items-start justify-between gap-3 border-b border-stone-100 dark:border-stone-800 pb-3">
-                          <div className="space-y-0.5">
-                            <h4 className="text-sm font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                              <span>{app.brand_name || app.brandName || 'ورشة الشمساوية'}</span>
-                              {st === 'approved' ? (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-extrabold border border-emerald-300">
-                                  🟢 معتمدة
-                                </span>
-                              ) : st === 'rejected' ? (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-extrabold border border-rose-300">
-                                  🔴 مرفوضة
-                                </span>
-                              ) : (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 font-extrabold border border-amber-300 animate-pulse">
-                                  🟡 بانتظار الاعتماد
-                                </span>
-                              )}
-                            </h4>
-                            <p className="text-xs text-stone-500 font-bold">
-                              الفنان المسؤول: {app.artist_name || app.artistName || 'فنان'}
-                            </p>
-                          </div>
-
-                          <div className="text-[10px] text-stone-400 font-mono">
-                            {app.created_at ? new Date(app.created_at).toLocaleDateString('ar-EG') : 'حديثاً'}
-                          </div>
-                        </div>
-
-                        {/* Details */}
-                        <div className="space-y-2 text-xs">
-                          {/* Contact Info */}
-                          <div className="flex flex-wrap items-center gap-3 text-stone-700 dark:text-stone-300">
-                            {(app.phone_number || app.phoneNumber) && (
-                              <div className="flex items-center gap-1.5">
-                                <Phone size={13} className="text-amber-600" />
-                                <a
-                                  href={`tel:${app.phone_number || app.phoneNumber}`}
-                                  dir="ltr"
-                                  className="font-mono hover:text-amber-600"
-                                >
-                                  {app.phone_number || app.phoneNumber}
-                                </a>
-                              </div>
-                            )}
-
-                            {app.email && (
-                              <div className="flex items-center gap-1.5">
-                                <Mail size={13} className="text-amber-600" />
-                                <span className="font-mono text-[11px]">{app.email}</span>
-                              </div>
-                            )}
-
-                            {(app.governorate || app.city || app.country) && (
-                              <div className="flex items-center gap-1.5 text-stone-500">
-                                <Globe size={13} className="text-stone-400" />
-                                <span>{app.governorate || app.city || ''} ({app.country || 'مصر'})</span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Selected Crafts */}
-                          {craftsList.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                              <span className="text-[11px] font-bold text-stone-500">الحرف:</span>
-                              {craftsList.map((craft: string, idx: number) => (
-                                <span
-                                  key={idx}
-                                  className="text-[10px] px-2 py-0.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 font-bold border border-stone-200 dark:border-stone-700"
-                                >
-                                  {craft}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Portfolio / Social link */}
-                          {(app.portfolio_url || app.social_links) && (
-                            <div className="pt-1 flex items-center gap-2">
-                              <span className="text-[11px] font-bold text-stone-500">معرض الأعمال:</span>
-                              <a
-                                href={app.portfolio_url || app.social_links}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-[11px] text-amber-600 hover:underline flex items-center gap-1 font-bold"
-                              >
-                                <span>استعراض الرابط الحرفي</span>
-                                <ExternalLink size={12} />
-                              </a>
-                            </div>
-                          )}
-
-                          {/* Notes / Bio */}
-                          {(app.notes || app.bio) && (
-                            <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/60 text-[11px] text-stone-600 dark:text-stone-300">
-                              <span className="font-bold text-stone-700 dark:text-stone-200">نبذة وتفاصيل: </span>
-                              {app.notes || app.bio}
-                            </div>
-                          )}
-
-                          {/* Rejection / Review note if present */}
-                          {app.review_notes && (
-                            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-800 dark:text-amber-300">
-                              <span className="font-bold">ملاحظات الإدارة: </span>
-                              {app.review_notes}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Actions */}
-                        <div className="pt-2 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-1.5">
-                            {(app.phone_number || app.phoneNumber) && (
-                              <a
-                                href={`https://wa.me/${(app.phone_number || app.phoneNumber).replace(/\D/g, '')}?text=${encodeURIComponent(`السلام عليكم يا فنان، نتابع معك طلب انضمام ورشة [${app.brand_name || app.brandName}] لمنظومة الشمساوية`)}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-xs"
-                              >
-                                <MessageCircle size={13} />
-                                <span>واتساب الفنان 💬</span>
-                              </a>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            {st !== 'approved' && (
-                              <button
-                                type="button"
-                                onClick={() => handleApproveApplication(app)}
-                                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-                              >
-                                <Check size={13} />
-                                <span>اعتماد وتفعيل الورشة 🟢</span>
-                              </button>
-                            )}
-
-                            {st !== 'rejected' && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setReviewingApp(app);
-                                  setAppReviewNotes('');
-                                }}
-                                className="px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 dark:hover:bg-rose-950/60 text-stone-700 dark:text-stone-300 hover:text-rose-700 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
-                              >
-                                <X size={13} />
-                                <span>رفض بملاحظات 🔴</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
-
-            {/* Application Rejection Modal */}
-            {reviewingApp && (
-              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-                <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 p-5 sm:p-6 max-w-lg w-full space-y-4 shadow-2xl text-right">
-                  <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
-                    <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
-                      رفض طلب انضمام ورشة [{reviewingApp.brand_name || reviewingApp.brandName || 'الفنان'}] ✉️
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setReviewingApp(null)}
-                      className="p-1 rounded-lg text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold text-stone-700 dark:text-stone-300">
-                      ملاحظات الجودة وأسباب الرفض (لتوجيه الحرفي وتطوير أعماله):
-                    </label>
-                    <textarea
-                      rows={4}
-                      value={appReviewNotes}
-                      onChange={(e) => setAppReviewNotes(e.target.value)}
-                      placeholder="مثال: يرجى تزويدنا بصور عالية الجودة لقطع المكرمية أو استكمال متطلبات التشطيب..."
-                      className="w-full p-3 rounded-2xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-rose-500 text-right font-medium"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100 dark:border-stone-800">
-                    <button
-                      type="button"
-                      onClick={() => setReviewingApp(null)}
-                      className="px-4 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold text-xs hover:bg-stone-200 transition cursor-pointer"
-                    >
-                      إلغاء
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRejectApplication(reviewingApp, appReviewNotes)}
-                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition shadow-md shadow-rose-600/30 cursor-pointer"
-                    >
-                      تأكيد الرفض وتسجيل الملاحظات ✉️
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* 5. Overview Statistics Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center">
-            <Building2 size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-stone-500">إجمالي الورش</div>
-            <div className="text-lg sm:text-xl font-black font-mono text-stone-900 dark:text-stone-100">
-              {stats.total}
+              <button type="button" onClick={() => setErrorMsg('')} className="p-1 cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 flex items-center justify-center">
-            <Check size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-stone-500">الورش النشطة</div>
-            <div className="text-lg sm:text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-              {stats.active}
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center">
-            <Clock size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-stone-500">موقوفة مؤقتاً</div>
-            <div className="text-lg sm:text-xl font-black font-mono text-amber-600 dark:text-amber-400">
-              {stats.suspended}
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 flex items-center justify-center">
-            <Ban size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-stone-500">محظورة كلياً</div>
-            <div className="text-lg sm:text-xl font-black font-mono text-rose-600 dark:text-rose-400">
-              {stats.banned}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 5.1 Interactive Analytics & Operations Insights (Recharts) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Chart 1: Crafts Distribution Bar Chart */}
-        <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 p-4 sm:p-5 shadow-sm space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-stone-800">
-            <div className="flex items-center gap-2">
-              <BarChart2 className="w-4 h-4 text-amber-600" />
-              <h3 className="text-xs font-black text-stone-900 dark:text-stone-100">
-                توزيع الورش حسب التخصص الحرفي
-              </h3>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
-              {(workshops || []).length} ورشة
-            </span>
-          </div>
-
-          <div className="h-56 w-full text-xs">
-            {craftDistributionData && craftDistributionData.length > 0 && craftDistributionData.some((d) => d.count > 0) ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                <BarChart data={craftDistributionData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fontWeight: 'bold' }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1c1917',
-                      borderColor: '#78350f',
-                      borderRadius: '12px',
-                      color: '#fef3c7',
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      textAlign: 'right',
-                      direction: 'rtl',
-                    }}
-                    formatter={(val: any) => [`${val} ورشة`, 'عدد الورش']}
-                  />
-                  <Bar dataKey="count" fill="#d97706" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full w-full flex items-center justify-center text-stone-400 text-xs font-bold border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl">
-                لا توجد بيانات حرف كافية لعرض الرسم البياني
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Chart 2: Workshop Status Distribution Pie Chart */}
-        <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 p-4 sm:p-5 shadow-sm space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-stone-800">
-            <div className="flex items-center gap-2">
-              <Scale className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-xs font-black text-stone-900 dark:text-stone-100">
-                مؤشر الحالات الإدارية والرقابية
-              </h3>
-            </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
-              مباشر
-            </span>
-          </div>
-
-          <div className="h-56 w-full text-xs flex items-center justify-center">
-            {statusDistributionData && statusDistributionData.length > 0 && statusDistributionData.some((d) => d.value > 0) ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                <PieChart>
-                  <Pie
-                    data={statusDistributionData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={75}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {statusDistributionData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1c1917',
-                      borderColor: '#44403c',
-                      borderRadius: '12px',
-                      color: '#fef3c7',
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      textAlign: 'right',
-                      direction: 'rtl',
-                    }}
-                    formatter={(val: any) => [`${val} ورشة`, 'الحالة']}
-                  />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    formatter={(value) => <span className="text-[11px] font-bold text-stone-600 dark:text-stone-300">{value}</span>}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full w-full flex items-center justify-center text-stone-400 text-xs font-bold border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl">
-                لا توجد ورش مسجلة لعرض الحالات الرقابية
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Chart 3: Weekly Operations & Transactions Volume Area Chart */}
-        <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 p-4 sm:p-5 shadow-sm space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-stone-800">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-amber-600" />
-              <h3 className="text-xs font-black text-stone-900 dark:text-stone-100">
-                حجم العمليات والطلبيات عبر المنظومة
-              </h3>
-            </div>
-            <span className="text-[10px] font-mono font-bold text-stone-500">
-              آخر 7 أيام
-            </span>
-          </div>
-
-          <div className="h-56 w-full text-xs">
-            {dailyOperationsData && dailyOperationsData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                <AreaChart data={dailyOperationsData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorOps" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#d97706" stopOpacity={0.8} />
-                      <stop offset="95%" stopColor="#d97706" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                  <XAxis dataKey="day" tick={{ fontSize: 11, fontWeight: 'bold' }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1c1917',
-                      borderColor: '#78350f',
-                      borderRadius: '12px',
-                      color: '#fef3c7',
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      textAlign: 'right',
-                      direction: 'rtl',
-                    }}
-                    formatter={(val: any, name: any) => [
-                      name === 'operations' ? `${val} عملية` : `${val} ج.م`,
-                      name === 'operations' ? 'إجمالي العمليات' : 'قيمة المعاملات',
-                    ]}
-                  />
-                  <Area type="monotone" dataKey="operations" stroke="#d97706" fillOpacity={1} fill="url(#colorOps)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full w-full flex items-center justify-center text-stone-400 text-xs font-bold border border-dashed border-stone-200 dark:border-stone-800 rounded-2xl">
-                لا توجد معاملات مسجلة
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 6. Directory Search & Filters Bar */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm flex flex-col md:flex-row items-center gap-3">
-        <div className="relative flex-1 w-full">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="بحث فوري في الورش بالاسم، الفنان، الإيميل، الهاتف، أو الدولة..."
-            className="w-full px-3.5 py-2.5 pr-10 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 text-right"
-          />
-          <Search size={16} className="absolute right-3.5 top-3 text-stone-400 pointer-events-none" />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute left-3 top-2.5 text-stone-400 hover:text-stone-600"
-            >
-              <X size={15} />
-            </button>
           )}
         </div>
-
-        <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800 p-1 rounded-xl w-full md:w-auto overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setStatusFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-              statusFilter === 'all'
-                ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-xs'
-                : 'text-stone-600 dark:text-stone-400'
-            }`}
-          >
-            الكل ({(workshops || []).length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('active')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-              statusFilter === 'active'
-                ? 'bg-white dark:bg-stone-900 text-emerald-600 shadow-xs'
-                : 'text-stone-600 dark:text-stone-400'
-            }`}
-          >
-            🟢 النشطة ({stats.active})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('suspended')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-              statusFilter === 'suspended'
-                ? 'bg-white dark:bg-stone-900 text-amber-600 shadow-xs'
-                : 'text-stone-600 dark:text-stone-400'
-            }`}
-          >
-            🟡 الموقوفة ({stats.suspended})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('banned')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-              statusFilter === 'banned'
-                ? 'bg-white dark:bg-stone-900 text-rose-600 shadow-xs'
-                : 'text-stone-600 dark:text-stone-400'
-            }`}
-          >
-            🔴 المحظورة ({stats.banned})
-          </button>
-        </div>
-
-        <div className="w-full md:w-44">
-          <select
-            value={selectedCountryFilter}
-            onChange={(e) => setSelectedCountryFilter(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs font-bold outline-none cursor-pointer text-stone-700 dark:text-stone-300"
-          >
-            <option value="all">كل الدول</option>
-            {COUNTRIES_CONFIG.map((c) => (
-              <option key={c.code} value={c.name}>
-                {c.flag} {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* 7. Workshops Directory Table */}
-      {loading ? (
-        <div className="p-12 text-center bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800">
-          <div className="w-8 h-8 border-3 border-amber-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-xs font-bold text-stone-500">جاري قراءة سجلات الورش المسجلة لحظياً...</p>
-        </div>
-      ) : filteredWorkshops.length === 0 ? (
-        <div className="p-12 text-center bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 space-y-3">
-          <Building2 size={40} className="mx-auto text-stone-300 dark:text-stone-700" />
-          <h3 className="text-sm font-bold text-stone-700 dark:text-stone-300">
-            لا توجد ورش مطابقة لمعايير البحث
-          </h3>
-        </div>
-      ) : (
-        <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-stone-100/70 dark:bg-stone-800/60 border-b border-stone-200 dark:border-stone-800 text-stone-500 font-bold">
-                <tr>
-                  <th className="py-3.5 px-4">اسم الورشة (فحص التفاعل 📊)</th>
-                  <th className="py-3.5 px-4">اسم الفنان</th>
-                  <th className="py-3.5 px-4">رقم الهاتف والواتساب</th>
-                  <th className="py-3.5 px-4 text-center">الحالة الرقابية</th>
-                  <th className="py-3.5 px-4 text-center">إجراءات التحكم</th>
-                  <th className="py-3.5 px-4 text-center">التقييم والتكريم 🎖️</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100 dark:divide-stone-800 font-medium">
-                {(filteredWorkshops || []).map((ws) => {
-                  const isCurrent = ws.id === profile.id;
-                  const currentStatus = ws.status || (ws.isFrozen ? 'suspended' : 'active');
-                  const wsBrand = ws.brandName || 'ورشة الشمساوية';
-                  const wsArtist = ws.artistName || 'غير محدد';
-
-                  return (
-                    <tr
-                      key={ws.id}
-                      className={`hover:bg-amber-50/40 dark:hover:bg-stone-800/40 transition ${
-                        currentStatus === 'banned'
-                          ? 'bg-rose-50/20 dark:bg-rose-950/10'
-                          : currentStatus === 'suspended'
-                          ? 'bg-amber-50/20 dark:bg-amber-950/10'
-                          : ''
-                      }`}
-                    >
-                      {/* Workshop Info (Clickable for Activity Audit Modal) */}
-                      <td className="py-3.5 px-4">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenAudit(ws)}
-                          className="flex items-center gap-3 text-right cursor-pointer group"
-                          title="اضغط لفتح نافذة فحص التفاعل والنشاط السريع"
-                        >
-                          <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-black flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                            {wsBrand.charAt(0) || 'و'}
-                          </div>
-                          <div>
-                            <div className="font-extrabold text-stone-900 dark:text-stone-100 group-hover:text-amber-600 dark:group-hover:text-amber-400 flex items-center gap-1.5 transition-colors">
-                              <span>{wsBrand}</span>
-                              <span className="text-[11px] text-amber-600">📊</span>
-                              {isCurrent && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold">
-                                  ورشتك
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[10px] text-stone-400 font-mono mt-0.5">
-                              {ws.country || 'مصر'} • {ws.currencySymbol || 'ج.م'}
-                            </div>
-                          </div>
-                        </button>
-                      </td>
-
-                      {/* Artist Name */}
-                      <td className="py-3.5 px-4 font-bold text-stone-800 dark:text-stone-200">
-                        {wsArtist}
-                      </td>
-
-                      {/* Phone & Direct WhatsApp */}
-                      <td className="py-3.5 px-4">
-                        {ws.phoneNumber ? (
-                          <div className="flex items-center gap-1.5">
-                            <a
-                              href={`tel:${ws.phoneNumber}`}
-                              className="p-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-amber-100 text-stone-700 dark:text-stone-300 hover:text-amber-700 transition"
-                              title={`اتصال: ${ws.phoneNumber}`}
-                            >
-                              <Phone size={13} />
-                            </a>
-                            <a
-                              href={`https://wa.me/${ws.phoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent('السلام عليكم يا فنان، نتابع معك سير العمل في ورشتك على منظومة الشمساوية')}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 text-emerald-600 transition"
-                              title="محادثة واتساب مباشرة"
-                            >
-                              <MessageCircle size={13} />
-                            </a>
-                            <span className="font-mono text-[11px] text-stone-600 dark:text-stone-400" dir="ltr">
-                              {ws.phoneNumber}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-stone-400 text-[11px]">—</span>
-                        )}
-                      </td>
-
-                      {/* Regulatory Status */}
-                      <td className="py-3.5 px-4 text-center">
-                        {currentStatus === 'banned' ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-200 text-[10px] font-extrabold border border-rose-300 dark:border-rose-800">
-                            <Ban size={11} />
-                            <span>🔴 محظورة</span>
-                          </span>
-                        ) : currentStatus === 'suspended' ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 text-[10px] font-extrabold border border-amber-300 dark:border-amber-800">
-                            <Clock size={11} />
-                            <span>🟡 موقوفة مؤقتاً</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-200 text-[10px] font-extrabold border border-emerald-300 dark:border-emerald-800">
-                            <Check size={11} />
-                            <span>🟢 نشطة</span>
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Control Actions: Edit, Suspend, Ban, Selective Delete */}
-                      <td className="py-3.5 px-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          {/* 1. Edit & Credential Override */}
-                          <button
-                            type="button"
-                            onClick={() => setEditingWorkshop(ws)}
-                            className="p-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-amber-100 text-stone-600 hover:text-amber-700 transition cursor-pointer"
-                            title="✏️ تعديل البيانات، وتجاوز كلمة المرور وتوليدها بضغطة زر مع زر الواتساب"
-                          >
-                            <Edit3 size={14} />
-                          </button>
-
-                          {/* 2. Suspend / Freeze */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingWorkshop(ws);
-                              setIsSuspendingModalOpen(true);
-                            }}
-                            className="p-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-amber-100 text-stone-600 hover:text-amber-700 transition cursor-pointer"
-                            title="⏸️ تجميد / إيقاف مؤقت للورشة"
-                          >
-                            <Clock size={14} />
-                          </button>
-
-                          {/* 3. Ban */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingWorkshop(ws);
-                              setIsBanningModalOpen(true);
-                            }}
-                            className="p-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-stone-600 hover:text-rose-600 transition cursor-pointer"
-                            title="🚫 حظر الورشة نهائياً"
-                          >
-                            <Ban size={14} />
-                          </button>
-
-                          {/* 4. Selective Delete */}
-                          <button
-                            type="button"
-                            disabled={isCurrent}
-                            onClick={() => {
-                              setDeletingWorkshop(ws);
-                              setSelectiveDeleteMode('cascade');
-                              setDeleteConfirmText('');
-                            }}
-                            className="p-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-stone-600 hover:text-rose-600 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                            title={isCurrent ? 'لا يمكن حذف ورشتك الرئيسية' : '🗑️ الحذف والتصفير الانتقائي'}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </td>
-
-                      {/* Gamification & Recognition */}
-                      <td className="py-3.5 px-4 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <div className="flex flex-col items-center">
-                            <span className="text-base select-none">
-                              {ws.medal === 'diamond' ? '💎' : ws.medal === 'gold' ? '🥇' : ws.medal === 'silver' ? '🥈' : ws.medal === 'bronze' ? '🥉' : '🎖️'}
-                            </span>
-                            <span className="text-[10px] text-amber-500 font-bold select-none">
-                              {'⭐'.repeat(ws.rating_stars || 5)}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAwardingWorkshop(ws);
-                              setSelectedStars(ws.rating_stars || 5);
-                              setSelectedMedal(ws.medal || 'gold');
-                              setAwardCustomNote(ws.medal_note || '');
-                            }}
-                            className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-[11px] font-black transition flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
-                            title="منح وسام وقلادة تكريمية وتقييم نجوم مع إشعار رسمي"
-                          >
-                            <Award size={13} />
-                            <span>تكريم</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL 1: WORKSHOP MANAGEMENT & SUSPENSION (Pencil Icon) */}
-      {/* ============================================================ */}
-      {editingWorkshop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-xl rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 p-5 sm:p-6 text-right max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => setEditingWorkshop(null)}
-                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-              <div className="flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-amber-600" />
-                <h3 className="font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
-                  إدارة وتحكم ورشة: {editingWorkshop.brandName}
-                </h3>
-              </div>
-            </div>
-
-            {/* Quick Administrative Action Bar */}
-            <div className="p-3.5 rounded-2xl bg-amber-50/50 dark:bg-stone-850 border border-amber-200/80 dark:border-stone-750 space-y-2">
-              <span className="text-[11px] font-black text-stone-700 dark:text-stone-300 block">
-                الإجراءات والقرارات الإدارية الحازمة:
-              </span>
-              <div className="flex flex-wrap items-center gap-2">
-                {/* 1. Selective Delete */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeletingWorkshop(editingWorkshop);
-                    setSelectiveDeleteMode('cascade');
-                    setDeleteConfirmText('');
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-rose-100 text-stone-700 hover:text-rose-600 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                >
-                  <Trash2 size={13} />
-                  <span>الحذف والتصفير الانتقائي</span>
-                </button>
-
-                {/* 2. Suspend / Freeze */}
-                <button
-                  type="button"
-                  onClick={() => setIsSuspendingModalOpen(true)}
-                  className="px-3 py-1.5 rounded-xl bg-amber-100 dark:bg-amber-950/70 hover:bg-amber-200 text-amber-900 dark:text-amber-200 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                >
-                  <Clock size={13} />
-                  <span>تجميد / إيقاف مؤقت</span>
-                </button>
-
-                {/* 3. Ban */}
-                <button
-                  type="button"
-                  onClick={() => setIsBanningModalOpen(true)}
-                  className="px-3 py-1.5 rounded-xl bg-rose-100 dark:bg-rose-950/70 hover:bg-rose-200 text-rose-900 dark:text-rose-200 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-                >
-                  <Ban size={13} />
-                  <span>حظر الورشة (Ban)</span>
-                </button>
-
-                {/* 4. Reactivate if Suspended/Banned */}
-                {(editingWorkshop.status === 'suspended' || editingWorkshop.status === 'banned' || editingWorkshop.isFrozen) && (
-                  <button
-                    type="button"
-                    onClick={() => handleReactivateWorkshop(editingWorkshop)}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition flex items-center gap-1 cursor-pointer shadow-xs"
-                  >
-                    <CheckCircle2 size={13} />
-                    <span>إلغاء الحظر وإعادة التفعيل</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Profile Editing Form */}
-            <form onSubmit={handleSaveEditedWorkshop} className="space-y-4 pt-2 text-xs font-bold">
-              <div>
-                <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                  اسم البراند / الورشة
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editingWorkshop.brandName}
-                  onChange={(e) =>
-                    setEditingWorkshop({ ...editingWorkshop, brandName: e.target.value })
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                  اسم الفنان / الفنانة (صاحب الورشة)
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editingWorkshop.artistName}
-                  onChange={(e) =>
-                    setEditingWorkshop({ ...editingWorkshop, artistName: e.target.value })
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                    البريد الإلكتروني
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={editingWorkshop.email}
-                    onChange={(e) =>
-                      setEditingWorkshop({ ...editingWorkshop, email: e.target.value })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-left outline-none"
-                    dir="ltr"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                    رقم الهاتف المعتمد
-                  </label>
-                  <input
-                    type="tel"
-                    value={editingWorkshop.phoneNumber || ''}
-                    onChange={(e) =>
-                      setEditingWorkshop({ ...editingWorkshop, phoneNumber: e.target.value })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-left outline-none"
-                    dir="ltr"
-                  />
-                </div>
-              </div>
-
-              {/* Admin Credential Override Card */}
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-300 dark:border-amber-700/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Key className="w-4 h-4 text-amber-600" />
-                    <span className="text-xs font-black text-amber-950 dark:text-amber-200">
-                      إدارة الحساب وتعيين كلمة السر (Super Admin)
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={generateRandomPassword}
-                    className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black transition cursor-pointer flex items-center gap-1 shadow-xs"
-                    title="توليد كلمة سر آمنة ومعقدة تلقائياً"
-                  >
-                    <span>🎲</span>
-                    <span>توليد تلقائي</span>
-                  </button>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-bold text-stone-600 dark:text-stone-300">
-                    كلمة السر الجديدة (اتركها فارغة إذا لم ترغب بتغييرها):
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPasswordPlain ? 'text' : 'password'}
-                      value={editNewPassword}
-                      onChange={(e) => setEditNewPassword(e.target.value)}
-                      placeholder="أدخل كلمة سر جديدة أو اضغط توليد تلقائي..."
-                      className="w-full pl-10 pr-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 font-mono text-xs outline-none focus:ring-2 focus:ring-amber-500 text-left"
-                      dir="ltr"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPasswordPlain(!showPasswordPlain)}
-                      className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 p-1 cursor-pointer"
-                    >
-                      {showPasswordPlain ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[10px] text-stone-500">
-                    💡 يتم تحديث الإيميل والهاتف وكلمة السر معاً في المنظومة وقاعدة البيانات.
-                  </span>
-                  <button
-                    type="button"
-                    disabled={overridingCredentials}
-                    onClick={() => handleCredentialOverride(editingWorkshop)}
-                    className="px-3.5 py-1.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-                  >
-                    {overridingCredentials ? (
-                      <RefreshCw size={13} className="animate-spin" />
-                    ) : (
-                      <Key size={13} />
-                    )}
-                    <span>{overridingCredentials ? 'جاري الحفظ...' : 'تحديث بيانات الدخول'}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-stone-200 dark:border-stone-800">
-                <button
-                  type="button"
-                  onClick={() => setEditingWorkshop(null)}
-                  className="px-4 py-2.5 rounded-xl border text-stone-700 dark:text-stone-300"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingAction}
-                  className="px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
-                >
-                  {savingAction ? <span>جاري الحفظ...</span> : <span>حفظ التعديلات</span>}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* Active Page Router */}
+      {currentPage === 'home' && (
+        <AdminHomeView
+          workshops={workshops}
+          selectedWorkshopId={selectedWorkshopId}
+          onSelectWorkshopId={setSelectedWorkshopId}
+          onNavigatePage={handleNavigatePage}
+          onOpenNewWorkshop={() => setIsNewWorkshopModalOpen(true)}
+          pendingApplicationsCount={pendingApplicationsCount}
+          pendingProductsCount={pendingProductsCount}
+          pendingAppealsCount={pendingAppealsCount}
+          onActivateWorkshopContext={onSelectActiveWorkshop}
+          onEditWorkshop={(ws) => setEditingWorkshop(ws)}
+          onSuspendWorkshop={(ws) => {
+            setEditingWorkshop(ws);
+            setIsSuspendingModalOpen(true);
+          }}
+          onBanWorkshop={(ws) => {
+            setEditingWorkshop(ws);
+            setIsBanningModalOpen(true);
+          }}
+          onReactivateWorkshop={handleReactivateWorkshop}
+          onOpenAudit={handleOpenAudit}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL 2: SUSPENSION / DURATION POPUP */}
-      {/* ============================================================ */}
-      {isSuspendingModalOpen && editingWorkshop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-md rounded-3xl shadow-2xl border border-amber-300 dark:border-amber-800 p-6 text-right space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
-                <Clock size={24} />
-              </div>
-              <div>
-                <h3 className="font-black text-base text-amber-800 dark:text-amber-200">
-                  تجميد / إيقاف مؤقت للورشة
-                </h3>
-                <p className="text-xs text-stone-500">{editingWorkshop.brandName}</p>
-              </div>
-            </div>
-
-            <div className="space-y-3 text-xs font-bold">
-              <div>
-                <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                  مدة الإيقاف المؤقت (فك التجميد التلقائي بعد انقضائها):
-                </label>
-                <select
-                  value={suspensionDurationChoice}
-                  onChange={(e) => setSuspensionDurationChoice(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800"
-                >
-                  <option value="24 ساعة">24 ساعة (يوم واحد)</option>
-                  <option value="3 أيام">3 أيام</option>
-                  <option value="أسبوع">أسبوع (7 أيام)</option>
-                  <option value="أسبوعين">أسبوعين (14 يوماً)</option>
-                  <option value="شهر">شهر (30 يوماً)</option>
-                  <option value="إيقاف مؤقت لحين النظر في أمر الورشة">إيقاف مؤقت لحين النظر في أمر الورشة</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                  سبب الإيقاف المؤقت (إجباري ليظهر للفنان): *
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  value={suspensionReasonInput}
-                  onChange={(e) => setSuspensionReasonInput(e.target.value)}
-                  placeholder="مثال: مراجعة الدورة المالية، عدم سداد المستحقات، أو التحقق من جودة المشغولات"
-                  className="w-full p-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => setIsSuspendingModalOpen(false)}
-                className="px-4 py-2 rounded-xl border text-xs font-bold"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                disabled={savingAction || !suspensionReasonInput.trim()}
-                onClick={handleExecuteSuspension}
-                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold disabled:opacity-40"
-              >
-                {savingAction ? 'جاري التنفيذ...' : 'تأكيد الإيقاف المؤقت'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {currentPage === 'workshops' && (
+        <AdminWorkshopsPage
+          workshops={workshops}
+          refreshing={refreshing}
+          onBack={() => handleNavigatePage('home')}
+          onRefresh={() => loadWorkshops(false)}
+          onOpenNewWorkshop={() => setIsNewWorkshopModalOpen(true)}
+          onExportCsv={exportSystemReportCSV}
+          onActivateWorkshopContext={onSelectActiveWorkshop}
+          onOpenAudit={handleOpenAudit}
+          onOpenAward={(ws) => {
+            setAwardingWorkshop(ws);
+            setSelectedStars(ws.rating_stars || 5);
+            setSelectedMedal((ws.medal as any) || 'gold');
+            setAwardCustomNote(ws.medal_note || '');
+          }}
+          onEditWorkshop={(ws) => setEditingWorkshop(ws)}
+          onSuspendWorkshop={(ws) => {
+            setEditingWorkshop(ws);
+            setIsSuspendingModalOpen(true);
+          }}
+          onBanWorkshop={(ws) => {
+            setEditingWorkshop(ws);
+            setIsBanningModalOpen(true);
+          }}
+          onReactivateWorkshop={handleReactivateWorkshop}
+          onDeleteWorkshop={(ws) => {
+            setDeletingWorkshop(ws);
+            setDeleteConfirmText('');
+            setSelectiveDeleteMode('cascade');
+          }}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL 3: BAN WORKSHOP POPUP */}
-      {/* ============================================================ */}
-      {isBanningModalOpen && editingWorkshop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-md rounded-3xl shadow-2xl border border-rose-300 dark:border-rose-900 p-6 text-right space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center">
-                <Ban size={24} />
-              </div>
-              <div>
-                <h3 className="font-black text-base text-rose-600">
-                  حظر الورشة حظراً كلياً (Ban)
-                </h3>
-                <p className="text-xs text-stone-500">{editingWorkshop.brandName}</p>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-800 dark:text-rose-300">
-              تحذير: سيتم منع الورشة من إجراء أي عمليات أو تعديل بيانات على المنظومة تماماً.
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
-                سبب الحظر الإجباري (يظهر للفنان): *
-              </label>
-              <textarea
-                rows={3}
-                required
-                value={banReasonInput}
-                onChange={(e) => setBanReasonInput(e.target.value)}
-                placeholder="اكتب الأسباب والبنود المخالفة بالتفصيل..."
-                className="w-full p-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => setIsBanningModalOpen(false)}
-                className="px-4 py-2 rounded-xl border text-xs font-bold"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                disabled={savingAction || !banReasonInput.trim()}
-                onClick={handleExecuteBan}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-40"
-              >
-                {savingAction ? 'جاري التنفيذ...' : 'تأكيد الحظر النهائي'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {currentPage === 'marketplace' && (
+        <AdminMarketplaceBuilderPage
+          onBack={() => handleNavigatePage('home')}
+          cloudProducts={cloudProductsForReview}
+          ordersList={marketplaceOrdersList}
+          workshops={workshops}
+          shippingConfig={shippingConfig}
+          setShippingConfig={setShippingConfig}
+          centralShippingPrivacy={centralShippingPrivacy}
+          onToggleCentralPrivacy={(nextVal) => {
+            setCentralShippingPrivacy(nextVal);
+            setClientPrivacyActive(nextVal);
+            savePlatformSettingsCloud(
+              {
+                ...shippingConfig,
+                centralShippingPrivacy: nextVal,
+                marketBuilder: getStoredMarketBuilderConfig(),
+              },
+              profile.email
+            ).catch(() => {});
+          }}
+          onSaveMarketControlSettings={handleSaveMarketControlSettings}
+          savingMarketSettings={savingMarketSettings}
+          onUpdateMarketOrderStatus={async (orderId, updates) => {
+            await updateCentralMarketplaceOrderStatus(orderId, updates, profile.email);
+            setMarketplaceOrdersList(getCentralMarketplaceOrders());
+            playSuccessSound();
+            showSuccess('تم تحديث حالة الطلبية بنجاح.');
+          }}
+          onApproveCloudProduct={(prod) => handleApproveCloudProduct(prod, 5)}
+          onRejectCloudProduct={(prod) => {
+            setCloudRejectingProduct(prod);
+            setCloudRejectReason('');
+          }}
+          centralMarketUrl={centralMarketUrl}
+          onCopyMarketUrl={handleCopyMarketUrl}
+          onShareMarketWhatsApp={handleShareMarketWhatsApp}
+          onDownloadMarketPoster={handleDownloadMarketPoster}
+          onNotifySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+          onNotifyError={showError}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL 4: REJECT APPEAL REASON MODAL */}
-      {/* ============================================================ */}
-      {rejectingAppealWorkshop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-md rounded-3xl shadow-2xl border border-rose-300 dark:border-rose-900 p-6 text-right space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center">
-                <XCircle size={24} />
-              </div>
-              <div>
-                <h3 className="font-black text-base text-rose-600">
-                  رفض الطعن المقدم من الورشة
-                </h3>
-                <p className="text-xs text-stone-500">{rejectingAppealWorkshop.brand_name}</p>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
-                سبب رفض الطعن (سيظهر للفنان في شاشة الطعون): *
-              </label>
-              <textarea
-                rows={3}
-                required
-                value={rejectionReasonInput}
-                onChange={(e) => setRejectionReasonInput(e.target.value)}
-                placeholder="اكتب أسباب رفض الطعن وعدم كفاية الأدلة أو التوضيحات..."
-                className="w-full p-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => setRejectingAppealWorkshop(null)}
-                className="px-4 py-2 rounded-xl border text-xs font-bold"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmRejectAppeal}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold"
-              >
-                تأكيد رفض الطعن
-              </button>
-            </div>
-          </div>
-        </div>
+      {currentPage === 'stores' && (
+        <AdminStoresPage
+          workshops={workshops}
+          cloudProducts={cloudProductsForReview}
+          onBack={() => handleNavigatePage('home')}
+          onActivateWorkshopContext={onSelectActiveWorkshop}
+          onSuspendWorkshop={(ws) => {
+            setEditingWorkshop(ws);
+            setIsSuspendingModalOpen(true);
+          }}
+          onReactivateWorkshop={handleReactivateWorkshop}
+          onCopySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL 5: SELECTIVE DELETION & RESET MODAL */}
-      {/* ============================================================ */}
-      {deletingWorkshop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-lg rounded-3xl shadow-2xl border border-rose-300 dark:border-rose-900/60 p-6 text-right space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center">
-                <Trash2 size={24} />
-              </div>
-              <div>
-                <h3 className="font-black text-base text-rose-600">
-                  خيارات الحذف والتصفير الانتقائي للورشة
-                </h3>
-                <p className="text-xs text-stone-500">{deletingWorkshop.brandName}</p>
-              </div>
-            </div>
-
-            <div className="space-y-2 text-xs font-bold text-stone-800 dark:text-stone-200">
-              <label className="flex items-start gap-3 p-3 rounded-2xl border border-rose-200 dark:border-rose-900/40 hover:bg-rose-50/30 cursor-pointer">
-                <input
-                  type="radio"
-                  name="deleteMode"
-                  checked={selectiveDeleteMode === 'cascade'}
-                  onChange={() => setSelectiveDeleteMode('cascade')}
-                  className="mt-1"
-                />
-                <div>
-                  <span className="font-black text-rose-700 block">🔴 حذف شامل لكافة سجلات الورشة (Full Cascade Delete)</span>
-                  <span className="text-[11px] text-stone-500 font-normal">
-                    مسح ملف الورشة وجميع الخامات، المنتجات، المعاملات المالية، والطلبات نهائياً من الجذور.
-                  </span>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 p-3 rounded-2xl border border-amber-200 dark:border-amber-900/40 hover:bg-amber-50/30 cursor-pointer">
-                <input
-                  type="radio"
-                  name="deleteMode"
-                  checked={selectiveDeleteMode === 'catalog_inventory'}
-                  onChange={() => setSelectiveDeleteMode('catalog_inventory')}
-                  className="mt-1"
-                />
-                <div>
-                  <span className="font-black text-amber-700 block">🟠 تصفير المخزن والكتالوج فقط</span>
-                  <span className="text-[11px] text-stone-500 font-normal">
-                    مسح كافة المنتجات والخامات وقوائم التكاليف مع الإبقاء على ملف الورشة وحساباتها.
-                  </span>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 p-3 rounded-2xl border border-blue-200 dark:border-blue-900/40 hover:bg-blue-50/30 cursor-pointer">
-                <input
-                  type="radio"
-                  name="deleteMode"
-                  checked={selectiveDeleteMode === 'finance_orders'}
-                  onChange={() => setSelectiveDeleteMode('finance_orders')}
-                  className="mt-1"
-                />
-                <div>
-                  <span className="font-black text-blue-700 block">🟡 تصفير الدورة المالية والطلبات فقط</span>
-                  <span className="text-[11px] text-stone-500 font-normal">
-                    مسح حركات الخزينة والطلبيات مع الحفاظ التام على الكتالوج والخامات.
-                  </span>
-                </div>
-              </label>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs text-stone-600 dark:text-stone-300 font-bold">
-                أنت على وشك تنفيذ هذا الإجراء على ورشة:{' '}
-                <span className="text-rose-600 font-black">{deletingWorkshop.brandName}</span>
-              </p>
-              <label className="block text-[11px] font-bold text-stone-600 dark:text-stone-400">
-                اكتب اسم الورشة بالكامل (<span className="font-black text-rose-600 select-all">{deletingWorkshop.brandName}</span>) للتأكيد:
-              </label>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder={deletingWorkshop.brandName}
-                className="w-full px-3.5 py-2 rounded-xl border border-rose-300 dark:border-rose-800 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-rose-500"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => setDeletingWorkshop(null)}
-                className="px-4 py-2 rounded-xl border text-xs font-bold cursor-pointer"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                disabled={savingAction || deleteConfirmText.trim() !== deletingWorkshop.brandName.trim()}
-                onClick={handleSelectiveDeleteWorkshop}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-40 cursor-pointer shadow-md"
-              >
-                {savingAction ? 'جاري التنفيذ...' : 'تأكيد الحذف النهائي 🗑️'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {currentPage === 'catalogs' && (
+        <AdminCatalogsPage
+          workshops={workshops}
+          selectedWorkshopId={selectedWorkshopId}
+          onSelectWorkshopId={setSelectedWorkshopId}
+          deepData={deepData}
+          deepDataLoading={deepDataLoading}
+          initialSubTab={catalogSubTab}
+          onReloadDeepData={loadDeepData}
+          onEditMaterialPrice={(mat) => {
+            setEditingMaterial(mat);
+            setNewMaterialPrice(String(mat.unit_cost ?? mat.price ?? mat.cost ?? ''));
+          }}
+          onBack={() => handleNavigatePage('home')}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL 6: EDIT MATERIAL PRICE MODAL */}
-      {/* ============================================================ */}
-      {editingMaterial && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-sm rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 p-5 text-right space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-800">
-              <h3 className="font-black text-sm text-stone-900 dark:text-stone-100">
-                تعديل سعر تكلفة الخامة
-              </h3>
-              <button
-                type="button"
-                onClick={() => setEditingMaterial(null)}
-                className="text-stone-400 hover:text-stone-700"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <p className="text-xs font-bold text-stone-700 dark:text-stone-300">
-              الخامة: {editingMaterial.name || editingMaterial.material_name}
-            </p>
-            <div>
-              <label className="block text-xs font-bold text-stone-500 mb-1">
-                سعر التكلفة الجديد ({currentSelectedWorkshop.currencySymbol}):
-              </label>
-              <input
-                type="number"
-                step="any"
-                value={newMaterialPrice}
-                onChange={(e) => setNewMaterialPrice(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 font-mono font-bold text-sm outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setEditingMaterial(null)}
-                className="px-3 py-1.5 rounded-xl border text-xs font-bold"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveMaterialPrice}
-                className="px-4 py-1.5 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-700"
-              >
-                حفظ السعر
-              </button>
-            </div>
-          </div>
-        </div>
+      {currentPage === 'applications' && (
+        <AdminApplicationsPage
+          applications={workshopApplications}
+          loading={loadingApplications}
+          onBack={() => handleNavigatePage('home')}
+          onRefresh={loadWorkshopApplications}
+          onApprove={handleApproveApplication}
+          onReject={handleRejectApplication}
+          onCopyInviteSuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL 7: NEW WORKSHOP MODAL */}
-      {/* ============================================================ */}
-      {isNewWorkshopModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-lg rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 p-5 sm:p-6 text-right">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => setIsNewWorkshopModalOpen(false)}
-                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700"
-              >
-                <X size={18} />
-              </button>
-              <div className="flex items-center gap-2">
-                <PlusCircle className="w-5 h-5 text-amber-600" />
-                <h3 className="font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
-                  تسجيل ورشة حرفية جديدة
-                </h3>
-              </div>
-            </div>
-
-            <form onSubmit={handleCreateNewWorkshop} className="space-y-4 pt-4 text-xs font-bold">
-              <div>
-                <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                  اسم البراند / الورشة *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newBrandName}
-                  onChange={(e) => setNewBrandName(e.target.value)}
-                  placeholder="مثال: ورشة شمس للمكرميات"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                  اسم الفنان / الفنانة *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newArtistName}
-                  onChange={(e) => setNewArtistName(e.target.value)}
-                  placeholder="مثال: مريم الألفي"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                    البريد الإلكتروني
-                  </label>
-                  <input
-                    type="email"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="name@example.com"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-left outline-none"
-                    dir="ltr"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 mb-1">
-                    رقم الهاتف
-                  </label>
-                  <input
-                    type="tel"
-                    value={newPhone}
-                    onChange={(e) => setNewPhone(e.target.value)}
-                    placeholder="01xxxxxxxxx"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 font-mono text-left outline-none"
-                    dir="ltr"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-stone-200 dark:border-stone-800">
-                <button
-                  type="button"
-                  onClick={() => setIsNewWorkshopModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl border text-stone-700 dark:text-stone-300"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingAction}
-                  className="px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition flex items-center gap-1.5 shadow-md"
-                >
-                  {savingAction ? 'جاري التسجيل...' : 'إضافة الورشة فوراً'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {currentPage === 'product_approvals' && (
+        <AdminProductApprovalsPage
+          products={cloudProductsForReview}
+          workshops={workshops}
+          loading={loadingCloudProducts}
+          onBack={() => handleNavigatePage('home')}
+          onRefresh={loadCloudMarketplaceProducts}
+          onApproveProduct={handleApproveCloudProduct}
+          onRejectProductModal={(prod) => {
+            setCloudRejectingProduct(prod);
+            setCloudRejectReason('');
+          }}
+          onDownloadMarketPoster={handleDownloadMarketPoster}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL: CREDENTIAL OVERRIDE SUCCESS CARD & WHATSAPP SHARING */}
-      {/* ============================================================ */}
-      {credentialSuccessModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-lg rounded-3xl shadow-2xl border-2 border-amber-400 dark:border-amber-600 p-6 text-right space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => setCredentialSuccessModal(null)}
-                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🔐</span>
-                <h3 className="font-black text-base text-amber-900 dark:text-amber-200">
-                  تم اعتماد وتثبيت بيانات الدخول بنجاح!
-                </h3>
-              </div>
-            </div>
-
-            <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed">
-              تم تحديث بيانات الاعتماد لورشة{' '}
-              <strong className="text-stone-900 dark:text-stone-100 font-black">
-                {credentialSuccessModal.brandName}
-              </strong>{' '}
-              ({credentialSuccessModal.artistName}). يمكنك نسخ النص المنظم أو مشاركته فوراً مع الفنان عبر واتساب:
-            </p>
-
-            {/* Formatted Pre-styled text box */}
-            <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-stone-800/80 border border-amber-300 dark:border-amber-700 font-mono text-xs text-stone-800 dark:text-stone-200 space-y-2 select-all leading-relaxed" dir="rtl">
-              <div>السلام عليكم ورحمة الله وبركاته يا فنان/ة {credentialSuccessModal.artistName} 🌸</div>
-              <div>بيانات الدخول المعتمدة لورشة <strong>{credentialSuccessModal.brandName}</strong> على منظومة الشمساوية:</div>
-              <div>📧 <strong>البريد:</strong> {credentialSuccessModal.email}</div>
-              {credentialSuccessModal.phone && <div>📱 <strong>الهاتف:</strong> {credentialSuccessModal.phone}</div>}
-              <div>🔑 <strong>كلمة السر:</strong> <span className="text-amber-700 dark:text-amber-300 font-black">{credentialSuccessModal.password}</span></div>
-              <div>🔗 <strong>رابط المنظومة:</strong> {window.location.origin}</div>
-              <div className="text-[11px] text-stone-500 pt-1">مع تحيات إدارة منظومة الشمساوية 🌞</div>
-            </div>
-
-            {copiedNotice && (
-              <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-800 text-xs font-bold text-center">
-                ✅ تم نسخ بيانات الدخول إلى الحافظة بنجاح!
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const text = `السلام عليكم ورحمة الله وبركاته يا فنان/ة ${credentialSuccessModal.artistName} 🌸\nبيانات الدخول المعتمدة لورشة ${credentialSuccessModal.brandName} على منظومة الشمساوية:\n📧 البريد: ${credentialSuccessModal.email}\n${credentialSuccessModal.phone ? `📱 الهاتف: ${credentialSuccessModal.phone}\n` : ''}🔑 كلمة السر: ${credentialSuccessModal.password}\n🔗 رابط المنظومة: ${window.location.origin}\n\nمع تحيات إدارة منظومة الشمساوية 🌞`;
-                  navigator.clipboard.writeText(text);
-                  setCopiedNotice(true);
-                  playSuccessSound();
-                  setTimeout(() => setCopiedNotice(false), 3000);
-                }}
-                className="px-4 py-2.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 text-stone-800 dark:text-stone-200 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <Copy size={14} />
-                <span>نسخ بيانات الدخول 📋</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const text = `السلام عليكم ورحمة الله وبركاته يا فنان/ة ${credentialSuccessModal.artistName} 🌸\nبيانات الدخول المعتمدة لورشة ${credentialSuccessModal.brandName} على منظومة الشمساوية:\n📧 البريد: ${credentialSuccessModal.email}\n${credentialSuccessModal.phone ? `📱 الهاتف: ${credentialSuccessModal.phone}\n` : ''}🔑 كلمة السر: ${credentialSuccessModal.password}\n🔗 رابط المنظومة: ${window.location.origin}\n\nمع تحيات إدارة منظومة الشمساوية 🌞`;
-                  let phone = (credentialSuccessModal.phone || '').replace(/[^0-9]/g, '');
-                  if (phone.startsWith('01')) phone = '2' + phone;
-                  const waUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
-                  window.open(waUrl, '_blank');
-                }}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-1.5 transition shadow-md cursor-pointer"
-              >
-                <MessageCircle size={15} />
-                <span>إرسال عبر واتساب 💬</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCredentialSuccessModal(null)}
-                className="px-4 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 text-xs font-bold"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        </div>
+      {currentPage === 'appeals' && (
+        <AdminAppealsPage
+          appeals={appealsList}
+          loading={appealsLoading}
+          onBack={() => handleNavigatePage('home')}
+          onRefresh={loadAppeals}
+          onAcceptAppeal={handleAcceptAppeal}
+          onOpenRejectAppeal={(item) => {
+            setRejectingAppealWorkshop(item);
+            setRejectionReasonInput('');
+          }}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL 7: GAMIFICATION & RECOGNITION (التقييم والقلائد التكريمية) */}
-      {/* ============================================================ */}
-      {awardingWorkshop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-lg rounded-3xl shadow-2xl border border-amber-300 dark:border-amber-800/80 p-5 sm:p-6 text-right space-y-4 max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => setAwardingWorkshop(null)}
-                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-600 flex items-center justify-center">
-                  <Award size={18} />
-                </div>
-                <div>
-                  <h3 className="font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
-                    منح التكريم والوسام الرسمي
-                  </h3>
-                  <p className="text-[11px] text-stone-500">
-                    ورشة: <strong className="text-amber-600">{awardingWorkshop.brandName}</strong> ({awardingWorkshop.artistName})
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* 1. Star Rating Selector */}
-            <div className="space-y-2">
-              <label className="block text-xs font-black text-stone-700 dark:text-stone-300">
-                تقييم الأداء والالتزام (1 - 5 نجوم):
-              </label>
-              <div className="flex items-center justify-center gap-2 p-3 rounded-2xl bg-amber-50/50 dark:bg-stone-800/50 border border-amber-200/60 dark:border-amber-900/40">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    type="button"
-                    onClick={() => setSelectedStars(star)}
-                    className="p-1.5 hover:scale-125 transition-transform cursor-pointer"
-                    title={`${star} نجوم`}
-                  >
-                    <Star
-                      size={26}
-                      className={
-                        star <= selectedStars
-                          ? 'fill-amber-400 text-amber-500 drop-shadow-sm'
-                          : 'text-stone-300 dark:text-stone-600'
-                      }
-                    />
-                  </button>
-                ))}
-              </div>
-              <div className="text-center text-[11px] font-bold text-amber-700 dark:text-amber-400">
-                {selectedStars === 5
-                  ? '⭐⭐⭐⭐⭐ ماستر كرافت (أعلى تقييم ريادي)'
-                  : selectedStars === 4
-                  ? '⭐⭐⭐⭐ خبير حرفي متقدم'
-                  : selectedStars === 3
-                  ? '⭐⭐⭐ حرفي متميز ونشط'
-                  : selectedStars === 2
-                  ? '⭐⭐ ورشة صاعدة'
-                  : '⭐ ورشة واعدة وجديدة'}
-              </div>
-            </div>
-
-            {/* 2. Medals Selector */}
-            <div className="space-y-2">
-              <label className="block text-xs font-black text-stone-700 dark:text-stone-300">
-                اختر القلادة أو الوسام التكريمي:
-              </label>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {/* Diamond */}
-                <button
-                  type="button"
-                  onClick={() => setSelectedMedal('diamond')}
-                  className={`p-3 rounded-2xl border text-right transition cursor-pointer flex items-center gap-2.5 ${
-                    selectedMedal === 'diamond'
-                      ? 'border-cyan-400 bg-cyan-500/15 shadow-md shadow-cyan-500/10'
-                      : 'border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800'
-                  }`}
-                >
-                  <span className="text-2xl select-none">💎</span>
-                  <div>
-                    <div className="font-black text-cyan-700 dark:text-cyan-300">القلادة الماسية</div>
-                    <div className="text-[10px] text-stone-500">للإبداع والريادة الحرفية</div>
-                  </div>
-                </button>
-
-                {/* Gold */}
-                <button
-                  type="button"
-                  onClick={() => setSelectedMedal('gold')}
-                  className={`p-3 rounded-2xl border text-right transition cursor-pointer flex items-center gap-2.5 ${
-                    selectedMedal === 'gold'
-                      ? 'border-amber-400 bg-amber-500/15 shadow-md shadow-amber-500/10'
-                      : 'border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800'
-                  }`}
-                >
-                  <span className="text-2xl select-none">🥇</span>
-                  <div>
-                    <div className="font-black text-amber-700 dark:text-amber-400">القلادة الذهبية</div>
-                    <div className="text-[10px] text-stone-500">للتميز والإنتاجية العالية</div>
-                  </div>
-                </button>
-
-                {/* Silver */}
-                <button
-                  type="button"
-                  onClick={() => setSelectedMedal('silver')}
-                  className={`p-3 rounded-2xl border text-right transition cursor-pointer flex items-center gap-2.5 ${
-                    selectedMedal === 'silver'
-                      ? 'border-slate-400 bg-slate-500/15 shadow-md'
-                      : 'border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800'
-                  }`}
-                >
-                  <span className="text-2xl select-none">🥈</span>
-                  <div>
-                    <div className="font-black text-slate-700 dark:text-slate-300">القلادة الفضية</div>
-                    <div className="text-[10px] text-stone-500">للإتقان والالتزام الدائم</div>
-                  </div>
-                </button>
-
-                {/* Bronze */}
-                <button
-                  type="button"
-                  onClick={() => setSelectedMedal('bronze')}
-                  className={`p-3 rounded-2xl border text-right transition cursor-pointer flex items-center gap-2.5 ${
-                    selectedMedal === 'bronze'
-                      ? 'border-orange-400 bg-orange-500/15 shadow-md'
-                      : 'border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800'
-                  }`}
-                >
-                  <span className="text-2xl select-none">🥉</span>
-                  <div>
-                    <div className="font-black text-orange-700 dark:text-orange-400">القلادة البرونزية</div>
-                    <div className="text-[10px] text-stone-500">للنشاط والهمة والبداية القوية</div>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            {/* 3. Custom Tribute Note */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-black text-stone-700 dark:text-stone-300">
-                كلمة تقدير من كبير عيلة الشمساوية (م. حسام بسيوني):
-              </label>
-              <textarea
-                value={awardCustomNote}
-                onChange={(e) => setAwardCustomNote(e.target.value)}
-                rows={3}
-                placeholder="مثال: تقديراً لإبداعكم الاستثنائي في تنفيذ المشغولات اليدوية بدقة واحترافية متناهية..."
-                className="w-full p-3 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs text-stone-900 dark:text-stone-100 outline-none focus:ring-2 focus:ring-amber-500 font-medium leading-relaxed resize-none"
-              />
-              <span className="text-[10px] text-stone-400 block">
-                * سيتم إدراج هذه القلادة والتقييم في أعلى شاشة الفنان فور دخوله، وإرسال إشعار وتهنئة رسمية في صندوق بريده.
-              </span>
-            </div>
-
-            {/* Live Preview Banner */}
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-600/20 border-2 border-amber-400/90 text-amber-950 dark:text-amber-100 space-y-1.5">
-              <div className="text-[10px] font-black text-amber-800 dark:text-amber-300 uppercase tracking-wider">
-                معاينة شريط التكريم كما سيظهر في شاشة الفنان:
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">
-                  {selectedMedal === 'diamond' ? '💎' : selectedMedal === 'gold' ? '🥇' : selectedMedal === 'silver' ? '🥈' : '🥉'}
-                </span>
-                <div>
-                  <div className="text-xs font-black flex items-center gap-1.5">
-                    <span>وسام كبير عيلة الشمساوية</span>
-                    <span className="text-amber-500 font-mono text-[11px]">{'⭐'.repeat(selectedStars)}</span>
-                  </div>
-                  <div className="text-[10px] font-bold text-amber-900/80 dark:text-amber-200">
-                    {awardCustomNote || 'تقديراً لإبداعكم وتميزكم في المنظومة'}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => setAwardingWorkshop(null)}
-                className="px-4 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-300"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                disabled={savingAward}
-                onClick={handleSaveAward}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black text-xs flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-40"
-              >
-                <Award size={15} />
-                <span>{savingAward ? 'جاري الاعتماد والتثبيت...' : 'تثبيت التكريم وإرسال الإشعار الرسمي 🎖️'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
+      {currentPage === 'reports' && (
+        <AdminReportsPage
+          workshops={workshops}
+          cloudProducts={cloudProductsForReview}
+          ordersList={marketplaceOrdersList}
+          onBack={() => handleNavigatePage('home')}
+          onExportCsv={exportSystemReportCSV}
+        />
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL 8: ACTIVITY AUDIT (نافذة فحص التفاعل والنشاط السريع) */}
-      {/* ============================================================ */}
-      {auditingWorkshop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-stone-900 w-full max-w-xl rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-800 p-5 sm:p-6 text-right space-y-4 max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuditingWorkshop(null);
-                  setAuditData(null);
-                }}
-                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-600 flex items-center justify-center">
-                  <Activity size={18} />
-                </div>
-                <div>
-                  <h3 className="font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
-                    فحص نشاط وتفاعل ورشة: {auditingWorkshop.brandName}
-                  </h3>
-                  <p className="text-[11px] text-stone-500">
-                    الفنان: {auditingWorkshop.artistName} • الدولة: {auditingWorkshop.country || 'مصر'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {loadingAudit ? (
-              <div className="p-12 text-center text-xs font-bold text-stone-500 flex flex-col items-center gap-3">
-                <RefreshCw size={24} className="animate-spin text-amber-600" />
-                <span>جاري استخراج مؤشرات التفاعل والعمليات الحية...</span>
-              </div>
-            ) : auditData ? (
-              <div className="space-y-4">
-                {/* Contact Quick Ribbon */}
-                <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-stone-600 dark:text-stone-300">البريد:</span>
-                    <span className="font-mono text-stone-900 dark:text-stone-100 font-bold">{auditData.email || 'غير مسجل'}</span>
-                  </div>
-                  {auditData.phoneNumber && (
-                    <div className="flex items-center gap-1.5">
-                      <a
-                        href={`tel:${auditData.phoneNumber}`}
-                        className="px-2.5 py-1 rounded-lg bg-stone-200 dark:bg-stone-700 text-stone-800 dark:text-stone-200 font-bold flex items-center gap-1"
-                      >
-                        <Phone size={12} />
-                        <span dir="ltr">{auditData.phoneNumber}</span>
-                      </a>
-                      <a
-                        href={`https://wa.me/${auditData.phoneNumber.replace(/\D/g, '')}?text=${encodeURIComponent('السلام عليكم يا فنان، نتابع نشاط ورشتكم على منظومة الشمساوية')}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold flex items-center gap-1"
-                      >
-                        <MessageCircle size={12} />
-                        <span>واتساب</span>
-                      </a>
-                    </div>
-                  )}
-                </div>
-
-                {/* Executive Command Hub Buttons for Super Admin */}
-                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-500/30 space-y-2">
-                  <span className="text-[11px] font-black text-amber-500 block">
-                    ⚡ أدوات التحكم الإداري والتنفيذي للورشة (صلاحيات السوبر أدمن):
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {/* 1. Enter workshop as admin */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onSelectActiveWorkshop) {
-                          onSelectActiveWorkshop(auditingWorkshop);
-                        }
-                        setSelectedWorkshopId(auditingWorkshop.id);
-                        setAuditingWorkshop(null);
-                        setAuditData(null);
-                        playSuccessSound();
-                      }}
-                      className="px-3 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer active:scale-95"
-                      title="فتح ورشة الفنان بصلاحيات السوبر أدمن كاملة"
-                    >
-                      <Key size={14} />
-                      <span>الدخول للورشة كأدمن 🔑</span>
-                    </button>
-
-                    {/* 2. Open public storefront */}
-                    <a
-                      href={`/#/store/${getWorkshopCleanSlug(auditingWorkshop)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-md transition text-center"
-                      title="فتح متجر الفنان في تبويب جديد"
-                    >
-                      <ExternalLink size={14} />
-                      <span>استعراض متجر الورشة 🛍️</span>
-                    </a>
-
-                    {/* 3. Open catalog */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedWorkshopId(auditingWorkshop.id);
-                        setActiveExecutiveTab('products');
-                        loadDeepData(auditingWorkshop.id);
-                        setAuditingWorkshop(null);
-                        setAuditData(null);
-                      }}
-                      className="px-3 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-100 font-black text-xs flex items-center justify-center gap-1.5 border border-stone-700 transition cursor-pointer"
-                      title="عرض كتالوج المشغولات وإدارتها فورياً"
-                    >
-                      <Package size={14} />
-                      <span>كتالوج المشغولات 📦</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Real Verified Metrics Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">آخر ظهور ونشاط</span>
-                    <span className="font-black text-stone-900 dark:text-stone-100 block text-xs truncate">
-                      {auditData.lastActiveDate || 'نشط'}
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">معروضات المتجر والسوق</span>
-                    <span className="font-black text-amber-600 font-mono text-base block">
-                      {auditData.marketplaceProductsCount || 0} معروضة
-                    </span>
-                    {(auditData.pendingApprovalCount || 0) > 0 && (
-                      <span className="text-[10px] text-amber-500 font-bold block mt-0.5">
-                        ({auditData.pendingApprovalCount} بانتظار اعتمادك ⏳)
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">إجمالي المنتجات المسجلة</span>
-                    <span className="font-black text-blue-600 font-mono text-base block">
-                      {Math.max(auditData.productsCount || 0, auditData.marketplaceProductsCount || 0)}
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">الخامات بالمخزن</span>
-                    <span className="font-black text-emerald-600 font-mono text-base block">
-                      {auditData.materialsCount || 0}
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">الطلبيات المسجلة</span>
-                    <span className="font-black text-stone-900 dark:text-stone-100 font-mono text-base block">
-                      {auditData.ordersCount || 0}
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">حالة الحساب</span>
-                    <span className={`font-black text-xs block ${auditData.status === 'active' ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {auditData.status === 'active' ? 'نشط ومعتمد ✓' : 'موقوف / محظور'}
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 sm:col-span-2">
-                    <span className="text-[10px] text-stone-500 font-bold block mb-1">التقييم والقلادة الإدارية</span>
-                    <span className="font-black text-amber-500 block text-xs">
-                      {auditData.medal === 'diamond' ? '💎 ماسية' : auditData.medal === 'gold' ? '🥇 ذهبية' : auditData.medal === 'silver' ? '🥈 فضية' : auditData.medal === 'bronze' ? '🥉 برونزية' : '🎖️ معتمد رسمي'}
-                      {' '}{'⭐'.repeat(auditData.rating_stars || 5)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Quick actions inside audit modal */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAwardingWorkshop(auditingWorkshop);
-                        setSelectedStars(auditingWorkshop.rating_stars || 5);
-                        setSelectedMedal(auditingWorkshop.medal || 'gold');
-                        setAwardCustomNote(auditingWorkshop.medal_note || '');
-                        setAuditingWorkshop(null);
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
-                    >
-                      <Award size={14} />
-                      <span>منح تكريم ووسام</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingWorkshop(auditingWorkshop);
-                        setAuditingWorkshop(null);
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Edit3 size={14} />
-                      <span>إدارة الحساب وكلمة السر</span>
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAuditingWorkshop(null);
-                      setAuditData(null);
-                    }}
-                    className="px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 text-stone-700 dark:text-stone-300 text-xs font-bold cursor-pointer"
-                  >
-                    إغلاق
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
+      {(currentPage === 'notif_messages' ||
+        currentPage === 'notif_workshops' ||
+        currentPage === 'notif_store' ||
+        currentPage === 'notif_system') && (
+        <AdminNotificationPages
+          mode={currentPage}
+          onBack={() => handleNavigatePage('home')}
+          onNavigatePage={handleNavigatePage}
+          workshops={workshops}
+          inboxList={inboxList}
+          announcementsList={announcementsList}
+          adminAlerts={adminAlerts}
+          cloudProducts={cloudProductsForReview}
+          ordersList={marketplaceOrdersList}
+          newAnnTitle={newAnnTitle}
+          setNewAnnTitle={setNewAnnTitle}
+          newAnnContent={newAnnContent}
+          setNewAnnContent={setNewAnnContent}
+          newAnnRecipientType={newAnnRecipientType}
+          setNewAnnRecipientType={setNewAnnRecipientType}
+          newAnnRecipientWorkshopId={newAnnRecipientWorkshopId}
+          setNewAnnRecipientWorkshopId={setNewAnnRecipientWorkshopId}
+          sendingAnnouncement={sendingAnnouncement}
+          onSendAnnouncement={handleSendAnnouncement}
+          onDeleteAnnouncement={handleDeleteAnnouncement}
+          deletingAnnId={deletingAnnId}
+          directReplyTarget={directReplyTarget}
+          setDirectReplyTarget={setDirectReplyTarget}
+          directReplyContent={directReplyContent}
+          setDirectReplyContent={setDirectReplyContent}
+          onSendDirectReply={handleSendDirectReply}
+          onMarkAllInboxRead={markInboxAllRead}
+          onDismissAlert={handleDismissAlert}
+          onExportCsv={exportSystemReportCSV}
+        />
       )}
+
+      {/* All Super Admin Action & Moderation Modals */}
+      <AdminWorkshopModals
+        editingWorkshop={editingWorkshop}
+        setEditingWorkshop={setEditingWorkshop}
+        isSuspendingModalOpen={isSuspendingModalOpen}
+        setIsSuspendingModalOpen={setIsSuspendingModalOpen}
+        isBanningModalOpen={isBanningModalOpen}
+        setIsBanningModalOpen={setIsBanningModalOpen}
+        onSaveEditedWorkshop={handleSaveEditedWorkshop}
+        editNewPassword={editNewPassword}
+        setEditNewPassword={setEditNewPassword}
+        showPasswordPlain={showPasswordPlain}
+        setShowPasswordPlain={setShowPasswordPlain}
+        onGenerateRandomPassword={generateRandomPassword}
+        onCredentialOverride={handleCredentialOverride}
+        overridingCredentials={overridingCredentials}
+        savingAction={savingAction}
+        credentialSuccessModal={credentialSuccessModal}
+        setCredentialSuccessModal={setCredentialSuccessModal}
+        copiedNotice={copiedNotice}
+        setCopiedNotice={setCopiedNotice}
+        suspensionDurationChoice={suspensionDurationChoice}
+        setSuspensionDurationChoice={setSuspensionDurationChoice}
+        suspensionReasonInput={suspensionReasonInput}
+        setSuspensionReasonInput={setSuspensionReasonInput}
+        onExecuteSuspension={handleExecuteSuspension}
+        banReasonInput={banReasonInput}
+        setBanReasonInput={setBanReasonInput}
+        onExecuteBan={handleExecuteBan}
+        rejectingAppealWorkshop={rejectingAppealWorkshop}
+        setRejectingAppealWorkshop={setRejectingAppealWorkshop}
+        rejectionReasonInput={rejectionReasonInput}
+        setRejectionReasonInput={setRejectionReasonInput}
+        onConfirmRejectAppeal={handleConfirmRejectAppeal}
+        cloudRejectingProduct={cloudRejectingProduct}
+        setCloudRejectingProduct={setCloudRejectingProduct}
+        cloudRejectReason={cloudRejectReason}
+        setCloudRejectReason={setCloudRejectReason}
+        onConfirmRejectProduct={handleConfirmRejectCloudProduct}
+        deletingWorkshop={deletingWorkshop}
+        setDeletingWorkshop={setDeletingWorkshop}
+        selectiveDeleteMode={selectiveDeleteMode}
+        setSelectiveDeleteMode={setSelectiveDeleteMode}
+        deleteConfirmText={deleteConfirmText}
+        setDeleteConfirmText={setDeleteConfirmText}
+        onConfirmSelectiveDelete={handleSelectiveDeleteWorkshop}
+        editingMaterial={editingMaterial}
+        setEditingMaterial={setEditingMaterial}
+        newMaterialPrice={newMaterialPrice}
+        setNewMaterialPrice={setNewMaterialPrice}
+        onSaveMaterialPrice={handleSaveMaterialPrice}
+        isNewWorkshopModalOpen={isNewWorkshopModalOpen}
+        setIsNewWorkshopModalOpen={setIsNewWorkshopModalOpen}
+        newBrandName={newBrandName}
+        setNewBrandName={setNewBrandName}
+        newArtistName={newArtistName}
+        setNewArtistName={setNewArtistName}
+        newEmail={newEmail}
+        setNewEmail={setNewEmail}
+        newPhone={newPhone}
+        setNewPhone={setNewPhone}
+        newCountry={newCountry}
+        setNewCountry={setNewCountry}
+        newRole={newRole}
+        setNewRole={setNewRole}
+        onCreateNewWorkshop={handleCreateNewWorkshop}
+        awardingWorkshop={awardingWorkshop}
+        setAwardingWorkshop={setAwardingWorkshop}
+        selectedStars={selectedStars}
+        setSelectedStars={setSelectedStars}
+        selectedMedal={selectedMedal}
+        setSelectedMedal={setSelectedMedal}
+        awardCustomNote={awardCustomNote}
+        setAwardCustomNote={setAwardCustomNote}
+        savingAward={savingAward}
+        onSaveAward={handleSaveAward}
+        auditingWorkshop={auditingWorkshop}
+        setAuditingWorkshop={setAuditingWorkshop}
+        auditData={auditData}
+        setAuditData={setAuditData}
+        loadingAudit={loadingAudit}
+      />
     </div>
   );
 };
@@ -7113,4 +2426,3 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = (props) => {
     </AdminErrorBoundary>
   );
 };
-

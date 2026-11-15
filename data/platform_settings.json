@@ -32,7 +32,7 @@
   "storageAndHandlingFee": 20,
   "commissionPercent": 10,
   "advancePaymentRatio": 0.33,
-  "defaultClientPrivacy": true,
+  "defaultClientPrivacy": false,
   "updatedAt": "2026-11-13T13:01:45.838Z",
   "centralShippingPrivacy": false
 }

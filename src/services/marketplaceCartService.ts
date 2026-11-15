@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { dispatchArtisanNotification } from '../lib/pushNotifications';
 import { playPostaNotificationSound } from '../lib/sounds';
 import { enqueueOfflineMutation } from '../db/offlineMutationQueue';
+import { saveStoredMarketBuilderConfig } from '../types/marketplaceBuilder';
 
 const CART_STORAGE_KEY = 'alshams_marketplace_cart';
 const CUSTOMER_STORAGE_KEY = 'alshams_customer_session';
@@ -213,11 +214,11 @@ export function calculateShippingRate(governorate: string): number {
 }
 
 // 4. Client Privacy Toggle (Super Admin)
-// Default is TRUE (hidden client contact details from artisan unless superadmin enables it)
+// Default is FALSE initially (show client details to workshops unless Super Admin hides globally or per-workshop)
 export function getClientPrivacyActive(): boolean {
-  if (typeof window === 'undefined') return true;
+  if (typeof window === 'undefined') return false;
   const raw = localStorage.getItem(PRIVACY_TOGGLE_KEY);
-  if (raw === null) return true; // default true
+  if (raw === null) return false; // default: show all initially per Super Admin request
   return raw === 'true';
 }
 
@@ -225,6 +226,41 @@ export function setClientPrivacyActive(active: boolean): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(PRIVACY_TOGGLE_KEY, String(active));
   window.dispatchEvent(new CustomEvent('alshams_privacy_updated', { detail: active }));
+}
+
+export function estimateDeliveryWindow(
+  governorate: string,
+  minDays = 3,
+  maxDays = 5,
+  upperExtraDays = 2
+): { minDate: Date; maxDate: Date; labelAr: string; isoTarget: string } {
+  const remoteGovs = new Set([
+    'أسيوط',
+    'سوهاج',
+    'قنا',
+    'الأقصر',
+    'أسوان',
+    'البحر الأحمر',
+    'جنوب سيناء',
+    'شمال سيناء',
+    'مطروح',
+    'الوادي الجديد',
+  ]);
+  const extra = remoteGovs.has(governorate) ? Math.max(0, upperExtraDays) : 0;
+  const minTotal = Math.max(1, minDays + extra);
+  const maxTotal = Math.max(minTotal + 1, maxDays + extra);
+
+  const minDate = new Date(Date.now() + minTotal * 864e5);
+  const maxDate = new Date(Date.now() + maxTotal * 864e5);
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'long' });
+
+  return {
+    minDate,
+    maxDate,
+    labelAr: `متوقع الاستلام بين ${fmt(minDate)} و ${fmt(maxDate)}`,
+    isoTarget: maxDate.toISOString().split('T')[0],
+  };
 }
 
 export async function syncPlatformSettingsFromCloud(): Promise<GovernoratesShippingConfig | null> {
@@ -245,6 +281,9 @@ export async function syncPlatformSettingsFromCloud(): Promise<GovernoratesShipp
         saveShippingConfig(mergedCfg);
         if (typeof s.centralShippingPrivacy === 'boolean') {
           setClientPrivacyActive(s.centralShippingPrivacy);
+        }
+        if (s.marketBuilder) {
+          saveStoredMarketBuilderConfig(s.marketBuilder);
         }
         return mergedCfg;
       }
@@ -331,7 +370,12 @@ export function saveCentralMarketplaceOrder(order: InvoiceRecord): void {
       marketplaceStatus: order.marketplaceStatus || 'pending_approval',
       advancePaymentConfirmed: Boolean(order.advancePaymentConfirmed),
       isClientDataHiddenFromArtisan: order.isClientDataHiddenFromArtisan !== false,
-      notes: order.notes || '',
+      notes: [
+        order.notes,
+        order.couponApplied ? `كوبون: ${order.couponApplied} (خصم ${order.discount || 0} ج.م)` : '',
+      ]
+        .filter(Boolean)
+        .join(' | '),
       created_at: new Date(order.createdAt || Date.now()).toISOString(),
       updated_at: new Date(order.updatedAt || Date.now()).toISOString(),
     };

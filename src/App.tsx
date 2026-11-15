@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   UserProfile,
@@ -230,7 +230,8 @@ export const App: React.FC = () => {
     return 'home';
   });
   const [historyStack, setHistoryStack] = useState<ActiveView[]>([]);
-  const [adminInitialTab, setAdminInitialTab] = useState<ExecutiveTab>('materials');
+  const [adminInitialTab, setAdminInitialTab] = useState<ExecutiveTab>('home');
+  const [adminNavNonce, setAdminNavNonce] = useState<number>(0);
   const [catalogInitialTab, setCatalogInitialTab] = useState<'catalog' | 'store'>(() => {
     if (typeof window !== 'undefined' && /[?&]tab=store(?:&|$)/i.test(window.location.search || '')) {
       return 'store';
@@ -313,6 +314,30 @@ export const App: React.FC = () => {
   // Super Admin Multi-Tenant Workshop Switcher Context
   const [switchedWorkshopContext, setSwitchedWorkshopContext] = useState<any | null>(null);
   const [originalSuperAdminProfile, setOriginalSuperAdminProfile] = useState<UserProfile | null>(null);
+
+  const isSuperAdminMode = Boolean(profile && isUserAdmin(profile) && !switchedWorkshopContext);
+
+  const adminBellCounts = useMemo(() => {
+    let workshopsCount = 0;
+    let storeCount = 0;
+    let systemCount = 0;
+    adminAlerts.forEach((a) => {
+      const cat = String(a?.category || a?.type || '').toLowerCase();
+      if (cat.includes('product') || cat.includes('market') || cat.includes('order') || cat.includes('store')) {
+        storeCount++;
+      } else if (cat.includes('workshop') || cat.includes('app') || cat.includes('appeal')) {
+        workshopsCount++;
+      } else {
+        systemCount++;
+      }
+    });
+    return {
+      messages: adminInboxUnreadCount,
+      workshops: workshopsCount,
+      store: storeCount,
+      system: systemCount,
+    };
+  }, [adminAlerts, adminInboxUnreadCount]);
 
   // Search cache
   const [searchCache, setSearchCache] = useState<GlobalSearchDataCache>({
@@ -1015,6 +1040,10 @@ export const App: React.FC = () => {
   const goHome = useCallback(() => {
     window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
     syncFamilyUrl('home');
+    if (isSuperAdminMode) {
+      setAdminInitialTab('home');
+      setAdminNavNonce((n) => n + 1);
+    }
     if (activeView === 'home') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
@@ -1022,7 +1051,7 @@ export const App: React.FC = () => {
     setHistoryStack((prev) => [...prev, activeView]);
     setActiveView('home');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [activeView]);
+  }, [activeView, isSuperAdminMode]);
 
   // Handlers for exporting to calculator from Falcon AI or Archive
   const handleSelectRecordToLoad = (record: SavedProductRecord) => {
@@ -1384,6 +1413,13 @@ export const App: React.FC = () => {
       <Navbar
         profile={profile}
         hasActiveSession={true}
+        isSuperAdminMode={isSuperAdminMode}
+        adminBellCounts={adminBellCounts}
+        onSelectAdminNotificationSection={(sec) => {
+          setAdminInitialTab(sec);
+          setAdminNavNonce((n) => n + 1);
+          navigateTo('home');
+        }}
         unreadNotificationsCount={
           notifications.filter((n) => !n.isRead).length + (isUserAdmin(profile) ? adminAlerts.length : 0)
         }
@@ -1466,8 +1502,8 @@ export const App: React.FC = () => {
         </aside>
       )}
 
-      {/* Welcome Banner: يظهر فقط عند الفتح للترحيب بالفنان وورشته */}
-      {showWelcomeBanner && profile && (
+      {/* Welcome Banner: يظهر فقط للورش وليس للسوبر أدمن */}
+      {showWelcomeBanner && profile && !isSuperAdminMode && (
         <aside aria-label="رسالة الترحيب" className="bg-gradient-to-l from-[#F7F3EA] via-[#EFE9DC] to-[#FFEDD5] dark:from-[#0D162E] dark:via-[#132040] dark:to-[#1E130A] border-b border-[#D4CCBC] dark:border-[#EA580C]/35 px-4 py-2.5 text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-[#EA580C] dark:text-amber-400 shrink-0" />
@@ -1537,6 +1573,7 @@ export const App: React.FC = () => {
             <AdminDashboard
               profile={profile}
               initialTab={adminInitialTab}
+              navigationKey={adminNavNonce}
               onNavigateHome={goHome}
               onOpenMessagesHub={() => {
                 setNotificationsInitialTab('messages');
@@ -1814,6 +1851,7 @@ export const App: React.FC = () => {
                 ? 'messaging'
                 : adminInitialTab
             }
+            navigationKey={adminNavNonce}
             onNavigateHome={goHome}
             onOpenMessagesHub={() => {
               setNotificationsInitialTab('messages');
@@ -1895,21 +1933,27 @@ export const App: React.FC = () => {
           onSelectView={(v) => {
             if (v === 'appeals') {
               setAdminInitialTab('appeals');
+              setAdminNavNonce((n) => n + 1);
               navigateTo('appeals');
             } else if (v === 'messaging') {
               setAdminInitialTab('messaging');
+              setAdminNavNonce((n) => n + 1);
               navigateTo('messaging');
             } else if (v === 'materials' && isUserAdmin(profile) && !switchedWorkshopContext) {
               setAdminInitialTab('materials');
+              setAdminNavNonce((n) => n + 1);
               navigateTo('admin');
             } else if (v === 'catalog' && isUserAdmin(profile) && !switchedWorkshopContext) {
               setAdminInitialTab('products');
+              setAdminNavNonce((n) => n + 1);
               navigateTo('admin');
             } else if (v === 'hr' && isUserAdmin(profile) && !switchedWorkshopContext) {
               setAdminInitialTab('contacts');
+              setAdminNavNonce((n) => n + 1);
               navigateTo('admin');
             } else if (v === 'treasuries' && isUserAdmin(profile) && !switchedWorkshopContext) {
               setAdminInitialTab('treasuries');
+              setAdminNavNonce((n) => n + 1);
               navigateTo('admin');
             } else if (v === 'currency_rates') {
               setIsExchangeRatesOpen(true);
@@ -1995,6 +2039,7 @@ export const App: React.FC = () => {
           onDismissAdminAlert={handleDismissAdminAlert}
           onNavigateToAdminTab={(tab) => {
             setAdminInitialTab(tab as any);
+            setAdminNavNonce((n) => n + 1);
             navigateTo('admin');
           }}
           onNavigateToView={(v) => navigateTo(v as ActiveView)}

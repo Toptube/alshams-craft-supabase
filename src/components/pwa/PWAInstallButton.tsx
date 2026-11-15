@@ -18,12 +18,14 @@ import { usePWAInstall } from '../../hooks/usePWAInstall';
 interface PWAInstallButtonProps {
   variant?: 'navbar' | 'card' | 'landing';
   showWhenInstalled?: boolean;
+  compact?: boolean;
   className?: string;
 }
 
 export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   variant = 'card',
   showWhenInstalled = false,
+  compact = false,
   className = '',
 }) => {
   const {
@@ -254,14 +256,16 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           title={canNativeInstall ? 'تثبيت تطبيق الشمساوية كأيقونة مباشرة الآن' : 'إعداد وتثبيت تطبيق الشمساوية على الجهاز'}
           className={`${
             canNativeInstall ? 'inline-flex' : 'hidden sm:inline-flex'
-          } items-center gap-1.5 h-8 sm:h-9 px-2.5 rounded-xl ${
+          } items-center gap-1 ${
+            compact ? 'h-7 sm:h-8 px-1.5 sm:px-2 text-[10px]' : 'h-8 sm:h-9 px-2.5 text-[11px]'
+          } rounded-xl ${
             canNativeInstall
               ? 'bg-[#EA580C] hover:bg-[#C2410C] text-white border border-[#FDBA74]/60 shadow-sm'
               : 'bg-[#E9E2D4] dark:bg-[#132040] border border-[#EA580C]/60 hover:bg-[#EA580C] text-[#9A3412] hover:text-white dark:text-[#FBBF24] dark:hover:text-white'
-          } text-[11px] font-black transition cursor-pointer whitespace-nowrap shrink-0 ${className}`}
+          } font-black transition cursor-pointer whitespace-nowrap shrink-0 ${className}`}
         >
-          <Download className="w-3.5 h-3.5 shrink-0" />
-          <span className={canNativeInstall ? 'inline' : 'hidden sm:inline'}>
+          <Download className={`${compact ? 'w-3.5 h-3.5' : 'w-3.5 h-3.5'} shrink-0`} />
+          <span className={compact ? 'hidden xl:inline' : canNativeInstall ? 'inline' : 'hidden sm:inline'}>
             {installing
               ? 'جاري...'
               : canNativeInstall

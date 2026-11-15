@@ -237,6 +237,16 @@ export async function hydrateWorkshopIntoDexie(
   for (const ro of ordersRows) {
     try {
       const localOrd = await db.orders.get(ro.id);
+      const rawNotes = String(ro.notes || '');
+      const metaMatch = rawNotes.match(/\[META:([^\]]+)\]/);
+      const isMarketplaceOrder = Boolean(metaMatch || String(ro.order_number || '').startsWith('SHAMS-') || ro.governorate);
+      const isClientHidden = isMarketplaceOrder
+        ? metaMatch
+          ? !metaMatch[1].includes('hidden=0')
+          : ro.isClientDataHiddenFromArtisan !== false
+        : false;
+      const cleanNotes = rawNotes.replace(/\[META:[^\]]+\]/g, '').trim();
+
       await db.orders.put({
         ...(localOrd || {}),
         id: ro.id,
@@ -244,8 +254,11 @@ export async function hydrateWorkshopIntoDexie(
         workshopId,
         orderNumber: ro.order_number || (localOrd as any)?.orderNumber || localOrd?.invoiceNumber || ro.id?.slice(-6),
         customerId: ro.customer_id || localOrd?.customerId || '',
-        customerName: ro.customer_name || localOrd?.customerName || 'عميل',
-        customerPhone: ro.customer_phone || localOrd?.customerPhone || '',
+        customerName: isClientHidden ? 'عميل سوق الشمساوية (شحن المنظومة)' : (ro.customer_name || localOrd?.customerName || 'عميل'),
+        customerPhone: isClientHidden ? 'محجوب — الشحن عبر المنظومة' : (ro.customer_phone || localOrd?.customerPhone || ''),
+        governorate: ro.governorate || localOrd?.governorate || '',
+        detailedAddress: isClientHidden ? 'محجوب — يتم التسليم عبر منظومة الشمساوية' : (ro.customer_address || ro.detailed_address || localOrd?.detailedAddress || ''),
+        isClientDataHiddenFromArtisan: isClientHidden,
         productName: ro.product_name || localOrd?.productName || 'طلبية',
         items: Array.isArray(ro.items) ? ro.items : localOrd?.items || [],
         totalAmount: Number(ro.total_amount ?? ro.final_total ?? localOrd?.totalAmount ?? 0),
@@ -256,7 +269,7 @@ export async function hydrateWorkshopIntoDexie(
         status: ro.status || localOrd?.status || 'pending',
         deliveryDate: ro.delivery_date || localOrd?.deliveryDate || '',
         date: ro.delivery_date || (ro.created_at ? String(ro.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10)),
-        notes: ro.notes || localOrd?.notes || '',
+        notes: cleanNotes || localOrd?.notes || '',
         createdAt: localOrd?.createdAt || Date.parse(ro.created_at || '') || Date.now(),
         updatedAt: Date.now(),
       } as any);

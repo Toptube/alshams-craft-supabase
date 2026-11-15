@@ -83,6 +83,45 @@
   animation: pulse-subtle 3s infinite ease-in-out;
 }
 
+/* الشريط الإخباري/العروض المتحرك (GPU Composited Marquee) */
+@keyframes alshams-marquee-rtl {
+  0% {
+    transform: translate3d(-100%, 0, 0);
+  }
+  100% {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+.alshams-marquee-viewport {
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.alshams-marquee-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 2.5rem;
+  white-space: nowrap;
+  will-change: transform;
+  animation: alshams-marquee-rtl var(--marquee-duration, 24s) linear infinite;
+}
+
+.alshams-marquee-viewport:hover .alshams-marquee-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alshams-marquee-track {
+    animation: none !important;
+    transform: none !important;
+    white-space: normal;
+    justify-content: center;
+    width: 100%;
+  }
+}
+
 /* ============================================================================
  * تعميم الهوية البصرية على جميع صفحات ومكونات المنظومة (الوضع النهاري الرملي الفاتح)
  * يحول الخلفيات البيضاء الصريحة والرمادية الفاتحة إلى درجات الأوف وايت الرملي الفاتح الموحدة

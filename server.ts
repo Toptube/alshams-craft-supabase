@@ -226,7 +226,9 @@ const DEFAULT_PLATFORM_SETTINGS = {
   storageAndHandlingFee: 20,
   commissionPercent: 10,
   advancePaymentRatio: 0.33,
-  defaultClientPrivacy: true,
+  defaultClientPrivacy: false,
+  centralShippingPrivacy: false,
+  marketBuilder: null,
   updatedAt: new Date().toISOString(),
 };
 
@@ -243,6 +245,7 @@ function loadPersistentPlatformSettings(): any {
             ...DEFAULT_PLATFORM_SETTINGS.governorateRates,
             ...(parsed.governorateRates || {}),
           },
+          marketBuilder: parsed.marketBuilder || DEFAULT_PLATFORM_SETTINGS.marketBuilder,
         };
       }
     }
@@ -671,7 +674,78 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
       trackIdentity(pid, p.id, pEmail);
     });
 
-    const merged = Array.from(map.values());
+    const mergedRaw = Array.from(map.values());
+
+    // Attach lightweight real activity & catalog counts for Super Admin sorting
+    const prodCounts = new Map<string, number>();
+    const mktCounts = new Map<string, number>();
+    const ordCounts = new Map<string, number>();
+    const latestActivityTs = new Map<string, number>();
+
+    const bumpActivity = (wid: string | null | undefined, tsVal?: string) => {
+      if (!wid) return;
+      if (tsVal) {
+        const ms = new Date(tsVal).getTime();
+        if (!isNaN(ms)) {
+          latestActivityTs.set(wid, Math.max(latestActivityTs.get(wid) || 0, ms));
+        }
+      }
+    };
+
+    try {
+      const [pRows, mpRows, oRows, moRows] = await Promise.all([
+        client.from('products').select('workshop_id, updated_at').limit(5000),
+        client.from('marketplace_products').select('workshop_id, updated_at').limit(5000),
+        client.from('orders').select('workshop_id, updated_at').limit(5000),
+        client.from('marketplace_orders').select('workshop_id, updated_at').limit(5000),
+      ]);
+
+      (pRows.data || []).forEach((r: any) => {
+        if (r.workshop_id) {
+          prodCounts.set(r.workshop_id, (prodCounts.get(r.workshop_id) || 0) + 1);
+          bumpActivity(r.workshop_id, r.updated_at);
+        }
+      });
+      (mpRows.data || []).forEach((r: any) => {
+        if (r.workshop_id) {
+          mktCounts.set(r.workshop_id, (mktCounts.get(r.workshop_id) || 0) + 1);
+          bumpActivity(r.workshop_id, r.updated_at);
+        }
+      });
+      (oRows.data || []).forEach((r: any) => {
+        if (r.workshop_id) {
+          ordCounts.set(r.workshop_id, (ordCounts.get(r.workshop_id) || 0) + 1);
+          bumpActivity(r.workshop_id, r.updated_at);
+        }
+      });
+      (moRows.data || []).forEach((r: any) => {
+        if (r.workshop_id) {
+          ordCounts.set(r.workshop_id, (ordCounts.get(r.workshop_id) || 0) + 1);
+          bumpActivity(r.workshop_id, r.updated_at);
+        }
+      });
+    } catch {}
+
+    const merged = mergedRaw.map((w: any) => {
+      const wid = w.id || w.workshopId;
+      const pCount = prodCounts.get(wid) || 0;
+      const mCount = mktCounts.get(wid) || 0;
+      const oCount = ordCounts.get(wid) || 0;
+      const actTs = Math.max(
+        w.updatedAt || (w.updated_at ? new Date(w.updated_at).getTime() : 0),
+        latestActivityTs.get(wid) || 0
+      );
+      return {
+        ...w,
+        productsCount: pCount,
+        marketplaceProductsCount: mCount,
+        ordersCount: oCount,
+        totalCatalogAndShowcase: pCount + mCount,
+        activityScore: pCount * 2 + mCount * 3 + oCount * 4,
+        lastActiveAt: actTs || undefined,
+      };
+    });
+
     res.json({ workshops: merged, count: merged.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'تعذر جلب قائمة الورش' });
@@ -4729,6 +4803,7 @@ app.get('/api/platform-settings', async (_req: Request, res: Response) => {
             ...localCfg.governorateRates,
             ...(cloudCfg.governorateRates || {}),
           },
+          marketBuilder: cloudCfg.marketBuilder || localCfg.marketBuilder || null,
         };
         return res.json({ success: true, settings: merged });
       }
@@ -4751,6 +4826,10 @@ app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest,
       ...existing.governorateRates,
       ...(body.governorateRates || {}),
     },
+    marketBuilder:
+      body.marketBuilder !== undefined
+        ? body.marketBuilder
+        : existing.marketBuilder || null,
     updatedAt: new Date().toISOString(),
   };
   savePersistentPlatformSettings(nextSettings);
