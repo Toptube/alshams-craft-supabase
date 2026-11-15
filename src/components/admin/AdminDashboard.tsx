@@ -2314,13 +2314,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 },
                 profile.email
               );
+              if (!res.success) {
+                const msg = res.error || 'تعذر حفظ تعديلات صفحة الهبوط والشعارات على السيرفر.';
+                showError(msg);
+                throw new Error(msg);
+              }
               if (res.cloudSynced) {
-                showSuccess('تم حفظ ونشر تعديلات صفحة الهبوط والشعارات سحابياً بنجاح ✅');
+                showSuccess('تم حفظ ونشر تعديلات صفحة الهبوط والشعارات سحابياً لجميع الحسابات ✅');
               } else {
-                showSuccess('تم حفظ تعديلات صفحة الهبوط والشعارات محلياً بنجاح ✅');
+                showSuccess('تم الحفظ على السيرفر المحلي (تنبيه: تعذر التزامن السحابي الكامل، تأكد من تسجيل الدخول).');
               }
             } catch (err: any) {
               showError(err?.message || 'حدث خطأ أثناء حفظ إعدادات صفحة الهبوط.');
+              throw err;
             } finally {
               setSavingMarketSettings(false);
             }

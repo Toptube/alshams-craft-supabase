@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, CraftCategory } from '../../types';
 import { FalconAIAgent, StructuredCalculatorExport } from './FalconAIAgent';
-import { shamousaSearchIconImg } from '../brand/BrandAssets';
+import {
+  shamousaSearchIconImg,
+  FalconMascotAvatar,
+  ShamousaMascotAvatar,
+} from '../brand/BrandAssets';
 import {
   Sparkles,
   Cpu,
@@ -248,8 +252,8 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
           }`}
         >
           <div className="flex items-start justify-between mb-3">
-            <div className="w-12 h-12 rounded-2xl bg-white/20 dark:bg-amber-950/40 flex items-center justify-center text-2xl shadow-xs">
-              🦅
+            <div className="w-12 h-12 rounded-2xl bg-white/20 dark:bg-amber-950/40 flex items-center justify-center p-1 shadow-xs">
+              <FalconMascotAvatar size="md" statusDot={false} />
             </div>
             <span
               className={`text-[10px] font-black px-2.5 py-1 rounded-full ${
@@ -284,12 +288,8 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
           }`}
         >
           <div className="flex items-start justify-between mb-3">
-            <div className="w-12 h-12 rounded-2xl overflow-hidden border border-amber-300/80 bg-white/20 dark:bg-amber-950/40 flex items-center justify-center p-0.5 shadow-xs">
-              <img
-                src="/shamousa_mascot.png"
-                alt="شموسة"
-                className="w-full h-full object-cover object-top scale-125 select-none"
-              />
+            <div className="w-12 h-12 rounded-2xl overflow-hidden border border-amber-300/80 bg-white/20 dark:bg-amber-950/40 flex items-center justify-center p-1 shadow-xs">
+              <ShamousaMascotAvatar size="md" statusDot={false} />
             </div>
             <span
               className={`text-[10px] font-black px-2.5 py-1 rounded-full ${
@@ -408,11 +408,7 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
                     {m.role === 'user' ? (
                       '👑'
                     ) : (
-                      <img
-                        src="/shamousa_mascot.png"
-                        alt="شموسة"
-                        className="w-full h-full object-cover object-top scale-125 select-none"
-                      />
+                      <ShamousaMascotAvatar size="xs" statusDot={false} />
                     )}
                   </div>
                   <div

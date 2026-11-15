@@ -45,7 +45,7 @@ import {
   resolveOrderSource,
 } from '../../services/marketplaceCartService';
 import { getWorkshopCleanSlug, getWorkshopStoreUrl } from '../../utils/slugify';
-import { AlShamsBrandLogo } from '../brand/BrandAssets';
+import { AlShamsBrandLogo, useLandingBrandAssets } from '../brand/BrandAssets';
 import {
   ArtisanStoreConfig,
   getStoredArtisanStoreConfig,
@@ -91,6 +91,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
   const artisanSlug = getWorkshopCleanSlug(profile);
   const storeUrl = getWorkshopStoreUrl(profile);
+  const brandAssets = useLandingBrandAssets();
 
   const [activeTab, setActiveTab] = useState<BuilderTabId>(initialOrderId ? 'orders' : initialTab);
   const [products, setProducts] = useState<SavedProductRecord[]>([]);
@@ -1540,7 +1541,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                   level="H"
                   includeMargin={true}
                   imageSettings={{
-                    src: '/brand_icon_light.png',
+                    src: brandAssets.brandIcon?.light || '/brand_icon_light.png',
                     x: undefined,
                     y: undefined,
                     height: 44,

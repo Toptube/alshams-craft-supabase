@@ -4807,51 +4807,55 @@ app.post('/api/admin/marketplace/review', requireAuth, async (req: Authenticated
 // Platform Config & Central Marketplace Orders Sync Endpoints
 // -------------------------------------------------------------
 app.get('/api/platform-settings', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   const localCfg = loadPersistentPlatformSettings();
+  let psCfg: any = null;
+  let wsCfg: any = null;
+
   try {
     const { data: psRow } = await supabaseAdminClient
       .from('platform_settings')
-      .select('value')
+      .select('value, updated_at')
       .eq('key', 'global_platform_config')
       .maybeSingle();
     if (psRow?.value && typeof psRow.value === 'object') {
-      const cloudCfg = psRow.value as any;
-      return res.json({
-        success: true,
-        settings: {
-          ...localCfg,
-          ...cloudCfg,
-          governorateRates: {
-            ...localCfg.governorateRates,
-            ...(cloudCfg.governorateRates || {}),
-          },
-          marketBuilder: cloudCfg.marketBuilder || localCfg.marketBuilder || null,
-          landingCms: cloudCfg.landingCms || localCfg.landingCms || null,
-        },
-      });
+      psCfg = psRow.value;
     }
   } catch {}
+
   try {
     const { data: wsRows } = await supabaseAdminClient.from('workshops').select('id, settings').limit(10);
     if (Array.isArray(wsRows)) {
       const host = wsRows.find((w: any) => w.settings && w.settings.platformConfig);
       if (host?.settings?.platformConfig) {
-        const cloudCfg = host.settings.platformConfig;
-        const merged = {
-          ...localCfg,
-          ...cloudCfg,
-          governorateRates: {
-            ...localCfg.governorateRates,
-            ...(cloudCfg.governorateRates || {}),
-          },
-          marketBuilder: cloudCfg.marketBuilder || localCfg.marketBuilder || null,
-          landingCms: cloudCfg.landingCms || localCfg.landingCms || null,
-        };
-        return res.json({ success: true, settings: merged });
+        wsCfg = host.settings.platformConfig;
       }
     }
   } catch {}
-  res.json({ success: true, settings: localCfg });
+
+  const candidates = [localCfg, psCfg, wsCfg].filter((c) => c && typeof c === 'object');
+  candidates.sort((a, b) => {
+    const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    return tb - ta;
+  });
+
+  const freshest = candidates[0] || localCfg;
+  const merged = {
+    ...localCfg,
+    ...(psCfg || {}),
+    ...(wsCfg || {}),
+    ...freshest,
+    governorateRates: {
+      ...localCfg.governorateRates,
+      ...(psCfg?.governorateRates || {}),
+      ...(wsCfg?.governorateRates || {}),
+      ...(freshest?.governorateRates || {}),
+    },
+    marketBuilder: freshest?.marketBuilder || psCfg?.marketBuilder || wsCfg?.marketBuilder || localCfg.marketBuilder || null,
+    landingCms: freshest?.landingCms || psCfg?.landingCms || wsCfg?.landingCms || localCfg.landingCms || null,
+  };
+  return res.json({ success: true, settings: merged });
 });
 
 app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
@@ -4880,9 +4884,12 @@ app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest,
   };
   savePersistentPlatformSettings(nextSettings);
 
+  const client = getDbClient(req);
   let cloudSynced = false;
+  let cloudError: string | undefined;
+
   try {
-    const { error: psErr } = await supabaseAdminClient
+    const { error: psErr } = await client
       .from('platform_settings')
       .upsert(
         {
@@ -4893,10 +4900,32 @@ app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest,
         },
         { onConflict: 'key' }
       );
-    if (!psErr) cloudSynced = true;
-  } catch {}
+    if (!psErr) {
+      cloudSynced = true;
+    } else {
+      cloudError = psErr.message;
+      // Fallback attempt via supabaseAdminClient if service role key is set
+      const { error: adminPsErr } = await supabaseAdminClient
+        .from('platform_settings')
+        .upsert(
+          {
+            key: 'global_platform_config',
+            value: nextSettings,
+            updated_by: email,
+            updated_at: nextSettings.updatedAt,
+          },
+          { onConflict: 'key' }
+        );
+      if (!adminPsErr) {
+        cloudSynced = true;
+        cloudError = undefined;
+      }
+    }
+  } catch (err: any) {
+    cloudError = err?.message;
+  }
+
   try {
-    const client = getDbClient(req);
     const { data: wsList } = await client.from('workshops').select('id, settings').order('created_at', { ascending: true }).limit(1);
     const target = Array.isArray(wsList) ? wsList[0] : null;
     if (target?.id) {
@@ -4906,7 +4935,7 @@ app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest,
     }
   } catch {}
 
-  res.json({ success: true, cloudSynced, settings: nextSettings });
+  res.json({ success: true, cloudSynced, cloudError, settings: nextSettings });
 });
 
 app.post('/api/marketplace/orders', async (req: Request, res: Response) => {

@@ -199,6 +199,24 @@ export function getArabicSupabaseError(error: any): SupabaseErrorResult {
   ) {
     arabicMessage = 'تم تجاوز عدد المحاولات المسموح بها مؤقتاً، يرجى الانتظار دقيقة ثم المحاولة مجدداً.';
   } else if (
+    lowerMsg.includes('error sending recovery email') ||
+    lowerMsg.includes('error sending confirmation email') ||
+    lowerMsg.includes('smtp') ||
+    (code === '500' && lowerMsg.includes('email')) ||
+    lowerMsg.includes('unexpected_failure')
+  ) {
+    arabicMessage =
+      'تعذر إرسال رسالة استعادة كلمة المرور من خادم البريد (تأكد من تفعيل وضبط إعدادات Custom SMTP في لوحة تحكم Supabase أولاً).';
+  } else if (
+    lowerMsg.includes('unsupported provider') ||
+    lowerMsg.includes('provider is not enabled')
+  ) {
+    arabicMessage =
+      'تسجيل الدخول عبر Google غير مفعّل حالياً في إعدادات Supabase (Authentication → Providers → Google).';
+  } else if (lowerMsg.includes('redirect_uri_mismatch')) {
+    arabicMessage =
+      'رابط إعادة التوجيه (Redirect URI) غير متطابق في إعدادات Google Cloud أو Supabase.';
+  } else if (
     lowerMsg.includes('failed to fetch') ||
     lowerMsg.includes('network') ||
     lowerMsg.includes('connection refused')

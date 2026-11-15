@@ -5,6 +5,7 @@ import { tenantStorage } from '../../db/dexieDB';
 import { firestoreService } from '../../db/firestoreService';
 import { playTaskDoneSound, playButtonClickSound } from '../../lib/sounds';
 import { useTranslation } from '../../lib/i18n';
+import { FalconMascotAvatar, ShamousaMascotAvatar } from '../brand/BrandAssets';
 import {
   Layers,
   ShoppingBag,
@@ -1259,18 +1260,10 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                 >
                   <div className="w-9 h-9 rounded-xl bg-transparent text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-none group-hover:scale-110 transition-transform overflow-hidden p-0.5">
                     {isFalcon ? (
-                      <img
-                        src="/falcon_mascot_ai.png"
-                        alt="صقر AI"
-                        className="w-full h-full object-contain select-none"
-                      />
+                      <FalconMascotAvatar size="sm" statusDot={false} />
                     ) : isShamousa ? (
-                      <div className="w-8 h-8 rounded-full overflow-hidden border border-amber-400 bg-gradient-to-tr from-[#EA580C] to-amber-400 flex items-center justify-center shadow-xs">
-                        <img
-                          src="/shamousa_mascot.png"
-                          alt="شموسة"
-                          className="w-full h-full object-cover object-top scale-125 select-none"
-                        />
+                      <div className="w-8 h-8 rounded-full overflow-hidden border border-amber-400 bg-gradient-to-tr from-[#EA580C] to-amber-400 flex items-center justify-center shadow-xs p-0.5">
+                        <ShamousaMascotAvatar size="sm" statusDot={false} className="w-full h-full" />
                       </div>
                     ) : (
                       <div className="w-8 h-8 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-2xs p-0.5 border border-[#D4CCBC] dark:border-[#22355E]">

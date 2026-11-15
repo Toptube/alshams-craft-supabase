@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../../types';
 import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
+import { AlShamsBrandIcon, FalconMascotFull } from '../brand/BrandAssets';
 import {
   Sparkles,
   X,
@@ -44,8 +45,8 @@ export const InteractiveTourModal: React.FC<InteractiveTourModalProps> = ({
       badge: 'الخطوة الأولى • الترحيب بالمنظومة',
       icon: (
         <div className="w-14 h-14 flex items-center justify-center select-none">
-          <img
-            src="/falcon_mascot_transparent.png"
+          <FalconMascotFull
+            height={56}
             alt="صقر الشمساوية"
             className="w-full h-full object-contain filter drop-shadow-md select-none"
           />
@@ -83,11 +84,7 @@ export const InteractiveTourModal: React.FC<InteractiveTourModalProps> = ({
           </p>
           <div className="space-y-2 text-xs">
             <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 flex items-start gap-3">
-              <img
-                src="/alshams_falcon_emblem.png"
-                alt="أيقونة الشاشة الرئيسية"
-                className="w-6 h-6 object-contain shrink-0 mt-0.5"
-              />
+              <AlShamsBrandIcon size="xs" alt="أيقونة الشاشة الرئيسية" className="shrink-0 mt-0.5" />
               <div>
                 <strong className="text-stone-900 dark:text-stone-100 block">أيقونة منظومة الشمساوية:</strong>
                 <span className="text-[11px] text-stone-500 dark:text-stone-400">

@@ -265,34 +265,57 @@ export function estimateDeliveryWindow(
 }
 
 export async function syncPlatformSettingsFromCloud(): Promise<GovernoratesShippingConfig | null> {
+  let cloudSettings: any = null;
   try {
-    const res = await fetch('/api/platform-settings');
+    const res = await fetch(`/api/platform-settings?_ts=${Date.now()}`, {
+      cache: 'no-store',
+    });
     if (res.ok) {
       const data = await res.json();
-      const s = data?.settings;
-      if (s) {
-        const mergedCfg: GovernoratesShippingConfig = {
-          ...DEFAULT_SHIPPING_CONFIG,
-          ...s,
-          governorateRates: {
-            ...DEFAULT_SHIPPING_CONFIG.governorateRates,
-            ...(s.governorateRates || {}),
-          },
-        };
-        saveShippingConfig(mergedCfg);
-        if (typeof s.centralShippingPrivacy === 'boolean') {
-          setClientPrivacyActive(s.centralShippingPrivacy);
-        }
-        if (s.marketBuilder) {
-          saveStoredMarketBuilderConfig(s.marketBuilder);
-        }
-        if (s.landingCms) {
-          saveStoredLandingCmsConfig(s.landingCms);
-        }
-        return mergedCfg;
+      if (data?.settings && typeof data.settings === 'object') {
+        cloudSettings = data.settings;
       }
     }
   } catch {}
+
+  // Fallback directly to Supabase public.platform_settings if server endpoint returned nothing or lacked landingCms
+  if (!cloudSettings || !cloudSettings.landingCms) {
+    try {
+      const { data: psRow } = await supabase
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'global_platform_config')
+        .maybeSingle();
+      if (psRow?.value && typeof psRow.value === 'object') {
+        cloudSettings = {
+          ...(cloudSettings || {}),
+          ...(psRow.value as any),
+        };
+      }
+    } catch {}
+  }
+
+  if (cloudSettings) {
+    const mergedCfg: GovernoratesShippingConfig = {
+      ...DEFAULT_SHIPPING_CONFIG,
+      ...cloudSettings,
+      governorateRates: {
+        ...DEFAULT_SHIPPING_CONFIG.governorateRates,
+        ...(cloudSettings.governorateRates || {}),
+      },
+    };
+    saveShippingConfig(mergedCfg);
+    if (typeof cloudSettings.centralShippingPrivacy === 'boolean') {
+      setClientPrivacyActive(cloudSettings.centralShippingPrivacy);
+    }
+    if (cloudSettings.marketBuilder) {
+      saveStoredMarketBuilderConfig(cloudSettings.marketBuilder);
+    }
+    if (cloudSettings.landingCms) {
+      saveStoredLandingCmsConfig(cloudSettings.landingCms);
+    }
+    return mergedCfg;
+  }
   return null;
 }
 

@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { RotateCcw, Home, Sparkles, AlertTriangle, ShieldCheck, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlShamsBrandIcon } from '../brand/BrandAssets';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -77,15 +78,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {/* Logo & Emblem */}
             <div className="relative inline-flex items-center justify-center mx-auto">
               <div className="w-20 h-20 rounded-2xl bg-amber-500/10 dark:bg-amber-400/10 border border-amber-500/30 flex items-center justify-center p-3 shadow-inner">
-                <img
-                  src="/alshams_falcon_emblem.png"
-                  alt="شعار صقر الشمساوية"
-                  className="w-full h-full object-contain drop-shadow"
-                  onError={(e) => {
-                    // Fallback to emoji if asset fails
-                    (e.target as HTMLElement).style.display = 'none';
-                  }}
-                />
+                <AlShamsBrandIcon size="lg" alt="شعار صقر الشمساوية" />
               </div>
               <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center shadow-md">
                 <AlertTriangle className="w-4 h-4" />

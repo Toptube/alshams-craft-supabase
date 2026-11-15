@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AlShamsBrandLogo } from '../brand/BrandAssets';
 import { WorkshopProfile, UserProfile, Gender, getDefaultFamilyNickname } from '../../types';
 import { COUNTRIES_CONFIG } from '../../utils/macrameMath';
-import { supabase } from '../../lib/supabase';
+import { supabase, supabaseConfig } from '../../lib/supabase';
 import {
   getArabicSupabaseError,
   createMyWorkshopRpc,
@@ -306,6 +306,26 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
     onClearRecoveryError?.();
     setGoogleLoading(true);
     try {
+      // فحص مسبق لحالة مزود Google في Supabase لمنع التحويل لصفحة خطأ JSON
+      try {
+        const settingsRes = await fetch(`${supabaseConfig.url}/auth/v1/settings`, {
+          headers: { apikey: supabaseConfig.publishableKey },
+          cache: 'no-store',
+        });
+        if (settingsRes.ok) {
+          const settingsJson = await settingsRes.json();
+          if (settingsJson?.external && settingsJson.external.google !== true) {
+            setErrorMsg(
+              'تسجيل الدخول عبر Google غير مفعّل حالياً في إعدادات Supabase (Authentication → Providers → Google). يرجى تفعيله وإضافة Client ID و Client Secret أولاً، أو الدخول بالبريد الإلكتروني.'
+            );
+            setGoogleLoading(false);
+            return;
+          }
+        }
+      } catch {
+        // إذا تعذر الفحص المسبق نُكمل التدفق المعتاد
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -347,6 +367,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
     }
 
     setForgotLoading(true);
+    let shouldCooldown = false;
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(clean, {
         redirectTo: `${window.location.origin}/?recovery=1`,
@@ -364,10 +385,21 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           rawMsg.includes('rate limit') ||
           rawMsg.includes('too many requests')
         ) {
+          shouldCooldown = true;
           setForgotNotice({ text: 'حاول بعد دقيقة', isError: true });
         } else if (rawMsg.includes('email address not authorized') || code.includes('email_address_not_authorized')) {
           setForgotNotice({
             text: 'خدمة الإيميل غير مفعّلة لهذا العنوان بعد، تواصل مع الدعم',
+            isError: true,
+          });
+        } else if (
+          code === '500' ||
+          rawMsg.includes('error sending recovery email') ||
+          rawMsg.includes('unexpected_failure') ||
+          rawMsg.includes('smtp')
+        ) {
+          setForgotNotice({
+            text: 'تعذر إرسال رابط استعادة كلمة المرور (خطأ 500 من خادم البريد في Supabase). يرجى تفعيل وضبط Custom SMTP في لوحة تحكم Supabase أولاً.',
             isError: true,
           });
         } else {
@@ -375,6 +407,10 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           setForgotNotice({ text: errRes.arabicMessage, isError: true });
         }
       } else {
+        shouldCooldown = true;
+        try {
+          localStorage.setItem('alshams_pending_recovery_ts', String(Date.now()));
+        } catch {}
         // Always show neutral message as requested in Requirement 1
         setForgotNotice({
           text: 'لو الإيميل مسجل عندنا هيوصلك رابط تغيير كلمة المرور، وراجع فولدر الرسائل غير المرغوبة (Spam)',
@@ -385,6 +421,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
       console.error('[AuthGateway] resetPasswordForEmail exception:', err);
       const rawMsg = (err?.message || '').toLowerCase();
       if (rawMsg.includes('rate limit') || rawMsg.includes('429')) {
+        shouldCooldown = true;
         setForgotNotice({ text: 'حاول بعد دقيقة', isError: true });
       } else {
         const errRes = getArabicSupabaseError(err);
@@ -392,8 +429,10 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
       }
     } finally {
       setForgotLoading(false);
-      // Disable button for 60 seconds after send with visible countdown
-      setForgotCountdown(60);
+      // Disable button for 60 seconds only on success or rate-limit
+      if (shouldCooldown) {
+        setForgotCountdown(60);
+      }
     }
   };
 

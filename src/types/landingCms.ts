@@ -638,25 +638,63 @@ export function normalizeLandingCmsConfig(raw?: Partial<LandingCmsConfig> | null
   };
 }
 
+let inMemoryLandingCmsCache: LandingCmsConfig | null = null;
+
+export function syncBrandFaviconFromCms(cfg: LandingCmsConfig): void {
+  if (typeof document === 'undefined') return;
+  try {
+    const isDark = document.documentElement.classList.contains('dark');
+    const iconSrc = isDark
+      ? cfg.brandAssets?.brandIcon?.dark || cfg.brandAssets?.brandIcon?.light
+      : cfg.brandAssets?.brandIcon?.light || cfg.brandAssets?.brandIcon?.dark;
+    if (!iconSrc) return;
+    let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    if (link.href !== iconSrc) {
+      link.href = iconSrc;
+    }
+  } catch {}
+}
+
 export function getStoredLandingCmsConfig(): LandingCmsConfig {
-  if (typeof window === 'undefined') return DEFAULT_LANDING_CMS_CONFIG;
+  if (typeof window === 'undefined') return inMemoryLandingCmsCache || DEFAULT_LANDING_CMS_CONFIG;
   try {
     const raw = localStorage.getItem(LANDING_CMS_STORAGE_KEY);
     if (raw) {
-      return normalizeLandingCmsConfig(JSON.parse(raw));
+      const normalized = normalizeLandingCmsConfig(JSON.parse(raw));
+      if (
+        inMemoryLandingCmsCache?.updatedAt &&
+        normalized.updatedAt &&
+        new Date(inMemoryLandingCmsCache.updatedAt).getTime() >
+          new Date(normalized.updatedAt).getTime()
+      ) {
+        return inMemoryLandingCmsCache;
+      }
+      inMemoryLandingCmsCache = normalized;
+      return normalized;
     }
   } catch {}
-  return DEFAULT_LANDING_CMS_CONFIG;
+  return inMemoryLandingCmsCache || DEFAULT_LANDING_CMS_CONFIG;
 }
 
 export function saveStoredLandingCmsConfig(cfg: LandingCmsConfig): LandingCmsConfig {
   const normalized = normalizeLandingCmsConfig({
     ...cfg,
-    updatedAt: new Date().toISOString(),
+    updatedAt: cfg.updatedAt || new Date().toISOString(),
   });
+  inMemoryLandingCmsCache = normalized;
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(LANDING_CMS_STORAGE_KEY, JSON.stringify(normalized));
+    } catch (storageErr) {
+      console.warn('[LandingCMS] localStorage write warning (using memory cache):', storageErr);
+    }
+    syncBrandFaviconFromCms(normalized);
+    try {
       window.dispatchEvent(new CustomEvent('alshams_landing_cms_updated', { detail: normalized }));
     } catch {}
   }

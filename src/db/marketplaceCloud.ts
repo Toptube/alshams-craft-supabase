@@ -768,6 +768,11 @@ export async function savePlatformSettingsCloud(
   settings: any,
   userEmail?: string
 ): Promise<{ success: boolean; cloudSynced?: boolean; settings?: any; error?: string }> {
+  let serverError: string | undefined;
+  let serverSettings: any = settings;
+  let serverOk = false;
+  let cloudSynced = false;
+
   try {
     const headers = await getOptionalAuthHeaders(userEmail, { 'Content-Type': 'application/json' });
     const res = await fetch('/api/platform-settings', {
@@ -776,11 +781,50 @@ export async function savePlatformSettingsCloud(
       body: JSON.stringify(settings),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
-    return { success: true, cloudSynced: data.cloudSynced, settings: data.settings };
+    if (res.ok && data?.success) {
+      serverOk = true;
+      cloudSynced = Boolean(data.cloudSynced);
+      if (data.settings) serverSettings = data.settings;
+      if (cloudSynced) {
+        return { success: true, cloudSynced: true, settings: serverSettings };
+      }
+      serverError = data.cloudError;
+    } else {
+      serverError = data.error || `HTTP ${res.status}`;
+    }
   } catch (e: any) {
-    return { success: false, error: e?.message || 'تعذر حفظ الإعدادات سحابياً' };
+    serverError = e?.message || 'تعذر الاتصال بالخادم';
   }
+
+  // Fallback: direct authenticated upsert to public.platform_settings from Supabase client
+  try {
+    const nextWithTimestamp = {
+      ...serverSettings,
+      updatedAt: serverSettings?.updatedAt || new Date().toISOString(),
+    };
+    const { error: psErr } = await supabase
+      .from('platform_settings')
+      .upsert(
+        {
+          key: 'global_platform_config',
+          value: nextWithTimestamp,
+          updated_by: userEmail || '',
+          updated_at: nextWithTimestamp.updatedAt,
+        },
+        { onConflict: 'key' }
+      );
+    if (!psErr) {
+      return { success: true, cloudSynced: true, settings: nextWithTimestamp };
+    }
+    serverError = serverError || psErr.message;
+  } catch (e: any) {
+    serverError = serverError || e?.message;
+  }
+
+  if (serverOk) {
+    return { success: true, cloudSynced: false, settings: serverSettings, error: serverError };
+  }
+  return { success: false, cloudSynced: false, error: serverError || 'تعذر حفظ الإعدادات سحابياً' };
 }
 
 export async function fetchCloudMarketplaceOrders(userEmail?: string): Promise<any[]> {

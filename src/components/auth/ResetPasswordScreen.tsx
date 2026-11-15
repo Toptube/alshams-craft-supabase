@@ -33,7 +33,32 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
 
   useEffect(() => {
     let active = true;
-    supabase.auth.getSession().then(({ data }) => {
+    let settled = false;
+
+    const checkCurrentSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      if (data?.session) {
+        settled = true;
+        setSessionReady(true);
+        setErrorMsg('');
+      }
+    };
+
+    checkCurrentSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      if (session) {
+        settled = true;
+        setSessionReady(true);
+        setErrorMsg('');
+      }
+    });
+
+    const timeout = setTimeout(async () => {
+      if (!active || settled) return;
+      const { data } = await supabase.auth.getSession();
       if (!active) return;
       if (!data?.session) {
         setSessionReady(false);
@@ -42,10 +67,14 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
         );
       } else {
         setSessionReady(true);
+        setErrorMsg('');
       }
-    });
+    }, 900);
+
     return () => {
       active = false;
+      clearTimeout(timeout);
+      subscription.unsubscribe();
     };
   }, []);
 

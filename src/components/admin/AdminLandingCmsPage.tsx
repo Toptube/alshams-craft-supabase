@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ArrowRight,
   Save,
@@ -27,8 +27,9 @@ import {
   getStoredLandingCmsConfig,
   saveStoredLandingCmsConfig,
 } from '../../types/landingCms';
+import { syncPlatformSettingsFromCloud } from '../../services/marketplaceCartService';
 import { processBrandAssetUpload } from '../../utils/imageTransparentProcessor';
-import { playSuccessSound } from '../../lib/sounds';
+import { playSuccessSound, playErrorSound } from '../../lib/sounds';
 
 interface AdminLandingCmsPageProps {
   onBack: () => void;
@@ -51,28 +52,28 @@ const ASSET_SLOT_META: {
     key: 'platformLogo',
     title: 'لوجو / شعار المنظومة المكتوب',
     subtitle: 'الشعار العريض في أعلى صفحة الهبوط وبوابة الترحيب والتسجيل',
-    recommendedMaxDim: 420,
+    recommendedMaxDim: 360,
     defaultSvgWrap: false,
   },
   {
     key: 'brandIcon',
     title: 'أيقونة المنظومة / الشعار المربع',
     subtitle: 'الأيقونة المربعة بجانب اسم المنظومة وفي التذييل وصفحات الدخول',
-    recommendedMaxDim: 192,
+    recommendedMaxDim: 160,
     defaultSvgWrap: true,
   },
   {
     key: 'falconMascot',
     title: 'أيقونة وشخصية صقر الشمساوية AI',
     subtitle: 'شخصية صقر في صفحة الهبوط وبوابة الترحيب والمساعد الذكي',
-    recommendedMaxDim: 380,
+    recommendedMaxDim: 300,
     defaultSvgWrap: false,
   },
   {
     key: 'shamousaMascot',
     title: 'أيقونة وشخصية شموسة',
     subtitle: 'شخصية شموسة في صفحة الهبوط وبوابة الترحيب وزر المساعدة العائم',
-    recommendedMaxDim: 380,
+    recommendedMaxDim: 300,
     defaultSvgWrap: false,
   },
 ];
@@ -85,6 +86,8 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
   const [cms, setCms] = useState<LandingCmsConfig>(() => getStoredLandingCmsConfig());
   const [activeTab, setActiveTab] = useState<CmsSectionTab>('header_hero');
   const [showAssetsModal, setShowAssetsModal] = useState<boolean>(false);
+  const hasDirtyChangesRef = useRef<boolean>(false);
+  const [saveBanner, setSaveBanner] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // خيارات معالجة الصورة عند الرفع
   const [autoRemoveBg, setAutoRemoveBg] = useState<boolean>(true);
@@ -93,11 +96,38 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
   const [uploadNotice, setUploadNotice] = useState<Record<string, string>>({});
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  useEffect(() => {
+    syncPlatformSettingsFromCloud()
+      .then(() => {
+        if (!hasDirtyChangesRef.current) {
+          setCms(getStoredLandingCmsConfig());
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const handlePersist = async (targetCms: LandingCmsConfig = cms) => {
-    const saved = saveStoredLandingCmsConfig(targetCms);
+    setSaveBanner(null);
+    const saved = saveStoredLandingCmsConfig({
+      ...targetCms,
+      updatedAt: new Date().toISOString(),
+    });
     setCms(saved);
-    await onSaveToCloud(saved);
-    playSuccessSound();
+    try {
+      await onSaveToCloud(saved);
+      hasDirtyChangesRef.current = false;
+      setSaveBanner({
+        type: 'success',
+        text: 'تم الحفظ ونشر الأيقونات والتعديلات فوراً على جميع الشاشات والحسابات ✅',
+      });
+      playSuccessSound();
+    } catch (err: any) {
+      playErrorSound();
+      setSaveBanner({
+        type: 'error',
+        text: err?.message || 'تعذر رفع التعديلات سحابياً، يرجى المحاولة مرة أخرى.',
+      });
+    }
   };
 
   const handleAssetUpload = async (
@@ -114,16 +144,20 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
         autoRemoveBg,
         wrapAsCompactSvg: convertToCompactSvg || meta.defaultSvgWrap,
       });
-      setCms((prev) => ({
-        ...prev,
-        brandAssets: {
-          ...prev.brandAssets,
-          [slot]: {
-            ...prev.brandAssets[slot],
-            [themeVariant]: processed.dataUrl,
+      hasDirtyChangesRef.current = true;
+      setCms((prev) => {
+        const updated: LandingCmsConfig = {
+          ...prev,
+          brandAssets: {
+            ...prev.brandAssets,
+            [slot]: {
+              ...prev.brandAssets[slot],
+              [themeVariant]: processed.dataUrl,
+            },
           },
-        },
-      }));
+        };
+        return updated;
+      });
       const kb = Math.max(1, Math.round(processed.finalBytes / 1024));
       setUploadNotice((prev) => ({
         ...prev,
@@ -373,6 +407,26 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
           </button>
         </div>
       </div>
+
+      {/* تنبيه نتيجة الحفظ */}
+      {saveBanner && (
+        <div
+          className={`rounded-2xl p-3.5 text-xs font-black border flex items-center justify-between gap-2 ${
+            saveBanner.type === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-400 text-emerald-800 dark:text-emerald-200'
+              : 'bg-rose-50 dark:bg-rose-950/50 border-rose-400 text-rose-800 dark:text-rose-200'
+          }`}
+        >
+          <span>{saveBanner.text}</span>
+          <button
+            type="button"
+            onClick={() => setSaveBanner(null)}
+            className="p-1 rounded-lg hover:bg-black/10 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* شريط التبويبات البسيط */}
       <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">

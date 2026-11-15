@@ -11,11 +11,13 @@ import {
   ThemeMode,
 } from './types';
 import { supabase } from './lib/supabase';
-import { getCurrentWorkshopFromSupabase } from './db/supabaseService';
+import { getCurrentWorkshopFromSupabase, getArabicSupabaseError } from './db/supabaseService';
 import { flushProductSync, startProductSync } from './db/productsCloud';
 import { tenantStorage } from './db/dexieDB';
 import { playPostaNotificationSound } from './lib/sounds';
 import { startQuietBackgroundSync, hydrateWorkshopIntoDexie } from './services/periodicQuietSync';
+import { syncPlatformSettingsFromCloud } from './services/marketplaceCartService';
+import { getStoredLandingCmsConfig, syncBrandFaviconFromCms } from './types/landingCms';
 
 // Access Control & Messaging
 import { AccessGate } from './components/gate/AccessGate';
@@ -117,6 +119,26 @@ export type ActiveView =
   | 'messaging'
   | 'marketplace'
   | 'family';
+
+const processedRecoveryTokens = new Set<string>();
+
+function isJwtRecoverySession(session: any): boolean {
+  try {
+    const token = session?.access_token;
+    if (!token || typeof token !== 'string') return false;
+    const parts = token.split('.');
+    if (parts.length < 2) return false;
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+    const payload = JSON.parse(atob(b64 + pad));
+    if (Array.isArray(payload?.amr)) {
+      return payload.amr.some(
+        (item: any) => String(item?.method || '').toLowerCase() === 'recovery'
+      );
+    }
+  } catch {}
+  return false;
+}
 
 const VIEW_TITLES: Record<ActiveView, string> = {
   home: 'لوحة تحكم الورشة',
@@ -420,7 +442,21 @@ export const App: React.FC = () => {
       localStorage.setItem('theme', 'light');
       localStorage.setItem('alshams_theme', 'light');
     }
+    syncBrandFaviconFromCms(getStoredLandingCmsConfig());
   }, [themeMode]);
+
+  // مزامنة إعدادات المنصة والأيقونات والهوية البصرية من السحابة فور التشغيل وعند التحديث
+  useEffect(() => {
+    const applyBrandAssets = () => {
+      syncBrandFaviconFromCms(getStoredLandingCmsConfig());
+    };
+    applyBrandAssets();
+    syncPlatformSettingsFromCloud()
+      .then(() => applyBrandAssets())
+      .catch(() => {});
+    window.addEventListener('alshams_landing_cms_updated', applyBrandAssets);
+    return () => window.removeEventListener('alshams_landing_cms_updated', applyBrandAssets);
+  }, []);
 
   // Performance Mode / Reduced Motion state (سلاسة الأجهزة الضعيفة)
   const [isPerformanceMode, setIsPerformanceMode] = useState<boolean>(() => {
@@ -580,18 +616,34 @@ export const App: React.FC = () => {
           if (mounted) {
             if (combined.includes('expired') || combined.includes('otp_expired')) {
               setSuspensionNotice(
-                'انتهت صلاحية رابط استعادة كلمة المرور، يرجى إدخال بريدك وطلب رابط جديد.'
+                'انتهت صلاحية رابط استعادة كلمة المرور أو تم استخدامه مسبقاً، يرجى طلب رابط جديد.'
               );
             } else if (combined.includes('access_denied') || combined.includes('cancel')) {
               setSuspensionNotice('تم إلغاء تسجيل الدخول، يمكنك المحاولة مرة أخرى.');
+            } else if (
+              combined.includes('provider is not enabled') ||
+              combined.includes('unsupported provider')
+            ) {
+              setSuspensionNotice(
+                'تسجيل الدخول عبر Google غير مفعّل حالياً في إعدادات Supabase (Authentication → Providers → Google).'
+              );
             } else {
-              setSuspensionNotice('حدث خطأ في رابط التحقق، يرجى المحاولة مرة أخرى.');
+              const translated = getArabicSupabaseError({
+                message: urlErrorDesc || urlError || '',
+                code: urlError || undefined,
+              });
+              setSuspensionNotice(
+                translated.arabicMessage || 'حدث خطأ في رابط التحقق، يرجى المحاولة مرة أخرى.'
+              );
             }
             recoveryActive = false;
             setIsPasswordRecovery(false);
             setShowAuthGateway(true);
             setAuthGatewayMode('login');
           }
+          try {
+            localStorage.removeItem('alshams_pending_recovery_ts');
+          } catch {}
           window.history.replaceState({}, '', '/');
           return;
         }
@@ -600,20 +652,29 @@ export const App: React.FC = () => {
         const typeParam = searchParams.get('type');
         if (tokenHash && typeParam === 'recovery') {
           recoveryActive = true;
-          setIsPasswordRecovery(true);
-          const { error: otpErr } = await supabase.auth.verifyOtp({
-            token_hash: tokenHash,
-            type: 'recovery',
-          });
-          if (otpErr && mounted) {
-            recoveryActive = false;
-            setIsPasswordRecovery(false);
-            setSuspensionNotice(
-              'رابط استعادة كلمة المرور غير صالح أو منتهي الصلاحية، يرجى طلب رابط جديد.'
-            );
-            setShowAuthGateway(true);
-            setAuthGatewayMode('login');
+          if (mounted) setIsPasswordRecovery(true);
+
+          if (!processedRecoveryTokens.has(tokenHash)) {
+            processedRecoveryTokens.add(tokenHash);
+            const { error: otpErr } = await supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: 'recovery',
+            });
+            if (otpErr && mounted) {
+              recoveryActive = false;
+              setIsPasswordRecovery(false);
+              setSuspensionNotice(
+                'رابط استعادة كلمة المرور غير صالح أو منتهي الصلاحية، يرجى طلب رابط جديد.'
+              );
+              setShowAuthGateway(true);
+              setAuthGatewayMode('login');
+              window.history.replaceState({}, '', '/');
+              return;
+            }
           }
+          try {
+            localStorage.removeItem('alshams_pending_recovery_ts');
+          } catch {}
           window.history.replaceState({}, '', '/?recovery=1');
         }
       } catch {}
@@ -623,6 +684,10 @@ export const App: React.FC = () => {
       if (isChecking) return;
       isChecking = true;
       try {
+        const hadCodeInUrl =
+          typeof window !== 'undefined' &&
+          new URLSearchParams(window.location.search || '').has('code');
+
         await handleInitialUrlAuthParams();
 
         let { data: { session } } = await supabase.auth.getSession();
@@ -635,9 +700,42 @@ export const App: React.FC = () => {
           } catch {}
         }
 
+        if (session && isJwtRecoverySession(session)) {
+          recoveryActive = true;
+        }
+
+        if (!session && hadCodeInUrl) {
+          let pendingRecoveryRecent = false;
+          try {
+            const ts = Number(localStorage.getItem('alshams_pending_recovery_ts') || '0');
+            pendingRecoveryRecent = ts > 0 && Date.now() - ts < 30 * 60 * 1000;
+            localStorage.removeItem('alshams_pending_recovery_ts');
+          } catch {}
+
+          if (mounted) {
+            const wasRecovery = pendingRecoveryRecent || recoveryActive;
+            recoveryActive = false;
+            setIsPasswordRecovery(false);
+            setSuspensionNotice(
+              wasRecovery
+                ? 'تعذر التحقق من رابط استعادة كلمة المرور (قد يكون الرابط منتهياً أو فُتح من متصفح/رابط مختلف). يرجى طلب رابط جديد من "نسيت كلمة المرور؟".'
+                : 'تعذر إكمال التحقق من الرابط، يرجى المحاولة مرة أخرى من شاشة الدخول.'
+            );
+            setShowAuthGateway(true);
+            setAuthGatewayMode('login');
+            setAuthChecking(false);
+          }
+          window.history.replaceState({}, '', '/');
+          return;
+        }
+
         if (recoveryActive) {
+          try {
+            localStorage.removeItem('alshams_pending_recovery_ts');
+          } catch {}
           if (mounted) {
             setIsPasswordRecovery(true);
+            setShowAuthGateway(false);
             setAuthChecking(false);
           }
           return;
@@ -727,8 +825,11 @@ export const App: React.FC = () => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log('[Auth State Change]:', event, 'User:', session?.user?.email);
-      if (event === 'PASSWORD_RECOVERY') {
+      if (event === 'PASSWORD_RECOVERY' || (session && isJwtRecoverySession(session))) {
         recoveryActive = true;
+        try {
+          localStorage.removeItem('alshams_pending_recovery_ts');
+        } catch {}
         if (mounted) {
           setIsPasswordRecovery(true);
           setShowAuthGateway(false);
@@ -747,6 +848,9 @@ export const App: React.FC = () => {
         return;
       }
       if (session?.user && mounted && !recoveryActive) {
+        syncPlatformSettingsFromCloud()
+          .then(() => syncBrandFaviconFromCms(getStoredLandingCmsConfig()))
+          .catch(() => {});
         checkSession();
       }
     });

@@ -27,7 +27,7 @@ import {
   ChevronDown,
   Globe,
 } from 'lucide-react';
-import { AlShamsSunIcon, shamousaSearchIconImg } from '../brand/BrandAssets';
+import { AlShamsSunIcon, shamousaSearchIconImg, ShamousaMascotAvatar, ShamousaMascotFull } from '../brand/BrandAssets';
 import { authedFetch } from '../../lib/apiClient';
 import type { UserProfile } from '../../types';
 import { DraggableShamosa } from './DraggableShamosa';
@@ -966,10 +966,9 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           >
             {/* Mascot Image - Transparent PNG without any background container box */}
             <div className="relative w-16 h-20 sm:w-20 sm:h-24 flex items-center justify-center">
-              <img
-                src="/shamousa_mascot.png"
+              <ShamousaMascotFull
+                height="100%"
                 alt="شموسة — مديرة أعمال الورشة"
-                draggable={false}
                 className="w-full h-full object-contain filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.5)] select-none pointer-events-none group-hover:brightness-105 transition-all"
               />
               {/* نقطة الاتصال والنشاط الأخضر */}
@@ -1002,12 +1001,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           {/* Header */}
           <div className="flex items-center justify-between gap-2 px-4 py-3 bg-gradient-to-l from-amber-500 via-orange-500 to-amber-600 text-white flex-shrink-0 shadow-xs">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/80 bg-gradient-to-tr from-amber-400 to-orange-400 flex-shrink-0 flex items-center justify-center shadow-xs">
-                <img
-                  src="/shamousa_mascot.png"
-                  alt="شموسة مديرة أعمال الورشة"
-                  className="w-full h-full object-cover object-top scale-125 select-none"
-                />
+              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/80 bg-gradient-to-tr from-amber-400 to-orange-400 flex-shrink-0 flex items-center justify-center shadow-xs p-0.5">
+                <ShamousaMascotAvatar size="md" statusDot={false} className="w-full h-full" />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -1715,12 +1710,8 @@ const Bubble: React.FC<{ role: 'user' | 'assistant'; children: React.ReactNode }
 }) => (
   <div className={`flex items-end gap-2 ${role === 'user' ? 'justify-start' : 'justify-end'}`}>
     {role === 'assistant' && (
-      <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-amber-400 bg-amber-500/20 shadow-2xs">
-        <img
-          src="/shamousa_mascot.png"
-          alt="شموسة"
-          className="w-full h-full object-cover object-top scale-125 select-none"
-        />
+      <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-amber-400 bg-amber-500/20 shadow-2xs flex items-center justify-center p-0.5">
+        <ShamousaMascotAvatar size="xs" statusDot={false} className="w-full h-full" />
       </div>
     )}
     <div

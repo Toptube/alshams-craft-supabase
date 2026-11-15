@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { UserProfile, getDefaultFamilyNickname } from '../../types';
 import { Sparkles, Sun, Heart, ArrowLeft } from 'lucide-react';
 import { playWelcomeSound } from '../../lib/sounds';
+import { AlShamsBrandIcon, FalconMascotFull, ShamousaMascotFull } from '../brand/BrandAssets';
 
 interface FamilyWelcomeModalProps {
   isOpen: boolean;
@@ -37,16 +38,16 @@ export const FamilyWelcomeModal: React.FC<FamilyWelcomeModalProps> = ({
 
         {/* Mascots & Emblem Welcome (Frameless & Seamless) */}
         <div className="flex justify-center items-center gap-3 mb-4 select-none">
-          <img
-            src="/falcon_mascot_transparent.png"
+          <FalconMascotFull
+            height={72}
             alt="صقر الشمساوية"
             className="w-16 h-16 sm:w-20 sm:h-20 object-contain filter drop-shadow-md"
           />
           <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-400/40 p-1.5 flex items-center justify-center shadow-xs">
-            <img src="/brand_icon_light.png" alt="الشمساوية" className="w-full h-full object-contain" />
+            <AlShamsBrandIcon size="sm" className="w-full h-full" alt="الشمساوية" />
           </div>
-          <img
-            src="/shamousa_mascot_transparent.png"
+          <ShamousaMascotFull
+            height={72}
             alt="شموسة"
             className="w-16 h-16 sm:w-20 sm:h-20 object-contain filter drop-shadow-md"
           />
