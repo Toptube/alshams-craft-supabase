@@ -34,6 +34,7 @@ import {
   Sparkles,
   RefreshCw,
 } from 'lucide-react';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -455,6 +456,11 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             <ChevronLeft className="w-4 h-4 shrink-0 opacity-75" />
           </button>
         </nav>
+
+        {/* بطاقة تثبيت التطبيق السريع (PWA Setup) */}
+        <div className="px-3 pb-2.5 pt-1 bg-[#F2ECE1] dark:bg-[#060B18]">
+          <PWAInstallButton variant="card" />
+        </div>
 
         {/* شريط الأدوات السفلي المدمج: 5 أيقونات فقط لعدم ازدحام القائمة */}
         <div className="p-3 border-t border-[#D4CCBC] dark:border-[#22355E] bg-[#E9E2D4] dark:bg-[#0D162E]">

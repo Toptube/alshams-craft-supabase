@@ -9,6 +9,7 @@ import {
   Users,
 } from 'lucide-react';
 import { AlShamsBrandIcon, AlShamsBrandLogo } from '../brand/BrandAssets';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 
 export interface NavbarProps {
   profile: UserProfile;
@@ -127,8 +128,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         )}
       </div>
 
-      {/* اليسار: أيقونة جرس الإشعارات الموحدة (تضم عداد الإشعارات بالبرتقالي وعداد البريد بالأزرق/البيج) + تبديل الثيم + القائمة الجانبية */}
+      {/* اليسار: تثبيت التطبيق (شاشات متوسطة+) + أيقونة جرس الإشعارات الموحدة + تبديل الثيم + القائمة الجانبية */}
       <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <PWAInstallButton variant="navbar" />
         <button
           type="button"
           onClick={onOpenNotifications}

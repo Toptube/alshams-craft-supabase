@@ -3,13 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <!-- WebSocket and Error Resilience for Cloud Preview -->
+    <!-- Early PWA Install Prompt & WebSocket Error Resilience -->
     <script>
       (function() {
         if (typeof window !== 'undefined') {
+          window.__alshamsDeferredInstallPrompt = null;
+          window.__alshamsPwaInstalled = false;
+
+          window.addEventListener('beforeinstallprompt', function(event) {
+            event.preventDefault();
+            window.__alshamsDeferredInstallPrompt = event;
+            window.dispatchEvent(new CustomEvent('alshams-pwa-prompt-ready'));
+          });
+
+          window.addEventListener('appinstalled', function() {
+            window.__alshamsDeferredInstallPrompt = null;
+            window.__alshamsPwaInstalled = true;
+            window.dispatchEvent(new CustomEvent('alshams-pwa-installed'));
+          });
+
           window.addEventListener('unhandledrejection', function(event) {
             var reasonStr = String(event.reason && (event.reason.message || event.reason) || '');
-            if (reasonStr.indexOf('WebSocket') !== -1 || reasonStr.indexOf('websocket') !== -1) {
+            if (
+              reasonStr.indexOf('WebSocket') !== -1 ||
+              reasonStr.indexOf('websocket') !== -1 ||
+              reasonStr.indexOf('SendBeforeConnectError') !== -1
+            ) {
               event.preventDefault();
               event.stopImmediatePropagation();
             }
@@ -17,7 +36,11 @@
 
           window.addEventListener('error', function(event) {
             var msgStr = String(event.message || '');
-            if (msgStr.indexOf('WebSocket') !== -1 || msgStr.indexOf('websocket') !== -1) {
+            if (
+              msgStr.indexOf('WebSocket') !== -1 ||
+              msgStr.indexOf('websocket') !== -1 ||
+              msgStr.indexOf('SendBeforeConnectError') !== -1
+            ) {
               event.preventDefault();
               event.stopImmediatePropagation();
             }
@@ -42,15 +65,22 @@
     <meta name="description" content="منظومة الشمساوية السحابية المتكاملة لإدارة التكاليف والمخزون والمتاجر وكروت QR لورش المشغولات والحرف اليدوية." />
     <meta property="og:title" content="منظومة الشمساوية | Al-Shamsawiyah Platform" />
     <meta property="og:description" content="منظومة سحابية متكاملة لفناني الحرف اليدوية لإدارة التكاليف والكتالوج والمتاجر." />
-    <meta property="og:image" content="/brand icon light.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image" content="/pwa-512x512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="منظومة الشمساوية | Al-Shamsawiyah Platform" />
     <meta name="twitter:description" content="منظومة سحابية متكاملة لفناني الحرف اليدوية لإدارة التكاليف والكتالوج والمتاجر." />
-    <meta name="twitter:image" content="/brand icon light.png" />
-    <link rel="icon" type="image/png" href="/brand icon light.png" />
+    <meta name="twitter:image" content="/pwa-512x512.png" />
+    <meta name="theme-color" content="#0C1427" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="الشمساوية" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/pwa-512x512.png" />
     <!-- Google Fonts: Cairo & IBM Plex Sans Arabic -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

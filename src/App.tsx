@@ -81,9 +81,12 @@ import { PublicStorefrontView } from './components/store/PublicStorefrontView';
 import { FamilyCommunityView } from './components/family/FamilyCommunityView';
 import {
   registerServiceWorker,
+  subscribeToWebPush,
+  unsubscribeFromWebPush,
   checkAndDispatchEquipmentMaintenanceAlerts,
 } from './lib/pushNotifications';
 import { PermissionsOnboardingModal } from './components/permissions/PermissionsOnboardingModal';
+import { OfflineIndicator } from './components/pwa/OfflineIndicator';
 import { initOfflineSyncListeners, flushOfflineMutations } from './db/offlineMutationQueue';
 
 // Icons for the sub-page navigation bar
@@ -207,7 +210,7 @@ export const App: React.FC = () => {
     }
   }, [profile, showWelcomeBanner]);
 
-  // Navigation & View state (supports direct deep-link to /family or /#/family)
+  // Navigation & View state (supports direct deep-link to /family, /#/family, and PWA shortcuts)
   const [activeView, setActiveView] = useState<ActiveView>(() => {
     if (typeof window !== 'undefined') {
       const p = window.location.pathname || '';
@@ -220,12 +223,20 @@ export const App: React.FC = () => {
       ) {
         return 'family';
       }
+      if (/[?&]view=catalog(?:&|$)/i.test(s)) {
+        return 'catalog';
+      }
     }
     return 'home';
   });
   const [historyStack, setHistoryStack] = useState<ActiveView[]>([]);
   const [adminInitialTab, setAdminInitialTab] = useState<ExecutiveTab>('materials');
-  const [catalogInitialTab, setCatalogInitialTab] = useState<'catalog' | 'store'>('catalog');
+  const [catalogInitialTab, setCatalogInitialTab] = useState<'catalog' | 'store'>(() => {
+    if (typeof window !== 'undefined' && /[?&]tab=store(?:&|$)/i.test(window.location.search || '')) {
+      return 'store';
+    }
+    return 'catalog';
+  });
   const [workOrdersInitialStage, setWorkOrdersInitialStage] = useState<'create' | 'issue' | 'receive' | undefined>(undefined);
   const [purchaseInitialMaterial, setPurchaseInitialMaterial] = useState<{
     materialId: string;
@@ -822,10 +833,56 @@ export const App: React.FC = () => {
     if (tenant) {
       checkAndDispatchEquipmentMaintenanceAlerts(tenant).catch(() => {});
     }
+
+    if (
+      profile &&
+      typeof Notification !== 'undefined' &&
+      Notification.permission === 'granted'
+    ) {
+      subscribeToWebPush({
+        workshopId: profile.workshopId || profile.id,
+        email: profile.email,
+        isSuperAdmin: isUserAdmin(profile) && !switchedWorkshopContext,
+      }).catch(() => {});
+    }
+
+    const handleSwMessage = (event: MessageEvent) => {
+      const data = event?.data;
+      if (!data) return;
+      if (data.type === 'PUSH_RECEIVED') {
+        playPostaNotificationSound();
+        loadAnnouncements();
+        loadSearchCacheAndNotifications();
+        if (profile && isUserAdmin(profile)) {
+          loadAdminAlerts();
+          loadAdminInboxUnreadCount();
+        }
+      } else if (data.type === 'TRIGGER_OFFLINE_SYNC') {
+        flushOfflineMutations().catch(() => {});
+      }
+    };
+
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+
     return () => {
       cleanupSync();
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
     };
-  }, [profile?.tenantId, profile?.workshopId, profile?.id]);
+  }, [
+    profile?.tenantId,
+    profile?.workshopId,
+    profile?.id,
+    profile?.email,
+    switchedWorkshopContext,
+    loadAnnouncements,
+    loadSearchCacheAndNotifications,
+    loadAdminAlerts,
+    loadAdminInboxUnreadCount,
+  ]);
 
   // Listen to open permissions modal event
   useEffect(() => {
@@ -1105,6 +1162,7 @@ export const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    await unsubscribeFromWebPush().catch(() => {});
     await supabase.auth.signOut();
     localStorage.removeItem('alshams_profile');
     setProfile(null);
@@ -2156,7 +2214,11 @@ export const App: React.FC = () => {
         isOpen={isPermissionsModalOpen}
         onClose={() => setIsPermissionsModalOpen(false)}
         isInitialOnboarding={typeof window !== 'undefined' && !localStorage.getItem('alshams_permissions_prompted')}
+        profile={profile}
       />
+
+      {/* Offline / Online Status Banner */}
+      <OfflineIndicator />
     </div>
   );
 };

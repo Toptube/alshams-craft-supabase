@@ -14,25 +14,32 @@ import {
 } from 'lucide-react';
 import {
   checkBrowserPermissions,
+  registerServiceWorker,
   requestMicrophonePermission,
   requestNotificationPermission,
   requestGeolocationPermission,
   requestPersistentStorage,
   dispatchArtisanNotification,
+  subscribeToWebPush,
+  sendServerTestPush,
   BrowserPermissionsState,
 } from '../../lib/pushNotifications';
 import { playSuccessSound, playNotificationChimeSound } from '../../lib/sounds';
+import { UserProfile, isUserAdmin } from '../../types';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 
 interface PermissionsOnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
   isInitialOnboarding?: boolean;
+  profile?: UserProfile | null;
 }
 
 export const PermissionsOnboardingModal: React.FC<PermissionsOnboardingModalProps> = ({
   isOpen,
   onClose,
   isInitialOnboarding = false,
+  profile = null,
 }) => {
   const [permissions, setPermissions] = useState<BrowserPermissionsState>({
     notifications: 'unsupported',
@@ -71,18 +78,23 @@ export const PermissionsOnboardingModal: React.FC<PermissionsOnboardingModalProp
     }
   };
 
+  const pushIdentity = {
+    workshopId: profile?.workshopId || profile?.id || '',
+    email: profile?.email || '',
+    isSuperAdmin: profile ? isUserAdmin(profile) : false,
+  };
+
   const handleGrantNotification = async () => {
     setLoadingKey('notifications');
     try {
-      if ('serviceWorker' in navigator) {
-        await navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => null);
-      }
+      await registerServiceWorker().catch(() => null);
       const granted = await requestNotificationPermission();
       if (granted) {
         setPermissions((prev) => ({ ...prev, notifications: 'granted' }));
         localStorage.setItem('alshams_notifications_granted', 'true');
+        await subscribeToWebPush(pushIdentity).catch(() => false);
         playSuccessSound();
-        setTestNotice('✓ تم تفعيل إشعارات الويب بنجاح! ستصلك التنبيهات المباشرة حتى عند إغلاق التطبيق.');
+        setTestNotice('✓ تم تفعيل إشعارات التطبيق في الخلفية بنجاح! ستصلك التنبيهات بصوت النظام حتى عند إغلاق المتصفح.');
       } else {
         setTestNotice('⚠️ تم تفعيل التنبيهات الداخلية (In-App) للورشة، ستصلك كافة إشعارات الأوردرات داخل التطبيق.');
       }
@@ -122,7 +134,10 @@ export const PermissionsOnboardingModal: React.FC<PermissionsOnboardingModalProp
 
   const handleGrantAll = async () => {
     setLoadingKey('all');
-    await requestNotificationPermission();
+    const notifGranted = await requestNotificationPermission();
+    if (notifGranted) {
+      await subscribeToWebPush(pushIdentity).catch(() => false);
+    }
     await requestMicrophonePermission();
     await requestPersistentStorage();
     await requestGeolocationPermission();
@@ -135,10 +150,13 @@ export const PermissionsOnboardingModal: React.FC<PermissionsOnboardingModalProp
 
   const handleSendTestNotification = async () => {
     playNotificationChimeSound();
-    await dispatchArtisanNotification('🦅 صقر المستشار الحرفي يحييك!', {
-      body: 'هذا إشعار تجريبي ناجح من منظومة الشمساوية، تواصل الورشة يعمل بكفاءة تامة.',
-      url: '/',
-    });
+    const sentPush = await sendServerTestPush(pushIdentity);
+    if (!sentPush) {
+      await dispatchArtisanNotification('🦅 صقر المستشار الحرفي يحييك!', {
+        body: 'هذا إشعار تجريبي ناجح من منظومة الشمساوية، تواصل الورشة يعمل بكفاءة تامة.',
+        url: '/',
+      });
+    }
     setTestNotice('تم إرسال إشعار تجريبي إلى جهازك الآن!');
     setTimeout(() => setTestNotice(''), 3500);
   };
@@ -200,6 +218,9 @@ export const PermissionsOnboardingModal: React.FC<PermissionsOnboardingModalProp
 
         {/* Permissions List */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-3.5 flex-1 divide-y divide-stone-100 dark:divide-stone-800">
+          <div className="pb-2">
+            <PWAInstallButton variant="card" showWhenInstalled={true} />
+          </div>
           {/* 1. Notifications */}
           <div className="pt-3.5 first:pt-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start gap-3">

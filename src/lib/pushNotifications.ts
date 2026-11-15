@@ -12,22 +12,162 @@ export interface BrowserPermissionsState {
   persistentStorage: boolean;
 }
 
+let swLookupPromise: Promise<ServiceWorkerRegistration | null> | null = null;
+
 /**
- * تسجيل ملف Service Worker لتلقي الإشعارات في الخلفية
+ * الحصول على تسجيل Service Worker النشط (يُدار بصورة موحدة عبر VitePWA)
  */
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
     return null;
   }
 
+  if (swLookupPromise) {
+    return swLookupPromise;
+  }
+
+  swLookupPromise = (async () => {
+    try {
+      const existing = await navigator.serviceWorker.getRegistration('/');
+      if (existing) {
+        return existing;
+      }
+
+      // Allow virtual:pwa-register (initialized in main.tsx) to finish registering
+      const ready = await Promise.race<ServiceWorkerRegistration | null>([
+        navigator.serviceWorker.ready,
+        new Promise((resolve) => setTimeout(() => resolve(null), 3500)),
+      ]);
+      if (ready) {
+        return ready;
+      }
+
+      const afterWait = await navigator.serviceWorker.getRegistration('/');
+      if (afterWait) {
+        return afterWait;
+      }
+
+      const swUrl = import.meta.env.DEV ? '/dev-sw.js?dev-sw' : '/sw.js';
+      const reg = await navigator.serviceWorker.register(swUrl, {
+        scope: '/',
+        type: 'classic',
+      });
+      return reg;
+    } catch (err) {
+      console.warn('[Al-Shams SW] Service Worker lookup/registration notice:', err);
+      return null;
+    } finally {
+      swLookupPromise = null;
+    }
+  })();
+
+  return swLookupPromise;
+}
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export interface PushSubscriptionIdentity {
+  workshopId?: string;
+  email?: string;
+  isSuperAdmin?: boolean;
+}
+
+/**
+ * الاشتراك في إشعارات الخلفية الفعلية (VAPID Web Push) ليصل صوت الإشعار حتى مع إغلاق المتصفح
+ */
+export async function subscribeToWebPush(identity: PushSubscriptionIdentity): Promise<boolean> {
+  if (
+    typeof window === 'undefined' ||
+    !('serviceWorker' in navigator) ||
+    !('PushManager' in window) ||
+    !('Notification' in window) ||
+    Notification.permission !== 'granted'
+  ) {
+    return false;
+  }
+
   try {
-    const reg = await navigator.serviceWorker.register('/sw.js', {
-      scope: '/',
+    const reg = (await registerServiceWorker()) || (await navigator.serviceWorker.ready);
+    if (!reg || !reg.pushManager) return false;
+
+    const keyRes = await fetch('/api/push/vapid-public-key');
+    if (!keyRes.ok) return false;
+    const { publicKey } = await keyRes.json();
+    if (!publicKey) return false;
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
+      });
+    }
+
+    const res = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: sub.toJSON(),
+        workshopId: identity.workshopId || '',
+        email: identity.email || '',
+        isSuperAdmin: Boolean(identity.isSuperAdmin),
+      }),
     });
-    return reg;
+    return res.ok;
   } catch (err) {
-    console.warn('[Al-Shams SW] Service Worker registration failed:', err);
-    return null;
+    console.warn('[Al-Shams Push] Web Push subscription skipped/failed:', err);
+    return false;
+  }
+}
+
+/**
+ * إلغاء ربط اشتراك Push الحالي عند تسجيل الخروج
+ */
+export async function unsubscribeFromWebPush(): Promise<void> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = await reg?.pushManager?.getSubscription();
+    if (sub) {
+      await fetch('/api/push/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: sub.endpoint }),
+      }).catch(() => {});
+      await sub.unsubscribe().catch(() => {});
+    }
+  } catch {}
+}
+
+/**
+ * إرسال إشعار تجريبي فعلي عبر خادم Web Push للتأكد من عمل الصوت في الخلفية
+ */
+export async function sendServerTestPush(identity: PushSubscriptionIdentity): Promise<boolean> {
+  try {
+    await subscribeToWebPush(identity);
+    const res = await fetch('/api/push/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workshopId: identity.workshopId || '',
+        email: identity.email || '',
+        isSuperAdmin: Boolean(identity.isSuperAdmin),
+      }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return Boolean(data?.sent && data.sent > 0);
+  } catch {
+    return false;
   }
 }
 
@@ -223,20 +363,26 @@ export async function dispatchArtisanNotification(
     if (!granted) return;
   }
 
-  const iconUrl = options?.icon || '/alshams_falcon_emblem.png';
+  const iconUrl = options?.icon || '/pwa-192x192.png';
   const targetUrl = options?.url || '/';
 
   try {
     if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = (await navigator.serviceWorker.getRegistration('/')) || (await navigator.serviceWorker.ready);
       if (reg && reg.showNotification) {
-        await reg.showNotification(title, {
+        const notifOpts: NotificationOptions & Record<string, any> = {
           body: options?.body || 'تنبيه جديد من منظومة الشمساوية',
           icon: iconUrl,
-          badge: iconUrl,
+          badge: '/pwa-192x192.png',
+          dir: 'rtl',
+          lang: 'ar',
+          silent: false,
+          renotify: true,
+          vibrate: [250, 100, 250],
           tag: options?.tag || 'artisan-alert',
           data: { url: targetUrl },
-        });
+        };
+        await reg.showNotification(title, notifOpts);
         return;
       }
     }
@@ -245,6 +391,9 @@ export async function dispatchArtisanNotification(
     new Notification(title, {
       body: options?.body,
       icon: iconUrl,
+      dir: 'rtl',
+      lang: 'ar',
+      silent: false,
       tag: options?.tag,
     });
   } catch (e) {

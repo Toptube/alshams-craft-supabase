@@ -811,15 +811,12 @@ app.post('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, 
     const nowIso = new Date().toISOString();
     const { error: wsInsErr } = await client.from('workshops').insert({
       id: newWs.id,
-      workshop_id: newWs.id,
       brand_name: newWs.brandName,
       artist_name: newWs.artistName,
       email: newWs.email || null,
       phone: newWs.phoneNumber || null,
-      phone_number: newWs.phoneNumber || null,
       country: newWs.country,
       currency: newWs.currency,
-      currency_symbol: newWs.currencySymbol,
       store_slug: newWs.storeSlug || null,
       selected_crafts: newWs.selectedCrafts,
       role: newWs.role,
@@ -873,11 +870,9 @@ app.put('/api/admin/workshops/:id', requireAuth, async (req: AuthenticatedReques
     if (updates.email !== undefined) wsPatch.email = updates.email;
     if (updates.phoneNumber !== undefined) {
       wsPatch.phone = updates.phoneNumber;
-      wsPatch.phone_number = updates.phoneNumber;
     }
     if (updates.country !== undefined) wsPatch.country = updates.country;
     if (updates.currency !== undefined) wsPatch.currency = updates.currency;
-    if (updates.currencySymbol !== undefined) wsPatch.currency_symbol = updates.currencySymbol;
     if (updates.storeSlug !== undefined) wsPatch.store_slug = updates.storeSlug;
     if (updates.status !== undefined) {
       wsPatch.status = updates.status;
@@ -901,7 +896,6 @@ app.put('/api/admin/workshops/:id', requireAuth, async (req: AuthenticatedReques
     if (updates.email !== undefined) profPatch.email = updates.email;
     if (updates.phoneNumber !== undefined) {
       profPatch.phone = updates.phoneNumber;
-      profPatch.phone_number = updates.phoneNumber;
     }
     if (updates.status !== undefined) profPatch.status = updates.status;
     if (updates.role !== undefined) profPatch.role = updates.role;
@@ -972,7 +966,6 @@ app.post('/api/admin/workshops/:id/credentials', requireAuth, async (req: Authen
     if (updatedRow.email) wsUpdate.email = updatedRow.email;
     if (updatedRow.phoneNumber) {
       wsUpdate.phone = updatedRow.phoneNumber;
-      wsUpdate.phone_number = updatedRow.phoneNumber;
     }
 
     const { error: wsErr } = await client.from('workshops').update(wsUpdate).eq('id', targetWid);
@@ -983,7 +976,6 @@ app.post('/api/admin/workshops/:id/credentials', requireAuth, async (req: Authen
     if (updatedRow.email) profUpdate.email = updatedRow.email;
     if (updatedRow.phoneNumber) {
       profUpdate.phone = updatedRow.phoneNumber;
-      profUpdate.phone_number = updatedRow.phoneNumber;
     }
     if (updatedRow.artistName) profUpdate.artist_name = updatedRow.artistName;
     if (updatedRow.brandName) profUpdate.brand_name = updatedRow.brandName;
@@ -1972,11 +1964,11 @@ app.get('/api/admin/appeals', requireAuth, async (req: AuthenticatedRequest, res
     const [{ data, error }, { data: profiles }] = await Promise.all([
       client
         .from('workshops')
-        .select('id, brand_name, artist_name, phone, phone_number, email, status, suspended_reason, suspension_reason, appeal_status, appeal_message, rejection_reason, appeal_submitted_at')
+        .select('*')
         .not('appeal_status', 'is', null)
         .neq('appeal_status', 'none')
         .order('appeal_submitted_at', { ascending: false }),
-      client.from('profiles').select('id, workshop_id, email, phone, phone_number, artist_name'),
+      client.from('profiles').select('*'),
     ]);
 
     if (!error && Array.isArray(data)) {
@@ -5437,9 +5429,35 @@ async function startServer() {
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
     viteDevServer = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
+      server: { middlewareMode: true, hmr: false, ws: false },
       appType: 'spa',
     });
+
+    // Prevent Vite 8 @vite/client from attempting HMR WebSocket connections or throwing SendBeforeConnectError when HMR is disabled
+    app.get('/@vite/client', async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const result = await viteDevServer.transformRequest('/@vite/client');
+        if (result?.code) {
+          const patched = result.code
+            .replace(
+              'transport.connect(createHMRHandler(handleMessage))',
+              'void 0 /* HMR WebSocket disabled */'
+            )
+            .replaceAll(
+              'throw new SendBeforeConnectError("send was called before connect")',
+              'return /* HMR WebSocket disabled */'
+            )
+            .replaceAll(
+              'throw new SendBeforeConnectError("invoke was called before connect")',
+              'return /* HMR WebSocket disabled */'
+            );
+          res.status(200).set('Content-Type', 'application/javascript').send(patched);
+          return;
+        }
+      } catch {}
+      next();
+    });
+
     app.use(viteDevServer.middlewares);
 
     // Explicit SPA Catch-all Fallback for Development:

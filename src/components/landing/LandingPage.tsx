@@ -9,6 +9,7 @@ import {
 } from '../brand/BrandAssets';
 import { AlShamsWelcomeGate } from './AlShamsWelcomeGate';
 import { AlShamsAudioPlayer, AlShamsAudioPlayerHandle } from './AlShamsAudioPlayer';
+import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import {
   Sparkles,
   Calculator,
@@ -187,6 +188,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {/* مشغل النشيد المدمج بزر واحد خفيف */}
             <AlShamsAudioPlayer ref={audioPlayerRef} />
+            <PWAInstallButton variant="landing" />
 
             {/* زر إعادة فتح بوابة الترحيب التفاعلية */}
             <button
