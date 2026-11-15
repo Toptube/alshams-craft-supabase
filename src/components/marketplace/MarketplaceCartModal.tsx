@@ -25,6 +25,12 @@ import {
   getStoredMarketBuilderConfig,
   isClientHiddenForWorkshop,
 } from '../../types/marketplaceBuilder';
+import { getLocalWorkshopCouponsMap } from '../../types/artisanStoreBuilder';
+import {
+  fromEgpAmount,
+  getCurrencyInfo,
+  getStoredCustomerDisplayCurrency,
+} from '../../lib/currency';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
 import {
   ShoppingBag,
@@ -72,10 +78,17 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   const [governorate, setGovernorate] = useState<string>(customerUser?.governorate || 'القاهرة');
   const [couponCode, setCouponCode] = useState<string>('');
   const [appliedCoupon, setAppliedCoupon] = useState<MarketCouponConfig | null>(null);
+  const [appliedWorkshopScope, setAppliedWorkshopScope] = useState<string | null>(null);
+  const [workshopCouponsMap, setWorkshopCouponsMap] = useState<Record<string, MarketCouponConfig[]>>(() =>
+    getLocalWorkshopCouponsMap()
+  );
   const [couponError, setCouponError] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'vodafone_cash' | 'instapay'>('instapay');
   const [transactionRef, setTransactionRef] = useState<string>('');
   const [copiedNumber, setCopiedNumber] = useState<boolean>(false);
+  const [customerCurrency, setCustomerCurrency] = useState<string>(() =>
+    getStoredCustomerDisplayCurrency()
+  );
 
   // Guest fields (if customer not logged in)
   const [guestName, setGuestName] = useState('');
@@ -99,11 +112,17 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
       if (typeof e?.detail === 'boolean') setIsCentralPrivacy(e.detail);
       else setIsCentralPrivacy(getClientPrivacyActive());
     };
+    const onCurrencyUpdate = (e: any) => {
+      if (e?.detail) setCustomerCurrency(String(e.detail));
+      else setCustomerCurrency(getStoredCustomerDisplayCurrency());
+    };
     window.addEventListener('alshams_market_builder_updated', onBuilderUpdate);
     window.addEventListener('alshams_privacy_updated', onPrivacyUpdate);
+    window.addEventListener('alshams_customer_currency_updated', onCurrencyUpdate);
     return () => {
       window.removeEventListener('alshams_market_builder_updated', onBuilderUpdate);
       window.removeEventListener('alshams_privacy_updated', onPrivacyUpdate);
+      window.removeEventListener('alshams_customer_currency_updated', onCurrencyUpdate);
     };
   }, []);
 
@@ -113,6 +132,8 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
       setSubmittedOrder(null);
       setFormError('');
       setCouponError('');
+      setCustomerCurrency(getStoredCustomerDisplayCurrency());
+
       syncPlatformSettingsFromCloud()
         .then(() => {
           setRatesVersion((v) => v + 1);
@@ -121,6 +142,18 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
           setIsCentralPrivacy(getClientPrivacyActive());
         })
         .catch(() => {});
+
+      fetch('/api/store/coupons')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => {
+          const localMap = getLocalWorkshopCouponsMap();
+          const rawCloud = json?.couponsByWorkshop ?? json?.coupons;
+          const cloudMap = rawCloud && typeof rawCloud === 'object' ? rawCloud : {};
+          setWorkshopCouponsMap({ ...localMap, ...cloudMap });
+        })
+        .catch(() => {
+          setWorkshopCouponsMap(getLocalWorkshopCouponsMap());
+        });
 
       try {
         const freshBuilder = getStoredMarketBuilderConfig();
@@ -142,6 +175,7 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
           if (welcomeCoupon && freshBuilder.couponsEnabled !== false) {
             setCouponCode('SHAMS5');
             setAppliedCoupon(welcomeCoupon);
+            setAppliedWorkshopScope(null);
           }
         }
       } catch (err) {
@@ -175,24 +209,39 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
   );
 
   const isCouponFreeShipping = Boolean(appliedCoupon && appliedCoupon.type === 'free_shipping');
+  const isProductFreeShipping =
+    Array.isArray(cartItems) &&
+    cartItems.length > 0 &&
+    cartItems.every((i) => i.isFreeShipping === true);
 
   const shippingCost = useMemo(() => {
     if (!Array.isArray(cartItems) || cartItems.length === 0) return 0;
-    if (isThresholdFreeShipping || isCouponFreeShipping) return 0;
+    if (isThresholdFreeShipping || isCouponFreeShipping || isProductFreeShipping) return 0;
     return baseShippingCost;
-  }, [cartItems, isThresholdFreeShipping, isCouponFreeShipping, baseShippingCost]);
+  }, [cartItems, isThresholdFreeShipping, isCouponFreeShipping, isProductFreeShipping, baseShippingCost]);
 
   const discountAmount = useMemo(() => {
     if (!appliedCoupon || subtotal <= 0) return 0;
-    if (appliedCoupon.minOrder && subtotal < appliedCoupon.minOrder) return 0;
+    const eligibleSubtotal = appliedWorkshopScope
+      ? cartItems
+          .filter((i) => (i.workshopId || 'central') === appliedWorkshopScope)
+          .reduce((acc, i: any) => {
+            const p = Number(i?.price ?? 0);
+            const q = Math.max(1, Number(i?.quantity) || 1);
+            return acc + (isNaN(p) ? 0 : p * q);
+          }, 0)
+      : subtotal;
+
+    if (eligibleSubtotal <= 0) return 0;
+    if (appliedCoupon.minOrder && eligibleSubtotal < appliedCoupon.minOrder) return 0;
     if (appliedCoupon.type === 'percent') {
-      return Math.round(subtotal * (Math.max(0, appliedCoupon.value) / 100));
+      return Math.round(eligibleSubtotal * (Math.max(0, appliedCoupon.value) / 100));
     }
     if (appliedCoupon.type === 'fixed') {
-      return Math.min(subtotal, Math.max(0, Math.round(appliedCoupon.value)));
+      return Math.min(eligibleSubtotal, Math.max(0, Math.round(appliedCoupon.value)));
     }
     return 0;
-  }, [appliedCoupon, subtotal]);
+  }, [appliedCoupon, appliedWorkshopScope, cartItems, subtotal]);
 
   const finalTotal = Math.max(0, subtotal - discountAmount + shippingCost);
   const advancePaymentAmount = Math.round(finalTotal * ADVANCE_PAYMENT_MIN_RATIO);
@@ -248,30 +297,74 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
       return;
     }
 
-    const matched = (builderConfig.coupons || []).find(
+    // 1. Check Super Admin central coupons
+    const centralMatched = (builderConfig.coupons || []).find(
       (c) => c.active && c.code.trim().toUpperCase() === normalizedInput
     );
 
-    if (!matched) {
+    if (centralMatched) {
+      if (centralMatched.minOrder && subtotal < centralMatched.minOrder) {
+        setAppliedCoupon(null);
+        setAppliedWorkshopScope(null);
+        setCouponError(
+          `الحد الأدنى لتفعيل هذا الكود هو ${centralMatched.minOrder.toLocaleString('ar-EG')} ج.م`
+        );
+        playAlertSound();
+        return;
+      }
+      setAppliedCoupon(centralMatched);
+      setAppliedWorkshopScope(null);
+      playSuccessSound();
+      return;
+    }
+
+    // 2. Check Artisan Workshop-specific coupons for items in cart
+    const workshopIdsInCart = Array.from(
+      new Set(cartItems.map((i) => i.workshopId).filter((w): w is string => Boolean(w)))
+    );
+    let matchedWorkshopId: string | null = null;
+    let workshopMatched: MarketCouponConfig | undefined;
+
+    for (const wid of workshopIdsInCart) {
+      const list = workshopCouponsMap[wid] || [];
+      const found = list.find((c) => c.active && c.code.trim().toUpperCase() === normalizedInput);
+      if (found) {
+        matchedWorkshopId = wid;
+        workshopMatched = found;
+        break;
+      }
+    }
+
+    if (!workshopMatched || !matchedWorkshopId) {
       setAppliedCoupon(null);
-      setCouponError('كود الخصم غير صحيح أو متوقف حالياً.');
+      setAppliedWorkshopScope(null);
+      setCouponError('كود الخصم غير صحيح أو لا ينطبق على المنتجات المختارة بالسلة.');
       playAlertSound();
       return;
     }
 
-    if (matched.minOrder && subtotal < matched.minOrder) {
+    const workshopSub = cartItems
+      .filter((i) => (i.workshopId || 'central') === matchedWorkshopId)
+      .reduce((acc, i: any) => acc + (Number(i?.price) || 0) * Math.max(1, Number(i?.quantity) || 1), 0);
+
+    if (workshopMatched.minOrder && workshopSub < workshopMatched.minOrder) {
       setAppliedCoupon(null);
-      setCouponError(`الحد الأدنى لتفعيل هذا الكود هو ${matched.minOrder.toLocaleString('ar-EG')} ج.م`);
+      setAppliedWorkshopScope(null);
+      setCouponError(
+        `الحد الأدنى لتفعيل كوبون الورشة هو ${workshopMatched.minOrder.toLocaleString('ar-EG')} ج.م من منتجات الورشة`
+      );
       playAlertSound();
       return;
     }
 
-    setAppliedCoupon(matched);
+    setAppliedCoupon(workshopMatched);
+    setAppliedWorkshopScope(matchedWorkshopId);
     playSuccessSound();
   };
 
   const handleRemoveCoupon = () => {
     setAppliedCoupon(null);
+    setAppliedWorkshopScope(null);
     setCouponCode('');
     setCouponError('');
   };
@@ -936,7 +1029,8 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
               {builderConfig.freeShippingThresholdEnabled &&
                 builderConfig.freeShippingThresholdAmount > 0 &&
                 !isThresholdFreeShipping &&
-                !isCouponFreeShipping && (
+                !isCouponFreeShipping &&
+                !isProductFreeShipping && (
                   <div className="p-2 rounded-lg bg-[#E9E2D4] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-[11px] font-bold text-[#9A3412] dark:text-[#FBBF24]">
                     🚚 أضف منتجات بقيمة{' '}
                     {(builderConfig.freeShippingThresholdAmount - subtotal).toLocaleString('ar-EG')} ج.م للحصول على شحن مجاني!
@@ -945,7 +1039,8 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
 
               <div className="flex items-center justify-between">
                 <span className="text-[#334155] dark:text-[#CBD5E1]">تكلفة الشحن والتوصيل ({governorate}):</span>
-                {shippingCost === 0 && (isThresholdFreeShipping || isCouponFreeShipping) ? (
+                {shippingCost === 0 &&
+                (isThresholdFreeShipping || isCouponFreeShipping || isProductFreeShipping) ? (
                   <span className="font-mono font-black text-emerald-700 dark:text-emerald-400">
                     شحن مجاني (0 ج.م) ✓
                   </span>
@@ -956,7 +1051,17 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
 
               <div className="pt-2 border-t border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between text-sm sm:text-base font-black">
                 <span className="text-[#C2410C] dark:text-amber-300">إجمالي الفاتورة:</span>
-                <span className="font-mono text-[#EA580C] dark:text-amber-300 text-lg">{finalTotal} ج.م</span>
+                <div className="text-left">
+                  <span className="font-mono text-[#EA580C] dark:text-amber-300 text-lg block">
+                    {finalTotal} ج.م
+                  </span>
+                  {customerCurrency !== 'EGP' && (
+                    <span className="text-[10px] font-mono font-bold text-[#475569] dark:text-[#94A3B8] block">
+                      ≈ {fromEgpAmount(finalTotal, customerCurrency).toLocaleString('ar-EG')}{' '}
+                      {getCurrencyInfo(customerCurrency).symbol}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {builderConfig.loyalty?.enabled && estimatedLoyaltyPoints > 0 && (

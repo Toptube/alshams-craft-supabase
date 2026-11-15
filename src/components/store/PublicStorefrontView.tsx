@@ -25,6 +25,9 @@ import {
   ChevronLeft,
   ChevronDown,
   Eye,
+  Clock,
+  Sparkles,
+  Coins,
 } from 'lucide-react';
 import {
   fetchPublicStorefrontBySlug,
@@ -48,6 +51,19 @@ import { CustomerAuthUser, SavedProductRecord, UserProfile } from '../../types';
 import { playSuccessSound, playAddToCartSound, triggerHaptic } from '../../lib/sounds';
 import { tenantStorage } from '../../db/dexieDB';
 import { matchesWorkshopSlug } from '../../utils/slugify';
+import { MARKET_THEME_PRESETS } from '../../types/marketplaceBuilder';
+import {
+  ArtisanStoreConfig,
+  normalizeArtisanStoreConfig,
+  getStoredArtisanStoreConfig,
+  resolveProductOfferPricing,
+} from '../../types/artisanStoreBuilder';
+import {
+  SUPPORTED_CURRENCIES,
+  getStoredCustomerDisplayCurrency,
+  saveStoredCustomerDisplayCurrency,
+  toEgpAmount,
+} from '../../lib/currency';
 
 interface PublicStorefrontViewProps {
   slug: string;
@@ -112,11 +128,41 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
   // Selected product modal
   const [selectedProduct, setSelectedProduct] = useState<CloudMarketplaceProduct | null>(null);
+  const [modalActiveImage, setModalActiveImage] = useState<string>('');
   const [selectedQuantity, setSelectedQuantity] = useState<number>(1);
   const [selectedColor, setSelectedColor] = useState<string>('');
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [customNotes, setCustomNotes] = useState<string>('');
   const [addedToast, setAddedToast] = useState<string | null>(null);
+
+  // Customer display currency & Theme & Artisan Store Config
+  const [customerCurrency, setCustomerCurrency] = useState<string>(() =>
+    getStoredCustomerDisplayCurrency()
+  );
+  const [localArtisanConfigOverride, setLocalArtisanConfigOverride] =
+    useState<ArtisanStoreConfig | null>(null);
+  const [promoRemainingMs, setPromoRemainingMs] = useState<number>(0);
+  const [isDarkTheme, setIsDarkTheme] = useState<boolean>(() =>
+    typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : false
+  );
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const syncDark = () => setIsDarkTheme(document.documentElement.classList.contains('dark'));
+    syncDark();
+    const obs = new MutationObserver(syncDark);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const onCurrencyChange = (e: any) => {
+      if (e?.detail) setCustomerCurrency(String(e.detail));
+      else setCustomerCurrency(getStoredCustomerDisplayCurrency());
+    };
+    window.addEventListener('alshams_customer_currency_updated', onCurrencyChange);
+    return () => window.removeEventListener('alshams_customer_currency_updated', onCurrencyChange);
+  }, []);
 
   // Direct Admin Support Modal (Store & Catalog complaints / inquiries)
   const [isAdminSupportModalOpen, setIsAdminSupportModalOpen] = useState<boolean>(false);
@@ -295,9 +341,18 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       ? localFallbackProducts
                       : await tenantStorage.getProducts(targetWorkshopId);
                   localProds
-                    .filter((p) => p.inStore && (isOwnerPreview || p.isPublishedInStore !== false) && !rejectedIds.has(p.id))
+                    .filter((p) => p.inStore && p.isPublishedInStore !== false && !rejectedIds.has(p.id))
                     .forEach((p) => {
                       if (!mergedMap.has(p.id)) {
+                        const srcCurr = p.sourceCurrency || 'EGP';
+                        const rawStore = p.storePrice || p.retailPrice || 0;
+                        const rawRetail = p.retailPrice || p.storePrice || 0;
+                        const variants = Array.isArray(p.sizeVariants)
+                          ? p.sizeVariants.map((v) => ({
+                              ...v,
+                              egpPrice: v.egpPrice || toEgpAmount(v.price, srcCurr),
+                            }))
+                          : [];
                         mergedMap.set(p.id, {
                           id: p.id,
                           workshop_id: targetWorkshopId,
@@ -310,15 +365,21 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           category: p.category || p.craftName || 'أعمال يدوية',
                           craft_name: p.craftName || p.category || 'أعمال يدوية',
                           decor_category: p.decorCategory || 'all',
-                          store_price: p.storePrice || p.retailPrice || 0,
-                          retail_price: p.retailPrice || p.storePrice || 0,
+                          store_price: toEgpAmount(rawStore, srcCurr),
+                          retail_price: toEgpAmount(rawRetail, srcCurr),
                           wholesale_price: p.wholesalePrice || 0,
                           cost_price: p.costPrice || 0,
                           current_stock: p.currentStock ?? 1,
                           image_url: p.imageUrl || p.input?.productImageUrl || '/alshams_falcon_emblem.png',
+                          gallery_urls: p.galleryUrls || [],
+                          size_variants: variants,
+                          source_currency: srcCurr,
+                          product_discount: p.productDiscount,
+                          is_custom_order_available: p.isCustomOrderAvailable,
                           store_description: p.storeDescription || (p as any).notes || '',
                           available_colors: p.availableColors || [],
-                          available_sizes: p.availableSizes || [],
+                          available_sizes:
+                            variants.length > 0 ? variants.map((v) => v.label) : p.availableSizes || [],
                           status: p.isMarketplaceApproved ? 'approved' : 'pending_approval',
                         });
                       }
@@ -356,6 +417,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   (p: any) =>
                     p.status !== 'rejected' &&
                     !rejectedIds.has(p.id) &&
+                    !p.dimensions?.__artisanExt?.hiddenInStore &&
                     (p.workshop_id || p.workshopId) === targetWorkshopId
                 )
                 .map((p: any) =>
@@ -380,9 +442,18 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
             const decoded = decodeURIComponent(slug).replace(/-/g, ' ');
             const fallbackMapped = (localFallbackProducts || [])
-              .filter((p) => p.inStore && (isOwnerPreview || p.isPublishedInStore !== false))
-              .map((p) =>
-                normalizeCloudProduct({
+              .filter((p) => p.inStore && p.isPublishedInStore !== false)
+              .map((p) => {
+                const srcCurr = p.sourceCurrency || 'EGP';
+                const rawStore = p.storePrice || p.retailPrice || 0;
+                const rawRetail = p.retailPrice || p.storePrice || 0;
+                const variants = Array.isArray(p.sizeVariants)
+                  ? p.sizeVariants.map((v) => ({
+                      ...v,
+                      egpPrice: v.egpPrice || toEgpAmount(v.price, srcCurr),
+                    }))
+                  : [];
+                return normalizeCloudProduct({
                   id: p.id,
                   workshop_id: fallbackWid,
                   brand_name: ownerProfile?.brandName || decoded || 'متجر حرفي',
@@ -394,18 +465,24 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   category: p.category || p.craftName || 'أعمال يدوية',
                   craft_name: p.craftName || p.category || 'أعمال يدوية',
                   decor_category: p.decorCategory || 'all',
-                  store_price: p.storePrice || p.retailPrice || 0,
-                  retail_price: p.retailPrice || p.storePrice || 0,
+                  store_price: toEgpAmount(rawStore, srcCurr),
+                  retail_price: toEgpAmount(rawRetail, srcCurr),
                   wholesale_price: p.wholesalePrice || 0,
                   cost_price: p.costPrice || 0,
                   current_stock: p.currentStock ?? 1,
                   image_url: p.imageUrl || p.input?.productImageUrl || '/alshams_falcon_emblem.png',
+                  gallery_urls: p.galleryUrls || [],
+                  size_variants: variants,
+                  source_currency: srcCurr,
+                  product_discount: p.productDiscount,
+                  is_custom_order_available: p.isCustomOrderAvailable,
                   store_description: p.storeDescription || (p as any).notes || '',
                   available_colors: p.availableColors || [],
-                  available_sizes: p.availableSizes || [],
+                  available_sizes:
+                    variants.length > 0 ? variants.map((v) => v.label) : p.availableSizes || [],
                   status: p.isMarketplaceApproved ? 'approved' : 'pending_approval',
-                })
-              );
+                });
+              });
 
             setStoreData({
               workshop: {
@@ -497,6 +574,64 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const activeWorkshopId =
     storeData?.workshop?.id || ownerProfile?.tenantId || ownerProfile?.workshopId || ownerProfile?.id || '';
 
+  useEffect(() => {
+    const onArtisanCfgUpdate = (e: any) => {
+      if (e?.detail?.config) {
+        if (!activeWorkshopId || e.detail.workshopId === activeWorkshopId) {
+          setLocalArtisanConfigOverride(e.detail.config);
+        }
+      } else if (activeWorkshopId) {
+        setLocalArtisanConfigOverride(getStoredArtisanStoreConfig(activeWorkshopId));
+      }
+    };
+    window.addEventListener('alshams_artisan_store_config_updated', onArtisanCfgUpdate);
+    return () => window.removeEventListener('alshams_artisan_store_config_updated', onArtisanCfgUpdate);
+  }, [activeWorkshopId]);
+
+  const artisanConfig = useMemo<ArtisanStoreConfig>(() => {
+    if (localArtisanConfigOverride) return localArtisanConfigOverride;
+    if (storeData?.workshop?.storeConfig) {
+      return normalizeArtisanStoreConfig(storeData.workshop.storeConfig);
+    }
+    if (activeWorkshopId) {
+      return getStoredArtisanStoreConfig(activeWorkshopId);
+    }
+    return normalizeArtisanStoreConfig(null);
+  }, [localArtisanConfigOverride, storeData?.workshop?.storeConfig, activeWorkshopId]);
+
+  useEffect(() => {
+    const pb = artisanConfig.promoBanner;
+    if (!pb?.enabled || pb.triggerType !== 'limited_time' || !pb.endsAt) {
+      setPromoRemainingMs(0);
+      return;
+    }
+    const targetMs = new Date(pb.endsAt).getTime();
+    if (!Number.isFinite(targetMs)) {
+      setPromoRemainingMs(0);
+      return;
+    }
+    const tick = () => {
+      const diff = targetMs - Date.now();
+      if (diff <= 0) {
+        setPromoRemainingMs(0);
+        return false;
+      }
+      setPromoRemainingMs(diff);
+      return true;
+    };
+    if (!tick()) return;
+    const id = window.setInterval(() => {
+      if (!tick()) window.clearInterval(id);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [artisanConfig.promoBanner]);
+
+  const themeMeta = useMemo(
+    () => MARKET_THEME_PRESETS[artisanConfig.themePreset || 'shams_sand'] || MARKET_THEME_PRESETS.shams_sand,
+    [artisanConfig.themePreset]
+  );
+  const isCustomTheme = (artisanConfig.themePreset || 'shams_sand') !== 'shams_sand';
+
   const persistStorefrontPreferences = async (nextCols: 1 | 2 | 3, nextOrder: string[], toastMsg: string) => {
     setLayoutCols(nextCols);
     setProductOrder(nextOrder);
@@ -574,7 +709,6 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const workshop = storeData?.workshop;
   const brandName = workshop?.brandName || 'ورشة الشمساوية';
   const artistName = workshop?.artistName || 'فنان الشمساوية';
-  const currencySymbol = workshop?.currencySymbol || 'ج.م';
   const phone = workshop?.phoneNumber || OFFICIAL_SUPPORT_PHONE;
   const whatsappNumber = useMemo(() => {
     const digits = String(phone).replace(/\D/g, '');
@@ -593,30 +727,36 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
   const handleOpenProduct = (p: CloudMarketplaceProduct) => {
     setSelectedProduct(p);
+    setModalActiveImage(p.image_url || '/alshams_falcon_emblem.png');
     setSelectedQuantity(1);
     setSelectedColor(p.available_colors?.[0] || '');
-    setSelectedSize(p.available_sizes?.[0] || '');
+    const defaultSize = p.size_variants?.[0]?.label || p.available_sizes?.[0] || '';
+    setSelectedSize(defaultSize);
     setCustomNotes('');
   };
 
-  const handleAddToCart = (p: CloudMarketplaceProduct, qtyOverride?: number) => {
+  const handleAddToCart = (p: CloudMarketplaceProduct, qtyOverride?: number, chosenSizeOverride?: string) => {
     playAddToCartSound();
     triggerHaptic();
 
+    const activeSize = chosenSizeOverride ?? (selectedProduct?.id === p.id ? selectedSize : p.size_variants?.[0]?.label || p.available_sizes?.[0]);
+    const pricing = resolveProductOfferPricing(p, activeSize, customerCurrency, true);
     const finalQty = qtyOverride ?? selectedQuantity;
+
     addToCart({
       id: 'cart_' + Date.now(),
       productId: p.id,
       productName: p.product_name,
-      price: p.store_price || p.retail_price || 0,
+      price: pricing.egpFinalPrice,
       quantity: finalQty,
       imageUrl: p.image_url,
       craftName: p.craft_name,
       workshopId: p.workshop_id || workshop?.id,
       artistName: artistName,
-      selectedColor: selectedColor || undefined,
-      selectedSize: selectedSize || undefined,
-      customNotes: customNotes || undefined,
+      selectedColor: (selectedProduct?.id === p.id ? selectedColor : p.available_colors?.[0]) || undefined,
+      selectedSize: activeSize || undefined,
+      customNotes: (selectedProduct?.id === p.id ? customNotes : '') || undefined,
+      isFreeShipping: pricing.isFreeShipping || undefined,
     });
 
     setAddedToast(`تم إضافة "${p.product_name}" إلى السلة`);
@@ -624,8 +764,36 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
     setSelectedProduct(null);
   };
 
+  const selectedModalPricing = useMemo(() => {
+    if (!selectedProduct) return null;
+    return resolveProductOfferPricing(selectedProduct, selectedSize, customerCurrency, true);
+  }, [selectedProduct, selectedSize, customerCurrency]);
+
+  const selectedModalGallery = useMemo(() => {
+    if (!selectedProduct) return [];
+    const list = [selectedProduct.image_url, ...(selectedProduct.gallery_urls || [])].filter(
+      (u): u is string => Boolean(u && u.trim())
+    );
+    return Array.from(new Set(list));
+  }, [selectedProduct]);
+
+  const pageStyle: React.CSSProperties | undefined = isCustomTheme
+    ? {
+        backgroundColor: isDarkTheme ? themeMeta.pageBgDark : themeMeta.pageBgLight,
+        color: isDarkTheme ? themeMeta.inkDark : themeMeta.inkLight,
+      }
+    : undefined;
+
+  const headerStyle: React.CSSProperties | undefined = isCustomTheme
+    ? {
+        backgroundColor: isDarkTheme ? themeMeta.surfaceDark : themeMeta.surfaceLight,
+        borderColor: isDarkTheme ? themeMeta.borderDark : themeMeta.borderLight,
+      }
+    : undefined;
+
   return (
     <div
+      style={pageStyle}
       className="min-h-screen w-full max-w-full overflow-x-clip bg-[#F2ECE1] text-[#0C1427] dark:bg-[#060B18] dark:text-[#F7F3EA] font-sans selection:bg-[#EA580C] selection:text-white transition-colors duration-200"
       dir="rtl"
     >
@@ -637,9 +805,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       )}
 
       {/* 1. Clean Three-Zone Top Header */}
-      <header className="sticky top-0 z-30 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E]">
+      <header
+        style={headerStyle}
+        className="sticky top-0 z-30 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E]"
+      >
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-8">
-          {/* Zone 1: Workshop Brand (Clean lockup, zero redundant pill clutter) */}
+          {/* Zone 1: Workshop Brand */}
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center overflow-hidden p-0.5 shrink-0">
               <img
@@ -702,6 +873,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
+              style={
+                isCustomTheme
+                  ? { background: `linear-gradient(to right, ${themeMeta.accentBg}, ${themeMeta.accentHover})` }
+                  : undefined
+              }
               className="relative px-3 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs transition flex items-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 whitespace-nowrap"
               title="سلة المشتريات"
             >
@@ -717,43 +893,164 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         </div>
       </header>
 
-      {/* 2. Clean Store Identity Banner (Direct Artist Contact Preserved Here, Excess Fluff Removed) */}
-      <section className="bg-[#F7F3EA] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] py-6 sm:py-8 px-4 sm:px-6">
+      {/* Artisan Store Promotional Banner (Optional Limited-Time Countdown or Min-Order Trigger) */}
+      {artisanConfig.promoBanner?.enabled && artisanConfig.promoBanner.text?.trim() && (
+        <div
+          style={{
+            backgroundColor: artisanConfig.promoBanner.bgColor || '#C2410C',
+          }}
+          className="text-white border-b border-black/15 px-4 py-2.5"
+        >
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              {artisanConfig.promoBanner.showDiscountLabel && artisanConfig.promoBanner.discountLabel && (
+                <span className="px-2 py-0.5 rounded-md bg-black/25 font-black text-[11px] shrink-0">
+                  {artisanConfig.promoBanner.discountLabel}
+                </span>
+              )}
+              <span className="font-black">{artisanConfig.promoBanner.text}</span>
+              {artisanConfig.promoBanner.showSubText && artisanConfig.promoBanner.subText && (
+                <span className="opacity-90 text-[11px]">· {artisanConfig.promoBanner.subText}</span>
+              )}
+            </div>
+
+            {artisanConfig.promoBanner.triggerType === 'limited_time' && promoRemainingMs > 0 && (
+              <div className="flex items-center gap-1.5 font-mono tabular-nums text-[11px] font-black bg-black/25 px-2.5 py-1 rounded-lg shrink-0" dir="ltr">
+                <Clock className="w-3.5 h-3.5" />
+                <span>
+                  {String(Math.floor(promoRemainingMs / 86400000)).padStart(2, '0')}d :{' '}
+                  {String(Math.floor((promoRemainingMs % 86400000) / 3600000)).padStart(2, '0')}h :{' '}
+                  {String(Math.floor((promoRemainingMs % 3600000) / 60000)).padStart(2, '0')}m :{' '}
+                  {String(Math.floor((promoRemainingMs % 60000) / 1000)).padStart(2, '0')}s
+                </span>
+              </div>
+            )}
+
+            {artisanConfig.promoBanner.triggerType === 'min_order' &&
+              Number(artisanConfig.promoBanner.minOrderAmount) > 0 && (
+                <span className="px-2.5 py-1 rounded-lg bg-black/25 text-[11px] font-black shrink-0 tabular-nums">
+                  متاح للطلبات فوق {Number(artisanConfig.promoBanner.minOrderAmount).toLocaleString('ar-EG')} ج.م
+                </span>
+              )}
+          </div>
+        </div>
+      )}
+
+      {/* Optional Editable Cover Photo */}
+      {artisanConfig.showCover && artisanConfig.coverUrl && (
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 pt-4">
+          <div className="w-full h-36 sm:h-52 rounded-2xl overflow-hidden border border-[#D4CCBC] dark:border-[#22355E] bg-[#E9E2D4] dark:bg-[#132040] shadow-xs">
+            <img
+              src={artisanConfig.coverUrl}
+              alt={`غلاف ${brandName}`}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 2. Clean Store Identity Banner (Controllable per field by Artisan Storefront Builder) */}
+      <section
+        style={
+          isCustomTheme
+            ? {
+                backgroundColor: isDarkTheme ? themeMeta.surfaceDark : themeMeta.surfaceLight,
+                borderColor: isDarkTheme ? themeMeta.borderDark : themeMeta.borderLight,
+              }
+            : undefined
+        }
+        className="bg-[#F7F3EA] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] py-6 sm:py-8 px-4 sm:px-6"
+      >
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
           <div className="space-y-2.5 text-right max-w-2xl">
-            <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
-              بأنامل الفنان: {artistName} · {workshop?.country || 'مصر'}
-            </p>
+            {artisanConfig.showArtistSubtitle && (
+              <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                بأنامل الفنان: {artistName} · {workshop?.country || 'مصر'}
+                {artisanConfig.showCraftBadge && artisanConfig.craftBadge ? ` · ${artisanConfig.craftBadge}` : ''}
+              </p>
+            )}
 
-            <h2 className="text-2xl sm:text-3xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight text-balance">
-              {brandName}
-            </h2>
+            {artisanConfig.showBrandTitle && (
+              <h2 className="text-2xl sm:text-3xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight text-balance">
+                {brandName}
+              </h2>
+            )}
 
-            {/* Direct Contact with the Artisan (Exclusive to Personal Storefronts) */}
-            <div className="pt-1 flex flex-wrap items-center gap-3 text-xs">
-              <a
-                href={`tel:${phone}`}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold transition cursor-pointer whitespace-nowrap"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span dir="ltr">{phone}</span>
-              </a>
+            {artisanConfig.showWelcomeMessage && artisanConfig.welcomeMessage && (
+              <p className="text-xs sm:text-sm font-bold text-[#0C1427]/85 dark:text-[#F7F3EA]/90 leading-relaxed">
+                {artisanConfig.welcomeMessage}
+              </p>
+            )}
 
-              <a
-                href={`https://wa.me/${whatsappNumber}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition cursor-pointer whitespace-nowrap"
-              >
-                <MessageCircle className="w-3.5 h-3.5" />
-                <span>واتساب الفنان</span>
-              </a>
+            {artisanConfig.showArtistStory && artisanConfig.artistStory && (
+              <p className="text-xs text-[#475569] dark:text-[#CBD5E1] leading-relaxed">
+                {artisanConfig.artistStory}
+              </p>
+            )}
 
-              <span className="inline-flex items-center gap-1.5 text-[#334155] dark:text-[#CBD5E1] font-medium">
-                <Truck className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />
-                <span>توصيل لجميع المحافظات</span>
-              </span>
-            </div>
+            {(artisanConfig.showWorkingHours ||
+              artisanConfig.showProductionTurnaround ||
+              artisanConfig.showCustomOrderBadge) && (
+              <div className="flex flex-wrap items-center gap-3 pt-0.5 text-[11px] font-bold text-[#334155] dark:text-[#CBD5E1]">
+                {artisanConfig.showWorkingHours && artisanConfig.workingHours && (
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
+                    <span>{artisanConfig.workingHours}</span>
+                  </span>
+                )}
+                {artisanConfig.showProductionTurnaround && artisanConfig.productionTurnaround && (
+                  <span className="inline-flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
+                    <span>{artisanConfig.productionTurnaround}</span>
+                  </span>
+                )}
+                {artisanConfig.showCustomOrderBadge && artisanConfig.customOrderBadgeText && (
+                  <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{artisanConfig.customOrderBadgeText}</span>
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Direct Contact with the Artisan */}
+            {(artisanConfig.showPhoneButtons || artisanConfig.showDeliveryBadge) && (
+              <div className="pt-1 flex flex-wrap items-center gap-3 text-xs">
+                {artisanConfig.showPhoneButtons && (
+                  <>
+                    <a
+                      href={`tel:${phone}`}
+                      style={
+                        isCustomTheme
+                          ? { background: `linear-gradient(to right, ${themeMeta.accentBg}, ${themeMeta.accentHover})` }
+                          : undefined
+                      }
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold transition cursor-pointer whitespace-nowrap"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span dir="ltr">{phone}</span>
+                    </a>
+
+                    <a
+                      href={`https://wa.me/${whatsappNumber}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition cursor-pointer whitespace-nowrap"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>واتساب الفنان</span>
+                    </a>
+                  </>
+                )}
+
+                {artisanConfig.showDeliveryBadge && (
+                  <span className="inline-flex items-center gap-1.5 text-[#334155] dark:text-[#CBD5E1] font-medium">
+                    <Truck className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />
+                    <span>توصيل لجميع المحافظات</span>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Clean Rating & Catalog Summary */}
@@ -919,18 +1216,37 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             </div>
           </div>
 
-          <div className="relative flex items-center shrink-0 self-end lg:self-auto">
-            <ArrowUpDown className="w-3.5 h-3.5 text-[#475569] dark:text-[#94A3B8] absolute right-3 pointer-events-none" />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              aria-label="ترتيب المنتجات"
-              className="h-10 pr-8 pl-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C] cursor-pointer"
-            >
-              <option value="featured">ترتيب الورشة المختار</option>
-              <option value="price_asc">السعر: الأقل للأعلى</option>
-              <option value="price_desc">السعر: الأعلى للأقل</option>
-            </select>
+          <div className="flex items-center gap-2 shrink-0 self-end lg:self-auto flex-wrap">
+            {/* Customer Display Currency Switcher */}
+            <div className="relative flex items-center">
+              <Coins className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24] absolute right-2.5 pointer-events-none" />
+              <select
+                value={customerCurrency}
+                onChange={(e) => setCustomerCurrency(saveStoredCustomerDisplayCurrency(e.target.value))}
+                aria-label="العملة المعروضة للعميل"
+                className="h-10 pr-8 pl-2.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C] cursor-pointer"
+              >
+                {SUPPORTED_CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.flag} {c.symbol} ({c.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative flex items-center">
+              <ArrowUpDown className="w-3.5 h-3.5 text-[#475569] dark:text-[#94A3B8] absolute right-3 pointer-events-none" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                aria-label="ترتيب المنتجات"
+                className="h-10 pr-8 pl-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C] cursor-pointer"
+              >
+                <option value="featured">ترتيب الورشة المختار</option>
+                <option value="price_asc">السعر: الأقل للأعلى</option>
+                <option value="price_desc">السعر: الأعلى للأقل</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -980,7 +1296,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             }`}
           >
             {filteredProducts.map((p, idx) => {
-              const displayPrice = p.store_price || p.retail_price || 0;
+              const pricing = resolveProductOfferPricing(
+                p,
+                p.size_variants?.[0]?.label,
+                customerCurrency,
+                true
+              );
               const hasColors = p.available_colors && p.available_colors.length > 0;
               const isDragging = draggedProductId === p.id;
               const isDragOver = dragOverProductId === p.id && draggedProductId !== p.id;
@@ -1063,12 +1384,17 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       </div>
                     )}
 
-                    {/* Clean Photography */}
+                    {/* Clean Photography with single optional limited-time/discount badge */}
                     <div
-                      className={`w-full ${
+                      className={`relative w-full ${
                         isCompact3Col ? 'aspect-square sm:aspect-[4/3]' : 'aspect-[4/3]'
                       } bg-[#E9E2D4] dark:bg-[#132040] overflow-hidden border-b border-[#D4CCBC]/70 dark:border-[#22355E]`}
                     >
+                      {pricing.badgeText && (
+                        <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-[#0C1427]/90 text-[#FBBF24] text-[10px] font-black shadow-xs pointer-events-none">
+                          {pricing.badgeText}
+                        </span>
+                      )}
                       <img
                         src={p.image_url || '/alshams_falcon_emblem.png'}
                         alt={p.product_name}
@@ -1134,21 +1460,26 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         : 'px-4 pb-4 pt-1 space-y-3'
                     }`}
                   >
-                    <div className="flex items-baseline gap-1 font-mono tabular-nums">
+                    <div className="flex items-baseline gap-1.5 font-mono tabular-nums flex-wrap">
                       <span
                         className={`${
                           isCompact3Col ? 'text-xs sm:text-lg' : layoutCols === 2 ? 'text-sm sm:text-lg' : 'text-lg sm:text-xl'
                         } font-black text-[#0C1427] dark:text-[#F7F3EA]`}
                       >
-                        {displayPrice.toLocaleString('ar-EG')}
+                        {pricing.finalPrice.toLocaleString('ar-EG')}
                       </span>
                       <span
                         className={`${
                           isCompact3Col ? 'text-[9px] sm:text-xs' : 'text-[10px] sm:text-xs'
                         } font-bold text-[#475569] dark:text-[#94A3B8]`}
                       >
-                        {currencySymbol}
+                        {pricing.displaySymbol}
                       </span>
+                      {pricing.hasDiscount && (
+                        <span className="text-[10px] sm:text-xs line-through text-[#64748B] dark:text-[#94A3B8]">
+                          {pricing.originalPrice.toLocaleString('ar-EG')}
+                        </span>
+                      )}
                     </div>
 
                     <button
@@ -1157,6 +1488,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         e.stopPropagation();
                         handleAddToCart(p, 1);
                       }}
+                      style={
+                        isCustomTheme
+                          ? { background: `linear-gradient(to right, ${themeMeta.accentBg}, ${themeMeta.accentHover})` }
+                          : undefined
+                      }
                       className={`w-full ${
                         isCompact3Col
                           ? 'py-1.5 px-1.5 text-[10px] sm:py-2 sm:px-3 sm:text-xs'
@@ -1195,6 +1531,62 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             </button>
           </div>
         )}
+
+        {/* Optional Before / After Portfolio Gallery */}
+        {artisanConfig.showPortfolioGallery && artisanConfig.portfolioItems.length > 0 && (
+          <section className="pt-4 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-2.5">
+              <h3 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                {artisanConfig.portfolioTitle || 'معرض أعمالنا السابقة ولمسات التنفيذ'}
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {artisanConfig.portfolioItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden shadow-xs"
+                >
+                  <div className={`grid ${item.beforeImageUrl ? 'grid-cols-2' : 'grid-cols-1'} aspect-[16/10] bg-[#E9E2D4] dark:bg-[#132040]`}>
+                    {item.beforeImageUrl && (
+                      <div className="relative h-full border-l border-[#D4CCBC] dark:border-[#22355E]">
+                        <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/75 text-white text-[10px] font-bold">
+                          قبل
+                        </span>
+                        <img
+                          src={item.beforeImageUrl}
+                          alt={`${item.title} قبل`}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                    <div className="relative h-full">
+                      {item.beforeImageUrl && (
+                        <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-[#EA580C] text-white text-[10px] font-bold">
+                          بعد
+                        </span>
+                      )}
+                      <img
+                        src={item.imageUrl}
+                        alt={item.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  </div>
+                  <div className="p-3 space-y-1">
+                    <h4 className="font-bold text-xs sm:text-sm text-[#0C1427] dark:text-[#F7F3EA]">
+                      {item.title}
+                    </h4>
+                    {item.caption && (
+                      <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] line-clamp-2">
+                        {item.caption}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
 
       {/* Mobile Floating Cart Action (Zero 33% text) */}
@@ -1209,8 +1601,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         </button>
       )}
 
-      {/* Product Details Modal (Clean PDP — Deposit calculated only in Cart/Checkout) */}
-      {selectedProduct && (
+      {/* Product Details Modal (Gallery + Dynamic Size Pricing + Discount + Custom Order) */}
+      {selectedProduct && selectedModalPricing && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-sm"
           dir="rtl"
@@ -1222,19 +1614,44 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <button
               type="button"
               onClick={() => setSelectedProduct(null)}
-              className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] flex items-center justify-center transition cursor-pointer"
+              className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] flex items-center justify-center transition cursor-pointer z-10"
             >
               <X className="w-4 h-4" />
             </button>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-start pt-1">
-              <div className="w-full aspect-square rounded-2xl overflow-hidden bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
-                <img
-                  src={selectedProduct.image_url || '/alshams_falcon_emblem.png'}
-                  alt={selectedProduct.product_name}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
+              <div className="space-y-2.5">
+                <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+                  {selectedModalPricing.badgeText && (
+                    <span className="absolute top-2.5 right-2.5 z-10 px-2.5 py-1 rounded-md bg-[#0C1427]/90 text-[#FBBF24] text-[11px] font-black shadow-xs">
+                      {selectedModalPricing.badgeText}
+                    </span>
+                  )}
+                  <img
+                    src={modalActiveImage || selectedProduct.image_url || '/alshams_falcon_emblem.png'}
+                    alt={selectedProduct.product_name}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                {selectedModalGallery.length > 1 && (
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                    {selectedModalGallery.map((imgUrl, gi) => (
+                      <button
+                        key={gi}
+                        type="button"
+                        onClick={() => setModalActiveImage(imgUrl)}
+                        className={`w-14 h-14 rounded-xl overflow-hidden border-2 shrink-0 cursor-pointer transition ${
+                          (modalActiveImage || selectedProduct.image_url) === imgUrl
+                            ? 'border-[#EA580C]'
+                            : 'border-[#D4CCBC] dark:border-[#22355E] opacity-75 hover:opacity-100'
+                        }`}
+                      >
+                        <img src={imgUrl} alt="" className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3 pl-8 sm:pl-0">
@@ -1247,16 +1664,33 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   {selectedProduct.product_name}
                 </h3>
 
-                <div className="flex items-baseline gap-1.5 font-mono tabular-nums">
+                <div className="flex items-baseline gap-2 font-mono tabular-nums flex-wrap">
                   <span className="text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                    {(selectedProduct.store_price || selectedProduct.retail_price || 0).toLocaleString(
-                      'ar-EG'
-                    )}
+                    {selectedModalPricing.finalPrice.toLocaleString('ar-EG')}
                   </span>
                   <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
-                    {currencySymbol}
+                    {selectedModalPricing.displaySymbol}
                   </span>
+                  {selectedModalPricing.hasDiscount && (
+                    <span className="text-sm line-through text-[#64748B] dark:text-[#94A3B8]">
+                      {selectedModalPricing.originalPrice.toLocaleString('ar-EG')} {selectedModalPricing.displaySymbol}
+                    </span>
+                  )}
                 </div>
+
+                {selectedModalPricing.isFreeShipping && (
+                  <p className="text-[11px] font-black text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>شحن مجاني على هذا المنتج</span>
+                  </p>
+                )}
+
+                {selectedProduct.is_custom_order_available && (
+                  <p className="text-[11px] font-bold text-[#C2410C] dark:text-[#FBBF24] bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                    <span>متاح للتنفيذ الخاص بألوان ومقاسات مخصصة</span>
+                  </p>
+                )}
 
                 <p className="text-xs sm:text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
                   {selectedProduct.store_description || 'مشغولة يدوية متقنة الصنع.'}
@@ -1288,24 +1722,36 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 </div>
               )}
 
-              {selectedProduct.available_sizes && selectedProduct.available_sizes.length > 0 && (
+              {((selectedProduct.size_variants && selectedProduct.size_variants.length > 0) ||
+                (selectedProduct.available_sizes && selectedProduct.available_sizes.length > 0)) && (
                 <div className="space-y-2">
-                  <label className="text-xs font-bold block">المقاس</label>
+                  <label className="text-xs font-bold block">اختر مقاسك المفضل</label>
                   <div className="flex flex-wrap gap-2">
-                    {selectedProduct.available_sizes.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => setSelectedSize(s)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                          selectedSize === s
-                            ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                            : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
-                        }`}
-                      >
-                        {s}
-                      </button>
-                    ))}
+                    {(selectedProduct.size_variants && selectedProduct.size_variants.length > 0
+                      ? selectedProduct.size_variants.map((v) => v.label)
+                      : selectedProduct.available_sizes || []
+                    ).map((s) => {
+                      const varPrice = resolveProductOfferPricing(selectedProduct, s, customerCurrency, true);
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setSelectedSize(s)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border flex items-center gap-1.5 ${
+                            selectedSize === s
+                              ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                              : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
+                          }`}
+                        >
+                          <span>{s}</span>
+                          {selectedProduct.size_variants && selectedProduct.size_variants.length > 0 && (
+                            <span className="font-mono tabular-nums opacity-90 text-[11px]">
+                              ({varPrice.finalPrice.toLocaleString('ar-EG')} {varPrice.displaySymbol})
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1351,10 +1797,19 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               <button
                 type="button"
                 onClick={() => handleAddToCart(selectedProduct)}
+                style={
+                  isCustomTheme
+                    ? { background: `linear-gradient(to right, ${themeMeta.accentBg}, ${themeMeta.accentHover})` }
+                    : undefined
+                }
                 className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-sm transition flex items-center justify-center gap-2 cursor-pointer active:scale-95"
               >
                 <ShoppingBag className="w-4 h-4" />
-                <span>أضف إلى السلة</span>
+                <span>
+                  أضف إلى السلة ·{' '}
+                  {(selectedModalPricing.finalPrice * selectedQuantity).toLocaleString('ar-EG')}{' '}
+                  {selectedModalPricing.displaySymbol}
+                </span>
               </button>
             </div>
           </div>

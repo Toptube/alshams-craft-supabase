@@ -99,3 +99,74 @@ export function formatCurrencyAmount(
   });
   return `${numStr} ${sym}`;
 }
+
+export const CUSTOMER_DISPLAY_CURRENCY_KEY = 'alshams_customer_display_currency';
+
+export function getCurrencyInfo(code?: string): CurrencyMetadata {
+  const upper = String(code || 'EGP').trim().toUpperCase();
+  return (
+    SUPPORTED_CURRENCIES.find((c) => c.code === upper || c.symbol === code) ||
+    SUPPORTED_CURRENCIES[0]
+  );
+}
+
+/**
+ * Converts an amount in any supported currency TO Egyptian Pounds (EGP),
+ * which is the unified base currency of سوق الشمساوية.
+ */
+export function toEgpAmount(amount: number, sourceCurrency = 'EGP'): number {
+  const numeric = Number(amount) || 0;
+  if (numeric <= 0) return 0;
+  const meta = getCurrencyInfo(sourceCurrency);
+  if (meta.code === 'EGP') return Math.round(numeric * 100) / 100;
+  return Math.round(numeric * meta.defaultRateAgainstEGP);
+}
+
+/**
+ * Converts an amount from Egyptian Pounds (EGP) TO any customer display currency.
+ */
+export function fromEgpAmount(egpAmount: number, targetCurrency = 'EGP'): number {
+  const numeric = Number(egpAmount) || 0;
+  if (numeric <= 0) return 0;
+  const meta = getCurrencyInfo(targetCurrency);
+  if (meta.code === 'EGP') return Math.round(numeric * 100) / 100;
+  const converted = numeric / (meta.defaultRateAgainstEGP || 1);
+  return converted >= 100 ? Math.round(converted) : Math.round(converted * 100) / 100;
+}
+
+/**
+ * Converts seamlessly between any two supported currencies via EGP.
+ */
+export function convertBetweenCurrencies(
+  amount: number,
+  fromCurrency = 'EGP',
+  toCurrency = 'EGP'
+): number {
+  const fromMeta = getCurrencyInfo(fromCurrency);
+  const toMeta = getCurrencyInfo(toCurrency);
+  if (fromMeta.code === toMeta.code) return Number(amount) || 0;
+  const egp = toEgpAmount(amount, fromMeta.code);
+  return fromEgpAmount(egp, toMeta.code);
+}
+
+export function getStoredCustomerDisplayCurrency(): string {
+  try {
+    if (typeof window === 'undefined') return 'EGP';
+    const raw = localStorage.getItem(CUSTOMER_DISPLAY_CURRENCY_KEY);
+    return raw ? getCurrencyInfo(raw).code : 'EGP';
+  } catch {
+    return 'EGP';
+  }
+}
+
+export function saveStoredCustomerDisplayCurrency(code: string): string {
+  const resolved = getCurrencyInfo(code).code;
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(CUSTOMER_DISPLAY_CURRENCY_KEY, resolved);
+      window.dispatchEvent(new CustomEvent('alshams_customer_currency_updated', { detail: resolved }));
+    }
+  } catch {}
+  return resolved;
+}
+

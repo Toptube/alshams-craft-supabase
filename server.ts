@@ -46,6 +46,7 @@ const FAMILY_RESTRICTIONS_FILE = path.resolve(__dirname, 'data/family_restrictio
 const FAMILY_POLL_VOTES_FILE = path.resolve(__dirname, 'data/family_poll_votes.json');
 const FAMILY_REACTIONS_FILE = path.resolve(__dirname, 'data/family_reactions.json');
 const STORE_LAYOUTS_FILE = path.resolve(__dirname, 'data/store_layouts.json');
+const STORE_CONFIGS_FILE = path.resolve(__dirname, 'data/workshop_store_configs.json');
 const ADMIN_ANNOUNCEMENTS_FILE = path.resolve(__dirname, 'data/admin_announcements.json');
 const ANNOUNCEMENT_RECEIPTS_FILE = path.resolve(__dirname, 'data/announcement_receipts.json');
 const ADMIN_INBOX_READS_FILE = path.resolve(__dirname, 'data/admin_inbox_reads.json');
@@ -162,6 +163,22 @@ function loadPersistentStoreLayouts(): Record<string, { layoutCols: 1 | 2 | 3; p
 }
 function savePersistentStoreLayouts(map: Record<string, { layoutCols: 1 | 2 | 3; productOrder: string[]; updatedAt: string }>): void {
   writeJsonData(STORE_LAYOUTS_FILE, map);
+}
+
+function loadPersistentStoreConfigs(): Record<string, any> {
+  try {
+    if (fs.existsSync(STORE_CONFIGS_FILE)) {
+      const raw = fs.readFileSync(STORE_CONFIGS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn('[JSON Read] workshop_store_configs.json error:', err);
+  }
+  return {};
+}
+function savePersistentStoreConfigs(map: Record<string, any>): void {
+  writeJsonData(STORE_CONFIGS_FILE, map);
 }
 
 function loadPersistentAnnouncements(): any[] {
@@ -4388,6 +4405,7 @@ app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
     const products = Array.from(productsMap.values())
       .filter((p: any) => {
         if (p.status !== 'approved') return false;
+        if (p.dimensions?.__artisanExt?.hiddenInStore === true) return false;
         const wid = p.workshop_id || p.workshopId || '';
         const ws = workshopLookup.get(wid);
         return !isWorkshopBlocked(ws);
@@ -5131,6 +5149,114 @@ app.post('/api/store/layout', requireAuth, async (req: AuthenticatedRequest, res
   }
 });
 
+// Save Full Artisan Storefront Builder Config (themes, currency, story, banner, coupons, gallery)
+app.post('/api/store/config', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const body = req.body || {};
+    const requestedWid = typeof body.workshopId === 'string' ? body.workshopId.trim() : '';
+    const targetWid = requestedWid || (req.workshopId && req.workshopId !== 'ALL_WORKSHOPS' ? req.workshopId : '');
+    if (!targetWid) {
+      return res.status(400).json({ error: 'تعذر تحديد الورشة المطلوبة' });
+    }
+
+    if (!req.isSuperAdmin && req.workshopId && req.workshopId !== 'ALL_WORKSHOPS' && targetWid !== req.workshopId && targetWid !== req.user?.id) {
+      const localWs = loadPersistentWorkshops().find((w: any) => w.id === targetWid || w.workshopId === targetWid);
+      const emailMatches = localWs && req.userEmail && (localWs.email || '').toLowerCase() === req.userEmail.toLowerCase();
+      if (!emailMatches) {
+        return res.status(403).json({ error: 'صلاحيات غير كافية لتعديل إعدادات هذا المتجر' });
+      }
+    }
+
+    const storeConfig = body.storeConfig && typeof body.storeConfig === 'object' ? body.storeConfig : {};
+    const nowIso = new Date().toISOString();
+    const configs = loadPersistentStoreConfigs();
+    configs[targetWid] = { ...storeConfig, updatedAt: nowIso };
+    savePersistentStoreConfigs(configs);
+
+    res.json({ success: true, cloudSynced: true, workshopId: targetWid, storeConfig: configs[targetWid] });
+  } catch (err: any) {
+    console.error('[POST /api/store/config] error:', err);
+    res.status(500).json({ error: 'تعذر حفظ إعدادات متجر الفنان' });
+  }
+});
+
+// Public lookup of active artisan store coupons (for cart redemption)
+app.get('/api/store/coupons', (_req: Request, res: Response) => {
+  try {
+    const configs = loadPersistentStoreConfigs();
+    const couponsByWorkshop: Record<string, any[]> = {};
+    Object.entries(configs).forEach(([wid, cfg]: [string, any]) => {
+      if (cfg && cfg.couponsEnabled !== false && Array.isArray(cfg.coupons)) {
+        const active = cfg.coupons.filter((c: any) => c && c.active && c.code);
+        if (active.length > 0) couponsByWorkshop[wid] = active;
+      }
+    });
+    res.json({ success: true, couponsByWorkshop });
+  } catch {
+    res.json({ success: true, couponsByWorkshop: {} });
+  }
+});
+
+// Workshop Order Lifecycle Sync (Artisan progresses pending -> in_progress -> packed -> shipped -> delivered)
+app.patch('/api/workshop/orders/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const orderId = req.params.id;
+    const updates = req.body || {};
+    const ordersList = loadPersistentMarketplaceOrders();
+    const idx = ordersList.findIndex((o) => o.id === orderId);
+    if (idx < 0) {
+      return res.json({ success: true, cloudSynced: false });
+    }
+    const existing = ordersList[idx];
+    const wid = existing.workshop_id || existing.workshopId || '';
+    if (
+      !req.isSuperAdmin &&
+      req.workshopId &&
+      req.workshopId !== 'ALL_WORKSHOPS' &&
+      wid &&
+      wid !== req.workshopId &&
+      wid !== req.user?.id
+    ) {
+      return res.status(403).json({ error: 'غير مصرح بتعديل طلب لورشة أخرى' });
+    }
+
+    const nextStatus = updates.status || existing.status;
+    const updatedOrder = {
+      ...existing,
+      status: nextStatus,
+      deliveryDate: updates.deliveryDate ?? existing.deliveryDate,
+      marketplaceStatus:
+        nextStatus === 'packed'
+          ? 'quality_check'
+          : nextStatus === 'shipped' || nextStatus === 'shipping'
+          ? 'shipped'
+          : nextStatus === 'delivered' || nextStatus === 'completed'
+          ? 'delivered'
+          : nextStatus === 'in_progress'
+          ? 'in_production'
+          : existing.marketplaceStatus,
+      updated_at: new Date().toISOString(),
+      updatedAt: Date.now(),
+    };
+    ordersList[idx] = updatedOrder;
+    savePersistentMarketplaceOrders(ordersList);
+
+    let cloudSynced = false;
+    try {
+      const client = getDbClient(req);
+      const { error } = await client
+        .from('marketplace_orders')
+        .update({ status: nextStatus, updated_at: updatedOrder.updated_at })
+        .eq('id', orderId);
+      if (!error) cloudSynced = true;
+    } catch {}
+
+    res.json({ success: true, cloudSynced, order: updatedOrder });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر تحديث حالة الطلب' });
+  }
+});
+
 // 5. Public Storefront Data by Workshop Slug or ID (Blocks banned/suspended storefronts)
 app.get('/api/store/:slug', async (req: Request, res: Response) => {
   try {
@@ -5288,7 +5414,12 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
     const orderRankMap = new Map(storeProductOrder.map((id, idx) => [id, idx]));
 
     const storeProducts = Array.from(prodsMap.values())
-      .filter((p: any) => p.status !== 'rejected' && (p.workshop_id === wid || p.workshopId === wid))
+      .filter(
+        (p: any) =>
+          p.status !== 'rejected' &&
+          p.dimensions?.__artisanExt?.hiddenInStore !== true &&
+          (p.workshop_id === wid || p.workshopId === wid)
+      )
       .map((p: any) =>
         normalizeCloudProductRow({
           ...p,
@@ -5305,6 +5436,9 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
         if (ra !== rb) return ra - rb;
         return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
       });
+
+    const savedConfigs = loadPersistentStoreConfigs();
+    const storeConfig = savedConfigs[wid] || null;
 
     res.json({
       success: true,
@@ -5325,6 +5459,7 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
         medal: ws.medal || null,
         storeLayoutCols,
         storeProductOrder,
+        storeConfig,
       },
       products: storeProducts,
     });
@@ -5334,6 +5469,14 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
 });
 
 function normalizeCloudProductRow(row: any) {
+  const dims = row.dimensions && typeof row.dimensions === 'object' ? row.dimensions : {};
+  const ext = dims.__artisanExt && typeof dims.__artisanExt === 'object' ? dims.__artisanExt : {};
+  const sizeVariants = row.size_variants || row.sizeVariants || ext.size_variants || ext.sizeVariants || [];
+  const mergedSizes =
+    Array.isArray(sizeVariants) && sizeVariants.length > 0
+      ? sizeVariants.map((v: any) => v.label).filter(Boolean)
+      : (row.available_sizes || row.availableSizes || []);
+
   return {
     id: row.id,
     workshop_id: row.workshop_id || row.workshopId,
@@ -5352,10 +5495,17 @@ function normalizeCloudProductRow(row: any) {
     cost_price: Number(row.cost_price ?? row.costPrice ?? 0),
     current_stock: Number(row.current_stock ?? row.currentStock ?? 1),
     image_url: row.image_url || row.imageUrl || '/alshams_falcon_emblem.png',
+    gallery_urls: row.gallery_urls || row.galleryUrls || ext.gallery_urls || ext.galleryUrls || [],
     store_description: row.store_description || row.storeDescription || '',
     available_colors: row.available_colors || row.availableColors || [],
-    available_sizes: row.available_sizes || row.availableSizes || [],
-    dimensions: row.dimensions || {},
+    available_sizes: mergedSizes,
+    size_variants: sizeVariants,
+    source_currency: row.source_currency || row.sourceCurrency || ext.source_currency || 'EGP',
+    product_discount: row.product_discount || row.productDiscount || ext.product_discount || undefined,
+    is_custom_order_available: Boolean(
+      row.is_custom_order_available ?? row.isCustomOrderAvailable ?? ext.is_custom_order_available
+    ),
+    dimensions: dims,
     status: row.status || 'pending_approval',
     rejection_reason: row.rejection_reason || row.rejectionReason,
     created_at: row.created_at,

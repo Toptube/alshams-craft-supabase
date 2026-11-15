@@ -28,6 +28,13 @@ import {
   MARKET_THEME_PRESETS,
   getStoredMarketBuilderConfig,
 } from '../../types/marketplaceBuilder';
+import { resolveProductOfferPricing } from '../../types/artisanStoreBuilder';
+import {
+  SUPPORTED_CURRENCIES,
+  getStoredCustomerDisplayCurrency,
+  saveStoredCustomerDisplayCurrency,
+  toEgpAmount,
+} from '../../lib/currency';
 import {
   ShoppingBag,
   Store,
@@ -51,6 +58,7 @@ import {
   Truck,
   MessageCircle,
   Clock,
+  Sparkles,
 } from 'lucide-react';
 
 interface MarketplaceProductRecord extends SavedProductRecord {
@@ -187,10 +195,25 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
   // Selected Product Details Modal
   const [selectedProductDetails, setSelectedProductDetails] = useState<MarketplaceProductRecord | null>(null);
+  const [modalActiveImage, setModalActiveImage] = useState<string>('');
   const [modalQuantity, setModalQuantity] = useState<number>(1);
   const [modalSelectedColor, setModalSelectedColor] = useState<string>('');
   const [modalSelectedSize, setModalSelectedSize] = useState<string>('');
   const [modalCustomNotes, setModalCustomNotes] = useState<string>('');
+
+  // Customer Display Currency (Auto converts from EGP base to shopper's currency)
+  const [customerCurrency, setCustomerCurrency] = useState<string>(() =>
+    getStoredCustomerDisplayCurrency()
+  );
+
+  useEffect(() => {
+    const onCurrUpdate = (e: any) => {
+      if (e?.detail) setCustomerCurrency(String(e.detail));
+      else setCustomerCurrency(getStoredCustomerDisplayCurrency());
+    };
+    window.addEventListener('alshams_customer_currency_updated', onCurrUpdate);
+    return () => window.removeEventListener('alshams_customer_currency_updated', onCurrUpdate);
+  }, []);
 
   // Cart & Customer modals
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
@@ -330,7 +353,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         syncPlatformSettingsFromCloud().catch(() => {});
         const cloudProducts = await fetchApprovedMarketplaceProducts().catch(() => []);
         const cloudMapped: MarketplaceProductRecord[] = (cloudProducts || [])
-          .filter((cp) => cp.status === 'approved')
+          .filter((cp) => cp.status === 'approved' && !(cp as any).dimensions?.__artisanExt?.hiddenInStore)
           .map((cp) => ({
             id: cp.id,
             workshopId: cp.workshop_id || cp.workshopId,
@@ -354,6 +377,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             isMarketplaceApproved: true,
             marketStatus: 'approved',
             imageUrl: cp.image_url || cp.imageUrl || '/alshams_falcon_emblem.png',
+            galleryUrls: Array.isArray(cp.galleryUrls) ? cp.galleryUrls : Array.isArray(cp.gallery_urls) ? cp.gallery_urls : [],
+            sizeVariants: Array.isArray(cp.sizeVariants) ? cp.sizeVariants : Array.isArray(cp.size_variants) ? cp.size_variants : [],
+            sourceCurrency: cp.sourceCurrency || cp.source_currency || 'EGP',
+            productDiscount: cp.productDiscount || cp.product_discount,
+            isCustomOrderAvailable: Boolean(cp.isCustomOrderAvailable ?? cp.is_custom_order_available),
             storeDescription: cp.store_description || cp.storeDescription || '',
             availableColors: Array.isArray(cp.available_colors) ? cp.available_colors : [],
             availableSizes: Array.isArray(cp.available_sizes) ? cp.available_sizes : [],
@@ -365,6 +393,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           }));
 
         // Local workshop fallback ONLY for offline-approved products (never bypasses moderation)
+        // Ensures workshop currency is converted into unified EGP for سوق الشمساوية
         let publishedLocal: MarketplaceProductRecord[] = [];
         const isCurrentProfileBlocked = Boolean(
           profile && ((profile as any).isFrozen || profile.status === 'banned' || profile.status === 'suspended')
@@ -375,15 +404,31 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             const localProds = await tenantStorage.getProducts(tenantId).catch(() => []);
             publishedLocal = localProds
               .filter((p) => p && p.inStore && p.isPublishedInStore !== false && p.isMarketplaceApproved === true)
-              .map((p) => ({
-                ...p,
-                workshopId: tenantId,
-                brandName: profile.brandName || 'ورشة الشمساوية',
-                artistName: profile.artistName || 'فنان الشمساوية',
-                phoneNumber: profile.phoneNumber || '',
-                logoUrl: (profile as any).logo_url || profile.logoUrl || profile.logoBase64 || null,
-                storeSlug: profile.storeSlug || tenantId,
-              }));
+              .map((p) => {
+                const srcCurr = p.sourceCurrency || 'EGP';
+                const rawStore = Number(p.storePrice || p.retailPrice || 0);
+                const rawRetail = Number(p.retailPrice || p.storePrice || 0);
+                const variants = Array.isArray(p.sizeVariants)
+                  ? p.sizeVariants.map((v) => ({
+                      ...v,
+                      egpPrice: v.egpPrice || toEgpAmount(v.price, srcCurr),
+                    }))
+                  : [];
+                return {
+                  ...p,
+                  storePrice: toEgpAmount(rawStore, srcCurr),
+                  retailPrice: toEgpAmount(rawRetail, srcCurr),
+                  sizeVariants: variants,
+                  availableSizes:
+                    variants.length > 0 ? variants.map((v) => v.label) : p.availableSizes || [],
+                  workshopId: tenantId,
+                  brandName: profile.brandName || 'ورشة الشمساوية',
+                  artistName: profile.artistName || 'فنان الشمساوية',
+                  phoneNumber: profile.phoneNumber || '',
+                  logoUrl: (profile as any).logo_url || profile.logoUrl || profile.logoBase64 || null,
+                  storeSlug: profile.storeSlug || tenantId,
+                };
+              });
           }
         }
 
@@ -508,9 +553,12 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   // Open Product Modal
   const handleOpenProductDetails = (product: MarketplaceProductRecord) => {
     setSelectedProductDetails(product);
+    setModalActiveImage(product.imageUrl || '/alshams_falcon_emblem.png');
     setModalQuantity(1);
     setModalSelectedColor(product.availableColors?.[0] || 'اللون الأصلي');
-    setModalSelectedSize(product.availableSizes?.[0] || 'المقاس القياسي');
+    setModalSelectedSize(
+      product.sizeVariants?.[0]?.label || product.availableSizes?.[0] || 'المقاس القياسي'
+    );
     setModalCustomNotes('');
     setReviewGuardError('');
   };
@@ -523,19 +571,29 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     size?: string
   ) => {
     const chosenQty = qty || modalQuantity || 1;
+    const chosenSize =
+      size ||
+      (selectedProductDetails?.id === product.id ? modalSelectedSize : undefined) ||
+      product.sizeVariants?.[0]?.label ||
+      product.availableSizes?.[0] ||
+      'المقاس القياسي';
+
+    const pricing = resolveProductOfferPricing(product, chosenSize, customerCurrency, true);
+
     const item: MarketplaceCartItem = {
       id: 'cart_' + Date.now(),
       productId: product.id,
       productName: product.productName,
-      price: product.storePrice || product.retailPrice || 0,
+      price: pricing.egpFinalPrice,
       quantity: chosenQty,
       imageUrl: product.imageUrl,
       craftName: product.craftName,
       workshopId: product.workshopId || product.tenantId || 'central',
       artistName: product.artistName || 'فنان الشمساوية',
       selectedColor: color || modalSelectedColor || product.availableColors?.[0] || 'اللون الأصلي',
-      selectedSize: size || modalSelectedSize || product.availableSizes?.[0] || 'المقاس القياسي',
+      selectedSize: chosenSize,
       customNotes: modalCustomNotes.trim() || undefined,
+      isFreeShipping: pricing.isFreeShipping || undefined,
     };
 
     addToCart(item);
@@ -629,15 +687,22 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
   const renderProductCard = (p: MarketplaceProductRecord) => {
     const hasStock = (p.currentStock || 0) > 0;
-    const price = p.storePrice || p.retailPrice || 0;
+    const pricing = resolveProductOfferPricing(
+      p,
+      p.sizeVariants?.[0]?.label,
+      customerCurrency,
+      true
+    );
     const reviews = getProductReviews(p.id);
     const avgRating =
       reviews.length > 0
         ? (reviews.reduce((a, b) => a + b.rating, 0) / reviews.length).toFixed(1)
         : '5.0';
 
-    const cardBadge =
+    const adminBadge =
       builderConfig.productBadgesEnabled !== false ? builderConfig.productBadges?.[p.id] : undefined;
+    // Strict max 1 badge per card image corner (prioritize artisan's active limited-time/discount badge)
+    const displayBadge = pricing.badgeText || adminBadge;
 
     return (
       <article
@@ -647,9 +712,15 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       >
         <div className="min-w-0">
           <div className="relative w-full aspect-[4/3] bg-[#E9E2D4] dark:bg-[#132040] overflow-hidden border-b border-[#D4CCBC]/70 dark:border-[#22355E]">
-            {cardBadge && (
-              <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md bg-[#0C1427]/90 text-[#FBBF24] text-[10px] font-black shadow-xs pointer-events-none">
-                {cardBadge}
+            {displayBadge && (
+              <span
+                className={`absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] font-black shadow-xs pointer-events-none ${
+                  pricing.badgeText
+                    ? 'bg-[#C2410C] text-white'
+                    : 'bg-[#0C1427]/90 text-[#FBBF24]'
+                }`}
+              >
+                {displayBadge}
               </span>
             )}
             <img
@@ -695,11 +766,18 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         </div>
 
         <div className="px-2.5 pb-2.5 sm:px-4 sm:pb-4 pt-1 space-y-2 sm:space-y-3">
-          <div className="flex items-baseline gap-1 font-mono tabular-nums">
+          <div className="flex items-baseline gap-1.5 font-mono tabular-nums flex-wrap">
             <span className="text-sm sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
-              {price.toLocaleString('ar-EG')}
+              {pricing.finalPrice.toLocaleString('ar-EG')}
             </span>
-            <span className="text-[10px] sm:text-xs font-bold text-[#475569] dark:text-[#94A3B8]">ج.م</span>
+            <span className="text-[10px] sm:text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
+              {pricing.displaySymbol}
+            </span>
+            {pricing.hasDiscount && (
+              <span className="text-[10px] sm:text-xs line-through text-[#64748B] dark:text-[#94A3B8]">
+                {pricing.originalPrice.toLocaleString('ar-EG')}
+              </span>
+            )}
           </div>
 
           <button
@@ -1328,8 +1406,24 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             )}
           </div>
 
-          {/* Sort Selector */}
-          <div className="flex items-center justify-end gap-3 shrink-0">
+          {/* Currency Display Switcher & Sort Selector */}
+          <div className="flex items-center justify-end gap-2 shrink-0 flex-wrap">
+            <div className="relative flex items-center">
+              <Coins className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24] absolute right-2.5 pointer-events-none" />
+              <select
+                value={customerCurrency}
+                onChange={(e) => setCustomerCurrency(saveStoredCustomerDisplayCurrency(e.target.value))}
+                aria-label="اختيار العملة"
+                className="h-10 pr-8 pl-2.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C] cursor-pointer"
+              >
+                {SUPPORTED_CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.flag} {c.symbol} ({c.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="relative flex items-center">
               <ArrowUpDown className="w-3.5 h-3.5 text-[#475569] dark:text-[#94A3B8] absolute right-3 pointer-events-none" />
               <select
@@ -1413,188 +1507,266 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         return null;
       })}
 
-      {/* 5. Product Details Modal (Contiguous Purchase Module) */}
-      {selectedProductDetails && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#060B18]/75 backdrop-blur-sm"
-          dir="rtl"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setSelectedProductDetails(null);
-          }}
-        >
-          <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-6 text-[#0C1427] dark:text-[#F7F3EA] relative">
-            <button
-              type="button"
-              onClick={() => setSelectedProductDetails(null)}
-              className="w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center transition cursor-pointer absolute top-4 left-4"
-              title="إغلاق"
-            >
-              <X className="w-5 h-5" />
-            </button>
+      {/* 5. Product Details Modal (Gallery + Dynamic Size Pricing + Discounts + Custom Order) */}
+      {selectedProductDetails && (() => {
+        const modalPricing = resolveProductOfferPricing(
+          selectedProductDetails,
+          modalSelectedSize,
+          customerCurrency,
+          true
+        );
+        const galleryList = Array.from(
+          new Set(
+            [selectedProductDetails.imageUrl, ...(selectedProductDetails.galleryUrls || [])].filter(
+              (u): u is string => Boolean(u && u.trim())
+            )
+          )
+        );
+        const hasSizesList =
+          (selectedProductDetails.sizeVariants && selectedProductDetails.sizeVariants.length > 0) ||
+          (selectedProductDetails.availableSizes && selectedProductDetails.availableSizes.length > 0);
+        const sizeLabels =
+          selectedProductDetails.sizeVariants && selectedProductDetails.sizeVariants.length > 0
+            ? selectedProductDetails.sizeVariants.map((v) => v.label)
+            : selectedProductDetails.availableSizes || [];
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-1">
-              {/* Product Media */}
-              <div className="w-full aspect-[4/3] md:aspect-square rounded-2xl overflow-hidden bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
-                <img
-                  src={selectedProductDetails.imageUrl || '/alshams_falcon_emblem.png'}
-                  alt={selectedProductDetails.productName}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = '/alshams_falcon_emblem.png';
-                  }}
-                />
-              </div>
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#060B18]/75 backdrop-blur-sm"
+            dir="rtl"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedProductDetails(null);
+            }}
+          >
+            <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-6 text-[#0C1427] dark:text-[#F7F3EA] relative">
+              <button
+                type="button"
+                onClick={() => setSelectedProductDetails(null)}
+                className="w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center transition cursor-pointer absolute top-4 left-4 z-10"
+                title="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
 
-              {/* Contiguous Purchase Module */}
-              <div className="space-y-4 text-xs leading-relaxed flex flex-col justify-between">
-                <div className="space-y-3 pl-8 md:pl-0">
-                  <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
-                    {selectedProductDetails.craftName || selectedProductDetails.category} ·{' '}
-                    {(selectedProductDetails.currentStock || 0) > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
-                  </p>
-
-                  <h3 className="font-black text-xl text-[#0C1427] dark:text-[#F7F3EA] leading-snug">
-                    {selectedProductDetails.productName}
-                  </h3>
-
-                  <div className="flex items-baseline gap-1.5 font-mono tabular-nums pt-1">
-                    <span className="text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                      {(
-                        selectedProductDetails.storePrice ||
-                        selectedProductDetails.retailPrice ||
-                        0
-                      ).toLocaleString('ar-EG')}
-                    </span>
-                    <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">ج.م</span>
-                  </div>
-
-                  {/* Workshop & Artist attribution: Super Admin ALWAYS sees full info; shoppers see workshop & artist when toggled ON (never phone number) */}
-                  {(isSuperAdmin || builderConfig.showWorkshopAndArtistInDetails) && (
-                    <div className="py-2 px-3 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-1">
-                      <p className="font-bold text-[#C2410C] dark:text-[#FBBF24]">
-                        الورشة: {selectedProductDetails.brandName || 'الشمساوية'} · الفنان:{' '}
-                        {selectedProductDetails.artistName || 'فنان الشمساوية'}
-                      </p>
-                      {isSuperAdmin && selectedProductDetails.phoneNumber && (
-                        <p className="font-mono tabular-nums text-[#0C1427] dark:text-[#F7F3EA]" dir="ltr">
-                          {selectedProductDetails.phoneNumber}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  <p className="text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
-                    {selectedProductDetails.storeDescription ||
-                      selectedProductDetails.input?.personalNotes ||
-                      'مشغولة يدوية مصنوعة بإتقان وجودة عالية.'}
-                  </p>
-
-                  {selectedProductDetails.availableColors &&
-                    selectedProductDetails.availableColors.length > 0 && (
-                      <div className="space-y-1.5 pt-1">
-                        <label className="block font-bold text-[#0C1427] dark:text-[#F7F3EA]">
-                          الألوان المتاحة
-                        </label>
-                        <div className="flex flex-wrap gap-1.5">
-                          {selectedProductDetails.availableColors.map((color) => (
-                            <button
-                              key={color}
-                              type="button"
-                              onClick={() => setModalSelectedColor(color)}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                                modalSelectedColor === color
-                                  ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                                  : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
-                              }`}
-                            >
-                              {color}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-1">
+                {/* Product Media + Multi-Image Thumbnails */}
+                <div className="space-y-2.5">
+                  <div className="relative w-full aspect-[4/3] md:aspect-square rounded-2xl overflow-hidden bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+                    {modalPricing.badgeText && (
+                      <span className="absolute top-2.5 right-2.5 z-10 px-2.5 py-1 rounded-md bg-[#C2410C] text-white text-[11px] font-black shadow-xs">
+                        {modalPricing.badgeText}
+                      </span>
                     )}
-
-                  {selectedProductDetails.availableSizes &&
-                    selectedProductDetails.availableSizes.length > 0 && (
-                      <div className="space-y-1.5 pt-1">
-                        <label className="block font-bold text-[#0C1427] dark:text-[#F7F3EA]">
-                          المقاسات المتاحة
-                        </label>
-                        <div className="flex flex-wrap gap-1.5">
-                          {selectedProductDetails.availableSizes.map((size) => (
-                            <button
-                              key={size}
-                              type="button"
-                              onClick={() => setModalSelectedSize(size)}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                                modalSelectedSize === size
-                                  ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                                  : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
-                              }`}
-                            >
-                              {size}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                  <div className="pt-1">
-                    <label className="block font-bold text-[#334155] dark:text-[#CBD5E1] mb-1">
-                      ملاحظات على الطلب (اختياري)
-                    </label>
-                    <input
-                      type="text"
-                      value={modalCustomNotes}
-                      onChange={(e) => setModalCustomNotes(e.target.value)}
-                      placeholder="تخصيص لون أو مقاس..."
-                      className="w-full px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs outline-none focus:border-[#EA580C] font-medium"
+                    <img
+                      src={modalActiveImage || selectedProductDetails.imageUrl || '/alshams_falcon_emblem.png'}
+                      alt={selectedProductDetails.productName}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = '/alshams_falcon_emblem.png';
+                      }}
                     />
                   </div>
+                  {galleryList.length > 1 && (
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                      {galleryList.map((imgUrl, gi) => (
+                        <button
+                          key={gi}
+                          type="button"
+                          onClick={() => setModalActiveImage(imgUrl)}
+                          className={`w-14 h-14 rounded-xl overflow-hidden border-2 shrink-0 cursor-pointer transition ${
+                            (modalActiveImage || selectedProductDetails.imageUrl) === imgUrl
+                              ? 'border-[#EA580C]'
+                              : 'border-[#D4CCBC] dark:border-[#22355E] opacity-75 hover:opacity-100'
+                          }`}
+                        >
+                          <img src={imgUrl} alt="" className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                {/* Quantity & Buy CTA */}
-                <div className="pt-3 flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setModalQuantity(Math.max(1, modalQuantity - 1))}
-                      className="w-7 h-7 rounded-lg bg-[#F7F3EA] dark:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="w-7 text-center font-mono tabular-nums font-black text-sm">
-                      {modalQuantity}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setModalQuantity(modalQuantity + 1)}
-                      className="w-7 h-7 rounded-lg bg-[#F7F3EA] dark:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
+                {/* Contiguous Purchase Module */}
+                <div className="space-y-4 text-xs leading-relaxed flex flex-col justify-between">
+                  <div className="space-y-3 pl-8 md:pl-0">
+                    <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                      {selectedProductDetails.craftName || selectedProductDetails.category} ·{' '}
+                      {(selectedProductDetails.currentStock || 0) > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
+                    </p>
+
+                    <h3 className="font-black text-xl text-[#0C1427] dark:text-[#F7F3EA] leading-snug">
+                      {selectedProductDetails.productName}
+                    </h3>
+
+                    <div className="flex items-baseline gap-2 font-mono tabular-nums pt-1 flex-wrap">
+                      <span className="text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                        {modalPricing.finalPrice.toLocaleString('ar-EG')}
+                      </span>
+                      <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
+                        {modalPricing.displaySymbol}
+                      </span>
+                      {modalPricing.hasDiscount && (
+                        <span className="text-sm line-through text-[#64748B] dark:text-[#94A3B8]">
+                          {modalPricing.originalPrice.toLocaleString('ar-EG')} {modalPricing.displaySymbol}
+                        </span>
+                      )}
+                    </div>
+
+                    {modalPricing.isFreeShipping && (
+                      <p className="text-[11px] font-black text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>شحن مجاني على هذا المنتج</span>
+                      </p>
+                    )}
+
+                    {selectedProductDetails.isCustomOrderAvailable && (
+                      <div className="py-1.5 px-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] inline-flex items-center gap-1.5 font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                        <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                        <span>متاح للتنفيذ الخاص بألوان ومقاسات مخصصة</span>
+                      </div>
+                    )}
+
+                    {/* Workshop & Artist attribution: Super Admin ALWAYS sees full info; shoppers see workshop & artist when toggled ON (never phone number) */}
+                    {(isSuperAdmin || builderConfig.showWorkshopAndArtistInDetails) && (
+                      <div className="py-2 px-3 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-1">
+                        <p className="font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                          الورشة: {selectedProductDetails.brandName || 'الشمساوية'} · الفنان:{' '}
+                          {selectedProductDetails.artistName || 'فنان الشمساوية'}
+                        </p>
+                        {isSuperAdmin && selectedProductDetails.phoneNumber && (
+                          <p className="font-mono tabular-nums text-[#0C1427] dark:text-[#F7F3EA]" dir="ltr">
+                            {selectedProductDetails.phoneNumber}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <p className="text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
+                      {selectedProductDetails.storeDescription ||
+                        selectedProductDetails.input?.personalNotes ||
+                        'مشغولة يدوية مصنوعة بإتقان وجودة عالية.'}
+                    </p>
+
+                    {selectedProductDetails.availableColors &&
+                      selectedProductDetails.availableColors.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <label className="block font-bold text-[#0C1427] dark:text-[#F7F3EA]">
+                            الألوان المتاحة
+                          </label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedProductDetails.availableColors.map((color) => (
+                              <button
+                                key={color}
+                                type="button"
+                                onClick={() => setModalSelectedColor(color)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                                  modalSelectedColor === color
+                                    ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                                    : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
+                                }`}
+                              >
+                                {color}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                    {hasSizesList && (
+                      <div className="space-y-1.5 pt-1">
+                        <label className="block font-bold text-[#0C1427] dark:text-[#F7F3EA]">
+                          اختر مقاسك المفضل
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {sizeLabels.map((size) => {
+                            const varPricing = resolveProductOfferPricing(
+                              selectedProductDetails,
+                              size,
+                              customerCurrency,
+                              true
+                            );
+                            return (
+                              <button
+                                key={size}
+                                type="button"
+                                onClick={() => setModalSelectedSize(size)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border flex items-center gap-1.5 ${
+                                  modalSelectedSize === size
+                                    ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                                    : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
+                                }`}
+                              >
+                                <span>{size}</span>
+                                {selectedProductDetails.sizeVariants &&
+                                  selectedProductDetails.sizeVariants.length > 0 && (
+                                    <span className="font-mono tabular-nums opacity-90 text-[11px]">
+                                      ({varPricing.finalPrice.toLocaleString('ar-EG')} {varPricing.displaySymbol})
+                                    </span>
+                                  )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="pt-1">
+                      <label className="block font-bold text-[#334155] dark:text-[#CBD5E1] mb-1">
+                        ملاحظات على الطلب (اختياري)
+                      </label>
+                      <input
+                        type="text"
+                        value={modalCustomNotes}
+                        onChange={(e) => setModalCustomNotes(e.target.value)}
+                        placeholder="تخصيص لون أو مقاس..."
+                        className="w-full px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs outline-none focus:border-[#EA580C] font-medium"
+                      />
+                    </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleAddToCart(selectedProductDetails)}
-                    className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer active:scale-95"
-                  >
-                    <ShoppingBag className="w-4 h-4" />
-                    <span>
-                      أضف للسلة ·{' '}
-                      {(
-                        (selectedProductDetails.storePrice ||
-                          selectedProductDetails.retailPrice ||
-                          0) * modalQuantity
-                      ).toLocaleString('ar-EG')}{' '}
-                      ج.م
-                    </span>
-                  </button>
+                  {/* Quantity & Buy CTA */}
+                  <div className="pt-3 flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setModalQuantity(Math.max(1, modalQuantity - 1))}
+                        className="w-7 h-7 rounded-lg bg-[#F7F3EA] dark:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="w-7 text-center font-mono tabular-nums font-black text-sm">
+                        {modalQuantity}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setModalQuantity(modalQuantity + 1)}
+                        className="w-7 h-7 rounded-lg bg-[#F7F3EA] dark:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleAddToCart(selectedProductDetails)}
+                      style={
+                        isCustomTheme
+                          ? { background: `linear-gradient(to right, ${themeMeta.accentBg}, ${themeMeta.accentHover})` }
+                          : undefined
+                      }
+                      className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer active:scale-95"
+                    >
+                      <ShoppingBag className="w-4 h-4" />
+                      <span>
+                        أضف للسلة ·{' '}
+                        {(modalPricing.finalPrice * modalQuantity).toLocaleString('ar-EG')}{' '}
+                        {modalPricing.displaySymbol}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
 
             {/* Verified Reviews Section */}
             <div className="border-t border-[#D4CCBC] dark:border-[#22355E] pt-5 space-y-3">
@@ -1703,7 +1875,8 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Persistent Cart Modal (Deposit details appear cleanly inside checkout) */}
       <MarketplaceCartModal

@@ -29,6 +29,7 @@ export type InvoiceStatus =
   | 'paid'
   | 'delivered'
   | 'in_progress'
+  | 'packed'
   | 'shipping'
   | 'ready'
   | 'pending'
@@ -1010,6 +1011,23 @@ export interface SavedProductRecord {
   reviewsCount?: number;
   availableColors?: string[];
   availableSizes?: string[];
+  galleryUrls?: string[];
+  sizeVariants?: Array<{
+    id: string;
+    label: string;
+    price: number;
+    egpPrice?: number;
+  }>;
+  sourceCurrency?: string;
+  productDiscount?: {
+    enabled: boolean;
+    type: 'percent' | 'fixed' | 'free_shipping';
+    value: number;
+    isLimitedTime: boolean;
+    endsAt?: string;
+    badgeText?: string;
+  };
+  isCustomOrderAvailable?: boolean;
   decorCategory?: string;
   sortOrder?: number;
   isActive: boolean;
@@ -1030,6 +1048,7 @@ export interface MarketplaceCartItem {
   selectedColor?: string;
   selectedSize?: string;
   customNotes?: string;
+  isFreeShipping?: boolean;
 }
 
 export interface CustomerAuthUser {

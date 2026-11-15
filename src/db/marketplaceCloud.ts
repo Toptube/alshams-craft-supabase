@@ -3,6 +3,14 @@ import { SavedProductRecord, UserProfile } from '../types';
 import { enqueueOfflineMutation } from './offlineMutationQueue';
 import { matchesWorkshopSlug } from '../utils/slugify';
 
+import {
+  ArtisanStoreConfig,
+  ProductDiscountConfig,
+  ProductSizeVariant,
+  normalizeArtisanStoreConfig,
+} from '../types/artisanStoreBuilder';
+import { toEgpAmount } from '../lib/currency';
+
 export interface CloudMarketplaceProduct {
   id: string;
   workshop_id: string;
@@ -32,17 +40,28 @@ export interface CloudMarketplaceProduct {
   currentStock?: number;
   image_url: string;
   imageUrl?: string;
+  gallery_urls?: string[];
+  galleryUrls?: string[];
   store_description?: string;
   storeDescription?: string;
   available_colors?: string[];
   availableColors?: string[];
   available_sizes?: string[];
   availableSizes?: string[];
+  size_variants?: ProductSizeVariant[];
+  sizeVariants?: ProductSizeVariant[];
+  source_currency?: string;
+  sourceCurrency?: string;
+  product_discount?: ProductDiscountConfig;
+  productDiscount?: ProductDiscountConfig;
+  is_custom_order_available?: boolean;
+  isCustomOrderAvailable?: boolean;
   dimensions?: {
     length?: number;
     width?: number;
     height?: number;
     diameter?: number;
+    __artisanExt?: any;
   };
   materials_summary?: string;
   logo_url?: string | null;
@@ -77,6 +96,7 @@ export interface PublicWorkshopStoreData {
     suspensionReason?: string | null;
     storeLayoutCols?: 1 | 2 | 3;
     storeProductOrder?: string[];
+    storeConfig?: ArtisanStoreConfig;
   };
   products: CloudMarketplaceProduct[];
 }
@@ -100,6 +120,43 @@ async function getOptionalAuthHeaders(
  */
 export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
   const wid = row.workshop_id || row.workshopId || '';
+  const dims = row.dimensions && typeof row.dimensions === 'object' ? row.dimensions : {};
+  const ext = dims.__artisanExt && typeof dims.__artisanExt === 'object' ? dims.__artisanExt : {};
+
+  const galleryRaw = row.gallery_urls ?? row.galleryUrls ?? ext.gallery_urls ?? ext.galleryUrls;
+  const galleryUrls: string[] = Array.isArray(galleryRaw)
+    ? galleryRaw.filter((u: any) => typeof u === 'string' && u.trim())
+    : [];
+
+  const variantsRaw = row.size_variants ?? row.sizeVariants ?? ext.size_variants ?? ext.sizeVariants;
+  const sizeVariants: ProductSizeVariant[] = Array.isArray(variantsRaw)
+    ? variantsRaw.filter((v: any) => v && typeof v.label === 'string' && v.label.trim())
+    : [];
+
+  const sourceCurrency: string =
+    row.source_currency || row.sourceCurrency || ext.source_currency || ext.sourceCurrency || 'EGP';
+
+  const discountRaw = row.product_discount ?? row.productDiscount ?? ext.product_discount ?? ext.productDiscount;
+  const productDiscount: ProductDiscountConfig | undefined =
+    discountRaw && typeof discountRaw === 'object' ? discountRaw : undefined;
+
+  const isCustomOrderAvailable = Boolean(
+    row.is_custom_order_available ??
+      row.isCustomOrderAvailable ??
+      ext.is_custom_order_available ??
+      ext.isCustomOrderAvailable
+  );
+
+  const availSizesRaw = Array.isArray(row.available_sizes)
+    ? row.available_sizes
+    : Array.isArray(row.availableSizes)
+    ? row.availableSizes
+    : [];
+  const mergedSizes =
+    sizeVariants.length > 0
+      ? sizeVariants.map((v) => v.label)
+      : availSizesRaw;
+
   return {
     id: row.id || `prod_${Date.now()}`,
     workshop_id: wid,
@@ -135,13 +192,23 @@ export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
     currentStock: Number(row.current_stock ?? row.currentStock ?? 1),
     image_url: row.image_url || row.imageUrl || '/alshams_falcon_emblem.png',
     imageUrl: row.image_url || row.imageUrl || '/alshams_falcon_emblem.png',
+    gallery_urls: galleryUrls,
+    galleryUrls: galleryUrls,
     store_description: row.store_description || row.storeDescription || '',
     storeDescription: row.store_description || row.storeDescription || '',
     available_colors: Array.isArray(row.available_colors) ? row.available_colors : Array.isArray(row.availableColors) ? row.availableColors : [],
     availableColors: Array.isArray(row.available_colors) ? row.available_colors : Array.isArray(row.availableColors) ? row.availableColors : [],
-    available_sizes: Array.isArray(row.available_sizes) ? row.available_sizes : Array.isArray(row.availableSizes) ? row.availableSizes : [],
-    availableSizes: Array.isArray(row.available_sizes) ? row.available_sizes : Array.isArray(row.availableSizes) ? row.availableSizes : [],
-    dimensions: row.dimensions || {},
+    available_sizes: mergedSizes,
+    availableSizes: mergedSizes,
+    size_variants: sizeVariants,
+    sizeVariants: sizeVariants,
+    source_currency: sourceCurrency,
+    sourceCurrency: sourceCurrency,
+    product_discount: productDiscount,
+    productDiscount: productDiscount,
+    is_custom_order_available: isCustomOrderAvailable,
+    isCustomOrderAvailable: isCustomOrderAvailable,
+    dimensions: dims,
     materials_summary: row.materials_summary || row.materialsSummary || '',
     status: row.status || 'pending_approval',
     rejection_reason: row.rejection_reason || row.rejectionReason || null,
@@ -153,6 +220,7 @@ export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
 
 /**
  * Publishes a product to the cloud marketplace table (defaults to 'pending_approval')
+ * Automatically normalizes workshop currency -> EGP for سوق الشمساوية while preserving size variants & extensions inside dimensions.__artisanExt.
  */
 export async function publishProductToMarketplace(
   product: SavedProductRecord,
@@ -168,6 +236,33 @@ export async function publishProductToMarketplace(
     ? 'approved'
     : 'pending_approval';
 
+  const sourceCurr = product.sourceCurrency || profile.currency || 'EGP';
+  const rawStorePrice = Number(product.storePrice || product.retailPrice || 0);
+  const rawRetailPrice = Number(product.retailPrice || product.storePrice || 0);
+
+  const normalizedSizeVariants: ProductSizeVariant[] = Array.isArray(product.sizeVariants)
+    ? product.sizeVariants
+        .filter((v) => v && v.label?.trim())
+        .map((v, i) => ({
+          id: v.id || `sz_${i}_${Date.now()}`,
+          label: v.label.trim(),
+          price: Number(v.price) || rawStorePrice,
+          egpPrice: toEgpAmount(Number(v.price) || rawStorePrice, sourceCurr),
+        }))
+    : [];
+
+  const primaryEgpStorePrice = toEgpAmount(rawStorePrice, sourceCurr);
+  const primaryEgpRetailPrice = toEgpAmount(rawRetailPrice, sourceCurr);
+
+  const artisanExt = {
+    gallery_urls: Array.isArray(product.galleryUrls) ? product.galleryUrls.slice(0, 8) : [],
+    size_variants: normalizedSizeVariants,
+    source_currency: sourceCurr,
+    product_discount: product.productDiscount || undefined,
+    is_custom_order_available: Boolean(product.isCustomOrderAvailable),
+    hiddenInStore: product.inStore === false || product.isPublishedInStore === false,
+  };
+
   const safeCloudRow: Partial<CloudMarketplaceProduct> = {
     id: product.id,
     workshop_id: workshopId,
@@ -178,20 +273,26 @@ export async function publishProductToMarketplace(
     category: String(product.category || 'macrame'),
     craft_name: product.craftName || String(product.category || 'المكرمية'),
     decor_category: product.decorCategory || 'all',
-    store_price: Number(product.storePrice || product.retailPrice || 0),
-    retail_price: Number(product.retailPrice || product.storePrice || 0),
-    wholesale_price: Number(product.wholesalePrice || 0),
-    cost_price: Number(product.costPrice || 0),
+    store_price: primaryEgpStorePrice,
+    retail_price: primaryEgpRetailPrice,
+    wholesale_price: toEgpAmount(Number(product.wholesalePrice || 0), sourceCurr),
+    cost_price: toEgpAmount(Number(product.costPrice || 0), sourceCurr),
     current_stock: Number(product.currentStock ?? 1),
     image_url: product.imageUrl || '/alshams_falcon_emblem.png',
     store_description: product.storeDescription || (product as any).marketingDescription || (product as any).notes || '',
     available_colors: Array.isArray(product.availableColors) ? product.availableColors : [],
-    available_sizes: Array.isArray(product.availableSizes) ? product.availableSizes : [],
+    available_sizes:
+      normalizedSizeVariants.length > 0
+        ? normalizedSizeVariants.map((v) => v.label)
+        : Array.isArray(product.availableSizes)
+        ? product.availableSizes
+        : [],
     dimensions: {
       length: (product.input as any)?.dimensions?.length,
       width: (product.input as any)?.dimensions?.width ?? product.input?.widthCm,
       height: (product.input as any)?.dimensions?.height ?? product.input?.totalLengthCm,
       diameter: (product.input as any)?.dimensions?.diameter ?? product.input?.diameterCm,
+      __artisanExt: artisanExt,
     },
     materials_summary: (product as any).materialsDescription || '',
     status: initialStatus,
@@ -485,7 +586,12 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
       const data = await res.json();
       if (data && data.workshop) {
         return {
-          workshop: data.workshop,
+          workshop: {
+            ...data.workshop,
+            storeConfig: data.workshop.storeConfig
+              ? normalizeArtisanStoreConfig(data.workshop.storeConfig)
+              : undefined,
+          },
           products: (data.products || []).map(normalizeCloudProduct),
         };
       }
