@@ -22,6 +22,8 @@ interface RegisterProps {
   loading: boolean;
   errorMsg: string;
   onSubmit: (e: React.FormEvent) => void;
+  onGoogleLogin?: () => void;
+  googleLoading?: boolean;
 }
 
 export const Register: React.FC<RegisterProps> = ({
@@ -42,6 +44,8 @@ export const Register: React.FC<RegisterProps> = ({
   loading,
   errorMsg,
   onSubmit,
+  onGoogleLogin,
+  googleLoading = false,
 }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
@@ -78,6 +82,38 @@ export const Register: React.FC<RegisterProps> = ({
         <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{termsError || errorMsg}</span>
+        </div>
+      )}
+
+      {/* Google OAuth Quick Register */}
+      {onGoogleLogin && (
+        <div className="space-y-2.5">
+          <button
+            type="button"
+            disabled={googleLoading || loading}
+            onClick={onGoogleLogin}
+            className="w-full py-2.5 px-4 rounded-2xl bg-white dark:bg-[#132040] hover:bg-stone-50 dark:hover:bg-[#1B2D59] border border-[#D4CCBC] dark:border-[#2A4073] text-[#0C1427] dark:text-[#F7F3EA] font-black text-xs flex items-center justify-center gap-2.5 shadow-sm transition cursor-pointer disabled:opacity-50"
+          >
+            {googleLoading ? (
+              <div className="w-4 h-4 border-2 border-[#EA580C] border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z" />
+                  <path fill="#34A853" d="M12 24c3.3 0 6.08-1.09 8.105-2.96l-3.88-3.05c-1.1.74-2.51 1.18-4.225 1.18-3.25 0-6.01-2.19-7-5.14H.98v3.14C3.01 21.2 7.21 24 12 24Z" />
+                  <path fill="#FBBC05" d="M5 14.03c-.25-.74-.39-1.54-.39-2.36s.14-1.62.39-2.36V6.17H.98C.35 7.42 0 8.83 0 10.67s.35 3.25.98 4.5L5 14.03Z" />
+                  <path fill="#EA4335" d="M12 4.75c1.8 0 3.41.62 4.68 1.84l3.51-3.51C18.075 1.18 15.3 0 12 0 7.21 0 3.01 2.8.98 6.83l4.02 3.14c.99-2.95 3.75-5.22 7-5.22Z" />
+                </svg>
+                <span>التسجيل السريع بحساب Google</span>
+              </>
+            )}
+          </button>
+
+          <div className="flex items-center gap-2.5 text-[10px] font-bold text-[#475569] dark:text-[#94A3B8]">
+            <span className="flex-1 h-px bg-[#D4CCBC] dark:bg-[#22355E]" />
+            <span>أو التسجيل ببيانات البريد الإلكتروني</span>
+            <span className="flex-1 h-px bg-[#D4CCBC] dark:bg-[#22355E]" />
+          </div>
         </div>
       )}
 

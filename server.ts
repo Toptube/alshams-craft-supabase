@@ -4809,6 +4809,29 @@ app.post('/api/admin/marketplace/review', requireAuth, async (req: Authenticated
 app.get('/api/platform-settings', async (_req: Request, res: Response) => {
   const localCfg = loadPersistentPlatformSettings();
   try {
+    const { data: psRow } = await supabaseAdminClient
+      .from('platform_settings')
+      .select('value')
+      .eq('key', 'global_platform_config')
+      .maybeSingle();
+    if (psRow?.value && typeof psRow.value === 'object') {
+      const cloudCfg = psRow.value as any;
+      return res.json({
+        success: true,
+        settings: {
+          ...localCfg,
+          ...cloudCfg,
+          governorateRates: {
+            ...localCfg.governorateRates,
+            ...(cloudCfg.governorateRates || {}),
+          },
+          marketBuilder: cloudCfg.marketBuilder || localCfg.marketBuilder || null,
+          landingCms: cloudCfg.landingCms || localCfg.landingCms || null,
+        },
+      });
+    }
+  } catch {}
+  try {
     const { data: wsRows } = await supabaseAdminClient.from('workshops').select('id, settings').limit(10);
     if (Array.isArray(wsRows)) {
       const host = wsRows.find((w: any) => w.settings && w.settings.platformConfig);
@@ -4822,6 +4845,7 @@ app.get('/api/platform-settings', async (_req: Request, res: Response) => {
             ...(cloudCfg.governorateRates || {}),
           },
           marketBuilder: cloudCfg.marketBuilder || localCfg.marketBuilder || null,
+          landingCms: cloudCfg.landingCms || localCfg.landingCms || null,
         };
         return res.json({ success: true, settings: merged });
       }
@@ -4848,11 +4872,29 @@ app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest,
       body.marketBuilder !== undefined
         ? body.marketBuilder
         : existing.marketBuilder || null,
+    landingCms:
+      body.landingCms !== undefined
+        ? body.landingCms
+        : existing.landingCms || null,
     updatedAt: new Date().toISOString(),
   };
   savePersistentPlatformSettings(nextSettings);
 
   let cloudSynced = false;
+  try {
+    const { error: psErr } = await supabaseAdminClient
+      .from('platform_settings')
+      .upsert(
+        {
+          key: 'global_platform_config',
+          value: nextSettings,
+          updated_by: email,
+          updated_at: nextSettings.updatedAt,
+        },
+        { onConflict: 'key' }
+      );
+    if (!psErr) cloudSynced = true;
+  } catch {}
   try {
     const client = getDbClient(req);
     const { data: wsList } = await client.from('workshops').select('id, settings').order('created_at', { ascending: true }).limit(1);

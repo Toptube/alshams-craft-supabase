@@ -52,6 +52,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   const [countryCode, setCountryCode] = useState('EG');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -298,6 +299,38 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
     }
   };
 
+  // 1.5 Google OAuth Sign-In / Sign-Up (Supabase)
+  const handleGoogleSignIn = async () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    onClearRecoveryError?.();
+    setGoogleLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account',
+          },
+        },
+      });
+      if (error) {
+        const errRes = getArabicSupabaseError(error);
+        setErrorMsg(
+          errRes.arabicMessage ||
+            'تعذر الاتصال بتسجيل الدخول عبر Google، تأكد من تفعيل مزود Google في إعدادات المنصة.'
+        );
+        setGoogleLoading(false);
+      }
+    } catch (err: any) {
+      const errRes = getArabicSupabaseError(err);
+      setErrorMsg(errRes.arabicMessage || 'حدث خطأ أثناء الاتصال بحساب Google.');
+      setGoogleLoading(false);
+    }
+  };
+
   // 2. Send Password Reset Link Modal (Supabase)
   const handleSendResetLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -316,7 +349,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
     setForgotLoading(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(clean, {
-        redirectTo: window.location.origin,
+        redirectTo: `${window.location.origin}/?recovery=1`,
       });
 
       if (error) {
@@ -389,6 +422,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
               setMode('login');
               setErrorMsg('');
               setSuccessMsg('');
+              onClearRecoveryError?.();
             }}
             className={`flex-1 py-2 rounded-xl transition cursor-pointer ${
               mode === 'login'
@@ -404,6 +438,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
               setMode('signup');
               setErrorMsg('');
               setSuccessMsg('');
+              onClearRecoveryError?.();
             }}
             className={`flex-1 py-2 rounded-xl transition cursor-pointer ${
               mode === 'signup'
@@ -433,6 +468,8 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             loading={loading}
             errorMsg={errorMsg}
             onSubmit={handleEmailAuth}
+            onGoogleLogin={handleGoogleSignIn}
+            googleLoading={googleLoading}
             onForgotPassword={() => {
               setForgotEmail(email);
               setForgotNotice(null);
@@ -458,6 +495,8 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             loading={loading}
             errorMsg={errorMsg}
             onSubmit={handleEmailAuth}
+            onGoogleLogin={handleGoogleSignIn}
+            googleLoading={googleLoading}
           />
         )}
 

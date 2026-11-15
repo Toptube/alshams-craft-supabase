@@ -15,17 +15,21 @@ import {
 
 interface CompleteWorkshopScreenProps {
   userEmail: string;
+  initialArtistName?: string;
   onWorkshopCreated: (profile: UserProfile) => void;
   onLogout: () => void;
 }
 
 export const CompleteWorkshopScreen: React.FC<CompleteWorkshopScreenProps> = ({
   userEmail,
+  initialArtistName,
   onWorkshopCreated,
   onLogout,
 }) => {
   const [brandName, setBrandName] = useState('');
-  const [artistName, setArtistName] = useState(userEmail.split('@')[0] || '');
+  const [artistName, setArtistName] = useState(
+    initialArtistName?.trim() || userEmail.split('@')[0] || ''
+  );
   const [gender, setGender] = useState<Gender>('female');
   const [countryCode, setCountryCode] = useState('EG');
   const [phoneNumber, setPhoneNumber] = useState('');

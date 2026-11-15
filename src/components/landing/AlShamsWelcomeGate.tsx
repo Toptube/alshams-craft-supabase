@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { Sparkles, X, Gift, Volume2 } from 'lucide-react';
 import {
-  alshamsFalconArtisanImg,
-  shamousaAvatarImg,
-  alshamsOfficialBannerLogo,
   AlShamsFalconEmblem,
   AlShamsBrandLogo,
+  FalconMascotFull,
+  ShamousaMascotFull,
 } from '../brand/BrandAssets';
+import { getStoredLandingCmsConfig } from '../../types/landingCms';
 
 interface AlShamsWelcomeGateProps {
   isOpen: boolean;
@@ -22,6 +22,13 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
 }) => {
   const [phase, setPhase] = useState<'modal' | 'gifting' | 'hidden'>(isOpen ? 'modal' : 'hidden');
   const [boxOpened, setBoxOpened] = useState(false);
+  const [gateCopy, setGateCopy] = useState(() => getStoredLandingCmsConfig().welcomeGate);
+
+  useEffect(() => {
+    const refresh = () => setGateCopy(getStoredLandingCmsConfig().welcomeGate);
+    window.addEventListener('alshams_landing_cms_updated', refresh);
+    return () => window.removeEventListener('alshams_landing_cms_updated', refresh);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -144,11 +151,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
               {/* صقر الشمساوية */}
               <div className="flex flex-col items-center group">
                 <div className="relative w-28 h-28 sm:w-36 sm:h-36 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
-                  <img
-                    src="/falcon_mascot_transparent.png"
-                    alt="صقر الشمساوية"
-                    className="w-full h-full object-contain filter drop-shadow-2xl select-none"
-                  />
+                  <FalconMascotFull isDark={true} height="100%" className="w-full h-full" />
                 </div>
                 <span className="mt-1 px-3 py-0.5 text-center text-[11px] font-black rounded-full bg-stone-950/90 text-amber-300 border border-amber-400/40 shadow-md">
                   صقر الشمساوية 🦅
@@ -158,7 +161,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
               {/* أيقونة الصقر الذهبي في المنتصف كعنصر رابط بينهما */}
               <div className="relative shrink-0 flex flex-col items-center">
                 <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-amber-500/20 border border-amber-400/40 p-1 shadow-lg flex items-center justify-center animate-pulse">
-                  <AlShamsFalconEmblem size="sm" />
+                  <AlShamsFalconEmblem size="sm" isDark={true} />
                 </div>
                 <span className="text-[10px] font-bold text-amber-300/80 mt-1">يد بيد</span>
               </div>
@@ -166,11 +169,7 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
               {/* شموسة */}
               <div className="flex flex-col items-center group">
                 <div className="relative w-28 h-28 sm:w-36 sm:h-36 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
-                  <img
-                    src="/shamousa_mascot_transparent.png"
-                    alt="شموسة"
-                    className="w-full h-full object-contain filter drop-shadow-2xl select-none"
-                  />
+                  <ShamousaMascotFull isDark={true} height="100%" className="w-full h-full" />
                 </div>
                 <span className="mt-1 px-3 py-0.5 text-center text-[11px] font-black rounded-full bg-stone-950/90 text-amber-300 border border-amber-400/40 shadow-md">
                   شموسة ☀️
@@ -181,14 +180,14 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
             {/* العبارة الترحيبية الدافئة باللهجة المصرية */}
             <div className="space-y-3 mt-4">
               <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight">
-                يا مرحب بيك في مطرح الفن والجدعنة.. <br />
+                {gateCopy.headlineLine1} <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-200">
-                  نورت عيلة الشمساوية! 🦅☀️
+                  {gateCopy.headlineHighlight}
                 </span>
               </h2>
 
               <p className="text-xs sm:text-sm text-stone-300 max-w-lg mx-auto leading-relaxed">
-                المنظومة الأولى التي صنعت بحب على يد حرفيين لأجل صناع وفناني مصر والوطن العربي.. هنا تلاقي حساباتك مضبوطة ومساعدك الذكي دايماً جنبك.
+                {gateCopy.description}
               </p>
             </div>
 
@@ -200,11 +199,11 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
                 className="w-full sm:w-auto px-8 py-4 rounded-2xl font-black text-base sm:text-lg bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 shadow-2xl shadow-amber-500/50 hover:shadow-amber-400/70 border-2 border-yellow-200 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2.5 cursor-pointer group"
               >
                 <Sparkles className="w-5 h-5 text-stone-950 animate-spin-slow group-hover:rotate-45 transition-transform" />
-                <span className="tracking-wide">اتفضل نوّرنا في بيت عيلة الشمساوية 🚪✨</span>
+                <span className="tracking-wide">{gateCopy.ctaText}</span>
               </button>
               <span className="text-[11px] text-amber-400/70 flex items-center gap-1 mt-1">
                 <Volume2 className="w-3.5 h-3.5 animate-pulse" />
-                <span>يصاحبه نشيد المنظومة الحماسي</span>
+                <span>{gateCopy.anthemHintText}</span>
               </span>
             </div>
 

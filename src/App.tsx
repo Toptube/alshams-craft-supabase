@@ -45,6 +45,8 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { PurchasesView } from './components/purchases/PurchasesView';
 import { AccountsView } from './components/accounting/AccountsView';
 import { AuthGateway } from './components/auth/AuthGateway';
+import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
+import { CompleteWorkshopScreen } from './components/auth/CompleteWorkshopScreen';
 import { LandingPage } from './components/landing/LandingPage';
 
 // Modals & Drawers
@@ -191,6 +193,16 @@ export const App: React.FC = () => {
   const [suspensionNotice, setSuspensionNotice] = useState<string | null>(null);
   const [showAuthGateway, setShowAuthGateway] = useState<boolean>(false);
   const [authGatewayMode, setAuthGatewayMode] = useState<'login' | 'signup'>('login');
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const search = window.location.search || '';
+    const hash = window.location.hash || '';
+    return /[?&](recovery=1|type=recovery)/i.test(search) || /type=recovery/i.test(hash);
+  });
+  const [pendingGoogleSessionUser, setPendingGoogleSessionUser] = useState<{
+    email: string;
+    fullName?: string;
+  } | null>(null);
 
   // Welcome message shown only once upon opening the app
   const [showWelcomeBanner, setShowWelcomeBanner] = useState<boolean>(() => {
@@ -534,15 +546,85 @@ export const App: React.FC = () => {
     };
   }, [profile?.tenantId, profile?.workshopId, profile?.id]);
 
-  // Check Supabase session on boot and keep persistent login
+  // Check Supabase session on boot, handle password recovery & Google OAuth onboarding
   useEffect(() => {
     let mounted = true;
     let isChecking = false;
+    let recoveryActive = false;
+
+    if (typeof window !== 'undefined') {
+      const searchStr = window.location.search || '';
+      const hashStr = window.location.hash || '';
+      if (/[?&](recovery=1|type=recovery)/i.test(searchStr) || /type=recovery/i.test(hashStr)) {
+        recoveryActive = true;
+      }
+    }
+
+    async function handleInitialUrlAuthParams() {
+      if (typeof window === 'undefined') return;
+      try {
+        const searchParams = new URLSearchParams(window.location.search || '');
+        const hashRaw = (window.location.hash || '').replace(/^#/, '');
+        const hashParams = new URLSearchParams(hashRaw.startsWith('/') ? '' : hashRaw);
+
+        const urlError =
+          searchParams.get('error') ||
+          hashParams.get('error') ||
+          searchParams.get('error_code') ||
+          hashParams.get('error_code');
+        const urlErrorDesc =
+          searchParams.get('error_description') || hashParams.get('error_description');
+
+        if (urlError || urlErrorDesc) {
+          const combined = `${urlError || ''} ${urlErrorDesc || ''}`.toLowerCase();
+          if (mounted) {
+            if (combined.includes('expired') || combined.includes('otp_expired')) {
+              setSuspensionNotice(
+                'انتهت صلاحية رابط استعادة كلمة المرور، يرجى إدخال بريدك وطلب رابط جديد.'
+              );
+            } else if (combined.includes('access_denied') || combined.includes('cancel')) {
+              setSuspensionNotice('تم إلغاء تسجيل الدخول، يمكنك المحاولة مرة أخرى.');
+            } else {
+              setSuspensionNotice('حدث خطأ في رابط التحقق، يرجى المحاولة مرة أخرى.');
+            }
+            recoveryActive = false;
+            setIsPasswordRecovery(false);
+            setShowAuthGateway(true);
+            setAuthGatewayMode('login');
+          }
+          window.history.replaceState({}, '', '/');
+          return;
+        }
+
+        const tokenHash = searchParams.get('token_hash');
+        const typeParam = searchParams.get('type');
+        if (tokenHash && typeParam === 'recovery') {
+          recoveryActive = true;
+          setIsPasswordRecovery(true);
+          const { error: otpErr } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: 'recovery',
+          });
+          if (otpErr && mounted) {
+            recoveryActive = false;
+            setIsPasswordRecovery(false);
+            setSuspensionNotice(
+              'رابط استعادة كلمة المرور غير صالح أو منتهي الصلاحية، يرجى طلب رابط جديد.'
+            );
+            setShowAuthGateway(true);
+            setAuthGatewayMode('login');
+          }
+          window.history.replaceState({}, '', '/?recovery=1');
+        }
+      } catch {}
+    }
 
     async function checkSession() {
       if (isChecking) return;
       isChecking = true;
       try {
+        await handleInitialUrlAuthParams();
+
         let { data: { session } } = await supabase.auth.getSession();
         if (!session && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
           try {
@@ -553,11 +635,19 @@ export const App: React.FC = () => {
           } catch {}
         }
 
+        if (recoveryActive) {
+          if (mounted) {
+            setIsPasswordRecovery(true);
+            setAuthChecking(false);
+          }
+          return;
+        }
+
         if (session?.user && mounted) {
           // فحص حالة الحساب في profiles و workshops
           try {
             const [pCheck, wCheck] = await Promise.all([
-              supabase.from('profiles').select('status').eq('id', session.user.id).maybeSingle(),
+              supabase.from('profiles').select('status, workshop_id').eq('id', session.user.id).maybeSingle(),
               supabase.from('workshops').select('status, is_frozen').or(`owner_id.eq.${session.user.id},owner_uid.eq.${session.user.id}`).limit(1).maybeSingle(),
             ]);
             const profStatus = pCheck.data?.status;
@@ -569,6 +659,7 @@ export const App: React.FC = () => {
               localStorage.removeItem('alshams_profile');
               if (mounted) {
                 setProfile(null);
+                setPendingGoogleSessionUser(null);
                 setSuspensionNotice('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
                 setAuthChecking(false);
               }
@@ -583,18 +674,42 @@ export const App: React.FC = () => {
               await supabase.auth.signOut().catch(() => {});
               localStorage.removeItem('alshams_profile');
               setProfile(null);
+              setPendingGoogleSessionUser(null);
               setSuspensionNotice('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
               setAuthChecking(false);
               return;
             }
+            setPendingGoogleSessionUser(null);
+            setShowAuthGateway(false);
             setProfile(workshop);
             localStorage.setItem('alshams_profile', JSON.stringify(workshop));
             flushProductSync(workshop.workshopId || workshop.id).catch(() => {});
+          } else if (mounted) {
+            // New OAuth/Google user with a valid Supabase session but no workshop yet
+            const userEmail = session.user.email || '';
+            const isAdminEmail = userEmail.trim().toLowerCase() === 'hmb.top.tube@gmail.com';
+            if (!isAdminEmail) {
+              const savedRaw = localStorage.getItem('alshams_profile');
+              let hasMatchingLocal = false;
+              if (savedRaw) {
+                try {
+                  const p = JSON.parse(savedRaw);
+                  if (p?.email?.toLowerCase() === userEmail.toLowerCase() && p?.id && p.id !== 'workshop_demo') {
+                    hasMatchingLocal = true;
+                  }
+                } catch {}
+              }
+              if (!hasMatchingLocal) {
+                const meta = (session.user.user_metadata || {}) as any;
+                setPendingGoogleSessionUser({
+                  email: userEmail,
+                  fullName: meta.full_name || meta.name || meta.artist_name,
+                });
+              }
+            }
           }
-          // Note: If workshop query fails or is delayed, NEVER overwrite with demo profile!
-          // The artist's profile saved in localStorage remains active and safe.
         } else if (!session && mounted) {
-          // Only if no profile exists in localStorage do we show AuthGateway
+          setPendingGoogleSessionUser(null);
           const saved = localStorage.getItem('alshams_profile');
           if (!saved) {
             setProfile(null);
@@ -612,14 +727,26 @@ export const App: React.FC = () => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log('[Auth State Change]:', event, 'User:', session?.user?.email);
-      if (event === 'SIGNED_OUT') {
+      if (event === 'PASSWORD_RECOVERY') {
+        recoveryActive = true;
         if (mounted) {
+          setIsPasswordRecovery(true);
+          setShowAuthGateway(false);
+          setAuthChecking(false);
+        }
+        return;
+      }
+      if (event === 'SIGNED_OUT') {
+        recoveryActive = false;
+        if (mounted) {
+          setIsPasswordRecovery(false);
+          setPendingGoogleSessionUser(null);
           setProfile(null);
           localStorage.removeItem('alshams_profile');
         }
         return;
       }
-      if (session?.user && mounted) {
+      if (session?.user && mounted && !recoveryActive) {
         checkSession();
       }
     });
@@ -1353,17 +1480,76 @@ export const App: React.FC = () => {
     );
   }
 
+  // Password recovery flow always takes top priority over cached profiles/landing
+  if (isPasswordRecovery) {
+    return (
+      <ResetPasswordScreen
+        onSuccess={async () => {
+          if (typeof window !== 'undefined') {
+            window.history.replaceState({}, '', '/');
+          }
+          setIsPasswordRecovery(false);
+          const { workshop } = await getCurrentWorkshopFromSupabase();
+          if (workshop) {
+            setProfile(workshop);
+            localStorage.setItem('alshams_profile', JSON.stringify(workshop));
+          } else {
+            setShowAuthGateway(true);
+            setAuthGatewayMode('login');
+          }
+        }}
+        onRequestNewLink={async () => {
+          if (typeof window !== 'undefined') {
+            window.history.replaceState({}, '', '/');
+          }
+          await supabase.auth.signOut().catch(() => {});
+          setIsPasswordRecovery(false);
+          setProfile(null);
+          setAuthGatewayMode('login');
+          setShowAuthGateway(true);
+        }}
+      />
+    );
+  }
+
+  // First-time Google OAuth user needs to complete their workshop profile once
+  if (!profile && pendingGoogleSessionUser) {
+    return (
+      <CompleteWorkshopScreen
+        userEmail={pendingGoogleSessionUser.email}
+        initialArtistName={pendingGoogleSessionUser.fullName}
+        onWorkshopCreated={(newWorkshop) => {
+          setPendingGoogleSessionUser(null);
+          setShowAuthGateway(false);
+          setProfile(newWorkshop);
+          localStorage.setItem('alshams_profile', JSON.stringify(newWorkshop));
+        }}
+        onLogout={async () => {
+          await supabase.auth.signOut().catch(() => {});
+          localStorage.removeItem('alshams_profile');
+          setPendingGoogleSessionUser(null);
+          setProfile(null);
+          setShowAuthGateway(true);
+        }}
+      />
+    );
+  }
+
   // If unauthenticated and no valid profile, show Landing Page by default or Auth Gateway if user requested login/register
   if (!profile) {
     if (showAuthGateway || suspensionNotice) {
       return (
         <AuthGateway
           initialMode={authGatewayMode}
-          onBackToLanding={() => setShowAuthGateway(false)}
+          onBackToLanding={() => {
+            setSuspensionNotice(null);
+            setShowAuthGateway(false);
+          }}
           recoveryError={suspensionNotice}
           onClearRecoveryError={() => setSuspensionNotice(null)}
           onAuthenticated={(p) => {
             setSuspensionNotice(null);
+            setPendingGoogleSessionUser(null);
             setShowAuthGateway(false);
             setProfile(p);
             localStorage.setItem('alshams_profile', JSON.stringify(p));

@@ -1,3 +1,6 @@
+import React, { useState, useEffect } from 'react';
+import { DEFAULT_BRAND_ASSETS, getStoredLandingCmsConfig } from '../../types/landingCms';
+
 // Authentic Mascot Characters (100% Transparent Full-Body Characters)
 export const falconAvatarImg = '/falcon_mascot_transparent.png';
 export const shamousaAvatarImg = '/shamousa_mascot_transparent.png';
@@ -17,6 +20,34 @@ export const alshamsOfficialBannerLogo = brandLogoLight;
 export const falconSearchIconImg = '/assets/aistudio/falcon_search.png_8ffa01ac.jpg';
 export const shamousaSearchIconImg = '/assets/aistudio/shamosa_search.png_9e3b8129.jpg';
 
+export function useLandingBrandAssets() {
+  const [assets, setAssets] = useState(() => {
+    try {
+      return getStoredLandingCmsConfig().brandAssets;
+    } catch {
+      return DEFAULT_BRAND_ASSETS;
+    }
+  });
+
+  useEffect(() => {
+    const sync = () => {
+      try {
+        setAssets(getStoredLandingCmsConfig().brandAssets);
+      } catch {
+        setAssets(DEFAULT_BRAND_ASSETS);
+      }
+    };
+    window.addEventListener('alshams_landing_cms_updated', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('alshams_landing_cms_updated', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
+  return assets;
+}
+
 export const AlShamsSunIcon: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 20 }) => (
   <span className={`inline-flex items-center justify-center select-none ${className}`} style={{ width: size, height: size, fontSize: size * 0.8 }}>
     ☀️
@@ -25,9 +56,7 @@ export const AlShamsSunIcon: React.FC<{ className?: string; size?: number }> = (
 
 /**
  * 1. الأيقونة المربعة الرسمية (Al-Shams Falcon Icon)
- * تبديل تلقائي فوري وسلس بين الوضع الفاتح والوضع الليلي:
- * - Light Mode: الأيقونة الكلاسيكية بالأزرق الداكن ومونوغرام SH الذهبي (أعلى وضوح وتباين على الأبيض).
- * - Dark Mode: الأيقونة المتوهجة بالنيون الأزرق والمونوغرام الذهبي المشع (فخامة فائقة على الخلفيات الداكنة).
+ * تبديل تلقائي فوري وسلس بين الوضع الفاتح والوضع الليلي وقابلة للتخصيص من السوبر أدمن
  */
 export const AlShamsBrandIcon: React.FC<{
   className?: string;
@@ -35,6 +64,10 @@ export const AlShamsBrandIcon: React.FC<{
   isDark?: boolean;
   alt?: string;
 }> = ({ className = '', size = 'md', isDark, alt = 'أيقونة صقر الشمساوية' }) => {
+  const assets = useLandingBrandAssets();
+  const lightSrc = assets.brandIcon?.light || brandIconLight;
+  const darkSrc = assets.brandIcon?.dark || brandIconDark;
+
   const sizeMap: Record<string, string> = {
     xs: 'w-6 h-6',
     sm: 'w-8 h-8',
@@ -50,7 +83,7 @@ export const AlShamsBrandIcon: React.FC<{
   if (isDark === true) {
     return (
       <img
-        src={brandIconDark}
+        src={darkSrc}
         alt={alt}
         style={inlineStyle}
         className={`${dim} object-contain select-none shrink-0 drop-shadow-[0_0_12px_rgba(56,189,248,0.4)] ${className}`}
@@ -61,7 +94,7 @@ export const AlShamsBrandIcon: React.FC<{
   if (isDark === false) {
     return (
       <img
-        src={brandIconLight}
+        src={lightSrc}
         alt={alt}
         style={inlineStyle}
         className={`${dim} object-contain select-none shrink-0 drop-shadow-xs ${className}`}
@@ -69,21 +102,18 @@ export const AlShamsBrandIcon: React.FC<{
     );
   }
 
-  // Automatic CSS-based responsive theme switching (zero JS lag & zero flash)
   return (
     <div
       style={inlineStyle}
       className={`relative ${dim} select-none shrink-0 inline-flex items-center justify-center ${className}`}
     >
-      {/* Light Mode Icon */}
       <img
-        src={brandIconLight}
+        src={lightSrc}
         alt={alt}
         className="w-full h-full object-contain dark:hidden select-none drop-shadow-xs"
       />
-      {/* Dark / Night Mode Icon with Neon Glow */}
       <img
-        src={brandIconDark}
+        src={darkSrc}
         alt={alt}
         className="w-full h-full object-contain hidden dark:block select-none drop-shadow-[0_0_12px_rgba(56,189,248,0.4)]"
       />
@@ -103,6 +133,10 @@ export const AlShamsBrandLogo: React.FC<{
   isDark?: boolean;
   alt?: string;
 }> = ({ className = '', maxWidth = 180, maxHeight, size, isDark, alt = 'منظومة الشمساوية' }) => {
+  const assets = useLandingBrandAssets();
+  const lightSrc = assets.platformLogo?.light || brandLogoLight;
+  const darkSrc = assets.platformLogo?.dark || brandLogoDark;
+
   let effectiveMaxWidth = maxWidth;
   if (size === 'sm') effectiveMaxWidth = 135;
   else if (size === 'md') effectiveMaxWidth = 175;
@@ -115,7 +149,7 @@ export const AlShamsBrandLogo: React.FC<{
   if (isDark === true) {
     return (
       <img
-        src={brandLogoDark}
+        src={darkSrc}
         alt={alt}
         style={{ maxWidth: maxWStyle, ...(maxHStyle ? { maxHeight: maxHStyle } : {}) }}
         className={`${sizeClasses} bg-transparent object-contain select-none shrink-0 ${className}`}
@@ -126,7 +160,7 @@ export const AlShamsBrandLogo: React.FC<{
   if (isDark === false) {
     return (
       <img
-        src={brandLogoLight}
+        src={lightSrc}
         alt={alt}
         style={{ maxWidth: maxWStyle, ...(maxHStyle ? { maxHeight: maxHStyle } : {}) }}
         className={`${sizeClasses} bg-transparent object-contain select-none shrink-0 ${className}`}
@@ -140,13 +174,13 @@ export const AlShamsBrandLogo: React.FC<{
       className={`relative ${maxHStyle ? 'w-auto' : 'w-full'} bg-transparent inline-flex items-center justify-center select-none shrink-0 ${className}`}
     >
       <img
-        src={brandLogoLight}
+        src={lightSrc}
         alt={alt}
         style={maxHStyle ? { maxHeight: maxHStyle } : undefined}
         className={`${sizeClasses} bg-transparent object-contain dark:hidden select-none`}
       />
       <img
-        src={brandLogoDark}
+        src={darkSrc}
         alt={alt}
         style={maxHStyle ? { maxHeight: maxHStyle } : undefined}
         className={`${sizeClasses} bg-transparent object-contain hidden dark:block select-none`}
@@ -159,13 +193,17 @@ export const AlShamsBrandLogo: React.FC<{
 export const AlShamsPlatformLogo = AlShamsBrandLogo;
 export const PlatformLogo = AlShamsBrandLogo;
 
-// EXCLUSIVE FALCON MASCOT FOR "صقر الشمساوية AI" (Seamless Transparent PNG)
+// EXCLUSIVE FALCON MASCOT FOR "صقر الشمساوية AI" (Seamless Transparent Light/Dark)
 export const FalconMascotAvatar: React.FC<{
   className?: string;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   statusDot?: boolean;
   fit?: 'contain' | 'cover' | 'top';
 }> = ({ className = '', size = 'md', statusDot = true }) => {
+  const assets = useLandingBrandAssets();
+  const lightSrc = assets.falconMascot?.light || falconAvatarImg;
+  const darkSrc = assets.falconMascot?.dark || falconAvatarImg;
+
   const sizeMap = {
     xs: 'w-7 h-7',
     sm: 'w-9 h-9',
@@ -178,9 +216,14 @@ export const FalconMascotAvatar: React.FC<{
   return (
     <div className={`relative ${sizeMap[size]} flex-shrink-0 inline-flex items-center justify-center ${className}`}>
       <img
-        src="/falcon_mascot_transparent.png"
+        src={lightSrc}
         alt="صقر الشمساوية AI"
-        className="w-full h-full object-contain select-none filter drop-shadow-md"
+        className="w-full h-full object-contain dark:hidden select-none filter drop-shadow-md"
+      />
+      <img
+        src={darkSrc}
+        alt="صقر الشمساوية AI"
+        className="w-full h-full object-contain hidden dark:block select-none filter drop-shadow-md"
       />
       {statusDot && (
         <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
@@ -192,13 +235,17 @@ export const FalconMascotAvatar: React.FC<{
   );
 };
 
-// EXCLUSIVE SHAMOUSA MASCOT FOR "شموسة — مديرة أعمال الورشة" (Seamless Transparent PNG)
+// EXCLUSIVE SHAMOUSA MASCOT FOR "شموسة — مديرة أعمال الورشة" (Seamless Transparent Light/Dark)
 export const ShamousaMascotAvatar: React.FC<{
   className?: string;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   statusDot?: boolean;
   fit?: 'contain' | 'cover' | 'top';
 }> = ({ className = '', size = 'md', statusDot = true }) => {
+  const assets = useLandingBrandAssets();
+  const lightSrc = assets.shamousaMascot?.light || shamousaAvatarImg;
+  const darkSrc = assets.shamousaMascot?.dark || shamousaAvatarImg;
+
   const sizeMap = {
     xs: 'w-7 h-7',
     sm: 'w-9 h-9',
@@ -211,9 +258,14 @@ export const ShamousaMascotAvatar: React.FC<{
   return (
     <div className={`relative ${sizeMap[size]} flex-shrink-0 inline-flex items-center justify-center ${className}`}>
       <img
-        src="/shamousa_mascot_transparent.png"
+        src={lightSrc}
         alt="شموسة مديرة أعمال الورشة"
-        className="w-full h-full object-contain select-none filter drop-shadow-md"
+        className="w-full h-full object-contain dark:hidden select-none filter drop-shadow-md"
+      />
+      <img
+        src={darkSrc}
+        alt="شموسة مديرة أعمال الورشة"
+        className="w-full h-full object-contain hidden dark:block select-none filter drop-shadow-md"
       />
       {statusDot && (
         <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
@@ -226,31 +278,99 @@ export const ShamousaMascotAvatar: React.FC<{
 };
 
 // Full-length seamless character components
-export const FalconMascotFull: React.FC<{ className?: string; height?: number | string; alt?: string }> = ({
+export const FalconMascotFull: React.FC<{ className?: string; height?: number | string; alt?: string; isDark?: boolean }> = ({
   className = '',
   height = 180,
   alt = 'صقر الشمساوية',
-}) => (
-  <img
-    src="/falcon_mascot_transparent.png"
-    alt={alt}
-    style={{ height }}
-    className={`object-contain select-none filter drop-shadow-xl inline-block ${className}`}
-  />
-);
+  isDark,
+}) => {
+  const assets = useLandingBrandAssets();
+  const lightSrc = assets.falconMascot?.light || falconAvatarImg;
+  const darkSrc = assets.falconMascot?.dark || falconAvatarImg;
+  if (isDark === true) {
+    return (
+      <img
+        src={darkSrc}
+        alt={alt}
+        style={{ height }}
+        className={`object-contain select-none filter drop-shadow-xl inline-block ${className}`}
+      />
+    );
+  }
+  if (isDark === false) {
+    return (
+      <img
+        src={lightSrc}
+        alt={alt}
+        style={{ height }}
+        className={`object-contain select-none filter drop-shadow-xl inline-block ${className}`}
+      />
+    );
+  }
+  return (
+    <>
+      <img
+        src={lightSrc}
+        alt={alt}
+        style={{ height }}
+        className={`object-contain dark:hidden select-none filter drop-shadow-xl inline-block ${className}`}
+      />
+      <img
+        src={darkSrc}
+        alt={alt}
+        style={{ height }}
+        className={`object-contain hidden dark:inline-block select-none filter drop-shadow-xl ${className}`}
+      />
+    </>
+  );
+};
 
-export const ShamousaMascotFull: React.FC<{ className?: string; height?: number | string; alt?: string }> = ({
+export const ShamousaMascotFull: React.FC<{ className?: string; height?: number | string; alt?: string; isDark?: boolean }> = ({
   className = '',
   height = 180,
   alt = 'شَمّوسة',
-}) => (
-  <img
-    src="/shamousa_mascot_transparent.png"
-    alt={alt}
-    style={{ height }}
-    className={`object-contain select-none filter drop-shadow-xl inline-block ${className}`}
-  />
-);
+  isDark,
+}) => {
+  const assets = useLandingBrandAssets();
+  const lightSrc = assets.shamousaMascot?.light || shamousaAvatarImg;
+  const darkSrc = assets.shamousaMascot?.dark || shamousaAvatarImg;
+  if (isDark === true) {
+    return (
+      <img
+        src={darkSrc}
+        alt={alt}
+        style={{ height }}
+        className={`object-contain select-none filter drop-shadow-xl inline-block ${className}`}
+      />
+    );
+  }
+  if (isDark === false) {
+    return (
+      <img
+        src={lightSrc}
+        alt={alt}
+        style={{ height }}
+        className={`object-contain select-none filter drop-shadow-xl inline-block ${className}`}
+      />
+    );
+  }
+  return (
+    <>
+      <img
+        src={lightSrc}
+        alt={alt}
+        style={{ height }}
+        className={`object-contain dark:hidden select-none filter drop-shadow-xl inline-block ${className}`}
+      />
+      <img
+        src={darkSrc}
+        alt={alt}
+        style={{ height }}
+        className={`object-contain hidden dark:inline-block select-none filter drop-shadow-xl ${className}`}
+      />
+    </>
+  );
+};
 
 // DEDICATED ARTISAN PROFILE PICTURE COMPONENT
 export const ArtisanAvatar: React.FC<{

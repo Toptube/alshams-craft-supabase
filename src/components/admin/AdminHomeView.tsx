@@ -167,6 +167,13 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       circleClass: 'bg-violet-100 dark:bg-violet-950/60 border-violet-300/60 dark:border-violet-700/60',
       onClick: () => onNavigatePage('reports'),
     },
+    {
+      id: 'landing_cms',
+      label: 'صفحة الهبوط والشعارات',
+      icon: <Globe className="w-5 h-5 sm:w-6 sm:h-6 text-[#C2410C] dark:text-[#FBBF24]" />,
+      circleClass: 'bg-amber-100 dark:bg-amber-950/60 border-amber-300/60 dark:border-amber-700/60',
+      onClick: () => onNavigatePage('landing_cms'),
+    },
   ];
 
   const statusMeta = activeWorkshop ? getWorkshopStatusLabel(activeWorkshop) : null;

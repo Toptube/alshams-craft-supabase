@@ -62,6 +62,8 @@ import {
 import { AdminReportsPage } from './AdminReportsPage';
 import { AdminNotificationPages } from './AdminNotificationPages';
 import { AdminWorkshopModals } from './AdminWorkshopModals';
+import { AdminLandingCmsPage } from './AdminLandingCmsPage';
+import { LandingCmsConfig } from '../../types/landingCms';
 
 export type { ExecutiveTab };
 
@@ -2293,6 +2295,36 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           ordersList={marketplaceOrdersList}
           onBack={() => handleNavigatePage('home')}
           onExportCsv={exportSystemReportCSV}
+        />
+      )}
+
+      {currentPage === 'landing_cms' && (
+        <AdminLandingCmsPage
+          onBack={() => handleNavigatePage('home')}
+          saving={savingMarketSettings}
+          onSaveToCloud={async (nextCms: LandingCmsConfig) => {
+            setSavingMarketSettings(true);
+            try {
+              const res = await savePlatformSettingsCloud(
+                {
+                  ...shippingConfig,
+                  centralShippingPrivacy: centralShippingPrivacy,
+                  marketBuilder: getStoredMarketBuilderConfig(),
+                  landingCms: nextCms,
+                },
+                profile.email
+              );
+              if (res.cloudSynced) {
+                showSuccess('تم حفظ ونشر تعديلات صفحة الهبوط والشعارات سحابياً بنجاح ✅');
+              } else {
+                showSuccess('تم حفظ تعديلات صفحة الهبوط والشعارات محلياً بنجاح ✅');
+              }
+            } catch (err: any) {
+              showError(err?.message || 'حدث خطأ أثناء حفظ إعدادات صفحة الهبوط.');
+            } finally {
+              setSavingMarketSettings(false);
+            }
+          }}
         />
       )}
 

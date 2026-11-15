@@ -5,6 +5,7 @@ import { dispatchArtisanNotification } from '../lib/pushNotifications';
 import { playPostaNotificationSound } from '../lib/sounds';
 import { enqueueOfflineMutation } from '../db/offlineMutationQueue';
 import { saveStoredMarketBuilderConfig } from '../types/marketplaceBuilder';
+import { saveStoredLandingCmsConfig } from '../types/landingCms';
 
 const CART_STORAGE_KEY = 'alshams_marketplace_cart';
 const CUSTOMER_STORAGE_KEY = 'alshams_customer_session';
@@ -284,6 +285,9 @@ export async function syncPlatformSettingsFromCloud(): Promise<GovernoratesShipp
         }
         if (s.marketBuilder) {
           saveStoredMarketBuilderConfig(s.marketBuilder);
+        }
+        if (s.landingCms) {
+          saveStoredLandingCmsConfig(s.landingCms);
         }
         return mergedCfg;
       }

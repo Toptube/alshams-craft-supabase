@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   AlShamsFalconEmblem,
-  alshamsOfficialBannerLogo,
-  alshamsFalconArtisanImg,
-  falconAvatarImg,
-  shamousaAvatarImg,
   AlShamsBrandLogo,
+  FalconMascotFull,
+  ShamousaMascotFull,
 } from '../brand/BrandAssets';
+import {
+  LandingCmsConfig,
+  getStoredLandingCmsConfig,
+} from '../../types/landingCms';
+import { syncPlatformSettingsFromCloud } from '../../services/marketplaceCartService';
 import { AlShamsWelcomeGate } from './AlShamsWelcomeGate';
 import { AlShamsAudioPlayer, AlShamsAudioPlayerHandle } from './AlShamsAudioPlayer';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
@@ -58,9 +61,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   isDarkMode = false,
   onToggleTheme,
 }) => {
-  // مشغل الصوت الترويجي وبوابة الاستقبال التفاعلية
+  // مشغل الصوت الترويجي وبوابة الاستقبال التفاعلية وإعدادات الهبوط الحية
   const audioPlayerRef = useRef<AlShamsAudioPlayerHandle | null>(null);
   const [isWelcomeGateOpen, setIsWelcomeGateOpen] = useState(false);
+  const [cms, setCms] = useState<LandingCmsConfig>(() => getStoredLandingCmsConfig());
+
+  useEffect(() => {
+    const syncCms = () => setCms(getStoredLandingCmsConfig());
+    syncPlatformSettingsFromCloud()
+      .then(() => setCms(getStoredLandingCmsConfig()))
+      .catch(() => {});
+    window.addEventListener('alshams_landing_cms_updated', syncCms);
+    return () => window.removeEventListener('alshams_landing_cms_updated', syncCms);
+  }, []);
 
   useEffect(() => {
     try {
@@ -167,37 +180,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* Quick Nav Links (Desktop) */}
           <nav className="hidden xl:flex items-center gap-6 text-sm font-bold text-[#334155] dark:text-[#CBD5E1]">
-            <a href="#safe-accounts" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors">
-              عقلك الحرفي
-            </a>
-            <a href="#ai-partners" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors flex items-center gap-1.5">
-              <span>صقر وشموسة AI</span>
-            </a>
-            <a href="#craft-lifecycle" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors">
-              رحلة المشغولة
-            </a>
-            <a href="#tool-maintenance" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors">
-              صيانة العِدد
-            </a>
-            <a href="#reviews" className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors">
-              حكايات الورش
-            </a>
+            {cms.header.navLinks.map((lnk) => (
+              <a key={lnk.id} href={lnk.href} className="hover:text-[#EA580C] dark:hover:text-amber-300 transition-colors whitespace-nowrap">
+                {lnk.label}
+              </a>
+            ))}
           </nav>
 
-          {/* Actions: Audio Player (Compact Circle Button) + Welcome Gate + Theme Toggle + [ فتح الورشة ] */}
+          {/* Actions: Audio Player + Welcome Gate + Theme Toggle + [ سجل الآن ] */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* مشغل النشيد المدمج بزر واحد خفيف */}
             <AlShamsAudioPlayer ref={audioPlayerRef} />
             <PWAInstallButton variant="landing" />
 
-            {/* زر إعادة فتح بوابة الترحيب التفاعلية */}
             <button
               type="button"
               onClick={() => setIsWelcomeGateOpen(true)}
-              className="hidden lg:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-black bg-[#E9E2D4] dark:bg-[#132040] text-[#9A3412] dark:text-amber-200 border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] transition cursor-pointer shrink-0"
+              className="hidden lg:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-black bg-[#E9E2D4] dark:bg-[#132040] text-[#9A3412] dark:text-amber-200 border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] transition cursor-pointer shrink-0 whitespace-nowrap"
               title="فتح بوابة الترحيب التفاعلية"
             >
-              <span>بوابة الترحيب ✨</span>
+              <span>{cms.header.welcomeGateButtonText}</span>
             </button>
 
             {onToggleTheme && (
@@ -212,13 +213,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </button>
             )}
 
-            {/* زر [ فتح الورشة ]: مساحة طبيعية مريحة، بارز، مقروء بوضوح بدون أي قص أو حشر */}
             <button
               type="button"
               onClick={onOpenLogin}
               className="px-4 sm:px-5 py-2.5 rounded-2xl font-black text-xs sm:text-sm bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white shadow-md shadow-orange-600/25 transition-all cursor-pointer flex items-center gap-2 border border-[#FDBA74]/50 whitespace-nowrap shrink-0"
             >
-              <span>فتح الورشة</span>
+              <span>{cms.header.ctaButtonText}</span>
               <ArrowLeft className="w-4 h-4 text-white" />
             </button>
           </div>
@@ -246,29 +246,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {/* Visual Harmony: Center-Aligned Falcon Artisan Mascot with Hero Pitch */}
             <div className="relative w-full max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-center gap-8 pt-2">
               
-              {/* Full-Body Falcon Artisan Character (Frameless & Seamless - 100% Transparent) */}
+              {/* Full-Body Falcon Artisan Character (Frameless & Seamless - Light/Dark Dynamic) */}
               <div className="relative w-52 sm:w-64 md:w-72 shrink-0 flex flex-col items-center justify-center select-none">
-                <img
-                  src="/falcon_mascot_transparent.png"
-                  alt="صقر الشمساوية الحرفي"
-                  className="w-full h-auto max-h-[320px] sm:max-h-[360px] object-contain filter drop-shadow-2xl select-none"
-                />
+                <FalconMascotFull height={320} className="w-full max-h-[320px] sm:max-h-[360px]" />
                 <div className="mt-2 px-4 py-1.5 rounded-2xl bg-[#0C1427] text-amber-300 text-xs font-black border border-[#EA580C]/45 whitespace-nowrap shadow-lg flex items-center gap-1.5 select-none">
-                  <span>صقر الشمساوية AI 🦅</span>
+                  <span>{cms.hero.falconBadgeText}</span>
                 </div>
               </div>
 
               {/* Main Headline & Storytelling */}
               <div className="flex-1 text-center md:text-right space-y-4">
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight">
-                  عشان إيدك بتتلف في حرير.. <br />
+                  {cms.hero.headlineLine1} <br />
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] dark:from-[#FDBA74] dark:via-amber-300 dark:to-[#FB923C]">
-                    ورشتك تستاهل نظام يديرها بضمير!
+                    {cms.hero.headlineHighlight}
                   </span>
                 </h1>
 
                 <p className="text-base sm:text-lg text-[#334155] dark:text-[#CBD5E1] leading-relaxed font-medium">
-                  من أول فتلة خيط وتسعير الخامات بالمليم وحساب الهدر وساعات التعب، لحد أرباحك الصافية وإدارة الخزن والزبائن.. بدون أي كلاكيع حسابية ولا دفاتر بتضيع.
+                  {cms.hero.description}
                 </p>
 
                 {/* Main CTAs */}
@@ -279,14 +275,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     className="px-6 py-3.5 rounded-2xl font-black text-base bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white shadow-xl shadow-orange-600/25 transition-all cursor-pointer flex items-center gap-2 border border-[#FDBA74]/50"
                   >
                     <Sparkles className="w-5 h-5 text-amber-100" />
-                    <span>افتح ورشتك في ثواني مجاناً 🌟</span>
+                    <span>{cms.hero.primaryCtaText}</span>
                   </button>
 
                   <a
                     href="#safe-accounts"
                     className="px-6 py-3.5 rounded-2xl font-bold text-base bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA] transition-all flex items-center gap-2"
                   >
-                    <span>شوف إزاي بتشتغل</span>
+                    <span>{cms.hero.secondaryCtaText}</span>
                     <ChevronDown className="w-4 h-4 text-[#EA580C]" />
                   </a>
                 </div>
@@ -295,15 +291,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <div className="grid grid-cols-3 gap-2 pt-4 border-t border-stone-200 dark:border-stone-800/80 text-xs font-bold text-stone-600 dark:text-stone-400">
                   <div className="flex items-center gap-1.5 justify-center md:justify-start">
                     <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span>لا يتطلب خبرة محاسبية</span>
+                    <span>{cms.hero.trustBadge1}</span>
                   </div>
                   <div className="flex items-center gap-1.5 justify-center md:justify-start">
                     <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
-                    <span>حماية وأمان كامل للبيانات</span>
+                    <span>{cms.hero.trustBadge2}</span>
                   </div>
                   <div className="flex items-center gap-1.5 justify-center md:justify-start">
                     <Zap className="w-4 h-4 text-cyan-500 shrink-0" />
-                    <span>شغال على الموبايل والكمبيوتر</span>
+                    <span>{cms.hero.trustBadge3}</span>
                   </div>
                 </div>
 
@@ -317,77 +313,47 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* 3. Section 1: "عقلك الحرفي مش دفتر ضايع ولا ورقة مبلولة"       */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.safeAccounts.visible && (
       <section id="safe-accounts" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-white dark:bg-stone-950">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center max-w-3xl mx-auto mb-16 space-y-3">
             <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 text-xs font-bold border border-emerald-500/20">
               <TrendingUp className="w-3.5 h-3.5" />
-              <span>المالية والسيولة الحرفية المنضبطة</span>
+              <span>{cms.sections.safeAccounts.badge}</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white">
-              عقلك الحرفي مش دفتر ضايع ولا ورقة مبلولة
+              {cms.sections.safeAccounts.title}
             </h2>
             <p className="text-base sm:text-lg text-stone-600 dark:text-stone-400 leading-relaxed">
-              كام مرة فاتورة خيط ضاعت؟ ولا فلوس كاش الورشة دخلت في مصاريف البيت؟ ولا صانع أخد عهدة ونسيتوا اتصرف منها إيه؟ 
-              الشمساوية بتنظم كل مليم بلغة الورشة البسيطة بدون وجع دماغ.
+              {cms.sections.safeAccounts.subtitle}
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            
-            {/* Card 1 */}
-            <div className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 hover:border-amber-500/50 transition-all hover:-translate-y-1 shadow-sm">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-4">
-                <Calculator className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white mb-2">
-                شجرة حسابات مبسطة
-              </h3>
-              <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                مش مصطلحات بنكية معقدة.. دي خزن، عهد، مشتريات خامات، وأجور صناع، كل قرش بيسمع في خانته المظبوطة فورياً.
-              </p>
-            </div>
-
-            {/* Card 2 */}
-            <div className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 hover:border-amber-500/50 transition-all hover:-translate-y-1 shadow-sm">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-4">
-                <Layers className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white mb-2">
-                سجل العهد وإغلاق المتبقي
-              </h3>
-              <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                اصرف عهدة للمساعد أو الصانع عشان يشتري خامات، وسجل فواتيره واسترد المتبقي بلمسة زرار مع مطابقة الخزينة.
-              </p>
-            </div>
-
-            {/* Card 3 */}
-            <div className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 hover:border-amber-500/50 transition-all hover:-translate-y-1 shadow-sm">
-              <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 flex items-center justify-center mb-4">
-                <TrendingUp className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white mb-2">
-                ميزان السيولة الحية الفوري
-              </h3>
-              <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                شاشة واحدة توضح لك سيولتك الفعلية متوزعة إزاي: كاش في درج الورشة، إنستاباي، ولا محافظ فودافون كاش.
-              </p>
-            </div>
-
-            {/* Card 4 */}
-            <div className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 hover:border-amber-500/50 transition-all hover:-translate-y-1 shadow-sm">
-              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center mb-4">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-stone-900 dark:text-white mb-2">
-                إنذار حد أمان السيولة
-              </h3>
-              <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                لو السيولة قربت تخلص قبل تجديد الخامات، المنظومة بتديك تنبيه مبكر عشان تلحق تحصّل فواتير العملاء الآجلة.
-              </p>
-            </div>
-
+            {cms.sections.safeAccounts.cards.map((card, idx) => {
+              const cardStyles = [
+                { box: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', Icon: Calculator },
+                { box: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400', Icon: Layers },
+                { box: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400', Icon: TrendingUp },
+                { box: 'bg-rose-500/15 text-rose-600 dark:text-rose-400', Icon: ShieldCheck },
+              ];
+              const style = cardStyles[idx % cardStyles.length];
+              const CardIcon = style.Icon;
+              return (
+                <div key={card.id || idx} className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 hover:border-amber-500/50 transition-all hover:-translate-y-1 shadow-sm">
+                  <div className={`w-12 h-12 rounded-2xl ${style.box} flex items-center justify-center mb-4`}>
+                    <CardIcon className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-lg font-bold text-stone-900 dark:text-white mb-2">
+                    {card.title}
+                  </h3>
+                  <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
+                    {card.description}
+                  </p>
+                </div>
+              );
+            })}
           </div>
 
           {/* Section CTA */}
@@ -397,30 +363,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               onClick={onOpenRegister}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-sm sm:text-base bg-amber-500 hover:bg-amber-600 text-stone-950 shadow-lg shadow-amber-500/20 active:scale-95 transition-all cursor-pointer"
             >
-              <span>ابدأ تسعير شغلك واضبط حساباتك صح 💰</span>
+              <span>{cms.sections.safeAccounts.ctaText}</span>
               <ArrowLeft className="w-4 h-4" />
             </button>
           </div>
 
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 4. Section 2: "شموسة وصقر معاك على الخط" (AI Craft Partners)  */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.aiPartners.visible && (
       <section id="ai-partners" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-stone-100/60 dark:bg-stone-900/40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center max-w-3xl mx-auto mb-14 space-y-3">
             <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs font-bold border border-amber-500/20">
               <Bot className="w-3.5 h-3.5" />
-              <span>الذكاء الاصطناعي الحرفي الميداني</span>
+              <span>{cms.sections.aiPartners.badge}</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white">
-              شموسة وصقر معاك على الخط.. مش شات بوت، دول شركاء ورشة!
+              {cms.sections.aiPartners.title}
             </h2>
             <p className="text-base sm:text-lg text-stone-600 dark:text-stone-400 leading-relaxed">
-              فاهمين في بكر الخيط، والمكرميات، وساعات الشغل اليدوي، وأسعار السوق. بيقرأوا أرقام ورشتك الحية عشان مفيش حساب يفلت.
+              {cms.sections.aiPartners.subtitle}
             </p>
           </div>
 
@@ -430,22 +398,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {/* Saqr The Engineer */}
             <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-lg flex flex-col sm:flex-row items-center gap-6">
               <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0 flex items-center justify-center select-none">
-                <img
-                  src="/falcon_mascot_transparent.png"
-                  alt="صقر الشمساوية"
+                <FalconMascotFull
+                  isDark={isDarkMode}
+                  height={120}
+                  alt={cms.sections.aiPartners.falconName}
                   className="w-full h-full object-contain filter drop-shadow-md select-none"
                 />
               </div>
               <div className="space-y-2 text-center sm:text-right">
                 <div className="flex items-center justify-center sm:justify-start gap-2">
-                  <h3 className="text-xl font-black text-stone-900 dark:text-amber-300">صقر الشمساوية</h3>
-                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-stone-900 text-amber-300 font-bold">المستشار الهندسي</span>
+                  <h3 className="text-xl font-black text-stone-900 dark:text-amber-300">{cms.sections.aiPartners.falconName}</h3>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-stone-900 text-amber-300 font-bold">{cms.sections.aiPartners.falconRoleBadge}</span>
                 </div>
                 <p className="text-sm text-stone-600 dark:text-stone-300 leading-relaxed">
-                  خبير هندسة الورشة.. تبعت له صورة المشغولة يحلل أبعادها، يحسب أطوال الخيوط وسمك الحبال، ويطلع كود الرسم التخطيطي الهندسي ونسب الهدر بالجرام!
+                  {cms.sections.aiPartners.falconDescription}
                 </p>
                 <div className="text-xs font-bold text-amber-600 dark:text-amber-400 pt-1">
-                  ⚡️ مبني على نماذج رؤية هندسية وحسابات يدوية واقعية
+                  {cms.sections.aiPartners.falconFootnote}
                 </div>
               </div>
             </div>
@@ -453,22 +422,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {/* Shamousa The Operations Buddy */}
             <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-lg flex flex-col sm:flex-row items-center gap-6">
               <div className="w-28 h-28 sm:w-32 sm:h-32 shrink-0 flex items-center justify-center select-none">
-                <img
-                  src="/shamousa_mascot_transparent.png"
-                  alt="شموسة مديرة أعمال الورشة"
+                <ShamousaMascotFull
+                  isDark={isDarkMode}
+                  height={120}
+                  alt={cms.sections.aiPartners.shamousaName}
                   className="w-full h-full object-contain filter drop-shadow-md select-none"
                 />
               </div>
               <div className="space-y-2 text-center sm:text-right">
                 <div className="flex items-center justify-center sm:justify-start gap-2">
-                  <h3 className="text-xl font-black text-stone-900 dark:text-amber-300">شموسة</h3>
-                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-800 dark:text-amber-200 font-bold">مديرة العمليات والمهام</span>
+                  <h3 className="text-xl font-black text-stone-900 dark:text-amber-300">{cms.sections.aiPartners.shamousaName}</h3>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-800 dark:text-amber-200 font-bold">{cms.sections.aiPartners.shamousaRoleBadge}</span>
                 </div>
                 <p className="text-sm text-stone-600 dark:text-stone-300 leading-relaxed">
-                  رفيقة الورشة الشاطرة.. تفكرك بأوردرات الزباين المستعجلة، تعرفك الخامات اللي قربت تخلص عشان تطلبها، وتطابق لك فلوس الخزائن والعهد أولاً بأول.
+                  {cms.sections.aiPartners.shamousaDescription}
                 </p>
                 <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 pt-1">
-                  ⚡️ متصلة مباشرة بأرصدة خاماتك وأوامر تشغيل ورشتك
+                  {cms.sections.aiPartners.shamousaFootnote}
                 </div>
               </div>
             </div>
@@ -480,7 +450,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-stone-800">
               <div className="flex items-center gap-2">
                 <Bot className="w-5 h-5 text-amber-400" />
-                <span className="font-bold text-sm text-amber-300">جرّب محاكي ذكاء الورشة الآن</span>
+                <span className="font-bold text-sm text-amber-300">{cms.sections.aiPartners.simulatorTitle}</span>
               </div>
               <span className="text-xs text-stone-400 font-mono">LIVE PREVIEW</span>
             </div>
@@ -527,12 +497,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               {simQuestion === 'falcon_runner' && (
                 <div className="space-y-1.5 animate-fadeIn">
                   <div className="text-amber-400 font-bold text-xs flex items-center gap-2">
-                    <img
-                      src="/falcon_mascot_ai.png"
-                      alt="صقر"
-                      className="w-5 h-5 rounded-full object-cover object-top border border-amber-400 select-none"
-                    />
-                    <span>رد صقر الشمساوية:</span>
+                    <FalconMascotFull isDark={true} height={22} alt="صقر" className="w-5 h-5 rounded-full object-contain border border-amber-400" />
+                    <span>رد {cms.sections.aiPartners.falconName}:</span>
                   </div>
                   <p>
                     "يا أستاذنا.. رانر بطول 200 سم وعرض 40 سم بغرزة مربعة ومزدوجة، محتاج حوالي <strong>280 متر خيط قطن محلول سمك 4 مم</strong> (وزن تقريبي 1.15 كجم). هدر الشراشيب محسوب 15%، وصافي وقت العقد اليدوي حوالي <strong>6.5 ساعات عمل</strong>."
@@ -542,12 +508,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               {simQuestion === 'shamousa_cash' && (
                 <div className="space-y-1.5 animate-fadeIn">
                   <div className="text-amber-400 font-bold text-xs flex items-center gap-2">
-                    <img
-                      src="/shamousa_mascot.png"
-                      alt="شموسة"
-                      className="w-5 h-5 rounded-full object-cover object-top scale-125 border border-amber-400 select-none"
-                    />
-                    <span>رد شموسة:</span>
+                    <ShamousaMascotFull isDark={true} height={22} alt="شموسة" className="w-5 h-5 rounded-full object-contain border border-amber-400" />
+                    <span>رد {cms.sections.aiPartners.shamousaName}:</span>
                   </div>
                   <p>
                     "صباح الفل يا فنان! درج الخزينة فيه <strong>3,450 ج.م كاش</strong>، والمحفظة فيها <strong>1,800 ج.م</strong>. بس خد بالك خيط المكرمية البيج باقي منه بكرة واحدة بس، وده تحت حد الأمان للورشة.. تطلب طلبية خامات جديدة من المورد؟"
@@ -572,87 +534,49 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={onOpenRegister}
                 className="px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-gradient-to-r from-amber-500 to-amber-600 text-stone-950 hover:brightness-110 active:scale-95 transition-all cursor-pointer"
               >
-                جرب ذكاء صقر وشموسة في ورشتك 🦅
+                {cms.sections.aiPartners.simulatorCtaText}
               </button>
             </div>
           </div>
 
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 5. Section 3: "من أول فتلة خيط لحد المتجر والزبون"             */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.craftLifecycle.visible && (
       <section id="craft-lifecycle" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-white dark:bg-stone-950">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center max-w-3xl mx-auto mb-16 space-y-3">
             <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-blue-500/15 text-blue-700 dark:text-blue-400 text-xs font-bold border border-blue-500/20">
               <Layers className="w-3.5 h-3.5" />
-              <span>دورة حياة المشغولة الكاملة</span>
+              <span>{cms.sections.craftLifecycle.badge}</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white">
-              من أول فتلة خيط لحد المتجر وعين الزبون
+              {cms.sections.craftLifecycle.title}
             </h2>
             <p className="text-base sm:text-lg text-stone-600 dark:text-stone-400 leading-relaxed">
-              مسار صناعي احترافي ينقلك من هاوٍ لعلامة تجارية مستقرة ومربحة خطوة بخطوة.
+              {cms.sections.craftLifecycle.subtitle}
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 relative">
-            
-            {/* Step 1 */}
-            <div className="relative p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 font-black flex items-center justify-center text-lg">
-                1
+            {cms.sections.craftLifecycle.steps.map((step, idx) => (
+              <div key={step.id || idx} className="relative p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 font-black flex items-center justify-center text-lg">
+                  {step.stepNumber || idx + 1}
+                </div>
+                <h3 className="text-base font-bold text-stone-900 dark:text-white">
+                  {step.title}
+                </h3>
+                <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
+                  {step.description}
+                </p>
               </div>
-              <h3 className="text-base font-bold text-stone-900 dark:text-white">
-                حاسبة التكاليف الشاملة
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                حساب دقيق لأطوال الخيوط، أسعار الخامات، ساعات التعب، ونسب الهدر، عشان تعرف تسعر بالعدل وتضمن مكسبك.
-              </p>
-            </div>
-
-            {/* Step 2 */}
-            <div className="relative p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 font-black flex items-center justify-center text-lg">
-                2
-              </div>
-              <h3 className="text-base font-bold text-stone-900 dark:text-white">
-                أرشيف المواصفات والغرز
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                احفظ كل قطعة نفذتها بمقاساتها وخاماتها وصورها، عشان تعيد تصنيعها لأي عميل بنفس الدقة في ثواني.
-              </p>
-            </div>
-
-            {/* Step 3 */}
-            <div className="relative p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 font-black flex items-center justify-center text-lg">
-                3
-              </div>
-              <h3 className="text-base font-bold text-stone-900 dark:text-white">
-                أمر التشغيل والصرف
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                إذن صرف خامات من المخزن، تكليف الصانع، وتوريد المنتج التام لمخزن الجاهز فور الانتهاء مع إثبات مصنعيات العمال.
-              </p>
-            </div>
-
-            {/* Step 4 */}
-            <div className="relative p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 font-black flex items-center justify-center text-lg">
-                4
-              </div>
-              <h3 className="text-base font-bold text-stone-900 dark:text-white">
-                الكتالوج وعروض الواتساب
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                شارك عروض أسعار أنيقة وفواتير رسمية مع عملائك على واتساب بلمسة واحدة، أو افتح متجرك على منصتي.
-              </p>
-            </div>
-
+            ))}
           </div>
 
           <div className="mt-12 text-center">
@@ -661,17 +585,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               onClick={onOpenRegister}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-sm sm:text-base bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-lg active:scale-95 transition-all cursor-pointer"
             >
-              <span>انضم لعيلة الشمساوية وشوف الفرق 🌟</span>
+              <span>{cms.sections.craftLifecycle.ctaText}</span>
               <ArrowLeft className="w-4 h-4" />
             </button>
           </div>
 
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 5.1 CRM: إدارة وعلاقات العملاء ومستحقاتهم                       */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.crmClients.visible && (
       <section id="crm-clients" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-white dark:bg-stone-950">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-12">
@@ -679,31 +605,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex-1 space-y-4 text-center lg:text-right">
               <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 text-xs font-bold border border-emerald-500/20">
                 <Users className="w-3.5 h-3.5" />
-                <span>إدارة وعلاقات العملاء (CRM الحرفي)</span>
+                <span>{cms.sections.crmClients.badge}</span>
               </div>
               
               <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white leading-tight">
-                عميلك مش رقم عابر.. <br />
-                <span className="text-emerald-600 dark:text-emerald-400">ده شريك نجاحك وسمعة ورشتك!</span>
+                {cms.sections.crmClients.titleLine1} <br />
+                <span className="text-emerald-600 dark:text-emerald-400">{cms.sections.crmClients.titleHighlight}</span>
               </h2>
 
               <p className="text-base sm:text-lg text-stone-600 dark:text-stone-300 leading-relaxed">
-                لكل عميل ملف متكامل يحفظ تفضيلاته، مقاسات بيته، ألوانه المفضلة، وسجل كل قطعة اشتراها منك. كشف حساب فوري يوضح المستحق والمتبقي بدون إحراج، وتواصل مباشر على واتساب بلمسة زر لتأكيد الطلب وتحديث مراحل التنفيذ.
+                {cms.sections.crmClients.description}
               </p>
 
               <div className="space-y-2.5 pt-2 text-sm font-semibold text-stone-700 dark:text-stone-300">
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>دليل عملاء ذكي بأرقامهم وعناوينهم وتاريخ تعاملاتهم</span>
-                </div>
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>كشف حساب مديونيات ودفعات مقدمة بضغطة زر وبدون إحراج</span>
-                </div>
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>مشاركة تحديثات التصنيع ومواعيد التسليم مباشرة عبر واتساب</span>
-                </div>
+                {cms.sections.crmClients.bullets.map((bullet, idx) => (
+                  <div key={idx} className="flex items-center gap-2 justify-center lg:justify-start">
+                    <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>{bullet}</span>
+                  </div>
+                ))}
               </div>
 
               <div className="pt-4">
@@ -712,7 +632,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   onClick={onOpenRegister}
                   className="px-6 py-3 rounded-2xl font-bold text-sm sm:text-base bg-emerald-600 hover:bg-emerald-700 text-white shadow-md active:scale-95 transition-all cursor-pointer"
                 >
-                  نظّم حسابات زباينك وافتح ورشتك الآن 👥
+                  {cms.sections.crmClients.ctaText}
                 </button>
               </div>
             </div>
@@ -770,10 +690,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 5.2 Smart Catalog: الكتالوج وعروض الأسعار بضغطة زر              */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.smartCatalog.visible && (
       <section id="smart-catalog" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-stone-100/60 dark:bg-stone-900/40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col-reverse lg:flex-row items-center justify-between gap-12">
@@ -826,31 +748,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex-1 space-y-4 text-center lg:text-right">
               <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs font-bold border border-amber-500/20">
                 <BookOpen className="w-3.5 h-3.5" />
-                <span>الكتالوج المرجعي وعروض الأسعار</span>
+                <span>{cms.sections.smartCatalog.badge}</span>
               </div>
               
               <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white leading-tight">
-                كتالوج يشرفك قدام زباينك.. <br />
-                <span className="text-amber-600 dark:text-amber-400">وعروض أسعار موثقة بضغطة زر!</span>
+                {cms.sections.smartCatalog.titleLine1} <br />
+                <span className="text-amber-600 dark:text-amber-400">{cms.sections.smartCatalog.titleHighlight}</span>
               </h2>
 
               <p className="text-base sm:text-lg text-stone-600 dark:text-stone-300 leading-relaxed">
-                ودّع التسعير المرتجل وعروض الأسعار المكتوبة على ورق ضايع! أنشئ عرض سعر احترافي بلمسة واحدة يوضح اسم المشغولة، الخامات، المقاسات، مدة التنفيذ، وشروط الدفعة المقدمة. شارك رابط الكتالوج مع زبائنك ليتصفحوا إبداعاتك بكل فخر.
+                {cms.sections.smartCatalog.description}
               </p>
 
               <div className="space-y-2.5 pt-2 text-sm font-semibold text-stone-700 dark:text-stone-300">
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>عروض أسعار رسمية برقم مسلسل وشروط واضحة تحفظ حقوقك</span>
-                </div>
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>معرض مرجعي لمشغولات ورشتك يظهر تفاصيل كل قطعة بدقة</span>
-                </div>
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>تصدير سريع لفواتير وعروض الأسعار لمشاركتها على شبكات التواصل</span>
-                </div>
+                {cms.sections.smartCatalog.bullets.map((bullet, idx) => (
+                  <div key={idx} className="flex items-center gap-2 justify-center lg:justify-start">
+                    <Check className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>{bullet}</span>
+                  </div>
+                ))}
               </div>
 
               <div className="pt-4">
@@ -859,7 +775,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   onClick={onOpenRegister}
                   className="px-6 py-3 rounded-2xl font-bold text-sm sm:text-base bg-amber-500 hover:bg-amber-600 text-stone-950 shadow-md active:scale-95 transition-all cursor-pointer"
                 >
-                  صمّم كتالوج ورشتك الآن مجاناً 📖
+                  {cms.sections.smartCatalog.ctaText}
                 </button>
               </div>
             </div>
@@ -867,10 +783,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 5.3 Marketplace & Store: متجرك المستقل وسوق الشمساوية التكاملي  */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.craftStore.visible && (
       <section id="craft-store" className="py-16 md:py-24 border-b border-[#D4CCBC] dark:border-[#22355E] bg-gradient-to-b from-[#F2ECE1] via-[#EBE4D6] to-[#F2ECE1] dark:from-[#060B18] dark:via-[#0D162E] dark:to-[#060B18]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col lg:flex-row items-center justify-between gap-12">
@@ -878,43 +796,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex-1 space-y-5 text-center lg:text-right">
               <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 text-xs font-black border border-amber-500/30">
                 <Store className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                <span>أول وأكبر سوق للحرف اليدوية (Multi-Vendor Marketplace)</span>
+                <span>{cms.sections.craftStore.badge}</span>
               </div>
               
               <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight">
-                سوق الشمساوية.. <br />
-                <span className="text-[#C2410C] dark:text-amber-400">أول منصة متعددة التجار متخصصة لفناني وصنّاع الحرف اليدوية في مصر والعالم العربي!</span>
+                {cms.sections.craftStore.titleLine1} <br />
+                <span className="text-[#C2410C] dark:text-amber-400">{cms.sections.craftStore.titleHighlight}</span>
               </h2>
 
               <p className="text-base sm:text-lg text-[#334155] dark:text-[#CBD5E1] leading-relaxed font-medium">
-                بمجرد فتح ورشتك، ووضع منتجاتك.. هتسمّع معاك في الأرشيف والكتالوج، ومنه بضغطة زر واحدة هتقدر تصدر منتجاتك لمتجرك الخاص، وهتحصل تلقائياً على <strong>واجهة متجر رقمي مستقلة</strong> بهويتك وعلامتك، مع إدراج مشغولاتك المعتمدة فوراً داخل <span className="text-amber-600 dark:text-amber-300 font-bold">سوق الشمساوية العام</span> للوصول لآلاف العملاء وتجار الجملة وعشاق الهاند ميد في مصر والخليج دون وسطاء ولا عمولات خفية.
+                {cms.sections.craftStore.description}
               </p>
 
               <div className="space-y-3 pt-2 text-sm font-bold text-stone-800 dark:text-stone-200">
-                <div className="flex items-start gap-2.5 justify-center lg:justify-start">
-                  <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
+                {cms.sections.craftStore.bullets.map((bullet, idx) => (
+                  <div key={idx} className="flex items-start gap-2.5 justify-center lg:justify-start">
+                    <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                    </div>
+                    <span>{bullet}</span>
                   </div>
-                  <span><strong>متجر رقمي مستقل:</strong> رابط خاص باسم ورشتك وشعارك لعرض أعمالك واستقبال طلبات الزبائن مباشرة.</span>
-                </div>
-                <div className="flex items-start gap-2.5 justify-center lg:justify-start">
-                  <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
-                  </div>
-                  <span><strong>تصنيف ذكي حسب نوع الحرفة:</strong> تبويب دقيق للمكرمية، الجلود الطبيعية، الفخار والخزف، الكروشيه، والأخشاب مع تقييمات العملاء الموثقة.</span>
-                </div>
-                <div className="flex items-start gap-2.5 justify-center lg:justify-start">
-                  <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
-                  </div>
-                  <span><strong>فتح أبواب جديدة لتوريدات الجملة والتصدير:</strong> نافذة لتوريد المعارض الكبرى والفنادق والديكور الداخلي خليجياً ودولياً بربحية عادلة.</span>
-                </div>
-                <div className="flex items-start gap-2.5 justify-center lg:justify-start">
-                  <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
-                  </div>
-                  <span><strong>ربط فوري بمخزن المنتجات والخزينة:</strong> كل مبيعة من المتجر تُخصم فوراً من رصيد مخزن المنتجات تامة التصنيع، وتسمّع في خزينتك تلقائياً بدون تكرار، مع تقارير فورية وتنبيهات حصرية.</span>
-                </div>
+                ))}
               </div>
 
               <div className="pt-4 flex flex-wrap items-center gap-3 justify-center lg:justify-start">
@@ -923,7 +825,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   onClick={onOpenRegister}
                   className="px-7 py-3.5 rounded-2xl font-black text-sm sm:text-base bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-xl shadow-amber-900/30 active:scale-95 transition-all cursor-pointer border border-amber-400/40"
                 >
-                  افتح متجرك واعرض شغلك في سوق الشمساوية 🛍️
+                  {cms.sections.craftStore.ctaText}
                 </button>
               </div>
             </div>
@@ -989,10 +891,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 6. Section 4: "صيانة عِددك وخطوط إنتاجك" (Equipment Health)      */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.toolMaintenance.visible && (
       <section id="tool-maintenance" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-stone-100/60 dark:bg-stone-900/40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           
@@ -1001,31 +905,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex-1 space-y-4 text-center lg:text-right">
               <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs font-bold border border-amber-500/20">
                 <Wrench className="w-3.5 h-3.5" />
-                <span>حماية خطوط الإنتاج والعدد</span>
+                <span>{cms.sections.toolMaintenance.badge}</span>
               </div>
               
               <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white leading-tight">
-                صيانة عِددك وخطوط إنتاجك.. <br />
-                <span className="text-amber-600 dark:text-amber-400">شغلك ميعطلش في عز الموسم!</span>
+                {cms.sections.toolMaintenance.titleLine1} <br />
+                <span className="text-amber-600 dark:text-amber-400">{cms.sections.toolMaintenance.titleHighlight}</span>
               </h2>
 
               <p className="text-base sm:text-lg text-stone-600 dark:text-stone-300 leading-relaxed">
-                مقص اتكسر، ماكينة خياطة وقفت وقت تسليم أوردر مستعجل، أو شنيور محتاج تزييت؟ المنظومة بتديك تنبيه وقائي دوري لكل ماكينة وأداة في ورشتك، وبتحسب نسبة إهلاكها تلقائياً ضمن تكلفة المنتج عشان رأس مالك يفضل شغال ومحمي.
+                {cms.sections.toolMaintenance.description}
               </p>
 
               <div className="space-y-2 pt-2 text-sm font-semibold text-stone-700 dark:text-stone-300">
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-emerald-500" />
-                  <span>تتبع مواعيد الصيانة الدورية وتغيير السيور والزيوت</span>
-                </div>
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-emerald-500" />
-                  <span>حساب إهلاك العدد والمعدات بالمليم في تكلفة كل قطعة</span>
-                </div>
-                <div className="flex items-center gap-2 justify-center lg:justify-start">
-                  <Check className="w-4 h-4 text-emerald-500" />
-                  <span>تاريخ وسجل إصلاحات الأصول لمنع المفاجآت المكلفة</span>
-                </div>
+                {cms.sections.toolMaintenance.bullets.map((bullet, idx) => (
+                  <div key={idx} className="flex items-center gap-2 justify-center lg:justify-start">
+                    <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>{bullet}</span>
+                  </div>
+                ))}
               </div>
 
               <div className="pt-4">
@@ -1034,7 +932,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   onClick={onOpenRegister}
                   className="px-6 py-3 rounded-2xl font-bold text-sm sm:text-base bg-amber-500 hover:bg-amber-600 text-stone-950 shadow-md active:scale-95 transition-all cursor-pointer"
                 >
-                  احمي خط إنتاجك وافتح ورشتك الآن 🛠️
+                  {cms.sections.toolMaintenance.ctaText}
                 </button>
               </div>
             </div>
@@ -1076,100 +974,47 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 7. Section 5: "حكايات نجاح من قلب ورش الشمساوية ⭐"             */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.reviews.visible && (
       <section id="reviews" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-white dark:bg-stone-950">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center max-w-3xl mx-auto mb-14 space-y-3">
             <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs font-bold border border-amber-500/20">
               <Award className="w-3.5 h-3.5" />
-              <span>شهادات حقيقية من صناع الهاند ميد</span>
+              <span>{cms.sections.reviews.badge}</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white">
-              حكايات نجاح من قلب ورش الشمساوية ⭐
+              {cms.sections.reviews.title}
             </h2>
             <p className="text-base sm:text-lg text-stone-600 dark:text-stone-400 leading-relaxed">
-              فنانين وحرفيين قدروا ينقلوا ورشهم لمستوى تاني من الاستقرار والمكسب.
+              {cms.sections.reviews.subtitle}
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            
-            {/* Review 1 */}
-            <div className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 flex flex-col justify-between space-y-4 hover:border-amber-500/40 transition-all">
-              <div className="space-y-3">
-                <div className="flex items-center gap-1 text-amber-400">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400" />
-                  ))}
+            {cms.sections.reviews.items.map((rev, idx) => (
+              <div key={rev.id || idx} className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 flex flex-col justify-between space-y-4 hover:border-amber-500/40 transition-all">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-1 text-amber-400">
+                    {[...Array(Math.max(1, Math.min(5, rev.rating || 5)))].map((_, i) => (
+                      <Star key={i} className="w-4 h-4 fill-amber-400" />
+                    ))}
+                  </div>
+                  <p className="text-sm text-stone-700 dark:text-stone-300 leading-relaxed italic">
+                    "{rev.quote}"
+                  </p>
                 </div>
-                <p className="text-sm text-stone-700 dark:text-stone-300 leading-relaxed italic">
-                  "قبل الشمساوية كنت ببيع الجدارية بسعر الخامة ومبحسبش تعب إيدي! المنظومة فهمتني إزاي أسعر ساعة شغلي وأكسب صح."
-                </p>
-              </div>
-              <div className="pt-3 border-t border-stone-200 dark:border-stone-800">
-                <p className="font-bold text-sm text-stone-900 dark:text-white">مريم فهمي</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold">ورشة نغم المكرمية (القاهرة)</p>
-              </div>
-            </div>
-
-            {/* Review 2 */}
-            <div className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 flex flex-col justify-between space-y-4 hover:border-amber-500/40 transition-all">
-              <div className="space-y-3">
-                <div className="flex items-center gap-1 text-amber-400">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400" />
-                  ))}
+                <div className="pt-3 border-t border-stone-200 dark:border-stone-800">
+                  <p className="font-bold text-sm text-stone-900 dark:text-white">{rev.author}</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold">{rev.workshop}</p>
                 </div>
-                <p className="text-sm text-stone-700 dark:text-stone-300 leading-relaxed italic">
-                  "حاسبة الخامات أسطورية! بطلت اشتري بكر زيادة يركن في الدولاب.. الهدر قل بنسبة 80% وكل مليم في مكانه."
-                </p>
               </div>
-              <div className="pt-3 border-t border-stone-200 dark:border-stone-800">
-                <p className="font-bold text-sm text-stone-900 dark:text-white">منى عادل</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold">ورشة غرزة وسنارة (الإسكندرية)</p>
-              </div>
-            </div>
-
-            {/* Review 3 */}
-            <div className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 flex flex-col justify-between space-y-4 hover:border-amber-500/40 transition-all">
-              <div className="space-y-3">
-                <div className="flex items-center gap-1 text-amber-400">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400" />
-                  ))}
-                </div>
-                <p className="text-sm text-stone-700 dark:text-stone-300 leading-relaxed italic">
-                  "نظام العهد والخزن حللي مشكلة الفلوس اللي كانت بتضيع مع العمال.. بدوسة زرار بعرف متبقي إيه عند مين بالقرش."
-                </p>
-              </div>
-              <div className="pt-3 border-t border-stone-200 dark:border-stone-800">
-                <p className="font-bold text-sm text-stone-900 dark:text-white">عم إبراهيم النوبي</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold">ورشة أصيل للخوص والجريد (أسوان)</p>
-              </div>
-            </div>
-
-            {/* Review 4 */}
-            <div className="p-6 rounded-3xl bg-stone-50 dark:bg-stone-900/80 border border-stone-200 dark:border-stone-800 flex flex-col justify-between space-y-4 hover:border-amber-500/40 transition-all">
-              <div className="space-y-3">
-                <div className="flex items-center gap-1 text-amber-400">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400" />
-                  ))}
-                </div>
-                <p className="text-sm text-stone-700 dark:text-stone-300 leading-relaxed italic">
-                  "التنبيه الوقائي لأفران الحرق وصيانة المعدات وفر عليا آلاف الجنيهات في تصليحات فجائية وقت ضغط الشغل."
-                </p>
-              </div>
-              <div className="pt-3 border-t border-stone-200 dark:border-stone-800">
-                <p className="font-bold text-sm text-stone-900 dark:text-white">كريم ناصر</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold">ورشة صلصال الفن (قنا)</p>
-              </div>
-            </div>
-
+            ))}
           </div>
 
           {/* Interactive Review / Suggestion Button */}
@@ -1179,124 +1024,88 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               onClick={() => setIsFeedbackModalOpen(true)}
               className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-sm bg-stone-100 dark:bg-stone-900 border border-amber-500/40 text-stone-800 dark:text-stone-200 hover:bg-amber-500/10 hover:border-amber-500 active:scale-95 transition-all cursor-pointer shadow-xs"
             >
-              <span>شاركنا رأيك أو اقتراحك لورشتك القادمة 💡</span>
+              <span>{cms.sections.reviews.feedbackCtaText}</span>
             </button>
           </div>
 
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 8. Section 6: "جديد عيلة الشمساوية.. إيه اللي طورناه لورشتك؟"   */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.whatsNew.visible && (
       <section id="whats-new" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-stone-100/60 dark:bg-stone-900/40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center max-w-3xl mx-auto mb-14 space-y-3">
             <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-400 text-xs font-bold border border-cyan-500/20">
               <Zap className="w-3.5 h-3.5" />
-              <span>تطويرات مستمرة ومباشرة</span>
+              <span>{cms.sections.whatsNew.badge}</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white">
-              جديد عيلة الشمساوية.. إيه اللي طورناه لورشتك؟
+              {cms.sections.whatsNew.title}
             </h2>
             <p className="text-base sm:text-lg text-stone-600 dark:text-stone-400 leading-relaxed">
-              كل أسبوع بنضيف مزايا عملية تخدم سير شغلك وتريح بالك المالي والإنتاجي.
+              {cms.sections.whatsNew.subtitle}
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            <div className="p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2.5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-800 dark:text-amber-300">ميزة حية</span>
-                <span className="text-xs text-stone-400 font-mono">V 2.6</span>
-              </div>
-              <h3 className="font-bold text-base text-stone-900 dark:text-white">
-                ميزان السيولة والمطابقة الفوري
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                كشف حي ومطابقة فورية لما هو متوفر في الخزائن الحقيقية والعهد وإنستاباي مع الدفتر المحاسبي بدون أي فروقات.
-              </p>
-            </div>
-
-            <div className="p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2.5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-800 dark:text-emerald-300">ذكاء اصطناعي</span>
-                <span className="text-xs text-stone-400 font-mono">V 2.6</span>
-              </div>
-              <h3 className="font-bold text-base text-stone-900 dark:text-white">
-                دمج صقر وشموسة بأرقام الورشة الحقيقية
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                إجابات الذكاء الاصطناعي أصبحت مبنية على رصيد خزينتك الحالي، ونواقص خاماتك، وأوامر التشغيل المفتوحة فعلياً.
-              </p>
-            </div>
-
-            <div className="p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2.5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-black px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-800 dark:text-purple-300">حماية وإنتاج</span>
-                <span className="text-xs text-stone-400 font-mono">V 2.6</span>
-              </div>
-              <h3 className="font-bold text-base text-stone-900 dark:text-white">
-                قفل واعتماد الشهر المالي والمسار السريع
-              </h3>
-              <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
-                إغلاق دفاتر الشهر المالي بلمسة واحدة لحماية الإيرادات من التعديل، مع صرف خامات وتوريد منتج تام سريع.
-              </p>
-            </div>
-
+            {cms.sections.whatsNew.items.map((item, idx) => {
+              const badgePalette = [
+                'bg-amber-500/20 text-amber-800 dark:text-amber-300',
+                'bg-emerald-500/20 text-emerald-800 dark:text-emerald-300',
+                'bg-purple-500/20 text-purple-800 dark:text-purple-300',
+              ];
+              return (
+                <div key={item.id || idx} className="p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2.5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[11px] font-black px-2 py-0.5 rounded-md ${badgePalette[idx % badgePalette.length]}`}>{item.tag}</span>
+                    <span className="text-xs text-stone-400 font-mono">{item.version}</span>
+                  </div>
+                  <h3 className="font-bold text-base text-stone-900 dark:text-white">
+                    {item.title}
+                  </h3>
+                  <p className="text-xs sm:text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
+                    {item.description}
+                  </p>
+                </div>
+              );
+            })}
           </div>
 
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 8.5 FAQ Accordion: الأسئلة الشائعة من صناع الهاند ميد         */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.faq.visible && (
       <section id="faq-section" className="py-16 md:py-24 border-b border-stone-200 dark:border-stone-800/80 bg-white dark:bg-stone-950">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           
           <div className="text-center max-w-2xl mx-auto mb-12 space-y-3">
             <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs font-bold border border-amber-500/20">
               <HelpCircle className="w-3.5 h-3.5" />
-              <span>إجابات واضحة ومباشرة</span>
+              <span>{cms.sections.faq.badge}</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-black text-stone-900 dark:text-white">
-              الأسئلة الشائعة من صناع الهاند ميد
+              {cms.sections.faq.title}
             </h2>
             <p className="text-base sm:text-lg text-stone-600 dark:text-stone-400 leading-relaxed">
-              كل اللي يدور في بالك عن المنظومة وحسابات الورشة وحماية أسرارك المهنية.
+              {cms.sections.faq.subtitle}
             </p>
           </div>
 
           <div className="space-y-3.5">
-            {[
-              {
-                q: 'هل المنظومة صعبة أو محتاجة خبرة في الكمبيوتر والمحاسبة؟',
-                a: 'أبداً! المنظومة مصممة بالكامل بلغة عربية مصرية بسيطة وسلسة، وخالية تماماً من المصطلحات المعقدة. لو بتعرف تستخدم واتساب هتتعلم تدير ورشتك وتسجل فواتيرك وتصرف خاماتك في أقل من 5 دقائق.',
-              },
-              {
-                q: 'إزاي المنظومة بتحسب تكلفة الهدر وساعات التعب بدقة؟',
-                a: 'حاسبة التكاليف الذكية بتطلب منك أطوال الخامات الأساسية ووقت العمل، وبتحسب تلقائياً نسبة الهدر الطبيعي (شراشيب، قصائص)، ونسبة استهلاك العِدد والكهرباء، وتضيف هامش ربح الورشة المعتمد لتصل لسعر بيع عادل ومربح.',
-              },
-              {
-                q: 'هل تفاصيل خاماتي وأسعار مشغولاتي وتصاميمي في أمان وخصوصية؟',
-                a: 'بكل تأكيد! بيانات كل ورشة معزولة ومحمية بالكامل في قاعدة بيانات خاصة مشفرة. لا يمكن لأي ورشة أو صانع آخر الاطلاع على أسرار تركيباتك أو أسعار مورديك أو تصميماتك الخاصة.',
-              },
-              {
-                q: 'إيه الفرق بين دور صقر الشمساوية ودور شموسة؟',
-                a: 'صقر 🦅 هو مستشارك التقني والحسابي للأطوال والغرز وحسابات التكلفة والاستشارات الفنية. أما شموسة ☀️ فهي مديرة أعمال ورشتك: تفكرك بمواعيد تسليم الزباين، تنبهك بنواقص الخامات، وتطابق لك السيولة النقدية في الخزائن والعهد أولاً بأول.',
-              },
-              {
-                q: 'هل أقدر أستخدم المنظومة من الموبايل في قلب الورشة؟',
-                a: 'نعم 100%! المنظومة متوافقة تماماً وتعمل بسلاسة فائقة على شاشات الموبايل والتابلت والكمبيوتر، تقدر تصرف خامة أو تسلم منتج وأنت واقف مع الصنايعية في قلب الورشة بلمسة زر واحدة.',
-              },
-            ].map((faq, idx) => {
+            {cms.sections.faq.items.map((faq, idx) => {
               const isOpen = openFaq === idx;
               return (
                 <div
-                  key={idx}
+                  key={faq.id || idx}
                   className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
                     isOpen
                       ? 'border-amber-400 bg-amber-50/40 dark:bg-amber-950/20 shadow-xs'
@@ -1334,20 +1143,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 9. Final High-Impact Call To Action Banner                     */}
       {/* ------------------------------------------------------------- */}
+      {cms.sections.finalCta.visible && (
       <section className="py-16 md:py-20 relative overflow-hidden bg-gradient-to-br from-amber-600 via-amber-700 to-stone-950 text-white">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6 relative z-10">
-          <AlShamsFalconEmblem size="lg" className="mx-auto drop-shadow-xl animate-bounce-subtle" />
+          <AlShamsFalconEmblem size="lg" isDark={true} className="mx-auto drop-shadow-xl animate-bounce-subtle" />
           
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight">
-            مستني إيه؟ افتح ورشتك في عيلة الشمساوية اليوم
+            {cms.sections.finalCta.title}
           </h2>
 
           <p className="text-base sm:text-lg text-amber-100 max-w-2xl mx-auto font-medium">
-            انضم لمئات الحرفيين والصناع في مصر والوطن العربي.. نظم حساباتك، احسب أرباحك، وسيب صقر وشموسة يشيلوا عنك عبء الإدارة.
+            {cms.sections.finalCta.subtitle}
           </p>
 
           <div className="pt-2">
@@ -1356,11 +1167,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               onClick={onOpenRegister}
               className="px-8 py-4 rounded-2xl font-black text-lg bg-stone-950 hover:bg-stone-900 text-amber-300 shadow-2xl hover:scale-105 active:scale-95 transition-all cursor-pointer border border-amber-400/40"
             >
-              افتح ورشتك في ثواني مجاناً 🌟
+              {cms.sections.finalCta.ctaText}
             </button>
           </div>
         </div>
       </section>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 10. Footer                                                    */}
@@ -1370,26 +1182,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="flex flex-col md:flex-row items-center justify-between gap-6 pb-8 border-b border-stone-800">
             
             <div className="flex items-center gap-3">
-              <AlShamsFalconEmblem size="sm" />
+              <AlShamsFalconEmblem size="sm" isDark={true} />
               <div>
-                <p className="font-bold text-white text-base">منظومة الشمساوية</p>
-                <p className="text-xs text-stone-500">نظام إدارة الإنتاج والتسعير والمالية لورش الهاند ميد</p>
+                <p className="font-bold text-white text-base">{cms.sections.footer.brandTitle}</p>
+                <p className="text-xs text-stone-500">{cms.sections.footer.brandSubtitle}</p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-6 text-xs font-semibold">
-              <a href="#safe-accounts" className="hover:text-amber-400 transition-colors">عقلك الحرفي</a>
-              <a href="#ai-partners" className="hover:text-amber-400 transition-colors">صقر وشموسة AI</a>
-              <a href="#craft-lifecycle" className="hover:text-amber-400 transition-colors">رحلة المشغولة</a>
-              <a href="#tool-maintenance" className="hover:text-amber-400 transition-colors">صيانة العِدد</a>
-              <a href="#reviews" className="hover:text-amber-400 transition-colors">حكايات الورش</a>
+              {cms.header.navLinks.map((link) => (
+                <a key={link.id} href={link.href} className="hover:text-amber-400 transition-colors">
+                  {link.label}
+                </a>
+              ))}
             </div>
 
           </div>
 
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500">
-            <p>صُنع بكل فخر وإتقان بأيادٍ مصرية لدعم الحرفيين وصناع الإبداع © 2026</p>
-            <p>منظومة الشمساوية • رحلة كفاح تتحول لنجاح</p>
+            <p>{cms.sections.footer.copyrightText}</p>
+            <p>{cms.sections.footer.subTagline}</p>
           </div>
         </div>
       </footer>
