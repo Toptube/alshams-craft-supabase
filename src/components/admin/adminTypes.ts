@@ -6,6 +6,7 @@ export type AdminPageId =
   | 'customers'
   | 'suppliers'
   | 'marketplace'
+  | 'suppliers_market'
   | 'stores'
   | 'catalogs'
   | 'applications'
@@ -50,6 +51,7 @@ export function mapExecutiveTabToPage(tab?: ExecutiveTab): { page: AdminPageId; 
     case 'customers':
     case 'suppliers':
     case 'marketplace':
+    case 'suppliers_market':
     case 'stores':
     case 'catalogs':
     case 'applications':

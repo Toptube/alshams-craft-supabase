@@ -136,6 +136,13 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       onClick: () => onNavigatePage('marketplace'),
     },
     {
+      id: 'suppliers_market',
+      label: 'موردين الشمساوية',
+      icon: <Boxes className="w-5 h-5 sm:w-6 sm:h-6 text-amber-800 dark:text-[#FBBF24]" />,
+      circleClass: 'bg-amber-100 dark:bg-amber-950/60 border-amber-300/60 dark:border-amber-700/60',
+      onClick: () => onNavigatePage('suppliers_market'),
+    },
+    {
       id: 'stores',
       label: 'إدارة المتاجر',
       icon: <Store className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-700 dark:text-indigo-300" />,

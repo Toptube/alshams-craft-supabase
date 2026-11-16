@@ -36,6 +36,7 @@ import { firestoreService } from '../../db/firestoreService';
 import { playTaskDoneSound, playButtonClickSound, playSuccessSound } from '../../lib/sounds';
 import { dispatchArtisanNotification } from '../../lib/pushNotifications';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
+import { fetchSupplierErpOverview } from '../../db/supplierErpService';
 
 export interface ShamousaActionLink {
   label: string;
@@ -123,6 +124,18 @@ function detectNavigationIntent(text: string, isSupplier = false): ShamousaActio
   if (lower.includes('عيلة الشمساوية') || lower.includes('طبلية العيلة') || lower.includes('فتح المنتدى') || lower.includes('الشات العائلي')) {
     return { label: 'فتح مجتمع عيلة الشمساوية 👨‍👩‍👧‍👦', view: 'family' };
   }
+  if (isSupplier && (lower.includes('مركز القيادة') || lower.includes('الفروع') || lower.includes('شجرة الفروع') || lower.includes('توريدات'))) {
+    return { label: 'فتح مركز قيادة الفروع والخزينة 🌿', view: 'supplier_erp_hub' };
+  }
+  if (isSupplier && (lower.includes('كاشير') || lower.includes('نقاط البيع') || lower.includes('pos') || lower.includes('وردية') || lower.includes('شفت'))) {
+    return { label: 'فتح كاشير نقاط البيع (POS) 🛒', view: 'supplier_pos' };
+  }
+  if (isSupplier && (lower.includes('كارت الصنف') || lower.includes('مصانع') || lower.includes('تحويل مخزن') || lower.includes('جرد الفروع'))) {
+    return { label: 'فتح المخازن وكارت الصنف والمصانع 🏭', view: 'supplier_warehouse_erp' };
+  }
+  if (isSupplier && (lower.includes('تثبيت') || lower.includes('موظف') || lower.includes('حضور') || lower.includes('hr') || lower.includes('kiosk'))) {
+    return { label: 'فتح شؤون العاملين وتثبيت الأجهزة 🖥️', view: 'supplier_hr_terminal' };
+  }
   if (isSupplier && (lower.includes('كتالوج الخامات') || lower.includes('شرائح الكميات') || lower.includes('تنبيه عروض'))) {
     return { label: 'فتح كتالوج الخامات والشرائح 📦', view: 'supplier_catalog' };
   }
@@ -142,16 +155,16 @@ function detectNavigationIntent(text: string, isSupplier = false): ShamousaActio
     return { label: 'فتح حاسبة التكاليف 🧮', view: 'calculator' };
   }
   if (lower.includes('فتح الخزن') || lower.includes('شاشة الخزينة') || lower.includes('صفحة الخزائن')) {
-    return { label: 'فتح الخزائن والأرصدة', view: isSupplier ? 'supplier_finance' : 'treasuries' };
+    return { label: 'فتح الخزائن والأرصدة', view: isSupplier ? 'supplier_erp_hub' : 'treasuries' };
   }
   if (lower.includes('فتح المخزن') || lower.includes('شاشة الخامات')) {
-    return { label: 'فتح سجل الخامات والمخزون', view: isSupplier ? 'supplier_catalog' : 'materials' };
+    return { label: 'فتح سجل الخامات والمخزون', view: isSupplier ? 'supplier_warehouse_erp' : 'materials' };
   }
   if (lower.includes('فتح المنتجات') || lower.includes('كتالوج المنتجات')) {
     return { label: 'فتح كتالوج المنتجات', view: 'catalog' };
   }
   if (lower.includes('فتح المبيعات') || lower.includes('شاشة الطلبات')) {
-    return { label: 'فتح سجل المبيعات والطلبات', view: isSupplier ? 'supplier_orders' : 'sales' };
+    return { label: 'فتح سجل المبيعات والطلبات', view: isSupplier ? 'supplier_pos' : 'sales' };
   }
   if (lower.includes('سجل العملاء') || lower.includes('شاشة العملاء')) {
     return { label: 'فتح قائمة العملاء', view: isSupplier ? 'supplier_customers' : 'customers' };
@@ -178,9 +191,23 @@ export function detectKeywordActionChips(text: string, isSupplier = false): Smar
     chips.push({ id: 'chip_family', label: 'طبلية عيلة الشمساوية 👨‍👩‍👧‍👦', view: 'family' });
   }
 
+  // 0b. إدارة الفروع وتثبيت الأجهزة والـ POS للمورد
+  if (isSupplier && /فرع|فروع|شجرة|مركزي|توريد|استلام الفلوس|اعتماد|خزن|معانا كام/i.test(lower)) {
+    chips.push({ id: 'chip_sup_erp_hub', label: 'مركز قيادة الفروع والخزينة 🌿', view: 'supplier_erp_hub' });
+  }
+  if (isSupplier && /كاشير|pos|نقطة بيع|وردية|شفت|انستاباي|إنستاباي|محفظة|بيع مباشر|كسر|وزن/i.test(lower)) {
+    chips.push({ id: 'chip_sup_pos', label: 'كاشير نقاط البيع (POS) 🛒', view: 'supplier_pos' });
+  }
+  if (isSupplier && /كارت الصنف|مصنع|مصانع|علينا كام|طرد|تحويل|جرد/i.test(lower)) {
+    chips.push({ id: 'chip_sup_wh', label: 'المخازن وكارت الصنف والمصانع 🏭', view: 'supplier_warehouse_erp' });
+  }
+  if (isSupplier && /تثبيت|kiosk|جهاز|موظف|حضور|انصراف|سلف|جزاء|حافز|باسورد|pin/i.test(lower)) {
+    chips.push({ id: 'chip_sup_hr', label: 'شؤون العاملين وتثبيت الأجهزة 🖥️', view: 'supplier_hr_terminal' });
+  }
+
   // 1. الخزينة / الفلوس / السيولة / الكاش / المصروف
-  if (/خزن|خزنة|خزينة|سيول|سيولة|فلوس|كاش|نقدية|مصروف/i.test(lower)) {
-    chips.push({ id: 'chip_treasuries', label: 'فتح الخزائن والأرصدة 💰', view: isSupplier ? 'supplier_finance' : 'treasuries' });
+  if (/خزن|خزنة|خزينة|سيول|سيولة|فلوس|كاش|نقدية|مصروف|آجل|لينا بره/i.test(lower)) {
+    chips.push({ id: 'chip_treasuries', label: 'فتح الخزائن والأرصدة 💰', view: isSupplier ? 'supplier_erp_hub' : 'treasuries' });
     if (!isSupplier) {
       chips.push({ id: 'chip_expenses', label: 'تسجيل مصروف وحركة نقدية 💵', action: 'open_expenses', view: 'treasuries' });
     }
@@ -199,7 +226,7 @@ export function detectKeywordActionChips(text: string, isSupplier = false): Smar
 
   // 3. المبيعات / الفواتير / العملاء / الطلبيات / المتجر
   if (/بيع|مبيعات|فاتورة|فواتير|عميل|عملاء|طلب|طلبية|أوردر|متجر|سوق/i.test(lower)) {
-    chips.push({ id: 'chip_sales', label: isSupplier ? 'أوردرات التوريد والمتجر 🧾' : 'تسجيل بيع جديد 🧾', view: isSupplier ? 'supplier_orders' : 'sales' });
+    chips.push({ id: 'chip_sales', label: isSupplier ? 'كاشير POS وأوردرات التوريد 🧾' : 'تسجيل بيع جديد 🧾', view: isSupplier ? 'supplier_pos' : 'sales' });
     chips.push({ id: 'chip_custs', label: 'سجل العملاء والحسابات 👥', view: isSupplier ? 'supplier_customers' : 'customers' });
   }
 
@@ -344,8 +371,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     : 'الورشة الحرفية';
 
   const welcomeMessage = isSupplierAccount
-    ? "أهلاً بيك يا شريكنا! ☀️ منور بوابة الموردين..\nطمني حابب تراجع كتالوج الخامات وشرائح الأسعار ولا أوردرات الورش والخزينة؟"
-    : "أهلاً بيك يا بطل! ☀️ منورة ورشتنا..\nطمني حابب تتابع أوردراتك ولا تراجع الخزينة والمخزن؟";
+    ? `أهلاً بيك يا ${firstName}! ☀️ منور بوابة الموردين..\nطمني حابب تراجع خزائن الفروع والكاشير (POS) ولا المخازن ومستحقات المصانع والعملاء؟`
+    : `أهلاً بيك يا ${firstName}! ☀️ منورة ورشتنا..\nطمني حابب تتابع أوردراتك ولا تراجع الخزينة والمخزن؟`;
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'tasks_agenda'>('chat');
@@ -906,31 +933,39 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       let lowMaterialsList: string[] = [];
       let openWorkOrdersList: string[] = [];
       let pendingOrdersCount = 0;
+      let supplierErpOverviewData: any = null;
 
       try {
-        const [mats, wOrders, ords] = await Promise.all([
-          tenantStorage.getRawMaterials(workshopId).catch(() => []),
-          tenantStorage.getWorkOrders(workshopId).catch(() => []),
-          tenantStorage.getOrders(workshopId).catch(() => []),
-        ]);
+        if (isSupplierAccount) {
+          supplierErpOverviewData = await fetchSupplierErpOverview().catch(() => null);
+          if (supplierErpOverviewData?.kpis) {
+            currentTreasury = Number(supplierErpOverviewData.kpis.totalCashOnHand ?? currentTreasury);
+          }
+        } else {
+          const [mats, wOrders, ords] = await Promise.all([
+            tenantStorage.getRawMaterials(workshopId).catch(() => []),
+            tenantStorage.getWorkOrders(workshopId).catch(() => []),
+            tenantStorage.getOrders(workshopId).catch(() => []),
+          ]);
 
-        const lowMats = (mats || []).filter(
-          (m) => (Number(m.currentStock) || 0) <= (Number(m.minAlertThreshold) || 5)
-        );
-        lowMaterialsList = lowMats.map(
-          (m) => `${m.materialName} (الرصيد: ${m.currentStock} ${m.unit || 'وحدة'} - حد الأمان: ${m.minAlertThreshold || 5})`
-        );
+          const lowMats = (mats || []).filter(
+            (m) => (Number(m.currentStock) || 0) <= (Number(m.minAlertThreshold) || 5)
+          );
+          lowMaterialsList = lowMats.map(
+            (m) => `${m.materialName} (الرصيد: ${m.currentStock} ${m.unit || 'وحدة'} - حد الأمان: ${m.minAlertThreshold || 5})`
+          );
 
-        const openOrders = (wOrders || []).filter(
-          (w) => w.status === 'open' || w.status === 'in_progress'
-        );
-        openWorkOrdersList = openOrders.map(
-          (w) => `#${w.orderNumber}: "${w.productName}" (${w.status === 'in_progress' ? 'قيد التصنيع' : 'بانتظار الصرف'} - الصانع: ${w.assignedEmployeeName || 'حرفي'})`
-        );
+          const openOrders = (wOrders || []).filter(
+            (w) => w.status === 'open' || w.status === 'in_progress'
+          );
+          openWorkOrdersList = openOrders.map(
+            (w) => `#${w.orderNumber}: "${w.productName}" (${w.status === 'in_progress' ? 'قيد التصنيع' : 'بانتظار الصرف'} - الصانع: ${w.assignedEmployeeName || 'حرفي'})`
+          );
 
-        pendingOrdersCount = (ords || []).filter(
-          (o) => o.status !== 'delivered' && o.status !== 'completed' && o.status !== 'cancelled'
-        ).length;
+          pendingOrdersCount = (ords || []).filter(
+            (o) => o.status !== 'delivered' && o.status !== 'completed' && o.status !== 'cancelled'
+          ).length;
+        }
       } catch (ctxErr) {
         console.warn('Live context fetch warning:', ctxErr);
       }
@@ -948,7 +983,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           history,
           useSearch: useGoogleSearch,
           artistName: firstName,
-          brandName: profile.brandName || 'الورشة الحرفية',
+          brandName: profile.brandName || (isSupplierAccount ? 'بوابة المورد' : 'الورشة الحرفية'),
           workshopId,
           userEmail: profile.email || '',
           accountRole: isSupplierAccount ? 'supplier' : 'artisan',
@@ -960,6 +995,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             openWorkOrdersCount: openWorkOrdersList.length,
             openWorkOrdersList,
             pendingOrdersCount,
+            ...(supplierErpOverviewData ? { supplierErpOverview: supplierErpOverviewData } : {}),
           },
         }),
       });

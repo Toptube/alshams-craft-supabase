@@ -1,15 +1,29 @@
+import fs from 'fs';
+import path from 'path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 /**
- * أدوات قاعدة بيانات الورشة لمساعدة البيانات "شموسة" (Function Calling)
+ * أدوات قاعدة بيانات الورشة والمورد لمساعدة البيانات "شموسة" (Function Calling)
  * -------------------------------------------------------------
- * - قراءة الأرقام والبيانات الحقيقية فقط من Supabase بدون أي قيم افتراضية.
- * - عزل تام للورش عبر workshop_id.
+ * - قراءة الأرقام والبيانات الحقيقية فقط من Supabase وملفات التكامل المحلية.
+ * - عزل تام (Strict Tenant Isolation) بين الورش (workshop_id) وبين الموردين (supplier_id).
  */
 
 const MAX_ROWS = 1000;
 const MAX_RESULTS = 20;
 const HIDE_COSTS = process.env.FALCON_HIDE_COSTS === 'true';
+
+function readLocalJsonArray<T = any>(filename: string): T[] {
+  try {
+    const fp = path.join(process.cwd(), 'data', filename);
+    if (!fs.existsSync(fp)) return [];
+    const raw = fs.readFileSync(fp, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 export function normalizeArabic(input: string): string {
   return String(input || '')
@@ -44,18 +58,18 @@ export interface ToolSchema {
 export const workshopToolSchemas: ToolSchema[] = [
   {
     name: 'search_materials',
-    description: 'يبحث في خامات الورشة (خيوط، ريزن، خشب...) ويرجع الكميات المتبقية وسعر الشراء والمورد والنواقص.',
+    description: 'يبحث في خامات الورشة أو مخزون فروع المورد ويرجع الكميات المتبقية والأسعار والنواقص.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'اسم الخامة أو اتركها فارغة' },
+        query: { type: 'string', description: 'اسم الخامة أو الكود SKU أو اسم الفرع أو اتركها فارغة' },
         kind: { type: 'string', enum: ['primary', 'extra', 'any'] },
       },
     },
   },
   {
     name: 'search_products',
-    description: 'يبحث في منتجات الورشة بالاسم أو التصنيف أو السعر.',
+    description: 'يبحث في منتجات الورشة أو أصناف كتالوج المورد بالاسم أو الكود أو التصنيف أو السعر.',
     parameters: {
       type: 'object',
       properties: {
@@ -75,7 +89,7 @@ export const workshopToolSchemas: ToolSchema[] = [
   },
   {
     name: 'search_customers',
-    description: 'يبحث في بيانات العملاء، أرقام هواتفهم، والديون والأرصدة المستحقة عليهم.',
+    description: 'يبحث في بيانات العملاء، أرقام هواتفهم، والديون والآجل المستحق عليهم (لينا بره كام).',
     parameters: {
       type: 'object',
       properties: { query: { type: 'string', description: 'اسم العميل أو هاتفه' } },
@@ -83,44 +97,44 @@ export const workshopToolSchemas: ToolSchema[] = [
   },
   {
     name: 'search_suppliers',
-    description: 'يبحث في الموردين والمبالغ المستحقة لهم وأرقام هواتفهم.',
+    description: 'يبحث في الموردين والمصانع والمبالغ المستحقة لهم (علينا كام للمصانع) وأرقام هواتفهم.',
     parameters: {
       type: 'object',
-      properties: { query: { type: 'string', description: 'اسم المورد أو تخصصه' } },
+      properties: { query: { type: 'string', description: 'اسم المورد أو المصنع أو تخصصه' } },
     },
   },
   {
     name: 'search_employees',
-    description: 'يبحث في العاملين بالورشة، أجورهم، ومستحقاتهم الحالية.',
+    description: 'يبحث في العاملين والموظفين بالورشة أو فروع المورد ورواتبهم ومستحقاتهم.',
     parameters: {
       type: 'object',
-      properties: { query: { type: 'string', description: 'اسم العامل أو وظيفته' } },
+      properties: { query: { type: 'string', description: 'اسم الموظف أو وظيفته أو فرعه' } },
     },
   },
   {
     name: 'search_orders',
-    description: 'يبحث في الطلبات وأوردرات البيع، مواعيد التسليم، المدفوع، والمتبقي.',
+    description: 'يبحث في الطلبات وأوردرات البيع وفواتير الكاشير POS، المدفوع، والمتبقي.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'اسم العميل، المنتج، أو رقم الطلب' },
+        query: { type: 'string', description: 'اسم العميل، الصنف، أو رقم الفاتورة' },
         status: { type: 'string' },
       },
     },
   },
   {
     name: 'search_treasuries',
-    description: 'يعرض أرصدة الخزائن والعهد النقدية الحقيقية المسجلة في الورشة ومجموع السيولة الفعلي بدقة.',
+    description: 'يعرض أرصدة الخزائن والعهد النقدية وخزينة المالك وخزائن الفروع والتوريدات المعلقة بدقة.',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'اسم الخزنة، اسم صاحب العهدة، أو اتركها فارغة لعرض الكل' },
+        query: { type: 'string', description: 'اسم الخزنة أو الفرع أو المسئول، أو اتركها فارغة لعرض الكل' },
       },
     },
   },
   {
     name: 'search_transactions',
-    description: 'يبحث في المصروفات والتحويلات وصرف العهد ومقبوضات الورشة.',
+    description: 'يبحث في المصروفات والتحويلات وصرف العهد وتوريدات الفروع وفواتير الشراء.',
     parameters: {
       type: 'object',
       properties: {
@@ -131,7 +145,7 @@ export const workshopToolSchemas: ToolSchema[] = [
   },
   {
     name: 'workshop_overview',
-    description: 'ملخص مالي وتشغيلي فعلي: إجمالي السيولة المحسوبة من الخزن، وإحصاءات الورشة الحقيقية.',
+    description: 'ملخص مالي وتشغيلي فعلي شامل: إجمالي السيولة، لينا بره كام، علينا كام، المخزون، الفروع، وأوردرات اليوم.',
     parameters: { type: 'object', properties: {} },
   },
   {
@@ -145,18 +159,113 @@ export interface WorkshopToolContext {
   db: SupabaseClient;
   workshopId: string;
   isSuperAdmin?: boolean;
+  accountRole?: 'artisan' | 'supplier';
+  supplierId?: string;
 }
 
 export function scopeQuery(query: any, ctx: WorkshopToolContext, column: string = 'workshop_id') {
-  if (ctx.isSuperAdmin || ctx.workshopId === 'ALL_WORKSHOPS' || ctx.workshopId === 'all_workshops') {
+  if (ctx.isSuperAdmin && (!ctx.workshopId || ctx.workshopId === 'ALL_WORKSHOPS' || ctx.workshopId === 'all_workshops')) {
     return query;
   }
-  return query.eq(column, ctx.workshopId);
+  const targetId = column === 'supplier_id' ? (ctx.supplierId || ctx.workshopId) : ctx.workshopId;
+  if (!targetId || targetId === 'ALL_WORKSHOPS' || targetId === 'all_workshops') {
+    // Fail-closed isolation: never accidentally drop the filter for non-superadmin accounts
+    return query.eq(column, '00000000-0000-0000-0000-000000000000');
+  }
+  return query.eq(column, targetId);
 }
 
 type ToolResult = Record<string, unknown>;
 
+async function loadSupplierScopedRows<T = any>(
+  ctx: WorkshopToolContext,
+  table: string,
+  localFile: string,
+  supplierIdCol: string = 'supplier_id'
+): Promise<T[]> {
+  const sid = ctx.supplierId || ctx.workshopId;
+  if (!sid && !ctx.isSuperAdmin) return [];
+  const merged: any[] = [];
+  const seen = new Set<string>();
+
+  try {
+    let q = ctx.db.from(table).select('*').limit(MAX_ROWS);
+    if (!ctx.isSuperAdmin || (sid && sid !== 'ALL_WORKSHOPS' && sid !== 'all_workshops')) {
+      q = q.eq(supplierIdCol, sid);
+    }
+    const { data, error } = await q;
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        merged.push(row);
+        if (row.id) seen.add(String(row.id));
+      }
+    }
+  } catch {}
+
+  const localRows = readLocalJsonArray<any>(localFile);
+  for (const r of localRows) {
+    const rSid = r.supplier_id || r.supplierId || r.id;
+    if (ctx.isSuperAdmin || String(rSid) === String(sid)) {
+      if (!r.id || !seen.has(String(r.id))) {
+        merged.push(r);
+        if (r.id) seen.add(String(r.id));
+      }
+    }
+  }
+  return merged;
+}
+
+// =========================================================================
+// 1. MATERIALS / BRANCH INVENTORY
+// =========================================================================
 async function searchMaterials(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    const [branches, invRows, catRows] = await Promise.all([
+      loadSupplierScopedRows(ctx, 'supplier_branches', 'supplier_branches.json'),
+      loadSupplierScopedRows(ctx, 'supplier_branch_inventory', 'supplier_branch_inventory.json'),
+      loadSupplierScopedRows(ctx, 'supplier_catalog_items', 'supplier_catalog_items.json'),
+    ]);
+    const branchMap = new Map(branches.map((b: any) => [b.id, b.name]));
+    const mappedInv = invRows.map((it: any) => {
+      const qty = Number(it.quantity ?? it.stock_qty ?? 0);
+      const minA = Number(it.min_alert ?? it.minAlert ?? 5);
+      return {
+        source: 'branch_warehouse',
+        sku: it.sku_code || it.skuCode || null,
+        name: it.item_name || it.itemName || 'صنف',
+        branch: branchMap.get(it.branch_id || it.branchId) || 'الفرع',
+        stock: qty,
+        min_limit: minA,
+        is_low: qty <= minA,
+        sale_unit: it.sale_unit || it.saleUnit || 'وحدة',
+        purchase_unit: it.purchase_unit || it.purchaseUnit || 'طرد',
+        conversion_factor: Number(it.conversion_factor ?? it.conversionFactor ?? 1),
+        retail_price: Number(it.retail_price ?? it.retailPrice ?? 0),
+        wholesale_price: Number(it.wholesale_price ?? it.wholesalePrice ?? 0),
+        avg_cost: HIDE_COSTS ? undefined : Number(it.avg_cost ?? it.avgCost ?? 0),
+      };
+    });
+    const mappedCat = catRows.map((c: any) => ({
+      source: 'supplier_catalog',
+      sku: c.sku_code || null,
+      name: c.name || 'خامة',
+      branch: 'الكتالوج العام',
+      stock: Number(c.stock_qty ?? c.stockQty ?? 0),
+      min_limit: 5,
+      is_low: Number(c.stock_qty ?? c.stockQty ?? 0) <= 5,
+      sale_unit: c.unit || 'وحدة',
+      retail_price: Number(c.retail_price ?? c.retailPrice ?? 0),
+      wholesale_price: Number(c.wholesale_price ?? c.wholesalePrice ?? 0),
+    }));
+    const all = [...mappedInv, ...mappedCat].filter((m) =>
+      matches(`${m.name} ${m.sku || ''} ${m.branch}`, args?.query)
+    );
+    return {
+      total_found: all.length,
+      materials: all.slice(0, MAX_RESULTS),
+    };
+  }
+
   let query = ctx.db
     .from('materials')
     .select('id, name, kind, supplier_id, unit_id, purchase_price, current_stock, min_limit, market_name');
@@ -200,6 +309,9 @@ async function searchMaterials(ctx: WorkshopToolContext, args: any): Promise<Too
   };
 }
 
+// =========================================================================
+// 2. PRODUCTS
+// =========================================================================
 async function loadProducts(ctx: WorkshopToolContext) {
   let query = ctx.db
     .from('products')
@@ -212,7 +324,6 @@ async function loadProducts(ctx: WorkshopToolContext) {
 
   if (!res.error) return res;
 
-  // Fallback for legacy products schema missing product_name / is_active / craft_name columns
   let fallbackQuery = ctx.db
     .from('products')
     .select('id, name, product_type, main_section, cost_price, retail_price, wholesale_price, description, notes, data, updated_at');
@@ -232,6 +343,9 @@ async function loadProducts(ctx: WorkshopToolContext) {
 }
 
 async function searchProducts(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    return await searchMaterials(ctx, args);
+  }
   const { data, error } = await loadProducts(ctx);
   if (error) return { error: 'تعذر قراءة المنتجات' };
 
@@ -259,6 +373,9 @@ async function searchProducts(ctx: WorkshopToolContext, args: any): Promise<Tool
 }
 
 async function getProductDetails(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    return { error: 'استخدم search_materials للبحث عن أصناف المخزن والكتالوج للمورد' };
+  }
   const id = String(args?.product_id || '');
   if (!id) return { error: 'product_id مطلوب' };
   let query = ctx.db.from('products').select('*').eq('id', id);
@@ -270,7 +387,33 @@ async function getProductDetails(ctx: WorkshopToolContext, args: any): Promise<T
   return { product: rest };
 }
 
+// =========================================================================
+// 3. CUSTOMERS (RECEIVABLES "لينا بره كام")
+// =========================================================================
 async function searchCustomers(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    const rows = await loadSupplierScopedRows(ctx, 'supplier_customers', 'supplier_customers.json');
+    const filtered = rows.filter((r: any) =>
+      matches(`${r.name || ''} ${r.phone || ''} ${r.governorate || ''} ${r.last_address || r.lastAddress || ''}`, args?.query)
+    );
+    const totalReceivables = rows.reduce((s: number, r: any) => s + Number(r.balance_due ?? r.balanceDue ?? 0), 0);
+    return {
+      total_found: filtered.length,
+      total_receivables_due: totalReceivables,
+      customers: filtered.slice(0, MAX_RESULTS).map((r: any) => ({
+        id: r.id,
+        name: r.name || 'عميل',
+        phone: r.phone || null,
+        governorate: r.governorate || null,
+        last_address: r.last_address || r.lastAddress || null,
+        walkin_orders_count: Number(r.walkin_orders_count ?? r.walkinOrdersCount ?? 0),
+        online_orders_count: Number(r.online_orders_count ?? r.onlineOrdersCount ?? 0),
+        outstanding_balance: Number(r.balance_due ?? r.balanceDue ?? 0),
+        total_purchases: Number(r.total_purchases ?? r.totalPurchases ?? 0),
+      })),
+    };
+  }
+
   let query = ctx.db
     .from('customers')
     .select('id, name, full_name, phone, phone_number, city, address, outstanding_balance, total_purchases');
@@ -301,7 +444,29 @@ async function searchCustomers(ctx: WorkshopToolContext, args: any): Promise<Too
   };
 }
 
+// =========================================================================
+// 4. SUPPLIERS / EXTERNAL FACTORY VENDORS ("علينا كام للمصانع")
+// =========================================================================
 async function searchSuppliers(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    const vendors = await loadSupplierScopedRows(ctx, 'supplier_vendors', 'supplier_vendors.json');
+    const filtered = vendors.filter((v: any) =>
+      matches(`${v.name || ''} ${v.phone || ''} ${v.vendor_type || v.vendorType || ''} ${v.address || ''}`, args?.query)
+    );
+    const totalPayables = vendors.reduce((s: number, v: any) => s + Number(v.balance_owed ?? v.balanceOwed ?? 0), 0);
+    return {
+      total_found: filtered.length,
+      total_payables_to_factories: totalPayables,
+      vendors: filtered.slice(0, MAX_RESULTS).map((v: any) => ({
+        id: v.id,
+        name: v.name || 'مصنع / مورد',
+        phone: v.phone || null,
+        type: v.vendor_type || v.vendorType || 'مصنع خامات',
+        balance_owed: Number(v.balance_owed ?? v.balanceOwed ?? 0),
+      })),
+    };
+  }
+
   let query = ctx.db
     .from('suppliers')
     .select('id, name, company_name, phone, phone_number, material_specialty, outstanding_balance');
@@ -332,7 +497,41 @@ async function searchSuppliers(ctx: WorkshopToolContext, args: any): Promise<Too
   };
 }
 
+// =========================================================================
+// 5. EMPLOYEES / SUPPLIER STAFF HR
+// =========================================================================
 async function searchEmployees(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    const [branches, staff, hrLogs] = await Promise.all([
+      loadSupplierScopedRows(ctx, 'supplier_branches', 'supplier_branches.json'),
+      loadSupplierScopedRows(ctx, 'supplier_staff_users', 'supplier_staff_users.json'),
+      loadSupplierScopedRows(ctx, 'supplier_hr_logs', 'supplier_hr_logs.json'),
+    ]);
+    const branchMap = new Map(branches.map((b: any) => [b.id, b.name]));
+    const filtered = staff.filter((st: any) =>
+      matches(`${st.full_name || st.fullName || ''} ${st.role || ''} ${branchMap.get(st.branch_id || st.branchId) || ''}`, args?.query)
+    );
+    return {
+      total_found: filtered.length,
+      employees: filtered.slice(0, MAX_RESULTS).map((st: any) => {
+        const myLogs = hrLogs.filter((l: any) => (l.staff_id || l.staffId) === st.id);
+        const bonus = myLogs.filter((l: any) => (l.log_type || l.logType) === 'bonus').reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
+        const penalty = myLogs.filter((l: any) => (l.log_type || l.logType) === 'penalty').reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
+        const advance = myLogs.filter((l: any) => (l.log_type || l.logType) === 'advance').reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
+        const base = Number(st.base_salary ?? st.baseSalary ?? 0);
+        return {
+          id: st.id,
+          name: st.full_name || st.fullName,
+          role: st.role || 'cashier',
+          branch: branchMap.get(st.branch_id || st.branchId) || 'كل الفروع',
+          base_salary: base,
+          net_salary: base + bonus - penalty - advance,
+          is_active: st.is_active !== false && st.isActive !== false,
+        };
+      }),
+    };
+  }
+
   let query = ctx.db
     .from('employees')
     .select('id, full_name, role, phone, phone_number, base_wage, current_balance, is_active');
@@ -354,7 +553,55 @@ async function searchEmployees(ctx: WorkshopToolContext, args: any): Promise<Too
   };
 }
 
+// =========================================================================
+// 6. ORDERS (WORKSHOP + SUPPLIER POS + B2B)
+// =========================================================================
 async function searchOrders(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    const [posOrders, b2bOrders] = await Promise.all([
+      loadSupplierScopedRows(ctx, 'supplier_pos_orders', 'supplier_pos_orders.json'),
+      loadSupplierScopedRows(ctx, 'supplier_b2b_orders', 'supplier_b2b_orders.json'),
+    ]);
+    const combined: any[] = [];
+    for (const o of posOrders) {
+      combined.push({
+        id: o.id,
+        order_number: o.order_number || o.orderNumber,
+        source: o.sales_channel === 'online' || o.salesChannel === 'online' ? 'POS أونلاين' : 'POS فرع مباشر',
+        customer: o.customer_name || o.customerName || 'عميل نقدي',
+        total: Number(o.final_total ?? o.finalTotal ?? 0),
+        paid: Number(o.paid_amount ?? o.paidAmount ?? 0),
+        remaining: Number(o.remaining_amount ?? o.remainingAmount ?? 0),
+        payment_method: o.payment_method || o.paymentMethod,
+        status: o.payment_status || o.paymentStatus || 'paid',
+        created_at: o.created_at || o.createdAt,
+      });
+    }
+    for (const o of b2bOrders) {
+      combined.push({
+        id: o.id,
+        order_number: o.order_number || o.orderNumber,
+        source: 'طلب توريد B2B / متجر',
+        customer: o.external_buyer?.name || o.externalBuyer?.name || 'ورشة / عميل',
+        total: Number(o.final_total ?? o.finalTotal ?? 0),
+        paid: Number(o.paid_amount ?? o.paidAmount ?? 0),
+        remaining: Math.max(0, Number(o.final_total ?? o.finalTotal ?? 0) - Number(o.paid_amount ?? o.paidAmount ?? 0)),
+        status: o.status || 'new',
+        created_at: o.created_at || o.createdAt,
+      });
+    }
+    const statusFilter = String(args?.status || '').trim();
+    const filtered = combined.filter((row) => {
+      const mQ = matches(`${row.order_number || ''} ${row.customer || ''} ${row.source || ''} ${row.status || ''}`, args?.query);
+      const mS = !statusFilter || row.status === statusFilter;
+      return mQ && mS;
+    });
+    return {
+      total_found: filtered.length,
+      orders: filtered.slice(0, MAX_RESULTS),
+    };
+  }
+
   let ordersRows: any[] = [];
   let hadAnySuccess = false;
 
@@ -428,13 +675,63 @@ async function searchOrders(ctx: WorkshopToolContext, args: any): Promise<ToolRe
   };
 }
 
-// -------------------------------------------------------------
-// قراءة الأرصدة الحقيقية الفعلية 100% من جداول الورشة
-// -------------------------------------------------------------
+// =========================================================================
+// 7. TREASURIES (WORKSHOP + SUPPLIER OWNER & BRANCH TREASURIES)
+// =========================================================================
 async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    const [ownerTreasuries, branchTreasuries, branches, transfers] = await Promise.all([
+      loadSupplierScopedRows(ctx, 'supplier_treasuries', 'supplier_treasuries.json'),
+      loadSupplierScopedRows(ctx, 'supplier_branch_treasuries', 'supplier_branch_treasuries.json'),
+      loadSupplierScopedRows(ctx, 'supplier_branches', 'supplier_branches.json'),
+      loadSupplierScopedRows(ctx, 'supplier_treasury_transfers', 'supplier_treasury_transfers.json'),
+    ]);
+    const branchMap = new Map(branches.map((b: any) => [b.id, b.name]));
+
+    const mapped: any[] = [];
+    for (const t of ownerTreasuries) {
+      mapped.push({
+        id: t.id,
+        name: t.name || 'خزينة المالك الرئيسية',
+        kind: 'خزينة المالك المعتمدة',
+        holder: 'المالك',
+        balance: Number(t.balance || 0),
+        status: 'نشطة',
+      });
+    }
+    for (const bt of branchTreasuries) {
+      const cash = Number(bt.cash_balance ?? bt.cashBalance ?? 0);
+      const insta = Number(bt.instapay_balance ?? bt.instapayBalance ?? 0);
+      const wallet = Number(bt.wallet_balance ?? bt.walletBalance ?? 0);
+      const bTotal = cash + insta + wallet;
+      mapped.push({
+        id: bt.id || bt.branch_id,
+        name: `خزينة فرع: ${branchMap.get(bt.branch_id || bt.branchId) || 'الفرع'}`,
+        kind: 'خزينة فرع (بانتظار التوريد)',
+        holder: `كاش ${cash} | إنستاباي ${insta} | محفظة ${wallet}`,
+        balance: bTotal,
+        status: 'نشطة بالفرع',
+      });
+    }
+
+    const filtered = args?.query && String(args.query).trim()
+      ? mapped.filter((row) => matches(`${row.name} ${row.kind} ${row.holder || ''}`, args.query))
+      : mapped;
+
+    const totalLiquidity = filtered.reduce((s, r) => s + Number(r.balance || 0), 0);
+    const pendingTransfers = transfers.filter((tr: any) => tr.status === 'pending_owner_confirmation');
+
+    return {
+      total_found: filtered.length,
+      total_liquidity: totalLiquidity,
+      pending_transfers_count: pendingTransfers.length,
+      pending_transfers_amount: pendingTransfers.reduce((s: number, tr: any) => s + Number(tr.total_amount ?? tr.totalAmount ?? 0), 0),
+      treasuries: filtered,
+    };
+  }
+
   let list: any[] = [];
 
-  // 1. محاولة القراءة من view treasury_balances أولاً (يحتوي على الحقل المحسوب balance)
   try {
     let q = ctx.db.from('treasury_balances').select('*');
     q = scopeQuery(q, ctx);
@@ -444,7 +741,6 @@ async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<To
     }
   } catch {}
 
-  // 2. إذا لم تكن موجودة أو فارغة، نقرأ من جدول treasuries بالأعمدة الموجودة فعلياً
   if (list.length === 0) {
     try {
       let q = ctx.db
@@ -459,7 +755,6 @@ async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<To
     } catch {}
   }
 
-  // إذا لم نجد في Supabase وكان هناك سياق مرسل من العميل
   const clientTreasury = (ctx as any).clientContext?.treasuryBalance;
   const clientTreasuriesDetail = (ctx as any).clientContext?.treasuriesDetail;
 
@@ -489,7 +784,6 @@ async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<To
     };
   });
 
-  // إذا كانت القائمة فارغة لكن رصيد الخزينة معروف من شاشة الورشة الحالية
   if (treasuriesMapped.length === 0 && typeof clientTreasury === 'number') {
     totalWorkshopLiquidity = clientTreasury;
     treasuriesMapped.push({
@@ -509,7 +803,38 @@ async function searchTreasuries(ctx: WorkshopToolContext, args: any): Promise<To
   };
 }
 
+// =========================================================================
+// 8. TRANSACTIONS
+// =========================================================================
 async function searchTransactions(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    const [transfers, purchases] = await Promise.all([
+      loadSupplierScopedRows(ctx, 'supplier_treasury_transfers', 'supplier_treasury_transfers.json'),
+      loadSupplierScopedRows(ctx, 'supplier_purchases', 'supplier_purchases.json'),
+    ]);
+    const tx: any[] = [
+      ...transfers.map((tr: any) => ({
+        id: tr.id,
+        type: tr.status === 'confirmed' ? 'توريد فرع مؤكد' : 'توريد فرع معلق',
+        amount: Number(tr.total_amount ?? tr.totalAmount ?? 0),
+        note: `توريد من ${tr.branch_name || tr.branchName || 'فرع'} بواسطة ${tr.sent_by_name || tr.sentByName || 'موظف'}`,
+        date: tr.created_at || tr.createdAt || null,
+      })),
+      ...purchases.map((p: any) => ({
+        id: p.id,
+        type: 'فاتورة شراء من مصنع',
+        amount: Number(p.total_amount ?? p.totalAmount ?? 0),
+        note: `${p.invoice_no || p.invoiceNo || ''} - ${p.vendor_name || p.vendorName || 'مصنع'} (مدفوع ${p.paid_amount ?? p.paidAmount ?? 0})`,
+        date: p.created_at || p.createdAt || null,
+      })),
+    ];
+    const filtered = tx.filter((row) => matches(`${row.type} ${row.note}`, args?.query));
+    return {
+      total_found: filtered.length,
+      transactions: filtered.slice(0, MAX_RESULTS),
+    };
+  }
+
   const type = String(args?.type || '').trim();
   let data: any[] | null = null;
   let error: any = null;
@@ -551,7 +876,63 @@ async function searchTransactions(ctx: WorkshopToolContext, args: any): Promise<
   };
 }
 
+// =========================================================================
+// 9. OVERVIEW (WORKSHOP + SUPPLIER ERP MULTI-BRANCH)
+// =========================================================================
 async function workshopOverview(ctx: WorkshopToolContext): Promise<ToolResult> {
+  if (ctx.accountRole === 'supplier') {
+    const [branches, invRows, customers, vendors, staff, posOrders, ownerTreasuries, branchTreasuries, transfers] =
+      await Promise.all([
+        loadSupplierScopedRows(ctx, 'supplier_branches', 'supplier_branches.json'),
+        loadSupplierScopedRows(ctx, 'supplier_branch_inventory', 'supplier_branch_inventory.json'),
+        loadSupplierScopedRows(ctx, 'supplier_customers', 'supplier_customers.json'),
+        loadSupplierScopedRows(ctx, 'supplier_vendors', 'supplier_vendors.json'),
+        loadSupplierScopedRows(ctx, 'supplier_staff_users', 'supplier_staff_users.json'),
+        loadSupplierScopedRows(ctx, 'supplier_pos_orders', 'supplier_pos_orders.json'),
+        loadSupplierScopedRows(ctx, 'supplier_treasuries', 'supplier_treasuries.json'),
+        loadSupplierScopedRows(ctx, 'supplier_branch_treasuries', 'supplier_branch_treasuries.json'),
+        loadSupplierScopedRows(ctx, 'supplier_treasury_transfers', 'supplier_treasury_transfers.json'),
+      ]);
+
+    const ownerMainTotal = ownerTreasuries.reduce((s: number, t: any) => s + Number(t.balance || 0), 0);
+    const branchTotal = branchTreasuries.reduce(
+      (s: number, b: any) =>
+        s + Number(b.cash_balance ?? b.cashBalance ?? 0) + Number(b.instapay_balance ?? b.instapayBalance ?? 0) + Number(b.wallet_balance ?? b.walletBalance ?? 0),
+      0
+    );
+    const receivables = customers.reduce((s: number, c: any) => s + Number(c.balance_due ?? c.balanceDue ?? 0), 0);
+    const payables = vendors.reduce((s: number, v: any) => s + Number(v.balance_owed ?? v.balanceOwed ?? 0), 0);
+    const stockValuation = invRows.reduce(
+      (s: number, i: any) => s + Number(i.quantity ?? 0) * Number(i.avg_cost ?? i.avgCost ?? 0),
+      0
+    );
+    const lowStockItems = invRows.filter(
+      (i: any) => Number(i.quantity ?? 0) <= Number(i.min_alert ?? i.minAlert ?? 5)
+    );
+    const todayPrefix = new Date().toISOString().slice(0, 10);
+    const todayOrders = posOrders.filter((o: any) => String(o.created_at || o.createdAt || '').startsWith(todayPrefix));
+    const pendingTransfers = transfers.filter((tr: any) => tr.status === 'pending_owner_confirmation');
+
+    return {
+      role: 'supplier',
+      branches_count: branches.length || 1,
+      total_liquidity: ownerMainTotal + branchTotal,
+      owner_main_treasury: ownerMainTotal,
+      branches_treasury: branchTotal,
+      pending_transfers_count: pendingTransfers.length,
+      receivables_from_customers: receivables,
+      payables_to_vendors: payables,
+      stock_valuation: stockValuation,
+      inventory_items_count: invRows.length,
+      low_stock_count: lowStockItems.length,
+      customers_count: customers.length,
+      vendors_count: vendors.length,
+      employees_count: staff.length,
+      today_pos_orders_count: todayOrders.length,
+      today_pos_sales: todayOrders.reduce((s: number, o: any) => s + Number(o.final_total ?? o.finalTotal ?? 0), 0),
+    };
+  }
+
   const [products, materials, customers, suppliers, employees, treasBalancesRes, treasuriesCountRes] = await Promise.all([
     loadProducts(ctx),
     scopeQuery(ctx.db.from('materials').select('id', { count: 'exact', head: true }), ctx),
@@ -568,6 +949,7 @@ async function workshopOverview(ctx: WorkshopToolContext): Promise<ToolResult> {
   }
 
   return {
+    role: 'artisan',
     total_liquidity: totalLiquidity,
     active_products: (products.data || []).length,
     materials_count: materials.count ?? 0,
@@ -579,6 +961,11 @@ async function workshopOverview(ctx: WorkshopToolContext): Promise<ToolResult> {
 }
 
 async function listAllWorkshops(ctx: WorkshopToolContext): Promise<ToolResult> {
+  if (!ctx.isSuperAdmin) {
+    return {
+      error: 'هذه الأداة مخصصة حصرياً لإدارة المنظومة (السوبر أدمن) لضمان خصوصية وعزل كل ورشة ومورد.',
+    };
+  }
   try {
     const { data, error } = await ctx.db
       .from('workshops')
@@ -602,17 +989,8 @@ async function listAllWorkshops(ctx: WorkshopToolContext): Promise<ToolResult> {
     }
   } catch {}
   return {
-    total: 1,
-    workshops: [
-      {
-        id: ctx.workshopId || 'main',
-        name: 'ورشة الشمس كرافت',
-        brand_name: 'ورشة الشمس كرافت',
-        owner: 'الباشمهندس حسام',
-        status: 'نشطة',
-        role: 'الورشة الرئيسية',
-      },
-    ],
+    total: 0,
+    workshops: [],
   };
 }
 
@@ -646,6 +1024,6 @@ export async function runWorkshopTool(name: string, args: any, ctx: WorkshopTool
     }
   } catch (err: any) {
     console.warn(`[workshopTools] ${name} failed:`, err?.message);
-    return { error: 'حدث خطأ أثناء قراءة بيانات الورشة' };
+    return { error: 'حدث خطأ أثناء قراءة بيانات الحساب' };
   }
 }

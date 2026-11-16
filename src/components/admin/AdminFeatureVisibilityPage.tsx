@@ -111,6 +111,7 @@ export const AdminFeatureVisibilityPage: React.FC<AdminFeatureVisibilityPageProp
       supplierPortalEnabled: false,
       supplierLandingPromoEnabled: false,
       suppliersMarketplaceEnabled: false,
+      supplierErpEnabled: false,
     }));
     setBanner({
       type: 'success',
@@ -124,6 +125,7 @@ export const AdminFeatureVisibilityPage: React.FC<AdminFeatureVisibilityPageProp
       supplierRegistrationEnabled: true,
       supplierPortalEnabled: true,
       supplierLandingPromoEnabled: true,
+      supplierErpEnabled: true,
       suppliersMarketplaceEnabled: prev.suppliersMarketplaceEnabled,
     }));
     setBanner({

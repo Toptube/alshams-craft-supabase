@@ -5,6 +5,7 @@ import { dispatchArtisanNotification } from '../lib/pushNotifications';
 import { playPostaNotificationSound } from '../lib/sounds';
 import { enqueueOfflineMutation } from '../db/offlineMutationQueue';
 import { saveStoredMarketBuilderConfig } from '../types/marketplaceBuilder';
+import { saveStoredSuppliersMarketBuilderConfig } from '../types/suppliersMarketBuilder';
 import { saveStoredLandingCmsConfig } from '../types/landingCms';
 import { saveStoredFeatureFlags } from '../types/featureFlags';
 
@@ -311,6 +312,9 @@ export async function syncPlatformSettingsFromCloud(): Promise<GovernoratesShipp
     }
     if (cloudSettings.marketBuilder) {
       saveStoredMarketBuilderConfig(cloudSettings.marketBuilder);
+    }
+    if (cloudSettings.suppliersMarketBuilder) {
+      saveStoredSuppliersMarketBuilderConfig(cloudSettings.suppliersMarketBuilder);
     }
     if (cloudSettings.landingCms) {
       saveStoredLandingCmsConfig(cloudSettings.landingCms);

@@ -62,6 +62,11 @@ export interface SupplierProfile {
   featuredRank?: number;
   hideStorefront?: boolean;
   hideFromMarket?: boolean;
+  hasCentralWarehouse?: boolean;
+  maxBranchesApproved?: number;
+  branchExpansionRequested?: number;
+  branchExpansionReason?: string;
+  branchExpansionStatus?: 'none' | 'pending' | 'approved' | 'rejected';
   termsAcceptedAt?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -229,6 +234,7 @@ export interface B2BSupplyOrder {
   workshopId?: string | null;
   externalBuyer?: {
     name: string;
+    workshopBrand?: string;
     phone?: string;
     country?: string;
     governorate?: string;
@@ -266,6 +272,9 @@ export interface SupplierCustomer {
   sourceType: 'direct_store' | 'suppliers_market' | 'external';
   totalPurchases: number;
   balanceDue: number;
+  walkinOrdersCount?: number;
+  onlineOrdersCount?: number;
+  lastAddress?: string;
   notes?: string;
   createdAt?: string;
   updatedAt?: string;

@@ -78,12 +78,19 @@ interface FalconAIAgentProps {
 export const FALCON_WELCOME_TEXT = `يا صباح الفل يا فنان! 🦅
 جاهز ومستعد لمراجعة حساباتك وتكاليف شغلك.. قولي حابب نبدأ بإيه؟`;
 
-export const createInitialFalconMessage = (_userName?: string): ChatMessage => ({
-  id: 'msg_welcome',
-  sender: 'falcon',
-  text: FALCON_WELCOME_TEXT,
-  timestamp: Date.now(),
-});
+export const createInitialFalconMessage = (userName?: string, isSupplier = false): ChatMessage => {
+  const cleanName = String(userName || '').trim();
+  const greeting = cleanName ? `يا صباح الفل يا ${cleanName}! 🦅` : 'يا صباح الفل يا فنان! 🦅';
+  const body = isSupplier
+    ? 'منور بوابة الموردين.. جاهز أساعدك في مواصفات الخامات، تسعير الشرائح، ومقارنة السوق.. قولي تحب نبدأ بإيه؟'
+    : 'جاهز ومستعد لمراجعة حساباتك وتكاليف شغلك.. قولي حابب نبدأ بإيه؟';
+  return {
+    id: 'msg_welcome',
+    sender: 'falcon',
+    text: `${greeting}\n${body}`,
+    timestamp: Date.now(),
+  };
+};
 
 function getArabicAiError(status: number, serverMessage?: string): string {
   if (serverMessage && /[\u0600-\u06FF]/.test(serverMessage)) return serverMessage;
@@ -119,9 +126,17 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   onExportStructuredToCalculator,
 }) => {
   const workshopId = profile.tenantId || profile.workshopId || profile.id || 'default_workshop';
+  const isSupplierAccount = profile?.accountRole === 'supplier';
+  const initialFirstName =
+    ((profile as any).fullName || (profile as any).name || profile.artistName || '')
+      .trim()
+      .replace(/^(المهندس|المهندسة|الفنان|الفنانة|الأستاذ|الأستاذة|المعلم|المدير|كابتن|دكتور|دكتورة|أ|م)\s+/gi, '')
+      .split(/\s+/)[0] || '';
   const sessionKey = `alshams_falcon_chat_${workshopId}`;
 
-  const [messages, setMessages] = useState<ChatMessage[]>([createInitialFalconMessage()]);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    createInitialFalconMessage(initialFirstName, isSupplierAccount),
+  ]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [newChatFeedback, setNewChatFeedback] = useState(false);
 
@@ -238,10 +253,10 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     loadDailyUsage();
   }, [loadDailyUsage]);
 
-  const firstName = ((profile as any).fullName || (profile as any).name || profile.artistName || '').trim().split(/\s+/)[0] || '';
+  const firstName = initialFirstName;
 
   const handleNewChat = () => {
-    const welcome = createInitialFalconMessage(firstName);
+    const welcome = createInitialFalconMessage(firstName, isSupplierAccount);
     setMessages([welcome]);
     setInputPrompt('');
     setPendingAttachment(null);
@@ -283,7 +298,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   };
 
   const handleClearChat = () => {
-    const welcome = createInitialFalconMessage(firstName);
+    const welcome = createInitialFalconMessage(firstName, isSupplierAccount);
     setMessages([welcome]);
     setInputPrompt('');
     setPendingAttachment(null);
@@ -549,6 +564,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           category: currentCategory,
           artistName: firstName,
           brandName: (profile as any).workshopName || profile.brandName || '',
+          accountRole: isSupplierAccount ? 'supplier' : 'artisan',
           hourlyRate: (profile as any).hourlyRate || 35,
           liveLiquidity: 0,
           lowMaterialsCount: 0,

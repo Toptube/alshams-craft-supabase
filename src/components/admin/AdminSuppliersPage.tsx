@@ -16,6 +16,8 @@ import {
   Table2,
   Truck,
   X,
+  GitBranch,
+  Building2,
 } from 'lucide-react';
 import {
   AdminEnrichedSupplier,
@@ -24,6 +26,11 @@ import {
   moderateAdminSupplier,
   updateSupplierVisibility,
 } from '../../db/supplierService';
+import {
+  approveSupplierBranchExpansion,
+  fetchAdminSupplierBranches,
+} from '../../db/supplierErpService';
+import { SupplierBranch, SupplierBranchTreasury } from '../../types/supplierErp';
 import { SUPPLIER_SUPPLY_SECTIONS, SupplierCatalogItem } from '../../types/supplier';
 import { playSuccessSound, playErrorSound } from '../../lib/sounds';
 import { formatWhatsAppPhone } from './adminTypes';
@@ -52,6 +59,12 @@ export const AdminSuppliersPage: React.FC<AdminSuppliersPageProps> = ({
   const [inspectingSupplier, setInspectingSupplier] = useState<AdminEnrichedSupplier | null>(null);
   const [inspectItems, setInspectItems] = useState<SupplierCatalogItem[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
+
+  // Branch Inspection Modal
+  const [branchInspectSup, setBranchInspectSup] = useState<AdminEnrichedSupplier | null>(null);
+  const [inspectBranches, setInspectBranches] = useState<SupplierBranch[]>([]);
+  const [inspectTreasuries, setInspectTreasuries] = useState<SupplierBranchTreasury[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
 
   const loadSuppliers = async () => {
     setLoading(true);
@@ -157,6 +170,50 @@ export const AdminSuppliersPage: React.FC<AdminSuppliersPageProps> = ({
       setInspectItems(list);
     } finally {
       setLoadingCatalog(false);
+    }
+  };
+
+  const handleInspectBranches = async (sup: AdminEnrichedSupplier) => {
+    setBranchInspectSup(sup);
+    setLoadingBranches(true);
+    try {
+      const res = await fetchAdminSupplierBranches(sup.id, userEmail);
+      setInspectBranches(res.branches || []);
+      setInspectTreasuries(res.branchTreasuries || []);
+    } finally {
+      setLoadingBranches(false);
+    }
+  };
+
+  const handleBranchDecision = async (sup: AdminEnrichedSupplier, approve: boolean) => {
+    const requested = Math.max(2, Number(sup.branchExpansionRequested || 2));
+    setTogglingId(`${sup.id}_branch`);
+    try {
+      const res = await approveSupplierBranchExpansion(sup.id, approve, requested, userEmail);
+      if (res?.success) {
+        setSuppliers((prev) =>
+          prev.map((x) =>
+            x.id === sup.id
+              ? {
+                  ...x,
+                  maxBranchesApproved: approve ? requested : x.maxBranchesApproved,
+                  branchExpansionStatus: approve ? 'approved' : 'rejected',
+                }
+              : x
+          )
+        );
+        playSuccessSound();
+        onNotifySuccess(
+          approve
+            ? `تمت الموافقة على توسع فروع "${sup.brandName}" حتى ${requested} فروع.`
+            : `تم رفض طلب التوسع للمورد "${sup.brandName}".`
+        );
+      } else {
+        playErrorSound();
+        onNotifyError(res?.error || 'تعذر تنفيذ القرار');
+      }
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -343,6 +400,49 @@ export const AdminSuppliersPage: React.FC<AdminSuppliersPageProps> = ({
                   </button>
                 </div>
 
+                {/* Branch Expansion Governance Strip */}
+                <div className="rounded-xl bg-[#EFE9DC]/80 dark:bg-[#132040]/80 border border-[#D4CCBC] dark:border-[#22355E] px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <GitBranch className="w-3.5 h-3.5 text-[#EA580C]" />
+                    <span>
+                      الفروع المعتمدة: <strong className="font-mono">{sup.maxBranchesApproved || 1}</strong>
+                      {sup.hasCentralWarehouse ? ' · مخزن مركزي مُفعّل' : ''}
+                    </span>
+                  </div>
+                  {sup.branchExpansionStatus === 'pending' ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-black text-amber-700 dark:text-amber-300">
+                        طلب فتح {sup.branchExpansionRequested} فروع
+                      </span>
+                      <button
+                        type="button"
+                        disabled={togglingId === `${sup.id}_branch`}
+                        onClick={() => handleBranchDecision(sup, true)}
+                        className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-black cursor-pointer"
+                      >
+                        موافقة
+                      </button>
+                      <button
+                        type="button"
+                        disabled={togglingId === `${sup.id}_branch`}
+                        onClick={() => handleBranchDecision(sup, false)}
+                        className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-black cursor-pointer"
+                      >
+                        رفض
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleInspectBranches(sup)}
+                      className="text-[10px] font-black text-[#C2410C] dark:text-amber-300 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Building2 className="w-3 h-3" />
+                      <span>فحص الفروع</span>
+                    </button>
+                  )}
+                </div>
+
                 {/* Actions Row */}
                 <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[#D4CCBC]/70 dark:border-[#22355E]">
                   <button
@@ -458,6 +558,67 @@ export const AdminSuppliersPage: React.FC<AdminSuppliersPageProps> = ({
                     ))}
                   </tbody>
                 </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inspect Branches Modal */}
+      {branchInspectSup && (
+        <div
+          className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
+          dir="rtl"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setBranchInspectSup(null);
+          }}
+        >
+          <div className="w-full max-w-3xl max-h-[85vh] rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
+              <h2 className="text-sm sm:text-base font-black flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-[#EA580C]" />
+                <span>فروع وخزائن: {branchInspectSup.brandName}</span>
+              </h2>
+              <button type="button" onClick={() => setBranchInspectSup(null)} className="p-1.5 cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {loadingBranches ? (
+                <p className="text-center py-8 text-xs font-bold">جاري تحميل بيانات الفروع...</p>
+              ) : inspectBranches.length === 0 ? (
+                <p className="text-center py-8 text-xs font-bold text-[#475569]">لم يُنشئ المورد شجرة فروع بعد (الحد الافتراضي: فرع واحد).</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {inspectBranches.map((br) => {
+                    const tr = inspectTreasuries.find((t) => t.branchId === br.id);
+                    const total =
+                      Number(tr?.cashBalance || 0) +
+                      Number(tr?.instapayBalance || 0) +
+                      Number(tr?.walletBalance || 0);
+                    return (
+                      <div
+                        key={br.id}
+                        className="rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-3.5 space-y-1.5 text-xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-black">{br.name}</span>
+                          <span className="font-mono text-[10px] font-bold text-[#C2410C] dark:text-amber-300">
+                            {br.code}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                          {br.branchType === 'central_warehouse' ? 'مخزن رئيسي مركزي' : 'فرع بيع وكاشير'} · {br.governorate || 'غير محدد'}
+                        </p>
+                        {br.branchType === 'shop' && (
+                          <p className="text-[11px] font-mono tabular-nums font-bold">
+                            خزينة الفرع: {total.toLocaleString('ar-EG')} ج.م
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>

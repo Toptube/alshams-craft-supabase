@@ -65,10 +65,16 @@ import { AdminWorkshopModals } from './AdminWorkshopModals';
 import { AdminLandingCmsPage } from './AdminLandingCmsPage';
 import { AdminFeatureVisibilityPage } from './AdminFeatureVisibilityPage';
 import { AdminSuppliersPage } from './AdminSuppliersPage';
+import { AdminSuppliersMarketPage } from './AdminSuppliersMarketPage';
 import { AdminCustomersPage } from './AdminCustomersPage';
 import { updateWorkshopVisibility } from '../../db/supplierService';
 import { LandingCmsConfig, getStoredLandingCmsConfig } from '../../types/landingCms';
 import { PlatformFeatureFlags, getStoredFeatureFlags } from '../../types/featureFlags';
+import {
+  SuppliersMarketBuilderConfig,
+  getStoredSuppliersMarketBuilderConfig,
+  saveStoredSuppliersMarketBuilderConfig,
+} from '../../types/suppliersMarketBuilder';
 
 export type { ExecutiveTab };
 
@@ -1090,6 +1096,100 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // Suppliers B2B Marketplace URL, Share, Poster
+  const suppliersMarketUrl =
+    typeof window !== 'undefined' ? `${window.location.origin}/#/suppliers-market` : '/#/suppliers-market';
+
+  const handleCopySuppliersMarketUrl = () => {
+    navigator.clipboard.writeText(suppliersMarketUrl);
+    playSuccessSound();
+    showSuccess('تم نسخ رابط سوق موردين الشمساوية إلى الحافظة.');
+  };
+
+  const handleShareSuppliersMarketWhatsApp = () => {
+    const text = `تفضلوا بزيارة سوق موردين الشمساوية للخامات (B2B)\nمصانع ومستوردو خامات الهاند ميد بأسعار الجملة وشرائح الكميات:\n${suppliersMarketUrl}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const handleDownloadSuppliersMarketPoster = () => {
+    const qrCanvas = document.getElementById('suppliers-market-qr-canvas') as HTMLCanvasElement | null;
+    if (!qrCanvas) {
+      showError('افتح تبويب رمز الاستجابة السريعة (QR) أولاً لتوليد البوستر للطباعة.');
+      return;
+    }
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1200;
+      canvas.height = 1600;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.fillStyle = '#060B18';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#D97706';
+      ctx.lineWidth = 16;
+      ctx.strokeRect(36, 36, canvas.width - 72, canvas.height - 72);
+
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(54, 54, canvas.width - 108, canvas.height - 108);
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#F59E0B';
+      ctx.font = 'bold 36px Cairo, sans-serif';
+      ctx.fillText('منظومة الشمساوية — قطاع التوريد والخامات B2B', 600, 160);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 60px Cairo, sans-serif';
+      ctx.fillText('سوق موردين الشمساوية', 600, 260);
+
+      ctx.fillStyle = '#CBD5E1';
+      ctx.font = '500 30px Cairo, sans-serif';
+      ctx.fillText('توريد مباشر من المصانع والمستوردين لورش الهاند ميد', 600, 330);
+
+      ctx.fillStyle = '#FFFFFF';
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(260, 410, 680, 740, 32);
+        ctx.fill();
+      } else {
+        ctx.fillRect(260, 410, 680, 740);
+      }
+
+      ctx.drawImage(qrCanvas, 320, 460, 560, 560);
+
+      ctx.fillStyle = '#0C1427';
+      ctx.font = 'bold 28px Cairo, sans-serif';
+      ctx.fillText('امسح الكود لتصفح قوائم الأسعار وطلب خامات ورشتك', 600, 1075);
+
+      ctx.fillStyle = '#D97706';
+      ctx.font = 'bold 22px monospace';
+      ctx.fillText(suppliersMarketUrl, 600, 1115);
+
+      ctx.fillStyle = '#10B981';
+      ctx.font = 'bold 34px Cairo, sans-serif';
+      ctx.fillText('أسعار الجملة وشرائح الكميات · مقارنة الموردين لحظياً', 600, 1260);
+
+      ctx.fillStyle = '#CBD5E1';
+      ctx.font = '500 26px Cairo, sans-serif';
+      ctx.fillText('ترحيل آلي لمخزن الورشة والخزينة فور تأكيد الاستلام', 600, 1320);
+
+      ctx.fillStyle = '#F59E0B';
+      ctx.font = 'bold 30px Cairo, sans-serif';
+      ctx.fillText('دعم التوريد بالمنظومة: 01000996059', 600, 1400);
+
+      const link = document.createElement('a');
+      link.download = 'بوستر_سوق_موردين_الشمساوية.png';
+      link.href = canvas.toDataURL('image/png', 1.0);
+      link.click();
+      playSuccessSound();
+      showSuccess('تم تنزيل بوستر سوق موردين الشمساوية للطباعة بنجاح.');
+    } catch {
+      showError('تعذر توليد بوستر سوق الموردين.');
+    }
+  };
+
   // Save Central Marketplace Control & Visual Builder Settings
   const handleSaveMarketControlSettings = async (extraMarketBuilder?: MarketplaceBuilderConfig) => {
     setSavingMarketSettings(true);
@@ -1105,6 +1205,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         ...shippingConfig,
         centralShippingPrivacy,
         marketBuilder: builderToSave,
+        suppliersMarketBuilder: getStoredSuppliersMarketBuilderConfig(),
         landingCms: getStoredLandingCmsConfig(),
         featureFlags: getStoredFeatureFlags(),
       };
@@ -1117,6 +1218,33 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       showSuccess('تم حفظ ونشر إعدادات السوق وتخطيط المتجر سحابياً بنجاح.');
     } catch (err: any) {
       showError('تعذر حفظ الإعدادات: ' + (err?.message || 'خطأ'));
+    } finally {
+      setSavingMarketSettings(false);
+    }
+  };
+
+  // Save Suppliers Marketplace (B2B) Builder & Policy Settings
+  const handleSaveSuppliersMarketControlSettings = async (cfgToSave: SuppliersMarketBuilderConfig) => {
+    setSavingMarketSettings(true);
+    try {
+      saveStoredSuppliersMarketBuilderConfig(cfgToSave);
+      const payload = {
+        ...shippingConfig,
+        centralShippingPrivacy,
+        marketBuilder: getStoredMarketBuilderConfig(),
+        suppliersMarketBuilder: cfgToSave,
+        landingCms: getStoredLandingCmsConfig(),
+        featureFlags: getStoredFeatureFlags(),
+      };
+      const res = await savePlatformSettingsCloud(payload, profile.email);
+      if (!res.success) {
+        showError(res.error || 'تعذر مزامنة إعدادات سوق موردين الشمساوية سحابياً');
+        return;
+      }
+      playSuccessSound();
+      showSuccess('تم حفظ ونشر إعدادات وتخصيص سوق موردين الشمساوية سحابياً بنجاح.');
+    } catch (err: any) {
+      showError('تعذر حفظ إعدادات سوق الموردين: ' + (err?.message || 'خطأ'));
     } finally {
       setSavingMarketSettings(false);
     }
@@ -2294,6 +2422,24 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         />
       )}
 
+      {currentPage === 'suppliers_market' && (
+        <AdminSuppliersMarketPage
+          userEmail={profile.email}
+          onBack={() => handleNavigatePage('home')}
+          onSaveSuppliersMarketSettings={handleSaveSuppliersMarketControlSettings}
+          savingMarketSettings={savingMarketSettings}
+          suppliersMarketUrl={suppliersMarketUrl}
+          onCopySuppliersMarketUrl={handleCopySuppliersMarketUrl}
+          onShareSuppliersMarketWhatsApp={handleShareSuppliersMarketWhatsApp}
+          onDownloadSuppliersMarketPoster={handleDownloadSuppliersMarketPoster}
+          onNotifySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+          onNotifyError={showError}
+        />
+      )}
+
       {currentPage === 'stores' && (
         <AdminStoresPage
           workshops={workshops}
@@ -2397,6 +2543,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   ...shippingConfig,
                   centralShippingPrivacy: centralShippingPrivacy,
                   marketBuilder: getStoredMarketBuilderConfig(),
+                  suppliersMarketBuilder: getStoredSuppliersMarketBuilderConfig(),
                   landingCms: nextCms,
                   featureFlags: getStoredFeatureFlags(),
                 },
@@ -2434,6 +2581,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   ...shippingConfig,
                   centralShippingPrivacy: centralShippingPrivacy,
                   marketBuilder: getStoredMarketBuilderConfig(),
+                  suppliersMarketBuilder: getStoredSuppliersMarketBuilderConfig(),
                   landingCms: nextCms,
                   featureFlags: nextFlags,
                 },

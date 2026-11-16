@@ -38,6 +38,11 @@ import {
   SupplierReview,
   resolveSupplierItemPricing,
 } from '../../types/supplier';
+import {
+  SuppliersMarketBuilderConfig,
+  getStoredSuppliersMarketBuilderConfig,
+} from '../../types/suppliersMarketBuilder';
+import { MARKET_THEME_PRESETS } from '../../types/marketplaceBuilder';
 import { playSuccessSound, playButtonClickSound, playErrorSound } from '../../lib/sounds';
 
 interface SuppliersMarketViewProps {
@@ -72,10 +77,15 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
   onOpenSupplierStore,
   onNavigateToCentralMarket,
 }) => {
+  const [marketCfg, setMarketCfg] = useState<SuppliersMarketBuilderConfig>(() =>
+    getStoredSuppliersMarketBuilderConfig()
+  );
   const [entries, setEntries] = useState<MarketEntryMapped[]>([]);
   const [offerAlerts, setOfferAlerts] = useState<SupplierOfferAlert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'suppliers' | 'materials' | 'compare'>('suppliers');
+  const [viewMode, setViewMode] = useState<'suppliers' | 'materials' | 'compare'>(
+    () => getStoredSuppliersMarketBuilderConfig().defaultViewMode || 'suppliers'
+  );
   const [compareSortBy, setCompareSortBy] = useState<'retail_asc' | 'wholesale_asc' | 'rating_desc'>('wholesale_asc');
   const [searchQuery, setSearchQuery] = useState('');
   const [sectionFilter, setSectionFilter] = useState<string>('all');
@@ -103,6 +113,22 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
   const [toast, setToast] = useState<{ text: string; isError?: boolean } | null>(null);
 
   const hasAuthSession = Boolean(profile && profile.id);
+
+  useEffect(() => {
+    const syncHandler = (e: any) => {
+      const next = e?.detail || getStoredSuppliersMarketBuilderConfig();
+      setMarketCfg(next);
+    };
+    window.addEventListener('alshams_suppliers_market_builder_updated', syncHandler);
+    return () => window.removeEventListener('alshams_suppliers_market_builder_updated', syncHandler);
+  }, []);
+
+  const activeThemeMeta =
+    MARKET_THEME_PRESETS[marketCfg.themePreset || 'shams_sand'] || MARKET_THEME_PRESETS.shams_sand;
+
+  const activeSections = useMemo(() => {
+    return (marketCfg.sectionsOrder || []).filter((s) => s.enabled !== false);
+  }, [marketCfg.sectionsOrder]);
 
   const showToast = (text: string, isError = false) => {
     setToast({ text, isError });
@@ -175,7 +201,8 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
 
   const filteredEntries = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return entries.filter((entry) => {
+    const featuredSet = new Set(marketCfg.featuredSupplierIds || []);
+    const list = entries.filter((entry) => {
       if (sectionFilter !== 'all') {
         const hasSection =
           entry.supplier.supplySections.includes(sectionFilter as any) ||
@@ -195,7 +222,12 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
         entry.items.some((i) => i.name.toLowerCase().includes(q) || (i.description || '').toLowerCase().includes(q))
       );
     });
-  }, [entries, searchQuery, sectionFilter, governorateFilter, wholesaleOnly]);
+    return list.sort((a, b) => {
+      const aPin = featuredSet.has(a.supplier.id) ? 1 : 0;
+      const bPin = featuredSet.has(b.supplier.id) ? 1 : 0;
+      return bPin - aPin;
+    });
+  }, [entries, searchQuery, sectionFilter, governorateFilter, wholesaleOnly, marketCfg.featuredSupplierIds]);
 
   const flatMaterials = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -386,6 +418,19 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
         </div>
       )}
 
+      {/* Admin Configurable Ticker Banner */}
+      {marketCfg.tickerBanner?.enabled && marketCfg.tickerBanner?.text && (
+        <div
+          className="px-4 py-2 text-center text-[11px] sm:text-xs font-black"
+          style={{
+            backgroundColor: marketCfg.tickerBanner.bgColor || '#0C1427',
+            color: marketCfg.tickerBanner.bgColor === '#E9E2D4' ? '#0C1427' : '#FBBF24',
+          }}
+        >
+          {marketCfg.tickerBanner.text}
+        </div>
+      )}
+
       {/* Header */}
       <header className="sticky top-0 z-30 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] px-3 sm:px-6 py-3">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2.5">
@@ -401,15 +446,25 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
             <div>
               <h1 className="text-base sm:text-xl font-black flex items-center gap-2">
                 <Boxes className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
-                <span>سوق موردين الشمساوية للخامات (B2B)</span>
+                <span>{marketCfg.heroTitle || 'سوق موردين الشمساوية للخامات (B2B)'}</span>
               </h1>
               <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] font-medium hidden sm:block">
-                مصانع وتجار خامات الهاند ميد المعتمدون — تسعير قطاعي وجملة تلقائي ومباشر لورشتك
+                {marketCfg.heroSubtitle || 'مصانع وتجار خامات الهاند ميد المعتمدون — تسعير قطاعي وجملة تلقائي ومباشر لورشتك'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {marketCfg.b2bPolicy?.whatsappSupportEnabled && marketCfg.b2bPolicy?.whatsappSupportPhone && (
+              <a
+                href={`https://wa.me/${marketCfg.b2bPolicy.whatsappSupportPhone.replace(/\D/g, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black hidden sm:flex items-center gap-1.5"
+              >
+                <span>{marketCfg.b2bPolicy.whatsappSupportLabel || 'دعم التوريد'}</span>
+              </a>
+            )}
             {hasAuthSession && onNavigateToMyOrders && (
               <button
                 type="button"
@@ -433,7 +488,8 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className="relative px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm"
+              className="relative px-3.5 py-2 rounded-xl text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm"
+              style={{ backgroundColor: activeThemeMeta.accentBg || '#EA580C' }}
             >
               <ShoppingCart className="w-4 h-4" />
               <span>سلة التوريد</span>
@@ -448,6 +504,34 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
       </header>
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-5 space-y-5">
+        {marketCfg.marketStatus === 'maintenance' && (
+          <section className="rounded-2xl bg-amber-500/15 border border-amber-500/40 p-4 text-center space-y-1">
+            <p className="text-sm font-black text-amber-900 dark:text-amber-200">
+              تنبيه إدارة سوق موردين الشمساوية
+            </p>
+            <p className="text-xs font-bold text-amber-800 dark:text-amber-300">
+              {marketCfg.maintenanceMessage}
+            </p>
+          </section>
+        )}
+
+        {marketCfg.heroEnabled && (
+          <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p
+                className="text-[11px] font-black"
+                style={{ color: activeThemeMeta.accentTextLight }}
+              >
+                {marketCfg.heroEyebrow}
+              </p>
+              <h2 className="text-base sm:text-lg font-black">{marketCfg.heroTitle}</h2>
+              <p className="text-xs text-[#475569] dark:text-[#94A3B8] max-w-2xl">
+                {marketCfg.heroSubtitle}
+              </p>
+            </div>
+          </section>
+        )}
+
         {/* Filter & Search Bar */}
         <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
@@ -478,7 +562,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                 className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
               >
                 <option value="all">كافة أقسام الخامات</option>
-                {SUPPLIER_SUPPLY_SECTIONS.map((sec) => (
+                {activeSections.map((sec) => (
                   <option key={sec.id} value={sec.id}>
                     {sec.titleAr}
                   </option>
@@ -542,18 +626,20 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                 <Layers className="w-3.5 h-3.5" />
                 <span>كافة الخامات المعروضة ({flatMaterials.length})</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('compare')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-black cursor-pointer flex items-center gap-1.5 ${
-                  viewMode === 'compare'
-                    ? 'bg-[#EA580C] text-white'
-                    : 'bg-amber-500/15 text-[#9A3412] dark:text-amber-200 border border-amber-500/30'
-                }`}
-              >
-                <Scale className="w-3.5 h-3.5" />
-                <span>مقارنة أسعار الموردين</span>
-              </button>
+              {marketCfg.featureToggles?.showComparisonTab !== false && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode('compare')}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-black cursor-pointer flex items-center gap-1.5 ${
+                    viewMode === 'compare'
+                      ? 'bg-[#EA580C] text-white'
+                      : 'bg-amber-500/15 text-[#9A3412] dark:text-amber-200 border border-amber-500/30'
+                  }`}
+                >
+                  <Scale className="w-3.5 h-3.5" />
+                  <span>مقارنة أسعار الموردين</span>
+                </button>
+              )}
             </div>
 
             {(searchQuery || sectionFilter !== 'all' || governorateFilter !== 'all' || wholesaleOnly) && (
@@ -569,7 +655,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
         </section>
 
         {/* Supplier Offer & New Stock Alerts Strip */}
-        {offerAlerts.length > 0 && (
+        {marketCfg.featureToggles?.showOfferAlertsStrip !== false && offerAlerts.length > 0 && (
           <section className="rounded-2xl bg-[#0C1427] dark:bg-[#132040] text-[#F7F3EA] border border-[#22355E] p-3.5 space-y-2">
             <div className="flex items-center justify-between gap-2 text-xs font-black text-[#FBBF24]">
               <span className="flex items-center gap-1.5">
@@ -645,19 +731,28 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                             className="w-12 h-12 rounded-xl object-contain bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-1 shrink-0"
                           />
                           <div className="min-w-0">
-                            <h2 className="text-sm font-black truncate">{supplier.brandName}</h2>
+                            <h2 className="text-sm font-black truncate flex items-center gap-1.5">
+                              <span>{supplier.brandName}</span>
+                              {marketCfg.featuredSupplierIds?.includes(supplier.id) && (
+                                <span className="text-[10px] font-black text-[#EA580C] dark:text-[#FBBF24] shrink-0">
+                                  ★ مميز
+                                </span>
+                              )}
+                            </h2>
                             <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] truncate">
                               {bizLabels} · {supplier.governorate || supplier.country}
                             </p>
-                            <button
-                              type="button"
-                              onClick={() => openSupplierModal(entry, 'reviews')}
-                              className="inline-flex items-center gap-1 text-[10px] font-black text-amber-700 dark:text-amber-300 mt-0.5 hover:underline cursor-pointer"
-                            >
-                              <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
-                              <span className="font-mono tabular-nums">{(entry.ratingAvg ?? 5).toFixed(1)}</span>
-                              <span>· {(entry.reviewsCount ?? 0) > 0 ? `${entry.reviewsCount} تقييم ورشة` : 'قيّم المورد'}</span>
-                            </button>
+                            {marketCfg.featureToggles?.showWorkshopReviews !== false && (
+                              <button
+                                type="button"
+                                onClick={() => openSupplierModal(entry, 'reviews')}
+                                className="inline-flex items-center gap-1 text-[10px] font-black text-amber-700 dark:text-amber-300 mt-0.5 hover:underline cursor-pointer"
+                              >
+                                <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
+                                <span className="font-mono tabular-nums">{(entry.ratingAvg ?? 5).toFixed(1)}</span>
+                                <span>· {(entry.reviewsCount ?? 0) > 0 ? `${entry.reviewsCount} تقييم ورشة` : 'قيّم المورد'}</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                         <span className="font-mono tabular-nums text-[11px] font-black text-[#C2410C] dark:text-[#FBBF24] shrink-0">

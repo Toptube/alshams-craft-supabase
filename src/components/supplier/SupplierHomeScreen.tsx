@@ -13,6 +13,10 @@ import {
   fetchSupplierCustomers,
   fetchSupplierFinance,
 } from '../../db/supplierService';
+import { fetchSupplierErpOverview } from '../../db/supplierErpService';
+import { SupplierErpOverview } from '../../types/supplierErp';
+import { useFeatureFlags } from '../../types/featureFlags';
+import { isUserAdmin } from '../../types';
 import {
   Boxes,
   Store,
@@ -27,6 +31,11 @@ import {
   ArrowLeft,
   Truck,
   User,
+  GitBranch,
+  ShoppingCart,
+  Warehouse,
+  MonitorSmartphone,
+  Clock,
 } from 'lucide-react';
 
 interface SupplierHomeScreenProps {
@@ -36,6 +45,10 @@ interface SupplierHomeScreenProps {
   onNavigateToOrders: () => void;
   onNavigateToCustomers: () => void;
   onNavigateToFinance: () => void;
+  onNavigateToErpHub?: () => void;
+  onNavigateToPos?: () => void;
+  onNavigateToWarehouseErp?: () => void;
+  onNavigateToHrTerminal?: () => void;
   onNavigateToFamily?: () => void;
   onNavigateToPersonalProfile?: () => void;
 }
@@ -47,13 +60,20 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   onNavigateToOrders,
   onNavigateToCustomers,
   onNavigateToFinance,
+  onNavigateToErpHub,
+  onNavigateToPos,
+  onNavigateToWarehouseErp,
+  onNavigateToHrTerminal,
   onNavigateToFamily,
   onNavigateToPersonalProfile,
 }) => {
+  const flags = useFeatureFlags();
+  const showErpModules = isUserAdmin(profile) || flags.supplierErpEnabled !== false;
   const [catalog, setCatalog] = useState<SupplierCatalogItem[]>([]);
   const [orders, setOrders] = useState<B2BSupplyOrder[]>([]);
   const [customers, setCustomers] = useState<SupplierCustomer[]>([]);
   const [treasuries, setTreasuries] = useState<SupplierTreasury[]>([]);
+  const [erpOverview, setErpOverview] = useState<SupplierErpOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -72,13 +92,15 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
       fetchSupplierOrders(),
       fetchSupplierCustomers(),
       fetchSupplierFinance(),
+      fetchSupplierErpOverview(),
     ])
-      .then(([cat, ord, cust, fin]) => {
+      .then(([cat, ord, cust, fin, erpOv]) => {
         if (!mounted) return;
         setCatalog(cat);
         setOrders(ord);
         setCustomers(cust);
         setTreasuries(fin.treasuries);
+        setErpOverview(erpOv);
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -120,6 +142,58 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   }, [profile.supplySections]);
 
   const hubCards = [
+    ...(showErpModules && onNavigateToErpHub
+      ? [
+          {
+            id: 'erp_hub',
+            title: 'مركز قيادة الفروع والخزينة (ERP)',
+            desc: 'شجرة الفروع والمخزن المركزي، الموافقات المالية، واستلام توريدات الفروع',
+            stat: `${erpOverview?.branches?.length || 1} فرع نشط`,
+            icon: GitBranch,
+            accent: 'text-[#EA580C]',
+            onClick: onNavigateToErpHub,
+          },
+        ]
+      : []),
+    ...(showErpModules && onNavigateToPos
+      ? [
+          {
+            id: 'pos_cashier',
+            title: 'كاشير نقاط البيع (POS)',
+            desc: 'بيع بالوزن أو الوحدة بالكسور، عميل فرع أو أونلاين، وكاش أو إنستاباي أو آجل',
+            stat: erpOverview ? `اليوم: ${erpOverview.kpis.todayPosOrdersCount} فاتورة` : 'فتح الكاشير',
+            icon: ShoppingCart,
+            accent: 'text-emerald-700 dark:text-emerald-300',
+            onClick: onNavigateToPos,
+          },
+        ]
+      : []),
+    ...(showErpModules && onNavigateToWarehouseErp
+      ? [
+          {
+            id: 'warehouse_erp',
+            title: 'المخازن وكارت الصنف والمصانع',
+            desc: 'جرد بدون صور، تحويل وحدة (طرد ← كيلو)، كارت الصنف، ومستحقات المصانع',
+            stat: erpOverview ? `${Number(erpOverview.kpis.totalStockValuation).toLocaleString()} ${currencySymbol}` : 'جرد المخازن',
+            icon: Warehouse,
+            accent: 'text-sky-700 dark:text-sky-300',
+            onClick: onNavigateToWarehouseErp,
+          },
+        ]
+      : []),
+    ...(showErpModules && onNavigateToHrTerminal
+      ? [
+          {
+            id: 'hr_terminal',
+            title: 'شؤون العاملين وتثبيت الأجهزة (HR)',
+            desc: 'حسابات الموظفين، الحضور والجزاءات والسلف، وتثبيت الشاشات على أجهزة الفروع',
+            stat: 'Kiosk & HR',
+            icon: MonitorSmartphone,
+            accent: 'text-amber-700 dark:text-amber-300',
+            onClick: onNavigateToHrTerminal,
+          },
+        ]
+      : []),
     {
       id: 'catalog',
       title: 'كتالوج الخامات والمخزون',
@@ -272,6 +346,49 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
           </p>
         </div>
       </section>
+
+      {/* Multi-Branch ERP Live Cashflow Summary Strip */}
+      {showErpModules && erpOverview && (
+        <section className="rounded-2xl bg-[#0C1427] text-[#F7F3EA] border border-[#22355E] p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 flex-1 text-xs">
+            <div>
+              <p className="text-slate-300 font-bold">معانا كام (الخزن الكلية)</p>
+              <p className="font-mono tabular-nums font-black text-emerald-400 text-sm mt-0.5">
+                {Number(erpOverview.kpis.totalCashOnHand).toLocaleString()} {currencySymbol}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-300 font-bold">لينا بره كام (آجل العملاء)</p>
+              <p className="font-mono tabular-nums font-black text-amber-300 text-sm mt-0.5">
+                {Number(erpOverview.kpis.receivablesFromCustomers).toLocaleString()} {currencySymbol}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-300 font-bold">علينا كام (للمصانع)</p>
+              <p className="font-mono tabular-nums font-black text-rose-400 text-sm mt-0.5">
+                {Number(erpOverview.kpis.payablesToVendors).toLocaleString()} {currencySymbol}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-300 font-bold">قيمة المخزون بالفروع</p>
+              <p className="font-mono tabular-nums font-black text-sky-300 text-sm mt-0.5">
+                {Number(erpOverview.kpis.totalStockValuation).toLocaleString()} {currencySymbol}
+              </p>
+            </div>
+          </div>
+
+          {erpOverview.pendingTransfers.length > 0 && onNavigateToErpHub && (
+            <button
+              type="button"
+              onClick={onNavigateToErpHub}
+              className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <Clock className="w-4 h-4" />
+              <span>{erpOverview.pendingTransfers.length} توريد بانتظار تأكيد الاستلام</span>
+            </button>
+          )}
+        </section>
+      )}
 
       {/* Main Action Hub Grid */}
       <section className="space-y-3">

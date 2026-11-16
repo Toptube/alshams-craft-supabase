@@ -81,6 +81,11 @@ export function mapDbSupplierRowToProfile(row: any): SupplierProfile {
     featuredRank: Number(row.featured_rank ?? row.featuredRank ?? 0),
     hideStorefront: Boolean(row.hide_storefront ?? row.hideStorefront),
     hideFromMarket: Boolean(row.hide_from_market ?? row.hideFromMarket),
+    hasCentralWarehouse: Boolean(row.has_central_warehouse ?? row.hasCentralWarehouse),
+    maxBranchesApproved: Number(row.max_branches_approved ?? row.maxBranchesApproved ?? 1),
+    branchExpansionRequested: Number(row.branch_expansion_requested ?? row.branchExpansionRequested ?? 0),
+    branchExpansionReason: row.branch_expansion_reason || row.branchExpansionReason || '',
+    branchExpansionStatus: (row.branch_expansion_status || row.branchExpansionStatus || 'none') as any,
     termsAcceptedAt: row.terms_accepted_at || row.termsAcceptedAt,
     createdAt: row.created_at || row.createdAt,
     updatedAt: row.updated_at || row.updatedAt,
@@ -412,6 +417,9 @@ export function mapDbSupplierCustomer(r: any): SupplierCustomer {
     sourceType: r.source_type || r.sourceType || 'external',
     totalPurchases: Number(r.total_purchases ?? r.totalPurchases ?? 0),
     balanceDue: Number(r.balance_due ?? r.balanceDue ?? 0),
+    walkinOrdersCount: Number(r.walkin_orders_count ?? r.walkinOrdersCount ?? 0),
+    onlineOrdersCount: Number(r.online_orders_count ?? r.onlineOrdersCount ?? 0),
+    lastAddress: r.last_address || r.lastAddress || '',
     notes: r.notes || '',
     createdAt: r.created_at || r.createdAt,
     updatedAt: r.updated_at || r.updatedAt,
@@ -1031,3 +1039,188 @@ export async function fetchAdminCustomersDirectory(userEmail?: string): Promise<
   } catch {}
   return [];
 }
+
+export interface AdminSuppliersMarketCatalogRow extends SupplierCatalogItem {
+  supplierBrandName: string;
+  supplierSlug: string;
+  supplierGovernorate: string;
+  supplierCurrencySymbol: string;
+}
+
+export interface AdminSuppliersMarketReviewRow extends SupplierReview {
+  supplierBrandName: string;
+}
+
+export interface AdminSuppliersMarketOrderRow extends B2BSupplyOrder {
+  supplierBrandName: string;
+  currencySymbol: string;
+}
+
+export interface AdminSuppliersMarketOverview {
+  suppliers: SupplierProfile[];
+  catalogItems: AdminSuppliersMarketCatalogRow[];
+  offerAlerts: SupplierOfferAlert[];
+  reviews: AdminSuppliersMarketReviewRow[];
+  b2bOrders: AdminSuppliersMarketOrderRow[];
+}
+
+export async function fetchAdminSuppliersMarketOverview(
+  userEmail?: string
+): Promise<AdminSuppliersMarketOverview> {
+  try {
+    const headers = await getAuthHeaders(userEmail ? { 'x-user-email': userEmail } : {});
+    const res = await fetch('/api/admin/suppliers-market/overview', { headers });
+    if (res.ok) {
+      const json = await res.json();
+      return {
+        suppliers: Array.isArray(json?.suppliers)
+          ? json.suppliers.map(mapDbSupplierRowToProfile)
+          : [],
+        catalogItems: Array.isArray(json?.catalogItems)
+          ? json.catalogItems.map((it: any) => ({
+              ...mapDbCatalogItem(it),
+              supplierBrandName: it.supplierBrandName || 'مورد معتمد',
+              supplierSlug: it.supplierSlug || it.supplier_id || '',
+              supplierGovernorate: it.supplierGovernorate || '',
+              supplierCurrencySymbol: it.supplierCurrencySymbol || 'ج.م',
+            }))
+          : [],
+        offerAlerts: Array.isArray(json?.offerAlerts)
+          ? json.offerAlerts.map(mapDbOfferAlert)
+          : [],
+        reviews: Array.isArray(json?.reviews)
+          ? json.reviews.map((r: any) => ({
+              ...mapDbSupplierReview(r),
+              supplierBrandName: r.supplierBrandName || 'مورد',
+            }))
+          : [],
+        b2bOrders: Array.isArray(json?.b2bOrders)
+          ? json.b2bOrders.map((o: any) => ({
+              ...mapDbB2BOrder(o),
+              supplierBrandName: o.supplierBrandName || 'مورد',
+              currencySymbol: o.currencySymbol || 'ج.م',
+            }))
+          : [],
+      };
+    }
+  } catch {}
+  return {
+    suppliers: [],
+    catalogItems: [],
+    offerAlerts: [],
+    reviews: [],
+    b2bOrders: [],
+  };
+}
+
+export async function adminUpdateSupplierCatalogItem(
+  itemId: string,
+  payload: { inMarket?: boolean; isApproved?: boolean; retailPrice?: number; wholesalePrice?: number },
+  userEmail?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({
+      'Content-Type': 'application/json',
+      ...(userEmail ? { 'x-user-email': userEmail } : {}),
+    });
+    const res = await fetch(`/api/admin/suppliers-market/catalog/${encodeURIComponent(itemId)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    return { success: res.ok && Boolean(json?.success), error: json?.error };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function adminPublishOfferAlert(
+  payload: {
+    supplierId?: string;
+    supplierBrand?: string;
+    supplierSlug?: string;
+    alertType?: 'offer' | 'new_arrival' | 'price_drop';
+    title: string;
+    message: string;
+    sectionId?: string;
+    discountBadge?: string;
+  },
+  userEmail?: string
+): Promise<{ success: boolean; alert?: SupplierOfferAlert; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({
+      'Content-Type': 'application/json',
+      ...(userEmail ? { 'x-user-email': userEmail } : {}),
+    });
+    const res = await fetch('/api/admin/suppliers-market/offer-alerts', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success && json?.alert) {
+      return { success: true, alert: mapDbOfferAlert(json.alert) };
+    }
+    return { success: false, error: json?.error || 'تعذر نشر التنبيه' };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function adminDeleteOfferAlert(
+  alertId: string,
+  userEmail?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const headers = await getAuthHeaders(userEmail ? { 'x-user-email': userEmail } : {});
+    const res = await fetch(`/api/admin/suppliers-market/offer-alerts/${encodeURIComponent(alertId)}`, {
+      method: 'DELETE',
+      headers,
+    });
+    const json = await res.json().catch(() => ({}));
+    return { success: res.ok && Boolean(json?.success), error: json?.error };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function adminDeleteSupplierReview(
+  reviewId: string,
+  userEmail?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const headers = await getAuthHeaders(userEmail ? { 'x-user-email': userEmail } : {});
+    const res = await fetch(`/api/admin/suppliers-market/reviews/${encodeURIComponent(reviewId)}`, {
+      method: 'DELETE',
+      headers,
+    });
+    const json = await res.json().catch(() => ({}));
+    return { success: res.ok && Boolean(json?.success), error: json?.error };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function adminUpdateB2BOrderStatus(
+  orderId: string,
+  payload: { status?: string; notes?: string },
+  userEmail?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({
+      'Content-Type': 'application/json',
+      ...(userEmail ? { 'x-user-email': userEmail } : {}),
+    });
+    const res = await fetch(`/api/admin/suppliers-market/orders/${encodeURIComponent(orderId)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    return { success: res.ok && Boolean(json?.success), error: json?.error };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+

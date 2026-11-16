@@ -242,6 +242,16 @@ export const SupplierCustomersView: React.FC<SupplierCustomersViewProps> = ({
                 <tr key={c.id} className="hover:bg-[#EFE9DC]/40 dark:hover:bg-[#132040]/40">
                   <td className="p-3 font-black text-[#0C1427] dark:text-[#F7F3EA]">
                     <div>{c.name}</div>
+                    {c.lastAddress && (
+                      <div className="text-[10px] font-bold text-[#334155] dark:text-[#CBD5E1] mt-0.5">
+                        العنوان: {c.lastAddress}
+                      </div>
+                    )}
+                    {(Number(c.walkinOrdersCount || 0) > 0 || Number(c.onlineOrdersCount || 0) > 0) && (
+                      <div className="text-[10px] font-bold text-[#C2410C] dark:text-amber-300 mt-0.5 font-mono tabular-nums">
+                        زيارات الفرع: {Number(c.walkinOrdersCount || 0)} · طلبات أونلاين: {Number(c.onlineOrdersCount || 0)}
+                      </div>
+                    )}
                     {c.notes && (
                       <div className="text-[10px] font-medium text-[#475569] dark:text-[#94A3B8]">
                         {c.notes}
@@ -269,6 +279,9 @@ export const SupplierCustomersView: React.FC<SupplierCustomersViewProps> = ({
                   </td>
                   <td className="p-3 font-mono tabular-nums font-black text-rose-600 dark:text-rose-400">
                     {Number(c.balanceDue).toLocaleString()} {currencySymbol}
+                    {Number(c.balanceDue) > 0 && (
+                      <span className="block text-[10px] font-bold text-rose-500">آجل مستحق عليه</span>
+                    )}
                   </td>
                   <td className="p-3">
                     <div className="flex items-center gap-2">

@@ -93,6 +93,16 @@ import { SupplierFinanceView } from './components/supplier/SupplierFinanceView';
 import { SupplierStorefrontModal } from './components/supplier/SupplierStorefrontModal';
 import { SuppliersMarketView } from './components/supplier/SuppliersMarketView';
 import { SupplierPublicStoreView } from './components/supplier/SupplierPublicStoreView';
+import { SupplierErpHubView } from './components/supplier/SupplierErpHubView';
+import { SupplierPosView } from './components/supplier/SupplierPosView';
+import { SupplierBranchesWarehouseView } from './components/supplier/SupplierBranchesWarehouseView';
+import { SupplierHrTerminalView } from './components/supplier/SupplierHrTerminalView';
+import { LockedTerminalShell } from './components/supplier/LockedTerminalShell';
+import {
+  getLockedTerminalConfig,
+  KIOSK_LOCK_CHANGED_EVENT,
+} from './db/supplierErpService';
+import { LockedTerminalConfig } from './types/supplierErp';
 import { MemberPersonalProfileView } from './components/profile/MemberPersonalProfileView';
 import {
   registerServiceWorker,
@@ -136,6 +146,10 @@ export type ActiveView =
   | 'supplier_customers'
   | 'supplier_finance'
   | 'supplier_store'
+  | 'supplier_erp_hub'
+  | 'supplier_pos'
+  | 'supplier_warehouse_erp'
+  | 'supplier_hr_terminal'
   | 'personal_profile';
 
 const processedRecoveryTokens = new Set<string>();
@@ -187,6 +201,10 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   supplier_customers: 'عملائي (الورش والأفراد)',
   supplier_finance: 'خزائن المورد والمصروفات',
   supplier_store: 'لوحة تحكم متجر المورد',
+  supplier_erp_hub: 'مركز قيادة الفروع والخزينة (ERP)',
+  supplier_pos: 'كاشير نقاط البيع (POS)',
+  supplier_warehouse_erp: 'المخازن وكارت الصنف والمصانع',
+  supplier_hr_terminal: 'شؤون العاملين وتثبيت الشاشات',
   personal_profile: 'صفحتي الشخصية ومعرض الأعمال',
 };
 
@@ -1244,11 +1262,29 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('alshams_open_store', handleOpenStore);
   }, []);
 
+  const [erpSelectedBranchId, setErpSelectedBranchId] = useState<string | undefined>(undefined);
+  const [lockedTerminal, setLockedTerminal] = useState<LockedTerminalConfig | null>(() =>
+    getLockedTerminalConfig()
+  );
+
+  useEffect(() => {
+    const syncKioskLock = () => setLockedTerminal(getLockedTerminalConfig());
+    window.addEventListener(KIOSK_LOCK_CHANGED_EVENT, syncKioskLock);
+    window.addEventListener('storage', syncKioskLock);
+    return () => {
+      window.removeEventListener(KIOSK_LOCK_CHANGED_EVENT, syncKioskLock);
+      window.removeEventListener('storage', syncKioskLock);
+    };
+  }, []);
+
   // Listen to custom navigation events from Shamousa or other components
   useEffect(() => {
     const handleOpenView = (e: Event) => {
-      const customEvent = e as CustomEvent<{ view?: string }>;
+      const customEvent = e as CustomEvent<{ view?: string; branchId?: string }>;
       const view = customEvent.detail?.view;
+      if (customEvent.detail?.branchId) {
+        setErpSelectedBranchId(customEvent.detail.branchId);
+      }
       if (view === 'marketplace') {
         navigateTo('marketplace');
         return;
@@ -1747,6 +1783,19 @@ export const App: React.FC = () => {
     );
   }
 
+  // Kiosk Locked Device Mode takes top priority when a branch terminal is pinned to this browser
+  if (lockedTerminal) {
+    return (
+      <LockedTerminalShell
+        config={lockedTerminal}
+        onUnlocked={() => {
+          setLockedTerminal(null);
+          setActiveView('home');
+        }}
+      />
+    );
+  }
+
   if (authChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] font-sans" dir="rtl">
@@ -2160,6 +2209,10 @@ export const App: React.FC = () => {
                 onNavigateToOrders={() => navigateTo('supplier_orders')}
                 onNavigateToCustomers={() => navigateTo('supplier_customers')}
                 onNavigateToFinance={() => navigateTo('supplier_finance')}
+                onNavigateToErpHub={() => navigateTo('supplier_erp_hub')}
+                onNavigateToPos={() => navigateTo('supplier_pos')}
+                onNavigateToWarehouseErp={() => navigateTo('supplier_warehouse_erp')}
+                onNavigateToHrTerminal={() => navigateTo('supplier_hr_terminal')}
                 onNavigateToFamily={() => navigateTo('family')}
                 onNavigateToPersonalProfile={() => navigateTo('personal_profile')}
               />
@@ -2538,6 +2591,54 @@ export const App: React.FC = () => {
             profile={profile}
             onGoBack={navigateBack}
             onGoHome={goHome}
+          />
+        )}
+
+        {activeView === 'supplier_erp_hub' && (
+          <SupplierErpHubView
+            profile={profile}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+            onNavigateToPos={(bId) => {
+              setErpSelectedBranchId(bId);
+              navigateTo('supplier_pos');
+            }}
+            onNavigateToWarehouse={(bId) => {
+              setErpSelectedBranchId(bId);
+              navigateTo('supplier_warehouse_erp');
+            }}
+            onNavigateToHrTerminal={(bId) => {
+              setErpSelectedBranchId(bId);
+              navigateTo('supplier_hr_terminal');
+            }}
+          />
+        )}
+
+        {activeView === 'supplier_pos' && (
+          <SupplierPosView
+            profile={profile}
+            initialBranchId={erpSelectedBranchId}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+          />
+        )}
+
+        {activeView === 'supplier_warehouse_erp' && (
+          <SupplierBranchesWarehouseView
+            profile={profile}
+            initialBranchId={erpSelectedBranchId}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+          />
+        )}
+
+        {activeView === 'supplier_hr_terminal' && (
+          <SupplierHrTerminalView
+            profile={profile}
+            initialBranchId={erpSelectedBranchId}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+            onDeviceLocked={() => setLockedTerminal(getLockedTerminalConfig())}
           />
         )}
           </motion.div>

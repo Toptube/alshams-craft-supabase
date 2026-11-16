@@ -35,6 +35,9 @@ import {
   RefreshCw,
   Package,
   User,
+  GitBranch,
+  MonitorSmartphone,
+  Warehouse,
 } from 'lucide-react';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { useFeatureFlags } from '../../types/featureFlags';
@@ -104,7 +107,23 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
   const navGroups: NavGroup[] = useMemo(() => {
     if (isSupplier) {
-      return [
+      const showErp = isAdmin || flags.supplierErpEnabled !== false;
+      const supplierGroups: NavGroup[] = [
+        ...(showErp
+          ? [
+              {
+                key: 'hr' as SectionKey,
+                code: 'POS',
+                titleAr: 'الفروع والكاشير والمخازن (ERP)',
+                items: [
+                  { id: 'supplier_erp_hub', label: 'مركز قيادة الفروع والخزينة', icon: GitBranch },
+                  { id: 'supplier_pos', label: 'كاشير نقاط البيع (POS)', icon: ShoppingCart },
+                  { id: 'supplier_warehouse_erp', label: 'المخازن وكارت الصنف والمصانع', icon: Warehouse },
+                  { id: 'supplier_hr_terminal', label: 'شؤون العاملين وتثبيت الأجهزة', icon: MonitorSmartphone },
+                ],
+              },
+            ]
+          : []),
         {
           key: 'erp',
           code: 'B2B',
@@ -138,6 +157,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           items: [{ id: 'supplier_finance', label: 'الخزائن والمصروفات والتدفقات', icon: Wallet }],
         },
       ];
+      return supplierGroups;
     }
 
     const baseGroups: NavGroup[] = [

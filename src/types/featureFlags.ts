@@ -6,6 +6,7 @@ export interface PlatformFeatureFlags {
   supplierPortalEnabled: boolean;
   supplierLandingPromoEnabled: boolean;
   suppliersMarketplaceEnabled: boolean;
+  supplierErpEnabled: boolean;
 
   // 2. أقسام ومزايا الورش والمنصة الرئيسية
   artisanMarketplaceEnabled: boolean;
@@ -23,6 +24,7 @@ export const DEFAULT_PLATFORM_FEATURE_FLAGS: PlatformFeatureFlags = {
   supplierPortalEnabled: true,
   supplierLandingPromoEnabled: true,
   suppliersMarketplaceEnabled: false,
+  supplierErpEnabled: true,
 
   artisanMarketplaceEnabled: true,
   artisanStorefrontEnabled: true,
@@ -69,6 +71,13 @@ export const FEATURE_FLAG_ITEMS: FeatureFlagMetaItem[] = [
     description:
       'تصفح وشراء الخامات بالجملة والقطاعي من الموردين مباشرة داخل حسابات الورش (مرحلة الربط التالية).',
     isBeta: true,
+  },
+  {
+    key: 'supplierErpEnabled',
+    group: 'suppliers',
+    title: 'منظومة الفروع المتعددة وكاشير نقاط البيع للموردين (ERP & POS)',
+    description:
+      'تفعيل شجرة الفروع والمخزن المركزي وكاشير المبيعات (بدون صور) والتحويلات والمصانع وشؤون العاملين وتثبيت الأجهزة.',
   },
   {
     key: 'artisanMarketplaceEnabled',
@@ -134,6 +143,10 @@ export function normalizeFeatureFlags(raw?: Partial<PlatformFeatureFlags> | null
     suppliersMarketplaceEnabled: pickBool(
       r.suppliersMarketplaceEnabled,
       DEFAULT_PLATFORM_FEATURE_FLAGS.suppliersMarketplaceEnabled
+    ),
+    supplierErpEnabled: pickBool(
+      r.supplierErpEnabled,
+      DEFAULT_PLATFORM_FEATURE_FLAGS.supplierErpEnabled
     ),
     artisanMarketplaceEnabled: pickBool(
       r.artisanMarketplaceEnabled,

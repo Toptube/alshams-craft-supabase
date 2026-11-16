@@ -29,6 +29,7 @@ import {
   performGoogleSearch,
   getAgentSecretStatus,
 } from './server/googleSearchService.js';
+import { registerSupplierErpRoutes } from './server/supplierErpRoutes.js';
 
 dotenv.config();
 
@@ -4204,16 +4205,32 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
   }
 
   try {
+    let verifiedSupplier: any = null;
+    if (req.body?.accountRole === 'supplier' || !superAdmin) {
+      verifiedSupplier = await resolveActiveSupplierForReq(req).catch(() => null);
+    }
+    const resolvedRole: 'artisan' | 'supplier' =
+      verifiedSupplier || req.body?.accountRole === 'supplier' ? 'supplier' : 'artisan';
+    const verifiedSupplierId = verifiedSupplier?.id
+      ? String(verifiedSupplier.id)
+      : resolvedRole === 'supplier'
+      ? (superAdmin && req.body?.workshopId ? String(req.body.workshopId) : wid)
+      : undefined;
+
     const artistName =
+      verifiedSupplier?.owner_name ||
+      verifiedSupplier?.artistName ||
       req.user?.user_metadata?.full_name ||
       req.user?.user_metadata?.name ||
       req.body?.artistName ||
       (superAdmin ? 'الباشمهندس حسام' : '');
     const brandName =
+      verifiedSupplier?.brand_name ||
+      verifiedSupplier?.brandName ||
       req.user?.user_metadata?.brand_name ||
       req.user?.user_metadata?.brandName ||
       req.body?.brandName ||
-      'ورشة الإبداع الحرفي';
+      (resolvedRole === 'supplier' ? 'بوابة المورد' : 'ورشة الإبداع الحرفي');
 
     const shamousaRunner: any =
       (shamousaModule as any).handleShamousaChat ||
@@ -4234,12 +4251,13 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
         workshopName: brandName,
         treasuryBalance: clientTreasury,
         workshopId: wid,
+        supplierId: verifiedSupplierId,
         db: supabaseAdminClient,
         clientContext: clientWorkshopState,
         userEmail: email,
         isSuperAdmin: superAdmin,
         useSearch,
-        accountRole: req.body?.accountRole === 'supplier' ? 'supplier' : 'artisan',
+        accountRole: resolvedRole,
       },
       Array.isArray(images) ? images : undefined
     );
@@ -4329,7 +4347,16 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
   }
 
   try {
+    let verifiedSupplier: any = null;
+    if (workshopContext?.accountRole === 'supplier' || !superAdmin) {
+      verifiedSupplier = await resolveActiveSupplierForReq(req).catch(() => null);
+    }
+    const resolvedRole: 'artisan' | 'supplier' =
+      verifiedSupplier || workshopContext?.accountRole === 'supplier' ? 'supplier' : 'artisan';
+
     const artistName =
+      verifiedSupplier?.owner_name ||
+      verifiedSupplier?.artistName ||
       req.user?.user_metadata?.full_name ||
       req.user?.user_metadata?.name ||
       workshopContext?.artistName ||
@@ -4345,7 +4372,10 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
       images: Array.isArray(images) ? images : undefined,
       workshopContext: {
         ...(workshopContext || {}),
-        artistName: (workshopContext?.artistName || artistName),
+        accountRole: resolvedRole,
+        supplierId: verifiedSupplier?.id || workshopContext?.supplierId,
+        artistName: artistName || workshopContext?.artistName,
+        brandName: verifiedSupplier?.brand_name || verifiedSupplier?.brandName || workshopContext?.brandName,
         userEmail: email,
         isSuperAdmin: superAdmin,
       },
@@ -5004,6 +5034,7 @@ app.get('/api/platform-settings', async (_req: Request, res: Response) => {
       ...(freshest?.governorateRates || {}),
     },
     marketBuilder: freshest?.marketBuilder || psCfg?.marketBuilder || wsCfg?.marketBuilder || localCfg.marketBuilder || null,
+    suppliersMarketBuilder: freshest?.suppliersMarketBuilder || psCfg?.suppliersMarketBuilder || wsCfg?.suppliersMarketBuilder || localCfg.suppliersMarketBuilder || null,
     landingCms: freshest?.landingCms || psCfg?.landingCms || wsCfg?.landingCms || localCfg.landingCms || null,
     featureFlags: freshest?.featureFlags || psCfg?.featureFlags || wsCfg?.featureFlags || localCfg.featureFlags || null,
   };
@@ -5028,6 +5059,10 @@ app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest,
       body.marketBuilder !== undefined
         ? body.marketBuilder
         : existing.marketBuilder || null,
+    suppliersMarketBuilder:
+      body.suppliersMarketBuilder !== undefined
+        ? body.suppliersMarketBuilder
+        : existing.suppliersMarketBuilder || null,
     landingCms:
       body.landingCms !== undefined
         ? body.landingCms
@@ -7125,6 +7160,14 @@ app.delete('/api/suppliers/expenses/:id', requireAuth, async (req: Authenticated
   return res.json({ success: true });
 });
 
+registerSupplierErpRoutes(app, {
+  requireAuth,
+  getDbClient,
+  supabaseAdminClient,
+  resolveActiveSupplierForReq,
+  isSuperAdmin,
+});
+
 app.get('/api/public/supplier-store/:slug', async (req: Request, res: Response) => {
   const cleanSlug = decodeURIComponent(req.params.slug || '').trim().toLowerCase();
   const suppliers = readJsonArray(PLATFORM_SUPPLIERS_FILE);
@@ -7929,6 +7972,269 @@ app.patch('/api/admin/suppliers/:id/moderation', requireAuth, async (req: Authen
   } catch {}
 
   return res.json({ success: true, cloudSynced, supplierId: supId, updates });
+});
+
+app.get('/api/admin/suppliers-market/overview', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+
+  const supMap = new Map<string, any>();
+  readJsonArray(PLATFORM_SUPPLIERS_FILE).forEach((s: any) => s?.id && supMap.set(s.id, s));
+
+  const itemMap = new Map<string, any>();
+  readJsonArray(SUPPLIER_CATALOG_FILE).forEach((i: any) => i?.id && itemMap.set(i.id, i));
+
+  const alertMap = new Map<string, any>();
+  readJsonArray(SUPPLIER_OFFER_ALERTS_FILE).forEach((a: any) => a?.id && alertMap.set(a.id, a));
+
+  const revMap = new Map<string, any>();
+  readJsonArray(SUPPLIER_REVIEWS_FILE).forEach((r: any) => r?.id && revMap.set(r.id, r));
+
+  const ordMap = new Map<string, any>();
+  readJsonArray(B2B_SUPPLY_ORDERS_FILE).forEach((o: any) => o?.id && ordMap.set(o.id, o));
+
+  try {
+    const client = supabaseAdminClient;
+    const [supRes, catRes, alertRes, revRes, ordRes] = await Promise.all([
+      client.from('platform_suppliers').select('*').order('created_at', { ascending: false }),
+      client.from('supplier_catalog_items').select('*').order('created_at', { ascending: false }),
+      client.from('supplier_offer_alerts').select('*').order('created_at', { ascending: false }).limit(80),
+      client.from('supplier_reviews').select('*').order('created_at', { ascending: false }).limit(120),
+      client.from('b2b_supply_orders').select('*').order('created_at', { ascending: false }).limit(150),
+    ]);
+    if (Array.isArray(supRes.data)) {
+      supRes.data.forEach((s: any) => s?.id && supMap.set(s.id, { ...(supMap.get(s.id) || {}), ...s }));
+    }
+    if (Array.isArray(catRes.data)) {
+      catRes.data.forEach((i: any) => i?.id && itemMap.set(i.id, { ...(itemMap.get(i.id) || {}), ...i }));
+    }
+    if (Array.isArray(alertRes.data)) {
+      alertRes.data.forEach((a: any) => a?.id && alertMap.set(a.id, { ...(alertMap.get(a.id) || {}), ...a }));
+    }
+    if (Array.isArray(revRes.data)) {
+      revRes.data.forEach((r: any) => r?.id && revMap.set(r.id, { ...(revMap.get(r.id) || {}), ...r }));
+    }
+    if (Array.isArray(ordRes.data)) {
+      ordRes.data.forEach((o: any) => o?.id && ordMap.set(o.id, { ...(ordMap.get(o.id) || {}), ...o }));
+    }
+  } catch {}
+
+  const suppliers = Array.from(supMap.values());
+  const catalogItems = Array.from(itemMap.values()).map((it: any) => {
+    const sup = supMap.get(it.supplier_id);
+    return {
+      ...it,
+      supplierBrandName: sup?.brand_name || sup?.brandName || 'مورد معتمد',
+      supplierSlug: sup?.store_slug || sup?.id || it.supplier_id,
+      supplierGovernorate: sup?.governorate || '',
+      supplierCurrencySymbol: sup?.currency_symbol || 'ج.م',
+    };
+  });
+  const offerAlerts = Array.from(alertMap.values()).sort(
+    (a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+  const reviews = Array.from(revMap.values())
+    .map((r: any) => {
+      const sup = supMap.get(r.supplier_id);
+      return {
+        ...r,
+        supplierBrandName: sup?.brand_name || sup?.brandName || 'مورد',
+      };
+    })
+    .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+  const b2bOrders = Array.from(ordMap.values())
+    .map((o: any) => {
+      const sup = supMap.get(o.supplier_id);
+      return {
+        ...o,
+        supplierBrandName: sup?.brand_name || sup?.brandName || 'مورد',
+        currencySymbol: sup?.currency_symbol || 'ج.م',
+      };
+    })
+    .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+  return res.json({
+    success: true,
+    suppliers,
+    catalogItems,
+    offerAlerts,
+    reviews,
+    b2bOrders,
+  });
+});
+
+app.patch('/api/admin/suppliers-market/catalog/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  const itemId = req.params.id;
+  const b = req.body || {};
+  const nowIso = new Date().toISOString();
+  const updates: Record<string, any> = { updated_at: nowIso };
+  if (b.inMarket !== undefined) updates.in_market = Boolean(b.inMarket);
+  if (b.isApproved !== undefined) updates.is_approved = Boolean(b.isApproved);
+  if (b.retailPrice !== undefined) updates.retail_price = Math.max(0, Number(b.retailPrice) || 0);
+  if (b.wholesalePrice !== undefined) updates.wholesale_price = Math.max(0, Number(b.wholesalePrice) || 0);
+
+  const items = readJsonArray(SUPPLIER_CATALOG_FILE);
+  const idx = items.findIndex((i: any) => i.id === itemId);
+  if (idx >= 0) {
+    items[idx] = { ...items[idx], ...updates };
+    writeJsonData(SUPPLIER_CATALOG_FILE, items);
+  }
+
+  let cloudSynced = false;
+  try {
+    const client = getDbClient(req);
+    const { error } = await client.from('supplier_catalog_items').update(updates).eq('id', itemId);
+    if (!error) {
+      cloudSynced = true;
+    } else {
+      const { error: adminErr } = await supabaseAdminClient.from('supplier_catalog_items').update(updates).eq('id', itemId);
+      if (!adminErr) cloudSynced = true;
+    }
+  } catch {}
+
+  return res.json({ success: true, cloudSynced, itemId, updates });
+});
+
+app.post('/api/admin/suppliers-market/offer-alerts', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  const b = req.body || {};
+  const title = String(b.title || '').trim();
+  const message = String(b.message || '').trim();
+  if (!title || !message) {
+    return res.status(400).json({ error: 'عنوان ونص العرض أو التنبيه مطلوبان' });
+  }
+
+  const nowIso = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    supplier_id: String(b.supplierId || 'central_admin'),
+    supplier_brand: String(b.supplierBrand || 'إدارة سوق موردين الشمساوية').trim(),
+    supplier_slug: String(b.supplierSlug || '').trim(),
+    alert_type: b.alertType || 'offer',
+    title,
+    message,
+    section_id: b.sectionId || 'all',
+    discount_badge: String(b.discountBadge || '').trim(),
+    created_at: nowIso,
+  };
+
+  const list = readJsonArray(SUPPLIER_OFFER_ALERTS_FILE);
+  list.unshift(row);
+  writeJsonData(SUPPLIER_OFFER_ALERTS_FILE, list.slice(0, 100));
+
+  let cloudSynced = false;
+  try {
+    const client = getDbClient(req);
+    const { error } = await client.from('supplier_offer_alerts').insert(row);
+    if (!error) cloudSynced = true;
+    else {
+      const { error: adminErr } = await supabaseAdminClient.from('supplier_offer_alerts').insert(row);
+      if (!adminErr) cloudSynced = true;
+    }
+  } catch {}
+
+  return res.json({ success: true, cloudSynced, alert: row });
+});
+
+app.delete('/api/admin/suppliers-market/offer-alerts/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  const alertId = req.params.id;
+  const list = readJsonArray(SUPPLIER_OFFER_ALERTS_FILE).filter((a: any) => a.id !== alertId);
+  writeJsonData(SUPPLIER_OFFER_ALERTS_FILE, list);
+
+  let cloudSynced = false;
+  try {
+    const client = getDbClient(req);
+    const { error } = await client.from('supplier_offer_alerts').delete().eq('id', alertId);
+    if (!error) cloudSynced = true;
+    else {
+      const { error: adminErr } = await supabaseAdminClient.from('supplier_offer_alerts').delete().eq('id', alertId);
+      if (!adminErr) cloudSynced = true;
+    }
+  } catch {}
+
+  return res.json({ success: true, cloudSynced, deletedId: alertId });
+});
+
+app.delete('/api/admin/suppliers-market/reviews/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  const revId = req.params.id;
+  const allRevs = readJsonArray(SUPPLIER_REVIEWS_FILE);
+  const removed = allRevs.find((r: any) => r.id === revId);
+  const nextRevs = allRevs.filter((r: any) => r.id !== revId);
+  writeJsonData(SUPPLIER_REVIEWS_FILE, nextRevs);
+
+  let cloudSynced = false;
+  try {
+    const client = getDbClient(req);
+    const { error } = await client.from('supplier_reviews').delete().eq('id', revId);
+    if (!error) cloudSynced = true;
+    else {
+      const { error: adminErr } = await supabaseAdminClient.from('supplier_reviews').delete().eq('id', revId);
+      if (!adminErr) cloudSynced = true;
+    }
+    if (removed?.supplier_id) {
+      const supRevs = nextRevs.filter((r: any) => r.supplier_id === removed.supplier_id);
+      const avg = supRevs.length > 0
+        ? Number((supRevs.reduce((s: number, r: any) => s + Number(r.rating || 5), 0) / supRevs.length).toFixed(1))
+        : 5;
+      await supabaseAdminClient
+        .from('platform_suppliers')
+        .update({ rating_stars: avg, reviews_count: supRevs.length, updated_at: new Date().toISOString() })
+        .eq('id', removed.supplier_id);
+    }
+  } catch {}
+
+  return res.json({ success: true, cloudSynced, deletedId: revId });
+});
+
+app.patch('/api/admin/suppliers-market/orders/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    return res.status(403).json({ error: 'صلاحيات غير كافية' });
+  }
+  const orderId = req.params.id;
+  const b = req.body || {};
+  const nowIso = new Date().toISOString();
+  const updates: Record<string, any> = { updated_at: nowIso };
+  if (b.status !== undefined) updates.status = String(b.status);
+  if (b.notes !== undefined) updates.notes = String(b.notes);
+
+  const orders = readJsonArray(B2B_SUPPLY_ORDERS_FILE);
+  const idx = orders.findIndex((o: any) => o.id === orderId);
+  if (idx >= 0) {
+    orders[idx] = { ...orders[idx], ...updates };
+    writeJsonData(B2B_SUPPLY_ORDERS_FILE, orders);
+  }
+
+  let cloudSynced = false;
+  try {
+    const client = getDbClient(req);
+    const { error } = await client.from('b2b_supply_orders').update(updates).eq('id', orderId);
+    if (!error) cloudSynced = true;
+    else {
+      const { error: adminErr } = await supabaseAdminClient.from('b2b_supply_orders').update(updates).eq('id', orderId);
+      if (!adminErr) cloudSynced = true;
+    }
+  } catch {}
+
+  return res.json({ success: true, cloudSynced, orderId, updates });
 });
 
 app.get('/api/admin/customers-directory', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
