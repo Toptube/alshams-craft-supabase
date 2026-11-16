@@ -9,6 +9,7 @@ import {
   LandingCmsConfig,
   getStoredLandingCmsConfig,
 } from '../../types/landingCms';
+import { useFeatureFlags } from '../../types/featureFlags';
 import { syncPlatformSettingsFromCloud } from '../../services/marketplaceCartService';
 import { AlShamsWelcomeGate } from './AlShamsWelcomeGate';
 import { AlShamsAudioPlayer, AlShamsAudioPlayerHandle } from './AlShamsAudioPlayer';
@@ -51,6 +52,7 @@ import {
 interface LandingPageProps {
   onOpenLogin: () => void;
   onOpenRegister: () => void;
+  onOpenRegisterSupplier?: () => void;
   isDarkMode?: boolean;
   onToggleTheme?: () => void;
 }
@@ -58,6 +60,7 @@ interface LandingPageProps {
 export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenLogin,
   onOpenRegister,
+  onOpenRegisterSupplier,
   isDarkMode = false,
   onToggleTheme,
 }) => {
@@ -65,6 +68,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const audioPlayerRef = useRef<AlShamsAudioPlayerHandle | null>(null);
   const [isWelcomeGateOpen, setIsWelcomeGateOpen] = useState(false);
   const [cms, setCms] = useState<LandingCmsConfig>(() => getStoredLandingCmsConfig());
+  const flags = useFeatureFlags();
 
   useEffect(() => {
     const syncCms = () => setCms(getStoredLandingCmsConfig());
@@ -972,6 +976,92 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           </div>
 
+        </div>
+      </section>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* 6B. Section: "بوابة موردي وتجار ومصانع الخامات" (Suppliers B2B) */}
+      {/* ------------------------------------------------------------- */}
+      {cms.sections.suppliersPromo?.visible && flags.supplierLandingPromoEnabled && flags.supplierRegistrationEnabled && (
+      <section id="suppliers-promo" className="py-16 md:py-24 border-b border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#091226]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col lg:flex-row items-center justify-between gap-12">
+            <div className="flex-1 space-y-4 text-center lg:text-right">
+              <p className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
+                {cms.sections.suppliersPromo.badge}
+              </p>
+
+              <h2 className="text-3xl sm:text-4xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight">
+                {cms.sections.suppliersPromo.titleLine1} <br />
+                <span className="text-[#EA580C] dark:text-amber-300">
+                  {cms.sections.suppliersPromo.titleHighlight}
+                </span>
+              </h2>
+
+              <p className="text-base sm:text-lg text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
+                {cms.sections.suppliersPromo.description}
+              </p>
+
+              <div className="space-y-2.5 pt-2 text-sm font-semibold text-[#0C1427] dark:text-[#E5E0D5]">
+                {cms.sections.suppliersPromo.bullets.map((bullet, idx) => (
+                  <div key={idx} className="flex items-center gap-2 justify-center lg:justify-start">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{bullet}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-4">
+                <button
+                  type="button"
+                  onClick={() => (onOpenRegisterSupplier ? onOpenRegisterSupplier() : onOpenRegister())}
+                  className="px-6 py-3.5 rounded-2xl font-black text-sm sm:text-base bg-[#0C1427] hover:bg-[#1A2B54] dark:bg-[#EA580C] dark:hover:bg-[#C2410C] text-[#FBBF24] dark:text-white border border-[#22355E] dark:border-[#FDBA74]/40 shadow-md transition-all cursor-pointer inline-flex items-center gap-2"
+                >
+                  <Store className="w-4 h-4" />
+                  <span>{cms.sections.suppliersPromo.ctaText}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="w-full max-w-md p-6 rounded-3xl bg-[#EFE9DC] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
+                <div>
+                  <span className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA] block">
+                    بوابة موردي الخامات المستقلة
+                  </span>
+                  <span className="text-xs text-[#475569] dark:text-[#94A3B8]">
+                    أقسام الحرف الأربعة · جملة وقطاعي
+                  </span>
+                </div>
+                <Store className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
+              </div>
+
+              <div className="space-y-2.5 text-xs">
+                <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
+                  <div>
+                    <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">الحبال والنسيج</p>
+                    <p className="text-[#475569] dark:text-[#94A3B8]">مكرمية، قطن محلول، خيوط كليم وتافتنج</p>
+                  </div>
+                  <span className="font-mono tabular-nums font-black text-[#C2410C] dark:text-[#FBBF24]">B2B</span>
+                </div>
+                <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
+                  <div>
+                    <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">الخرز والتطريز والريزن</p>
+                    <p className="text-[#475569] dark:text-[#94A3B8]">كريستال، إيبوكسي، سيليكون وألوان مايكا</p>
+                  </div>
+                  <span className="font-mono tabular-nums font-black text-emerald-700 dark:text-emerald-300">جملة وقطاعي</span>
+                </div>
+                <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
+                  <div>
+                    <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">الأخشاب والخوص</p>
+                    <p className="text-[#475569] dark:text-[#94A3B8]">قواعد خشبية، دوائر أركت، حلقات بامبو</p>
+                  </div>
+                  <span className="font-mono tabular-nums font-black text-[#0C1427] dark:text-[#F7F3EA]">متجر QR</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
       )}

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { AlShamsBrandIcon, AlShamsBrandLogo } from '../brand/BrandAssets';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
+import { useFeatureFlags } from '../../types/featureFlags';
 
 export type AdminBellSectionId = 'notif_messages' | 'notif_workshops' | 'notif_store' | 'notif_system';
 
@@ -71,6 +72,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateToFamily,
   activeView,
 }) => {
+  const flags = useFeatureFlags();
+  const isSupplierAccount = (profile as any)?.accountRole === 'supplier';
+  const showStoreButton =
+    Boolean(onOpenArtisanStore || onNavigateToCatalog) &&
+    (isSuperAdminMode || (isSupplierAccount ? flags.supplierPortalEnabled : flags.artisanStorefrontEnabled));
+  const showFamilyButton =
+    Boolean(onNavigateToFamily) && (isSuperAdminMode || flags.familyCommunityEnabled);
   const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64;
   const hasAnyUnread = unreadNotificationsCount > 0 || unreadMessagesCount > 0;
   const [isAdminBellOpen, setIsAdminBellOpen] = useState(false);
@@ -196,7 +204,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* الوسط: زر الوصول المباشر للمتجر وزر العيلة */}
       <div className={`flex items-center min-w-0 shrink ${isSuperAdminMode ? 'gap-1 sm:gap-1.5' : 'gap-1 sm:gap-2'}`}>
-        {(onOpenArtisanStore || onNavigateToCatalog) && (
+        {showStoreButton && (
           <button
             type="button"
             onClick={() => {
@@ -218,7 +226,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         )}
 
-        {onNavigateToFamily && (
+        {showFamilyButton && (
           <button
             type="button"
             onClick={onNavigateToFamily}

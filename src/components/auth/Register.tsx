@@ -1,10 +1,35 @@
 import React, { useState } from 'react';
-import { Mail, Lock, Eye, EyeOff, User, Building2, Phone, Sparkles, AlertCircle, ShieldCheck } from 'lucide-react';
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  User,
+  Building2,
+  Phone,
+  Sparkles,
+  AlertCircle,
+  Truck,
+  MapPin,
+  Plus,
+  Check,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import { Gender } from '../../types';
+import { MainSectionId } from '../../registry/craftsRegistry';
+import {
+  SUPPLIER_SUPPLY_SECTIONS,
+  SupplierBusinessType,
+  SupplierPricingMode,
+} from '../../types/supplier';
+import { useFeatureFlags } from '../../types/featureFlags';
 import { COUNTRIES_CONFIG } from '../../utils/macrameMath';
 import { TermsModal } from './TermsModal';
 
 interface RegisterProps {
+  accountRole: 'artisan' | 'supplier';
+  setAccountRole: (role: 'artisan' | 'supplier') => void;
   email: string;
   setEmail: (email: string) => void;
   password: string;
@@ -19,6 +44,16 @@ interface RegisterProps {
   setPhoneNumber: (phone: string) => void;
   countryCode: string;
   setCountryCode: (code: string) => void;
+  governorate: string;
+  setGovernorate: (gov: string) => void;
+  businessTypes: SupplierBusinessType[];
+  setBusinessTypes: React.Dispatch<React.SetStateAction<SupplierBusinessType[]>>;
+  pricingModes: SupplierPricingMode[];
+  setPricingModes: React.Dispatch<React.SetStateAction<SupplierPricingMode[]>>;
+  supplySections: MainSectionId[];
+  setSupplySections: React.Dispatch<React.SetStateAction<MainSectionId[]>>;
+  suppliedMaterials: string[];
+  setSuppliedMaterials: React.Dispatch<React.SetStateAction<string[]>>;
   loading: boolean;
   errorMsg: string;
   onSubmit: (e: React.FormEvent) => void;
@@ -26,7 +61,21 @@ interface RegisterProps {
   googleLoading?: boolean;
 }
 
+const BUSINESS_TYPE_OPTIONS: { id: SupplierBusinessType; label: string }[] = [
+  { id: 'online', label: 'متجر أونلاين' },
+  { id: 'shop', label: 'محل / معرض' },
+  { id: 'factory', label: 'مصنع / مستورد' },
+];
+
+const PRICING_MODE_OPTIONS: { id: SupplierPricingMode; label: string }[] = [
+  { id: 'retail', label: 'قطاعي' },
+  { id: 'wholesale', label: 'جملة' },
+  { id: 'both', label: 'جملة وقطاعي' },
+];
+
 export const Register: React.FC<RegisterProps> = ({
+  accountRole,
+  setAccountRole,
   email,
   setEmail,
   password,
@@ -41,24 +90,106 @@ export const Register: React.FC<RegisterProps> = ({
   setPhoneNumber,
   countryCode,
   setCountryCode,
+  governorate,
+  setGovernorate,
+  businessTypes,
+  setBusinessTypes,
+  pricingModes,
+  setPricingModes,
+  supplySections,
+  setSupplySections,
+  suppliedMaterials,
+  setSuppliedMaterials,
   loading,
   errorMsg,
   onSubmit,
   onGoogleLogin,
   googleLoading = false,
 }) => {
+  const flags = useFeatureFlags();
+  const effectiveRole: 'artisan' | 'supplier' = flags.supplierRegistrationEnabled
+    ? accountRole
+    : 'artisan';
+  const isSupplier = effectiveRole === 'supplier';
+
   const [showPassword, setShowPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsError, setTermsError] = useState('');
+  const [expandedSection, setExpandedSection] = useState<MainSectionId>('ropes_textiles');
+  const [customMaterialDrafts, setCustomMaterialDrafts] = useState<Record<string, string>>({});
 
-  const selectedCountry =
-    COUNTRIES_CONFIG.find((c) => c.code === countryCode) || COUNTRIES_CONFIG[0];
+  const toggleBusinessType = (id: SupplierBusinessType) => {
+    setBusinessTypes((prev) =>
+      prev.includes(id)
+        ? prev.length > 1
+          ? prev.filter((x) => x !== id)
+          : prev
+        : [...prev, id]
+    );
+  };
+
+  const togglePricingMode = (id: SupplierPricingMode) => {
+    if (id === 'both') {
+      setPricingModes(['both']);
+      return;
+    }
+    setPricingModes((prev) => {
+      const cleaned = prev.filter((x) => x !== 'both');
+      const next = cleaned.includes(id)
+        ? cleaned.length > 1
+          ? cleaned.filter((x) => x !== id)
+          : cleaned
+        : [...cleaned, id];
+      return next.length === 2 ? ['both'] : next;
+    });
+  };
+
+  const toggleSection = (secId: MainSectionId) => {
+    setSupplySections((prev) =>
+      prev.includes(secId) ? prev.filter((x) => x !== secId) : [...prev, secId]
+    );
+    setExpandedSection(secId);
+  };
+
+  const toggleMaterial = (secId: MainSectionId, mat: string) => {
+    if (!supplySections.includes(secId)) {
+      setSupplySections((prev) => [...prev, secId]);
+    }
+    setSuppliedMaterials((prev) =>
+      prev.includes(mat) ? prev.filter((m) => m !== mat) : [...prev, mat]
+    );
+  };
+
+  const selectAllInSection = (secId: MainSectionId, presets: string[]) => {
+    if (!supplySections.includes(secId)) {
+      setSupplySections((prev) => [...prev, secId]);
+    }
+    setSuppliedMaterials((prev) => Array.from(new Set([...prev, ...presets])));
+  };
+
+  const clearSectionMaterials = (presets: string[]) => {
+    setSuppliedMaterials((prev) => prev.filter((m) => !presets.includes(m)));
+  };
+
+  const handleAddCustomMaterial = (secId: MainSectionId) => {
+    const val = (customMaterialDrafts[secId] || '').trim();
+    if (!val) return;
+    if (!supplySections.includes(secId)) {
+      setSupplySections((prev) => [...prev, secId]);
+    }
+    setSuppliedMaterials((prev) => (prev.includes(val) ? prev : [...prev, val]));
+    setCustomMaterialDrafts((prev) => ({ ...prev, [secId]: '' }));
+  };
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!agreeTerms) {
       setTermsError('يجب الموافقة على سياسات وشروط وأحكام منظومة الشمساوية أولاً للمتابعة.');
+      return;
+    }
+    if (isSupplier && supplySections.length === 0) {
+      setTermsError('يرجى اختيار قسم واحد على الأقل من أقسام الخامات التي توفرها.');
       return;
     }
     setTermsError('');
@@ -67,13 +198,51 @@ export const Register: React.FC<RegisterProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Role Selector (only when Feature Flag is enabled) */}
+      {flags.supplierRegistrationEnabled && (
+        <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+          <button
+            type="button"
+            onClick={() => {
+              setAccountRole('artisan');
+              setTermsError('');
+            }}
+            className={`py-2 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              !isSupplier
+                ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white shadow-xs'
+                : 'text-[#334155] dark:text-[#CBD5E1] hover:bg-white/50 dark:hover:bg-[#1A2B54]/60'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>أنا فنان (ورشة)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAccountRole('supplier');
+              setTermsError('');
+            }}
+            className={`py-2 px-2 rounded-xl text-[11px] font-black flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              isSupplier
+                ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white shadow-xs'
+                : 'text-[#334155] dark:text-[#CBD5E1] hover:bg-white/50 dark:hover:bg-[#1A2B54]/60'
+            }`}
+          >
+            <Truck className="w-3.5 h-3.5" />
+            <span>أنا مورد خامات</span>
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col items-center justify-center text-center space-y-1">
         <h2 className="text-lg font-[800] text-stone-900 dark:text-amber-300">
-          فتح ورشة حرفية جديدة
+          {isSupplier ? 'تسجيل حساب مورد خامات جديد' : 'فتح ورشة حرفية جديدة'}
         </h2>
         <p className="text-xs text-stone-500 dark:text-stone-400 font-medium max-w-xs">
-          انضم لعيلة الشمساوية واستمتع بنظام إدارة وحسابات وتسعير ذكي فوري
+          {isSupplier
+            ? 'اعرض خاماتك للورش بسعر الجملة والقطاعي، وأدر متجرك وأوردراتك وخزائنك باحترافية'
+            : 'انضم لعيلة الشمساوية واستمتع بنظام إدارة وحسابات وتسعير ذكي فوري'}
         </p>
       </div>
 
@@ -119,11 +288,12 @@ export const Register: React.FC<RegisterProps> = ({
 
       {/* Register Form */}
       <form onSubmit={handleFormSubmit} className="space-y-3">
-        {/* Brand Name & Artist Name */}
+        {/* Brand Name & Owner/Artist Name */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
             <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-              اسم البراند أو الورشة <span className="text-rose-500">*</span>
+              {isSupplier ? 'اسم متجر المورد / الشركة' : 'اسم البراند أو الورشة'}{' '}
+              <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <input
@@ -131,7 +301,7 @@ export const Register: React.FC<RegisterProps> = ({
                 required
                 value={brandName}
                 onChange={(e) => setBrandName(e.target.value)}
-                placeholder="مثال: ورشة الإبداع اليدوي"
+                placeholder={isSupplier ? 'مثال: الشروق للخيوط والخامات' : 'مثال: ورشة الإبداع اليدوي'}
                 className="w-full px-3 py-2 pr-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
               />
               <Building2 className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />
@@ -140,7 +310,8 @@ export const Register: React.FC<RegisterProps> = ({
 
           <div>
             <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-              اسم الفنان أو الصانع <span className="text-rose-500">*</span>
+              {isSupplier ? 'اسم المالك / المسؤول' : 'اسم الفنان أو الصانع'}{' '}
+              <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <input
@@ -148,7 +319,7 @@ export const Register: React.FC<RegisterProps> = ({
                 required
                 value={artistName}
                 onChange={(e) => setArtistName(e.target.value)}
-                placeholder="مثال: ياسمين أحمد"
+                placeholder={isSupplier ? 'مثال: أحمد محمود' : 'مثال: ياسمين أحمد'}
                 className="w-full px-3 py-2 pr-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
               />
               <User className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />
@@ -177,7 +348,7 @@ export const Register: React.FC<RegisterProps> = ({
                   checked={gender === 'female'}
                   onChange={() => setGender('female')}
                 />
-                فنانة (مبدعة)
+                {isSupplier ? 'موردة / أستاذة' : 'فنانة (مبدعة)'}
               </label>
               <label
                 className={`flex-1 py-1.5 text-center text-xs font-bold rounded-xl border cursor-pointer transition ${
@@ -193,7 +364,7 @@ export const Register: React.FC<RegisterProps> = ({
                   checked={gender === 'male'}
                   onChange={() => setGender('male')}
                 />
-                فنان (مبدع)
+                {isSupplier ? 'مورد / أستاذ' : 'فنان (مبدع)'}
               </label>
             </div>
           </div>
@@ -215,23 +386,263 @@ export const Register: React.FC<RegisterProps> = ({
           </div>
         </div>
 
-        {/* Country & Default Currency */}
-        <div>
-          <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-            الدولة والعملة الافتراضية
-          </label>
-          <select
-            value={countryCode}
-            onChange={(e) => setCountryCode(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-xs font-bold outline-none cursor-pointer"
-          >
-            {COUNTRIES_CONFIG.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.flag} {c.name} ({c.currencySymbol} - {c.currency})
-              </option>
-            ))}
-          </select>
+        {/* Country & Default Currency (+ Governorate for Supplier) */}
+        <div className={`grid grid-cols-1 ${isSupplier ? 'sm:grid-cols-2' : ''} gap-2.5`}>
+          <div>
+            <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+              الدولة والعملة الافتراضية
+            </label>
+            <select
+              value={countryCode}
+              onChange={(e) => setCountryCode(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-xs font-bold outline-none cursor-pointer"
+            >
+              {COUNTRIES_CONFIG.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.name} ({c.currencySymbol} - {c.currency})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {isSupplier && (
+            <div>
+              <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                المحافظة / المدينة <span className="text-rose-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  value={governorate}
+                  onChange={(e) => setGovernorate(e.target.value)}
+                  placeholder="مثال: القاهرة / الإسكندرية"
+                  className="w-full px-3 py-2 pr-8 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <MapPin className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2.5 pointer-events-none" />
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Supplier-only Classification Fields */}
+        {isSupplier && (
+          <div className="space-y-3 p-3.5 rounded-2xl bg-[#EFE9DC]/70 dark:bg-[#111C38] border border-[#D4CCBC] dark:border-[#22355E]">
+            {/* Business Type */}
+            <div>
+              <label className="block text-[11px] font-black mb-1.5 text-stone-800 dark:text-stone-200">
+                طبيعة النشاط التجاري
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {BUSINESS_TYPE_OPTIONS.map((opt) => {
+                  const active = businessTypes.includes(opt.id);
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => toggleBusinessType(opt.id)}
+                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                        active
+                          ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                          : 'bg-white dark:bg-[#0D162E] text-stone-700 dark:text-stone-300 border-stone-300 dark:border-stone-700'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Pricing Mode */}
+            <div>
+              <label className="block text-[11px] font-black mb-1.5 text-stone-800 dark:text-stone-200">
+                آلية التسعير والبيع
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {PRICING_MODE_OPTIONS.map((opt) => {
+                  const active = pricingModes.includes(opt.id);
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => togglePricingMode(opt.id)}
+                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                        active
+                          ? 'bg-[#0C1427] dark:bg-amber-600 text-white border-transparent'
+                          : 'bg-white dark:bg-[#0D162E] text-stone-700 dark:text-stone-300 border-stone-300 dark:border-stone-700'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 4 Supply Sections & Materials */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-black text-stone-800 dark:text-stone-200">
+                  أقسام الخامات التي توفرها ({supplySections.length}/4)
+                </label>
+                <span className="text-[10px] font-bold text-[#C2410C] dark:text-amber-300 font-mono tabular-nums">
+                  {suppliedMaterials.length} خامة مختارة
+                </span>
+              </div>
+
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-0.5">
+                {SUPPLIER_SUPPLY_SECTIONS.map((sec) => {
+                  const isSecActive = supplySections.includes(sec.id);
+                  const isExpanded = expandedSection === sec.id;
+                  const customForSection = suppliedMaterials.filter(
+                    (m) =>
+                      !SUPPLIER_SUPPLY_SECTIONS.some((s) =>
+                        s.presetMaterials.includes(m)
+                      )
+                  );
+                  return (
+                    <div
+                      key={sec.id}
+                      className={`rounded-xl border transition ${
+                        isSecActive
+                          ? 'border-[#EA580C]/60 bg-white dark:bg-[#0D162E]'
+                          : 'border-stone-300/80 dark:border-stone-700 bg-white/60 dark:bg-[#0D162E]/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 p-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection(sec.id)}
+                          className="flex items-center gap-2 text-right flex-1 cursor-pointer"
+                        >
+                          <span
+                            className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                              isSecActive
+                                ? 'bg-[#EA580C] border-[#EA580C] text-white'
+                                : 'border-stone-400 bg-transparent'
+                            }`}
+                          >
+                            {isSecActive && <Check className="w-3 h-3" />}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-black text-stone-900 dark:text-stone-100 truncate">
+                              {sec.titleAr}
+                            </div>
+                            <div className="text-[9px] text-stone-500 dark:text-stone-400 truncate">
+                              {sec.subtitleAr}
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedSection(isExpanded ? ('' as any) : sec.id)
+                          }
+                          className="p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 cursor-pointer"
+                          title="عرض الخامات"
+                        >
+                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="px-2.5 pb-2.5 pt-1 border-t border-stone-200 dark:border-stone-800 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => selectAllInSection(sec.id, sec.presetMaterials)}
+                              className="text-[10px] font-black text-[#C2410C] dark:text-amber-300 hover:underline cursor-pointer"
+                            >
+                              تحديد الكل
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => clearSectionMaterials(sec.presetMaterials)}
+                              className="text-[10px] font-bold text-stone-500 hover:text-rose-600 cursor-pointer"
+                            >
+                              إلغاء التحديد
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-1">
+                            {sec.presetMaterials.map((mat) => {
+                              const checked = suppliedMaterials.includes(mat);
+                              return (
+                                <label
+                                  key={mat}
+                                  className="flex items-center gap-1.5 text-[10px] font-bold text-stone-700 dark:text-stone-300 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleMaterial(sec.id, mat)}
+                                    className="w-3.5 h-3.5 accent-[#EA580C] rounded cursor-pointer shrink-0"
+                                  />
+                                  <span className="truncate">{mat}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+
+                          {/* Custom added material input */}
+                          <div className="flex items-center gap-1.5 pt-1">
+                            <input
+                              type="text"
+                              value={customMaterialDrafts[sec.id] || ''}
+                              onChange={(e) =>
+                                setCustomMaterialDrafts((prev) => ({
+                                  ...prev,
+                                  [sec.id]: e.target.value,
+                                }))
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddCustomMaterial(sec.id);
+                                }
+                              }}
+                              placeholder="أضف خامة أخرى غير مذكورة..."
+                              className="flex-1 px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-[10px] font-bold outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAddCustomMaterial(sec.id)}
+                              className="px-2 py-1 rounded-lg bg-[#EA580C] text-white text-[10px] font-black flex items-center gap-0.5 cursor-pointer shrink-0"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>إضافة خامة</span>
+                            </button>
+                          </div>
+
+                          {customForSection.length > 0 && isSecActive && (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {customForSection.map((cm) => (
+                                <button
+                                  key={cm}
+                                  type="button"
+                                  onClick={() =>
+                                    setSuppliedMaterials((prev) =>
+                                      prev.filter((x) => x !== cm)
+                                    )
+                                  }
+                                  className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300/60 cursor-pointer"
+                                  title="إزالة"
+                                >
+                                  {cm} ×
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Email */}
         <div>
@@ -287,8 +698,13 @@ export const Register: React.FC<RegisterProps> = ({
               onChange={(e) => setAgreeTerms(e.target.checked)}
               className="mt-0.5 w-4 h-4 rounded border-[#D4CCBC] text-[#EA580C] focus:ring-[#EA580C] cursor-pointer accent-[#EA580C] shrink-0"
             />
-            <label htmlFor="agreeTermsCheckbox" className="text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] leading-normal select-none">
-              أوافق على سياسات وشروط وأحكام منظومة الشمساوية{' '}
+            <label
+              htmlFor="agreeTermsCheckbox"
+              className="text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] leading-normal select-none"
+            >
+              {isSupplier
+                ? 'أوافق على ميثاق موردي الخامات وحوكمة التجارة بمنظومة الشمساوية '
+                : 'أوافق على سياسات وشروط وأحكام منظومة الشمساوية '}
               <button
                 type="button"
                 data-flat="true"
@@ -301,7 +717,7 @@ export const Register: React.FC<RegisterProps> = ({
           </div>
         </div>
 
-        {/* Submit Button (Disabled visually and programmatically until agreeTerms is true) */}
+        {/* Submit Button */}
         <button
           type="submit"
           disabled={!agreeTerms || loading}
@@ -310,24 +726,29 @@ export const Register: React.FC<RegisterProps> = ({
               ? 'bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white shadow-orange-600/25 cursor-pointer'
               : 'bg-[#DFD7C6] dark:bg-[#132040] text-[#475569] dark:text-[#94A3B8] cursor-not-allowed opacity-75'
           }`}
-          title={!agreeTerms ? 'يجب الموافقة على الشروط والأحكام أولاً' : 'إنشاء الورشة'}
+          title={!agreeTerms ? 'يجب الموافقة على الشروط والأحكام أولاً' : 'إنشاء الحساب'}
         >
           {loading ? (
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
           ) : (
             <>
-              <Sparkles size={15} />
-              <span>إنشاء الورشة والانضمام للمنظومة</span>
+              {isSupplier ? <Truck size={15} /> : <Sparkles size={15} />}
+              <span>
+                {isSupplier
+                  ? 'إنشاء متجر المورد والانضمام للمنظومة'
+                  : 'إنشاء الورشة والانضمام للمنظومة'}
+              </span>
             </>
           )}
         </button>
       </form>
 
-      {/* Terms and AI Policy Modal */}
+      {/* Terms Modal */}
       <TermsModal
         isOpen={showTermsModal}
         onClose={() => setShowTermsModal(false)}
         onAccept={() => setAgreeTerms(true)}
+        accountRole={effectiveRole}
       />
     </div>
   );

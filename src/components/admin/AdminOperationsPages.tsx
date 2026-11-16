@@ -84,14 +84,23 @@ export const AdminApplicationsPage: React.FC<AdminApplicationsPageProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-4 space-y-5 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onBack}
             className="px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer"
           >
             <ArrowRight className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
-            <span>الرئيسية</span>
+            <span>رجوع</span>
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="إغلاق"
+            title="إغلاق"
+            className="w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 hover:text-rose-600 flex items-center justify-center cursor-pointer"
+          >
+            <X className="w-4 h-4" />
           </button>
           <h1 className="text-base sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-emerald-600" />
@@ -336,14 +345,23 @@ export const AdminProductApprovalsPage: React.FC<AdminProductApprovalsPageProps>
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-4 space-y-5 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onBack}
             className="px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer"
           >
             <ArrowRight className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
-            <span>الرئيسية</span>
+            <span>رجوع</span>
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="إغلاق"
+            title="إغلاق"
+            className="w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 hover:text-rose-600 flex items-center justify-center cursor-pointer"
+          >
+            <X className="w-4 h-4" />
           </button>
           <h1 className="text-base sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
@@ -591,14 +609,23 @@ export const AdminAppealsPage: React.FC<AdminAppealsPageProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-4 space-y-5 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onBack}
             className="px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer"
           >
             <ArrowRight className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
-            <span>الرئيسية</span>
+            <span>رجوع</span>
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="إغلاق"
+            title="إغلاق"
+            className="w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 hover:text-rose-600 flex items-center justify-center cursor-pointer"
+          >
+            <X className="w-4 h-4" />
           </button>
           <h1 className="text-base sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
             <Scale className="w-5 h-5 text-rose-600" />

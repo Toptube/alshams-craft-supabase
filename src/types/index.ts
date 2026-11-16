@@ -119,6 +119,15 @@ export interface WorkshopProfile {
   // Store Slug (رابط المتجر النظيف المخصص)
   storeSlug?: string;
   store_slug?: string;
+  // Multi-role Platform Support (Artisan Workshop vs Material Supplier)
+  accountRole?: 'artisan' | 'supplier';
+  supplierId?: string;
+  governorate?: string;
+  businessTypes?: ('online' | 'shop' | 'factory')[];
+  pricingModes?: ('retail' | 'wholesale' | 'both')[];
+  supplySections?: string[];
+  suppliedMaterials?: string[];
+  storeConfig?: Record<string, any>;
   createdAt: number;
   updatedAt: number;
   createdBy: string;

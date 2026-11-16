@@ -136,6 +136,15 @@ export interface LandingCmsConfig {
       bullets: string[];
       ctaText: string;
     };
+    suppliersPromo: {
+      visible: boolean;
+      badge: string;
+      titleLine1: string;
+      titleHighlight: string;
+      description: string;
+      bullets: string[];
+      ctaText: string;
+    };
     reviews: {
       visible: boolean;
       badge: string;
@@ -379,6 +388,20 @@ export const DEFAULT_LANDING_CMS_CONFIG: LandingCmsConfig = {
       ],
       ctaText: 'احمي خط إنتاجك وافتح ورشتك الآن 🛠️',
     },
+    suppliersPromo: {
+      visible: true,
+      badge: 'بوابة موردي وتجار ومصانع الخامات (B2B & B2C)',
+      titleLine1: 'بتبيع خامات الهاند ميد؟',
+      titleHighlight: 'أهلاً بيك في قلب أكبر شبكة ورش وفنانين في مصر والوطن العربي!',
+      description:
+        'سواء كنت مصنع خيوط، تاجر جملة خرز وإكسسوارات، مستورد ريزن، أو محل أخشاب ومستلزمات.. افتح متجرك الخاص للموردين، عرّف أسعار القطاعي والجملة وأوزان التعبئة، واستقبل طلبيات الورش المباشرة والطلبات الأونلاين من مكان واحد منظم.',
+      bullets: [
+        'حساب مستقل تماماً للموردين: كتالوج خامات، أسعار قطاعي وجملة مع حد أدنى، ومتابعة المخزون بدقة.',
+        'متجر إلكتروني خاص باسم علامتك ورابط مشاركة وQR لعملائك من الورش والأفراد.',
+        'إدارة موحدة لأوردرات متجرك وطلبات سوق الموردين وطلباتك الخارجية مع الخزينة والمصروفات.',
+      ],
+      ctaText: 'سجل كمورد خامات الآن',
+    },
     reviews: {
       visible: true,
       badge: 'شهادات حقيقية من صناع الهاند ميد',
@@ -596,6 +619,14 @@ export function normalizeLandingCmsConfig(raw?: Partial<LandingCmsConfig> | null
           Array.isArray(r.sections?.toolMaintenance?.bullets) && r.sections!.toolMaintenance!.bullets.length > 0
             ? r.sections!.toolMaintenance!.bullets
             : DEFAULT_LANDING_CMS_CONFIG.sections.toolMaintenance.bullets,
+      },
+      suppliersPromo: {
+        ...DEFAULT_LANDING_CMS_CONFIG.sections.suppliersPromo,
+        ...(r.sections?.suppliersPromo || {}),
+        bullets:
+          Array.isArray(r.sections?.suppliersPromo?.bullets) && r.sections!.suppliersPromo!.bullets.length > 0
+            ? r.sections!.suppliersPromo!.bullets
+            : DEFAULT_LANDING_CMS_CONFIG.sections.suppliersPromo.bullets,
       },
       reviews: {
         ...DEFAULT_LANDING_CMS_CONFIG.sections.reviews,

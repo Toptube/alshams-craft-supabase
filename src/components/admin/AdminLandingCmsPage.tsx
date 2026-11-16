@@ -355,14 +355,23 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
       {/* شريط العنوان والإجراءات السريعة */}
       <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-xs">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onBack}
               className="px-3 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer"
             >
-              <ArrowRight className="w-4 h-4" />
-              <span>رجوع للرئيسية</span>
+              <ArrowRight className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
+              <span>رجوع</span>
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="إغلاق"
+              title="إغلاق"
+              className="w-8 h-8 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 hover:text-rose-600 flex items-center justify-center cursor-pointer"
+            >
+              <X className="w-4 h-4" />
             </button>
             <h1 className="text-base sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
               لوحة تحكم صفحة الهبوط والشعارات
@@ -808,6 +817,7 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
               { key: 'smartCatalog', label: 'قسم: الكتالوج وعروض الأسعار' },
               { key: 'craftStore', label: 'قسم: المتجر وسوق الشمساوية' },
               { key: 'toolMaintenance', label: 'قسم: صيانة العِدد وخطوط الإنتاج' },
+              { key: 'suppliersPromo', label: 'قسم: بوابة موردي وتجار ومصانع الخامات' },
             ] as const
           ).map((sec) => {
             const secData = cms.sections[sec.key];

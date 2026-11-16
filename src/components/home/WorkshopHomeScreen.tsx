@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserProfile, ThemeMode } from '../../types';
+import { UserProfile, ThemeMode, isUserAdmin } from '../../types';
+import { useFeatureFlags } from '../../types/featureFlags';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { tenantStorage } from '../../db/dexieDB';
 import { firestoreService } from '../../db/firestoreService';
@@ -170,6 +171,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onSelectThemeMode,
 }) => {
   const { t: tr, lang } = useTranslation();
+  const flags = useFeatureFlags();
+  const isAdminUser = isUserAdmin(profile);
 
   // Active sub-screen state (null = main 11-card grid)
   const [activeSubSection, setActiveSubSection] = useState<HomeCardSection | null>(null);
@@ -759,11 +762,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           title: 'المنتجات وحاسبة التكاليف',
           icon: ShoppingBag,
           items: [
-            {
-              label: 'حاسبة تكاليف المنتج الشاملة',
-              icon: Calculator,
-              onClick: onNavigateToCalculator,
-            },
+            ...(isAdminUser || flags.craftCalculatorEnabled
+              ? [
+                  {
+                    label: 'حاسبة تكاليف المنتج الشاملة',
+                    icon: Calculator,
+                    onClick: onNavigateToCalculator,
+                  },
+                ]
+              : []),
             {
               label: 'المنتجات الجاهزة بالمخزن',
               icon: PackagePlus,
@@ -1286,7 +1293,35 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
           {/* 2. شبكة البطاقات التشغيلية الموحدة للورشة (15 بطاقة) */}
           <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-5 gap-2 sm:gap-3">
-            {coreCards.map((card) => {
+            {coreCards
+              .filter((card) => {
+                if (isAdminUser) return true;
+                if (card.id === 'ai_helpers' && !flags.aiAssistantsEnabled) return false;
+                if (
+                  card.id === 'my_platform' &&
+                  !flags.artisanStorefrontEnabled &&
+                  !flags.artisanMarketplaceEnabled
+                ) {
+                  return false;
+                }
+                if (
+                  !flags.erpModulesEnabled &&
+                  [
+                    'purchases',
+                    'suppliers',
+                    'work_orders',
+                    'customers',
+                    'workforce',
+                    'expenses',
+                    'treasuries',
+                    'accounts',
+                  ].includes(card.id)
+                ) {
+                  return false;
+                }
+                return true;
+              })
+              .map((card) => {
               const Icon = card.icon;
               return (
                 <button

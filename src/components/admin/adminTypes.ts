@@ -14,7 +14,8 @@ export type AdminPageId =
   | 'notif_workshops'
   | 'notif_store'
   | 'notif_system'
-  | 'landing_cms';
+  | 'landing_cms'
+  | 'feature_visibility';
 
 export type ExecutiveTab =
   | 'materials'
@@ -56,6 +57,7 @@ export function mapExecutiveTabToPage(tab?: ExecutiveTab): { page: AdminPageId; 
     case 'notif_store':
     case 'notif_system':
     case 'landing_cms':
+    case 'feature_visibility':
       return { page: tab };
     case 'messaging':
       return { page: 'notif_messages' };

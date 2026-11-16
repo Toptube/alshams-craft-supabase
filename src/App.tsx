@@ -18,6 +18,8 @@ import { playPostaNotificationSound } from './lib/sounds';
 import { startQuietBackgroundSync, hydrateWorkshopIntoDexie } from './services/periodicQuietSync';
 import { syncPlatformSettingsFromCloud } from './services/marketplaceCartService';
 import { getStoredLandingCmsConfig, syncBrandFaviconFromCms } from './types/landingCms';
+import { useFeatureFlags } from './types/featureFlags';
+import { getCurrentSupplierFromSupabase } from './db/supplierService';
 
 // Access Control & Messaging
 import { AccessGate } from './components/gate/AccessGate';
@@ -83,6 +85,12 @@ import { MarketplaceView } from './components/marketplace/MarketplaceView';
 import { ArtisanStorefrontModal } from './components/store/ArtisanStorefrontModal';
 import { PublicStorefrontView } from './components/store/PublicStorefrontView';
 import { FamilyCommunityView } from './components/family/FamilyCommunityView';
+import { SupplierHomeScreen } from './components/supplier/SupplierHomeScreen';
+import { SupplierCatalogView } from './components/supplier/SupplierCatalogView';
+import { SupplierOrdersView } from './components/supplier/SupplierOrdersView';
+import { SupplierCustomersView } from './components/supplier/SupplierCustomersView';
+import { SupplierFinanceView } from './components/supplier/SupplierFinanceView';
+import { SupplierStorefrontModal } from './components/supplier/SupplierStorefrontModal';
 import {
   registerServiceWorker,
   subscribeToWebPush,
@@ -118,7 +126,12 @@ export type ActiveView =
   | 'appeals'
   | 'messaging'
   | 'marketplace'
-  | 'family';
+  | 'family'
+  | 'supplier_catalog'
+  | 'supplier_orders'
+  | 'supplier_customers'
+  | 'supplier_finance'
+  | 'supplier_store';
 
 const processedRecoveryTokens = new Set<string>();
 
@@ -163,6 +176,11 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   messaging: 'مركز المراسلات الحية (بوسطة)',
   marketplace: 'سوق الشمساوية المركزي (متعدد التجار)',
   family: 'مجتمع عيلة الشمساويه',
+  supplier_catalog: 'كتالوج الخامات والمخزون',
+  supplier_orders: 'أوردراتي وطلبات التوريد',
+  supplier_customers: 'عملائي (الورش والأفراد)',
+  supplier_finance: 'خزائن المورد والمصروفات',
+  supplier_store: 'لوحة تحكم متجر المورد',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -211,10 +229,13 @@ export const App: React.FC = () => {
     return null;
   });
 
+  const featureFlags = useFeatureFlags();
   const [authChecking, setAuthChecking] = useState<boolean>(true);
   const [suspensionNotice, setSuspensionNotice] = useState<string | null>(null);
   const [showAuthGateway, setShowAuthGateway] = useState<boolean>(false);
   const [authGatewayMode, setAuthGatewayMode] = useState<'login' | 'signup'>('login');
+  const [authRegisterRole, setAuthRegisterRole] = useState<'artisan' | 'supplier'>('artisan');
+  const [oauthIntendedRole, setOauthIntendedRole] = useState<'artisan' | 'supplier'>('artisan');
   const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     const search = window.location.search || '';
@@ -318,8 +339,9 @@ export const App: React.FC = () => {
   const [isNewSupplierOpen, setIsNewSupplierOpen] = useState<boolean>(false);
   const [isNewEmployeeOpen, setIsNewEmployeeOpen] = useState<boolean>(false);
 
-  // Dedicated Artisan Storefront & Central Marketplace state
+  // Dedicated Artisan & Supplier Storefront state
   const [isArtisanStoreModalOpen, setIsArtisanStoreModalOpen] = useState<boolean>(false);
+  const [isSupplierStoreModalOpen, setIsSupplierStoreModalOpen] = useState<boolean>(false);
   const [selectedStoreOrderId, setSelectedStoreOrderId] = useState<string | undefined>(undefined);
   const [artisanStoreInitialTab, setArtisanStoreInitialTab] = useState<
     'products' | 'appearance' | 'promotions' | 'orders' | 'qr'
@@ -328,6 +350,10 @@ export const App: React.FC = () => {
   const handleOpenArtisanStore = (
     tab: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr' = 'products'
   ) => {
+    if (profile?.accountRole === 'supplier') {
+      setIsSupplierStoreModalOpen(true);
+      return;
+    }
     setSelectedStoreOrderId(undefined);
     setArtisanStoreInitialTab(tab);
     setIsArtisanStoreModalOpen(true);
@@ -765,44 +791,73 @@ export const App: React.FC = () => {
             }
           } catch {}
 
-          // Fetch the real workshop profile strictly owned by current user from Supabase
-          const { workshop } = await getCurrentWorkshopFromSupabase();
-          if (workshop && mounted) {
-            if (workshop.status === 'suspended' || (workshop as any).isFrozen) {
+          // Check Supplier profile first if registered as supplier, then fallback to workshop
+          const supplierProfile = await getCurrentSupplierFromSupabase();
+          if (supplierProfile && mounted) {
+            if (
+              supplierProfile.status === 'suspended' ||
+              supplierProfile.status === 'banned' ||
+              supplierProfile.isFrozen
+            ) {
               await supabase.auth.signOut().catch(() => {});
               localStorage.removeItem('alshams_profile');
+              localStorage.removeItem('alshams_supplier_profile');
               setProfile(null);
               setPendingGoogleSessionUser(null);
-              setSuspensionNotice('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
+              setSuspensionNotice('تم تعليق حساب المورد مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
               setAuthChecking(false);
               return;
             }
             setPendingGoogleSessionUser(null);
             setShowAuthGateway(false);
-            setProfile(workshop);
-            localStorage.setItem('alshams_profile', JSON.stringify(workshop));
-            flushProductSync(workshop.workshopId || workshop.id).catch(() => {});
-          } else if (mounted) {
-            // New OAuth/Google user with a valid Supabase session but no workshop yet
-            const userEmail = session.user.email || '';
-            const isAdminEmail = userEmail.trim().toLowerCase() === 'hmb.top.tube@gmail.com';
-            if (!isAdminEmail) {
-              const savedRaw = localStorage.getItem('alshams_profile');
-              let hasMatchingLocal = false;
-              if (savedRaw) {
-                try {
-                  const p = JSON.parse(savedRaw);
-                  if (p?.email?.toLowerCase() === userEmail.toLowerCase() && p?.id && p.id !== 'workshop_demo') {
-                    hasMatchingLocal = true;
-                  }
-                } catch {}
+            setProfile(supplierProfile);
+            localStorage.setItem('alshams_profile', JSON.stringify(supplierProfile));
+          } else {
+            // Fetch the real workshop profile strictly owned by current user from Supabase
+            const { workshop } = await getCurrentWorkshopFromSupabase();
+            if (workshop && mounted) {
+              if (workshop.status === 'suspended' || (workshop as any).isFrozen) {
+                await supabase.auth.signOut().catch(() => {});
+                localStorage.removeItem('alshams_profile');
+                setProfile(null);
+                setPendingGoogleSessionUser(null);
+                setSuspensionNotice('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
+                setAuthChecking(false);
+                return;
               }
-              if (!hasMatchingLocal) {
-                const meta = (session.user.user_metadata || {}) as any;
-                setPendingGoogleSessionUser({
-                  email: userEmail,
-                  fullName: meta.full_name || meta.name || meta.artist_name,
-                });
+              setPendingGoogleSessionUser(null);
+              setShowAuthGateway(false);
+              setProfile(workshop);
+              localStorage.setItem('alshams_profile', JSON.stringify(workshop));
+              flushProductSync(workshop.workshopId || workshop.id).catch(() => {});
+            } else if (mounted) {
+              // New OAuth/Google user with a valid Supabase session but no workshop/supplier yet
+              const userEmail = session.user.email || '';
+              const isAdminEmail = userEmail.trim().toLowerCase() === 'hmb.top.tube@gmail.com';
+              if (!isAdminEmail) {
+                const savedRaw = localStorage.getItem('alshams_profile');
+                let hasMatchingLocal = false;
+                if (savedRaw) {
+                  try {
+                    const p = JSON.parse(savedRaw);
+                    if (p?.email?.toLowerCase() === userEmail.toLowerCase() && p?.id && p.id !== 'workshop_demo') {
+                      hasMatchingLocal = true;
+                    }
+                  } catch {}
+                }
+                if (!hasMatchingLocal) {
+                  const meta = (session.user.user_metadata || {}) as any;
+                  try {
+                    const intended = localStorage.getItem('alshams_oauth_intended_role');
+                    if (intended === 'supplier') setOauthIntendedRole('supplier');
+                    else setOauthIntendedRole('artisan');
+                    localStorage.removeItem('alshams_oauth_intended_role');
+                  } catch {}
+                  setPendingGoogleSessionUser({
+                    email: userEmail,
+                    fullName: meta.full_name || meta.name || meta.artist_name,
+                  });
+                }
               }
             }
           }
@@ -844,6 +899,7 @@ export const App: React.FC = () => {
           setPendingGoogleSessionUser(null);
           setProfile(null);
           localStorage.removeItem('alshams_profile');
+          localStorage.removeItem('alshams_supplier_profile');
         }
         return;
       }
@@ -1447,6 +1503,7 @@ export const App: React.FC = () => {
     await unsubscribeFromWebPush().catch(() => {});
     await supabase.auth.signOut();
     localStorage.removeItem('alshams_profile');
+    localStorage.removeItem('alshams_supplier_profile');
     setProfile(null);
     setActiveView('home');
     setIsSidebarOpen(false);
@@ -1593,6 +1650,12 @@ export const App: React.FC = () => {
             window.history.replaceState({}, '', '/');
           }
           setIsPasswordRecovery(false);
+          const supProfile = await getCurrentSupplierFromSupabase();
+          if (supProfile) {
+            setProfile(supProfile);
+            localStorage.setItem('alshams_profile', JSON.stringify(supProfile));
+            return;
+          }
           const { workshop } = await getCurrentWorkshopFromSupabase();
           if (workshop) {
             setProfile(workshop);
@@ -1616,21 +1679,23 @@ export const App: React.FC = () => {
     );
   }
 
-  // First-time Google OAuth user needs to complete their workshop profile once
+  // First-time Google OAuth user needs to complete their workshop or supplier profile once
   if (!profile && pendingGoogleSessionUser) {
     return (
       <CompleteWorkshopScreen
         userEmail={pendingGoogleSessionUser.email}
         initialArtistName={pendingGoogleSessionUser.fullName}
-        onWorkshopCreated={(newWorkshop) => {
+        initialAccountRole={oauthIntendedRole}
+        onWorkshopCreated={(newProfile) => {
           setPendingGoogleSessionUser(null);
           setShowAuthGateway(false);
-          setProfile(newWorkshop);
-          localStorage.setItem('alshams_profile', JSON.stringify(newWorkshop));
+          setProfile(newProfile);
+          localStorage.setItem('alshams_profile', JSON.stringify(newProfile));
         }}
         onLogout={async () => {
           await supabase.auth.signOut().catch(() => {});
           localStorage.removeItem('alshams_profile');
+          localStorage.removeItem('alshams_supplier_profile');
           setPendingGoogleSessionUser(null);
           setProfile(null);
           setShowAuthGateway(true);
@@ -1645,6 +1710,7 @@ export const App: React.FC = () => {
       return (
         <AuthGateway
           initialMode={authGatewayMode}
+          initialRegisterRole={authRegisterRole}
           onBackToLanding={() => {
             setSuspensionNotice(null);
             setShowAuthGateway(false);
@@ -1665,10 +1731,17 @@ export const App: React.FC = () => {
     return (
       <LandingPage
         onOpenLogin={() => {
+          setAuthRegisterRole('artisan');
           setAuthGatewayMode('login');
           setShowAuthGateway(true);
         }}
         onOpenRegister={() => {
+          setAuthRegisterRole('artisan');
+          setAuthGatewayMode('signup');
+          setShowAuthGateway(true);
+        }}
+        onOpenRegisterSupplier={() => {
+          setAuthRegisterRole('supplier');
           setAuthGatewayMode('signup');
           setShowAuthGateway(true);
         }}
@@ -1716,7 +1789,8 @@ export const App: React.FC = () => {
     isNewEmployeeOpen ||
     isQuoteDrawerOpen ||
     isMessagesHubOpen ||
-    isArtisanStoreModalOpen
+    isArtisanStoreModalOpen ||
+    isSupplierStoreModalOpen
   );
 
   return (
@@ -1820,7 +1894,7 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-[#EA580C] dark:text-amber-400 shrink-0" />
             <span>
-              أهلاً بك يا <strong className="text-[#C2410C] dark:text-amber-300">{profile.artistName || 'فنان الشمساوية'}</strong> في ورشتك <strong>{profile.brandName || 'الشمساوية هاند ميد'}</strong> ✨ نسعد بوجودك معنا ونتمنى لك يوماً إنتاجياً موفقاً!
+              أهلاً بك يا <strong className="text-[#C2410C] dark:text-amber-300">{profile.artistName || 'فنان الشمساوية'}</strong> في {profile.accountRole === 'supplier' ? 'متجر المورد' : 'ورشتك'} <strong>{profile.brandName || 'الشمساوية هاند ميد'}</strong> ✨ نسعد بوجودك معنا ونتمنى لك يوماً إنتاجياً موفقاً!
             </span>
           </div>
           <button
@@ -1861,11 +1935,20 @@ export const App: React.FC = () => {
             </button>
           </div>
 
-          {/* Current Page Title */}
+          {/* Current Page Title + Close button */}
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] truncate max-w-[150px] sm:max-w-[320px] md:max-w-none px-2.5 sm:px-3 py-1 rounded-xl bg-[#E9E2D4]/90 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+            <span className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] truncate max-w-[140px] sm:max-w-[320px] md:max-w-none px-2.5 sm:px-3 py-1 rounded-xl bg-[#E9E2D4]/90 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
               {VIEW_TITLES[activeView]}
             </span>
+            <button
+              type="button"
+              onClick={goHome}
+              aria-label="إغلاق والعودة للرئيسية"
+              title="إغلاق والعودة للرئيسية"
+              className="w-8 h-8 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 hover:text-rose-600 text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </aside>
       )}
@@ -1926,6 +2009,42 @@ export const App: React.FC = () => {
                 }
               }}
             />
+          ) : profile.accountRole === 'supplier' ? (
+            !featureFlags.supplierPortalEnabled ? (
+              <div className="max-w-lg mx-auto my-12 p-6 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-center space-y-4">
+                <h2 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                  بوابة موردي الخامات متوقفة مؤقتاً للصيانة والتطوير
+                </h2>
+                <p className="text-xs text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+                  قامت إدارة المنظومة بإيقاف ظهور بوابة الموردين مؤقتاً أثناء إجراء تحديثات. كافة بياناتك وخاماتك محفوظة بأمان.
+                </p>
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="px-4 py-2 rounded-xl bg-[#EA580C] text-white text-xs font-black cursor-pointer"
+                  >
+                    تحديث الحالة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="px-4 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold cursor-pointer"
+                  >
+                    تسجيل الخروج
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <SupplierHomeScreen
+                profile={profile}
+                onNavigateToCatalog={() => navigateTo('supplier_catalog')}
+                onOpenStorefrontModal={() => setIsSupplierStoreModalOpen(true)}
+                onNavigateToOrders={() => navigateTo('supplier_orders')}
+                onNavigateToCustomers={() => navigateTo('supplier_customers')}
+                onNavigateToFinance={() => navigateTo('supplier_finance')}
+              />
+            )
           ) : (
             <WorkshopHomeScreen
               profile={profile}
@@ -2222,18 +2341,53 @@ export const App: React.FC = () => {
             isSwitchedWorkshop={Boolean(switchedWorkshopContext)}
           />
         )}
+
+        {activeView === 'supplier_catalog' && (
+          <SupplierCatalogView
+            profile={profile}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+          />
+        )}
+
+        {activeView === 'supplier_orders' && (
+          <SupplierOrdersView
+            profile={profile}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+          />
+        )}
+
+        {activeView === 'supplier_customers' && (
+          <SupplierCustomersView
+            profile={profile}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+          />
+        )}
+
+        {activeView === 'supplier_finance' && (
+          <SupplierFinanceView
+            profile={profile}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+          />
+        )}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {/* Floating Shamousa Chat Assistant: Active across workshops, strictly auto-hidden inside Falcon AI and Family chat screens */}
-      {profile && activeView !== 'ai_agent' && activeView !== 'family' && (
-        <ShamousaChatWidget
-          profile={profile}
-          onOpenFalcon={() => navigateTo('ai_agent')}
-          isAnyModalOpen={isAnyModalOpen}
-        />
-      )}
+      {/* Floating Shamousa Chat Assistant: Active across workshops & gated by Feature Flag */}
+      {profile &&
+        activeView !== 'ai_agent' &&
+        activeView !== 'family' &&
+        (isUserAdmin(profile) || featureFlags.aiAssistantsEnabled) && (
+          <ShamousaChatWidget
+            profile={profile}
+            onOpenFalcon={() => navigateTo('ai_agent')}
+            isAnyModalOpen={isAnyModalOpen}
+          />
+        )}
 
       {/* Sidebar Drawer Navigation */}
       {isSidebarOpen && (
@@ -2570,6 +2724,19 @@ export const App: React.FC = () => {
           setIsArtisanStoreModalOpen(false);
         }}
       />
+
+      {/* Supplier Storefront Config & QR Modal */}
+      {isSupplierStoreModalOpen && (
+        <SupplierStorefrontModal
+          isOpen={isSupplierStoreModalOpen}
+          onClose={() => setIsSupplierStoreModalOpen(false)}
+          profile={profile}
+          onProfileUpdated={(updated) => {
+            setProfile(updated);
+            localStorage.setItem('alshams_profile', JSON.stringify(updated));
+          }}
+        />
+      )}
 
       {/* Permissions & Background Onboarding Modal */}
       <PermissionsOnboardingModal

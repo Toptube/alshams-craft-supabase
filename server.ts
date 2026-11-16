@@ -50,6 +50,13 @@ const STORE_CONFIGS_FILE = path.resolve(__dirname, 'data/workshop_store_configs.
 const ADMIN_ANNOUNCEMENTS_FILE = path.resolve(__dirname, 'data/admin_announcements.json');
 const ANNOUNCEMENT_RECEIPTS_FILE = path.resolve(__dirname, 'data/announcement_receipts.json');
 const ADMIN_INBOX_READS_FILE = path.resolve(__dirname, 'data/admin_inbox_reads.json');
+const PLATFORM_SUPPLIERS_FILE = path.resolve(__dirname, 'data/platform_suppliers.json');
+const SUPPLIER_CATALOG_FILE = path.resolve(__dirname, 'data/supplier_catalog_items.json');
+const B2B_SUPPLY_ORDERS_FILE = path.resolve(__dirname, 'data/b2b_supply_orders.json');
+const SUPPLIER_CUSTOMERS_FILE = path.resolve(__dirname, 'data/supplier_customers.json');
+const SUPPLIER_TREASURIES_FILE = path.resolve(__dirname, 'data/supplier_treasuries.json');
+const SUPPLIER_TRANSACTIONS_FILE = path.resolve(__dirname, 'data/supplier_treasury_transactions.json');
+const SUPPLIER_EXPENSES_FILE = path.resolve(__dirname, 'data/supplier_expenses.json');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUuid(val?: string | null): boolean {
@@ -246,6 +253,8 @@ const DEFAULT_PLATFORM_SETTINGS = {
   defaultClientPrivacy: false,
   centralShippingPrivacy: false,
   marketBuilder: null,
+  landingCms: null,
+  featureFlags: null,
   updatedAt: new Date().toISOString(),
 };
 
@@ -263,6 +272,8 @@ function loadPersistentPlatformSettings(): any {
             ...(parsed.governorateRates || {}),
           },
           marketBuilder: parsed.marketBuilder || DEFAULT_PLATFORM_SETTINGS.marketBuilder,
+          landingCms: parsed.landingCms || DEFAULT_PLATFORM_SETTINGS.landingCms,
+          featureFlags: parsed.featureFlags || DEFAULT_PLATFORM_SETTINGS.featureFlags,
         };
       }
     }
@@ -4854,6 +4865,7 @@ app.get('/api/platform-settings', async (_req: Request, res: Response) => {
     },
     marketBuilder: freshest?.marketBuilder || psCfg?.marketBuilder || wsCfg?.marketBuilder || localCfg.marketBuilder || null,
     landingCms: freshest?.landingCms || psCfg?.landingCms || wsCfg?.landingCms || localCfg.landingCms || null,
+    featureFlags: freshest?.featureFlags || psCfg?.featureFlags || wsCfg?.featureFlags || localCfg.featureFlags || null,
   };
   return res.json({ success: true, settings: merged });
 });
@@ -4880,6 +4892,10 @@ app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest,
       body.landingCms !== undefined
         ? body.landingCms
         : existing.landingCms || null,
+    featureFlags:
+      body.featureFlags !== undefined
+        ? body.featureFlags
+        : existing.featureFlags || null,
     updatedAt: new Date().toISOString(),
   };
   savePersistentPlatformSettings(nextSettings);
@@ -5916,6 +5932,851 @@ app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: 
     console.warn('[Store OG Render Error]:', err);
   }
   next();
+});
+
+// -------------------------------------------------------------
+// Phase 2: Platform Suppliers (B2B/B2C Materials Vendors) API
+// -------------------------------------------------------------
+async function resolveActiveSupplierForReq(req: AuthenticatedRequest): Promise<any | null> {
+  const uid = req.user?.id || '';
+  const email = (req.userEmail || req.user?.email || '').toLowerCase();
+  const client = getDbClient(req);
+
+  try {
+    if (uid) {
+      const { data } = await client
+        .from('platform_suppliers')
+        .select('*')
+        .eq('owner_uid', uid)
+        .maybeSingle();
+      if (data) return data;
+    }
+    if (email) {
+      const { data } = await client
+        .from('platform_suppliers')
+        .select('*')
+        .ilike('email', email)
+        .maybeSingle();
+      if (data) return data;
+    }
+  } catch {}
+
+  const localSuppliers = readJsonArray(PLATFORM_SUPPLIERS_FILE);
+  return (
+    localSuppliers.find(
+      (s: any) =>
+        (uid && (s.owner_uid === uid || s.ownerUid === uid)) ||
+        (email && String(s.email || '').toLowerCase() === email)
+    ) || null
+  );
+}
+
+function makeCleanSupplierSlug(brandName: string, fallbackId: string): string {
+  const ascii = String(brandName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06FF]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const suffix = fallbackId.slice(-5).toLowerCase();
+  return ascii ? `${ascii}-${suffix}` : `sup-${suffix}`;
+}
+
+app.get('/api/suppliers/me', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) {
+    return res.json({ success: true, supplier: null });
+  }
+  return res.json({ success: true, supplier });
+});
+
+app.post('/api/suppliers/register', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const uid = req.user?.id || req.body?.ownerUid || '';
+    const email = (req.userEmail || req.user?.email || req.body?.email || '').trim().toLowerCase();
+    if (!uid || !email) {
+      return res.status(400).json({ error: 'تعذر التحقق من هوية المستخدم' });
+    }
+
+    const body = req.body || {};
+    const existing = await resolveActiveSupplierForReq(req);
+    const supId = existing?.id || crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+    const storeSlug =
+      existing?.store_slug ||
+      makeCleanSupplierSlug(body.brandName || body.ownerName || 'supplier', supId);
+
+    const dbPayload = {
+      id: supId,
+      owner_uid: uid,
+      email,
+      brand_name: String(body.brandName || '').trim() || 'متجر خامات الشمساوية',
+      owner_name: String(body.ownerName || '').trim() || 'مورد معتمد',
+      gender: body.gender === 'female' ? 'female' : 'male',
+      phone: String(body.phone || '').trim(),
+      country: String(body.country || 'مصر').trim(),
+      governorate: String(body.governorate || '').trim(),
+      currency: String(body.currency || 'EGP').trim(),
+      currency_symbol: String(body.currencySymbol || 'ج.م').trim(),
+      store_slug: storeSlug,
+      logo_url: existing?.logo_url || '/alshams_falcon_emblem.png',
+      business_types: Array.isArray(body.businessTypes) && body.businessTypes.length > 0 ? body.businessTypes : ['online'],
+      pricing_modes: Array.isArray(body.pricingModes) && body.pricingModes.length > 0 ? body.pricingModes : ['retail'],
+      supply_sections: Array.isArray(body.supplySections) ? body.supplySections : [],
+      supplied_materials: Array.isArray(body.suppliedMaterials) ? body.suppliedMaterials : [],
+      store_config: existing?.store_config || {
+        themePreset: 'warm_atelier',
+        whatsappNumber: String(body.phone || '').trim(),
+        showWholesalePricesPublicly: true,
+        coupons: [],
+      },
+      status: existing?.status || 'active',
+      is_frozen: Boolean(existing?.is_frozen),
+      terms_accepted_at: existing?.terms_accepted_at || nowIso,
+      created_at: existing?.created_at || nowIso,
+      updated_at: nowIso,
+    };
+
+    // Save locally first so registration always succeeds offline/before SQL migration
+    const localSuppliers = readJsonArray(PLATFORM_SUPPLIERS_FILE);
+    const idx = localSuppliers.findIndex(
+      (s: any) => s.id === supId || s.owner_uid === uid || String(s.email || '').toLowerCase() === email
+    );
+    if (idx >= 0) localSuppliers[idx] = { ...localSuppliers[idx], ...dbPayload };
+    else localSuppliers.unshift(dbPayload);
+    writeJsonData(PLATFORM_SUPPLIERS_FILE, localSuppliers);
+
+    // Ensure default treasury exists locally
+    const localTreasuries = readJsonArray(SUPPLIER_TREASURIES_FILE);
+    let defaultTreasury = localTreasuries.find((t: any) => t.supplier_id === supId);
+    if (!defaultTreasury) {
+      defaultTreasury = {
+        id: crypto.randomUUID(),
+        supplier_id: supId,
+        name: 'الخزينة الرئيسية',
+        channel_type: 'cash',
+        balance: 0,
+        currency: dbPayload.currency,
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+      localTreasuries.push(defaultTreasury);
+      writeJsonData(SUPPLIER_TREASURIES_FILE, localTreasuries);
+    }
+
+    // Attempt cloud sync via user's authenticated Supabase client
+    const client = getDbClient(req);
+    try {
+      await client.from('platform_suppliers').upsert(dbPayload, { onConflict: 'owner_uid' });
+      const { data: cloudTr } = await client
+        .from('supplier_treasuries')
+        .select('id')
+        .eq('supplier_id', supId)
+        .limit(1);
+      if (!Array.isArray(cloudTr) || cloudTr.length === 0) {
+        await client.from('supplier_treasuries').insert(defaultTreasury);
+      }
+    } catch {}
+
+    // Create Super Admin + Platform Announcement for new supplier join (when new)
+    if (!existing) {
+      try {
+        const localAnn = loadPersistentAnnouncements();
+        const annId = crypto.randomUUID();
+        localAnn.unshift({
+          id: annId,
+          sender_name: 'منظومة الشمساوية — بوابة الموردين',
+          recipient_type: 'all',
+          title: `انضمام مورد خامات جديد: ${dbPayload.brand_name}`,
+          content: `انضم إلينا المورد "${dbPayload.brand_name}" (${dbPayload.governorate || dbPayload.country}) لتوريد خامات الهاند ميد بأسعار متميزة للورش والفنانين.`,
+          created_at: nowIso,
+        });
+        savePersistentAnnouncements(localAnn);
+      } catch {}
+    }
+
+    return res.json({ success: true, supplier: dbPayload });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'فشل تسجيل حساب المورد' });
+  }
+});
+
+app.put('/api/suppliers/store-config', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const body = req.body || {};
+  const nowIso = new Date().toISOString();
+  const nextSlug = body.storeSlug
+    ? String(body.storeSlug).trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06FF-]+/g, '-')
+    : supplier.store_slug;
+  const updated = {
+    ...supplier,
+    brand_name: body.brandName ? String(body.brandName).trim() : supplier.brand_name,
+    phone: body.phone !== undefined ? String(body.phone).trim() : supplier.phone,
+    governorate: body.governorate !== undefined ? String(body.governorate).trim() : supplier.governorate,
+    store_slug: nextSlug,
+    store_config: {
+      ...(supplier.store_config || {}),
+      ...(body.storeConfig || {}),
+    },
+    updated_at: nowIso,
+  };
+
+  const list = readJsonArray(PLATFORM_SUPPLIERS_FILE);
+  const idx = list.findIndex((s: any) => s.id === supplier.id);
+  if (idx >= 0) list[idx] = updated;
+  else list.unshift(updated);
+  writeJsonData(PLATFORM_SUPPLIERS_FILE, list);
+
+  try {
+    const client = getDbClient(req);
+    await client
+      .from('platform_suppliers')
+      .update({
+        brand_name: updated.brand_name,
+        phone: updated.phone,
+        governorate: updated.governorate,
+        store_slug: updated.store_slug,
+        store_config: updated.store_config,
+        updated_at: nowIso,
+      })
+      .eq('id', supplier.id);
+  } catch {}
+
+  return res.json({ success: true, supplier: updated });
+});
+
+app.get('/api/suppliers/catalog', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.json({ success: true, items: [] });
+
+  const localItems = readJsonArray(SUPPLIER_CATALOG_FILE).filter(
+    (x: any) => x.supplier_id === supplier.id
+  );
+  try {
+    const client = getDbClient(req);
+    const { data, error } = await client
+      .from('supplier_catalog_items')
+      .select('*')
+      .eq('supplier_id', supplier.id)
+      .order('created_at', { ascending: false });
+    if (!error && Array.isArray(data)) {
+      const mergedMap = new Map<string, any>();
+      localItems.forEach((x: any) => mergedMap.set(x.id, x));
+      data.forEach((x: any) => mergedMap.set(x.id, x));
+      return res.json({ success: true, items: Array.from(mergedMap.values()) });
+    }
+  } catch {}
+  return res.json({ success: true, items: localItems });
+});
+
+app.post('/api/suppliers/catalog', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const b = req.body || {};
+  const nowIso = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    supplier_id: supplier.id,
+    section_id: b.sectionId || b.section_id || 'ropes_textiles',
+    craft_id: b.craftId || b.craft_id || '',
+    name: String(b.name || '').trim() || 'خامة بدون اسم',
+    unit: String(b.unit || 'بكرة').trim(),
+    description: String(b.description || ''),
+    images: Array.isArray(b.images) ? b.images : [],
+    variants: Array.isArray(b.variants) ? b.variants : [],
+    stock_qty: Math.max(0, Number(b.stockQty ?? b.stock_qty ?? 0)),
+    retail_price: Math.max(0, Number(b.retailPrice ?? b.retail_price ?? 0)),
+    wholesale_price: Math.max(0, Number(b.wholesalePrice ?? b.wholesale_price ?? 0)),
+    min_wholesale_qty: Math.max(1, Number(b.minWholesaleQty ?? b.min_wholesale_qty ?? 1)),
+    discount_type: b.discountType || b.discount_type || 'none',
+    discount_value: Math.max(0, Number(b.discountValue ?? b.discount_value ?? 0)),
+    in_store: b.inStore !== undefined ? Boolean(b.inStore) : true,
+    in_market: b.inMarket !== undefined ? Boolean(b.inMarket) : true,
+    is_approved: true,
+    source_currency: b.sourceCurrency || supplier.currency || 'EGP',
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  const all = readJsonArray(SUPPLIER_CATALOG_FILE);
+  all.unshift(row);
+  writeJsonData(SUPPLIER_CATALOG_FILE, all);
+
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_catalog_items').insert(row);
+  } catch {}
+
+  return res.json({ success: true, item: row });
+});
+
+app.put('/api/suppliers/catalog/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const id = req.params.id;
+  const b = req.body || {};
+  const nowIso = new Date().toISOString();
+  const all = readJsonArray(SUPPLIER_CATALOG_FILE);
+  const idx = all.findIndex((x: any) => x.id === id && x.supplier_id === supplier.id);
+  const prev = idx >= 0 ? all[idx] : {};
+
+  const updated = {
+    ...prev,
+    id,
+    supplier_id: supplier.id,
+    section_id: b.sectionId || b.section_id || prev.section_id || 'ropes_textiles',
+    craft_id: b.craftId ?? prev.craft_id ?? '',
+    name: String(b.name ?? prev.name ?? '').trim(),
+    unit: String(b.unit ?? prev.unit ?? 'بكرة').trim(),
+    description: String(b.description ?? prev.description ?? ''),
+    images: Array.isArray(b.images) ? b.images : prev.images || [],
+    variants: Array.isArray(b.variants) ? b.variants : prev.variants || [],
+    stock_qty: Math.max(0, Number(b.stockQty ?? b.stock_qty ?? prev.stock_qty ?? 0)),
+    retail_price: Math.max(0, Number(b.retailPrice ?? b.retail_price ?? prev.retail_price ?? 0)),
+    wholesale_price: Math.max(0, Number(b.wholesalePrice ?? b.wholesale_price ?? prev.wholesale_price ?? 0)),
+    min_wholesale_qty: Math.max(1, Number(b.minWholesaleQty ?? b.min_wholesale_qty ?? prev.min_wholesale_qty ?? 1)),
+    discount_type: b.discountType || prev.discount_type || 'none',
+    discount_value: Math.max(0, Number(b.discountValue ?? prev.discount_value ?? 0)),
+    in_store: b.inStore !== undefined ? Boolean(b.inStore) : prev.in_store !== false,
+    in_market: b.inMarket !== undefined ? Boolean(b.inMarket) : prev.in_market !== false,
+    is_approved: true,
+    updated_at: nowIso,
+  };
+
+  if (idx >= 0) all[idx] = updated;
+  else all.unshift(updated);
+  writeJsonData(SUPPLIER_CATALOG_FILE, all);
+
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_catalog_items').upsert(updated, { onConflict: 'id' });
+  } catch {}
+
+  return res.json({ success: true, item: updated });
+});
+
+app.delete('/api/suppliers/catalog/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const id = req.params.id;
+  const all = readJsonArray(SUPPLIER_CATALOG_FILE).filter(
+    (x: any) => !(x.id === id && x.supplier_id === supplier.id)
+  );
+  writeJsonData(SUPPLIER_CATALOG_FILE, all);
+
+  try {
+    const client = getDbClient(req);
+    await client
+      .from('supplier_catalog_items')
+      .delete()
+      .eq('id', id)
+      .eq('supplier_id', supplier.id);
+  } catch {}
+
+  return res.json({ success: true });
+});
+
+app.get('/api/suppliers/orders', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.json({ success: true, orders: [] });
+
+  const localOrders = readJsonArray(B2B_SUPPLY_ORDERS_FILE).filter(
+    (o: any) => o.supplier_id === supplier.id
+  );
+  try {
+    const client = getDbClient(req);
+    const { data, error } = await client
+      .from('b2b_supply_orders')
+      .select('*')
+      .eq('supplier_id', supplier.id)
+      .order('created_at', { ascending: false });
+    if (!error && Array.isArray(data)) {
+      const mergedMap = new Map<string, any>();
+      localOrders.forEach((o: any) => mergedMap.set(o.id, o));
+      data.forEach((o: any) => mergedMap.set(o.id, o));
+      const sorted = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      );
+      return res.json({ success: true, orders: sorted });
+    }
+  } catch {}
+  return res.json({ success: true, orders: localOrders });
+});
+
+app.post('/api/suppliers/orders', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const b = req.body || {};
+  const nowIso = new Date().toISOString();
+  const orderId = crypto.randomUUID();
+  const finalTotal = Math.max(0, Number(b.finalTotal ?? b.subtotal ?? 0));
+  const paidAmount = Math.min(finalTotal, Math.max(0, Number(b.paidAmount ?? 0)));
+  const remainingAmount = Math.max(0, finalTotal - paidAmount);
+
+  const row = {
+    id: orderId,
+    order_number: b.orderNumber || `SUP-${Date.now().toString().slice(-6)}`,
+    supplier_id: supplier.id,
+    workshop_id: b.workshopId || null,
+    external_buyer: b.externalBuyer || null,
+    order_source: b.orderSource || 'external_manual',
+    items: Array.isArray(b.items) ? b.items : [],
+    pricing_tier_applied: b.pricingTierApplied || 'retail',
+    subtotal: Math.max(0, Number(b.subtotal ?? finalTotal)),
+    discount: Math.max(0, Number(b.discount ?? 0)),
+    shipping_fee: Math.max(0, Number(b.shippingFee ?? 0)),
+    final_total: finalTotal,
+    paid_amount: paidAmount,
+    remaining_amount: remainingAmount,
+    payment_method: b.paymentMethod || 'cash',
+    supplier_treasury_id: b.supplierTreasuryId || null,
+    status: b.status || 'confirmed',
+    notes: String(b.notes || ''),
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  const allOrders = readJsonArray(B2B_SUPPLY_ORDERS_FILE);
+  allOrders.unshift(row);
+  writeJsonData(B2B_SUPPLY_ORDERS_FILE, allOrders);
+
+  // If external manual order with customer details, upsert supplier customer automatically
+  if (b.externalBuyer?.name) {
+    const customers = readJsonArray(SUPPLIER_CUSTOMERS_FILE);
+    const existingCust = customers.find(
+      (c: any) =>
+        c.supplier_id === supplier.id &&
+        ((b.externalBuyer.phone && c.phone === b.externalBuyer.phone) ||
+          c.name.toLowerCase() === String(b.externalBuyer.name).toLowerCase())
+    );
+    if (existingCust) {
+      existingCust.total_purchases = Number(existingCust.total_purchases || 0) + finalTotal;
+      existingCust.balance_due = Number(existingCust.balance_due || 0) + remainingAmount;
+      existingCust.updated_at = nowIso;
+    } else {
+      customers.unshift({
+        id: crypto.randomUUID(),
+        supplier_id: supplier.id,
+        workshop_id: null,
+        name: b.externalBuyer.name,
+        phone: b.externalBuyer.phone || '',
+        country: b.externalBuyer.country || 'مصر',
+        governorate: b.externalBuyer.governorate || '',
+        source_type: 'external',
+        total_purchases: finalTotal,
+        balance_due: remainingAmount,
+        notes: b.notes || '',
+        created_at: nowIso,
+        updated_at: nowIso,
+      });
+    }
+    writeJsonData(SUPPLIER_CUSTOMERS_FILE, customers);
+  }
+
+  // If paid > 0, credit chosen or default supplier treasury locally & log tx
+  if (paidAmount > 0) {
+    const treasuries = readJsonArray(SUPPLIER_TREASURIES_FILE);
+    let tr = treasuries.find(
+      (t: any) =>
+        t.supplier_id === supplier.id &&
+        (!b.supplierTreasuryId || t.id === b.supplierTreasuryId)
+    );
+    if (!tr) {
+      tr = {
+        id: crypto.randomUUID(),
+        supplier_id: supplier.id,
+        name: 'الخزينة الرئيسية',
+        channel_type: 'cash',
+        balance: 0,
+        currency: supplier.currency || 'EGP',
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+      treasuries.push(tr);
+    }
+    tr.balance = Number(tr.balance || 0) + paidAmount;
+    tr.updated_at = nowIso;
+    row.supplier_treasury_id = tr.id;
+    writeJsonData(SUPPLIER_TREASURIES_FILE, treasuries);
+
+    const txs = readJsonArray(SUPPLIER_TRANSACTIONS_FILE);
+    txs.unshift({
+      id: crypto.randomUUID(),
+      supplier_id: supplier.id,
+      treasury_id: tr.id,
+      b2b_order_id: orderId,
+      tx_type: 'income',
+      amount: paidAmount,
+      description: `تحصيل طلب رقم ${row.order_number}`,
+      created_at: nowIso,
+    });
+    writeJsonData(SUPPLIER_TRANSACTIONS_FILE, txs);
+  }
+
+  // Deduct stock locally from catalog items
+  if (Array.isArray(row.items) && row.items.length > 0) {
+    const cat = readJsonArray(SUPPLIER_CATALOG_FILE);
+    for (const item of row.items) {
+      const target = cat.find(
+        (c: any) => c.id === item.catalogItemId && c.supplier_id === supplier.id
+      );
+      if (target) {
+        target.stock_qty = Math.max(0, Number(target.stock_qty || 0) - Number(item.quantity || 0));
+        target.updated_at = nowIso;
+      }
+    }
+    writeJsonData(SUPPLIER_CATALOG_FILE, cat);
+  }
+
+  try {
+    const client = getDbClient(req);
+    await client.from('b2b_supply_orders').insert(row);
+  } catch {}
+
+  return res.json({ success: true, order: row });
+});
+
+app.patch('/api/suppliers/orders/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const id = req.params.id;
+  const b = req.body || {};
+  const nowIso = new Date().toISOString();
+  const orders = readJsonArray(B2B_SUPPLY_ORDERS_FILE);
+  const idx = orders.findIndex((o: any) => o.id === id && o.supplier_id === supplier.id);
+  if (idx < 0) return res.status(404).json({ error: 'الطلب غير موجود' });
+
+  const current = orders[idx];
+  const nextPaid = b.paidAmount !== undefined ? Number(b.paidAmount) : Number(current.paid_amount || 0);
+  const nextRem = Math.max(0, Number(current.final_total || 0) - nextPaid);
+  const updated = {
+    ...current,
+    status: b.status || current.status,
+    paid_amount: nextPaid,
+    remaining_amount: nextRem,
+    supplier_treasury_id: b.supplierTreasuryId || current.supplier_treasury_id,
+    updated_at: nowIso,
+  };
+  orders[idx] = updated;
+  writeJsonData(B2B_SUPPLY_ORDERS_FILE, orders);
+
+  try {
+    const client = getDbClient(req);
+    await client
+      .from('b2b_supply_orders')
+      .update({
+        status: updated.status,
+        paid_amount: updated.paid_amount,
+        remaining_amount: updated.remaining_amount,
+        updated_at: nowIso,
+      })
+      .eq('id', id)
+      .eq('supplier_id', supplier.id);
+  } catch {}
+
+  return res.json({ success: true, order: updated });
+});
+
+app.get('/api/suppliers/customers', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.json({ success: true, customers: [] });
+
+  const localCust = readJsonArray(SUPPLIER_CUSTOMERS_FILE).filter(
+    (c: any) => c.supplier_id === supplier.id
+  );
+  try {
+    const client = getDbClient(req);
+    const { data, error } = await client
+      .from('supplier_customers')
+      .select('*')
+      .eq('supplier_id', supplier.id)
+      .order('updated_at', { ascending: false });
+    if (!error && Array.isArray(data)) {
+      const map = new Map<string, any>();
+      localCust.forEach((c: any) => map.set(c.id, c));
+      data.forEach((c: any) => map.set(c.id, c));
+      return res.json({ success: true, customers: Array.from(map.values()) });
+    }
+  } catch {}
+  return res.json({ success: true, customers: localCust });
+});
+
+app.post('/api/suppliers/customers', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const b = req.body || {};
+  const nowIso = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    supplier_id: supplier.id,
+    workshop_id: b.workshopId || null,
+    name: String(b.name || '').trim() || 'عميل جديد',
+    phone: String(b.phone || '').trim(),
+    country: String(b.country || 'مصر').trim(),
+    governorate: String(b.governorate || '').trim(),
+    source_type: b.sourceType || 'external',
+    total_purchases: Number(b.totalPurchases ?? 0),
+    balance_due: Number(b.balanceDue ?? 0),
+    notes: String(b.notes || ''),
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+  const list = readJsonArray(SUPPLIER_CUSTOMERS_FILE);
+  list.unshift(row);
+  writeJsonData(SUPPLIER_CUSTOMERS_FILE, list);
+
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_customers').insert(row);
+  } catch {}
+
+  return res.json({ success: true, customer: row });
+});
+
+app.put('/api/suppliers/customers/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const id = req.params.id;
+  const b = req.body || {};
+  const nowIso = new Date().toISOString();
+  const list = readJsonArray(SUPPLIER_CUSTOMERS_FILE);
+  const idx = list.findIndex((c: any) => c.id === id && c.supplier_id === supplier.id);
+  const prev = idx >= 0 ? list[idx] : {};
+  const updated = {
+    ...prev,
+    id,
+    supplier_id: supplier.id,
+    name: String(b.name ?? prev.name ?? '').trim(),
+    phone: String(b.phone ?? prev.phone ?? '').trim(),
+    country: String(b.country ?? prev.country ?? 'مصر').trim(),
+    governorate: String(b.governorate ?? prev.governorate ?? '').trim(),
+    source_type: b.sourceType || prev.source_type || 'external',
+    total_purchases: Number(b.totalPurchases ?? prev.total_purchases ?? 0),
+    balance_due: Number(b.balanceDue ?? prev.balance_due ?? 0),
+    notes: String(b.notes ?? prev.notes ?? ''),
+    updated_at: nowIso,
+  };
+  if (idx >= 0) list[idx] = updated;
+  else list.unshift(updated);
+  writeJsonData(SUPPLIER_CUSTOMERS_FILE, list);
+
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_customers').upsert(updated, { onConflict: 'id' });
+  } catch {}
+
+  return res.json({ success: true, customer: updated });
+});
+
+app.delete('/api/suppliers/customers/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+  const id = req.params.id;
+  const list = readJsonArray(SUPPLIER_CUSTOMERS_FILE).filter(
+    (c: any) => !(c.id === id && c.supplier_id === supplier.id)
+  );
+  writeJsonData(SUPPLIER_CUSTOMERS_FILE, list);
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_customers').delete().eq('id', id).eq('supplier_id', supplier.id);
+  } catch {}
+  return res.json({ success: true });
+});
+
+app.get('/api/suppliers/treasuries', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.json({ success: true, treasuries: [], transactions: [] });
+
+  let localTr = readJsonArray(SUPPLIER_TREASURIES_FILE).filter(
+    (t: any) => t.supplier_id === supplier.id
+  );
+  if (localTr.length === 0) {
+    const nowIso = new Date().toISOString();
+    const def = {
+      id: crypto.randomUUID(),
+      supplier_id: supplier.id,
+      name: 'الخزينة الرئيسية',
+      channel_type: 'cash',
+      balance: 0,
+      currency: supplier.currency || 'EGP',
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+    const allTr = readJsonArray(SUPPLIER_TREASURIES_FILE);
+    allTr.push(def);
+    writeJsonData(SUPPLIER_TREASURIES_FILE, allTr);
+    localTr = [def];
+  }
+  const localTx = readJsonArray(SUPPLIER_TRANSACTIONS_FILE).filter(
+    (t: any) => t.supplier_id === supplier.id
+  );
+
+  return res.json({ success: true, treasuries: localTr, transactions: localTx });
+});
+
+app.post('/api/suppliers/treasuries', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const b = req.body || {};
+  const nowIso = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    supplier_id: supplier.id,
+    name: String(b.name || 'خزينة جديدة').trim(),
+    channel_type: b.channelType || 'cash',
+    balance: Number(b.balance ?? 0),
+    currency: b.currency || supplier.currency || 'EGP',
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+  const all = readJsonArray(SUPPLIER_TREASURIES_FILE);
+  all.push(row);
+  writeJsonData(SUPPLIER_TREASURIES_FILE, all);
+
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_treasuries').insert(row);
+  } catch {}
+  return res.json({ success: true, treasury: row });
+});
+
+app.post('/api/suppliers/transactions', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const b = req.body || {};
+  const amount = Math.max(0, Number(b.amount || 0));
+  const nowIso = new Date().toISOString();
+  const treasuries = readJsonArray(SUPPLIER_TREASURIES_FILE);
+  const tr = treasuries.find((t: any) => t.id === b.treasuryId && t.supplier_id === supplier.id);
+  if (!tr) return res.status(404).json({ error: 'الخزينة غير موجودة' });
+
+  const isDebit = b.txType === 'withdrawal' || b.txType === 'expense';
+  tr.balance = isDebit
+    ? Math.max(0, Number(tr.balance || 0) - amount)
+    : Number(tr.balance || 0) + amount;
+  tr.updated_at = nowIso;
+  writeJsonData(SUPPLIER_TREASURIES_FILE, treasuries);
+
+  const tx = {
+    id: crypto.randomUUID(),
+    supplier_id: supplier.id,
+    treasury_id: tr.id,
+    b2b_order_id: null,
+    tx_type: b.txType || 'deposit',
+    amount,
+    description: String(b.description || ''),
+    created_at: nowIso,
+  };
+  const txs = readJsonArray(SUPPLIER_TRANSACTIONS_FILE);
+  txs.unshift(tx);
+  writeJsonData(SUPPLIER_TRANSACTIONS_FILE, txs);
+
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_treasuries').update({ balance: tr.balance }).eq('id', tr.id);
+    await client.from('supplier_treasury_transactions').insert(tx);
+  } catch {}
+  return res.json({ success: true, transaction: tx });
+});
+
+app.get('/api/suppliers/expenses', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.json({ success: true, expenses: [] });
+  const expenses = readJsonArray(SUPPLIER_EXPENSES_FILE).filter(
+    (e: any) => e.supplier_id === supplier.id
+  );
+  return res.json({ success: true, expenses });
+});
+
+app.post('/api/suppliers/expenses', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const b = req.body || {};
+  const amount = Math.max(0, Number(b.amount || 0));
+  const nowIso = new Date().toISOString();
+  const expense = {
+    id: crypto.randomUUID(),
+    supplier_id: supplier.id,
+    treasury_id: b.treasuryId || null,
+    category: String(b.category || 'تشغيل'),
+    amount,
+    notes: String(b.notes || ''),
+    expense_date: b.expenseDate || nowIso.slice(0, 10),
+    created_at: nowIso,
+  };
+  const list = readJsonArray(SUPPLIER_EXPENSES_FILE);
+  list.unshift(expense);
+  writeJsonData(SUPPLIER_EXPENSES_FILE, list);
+
+  if (b.treasuryId && amount > 0) {
+    const treasuries = readJsonArray(SUPPLIER_TREASURIES_FILE);
+    const tr = treasuries.find((t: any) => t.id === b.treasuryId && t.supplier_id === supplier.id);
+    if (tr) {
+      tr.balance = Math.max(0, Number(tr.balance || 0) - amount);
+      tr.updated_at = nowIso;
+      writeJsonData(SUPPLIER_TREASURIES_FILE, treasuries);
+      const txs = readJsonArray(SUPPLIER_TRANSACTIONS_FILE);
+      txs.unshift({
+        id: crypto.randomUUID(),
+        supplier_id: supplier.id,
+        treasury_id: tr.id,
+        b2b_order_id: null,
+        tx_type: 'expense',
+        amount,
+        description: `مصروف: ${expense.category} ${expense.notes ? `(${expense.notes})` : ''}`,
+        created_at: nowIso,
+      });
+      writeJsonData(SUPPLIER_TRANSACTIONS_FILE, txs);
+    }
+  }
+
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_expenses').insert(expense);
+  } catch {}
+  return res.json({ success: true, expense });
+});
+
+app.delete('/api/suppliers/expenses/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+  const id = req.params.id;
+  const list = readJsonArray(SUPPLIER_EXPENSES_FILE).filter(
+    (e: any) => !(e.id === id && e.supplier_id === supplier.id)
+  );
+  writeJsonData(SUPPLIER_EXPENSES_FILE, list);
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_expenses').delete().eq('id', id).eq('supplier_id', supplier.id);
+  } catch {}
+  return res.json({ success: true });
+});
+
+app.get('/api/public/supplier-store/:slug', async (req: Request, res: Response) => {
+  const cleanSlug = decodeURIComponent(req.params.slug || '').trim().toLowerCase();
+  const suppliers = readJsonArray(PLATFORM_SUPPLIERS_FILE);
+  const found = suppliers.find(
+    (s: any) =>
+      String(s.store_slug || '').toLowerCase() === cleanSlug ||
+      String(s.id || '').toLowerCase() === cleanSlug
+  );
+  if (!found) return res.status(404).json({ error: 'متجر المورد غير موجود' });
+
+  const catalog = readJsonArray(SUPPLIER_CATALOG_FILE).filter(
+    (c: any) => c.supplier_id === found.id && c.in_store !== false
+  );
+  return res.json({ success: true, supplier: found, items: catalog });
 });
 
 // -------------------------------------------------------------

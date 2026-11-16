@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { AlShamsBrandLogo } from '../brand/BrandAssets';
-import { WorkshopProfile, UserProfile, Gender, getDefaultFamilyNickname } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { UserProfile, Gender } from '../../types';
+import { MainSectionId } from '../../registry/craftsRegistry';
+import { SupplierBusinessType, SupplierPricingMode } from '../../types/supplier';
+import { useFeatureFlags } from '../../types/featureFlags';
 import { COUNTRIES_CONFIG } from '../../utils/macrameMath';
 import { supabase, supabaseConfig } from '../../lib/supabase';
 import {
@@ -8,18 +10,17 @@ import {
   createMyWorkshopRpc,
   getCurrentWorkshopFromSupabase,
 } from '../../db/supabaseService';
+import {
+  getCurrentSupplierFromSupabase,
+  registerSupplierAccount,
+} from '../../db/supplierService';
 import { Login } from './Login';
 import { Register } from './Register';
 import {
-  Lock,
   Mail,
-  User,
-  Building2,
-  Phone,
   CheckCircle2,
   AlertCircle,
   KeyRound,
-  Sparkles,
   ShieldCheck,
   Send,
   X,
@@ -32,18 +33,25 @@ interface AuthGatewayProps {
   recoveryError?: string | null;
   onClearRecoveryError?: () => void;
   initialMode?: 'login' | 'signup';
+  initialRegisterRole?: 'artisan' | 'supplier';
   onBackToLanding?: () => void;
 }
 
+const PENDING_SUPPLIER_REG_KEY = 'alshams_pending_supplier_reg';
+
 export const AuthGateway: React.FC<AuthGatewayProps> = ({
   onAuthenticated,
-  onNeedsWorkshopDetails,
   recoveryError,
   onClearRecoveryError,
   initialMode = 'login',
+  initialRegisterRole = 'artisan',
   onBackToLanding,
 }) => {
+  const flags = useFeatureFlags();
   const [mode, setMode] = useState<'login' | 'signup'>(initialMode);
+  const [accountRole, setAccountRole] = useState<'artisan' | 'supplier'>(
+    flags.supplierRegistrationEnabled ? initialRegisterRole : 'artisan'
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [brandName, setBrandName] = useState('');
@@ -51,6 +59,12 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   const [gender, setGender] = useState<Gender>('female');
   const [countryCode, setCountryCode] = useState('EG');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [governorate, setGovernorate] = useState('');
+  const [businessTypes, setBusinessTypes] = useState<SupplierBusinessType[]>(['online']);
+  const [pricingModes, setPricingModes] = useState<SupplierPricingMode[]>(['both']);
+  const [supplySections, setSupplySections] = useState<MainSectionId[]>(['ropes_textiles']);
+  const [suppliedMaterials, setSuppliedMaterials] = useState<string[]>([]);
+
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -63,15 +77,25 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   const [forgotNotice, setForgotNotice] = useState<{ text: string; isError?: boolean } | null>(null);
   const [forgotCountdown, setForgotCountdown] = useState<number>(0);
 
-  // Sync recovery error if passed
-  React.useEffect(() => {
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
+
+  useEffect(() => {
+    if (flags.supplierRegistrationEnabled) {
+      setAccountRole(initialRegisterRole);
+    } else {
+      setAccountRole('artisan');
+    }
+  }, [initialRegisterRole, flags.supplierRegistrationEnabled]);
+
+  useEffect(() => {
     if (recoveryError) {
       setErrorMsg(recoveryError);
     }
   }, [recoveryError]);
 
-  // Countdown timer for reset password button
-  React.useEffect(() => {
+  useEffect(() => {
     let timer: any = null;
     if (forgotCountdown > 0) {
       timer = setInterval(() => {
@@ -91,6 +115,10 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
 
   const selectedCountry =
     COUNTRIES_CONFIG.find((c) => c.code === countryCode) || COUNTRIES_CONFIG[0];
+
+  const effectiveRole: 'artisan' | 'supplier' = flags.supplierRegistrationEnabled
+    ? accountRole
+    : 'artisan';
 
   // 1. Email/Password Authentication (Supabase)
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -114,45 +142,79 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
     try {
       if (mode === 'signup') {
         if (!brandName.trim()) {
-          throw new Error('يرجى كتابة اسم البراند أو المشغل الخاص بك.');
+          throw new Error(
+            effectiveRole === 'supplier'
+              ? 'يرجى كتابة اسم متجر المورد أو الشركة.'
+              : 'يرجى كتابة اسم البراند أو المشغل الخاص بك.'
+          );
         }
         if (!artistName.trim()) {
-          throw new Error('يرجى كتابة اسمك (الفنان أو الفنانة).');
+          throw new Error(
+            effectiveRole === 'supplier'
+              ? 'يرجى كتابة اسم المالك أو المسؤول.'
+              : 'يرجى كتابة اسمك (الفنان أو الفنانة).'
+          );
         }
 
-        // 1) Supabase sign up
-        console.log('[AuthGateway] Step 1: Submitting signUp for email:', cleanEmail);
+        if (effectiveRole === 'supplier' && !governorate.trim()) {
+          throw new Error('يرجى كتابة المحافظة أو المدينة.');
+        }
+
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
+          options: {
+            data: {
+              account_role: effectiveRole,
+              brand_name: brandName.trim(),
+              artist_name: artistName.trim(),
+            },
+          },
         });
 
         if (signUpError) {
-          console.error('[AuthGateway] SignUp error:', signUpError);
           const errRes = getArabicSupabaseError(signUpError);
           setErrorMsg(errRes.arabicMessage);
           return;
         }
 
-        // Retrieve active session from signUp response or via getSession()
         let activeSession: any = signUpData.session;
         if (!activeSession) {
           const { data: currentSessionData } = await supabase.auth.getSession();
           activeSession = currentSessionData?.session || null;
         }
 
-        const hasSession = !!activeSession?.access_token;
-        const userId = signUpData.user?.id || activeSession?.user?.id || 'غير متوفر';
-        const tokenLength = activeSession?.access_token ? activeSession.access_token.length : 0;
+        const supplierPayload = {
+          brandName: brandName.trim(),
+          ownerName: artistName.trim(),
+          gender: (gender === 'male' ? 'male' : 'female') as Gender,
+          phone: phoneNumber.trim(),
+          email: cleanEmail,
+          country: selectedCountry.name,
+          governorate: governorate.trim(),
+          currency: selectedCountry.currency,
+          currencySymbol: selectedCountry.currencySymbol,
+          businessTypes,
+          pricingModes,
+          supplySections,
+          suppliedMaterials,
+          ownerUid: signUpData.user?.id || activeSession?.user?.id,
+        };
 
-        // Diagnostic log: وجود الجلسة ومعرّف المستخدم وطول access_token
-        console.log(
-          `[Auth Diagnostic - التسجيل] وجود الجلسة: ${hasSession ? 'نعم' : 'لا'} | معرّف المستخدم: ${userId} | طول access_token: ${tokenLength}`
-        );
-
-        // 2) If session is available, invoke create_my_workshop RPC once
         if (activeSession && activeSession.access_token) {
-          console.log('[AuthGateway] Step 2: Session established, invoking create_my_workshop RPC once...');
+          if (effectiveRole === 'supplier') {
+            const regRes = await registerSupplierAccount(supplierPayload);
+            if (!regRes.success || !regRes.profile) {
+              setErrorMsg(regRes.error || 'تعذر تسجيل حساب المورد.');
+              return;
+            }
+            try {
+              localStorage.removeItem(PENDING_SUPPLIER_REG_KEY);
+            } catch {}
+            onAuthenticated(regRes.profile);
+            return;
+          }
+
           const { workshop, error: rpcError } = await createMyWorkshopRpc({
             brand: brandName.trim(),
             artist: artistName.trim(),
@@ -163,71 +225,105 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           });
 
           if (rpcError) {
-            console.error('[AuthGateway] create_my_workshop RPC failed:', rpcError);
             setErrorMsg(rpcError.arabicMessage + (rpcError.code ? ` [${rpcError.code}]` : ''));
             return;
           }
 
-          console.log('[AuthGateway] Step 3: Workshop created successfully. App will load the workshop.');
           if (workshop) {
             onAuthenticated(workshop);
           }
           return;
         }
 
-        // If no session immediately returned (email confirmation required)
-        console.log('[AuthGateway] SignUp succeeded without active session. Confirmation notice shown.');
-        setSuccessMsg('تم إنشاء الحساب بنجاح! إذا طُلب تأكيد البريد، يرجى تفعيل حسابك من البريد الإلكتروني ثم تسجيل الدخول.');
+        if (effectiveRole === 'supplier') {
+          try {
+            localStorage.setItem(PENDING_SUPPLIER_REG_KEY, JSON.stringify(supplierPayload));
+          } catch {}
+        }
+
+        setSuccessMsg(
+          'تم إنشاء الحساب بنجاح! إذا طُلب تأكيد البريد، يرجى تفعيل حسابك من البريد الإلكتروني ثم تسجيل الدخول.'
+        );
       } else {
-        // Mode === 'login'
-        console.log('[AuthGateway] Step 1: Submitting signInWithPassword for:', cleanEmail);
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
           email: cleanEmail,
           password,
         });
 
         if (signInError) {
-          console.error('[AuthGateway] SignIn error:', signInError);
           const errRes = getArabicSupabaseError(signInError);
           setErrorMsg(errRes.arabicMessage);
           return;
         }
 
-        let activeSession: any = signInData.session;
-        if (!activeSession) {
-          const { data: currentSessionData } = await supabase.auth.getSession();
-          activeSession = currentSessionData?.session || null;
-        }
-
-        const hasSession = !!activeSession?.access_token;
-        const userId = signInData.user?.id || activeSession?.user?.id || 'غير متوفر';
-        const tokenLength = activeSession?.access_token ? activeSession.access_token.length : 0;
-
-        console.log('[AuthGateway] Step 2: Login successful. Checking account status and fetching workshop...');
-
-        // فحص حالة الحساب في جدول profiles و workshops للتحقق من التعليق
         try {
           const [profileStatusRes, wsStatusRes] = await Promise.all([
             supabase.from('profiles').select('status').eq('id', signInData.user!.id).maybeSingle(),
-            supabase.from('workshops').select('status, is_frozen').or(`owner_id.eq.${signInData.user!.id},owner_uid.eq.${signInData.user!.id}`).limit(1).maybeSingle(),
+            supabase
+              .from('workshops')
+              .select('status, is_frozen')
+              .or(`owner_id.eq.${signInData.user!.id},owner_uid.eq.${signInData.user!.id}`)
+              .limit(1)
+              .maybeSingle(),
           ]);
 
           const profStatus = profileStatusRes.data?.status;
           const wsStatus = wsStatusRes.data?.status;
           const isFrozen = wsStatusRes.data?.is_frozen;
 
-          if (profStatus === 'suspended' || wsStatus === 'suspended' || isFrozen || profStatus === 'banned' || wsStatus === 'banned') {
+          if (
+            profStatus === 'suspended' ||
+            wsStatus === 'suspended' ||
+            isFrozen ||
+            profStatus === 'banned' ||
+            wsStatus === 'banned'
+          ) {
             await supabase.auth.signOut().catch(() => {});
             localStorage.removeItem('alshams_profile');
-            setErrorMsg('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
+            setErrorMsg('تم تعليق الحساب مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
             setLoading(false);
             return;
           }
-        } catch (statusErr) {
-          console.warn('[AuthGateway] Status verification notice:', statusErr);
+        } catch {}
+
+        // Complete pending supplier registration after email confirmation if present
+        try {
+          const pendingRaw = localStorage.getItem(PENDING_SUPPLIER_REG_KEY);
+          if (pendingRaw) {
+            const pending = JSON.parse(pendingRaw);
+            if (pending?.email?.toLowerCase() === cleanEmail.toLowerCase()) {
+              const regRes = await registerSupplierAccount({
+                ...pending,
+                ownerUid: signInData.user!.id,
+              });
+              localStorage.removeItem(PENDING_SUPPLIER_REG_KEY);
+              if (regRes.success && regRes.profile) {
+                onAuthenticated(regRes.profile);
+                return;
+              }
+            }
+          }
+        } catch {}
+
+        // Check Supplier Profile first if user registered as supplier
+        const supplierProfile = await getCurrentSupplierFromSupabase();
+        if (supplierProfile) {
+          if (
+            supplierProfile.status === 'suspended' ||
+            supplierProfile.status === 'banned' ||
+            supplierProfile.isFrozen
+          ) {
+            await supabase.auth.signOut().catch(() => {});
+            localStorage.removeItem('alshams_profile');
+            setErrorMsg('تم تعليق حساب المورد مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
+            setLoading(false);
+            return;
+          }
+          onAuthenticated(supplierProfile);
+          return;
         }
 
-        const { workshop, error: wsError } = await getCurrentWorkshopFromSupabase();
+        const { workshop } = await getCurrentWorkshopFromSupabase();
         if (workshop) {
           if (workshop.status === 'suspended' || (workshop as any).isFrozen) {
             await supabase.auth.signOut().catch(() => {});
@@ -236,12 +332,10 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             setLoading(false);
             return;
           }
-          console.log('[AuthGateway] Step 3: Workshop loaded successfully:', workshop.brandName);
           onAuthenticated(workshop);
           return;
         }
 
-        // If no row exists yet in workshops table, check profiles row then construct profile from metadata
         const userMeta = (signInData.user?.user_metadata || {}) as any;
         let profRow: any = null;
         try {
@@ -275,7 +369,8 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             userMeta.brandName ||
             (emailPrefix ? `ورشة ${emailPrefix}` : 'ورشة حرفية'),
           gender: profRow?.gender || userMeta.gender || 'female',
-          phoneNumber: profRow?.phone || profRow?.phone_number || userMeta.phone_number || userMeta.phone || '',
+          phoneNumber:
+            profRow?.phone || profRow?.phone_number || userMeta.phone_number || userMeta.phone || '',
           country: profRow?.country || userMeta.country || 'جمهورية مصر العربية',
           currency: profRow?.currency || userMeta.currency || 'EGP',
           currencySymbol: userMeta.currency_symbol || 'ج.م',
@@ -290,11 +385,9 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         return;
       }
     } catch (err: any) {
-      console.error('[AuthGateway] Unexpected auth exception:', err);
       const errRes = getArabicSupabaseError(err);
       setErrorMsg(errRes.arabicMessage);
     } finally {
-      // Rule 5: زر الدخول/التسجيل يرجع لحالته الطبيعية بعد انتهاء العملية (نجاح أو فشل) داخل finally
       setLoading(false);
     }
   };
@@ -306,7 +399,10 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
     onClearRecoveryError?.();
     setGoogleLoading(true);
     try {
-      // فحص مسبق لحالة مزود Google في Supabase لمنع التحويل لصفحة خطأ JSON
+      try {
+        localStorage.setItem('alshams_oauth_intended_role', effectiveRole);
+      } catch {}
+
       try {
         const settingsRes = await fetch(`${supabaseConfig.url}/auth/v1/settings`, {
           headers: { apikey: supabaseConfig.publishableKey },
@@ -316,15 +412,13 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           const settingsJson = await settingsRes.json();
           if (settingsJson?.external && settingsJson.external.google !== true) {
             setErrorMsg(
-              'تسجيل الدخول عبر Google غير مفعّل حالياً في إعدادات Supabase (Authentication → Providers → Google). يرجى تفعيله وإضافة Client ID و Client Secret أولاً، أو الدخول بالبريد الإلكتروني.'
+              'تسجيل الدخول عبر Google غير مفعّل حالياً في إعدادات Supabase (Authentication → Providers → Google).'
             );
             setGoogleLoading(false);
             return;
           }
         }
-      } catch {
-        // إذا تعذر الفحص المسبق نُكمل التدفق المعتاد
-      }
+      } catch {}
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -351,14 +445,11 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
     }
   };
 
-  // 2. Send Password Reset Link Modal (Supabase)
+  // 2. Send Password Reset Link Modal
   const handleSendResetLink = async (e: React.FormEvent) => {
     e.preventDefault();
     setForgotNotice(null);
-
-    if (forgotCountdown > 0) {
-      return;
-    }
+    if (forgotCountdown > 0) return;
 
     const clean = forgotEmail.trim();
     if (!clean || !clean.includes('@')) {
@@ -374,7 +465,6 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
       });
 
       if (error) {
-        console.error('[AuthGateway] resetPasswordForEmail error:', error);
         const rawMsg = (error.message || '').toLowerCase();
         const code = String((error as any).code || error.status || '').toLowerCase();
 
@@ -387,7 +477,10 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         ) {
           shouldCooldown = true;
           setForgotNotice({ text: 'حاول بعد دقيقة', isError: true });
-        } else if (rawMsg.includes('email address not authorized') || code.includes('email_address_not_authorized')) {
+        } else if (
+          rawMsg.includes('email address not authorized') ||
+          code.includes('email_address_not_authorized')
+        ) {
           setForgotNotice({
             text: 'خدمة الإيميل غير مفعّلة لهذا العنوان بعد، تواصل مع الدعم',
             isError: true,
@@ -399,7 +492,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           rawMsg.includes('smtp')
         ) {
           setForgotNotice({
-            text: 'تعذر إرسال رابط استعادة كلمة المرور (خطأ 500 من خادم البريد في Supabase). يرجى تفعيل وضبط Custom SMTP في لوحة تحكم Supabase أولاً.',
+            text: 'تعذر إرسال رابط استعادة كلمة المرور (خطأ 500 من خادم البريد في Supabase).',
             isError: true,
           });
         } else {
@@ -411,14 +504,12 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         try {
           localStorage.setItem('alshams_pending_recovery_ts', String(Date.now()));
         } catch {}
-        // Always show neutral message as requested in Requirement 1
         setForgotNotice({
           text: 'لو الإيميل مسجل عندنا هيوصلك رابط تغيير كلمة المرور، وراجع فولدر الرسائل غير المرغوبة (Spam)',
           isError: false,
         });
       }
     } catch (err: any) {
-      console.error('[AuthGateway] resetPasswordForEmail exception:', err);
       const rawMsg = (err?.message || '').toLowerCase();
       if (rawMsg.includes('rate limit') || rawMsg.includes('429')) {
         shouldCooldown = true;
@@ -429,7 +520,6 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
       }
     } finally {
       setForgotLoading(false);
-      // Disable button for 60 seconds only on success or rate-limit
       if (shouldCooldown) {
         setForgotCountdown(60);
       }
@@ -439,7 +529,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#F2ECE1] via-[#EBE4D6] to-[#F5DFC6]/60 dark:from-[#060B18] dark:via-[#081024] dark:to-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] flex flex-col justify-center items-center p-4 sm:p-6 transition-colors duration-200">
       {onBackToLanding && (
-        <div className="w-full max-w-md mb-3 flex items-center justify-between">
+        <div className="w-full max-w-lg mb-3 flex items-center justify-between">
           <button
             type="button"
             onClick={onBackToLanding}
@@ -447,10 +537,23 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           >
             <span>← الرجوع لصفحة المنظومة الرئيسية</span>
           </button>
+          <button
+            type="button"
+            onClick={onBackToLanding}
+            aria-label="إغلاق"
+            title="إغلاق"
+            className="w-8 h-8 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
-      <div className="w-full max-w-md bg-[#F7F3EA] dark:bg-[#0D162E] rounded-3xl shadow-2xl border border-[#D4CCBC] dark:border-[#22355E] p-6 sm:p-8 space-y-5 text-right relative overflow-hidden">
-        {/* Top Decorative Sun Beam */}
+
+      <div
+        className={`w-full ${
+          mode === 'signup' && effectiveRole === 'supplier' ? 'max-w-lg' : 'max-w-md'
+        } bg-[#F7F3EA] dark:bg-[#0D162E] rounded-3xl shadow-2xl border border-[#D4CCBC] dark:border-[#22355E] p-6 sm:p-8 space-y-5 text-right relative overflow-hidden`}
+      >
         <div className="absolute -top-16 -right-16 w-40 h-40 bg-gradient-to-br from-[#EA580C]/20 to-[#F59E0B]/10 rounded-full blur-2xl pointer-events-none" />
 
         {/* Tabs: Login / Signup Switcher */}
@@ -485,11 +588,11 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                 : 'text-[#334155] dark:text-[#CBD5E1] bg-[#F7F3EA]/70 dark:bg-[#1A2B54]/60'
             }`}
           >
-            فتح ورشة جديدة
+            {flags.supplierRegistrationEnabled ? 'فتح حساب جديد' : 'فتح ورشة جديدة'}
           </button>
         </div>
 
-        {/* Success Notice if any */}
+        {/* Success Notice */}
         {successMsg && (
           <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
@@ -517,6 +620,8 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           />
         ) : (
           <Register
+            accountRole={accountRole}
+            setAccountRole={setAccountRole}
             email={email}
             setEmail={setEmail}
             password={password}
@@ -531,6 +636,16 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             setPhoneNumber={setPhoneNumber}
             countryCode={countryCode}
             setCountryCode={setCountryCode}
+            governorate={governorate}
+            setGovernorate={setGovernorate}
+            businessTypes={businessTypes}
+            setBusinessTypes={setBusinessTypes}
+            pricingModes={pricingModes}
+            setPricingModes={setPricingModes}
+            supplySections={supplySections}
+            setSupplySections={setSupplySections}
+            suppliedMaterials={suppliedMaterials}
+            setSuppliedMaterials={setSuppliedMaterials}
             loading={loading}
             errorMsg={errorMsg}
             onSubmit={handleEmailAuth}
@@ -539,10 +654,9 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           />
         )}
 
-        {/* Footer Guarantee */}
         <div className="pt-3 border-t border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center gap-1.5 text-[10px] font-bold text-[#334155] dark:text-[#CBD5E1]">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-          <span>عزل سحابي كامل ومزامنة مشفرة وآمنة لورشتك الحرفية</span>
+          <span>عزل سحابي كامل ومزامنة مشفرة وآمنة لمنظومتك</span>
         </div>
       </div>
 
@@ -555,6 +669,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
                 type="button"
                 onClick={() => setShowForgotModal(false)}
                 className="p-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] text-[#334155] dark:text-[#CBD5E1] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] transition cursor-pointer"
+                aria-label="إغلاق"
               >
                 <X className="w-4 h-4" />
               </button>

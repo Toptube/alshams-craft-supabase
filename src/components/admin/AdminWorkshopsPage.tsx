@@ -137,14 +137,23 @@ export const AdminWorkshopsPage: React.FC<AdminWorkshopsPageProps> = ({
     <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-4 space-y-5">
       {/* Subpage Top Navigation */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onBack}
             className="px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-1.5 cursor-pointer transition"
           >
             <ArrowRight className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
-            <span>العودة للرئيسية</span>
+            <span>رجوع</span>
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="إغلاق"
+            title="إغلاق"
+            className="w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 hover:text-rose-600 text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center cursor-pointer transition"
+          >
+            <X className="w-4 h-4" />
           </button>
           <div>
             <h1 className="text-base sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">

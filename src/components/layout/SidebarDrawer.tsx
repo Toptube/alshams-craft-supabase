@@ -36,6 +36,7 @@ import {
   Package,
 } from 'lucide-react';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
+import { useFeatureFlags } from '../../types/featureFlags';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -96,8 +97,49 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onStartTour,
   onLogout,
 }) => {
-  const navGroups: NavGroup[] = useMemo(
-    () => [
+  const flags = useFeatureFlags();
+  const isAdmin = isUserAdmin(profile);
+  const isSupplier = (profile as any)?.accountRole === 'supplier';
+
+  const navGroups: NavGroup[] = useMemo(() => {
+    if (isSupplier) {
+      return [
+        {
+          key: 'erp',
+          code: 'B2B',
+          titleAr: 'كتالوج الخامات والمخزون',
+          items: [
+            { id: 'supplier_catalog', label: 'كتالوج الخامات والأسعار', icon: Boxes },
+            { id: 'supplier_orders', label: 'أوردراتي وطلبات التوريد', icon: Package },
+          ],
+        },
+        {
+          key: 'crm',
+          code: 'CRM',
+          titleAr: 'المتجر والعملاء',
+          items: [
+            {
+              id: 'supplier_store',
+              label: 'لوحة تحكم متجر المورد',
+              icon: Store,
+              action: () => {
+                if (onOpenArtisanStore) onOpenArtisanStore('products');
+                else onSelectView('supplier_store');
+              },
+            },
+            { id: 'supplier_customers', label: 'عملائي (الورش والأفراد)', icon: Users },
+          ],
+        },
+        {
+          key: 'fca',
+          code: 'FCA',
+          titleAr: 'الخزينة والمصروفات',
+          items: [{ id: 'supplier_finance', label: 'الخزائن والمصروفات والتدفقات', icon: Wallet }],
+        },
+      ];
+    }
+
+    const baseGroups: NavGroup[] = [
       {
         key: 'erp',
         code: 'ERP',
@@ -179,9 +221,29 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         titleAr: 'العاملون والحرفيون',
         items: [{ id: 'hr', label: 'شؤون العاملين والأجور', icon: Users2 }],
       },
-    ],
-    [onNavigateToCatalog, onOpenArtisanStore, onSelectView]
-  );
+    ];
+
+    if (isAdmin) return baseGroups;
+
+    return baseGroups
+      .filter((g) => (flags.erpModulesEnabled ? true : g.key !== 'fca' && g.key !== 'hr'))
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((item) => {
+          if (item.id === 'calculator' && !flags.craftCalculatorEnabled) return false;
+          if ((item.id === 'store' || item.id === 'my_orders') && !flags.artisanStorefrontEnabled) return false;
+          if (item.id === 'marketplace' && !flags.artisanMarketplaceEnabled) return false;
+          if (
+            !flags.erpModulesEnabled &&
+            ['work_orders', 'purchases', 'suppliers', 'customers', 'invoices'].includes(item.id)
+          ) {
+            return false;
+          }
+          return true;
+        }),
+      }))
+      .filter((g) => g.items.length > 0);
+  }, [isAdmin, isSupplier, flags, onNavigateToCatalog, onOpenArtisanStore, onSelectView]);
 
   // Determine initial open group from activeView (default: ERP open if home)
   const initialOpenKey = useMemo<SectionKey>(() => {
@@ -199,7 +261,6 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   if (!isOpen) return null;
 
   const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64;
-  const isAdmin = isUserAdmin(profile);
 
   const toggleGroup = (key: SectionKey) => {
     setOpenGroups((prev) => ({
@@ -403,28 +464,30 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           <div className="h-px bg-[#D4CCBC] dark:bg-[#22355E] my-1" />
 
           {/* المساعد الذكي */}
-          <button
-            type="button"
-            onClick={() => {
-              onSelectView('ai_agent');
-              onClose();
-            }}
-            className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl border flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
-              activeView === 'ai_agent'
-                ? 'bg-[#EA580C] text-white border-[#FBBF24]'
-                : 'bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24]'
-            }`}
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Sparkles
-                className={`w-4 h-4 shrink-0 ${
-                  activeView === 'ai_agent' ? 'text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'
-                }`}
-              />
-              <span className="text-xs font-black truncate">المستشار الذكي (صقر & شموسة)</span>
-            </div>
-            <ChevronLeft className="w-4 h-4 shrink-0 opacity-75" />
-          </button>
+          {(isAdmin || flags.aiAssistantsEnabled) && (
+            <button
+              type="button"
+              onClick={() => {
+                onSelectView('ai_agent');
+                onClose();
+              }}
+              className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl border flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
+                activeView === 'ai_agent'
+                  ? 'bg-[#EA580C] text-white border-[#FBBF24]'
+                  : 'bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24]'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Sparkles
+                  className={`w-4 h-4 shrink-0 ${
+                    activeView === 'ai_agent' ? 'text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'
+                  }`}
+                />
+                <span className="text-xs font-black truncate">المستشار الذكي (صقر & شموسة)</span>
+              </div>
+              <ChevronLeft className="w-4 h-4 shrink-0 opacity-75" />
+            </button>
+          )}
 
           {/* لوحة الإدارة والتبديل بين الورش (للإدارة العليا) */}
           {isAdmin && (
@@ -449,28 +512,30 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           )}
 
           {/* مجتمع عيلة الشمساويه في نهاية القائمة */}
-          <button
-            type="button"
-            onClick={() => {
-              onSelectView('family');
-              onClose();
-            }}
-            className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl border flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
-              activeView === 'family'
-                ? 'bg-[#EA580C] text-white border-[#FBBF24]'
-                : 'bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24]'
-            }`}
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Users
-                className={`w-4 h-4 shrink-0 ${
-                  activeView === 'family' ? 'text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'
-                }`}
-              />
-              <span className="text-xs font-black truncate">مجتمع عيلة الشمساويه</span>
-            </div>
-            <ChevronLeft className="w-4 h-4 shrink-0 opacity-75" />
-          </button>
+          {(isAdmin || flags.familyCommunityEnabled) && (
+            <button
+              type="button"
+              onClick={() => {
+                onSelectView('family');
+                onClose();
+              }}
+              className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl border flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
+                activeView === 'family'
+                  ? 'bg-[#EA580C] text-white border-[#FBBF24]'
+                  : 'bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24]'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Users
+                  className={`w-4 h-4 shrink-0 ${
+                    activeView === 'family' ? 'text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'
+                  }`}
+                />
+                <span className="text-xs font-black truncate">مجتمع عيلة الشمساويه</span>
+              </div>
+              <ChevronLeft className="w-4 h-4 shrink-0 opacity-75" />
+            </button>
+          )}
         </nav>
 
         {/* بطاقة تثبيت التطبيق السريع (PWA Setup) */}

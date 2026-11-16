@@ -63,7 +63,9 @@ import { AdminReportsPage } from './AdminReportsPage';
 import { AdminNotificationPages } from './AdminNotificationPages';
 import { AdminWorkshopModals } from './AdminWorkshopModals';
 import { AdminLandingCmsPage } from './AdminLandingCmsPage';
-import { LandingCmsConfig } from '../../types/landingCms';
+import { AdminFeatureVisibilityPage } from './AdminFeatureVisibilityPage';
+import { LandingCmsConfig, getStoredLandingCmsConfig } from '../../types/landingCms';
+import { PlatformFeatureFlags, getStoredFeatureFlags } from '../../types/featureFlags';
 
 export type { ExecutiveTab };
 
@@ -1100,6 +1102,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         ...shippingConfig,
         centralShippingPrivacy,
         marketBuilder: builderToSave,
+        landingCms: getStoredLandingCmsConfig(),
+        featureFlags: getStoredFeatureFlags(),
       };
       const res = await savePlatformSettingsCloud(payload, profile.email);
       if (!res.success) {
@@ -2179,6 +2183,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 ...shippingConfig,
                 centralShippingPrivacy: nextVal,
                 marketBuilder: getStoredMarketBuilderConfig(),
+                landingCms: getStoredLandingCmsConfig(),
+                featureFlags: getStoredFeatureFlags(),
               },
               profile.email
             ).catch(() => {});
@@ -2311,6 +2317,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   centralShippingPrivacy: centralShippingPrivacy,
                   marketBuilder: getStoredMarketBuilderConfig(),
                   landingCms: nextCms,
+                  featureFlags: getStoredFeatureFlags(),
                 },
                 profile.email
               );
@@ -2326,6 +2333,43 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               }
             } catch (err: any) {
               showError(err?.message || 'حدث خطأ أثناء حفظ إعدادات صفحة الهبوط.');
+              throw err;
+            } finally {
+              setSavingMarketSettings(false);
+            }
+          }}
+        />
+      )}
+
+      {currentPage === 'feature_visibility' && (
+        <AdminFeatureVisibilityPage
+          onBack={() => handleNavigatePage('home')}
+          saving={savingMarketSettings}
+          onSaveToCloud={async (nextFlags: PlatformFeatureFlags, nextCms: LandingCmsConfig) => {
+            setSavingMarketSettings(true);
+            try {
+              const res = await savePlatformSettingsCloud(
+                {
+                  ...shippingConfig,
+                  centralShippingPrivacy: centralShippingPrivacy,
+                  marketBuilder: getStoredMarketBuilderConfig(),
+                  landingCms: nextCms,
+                  featureFlags: nextFlags,
+                },
+                profile.email
+              );
+              if (!res.success) {
+                const msg = res.error || 'تعذر حفظ إعدادات الظهور والإخفاء على السيرفر.';
+                showError(msg);
+                throw new Error(msg);
+              }
+              showSuccess(
+                res.cloudSynced
+                  ? 'تم حفظ ونشر إعدادات الظهور والإخفاء سحابياً لجميع الحسابات.'
+                  : 'تم الحفظ محلياً (يرجى التحقق من الاتصال للمزامنة السحابية).'
+              );
+            } catch (err: any) {
+              showError(err?.message || 'حدث خطأ أثناء حفظ إعدادات الظهور.');
               throw err;
             } finally {
               setSavingMarketSettings(false);
