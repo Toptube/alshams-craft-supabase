@@ -4,6 +4,7 @@ import { MainSectionId } from '../../registry/craftsRegistry';
 import {
   SupplierCatalogItem,
   SupplierCatalogVariant,
+  SupplierPriceTier,
   SUPPLIER_SUPPLY_SECTIONS,
   SUPPLIER_DEFAULT_UNITS,
 } from '../../types/supplier';
@@ -11,6 +12,7 @@ import {
   fetchSupplierCatalog,
   upsertSupplierCatalogItem,
   deleteSupplierCatalogItem,
+  publishSupplierOfferAlert,
 } from '../../db/supplierService';
 import {
   ArrowRight,
@@ -23,6 +25,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Boxes,
+  Megaphone,
+  Layers,
 } from 'lucide-react';
 
 import { compressImageFile, MAX_ITEM_IMAGES } from '../../utils/imageCompressor';
@@ -65,6 +69,16 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   const [inMarket, setInMarket] = useState(true);
   const [images, setImages] = useState<string[]>([]);
   const [variants, setVariants] = useState<SupplierCatalogVariant[]>([]);
+  const [tierPricing, setTierPricing] = useState<SupplierPriceTier[]>([]);
+
+  // Offer & New Stock Alert Modal
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+  const [alertType, setAlertType] = useState<'offer' | 'new_stock' | 'price_drop'>('offer');
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertBadge, setAlertBadge] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+  const [alertSending, setAlertSending] = useState(false);
+  const [alertToast, setAlertToast] = useState<string | null>(null);
 
   const loadItems = async () => {
     setLoading(true);
@@ -106,6 +120,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setInMarket(true);
     setImages([]);
     setVariants([]);
+    setTierPricing([]);
     setFeedback(null);
     setIsModalOpen(true);
   };
@@ -126,6 +141,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setInMarket(item.inMarket);
     setImages(Array.isArray(item.images) ? item.images.slice(0, MAX_ITEM_IMAGES) : []);
     setVariants(Array.isArray(item.variants) ? item.variants : []);
+    setTierPricing(Array.isArray(item.tierPricing) ? item.tierPricing : []);
     setFeedback(null);
     setIsModalOpen(true);
   };
@@ -187,6 +203,9 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
       inMarket,
       images,
       variants: variants.filter((v) => v.colorOrSize.trim()),
+      tierPricing: tierPricing
+        .filter((t) => Number(t.minQty) > 0 && Number(t.unitPrice) > 0)
+        .sort((a, b) => Number(a.minQty) - Number(b.minQty)),
       sourceCurrency: profile.currency || 'EGP',
     });
     setSaving(false);
@@ -198,6 +217,28 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
 
     await loadItems();
     setIsModalOpen(false);
+  };
+
+  const handleSendOfferAlert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!alertTitle.trim() || !alertMessage.trim()) return;
+    setAlertSending(true);
+    const res = await publishSupplierOfferAlert({
+      alertType,
+      title: alertTitle.trim(),
+      message: alertMessage.trim(),
+      discountBadge: alertBadge.trim(),
+      sectionId: sectionFilter !== 'all' ? sectionFilter : profile.supplySections?.[0] || 'all',
+    });
+    setAlertSending(false);
+    if (res.success) {
+      setIsAlertModalOpen(false);
+      setAlertTitle('');
+      setAlertBadge('');
+      setAlertMessage('');
+      setAlertToast('تم إرسال تنبيه العرض / التوريد الجديد إلى كافة الورش وسوق الموردين بنجاح!');
+      setTimeout(() => setAlertToast(null), 4500);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -231,7 +272,15 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsAlertModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-[#0C1427] hover:bg-[#1E293B] dark:bg-[#132040] text-[#FBBF24] border border-[#22355E] text-xs font-black flex items-center gap-1.5 cursor-pointer"
+          >
+            <Megaphone className="w-4 h-4" />
+            <span>تنبيه عروض / وصول جديد للورش</span>
+          </button>
           <button
             type="button"
             onClick={openNewModal}
@@ -251,6 +300,13 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
           </button>
         </div>
       </div>
+
+      {alertToast && (
+        <div className="rounded-xl p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-400/50 text-emerald-800 dark:text-emerald-200 text-xs font-black flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{alertToast}</span>
+        </div>
+      )}
 
       {/* Filters Toolbar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -374,6 +430,22 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                         </div>
                       </div>
                     </div>
+
+                    {item.tierPricing && item.tierPricing.length > 0 && (
+                      <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[10px] space-y-1">
+                        <div className="font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1">
+                          <Layers className="w-3 h-3" />
+                          <span>شرائح الكميات المتدرجة:</span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 font-mono tabular-nums font-bold text-[#0C1427] dark:text-[#F7F3EA]">
+                          {item.tierPricing.map((t, i) => (
+                            <span key={i}>
+                              ≥{t.minQty} {item.unit}: {t.unitPrice} {currencySymbol}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between text-[11px] pt-1">
                       <span
@@ -647,6 +719,72 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                 ))}
               </div>
 
+              {/* Tiered Volume Pricing */}
+              <div className="space-y-2 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                      شرائح أسعار الكميات المتدرجة (خصم تلقائي للكميات الكبيرة)
+                    </span>
+                    <p className="text-[10px] text-[#475569] dark:text-[#94A3B8]">
+                      مثال: من 10 بكرات بـ 90 ج.م · من 25 بكرة بـ 82 ج.م · من 50 بكرة بـ 75 ج.م
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTierPricing((prev) => [
+                        ...prev,
+                        { minQty: prev.length === 0 ? 10 : (prev[prev.length - 1]?.minQty || 10) + 15, unitPrice: wholesalePrice || retailPrice || 0 },
+                      ])
+                    }
+                    className="text-[11px] font-black text-[#C2410C] dark:text-amber-300 inline-flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>إضافة شريحة كمية</span>
+                  </button>
+                </div>
+
+                {tierPricing.map((tier, idx) => (
+                  <div key={idx} className="grid grid-cols-3 gap-2 items-center">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold shrink-0">من كمية ≥</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={tier.minQty}
+                        onChange={(e) => {
+                          const val = Math.max(1, Number(e.target.value || 1));
+                          setTierPricing((prev) => prev.map((r, i) => (i === idx ? { ...r, minQty: val } : r)));
+                        }}
+                        className="w-full px-2 py-1.5 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] font-mono font-bold"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold shrink-0">سعر الوحدة</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={tier.unitPrice}
+                        onChange={(e) => {
+                          const val = Math.max(0, Number(e.target.value || 0));
+                          setTierPricing((prev) => prev.map((r, i) => (i === idx ? { ...r, unitPrice: val } : r)));
+                        }}
+                        className="w-full px-2 py-1.5 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] font-mono font-bold"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTierPricing((prev) => prev.filter((_, i) => i !== idx))}
+                      className="text-rose-600 font-bold text-center cursor-pointer"
+                    >
+                      حذف الشريحة
+                    </button>
+                  </div>
+                ))}
+              </div>
+
               {/* Images Upload (Max 3 compressed images) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -728,6 +866,93 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                   className="px-5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-black cursor-pointer disabled:opacity-50"
                 >
                   {saving ? 'جاري الحفظ...' : 'حفظ الخامة'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Offer & New Stock Alert Broadcaster Modal */}
+      {isAlertModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-lg bg-[#F7F3EA] dark:bg-[#0D162E] rounded-3xl border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
+              <h2 className="text-sm font-black flex items-center gap-2 text-[#0C1427] dark:text-[#F7F3EA]">
+                <Megaphone className="w-4 h-4 text-[#EA580C]" />
+                <span>إرسال تنبيه عروض أو وصول خامات جديدة للورش</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsAlertModalOpen(false)}
+                aria-label="إغلاق"
+                className="w-8 h-8 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendOfferAlert} className="p-4 sm:p-5 space-y-3 text-xs">
+              <div>
+                <label className="block font-bold mb-1">نوع التنبيه</label>
+                <select
+                  value={alertType}
+                  onChange={(e) => setAlertType(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-bold"
+                >
+                  <option value="offer">عرض وتخفيض خاص للورش</option>
+                  <option value="new_stock">وصول خامات وألوان جديدة</option>
+                  <option value="price_drop">تحديث وتخفيض أسعار الجملة</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="sm:col-span-2">
+                  <label className="block font-bold mb-1">عنوان الإعلان *</label>
+                  <input
+                    type="text"
+                    required
+                    value={alertTitle}
+                    onChange={(e) => setAlertTitle(e.target.value)}
+                    placeholder="مثال: وصول شحنة قطن مكرمية ألوان البوهو الجديدة"
+                    className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold mb-1">شارة العرض</label>
+                  <input
+                    type="text"
+                    value={alertBadge}
+                    onChange={(e) => setAlertBadge(e.target.value)}
+                    placeholder="خصم 15%"
+                    className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-bold"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold mb-1">تفاصيل العرض للورش *</label>
+                <textarea
+                  rows={3}
+                  required
+                  value={alertMessage}
+                  onChange={(e) => setAlertMessage(e.target.value)}
+                  placeholder="اكتب التفاصيل والكميات وشرائح الأسعار الخاصة بالورش..."
+                  className="w-full p-3 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-bold"
+                />
+              </div>
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAlertModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] font-bold cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  disabled={alertSending}
+                  className="px-5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-black cursor-pointer disabled:opacity-50"
+                >
+                  {alertSending ? 'جاري النشر...' : 'نشر التنبيه للورش'}
                 </button>
               </div>
             </form>

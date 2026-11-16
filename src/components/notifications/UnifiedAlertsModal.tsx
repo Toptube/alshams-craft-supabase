@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { NotificationItem, UserProfile, isUserAdmin } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
+import { fetchSupplierOfferAlerts } from '../../db/supplierService';
+import { SupplierOfferAlert } from '../../types/supplier';
 import {
   playNotificationChimeSound,
   playUrgentNotificationSound,
@@ -29,6 +31,8 @@ import {
   Package,
   ExternalLink,
   ShieldCheck,
+  Store,
+  Megaphone,
 } from 'lucide-react';
 
 export interface UnifiedAlertsModalProps {
@@ -90,9 +94,11 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
   const [replyText, setReplyText] = useState('');
   const [submittingReply, setSubmittingReply] = useState(false);
   const [actionNotice, setActionNotice] = useState('');
+  const [supplierOfferAlerts, setSupplierOfferAlerts] = useState<SupplierOfferAlert[]>([]);
   const markedReadIdsRef = useRef<Set<string>>(new Set());
   const markedAdminInboxReadRef = useRef<boolean>(false);
 
+  const isSupplierAccount = profile?.accountRole === 'supplier';
   const effectiveWorkshopId = profile?.tenantId || profile?.workshopId || profile?.id || '';
   const effectiveEmail = profile?.email || '';
 
@@ -176,6 +182,12 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
       fetchAnnouncements();
     } else {
       fetchAnnouncements();
+    }
+
+    if (!isSupplierAccount) {
+      fetchSupplierOfferAlerts()
+        .then((list) => setSupplierOfferAlerts((list || []).slice(0, 3)))
+        .catch(() => {});
     }
 
     if (initialTab === 'messages') {
@@ -750,6 +762,60 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
                 </button>
               )}
             </div>
+
+            {!isSupplierAccount && supplierOfferAlerts.length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-[#FFF7ED] dark:bg-[#132040] border border-[#EA580C]/45 dark:border-[#FBBF24]/40 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
+                    <Megaphone className="w-4 h-4 shrink-0" />
+                    <span>أحدث تنبيهات وعروض الموردين ({supplierOfferAlerts.length})</span>
+                  </div>
+                  {onNavigateToView && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playButtonClickSound();
+                        onNavigateToView('suppliers_market');
+                        onClose();
+                      }}
+                      className="text-[11px] font-black text-[#0C1427] dark:text-[#F7F3EA] hover:text-[#EA580C] dark:hover:text-[#FBBF24] inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Store className="w-3.5 h-3.5" />
+                      <span>فتح سوق الموردين</span>
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {supplierOfferAlerts.map((offer) => (
+                    <button
+                      key={offer.id}
+                      type="button"
+                      onClick={() => {
+                        playButtonClickSound();
+                        onNavigateToView?.('suppliers_market');
+                        onClose();
+                      }}
+                      className="w-full text-right p-2.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] transition flex items-start justify-between gap-3 cursor-pointer"
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
+                          {offer.title}
+                        </p>
+                        <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1] line-clamp-1">
+                          {offer.supplierBrand || 'مورد معتمد'}
+                          {offer.message ? ` · ${offer.message}` : ''}
+                        </p>
+                      </div>
+                      {offer.discountBadge && (
+                        <span className="font-mono tabular-nums text-xs font-black text-emerald-700 dark:text-emerald-300 shrink-0">
+                          {offer.discountBadge}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Notifications List */}
             {filteredNotifications.length === 0 ? (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GUIDE_SECTIONS, GLOSSARY } from '../../guide/guide';
 import { CHANGELOG_RELEASES } from '../../guide/changelog';
 import {
@@ -10,7 +10,16 @@ import {
   History,
   CheckCircle2,
   Lightbulb,
-  ExternalLink,
+  Wallet,
+  Boxes,
+  Calculator,
+  FileText,
+  Hammer,
+  Users,
+  TrendingUp,
+  User,
+  Store,
+  Scale,
 } from 'lucide-react';
 
 interface UserGuideModalProps {
@@ -19,18 +28,53 @@ interface UserGuideModalProps {
   initialSectionId?: string;
 }
 
+const getSectionIcon = (iconName: string) => {
+  switch (iconName) {
+    case 'Sparkles':
+      return Sparkles;
+    case 'Wallet':
+      return Wallet;
+    case 'Boxes':
+      return Boxes;
+    case 'Calculator':
+      return Calculator;
+    case 'FileText':
+      return FileText;
+    case 'Hammer':
+      return Hammer;
+    case 'Users':
+      return Users;
+    case 'TrendingUp':
+      return TrendingUp;
+    case 'User':
+      return User;
+    case 'Store':
+      return Store;
+    case 'Scale':
+      return Scale;
+    default:
+      return HelpCircle;
+  }
+};
+
 export const UserGuideModal: React.FC<UserGuideModalProps> = ({
   isOpen,
   onClose,
   initialSectionId,
 }) => {
-  if (!isOpen) return null;
-
   const [activeTab, setActiveTab] = useState<'guide' | 'glossary' | 'changelog'>('guide');
   const [selectedSectionId, setSelectedSectionId] = useState<string>(
     initialSectionId || GUIDE_SECTIONS[0].id
   );
   const [glossarySearch, setGlossarySearch] = useState('');
+
+  useEffect(() => {
+    if (isOpen && initialSectionId) {
+      setSelectedSectionId(initialSectionId);
+    }
+  }, [isOpen, initialSectionId]);
+
+  if (!isOpen) return null;
 
   const currentSection =
     GUIDE_SECTIONS.find((s) => s.id === selectedSectionId) || GUIDE_SECTIONS[0];
@@ -111,22 +155,26 @@ export const UserGuideModal: React.FC<UserGuideModalProps> = ({
               {/* Sections Sidebar */}
               <div className="md:col-span-4 space-y-1.5 border-b md:border-b-0 md:border-l border-stone-200 dark:border-stone-800 pb-4 md:pb-0 md:pl-4">
                 <span className="text-[11px] font-bold text-stone-400 block px-2 mb-2">
-                  فهرس موضوعات الدليل:
+                  فهرس موضوعات الدليل ({GUIDE_SECTIONS.length}):
                 </span>
-                {GUIDE_SECTIONS.map((sec) => (
-                  <button
-                    key={sec.id}
-                    type="button"
-                    onClick={() => setSelectedSectionId(sec.id)}
-                    className={`w-full p-2.5 rounded-2xl text-right text-xs transition cursor-pointer flex items-center justify-between ${
-                      selectedSectionId === sec.id
-                        ? 'bg-amber-600 text-white font-extrabold shadow-xs'
-                        : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
-                    }`}
-                  >
-                    <span>{sec.title}</span>
-                  </button>
-                ))}
+                {GUIDE_SECTIONS.map((sec) => {
+                  const SecIcon = getSectionIcon(sec.icon);
+                  return (
+                    <button
+                      key={sec.id}
+                      type="button"
+                      onClick={() => setSelectedSectionId(sec.id)}
+                      className={`w-full p-2.5 rounded-2xl text-right text-xs transition cursor-pointer flex items-center gap-2 ${
+                        selectedSectionId === sec.id
+                          ? 'bg-amber-600 text-white font-extrabold shadow-xs'
+                          : 'text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+                      }`}
+                    >
+                      <SecIcon className="w-3.5 h-3.5 shrink-0 opacity-85" />
+                      <span className="truncate">{sec.title}</span>
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Section Details */}

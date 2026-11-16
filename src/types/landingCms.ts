@@ -45,6 +45,7 @@ export interface LandingFaqItem {
 }
 
 export interface LandingCmsConfig {
+  cmsRevision?: number;
   brandAssets: {
     platformLogo: BrandAssetPair;
     brandIcon: BrandAssetPair;
@@ -210,6 +211,7 @@ export const DEFAULT_BRAND_ASSETS = {
 };
 
 export const DEFAULT_LANDING_CMS_CONFIG: LandingCmsConfig = {
+  cmsRevision: 4,
   brandAssets: {
     platformLogo: { ...DEFAULT_BRAND_ASSETS.platformLogo },
     brandIcon: { ...DEFAULT_BRAND_ASSETS.brandIcon },
@@ -223,21 +225,22 @@ export const DEFAULT_LANDING_CMS_CONFIG: LandingCmsConfig = {
       { id: 'safe-accounts', label: 'عقلك الحرفي', href: '#safe-accounts' },
       { id: 'ai-partners', label: 'صقر وشموسة AI', href: '#ai-partners' },
       { id: 'craft-lifecycle', label: 'رحلة المشغولة', href: '#craft-lifecycle' },
-      { id: 'tool-maintenance', label: 'صيانة العِدد', href: '#tool-maintenance' },
+      { id: 'suppliers-promo', label: 'سوق الموردين B2B', href: '#suppliers-promo' },
+      { id: 'family-profile', label: 'العيلة والصفحة الشخصية', href: '#family-profile' },
       { id: 'reviews', label: 'حكايات الورش', href: '#reviews' },
     ],
   },
   hero: {
     falconBadgeText: 'صقر الشمساوية AI 🦅',
     headlineLine1: 'عشان إيدك بتتلف في حرير..',
-    headlineHighlight: 'ورشتك تستاهل نظام يديرها بضمير!',
+    headlineHighlight: 'ورشتك تستاهل مدير شاطر يحسبها بالضمير!',
     description:
-      'من أول فتلة خيط وتسعير الخامات بالمليم وحساب الهدر وساعات التعب، لحد أرباحك الصافية ومتجرك الخاص وسوق الشمساوية وموردي الخامات.. بدون أي كلاكيع حسابية ولا دفاتر بتضيع.',
+      'من أول فتلة خيط وتسعير الخامات بالمليم وحساب الهالك وساعات التعب، لحد أرباحك الصافية، متجرك الخاص، سوق الشمساوية، سوق الموردين بشرائح الكميات، طبلية العيلة، وصفحتك الشخصية ومعرض أعمالك.. كل ده في مكان واحد، لا دفاتر مبلولة شاي ولا حسابات تاهت في الدرج.',
     primaryCtaText: 'سجل الآن وافتح حسابك مجاناً 🌟',
-    secondaryCtaText: 'شوف إزاي بتشتغل',
-    trustBadge1: 'لا يتطلب خبرة محاسبية',
-    trustBadge2: 'حماية وأمان كامل للبيانات',
-    trustBadge3: 'شغال على الموبايل والكمبيوتر',
+    secondaryCtaText: 'شوف المنظومة بتشتغل إزاي',
+    trustBadge1: 'بدون تعقيد محاسبي أو فذلكة',
+    trustBadge2: 'حماية وأمان كامل لأسرار ورشتك',
+    trustBadge3: 'شغال معاك على الموبايل والكمبيوتر',
   },
   sections: {
     safeAccounts: {
@@ -391,14 +394,14 @@ export const DEFAULT_LANDING_CMS_CONFIG: LandingCmsConfig = {
     suppliersPromo: {
       visible: true,
       badge: 'بوابة موردي وتجار ومصانع الخامات (B2B & B2C)',
-      titleLine1: 'بتبيع خامات الهاند ميد؟',
-      titleHighlight: 'أهلاً بيك في قلب أكبر شبكة ورش وفنانين في مصر والوطن العربي!',
+      titleLine1: 'بتبيع خامات الهاند ميد بالجملة أو القطاعي؟',
+      titleHighlight: 'الورش والفنانين مستنيينك على الباب.. بس بتسعير يشرّف!',
       description:
-        'سواء كنت مصنع خيوط، تاجر جملة خرز وإكسسوارات، مستورد ريزن، أو محل أخشاب ومستلزمات.. افتح متجرك الخاص للموردين، عرّف أسعار القطاعي والجملة وأوزان التعبئة، واستقبل طلبيات الورش المباشرة والطلبات الأونلاين من مكان واحد منظم.',
+        'سواء بتلف بكر مكرمية، بتورد خرز وكريستال، بتستورد ريزن، أو بتفصّل قواعد خشب.. افتح حسابك المستقل كمورد في دقايق! حط شرائح أسعار الكميات (كل ما الورشة تطلب أكتر السعر ينزل أوتوماتيك)، ابعت تنبيهات العروض والبضاعة الجديدة للورش، وخليهم يقارنوا أسعارك ويقيّموا شغلك على نضافة.',
       bullets: [
-        'حساب مستقل تماماً للموردين: كتالوج خامات، أسعار قطاعي وجملة مع حد أدنى، ومتابعة المخزون بدقة.',
-        'متجر إلكتروني خاص باسم علامتك ورابط مشاركة وQR لعملائك من الورش والأفراد.',
-        'إدارة موحدة لأوردرات متجرك وطلبات سوق الموردين وطلباتك الخارجية مع الخزينة والمصروفات.',
+        'كتالوج خامات بضغط تلقائي حتى 3 صور لكل صنف + محرر شرائح الكميات المتدرجة (تلقائي في الفواتير والسوق).',
+        'جدول مقارنة أسعار الموردين + تنبيهات فورية بالعروض والوصول الجديد + تقييمات حقيقية من الورش بالنجوم.',
+        'متجر مستقل برابط وQR + مشاركة كاملة في طبلية عيلة الشمساوية وصفحة شخصية احترافية بأبرز 6 أعمال.',
       ],
       ctaText: 'سجل كمورد خامات الآن',
     },
@@ -445,72 +448,78 @@ export const DEFAULT_LANDING_CMS_CONFIG: LandingCmsConfig = {
     },
     whatsNew: {
       visible: true,
-      badge: 'تطويرات مستمرة ومباشرة',
-      title: 'جديد عيلة الشمساوية.. إيه اللي طورناه لورشتك؟',
-      subtitle: 'كل أسبوع بنضيف مزايا عملية تخدم سير شغلك وتريح بالك المالي والإنتاجي.',
+      badge: 'تطويرات عيلة الشمساوية • V 4.0',
+      title: 'إيه اللي جد في الورشة؟ دلوقتي بقى بيت كبير بجد!',
+      subtitle:
+        'جمعنا الحرفي والمورد والعميل في دايرة واحدة نضيفة ومظبوطة على الشعرة.. ولسه اللي جاي أحلى.',
       items: [
         {
           id: 'wn1',
-          tag: 'منصتي والمتجر',
-          version: 'V 3.0',
-          title: 'منصتي الكاملة + أوردراتي + تعدد المقاسات والعملات',
+          tag: 'سوق الموردين B2B',
+          version: 'V 4.0 Live',
+          title: 'شرائح كميات متدرجة، مقارنة أسعار، تقييمات، وتنبيهات عروض',
           description:
-            'تحكم كامل بمتجرك (ثيمات خفيفة، مقاسات متعددة بأسعار مختلفة، أكواد خصم، ربط لحظي للعملات، وإدارة أوردرات متجري وسوق الشمساوية والطلبات اليدوية من مكان واحد).',
+            'الورشة دلوقتي تقدر تقارن أسعار الخامات بين كل الموردين في جدول واحد، تاخد خصم الكمية أوتوماتيك، تشوف تنبيهات العروض والوصول الجديد، وتقيّم المورد بعد التجربة.',
         },
         {
           id: 'wn2',
-          tag: 'سوق الموردين',
-          version: 'قريباً B2B',
-          title: 'منظومة موردي الخامات وسوق موردين الشمساوية',
+          tag: 'العيلة والصفحة الشخصية',
+          version: 'V 4.0 Live',
+          title: 'طبلية عيلة الشمساوية + صفحتك الشخصية (6 أعمال مميزة)',
           description:
-            'فتح حسابات مستقلة لموردي وتجار ومصانع الخامات بأسعار الجملة والقطاعي، مع التسميع التلقائي المباشر في مخزن وخزينة ورشتك.',
+            'فنان ومورد قاعدين على طبلية واحدة في المنتدى والشات! ودوسة على صورة أي عضو تفتح لك صفحته الشخصية بكامل أعماله المميزة (لحد 6 صور) مع تحكم كامل في الخصوصية ومعاينة كل فئة.',
         },
         {
           id: 'wn3',
-          tag: 'ذكاء اصطناعي',
-          version: 'AI Live',
-          title: 'صقر وشموسة معاك في كل شاشة بالمنظومة',
+          tag: 'صقر وشموسة AI',
+          version: 'AI 4.0',
+          title: 'شموسة وصقر هضموا المنظومة الجديدة كلها أول بأول',
           description:
-            'إجابات ذكية مبنية على أرصدة خاماتك وأوردراتك الفعلية، مع إمكانية البحث الصوتي والمرئي وتصدير التصاميم لحاسبة التكلفة فوراً.',
+            'اسأل شموسة عن أي شاشة أو زر من الحاسبة لحد شرائح الموردين وصفحتك الشخصية، وصقر يحلل صور المشغولات ويحوّلها لحسبة خامات وتكلفة في غمضة عين.',
         },
       ],
     },
     faq: {
       visible: true,
-      badge: 'إجابات واضحة ومباشرة',
-      title: 'الأسئلة الشائعة من صناع الهاند ميد',
-      subtitle: 'كل اللي يدور في بالك عن المنظومة وحسابات الورشة وحماية أسرارك المهنية.',
+      badge: 'إجابات صافية ومن الآخر',
+      title: 'الأسئلة الشائعة من صناع وموردي الهاند ميد',
+      subtitle: 'كل اللي يدور في بالك عن المنظومة، الموردين، الصفحة الشخصية، وأمان أسرار شغلك.',
       items: [
         {
           id: 'fq1',
           q: 'هل المنظومة صعبة أو محتاجة خبرة في الكمبيوتر والمحاسبة؟',
-          a: 'أبداً! المنظومة مصممة بالكامل بلغة عربية مصرية بسيطة وسلسة، وخالية تماماً من المصطلحات المعقدة. لو بتعرف تستخدم واتساب هتتعلم تدير ورشتك وتسجل فواتيرك وتصرف خاماتك في أقل من 5 دقائق.',
+          a: 'خالص والله! المنظومة بتتكلم مصري بسيط على أصوله، لا فذلكة ولا مصطلحات تكشّش. لو بتعرف تبعت رسالة على واتساب هتدير ورشتك أو متجر خاماتك في 5 دقايق.',
         },
         {
           id: 'fq2',
           q: 'إزاي المنظومة بتحسب تكلفة الهدر وساعات التعب بدقة؟',
-          a: 'حاسبة التكاليف الذكية بتطلب منك أطوال الخامات الأساسية ووقت العمل، وبتحسب تلقائياً نسبة الهدر الطبيعي (شراشيب، قصائص)، ونسبة استهلاك العِدد والكهرباء، وتضيف هامش ربح الورشة المعتمد لتصل لسعر بيع عادل ومربح.',
+          a: 'حاسبة التكاليف بتاخد أطوال الخيوط أو وزن الخامة وساعات الشغل، وتحسب تلقائياً الهدر الطبيعي واستهلاك العدد، وتفصل أجر إيدك الصافي عن هامش الربح عشان تعبك ما يروحش هدر.',
         },
         {
           id: 'fq3',
           q: 'هل تفاصيل خاماتي وأسعار مشغولاتي وتصاميمي في أمان وخصوصية؟',
-          a: 'بكل تأكيد! بيانات كل ورشة معزولة ومحمية بالكامل في قاعدة بيانات خاصة مشفرة. لا يمكن لأي ورشة أو صانع آخر الاطلاع على أسرار تركيباتك أو أسعار مورديك أو تصميماتك الخاصة.',
+          a: 'طبعاً 100%! كل ورشة وكل مورد بياناته محبوسة في أوضة متقفلة لوحده في قاعدة البيانات، وصفحتك الشخصية كمان بتحدد فيها بنفسك إيه اللي يظهر للفنانين، إيه للموردين، وإيه للعملاء.',
         },
         {
           id: 'fq4',
           q: 'إيه الفرق بين دور صقر الشمساوية ودور شموسة؟',
-          a: 'صقر 🦅 هو مستشارك التقني والحسابي للأطوال والغرز وحسابات التكلفة والاستشارات الفنية. أما شموسة ☀️ فهي مديرة أعمال المنظومة: تفكرك بمواعيد تسليم الزباين، تنبهك بنواقص الخامات، وتطابق لك السيولة النقدية في الخزائن والعهد أولاً بأول.',
+          a: 'صقر 🦅 هو الأسْطى والمهندس: يحلل صور المشغولات، يحسب الأطوال والغرز والهالك ويصدرها للحاسبة. أما شموسة ☀️ فهي مديرة الأعمال الشاطرة: تراجع معاك الخزينة والنواقص والأوردرات وتدلك على كل زر وشاشة في المنظومة.',
         },
         {
           id: 'fq5',
-          q: 'هل أقدر أستخدم المنظومة من الموبايل في قلب الورشة؟',
-          a: 'نعم 100%! المنظومة متوافقة تماماً وتعمل بسلاسة فائقة على شاشات الموبايل والتابلت والكمبيوتر، وتقدر تثبتها كتطبيق مباشرة على شاشة موبايلك.',
+          q: 'إزاي الموردين بيشتغلوا جوه المنظومة ويفيدوا الورش؟',
+          a: 'المورد بيدخل ببوابة مستقلة يضيف فيها خاماته (مع ضغط ذكي لـ 3 صور)، ويحدد شرائح خصم للكميات وينشر تنبيهات عروض، والورشة تقارن الأسعار وتطلب أونلاين فتسمّع الفاتورة في مخزنها وخزنتها فوراً وكمان تقيّم التوريد.',
+        },
+        {
+          id: 'fq6',
+          q: 'يعني إيه "صفحتي الشخصية" ومين يقدر يشوفها؟',
+          a: 'دي واجهتك الاحترافية جوه المنظومة: فيها نبذتك وقصتك، أبرز 6 أعمال ليك، وبيانات تواصلك. أي حد في طبلية العيلة أو الشات يدوس على صورتك يشوفها حسب مصفوفة الظهور اللي إنت مختارها، وكمان تقدر تعاينها من تحت كفنان أو مورد أو عميل!',
         },
       ],
     },
     finalCta: {
       visible: true,
-      title: 'مستني إيه؟ افتح ورشتك أو متجرك في عيلة الشمساوية اليوم',
+      title: 'مستني إيه؟ لمّ العدة وتعالى ورشتك أو متجرك مستنيك في عيلة الشمساوية!',
       subtitle:
         'انضم لمئات الحرفيين والصناع والموردين في مصر والوطن العربي.. نظم حساباتك، احسب أرباحك، وسيب صقر وشموسة يشيلوا عنك عبء الإدارة.',
       ctaText: 'سجل الآن وابدأ في ثواني مجاناً 🌟',
@@ -536,7 +545,9 @@ const LANDING_CMS_STORAGE_KEY = 'alshams_landing_cms_config';
 
 export function normalizeLandingCmsConfig(raw?: Partial<LandingCmsConfig> | null): LandingCmsConfig {
   const r = (raw || {}) as Partial<LandingCmsConfig>;
+  const isLegacyRevision = !r.cmsRevision || r.cmsRevision < 4;
   return {
+    cmsRevision: 4,
     brandAssets: {
       platformLogo: {
         light: r.brandAssets?.platformLogo?.light || DEFAULT_BRAND_ASSETS.platformLogo.light,
@@ -559,7 +570,7 @@ export function normalizeLandingCmsConfig(raw?: Partial<LandingCmsConfig> | null
       ...DEFAULT_LANDING_CMS_CONFIG.header,
       ...(r.header || {}),
       navLinks:
-        Array.isArray(r.header?.navLinks) && r.header!.navLinks.length > 0
+        Array.isArray(r.header?.navLinks) && r.header!.navLinks.length > 0 && !isLegacyRevision
           ? r.header!.navLinks
           : DEFAULT_LANDING_CMS_CONFIG.header.navLinks,
     },
@@ -620,14 +631,19 @@ export function normalizeLandingCmsConfig(raw?: Partial<LandingCmsConfig> | null
             ? r.sections!.toolMaintenance!.bullets
             : DEFAULT_LANDING_CMS_CONFIG.sections.toolMaintenance.bullets,
       },
-      suppliersPromo: {
-        ...DEFAULT_LANDING_CMS_CONFIG.sections.suppliersPromo,
-        ...(r.sections?.suppliersPromo || {}),
-        bullets:
-          Array.isArray(r.sections?.suppliersPromo?.bullets) && r.sections!.suppliersPromo!.bullets.length > 0
-            ? r.sections!.suppliersPromo!.bullets
-            : DEFAULT_LANDING_CMS_CONFIG.sections.suppliersPromo.bullets,
-      },
+      suppliersPromo: isLegacyRevision
+        ? {
+            ...DEFAULT_LANDING_CMS_CONFIG.sections.suppliersPromo,
+            visible: r.sections?.suppliersPromo?.visible ?? true,
+          }
+        : {
+            ...DEFAULT_LANDING_CMS_CONFIG.sections.suppliersPromo,
+            ...(r.sections?.suppliersPromo || {}),
+            bullets:
+              Array.isArray(r.sections?.suppliersPromo?.bullets) && r.sections!.suppliersPromo!.bullets.length > 0
+                ? r.sections!.suppliersPromo!.bullets
+                : DEFAULT_LANDING_CMS_CONFIG.sections.suppliersPromo.bullets,
+          },
       reviews: {
         ...DEFAULT_LANDING_CMS_CONFIG.sections.reviews,
         ...(r.sections?.reviews || {}),
@@ -636,22 +652,32 @@ export function normalizeLandingCmsConfig(raw?: Partial<LandingCmsConfig> | null
             ? r.sections!.reviews!.items
             : DEFAULT_LANDING_CMS_CONFIG.sections.reviews.items,
       },
-      whatsNew: {
-        ...DEFAULT_LANDING_CMS_CONFIG.sections.whatsNew,
-        ...(r.sections?.whatsNew || {}),
-        items:
-          Array.isArray(r.sections?.whatsNew?.items) && r.sections!.whatsNew!.items.length > 0
-            ? r.sections!.whatsNew!.items
-            : DEFAULT_LANDING_CMS_CONFIG.sections.whatsNew.items,
-      },
-      faq: {
-        ...DEFAULT_LANDING_CMS_CONFIG.sections.faq,
-        ...(r.sections?.faq || {}),
-        items:
-          Array.isArray(r.sections?.faq?.items) && r.sections!.faq!.items.length > 0
-            ? r.sections!.faq!.items
-            : DEFAULT_LANDING_CMS_CONFIG.sections.faq.items,
-      },
+      whatsNew: isLegacyRevision
+        ? {
+            ...DEFAULT_LANDING_CMS_CONFIG.sections.whatsNew,
+            visible: r.sections?.whatsNew?.visible ?? true,
+          }
+        : {
+            ...DEFAULT_LANDING_CMS_CONFIG.sections.whatsNew,
+            ...(r.sections?.whatsNew || {}),
+            items:
+              Array.isArray(r.sections?.whatsNew?.items) && r.sections!.whatsNew!.items.length > 0
+                ? r.sections!.whatsNew!.items
+                : DEFAULT_LANDING_CMS_CONFIG.sections.whatsNew.items,
+          },
+      faq: isLegacyRevision
+        ? {
+            ...DEFAULT_LANDING_CMS_CONFIG.sections.faq,
+            visible: r.sections?.faq?.visible ?? true,
+          }
+        : {
+            ...DEFAULT_LANDING_CMS_CONFIG.sections.faq,
+            ...(r.sections?.faq || {}),
+            items:
+              Array.isArray(r.sections?.faq?.items) && r.sections!.faq!.items.length > 0
+                ? r.sections!.faq!.items
+                : DEFAULT_LANDING_CMS_CONFIG.sections.faq.items,
+          },
       finalCta: {
         ...DEFAULT_LANDING_CMS_CONFIG.sections.finalCta,
         ...(r.sections?.finalCta || {}),

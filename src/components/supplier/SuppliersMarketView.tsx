@@ -4,23 +4,19 @@ import {
   Boxes,
   CheckCircle2,
   ExternalLink,
-  Factory,
-  Filter,
-  Globe,
   Layers,
-  MapPin,
-  Package,
-  Phone,
+  Megaphone,
+  MessageSquare,
   Plus,
   Minus,
   RefreshCw,
+  Scale,
   Search,
   ShoppingBag,
   ShoppingCart,
-  Sparkles,
+  Star,
   Store,
   Table2,
-  Tag,
   Trash2,
   Truck,
   X,
@@ -29,12 +25,18 @@ import { UserProfile } from '../../types';
 import {
   MarketEntryMapped,
   fetchSuppliersMarket,
+  fetchSupplierOfferAlerts,
+  fetchSupplierReviews,
+  submitSupplierReview,
   placeB2BSupplyOrder,
 } from '../../db/supplierService';
 import {
   SUPPLIER_SUPPLY_SECTIONS,
   SupplierCatalogItem,
+  SupplierOfferAlert,
   SupplierProfile,
+  SupplierReview,
+  resolveSupplierItemPricing,
 } from '../../types/supplier';
 import { playSuccessSound, playButtonClickSound, playErrorSound } from '../../lib/sounds';
 
@@ -60,20 +62,7 @@ const BUSINESS_TYPE_AR: Record<string, string> = {
 };
 
 function computeEffectiveLinePrice(item: SupplierCatalogItem, qty: number) {
-  const wholesaleReady = item.wholesalePrice > 0 && qty >= Math.max(1, item.minWholesaleQty || 1);
-  let base = wholesaleReady ? item.wholesalePrice : item.retailPrice;
-  if (item.discountType === 'percent' && item.discountValue > 0 && item.discountValue <= 100) {
-    base = Math.max(0, Number((base * (1 - item.discountValue / 100)).toFixed(2)));
-  } else if (item.discountType === 'fixed' && item.discountValue > 0) {
-    base = Math.max(0, Number((base - item.discountValue).toFixed(2)));
-  }
-  const savingsPerUnit = wholesaleReady && item.retailPrice > base ? Number((item.retailPrice - base).toFixed(2)) : 0;
-  return {
-    unitPrice: base,
-    isWholesale: wholesaleReady,
-    savingsPerUnit,
-    lineTotal: Number((base * qty).toFixed(2)),
-  };
+  return resolveSupplierItemPricing(item, qty);
 }
 
 export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
@@ -84,15 +73,23 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
   onNavigateToCentralMarket,
 }) => {
   const [entries, setEntries] = useState<MarketEntryMapped[]>([]);
+  const [offerAlerts, setOfferAlerts] = useState<SupplierOfferAlert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'suppliers' | 'materials'>('suppliers');
+  const [viewMode, setViewMode] = useState<'suppliers' | 'materials' | 'compare'>('suppliers');
+  const [compareSortBy, setCompareSortBy] = useState<'retail_asc' | 'wholesale_asc' | 'rating_desc'>('wholesale_asc');
   const [searchQuery, setSearchQuery] = useState('');
   const [sectionFilter, setSectionFilter] = useState<string>('all');
   const [governorateFilter, setGovernorateFilter] = useState<string>('all');
   const [wholesaleOnly, setWholesaleOnly] = useState<boolean>(false);
 
-  // Price Sheet Modal
+  // Price Sheet & Reviews Modal
   const [priceSheetEntry, setPriceSheetEntry] = useState<MarketEntryMapped | null>(null);
+  const [modalTab, setModalTab] = useState<'prices' | 'reviews'>('prices');
+  const [modalReviews, setModalReviews] = useState<SupplierReview[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
   // B2B Cart State
   const [cart, setCart] = useState<B2BCartLine[]>([]);
@@ -115,8 +112,9 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
   const loadMarket = async () => {
     setLoading(true);
     try {
-      const list = await fetchSuppliersMarket();
+      const [list, alerts] = await Promise.all([fetchSuppliersMarket(), fetchSupplierOfferAlerts()]);
       setEntries(list);
+      setOfferAlerts(alerts);
     } finally {
       setLoading(false);
     }
@@ -125,6 +123,47 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
   useEffect(() => {
     loadMarket();
   }, []);
+
+  const openSupplierModal = async (entry: MarketEntryMapped, initialTab: 'prices' | 'reviews' = 'prices') => {
+    setPriceSheetEntry(entry);
+    setModalTab(initialTab);
+    setReviewsLoading(true);
+    const revRes = await fetchSupplierReviews(entry.supplier.id);
+    setModalReviews(revRes.reviews);
+    setReviewsLoading(false);
+  };
+
+  const handleSubmitSupplierReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!priceSheetEntry || !hasAuthSession || !reviewComment.trim()) return;
+    setReviewSubmitting(true);
+    const res = await submitSupplierReview(priceSheetEntry.supplier.id, {
+      rating: reviewRating,
+      comment: reviewComment.trim(),
+      workshopId: profile?.workshopId || profile?.tenantId || profile?.id || '',
+      reviewerName: profile?.artistName || 'فنان بالشمساوية',
+      reviewerBrand: profile?.brandName || 'ورشة بالشمساوية',
+      reviewerRole: (profile as any)?.accountRole || 'artisan',
+    });
+    setReviewSubmitting(false);
+    if (res.success && res.review) {
+      playSuccessSound();
+      setModalReviews((prev) => [res.review!, ...prev]);
+      setReviewComment('');
+      setReviewRating(5);
+      setEntries((prev) =>
+        prev.map((ent) =>
+          ent.supplier.id === priceSheetEntry.supplier.id
+            ? { ...ent, ratingAvg: res.ratingAvg ?? ent.ratingAvg, reviewsCount: res.reviewsCount ?? ent.reviewsCount }
+            : ent
+        )
+      );
+      showToast('شكراً لك! تم نشر تقييم الورشة بنجاح.');
+    } else {
+      playErrorSound();
+      showToast(res.error || 'تعذر نشر التقييم', true);
+    }
+  };
 
   const governorates = useMemo(() => {
     const s = new Set<string>();
@@ -160,7 +199,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
 
   const flatMaterials = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const rows: { item: SupplierCatalogItem; supplier: SupplierProfile }[] = [];
+    const rows: { item: SupplierCatalogItem; supplier: SupplierProfile; ratingAvg: number; reviewsCount: number }[] = [];
     filteredEntries.forEach((entry) => {
       entry.items.forEach((item) => {
         if (sectionFilter !== 'all' && item.sectionId !== sectionFilter) return;
@@ -173,11 +212,40 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
         ) {
           return;
         }
-        rows.push({ item, supplier: entry.supplier });
+        rows.push({
+          item,
+          supplier: entry.supplier,
+          ratingAvg: entry.ratingAvg ?? entry.supplier.ratingStars ?? 5,
+          reviewsCount: entry.reviewsCount ?? entry.supplier.reviewsCount ?? 0,
+        });
       });
     });
     return rows;
   }, [filteredEntries, sectionFilter, wholesaleOnly, searchQuery]);
+
+  const comparedMaterials = useMemo(() => {
+    return [...flatMaterials].sort((a, b) => {
+      if (compareSortBy === 'rating_desc') {
+        return b.ratingAvg - a.ratingAvg;
+      }
+      if (compareSortBy === 'retail_asc') {
+        return Number(a.item.retailPrice || 999999) - Number(b.item.retailPrice || 999999);
+      }
+      const bestA =
+        a.item.tierPricing && a.item.tierPricing.length > 0
+          ? Math.min(...a.item.tierPricing.map((t) => t.unitPrice))
+          : a.item.wholesalePrice > 0
+          ? a.item.wholesalePrice
+          : a.item.retailPrice;
+      const bestB =
+        b.item.tierPricing && b.item.tierPricing.length > 0
+          ? Math.min(...b.item.tierPricing.map((t) => t.unitPrice))
+          : b.item.wholesalePrice > 0
+          ? b.item.wholesalePrice
+          : b.item.retailPrice;
+      return bestA - bestB;
+    });
+  }, [flatMaterials, compareSortBy]);
 
   const addToB2BCart = (item: SupplierCatalogItem, supplier: SupplierProfile, initialQty = 1) => {
     playButtonClickSound();
@@ -255,6 +323,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
           retailPrice: c.item.retailPrice,
           wholesalePrice: c.item.wholesalePrice,
           minWholesaleQty: c.item.minWholesaleQty,
+          tierPricing: c.item.tierPricing,
           discountType: c.item.discountType,
           discountValue: c.item.discountValue,
         })),
@@ -448,7 +517,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#D4CCBC]/70 dark:border-[#22355E]">
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setViewMode('suppliers')}
@@ -473,6 +542,18 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                 <Layers className="w-3.5 h-3.5" />
                 <span>كافة الخامات المعروضة ({flatMaterials.length})</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('compare')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black cursor-pointer flex items-center gap-1.5 ${
+                  viewMode === 'compare'
+                    ? 'bg-[#EA580C] text-white'
+                    : 'bg-amber-500/15 text-[#9A3412] dark:text-amber-200 border border-amber-500/30'
+                }`}
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>مقارنة أسعار الموردين</span>
+              </button>
             </div>
 
             {(searchQuery || sectionFilter !== 'all' || governorateFilter !== 'all' || wholesaleOnly) && (
@@ -486,6 +567,42 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
             )}
           </div>
         </section>
+
+        {/* Supplier Offer & New Stock Alerts Strip */}
+        {offerAlerts.length > 0 && (
+          <section className="rounded-2xl bg-[#0C1427] dark:bg-[#132040] text-[#F7F3EA] border border-[#22355E] p-3.5 space-y-2">
+            <div className="flex items-center justify-between gap-2 text-xs font-black text-[#FBBF24]">
+              <span className="flex items-center gap-1.5">
+                <Megaphone className="w-4 h-4 shrink-0" />
+                <span>تنبيهات العروض والوصول الجديد للخامات ({offerAlerts.length})</span>
+              </span>
+              <span className="text-[10px] font-bold text-[#CBD5E1]">اضغط على العرض لزيارة متجر المورد</span>
+            </div>
+            <div className="flex gap-2.5 overflow-x-auto pb-1">
+              {offerAlerts.slice(0, 6).map((al) => (
+                <button
+                  key={al.id}
+                  type="button"
+                  onClick={() => {
+                    const slug = al.supplierSlug || al.supplierId;
+                    if (onOpenSupplierStore) onOpenSupplierStore(slug);
+                    else window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+                  }}
+                  className="min-w-[240px] max-w-[300px] shrink-0 text-right p-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 transition cursor-pointer space-y-1"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-black text-[#FBBF24] truncate">{al.supplierBrand}</span>
+                    {al.discountBadge && (
+                      <span className="text-[10px] font-black text-emerald-300 shrink-0">{al.discountBadge}</span>
+                    )}
+                  </div>
+                  <p className="text-xs font-black text-white truncate">{al.title}</p>
+                  <p className="text-[10px] text-[#CBD5E1] line-clamp-1">{al.message}</p>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Content */}
         {loading ? (
@@ -532,6 +649,15 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                             <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] truncate">
                               {bizLabels} · {supplier.governorate || supplier.country}
                             </p>
+                            <button
+                              type="button"
+                              onClick={() => openSupplierModal(entry, 'reviews')}
+                              className="inline-flex items-center gap-1 text-[10px] font-black text-amber-700 dark:text-amber-300 mt-0.5 hover:underline cursor-pointer"
+                            >
+                              <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
+                              <span className="font-mono tabular-nums">{(entry.ratingAvg ?? 5).toFixed(1)}</span>
+                              <span>· {(entry.reviewsCount ?? 0) > 0 ? `${entry.reviewsCount} تقييم ورشة` : 'قيّم المورد'}</span>
+                            </button>
                           </div>
                         </div>
                         <span className="font-mono tabular-nums text-[11px] font-black text-[#C2410C] dark:text-[#FBBF24] shrink-0">
@@ -580,11 +706,11 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                     <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#D4CCBC]/70 dark:border-[#22355E]">
                       <button
                         type="button"
-                        onClick={() => setPriceSheetEntry(entry)}
+                        onClick={() => openSupplierModal(entry, 'prices')}
                         className="flex-1 py-2 px-3 rounded-xl bg-[#0C1427] hover:bg-[#1E293B] dark:bg-[#1A2B54] text-[#F7F3EA] text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <Table2 className="w-3.5 h-3.5 text-[#FBBF24]" />
-                        <span>قائمة الأسعار ({items.length})</span>
+                        <span>الأسعار والتقييمات</span>
                       </button>
 
                       <button
@@ -604,6 +730,98 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
               })}
             </div>
           )
+        ) : viewMode === 'compare' ? (
+          <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#D4CCBC] dark:border-[#22355E]">
+              <div>
+                <h2 className="text-sm sm:text-base font-black flex items-center gap-2">
+                  <Scale className="w-4 h-4 text-[#EA580C]" />
+                  <span>مقارنة أسعار الخامات بين الموردين ({comparedMaterials.length})</span>
+                </h2>
+                <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                  قارن سعر القطاعي، الجملة، شرائح الكميات، والمحافظة وتقييم الورش لاختيار أنسب عرض لورشتك
+                </p>
+              </div>
+              <select
+                value={compareSortBy}
+                onChange={(e) => setCompareSortBy(e.target.value as any)}
+                className="h-9 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black"
+              >
+                <option value="wholesale_asc">الأرخص بالجملة / الشرائح أولاً</option>
+                <option value="retail_asc">الأرخص بالقطاعي أولاً</option>
+                <option value="rating_desc">الأعلى تقييماً من الورش</option>
+              </select>
+            </div>
+
+            {comparedMaterials.length === 0 ? (
+              <p className="py-10 text-center text-xs font-bold text-[#475569]">
+                اكتب اسم الخامة في شريط البحث بالأعلى (مثل: مكرمية، ريزن، خرز) لمقارنة عروض الموردين.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-[#D4CCBC] dark:border-[#22355E]">
+                <table className="w-full text-right text-xs">
+                  <thead className="bg-[#EFE9DC] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E]">
+                    <tr>
+                      <th className="p-3 font-black">الخامة والمورد</th>
+                      <th className="p-3 font-black">تقييم الورش</th>
+                      <th className="p-3 font-black">سعر القطاعي</th>
+                      <th className="p-3 font-black">الجملة / الحد الأدنى</th>
+                      <th className="p-3 font-black">شرائح الكميات</th>
+                      <th className="p-3 font-black">المتوفر</th>
+                      <th className="p-3 font-black">طلب</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#D4CCBC]/60 dark:divide-[#22355E]">
+                    {comparedMaterials.map(({ item, supplier, ratingAvg, reviewsCount }, idx) => (
+                      <tr key={`${supplier.id}_${item.id}`} className="hover:bg-[#EFE9DC]/40 dark:hover:bg-[#132040]/40">
+                        <td className="p-3">
+                          <div className="font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                            {idx === 0 && <span className="text-emerald-600 dark:text-emerald-400 ml-1">★ الأفضل سعراً</span>}
+                            {item.name}
+                          </div>
+                          <div className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                            {supplier.brandName} · {supplier.governorate || supplier.country}
+                          </div>
+                        </td>
+                        <td className="p-3 font-mono tabular-nums">
+                          <span className="inline-flex items-center gap-1 font-black text-amber-700 dark:text-amber-300">
+                            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+                            {ratingAvg.toFixed(1)}
+                          </span>
+                          <span className="block text-[10px] text-[#475569]">({reviewsCount})</span>
+                        </td>
+                        <td className="p-3 font-mono tabular-nums font-bold">
+                          {item.retailPrice.toLocaleString('ar-EG')} {supplier.currencySymbol} / {item.unit}
+                        </td>
+                        <td className="p-3 font-mono tabular-nums font-black text-emerald-700 dark:text-emerald-400">
+                          {item.wholesalePrice > 0
+                            ? `${item.wholesalePrice.toLocaleString('ar-EG')} ${supplier.currencySymbol} (≥${item.minWholesaleQty})`
+                            : '—'}
+                        </td>
+                        <td className="p-3 text-[11px] font-mono tabular-nums">
+                          {item.tierPricing && item.tierPricing.length > 0
+                            ? item.tierPricing.map((t) => `≥${t.minQty}: ${t.unitPrice}`).join(' · ')
+                            : '—'}
+                        </td>
+                        <td className="p-3 font-mono tabular-nums">
+                          {item.stockQty} {item.unit}
+                        </td>
+                        <td className="p-3">
+                          <button
+                            type="button"
+                            onClick={() => addToB2BCart(item, supplier, item.wholesalePrice > 0 ? item.minWholesaleQty : 1)}
+                            className="px-3 py-1.5 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black cursor-pointer whitespace-nowrap"
+                          >
+                            + للسلة
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         ) : flatMaterials.length === 0 ? (
           <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-12 text-center text-xs font-bold text-[#475569]">
             لا توجد خامات مطابقة لخيارات التصفية الحالية.
@@ -686,7 +904,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
         )}
       </main>
 
-      {/* Supplier Full Price Sheet Modal */}
+      {/* Supplier Full Price Sheet & Workshop Reviews Modal */}
       {priceSheetEntry && (
         <div
           className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
@@ -696,74 +914,182 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
           }}
         >
           <div className="w-full max-w-4xl max-h-[88vh] rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-3">
+            <div className="p-4 border-b border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-black">
-                  جدول أسعار وتخصصات: {priceSheetEntry.supplier.brandName}
+                  {priceSheetEntry.supplier.brandName}
                 </h2>
                 <p className="text-xs text-[#475569] dark:text-[#94A3B8]">
                   {priceSheetEntry.supplier.businessTypes.map((b) => BUSINESS_TYPE_AR[b] || b).join(' · ')} ·{' '}
                   {priceSheetEntry.supplier.governorate || priceSheetEntry.supplier.country}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setPriceSheetEntry(null)}
-                className="w-9 h-9 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalTab('prices')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer ${
+                    modalTab === 'prices'
+                      ? 'bg-[#0C1427] text-white dark:bg-[#EA580C]'
+                      : 'bg-[#EFE9DC] dark:bg-[#132040]'
+                  }`}
+                >
+                  جدول الأسعار ({priceSheetEntry.items.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalTab('reviews')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer inline-flex items-center gap-1 ${
+                    modalTab === 'reviews'
+                      ? 'bg-[#0C1427] text-white dark:bg-[#EA580C]'
+                      : 'bg-[#EFE9DC] dark:bg-[#132040]'
+                  }`}
+                >
+                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+                  <span>تقييمات الورش ({modalReviews.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPriceSheetEntry(null)}
+                  className="w-9 h-9 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {priceSheetEntry.items.length === 0 ? (
-                <p className="text-center py-8 text-xs text-[#475569]">
-                  لم يدرج هذا المورد أصنافاً في الكتالوج العام بعد.
-                </p>
-              ) : (
-                <div className="overflow-x-auto rounded-2xl border border-[#D4CCBC] dark:border-[#22355E]">
-                  <table className="w-full text-right text-xs">
-                    <thead className="bg-[#EFE9DC] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E]">
-                      <tr>
-                        <th className="p-3 font-black">الخامة</th>
-                        <th className="p-3 font-black">الوحدة</th>
-                        <th className="p-3 font-black">القطاعي</th>
-                        <th className="p-3 font-black">الجملة</th>
-                        <th className="p-3 font-black">أقل كمية جملة</th>
-                        <th className="p-3 font-black">المخزون</th>
-                        <th className="p-3 font-black">طلب</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#D4CCBC]/60 dark:divide-[#22355E]">
-                      {priceSheetEntry.items.map((it) => (
-                        <tr key={it.id} className="hover:bg-[#EFE9DC]/40 dark:hover:bg-[#132040]/40">
-                          <td className="p-3 font-black">{it.name}</td>
-                          <td className="p-3">{it.unit}</td>
-                          <td className="p-3 font-mono tabular-nums font-bold">
-                            {it.retailPrice.toLocaleString('ar-EG')} {priceSheetEntry.supplier.currencySymbol}
-                          </td>
-                          <td className="p-3 font-mono tabular-nums font-black text-emerald-700 dark:text-emerald-400">
-                            {it.wholesalePrice > 0
-                              ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${priceSheetEntry.supplier.currencySymbol}`
-                              : '—'}
-                          </td>
-                          <td className="p-3 font-mono tabular-nums">
-                            {it.wholesalePrice > 0 ? `${it.minWholesaleQty} ${it.unit}` : '—'}
-                          </td>
-                          <td className="p-3 font-mono tabular-nums">{it.stockQty}</td>
-                          <td className="p-3">
-                            <button
-                              type="button"
-                              onClick={() => addToB2BCart(it, priceSheetEntry.supplier, 1)}
-                              className="px-2.5 py-1.5 rounded-lg bg-[#EA580C] text-white text-[11px] font-black cursor-pointer"
-                            >
-                              + أضف
-                            </button>
-                          </td>
+              {modalTab === 'prices' ? (
+                priceSheetEntry.items.length === 0 ? (
+                  <p className="text-center py-8 text-xs text-[#475569]">
+                    لم يدرج هذا المورد أصنافاً في الكتالوج العام بعد.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-2xl border border-[#D4CCBC] dark:border-[#22355E]">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-[#EFE9DC] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E]">
+                        <tr>
+                          <th className="p-3 font-black">الخامة</th>
+                          <th className="p-3 font-black">الوحدة</th>
+                          <th className="p-3 font-black">القطاعي</th>
+                          <th className="p-3 font-black">الجملة</th>
+                          <th className="p-3 font-black">شرائح الكميات</th>
+                          <th className="p-3 font-black">المخزون</th>
+                          <th className="p-3 font-black">طلب</th>
                         </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#D4CCBC]/60 dark:divide-[#22355E]">
+                        {priceSheetEntry.items.map((it) => (
+                          <tr key={it.id} className="hover:bg-[#EFE9DC]/40 dark:hover:bg-[#132040]/40">
+                            <td className="p-3 font-black">{it.name}</td>
+                            <td className="p-3">{it.unit}</td>
+                            <td className="p-3 font-mono tabular-nums font-bold">
+                              {it.retailPrice.toLocaleString('ar-EG')} {priceSheetEntry.supplier.currencySymbol}
+                            </td>
+                            <td className="p-3 font-mono tabular-nums font-black text-emerald-700 dark:text-emerald-400">
+                              {it.wholesalePrice > 0
+                                ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${priceSheetEntry.supplier.currencySymbol} (≥${it.minWholesaleQty})`
+                                : '—'}
+                            </td>
+                            <td className="p-3 font-mono tabular-nums text-[11px]">
+                              {it.tierPricing && it.tierPricing.length > 0
+                                ? it.tierPricing.map((t) => `≥${t.minQty}: ${t.unitPrice}`).join(' · ')
+                                : '—'}
+                            </td>
+                            <td className="p-3 font-mono tabular-nums">{it.stockQty}</td>
+                            <td className="p-3">
+                              <button
+                                type="button"
+                                onClick={() => addToB2BCart(it, priceSheetEntry.supplier, 1)}
+                                className="px-2.5 py-1.5 rounded-lg bg-[#EA580C] text-white text-[11px] font-black cursor-pointer"
+                              >
+                                + أضف
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              ) : (
+                <div className="space-y-4">
+                  {hasAuthSession && (
+                    <form
+                      onSubmit={handleSubmitSupplierReview}
+                      className="p-4 rounded-2xl bg-[#EFE9DC]/70 dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] space-y-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-black flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-[#EA580C]" />
+                          <span>أضف تقييم ورشتك لهذا المورد</span>
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((st) => (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={() => setReviewRating(st)}
+                              className="p-1 cursor-pointer"
+                            >
+                              <Star
+                                className={`w-4 h-4 ${
+                                  st <= reviewRating
+                                    ? 'fill-amber-400 text-amber-500'
+                                    : 'text-stone-400'
+                                }`}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <textarea
+                        rows={2}
+                        required
+                        value={reviewComment}
+                        onChange={(e) => setReviewComment(e.target.value)}
+                        placeholder="شارك الورش الأخرى رأيك في جودة الخامات وسرعة الشحن والالتزام..."
+                        className="w-full p-2.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                      />
+                      <button
+                        type="submit"
+                        disabled={reviewSubmitting}
+                        className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black cursor-pointer disabled:opacity-50"
+                      >
+                        {reviewSubmitting ? 'جاري النشر...' : 'نشر التقييم'}
+                      </button>
+                    </form>
+                  )}
+
+                  {reviewsLoading ? (
+                    <p className="text-center py-6 text-xs font-bold text-[#475569]">جاري تحميل تقييمات الورش...</p>
+                  ) : modalReviews.length === 0 ? (
+                    <p className="text-center py-8 text-xs font-bold text-[#475569]">
+                      لا توجد مراجعات مسجلة لهذا المورد بعد. كن أول ورشة تشارك تجربتها!
+                    </p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {modalReviews.map((rev) => (
+                        <div
+                          key={rev.id}
+                          className="p-3.5 rounded-2xl bg-[#EFE9DC]/50 dark:bg-[#132040]/50 border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-black">
+                              {rev.reviewerBrand || rev.reviewerName}
+                              {rev.reviewerBrand && rev.reviewerName ? ` · ${rev.reviewerName}` : ''}
+                            </span>
+                            <span className="inline-flex items-center gap-0.5 text-amber-500">
+                              {Array.from({ length: rev.rating }).map((_, i) => (
+                                <Star key={i} className="w-3.5 h-3.5 fill-amber-400" />
+                              ))}
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#334155] dark:text-[#CBD5E1] leading-relaxed">{rev.comment}</p>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

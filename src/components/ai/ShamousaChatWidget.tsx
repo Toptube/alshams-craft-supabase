@@ -115,22 +115,46 @@ export function extractUserFirstName(rawName?: string): string {
 }
 
 // الكشف الذكي عن روابط التنقل السريع عند طلب المستخدم صراحة
-function detectNavigationIntent(text: string): ShamousaActionLink | undefined {
+function detectNavigationIntent(text: string, isSupplier = false): ShamousaActionLink | undefined {
   const lower = text.toLowerCase();
+  if (lower.includes('صفحتي الشخصية') || lower.includes('الصفحة الشخصية') || lower.includes('بروفايل') || lower.includes('معرض أعمال')) {
+    return { label: 'فتح صفحتي الشخصية 👤', view: 'personal_profile' };
+  }
+  if (lower.includes('عيلة الشمساوية') || lower.includes('طبلية العيلة') || lower.includes('فتح المنتدى') || lower.includes('الشات العائلي')) {
+    return { label: 'فتح مجتمع عيلة الشمساوية 👨‍👩‍👧‍👦', view: 'family' };
+  }
+  if (isSupplier && (lower.includes('كتالوج الخامات') || lower.includes('شرائح الكميات') || lower.includes('تنبيه عروض'))) {
+    return { label: 'فتح كتالوج الخامات والشرائح 📦', view: 'supplier_catalog' };
+  }
+  if (isSupplier && (lower.includes('أوردرات') || lower.includes('طلبات التوريد'))) {
+    return { label: 'فتح أوردرات المورد 🧾', view: 'supplier_orders' };
+  }
+  if (!isSupplier && (lower.includes('سوق الموردين') || lower.includes('مقارنة الأسعار') || lower.includes('مقارنة الموردين') || lower.includes('عروض الموردين'))) {
+    return { label: 'فتح سوق موردين الشمساوية 🚚', view: 'suppliers_market' };
+  }
+  if (lower.includes('سوق الشمساوية')) {
+    return { label: 'فتح سوق الشمساوية المركزي 🛍️', view: 'marketplace' };
+  }
+  if (lower.includes('متجري')) {
+    return { label: isSupplier ? 'فتح متجر المورد 🏪' : 'فتح متجري الخاص 🏪', view: isSupplier ? 'supplier_store' : 'store' };
+  }
+  if (lower.includes('الحاسبة') || lower.includes('حاسبة التكاليف')) {
+    return { label: 'فتح حاسبة التكاليف 🧮', view: 'calculator' };
+  }
   if (lower.includes('فتح الخزن') || lower.includes('شاشة الخزينة') || lower.includes('صفحة الخزائن')) {
-    return { label: 'فتح الخزائن والأرصدة', view: 'treasuries' };
+    return { label: 'فتح الخزائن والأرصدة', view: isSupplier ? 'supplier_finance' : 'treasuries' };
   }
   if (lower.includes('فتح المخزن') || lower.includes('شاشة الخامات')) {
-    return { label: 'فتح سجل الخامات والمخزون', view: 'materials' };
+    return { label: 'فتح سجل الخامات والمخزون', view: isSupplier ? 'supplier_catalog' : 'materials' };
   }
   if (lower.includes('فتح المنتجات') || lower.includes('كتالوج المنتجات')) {
-    return { label: 'فتح كتالوج المنتجات', view: 'products' };
+    return { label: 'فتح كتالوج المنتجات', view: 'catalog' };
   }
   if (lower.includes('فتح المبيعات') || lower.includes('شاشة الطلبات')) {
-    return { label: 'فتح سجل المبيعات والطلبات', view: 'sales' };
+    return { label: 'فتح سجل المبيعات والطلبات', view: isSupplier ? 'supplier_orders' : 'sales' };
   }
   if (lower.includes('سجل العملاء') || lower.includes('شاشة العملاء')) {
-    return { label: 'فتح قائمة العملاء', view: 'customers' };
+    return { label: 'فتح قائمة العملاء', view: isSupplier ? 'supplier_customers' : 'customers' };
   }
   if (lower.includes('سجل الموردين') || lower.includes('شاشة الموردين')) {
     return { label: 'فتح قائمة الموردين', view: 'suppliers' };
@@ -142,41 +166,61 @@ function detectNavigationIntent(text: string): ShamousaActionLink | undefined {
 }
 
 // الكشف الذكي بالكلمات الدلالية وتوليد أزرار إجراء فورية بدون نصوص مكررة
-export function detectKeywordActionChips(text: string): SmartActionChip[] {
+export function detectKeywordActionChips(text: string, isSupplier = false): SmartActionChip[] {
   const chips: SmartActionChip[] = [];
   const lower = text.toLowerCase();
 
+  // 0. الصفحة الشخصية ومعرض الأعمال + مجتمع العيلة
+  if (/صفحتي|شخصي|بروفايل|معرض أعمال|6 صور|صور أعمال|خصوصي|معاينة/i.test(lower)) {
+    chips.push({ id: 'chip_personal_profile', label: 'فتح صفحتي الشخصية 👤', view: 'personal_profile' });
+  }
+  if (/عيلة|العيلة|منتدى|طبلية|منشور|شات|تعارف/i.test(lower)) {
+    chips.push({ id: 'chip_family', label: 'طبلية عيلة الشمساوية 👨‍👩‍👧‍👦', view: 'family' });
+  }
+
   // 1. الخزينة / الفلوس / السيولة / الكاش / المصروف
   if (/خزن|خزنة|خزينة|سيول|سيولة|فلوس|كاش|نقدية|مصروف/i.test(lower)) {
-    chips.push({ id: 'chip_treasuries', label: 'فتح الخزائن والأرصدة 💰', view: 'treasuries' });
-    chips.push({ id: 'chip_expenses', label: 'تسجيل مصروف وحركة نقدية 💵', action: 'open_expenses', view: 'treasuries' });
+    chips.push({ id: 'chip_treasuries', label: 'فتح الخزائن والأرصدة 💰', view: isSupplier ? 'supplier_finance' : 'treasuries' });
+    if (!isSupplier) {
+      chips.push({ id: 'chip_expenses', label: 'تسجيل مصروف وحركة نقدية 💵', action: 'open_expenses', view: 'treasuries' });
+    }
   }
 
-  // 2. الخامات / النواقص / المخزن / التوريد
-  if (/خام|خامات|نواقص|مخزن|مستلزمات|توريد|شراء/i.test(lower)) {
-    chips.push({ id: 'chip_mats', label: 'جرد الخامات والمخزون 📦', view: 'materials' });
-    chips.push({ id: 'chip_sups', label: 'سجل الموردين والتوريدات 🚚', view: 'suppliers' });
+  // 2. الخامات / الشرائح / المقارنة / الموردين / التوريد
+  if (/خام|خامات|نواقص|مخزن|مستلزمات|توريد|شراء|شرائح|مقارنة|عروض|تقييم/i.test(lower)) {
+    if (isSupplier) {
+      chips.push({ id: 'chip_sup_cat', label: 'كتالوج الخامات والشرائح 📦', view: 'supplier_catalog' });
+      chips.push({ id: 'chip_sup_market', label: 'سوق موردين الشمساوية 🚚', view: 'suppliers_market' });
+    } else {
+      chips.push({ id: 'chip_mats', label: 'المخزن وإدارة الخامات 📦', view: 'materials' });
+      chips.push({ id: 'chip_sup_market', label: 'سوق الموردين ومقارنة الأسعار 🚚', view: 'suppliers_market' });
+    }
   }
 
-  // 3. المبيعات / الفواتير / العملاء / الطلبيات
-  if (/بيع|مبيعات|فاتورة|فواتير|عميل|عملاء|طلب|طلبية|أوردر/i.test(lower)) {
-    chips.push({ id: 'chip_sales', label: 'تسجيل بيع جديد 🧾', view: 'sales' });
-    chips.push({ id: 'chip_custs', label: 'سجل العملاء والحسابات 👥', view: 'customers' });
+  // 3. المبيعات / الفواتير / العملاء / الطلبيات / المتجر
+  if (/بيع|مبيعات|فاتورة|فواتير|عميل|عملاء|طلب|طلبية|أوردر|متجر|سوق/i.test(lower)) {
+    chips.push({ id: 'chip_sales', label: isSupplier ? 'أوردرات التوريد والمتجر 🧾' : 'تسجيل بيع جديد 🧾', view: isSupplier ? 'supplier_orders' : 'sales' });
+    chips.push({ id: 'chip_custs', label: 'سجل العملاء والحسابات 👥', view: isSupplier ? 'supplier_customers' : 'customers' });
   }
 
-  // 4. المواعيد / الأجندة / التقويم / التسليم
+  // 4. الحاسبة والتسعير (للورش)
+  if (!isSupplier && /حاسبة|تسعير|سعر بيع|هامش|تكلفة|فتلات|غرز/i.test(lower)) {
+    chips.push({ id: 'chip_calc', label: 'فتح حاسبة التكاليف 🧮', view: 'calculator' });
+  }
+
+  // 5. المواعيد / الأجندة / التقويم / التسليم
   if (/موعد|مواعيد|أجندة|اجندة|تقويم|تسليم|ميعاد/i.test(lower)) {
     chips.push({ id: 'chip_agenda', label: 'عرض مواعيد وأجندة الورشة 📅', action: 'open_agenda' });
     chips.push({ id: 'chip_new_appt', label: 'تسجيل موعد جديد ➕', action: 'new_appointment' });
   }
 
-  // 5. أوامر التشغيل / التصنيع / الصنايعية
-  if (/تشغيل|أمر تشغيل|تصنيع|صنايعي|حرفي|عمال|أجور/i.test(lower)) {
+  // 6. أوامر التشغيل / التصنيع / الصنايعية
+  if (!isSupplier && /تشغيل|أمر تشغيل|تصنيع|صنايعي|حرفي|عمال|أجور/i.test(lower)) {
     chips.push({ id: 'chip_wo', label: 'سجل أوامر التشغيل 🔨', view: 'work_orders' });
     chips.push({ id: 'chip_hr', label: 'إدارة الحرفيين والعمالة 👷', view: 'hr' });
   }
 
-  return chips;
+  return chips.slice(0, 4);
 }
 
 // دالة إنشاء رابط تقويم جوجل بنقرة واحدة
@@ -291,10 +335,17 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const todayDateStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const tasksDoneStorageKey = `alshams_shamousa_tasks_done_${workshopId}_${todayDateStr}`;
 
+  const isSupplierAccount = profile?.accountRole === 'supplier';
   const firstName = extractUserFirstName((profile as any).fullName || (profile as any).name || profile.artistName || (profile as any).artisanName) || 'صديقي';
-  const brandTitle = profile.brandName ? `ورشة ${profile.brandName}` : 'الورشة الحرفية';
+  const brandTitle = profile.brandName
+    ? `${isSupplierAccount ? 'متجر' : 'ورشة'} ${profile.brandName}`
+    : isSupplierAccount
+    ? 'بوابة الموردين'
+    : 'الورشة الحرفية';
 
-  const welcomeMessage = "أهلاً بيك يا بطل! ☀️ منورة ورشتنا..\nطمني حابب تتابع أوردراتك ولا تراجع الخزينة والمخزن؟";
+  const welcomeMessage = isSupplierAccount
+    ? "أهلاً بيك يا شريكنا! ☀️ منور بوابة الموردين..\nطمني حابب تراجع كتالوج الخامات وشرائح الأسعار ولا أوردرات الورش والخزينة؟"
+    : "أهلاً بيك يا بطل! ☀️ منورة ورشتنا..\nطمني حابب تتابع أوردراتك ولا تراجع الخزينة والمخزن؟";
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'tasks_agenda'>('chat');
@@ -817,7 +868,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       inputRef.current.style.height = 'auto';
     }
 
-    const detectedChips = detectKeywordActionChips(message);
+    const detectedChips = detectKeywordActionChips(message, isSupplierAccount);
     const userMsg: ShamousaMessage = { 
       id: `u_${Date.now()}`, 
       role: 'user', 
@@ -900,6 +951,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           brandName: profile.brandName || 'الورشة الحرفية',
           workshopId,
           userEmail: profile.email || '',
+          accountRole: isSupplierAccount ? 'supplier' : 'artisan',
           clientWorkshopState: {
             treasuryBalance: currentTreasury,
             treasuriesDetail: treasuriesList,
@@ -917,12 +969,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
       if (typeof data.remaining === 'number') setRemaining(data.remaining);
 
-      const isInternalData = /خزن|خزينة|خزينه|سيول|سيولة|رصيد|عهدة|عهده|فلوس|خامات|مخزن|أوردر|اوردر|طلب|مبيعات|عميل|عملاء|مورد|موردين|موظف|عمال|دفاتر|حسابات/i.test(message + ' ' + (data.reply || ''));
+      const isInternalData = /خزن|خزينة|خزينه|سيول|سيولة|رصيد|عهدة|عهده|فلوس|خامات|مخزن|أوردر|اوردر|طلب|مبيعات|عميل|عملاء|مورد|موردين|موظف|عمال|دفاتر|حسابات|صفحتي|عيلة|شرائح/i.test(message + ' ' + (data.reply || ''));
       const isFalconExplicitlyRequested = /صقر|تحليل صوره|تحليل صورة|حلل الصورة|دراسة سوق|دراسة السوق|المنافسين/i.test(message);
       const shouldHandoff = !isInternalData && (Boolean(data.handoffToFalcon) || isFalconExplicitlyRequested);
 
-      const dynamicLink = data.actionLink || detectNavigationIntent(message) || detectNavigationIntent(data.reply || '');
-      const replyChips = detectKeywordActionChips(data.reply || message);
+      const dynamicLink = data.actionLink || detectNavigationIntent(message, isSupplierAccount) || detectNavigationIntent(data.reply || '', isSupplierAccount);
+      const replyChips = detectKeywordActionChips(data.reply || message, isSupplierAccount);
 
       setMessages((prev) => [
         ...prev,

@@ -58,6 +58,7 @@ export interface SupplierProfile {
   rejectionReason?: string;
   medal?: string;
   ratingStars?: number;
+  reviewsCount?: number;
   featuredRank?: number;
   hideStorefront?: boolean;
   hideFromMarket?: boolean;
@@ -74,6 +75,8 @@ export interface SupplierMarketEntry {
   minWholesalePrice: number;
   maxWholesalePrice: number;
   hasWholesale: boolean;
+  ratingAvg?: number;
+  reviewsCount?: number;
 }
 
 export interface AdminCustomerDirectoryRow {
@@ -102,6 +105,36 @@ export interface SupplierCatalogVariant {
   wholesalePriceOverride?: number;
 }
 
+export interface SupplierPriceTier {
+  minQty: number;
+  unitPrice: number;
+}
+
+export interface SupplierReview {
+  id: string;
+  supplierId: string;
+  workshopId?: string;
+  reviewerName: string;
+  reviewerBrand?: string;
+  reviewerRole?: string;
+  rating: number;
+  comment: string;
+  createdAt?: string;
+}
+
+export interface SupplierOfferAlert {
+  id: string;
+  supplierId: string;
+  supplierBrand: string;
+  supplierSlug?: string;
+  alertType: 'offer' | 'new_stock' | 'price_drop';
+  title: string;
+  message: string;
+  sectionId?: string;
+  discountBadge?: string;
+  createdAt?: string;
+}
+
 export interface SupplierCatalogItem {
   id: string;
   supplierId: string;
@@ -112,6 +145,7 @@ export interface SupplierCatalogItem {
   description?: string;
   images: string[];
   variants: SupplierCatalogVariant[];
+  tierPricing?: SupplierPriceTier[];
   stockQty: number;
   retailPrice: number;
   wholesalePrice: number;
@@ -124,6 +158,57 @@ export interface SupplierCatalogItem {
   sourceCurrency?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export function resolveSupplierItemPricing(
+  item: Pick<
+    SupplierCatalogItem,
+    'retailPrice' | 'wholesalePrice' | 'minWholesaleQty' | 'tierPricing' | 'discountType' | 'discountValue'
+  >,
+  qty: number
+) {
+  const safeQty = Math.max(0.01, Number(qty || 1));
+  const tiers = Array.isArray(item.tierPricing)
+    ? [...item.tierPricing]
+        .filter((t) => Number(t.minQty) > 0 && Number(t.unitPrice) > 0)
+        .sort((a, b) => Number(b.minQty) - Number(a.minQty))
+    : [];
+
+  const matchedTier = tiers.find((t) => safeQty >= Number(t.minQty));
+  const wholesaleReady =
+    Number(item.wholesalePrice || 0) > 0 &&
+    safeQty >= Math.max(1, Number(item.minWholesaleQty || 1));
+
+  let base = Number(item.retailPrice || 0);
+  let appliedMode: 'retail' | 'wholesale' | 'tier' = 'retail';
+
+  if (matchedTier) {
+    base = Number(matchedTier.unitPrice);
+    appliedMode = 'tier';
+  } else if (wholesaleReady) {
+    base = Number(item.wholesalePrice);
+    appliedMode = 'wholesale';
+  }
+
+  if (item.discountType === 'percent' && item.discountValue > 0 && item.discountValue <= 100) {
+    base = Math.max(0, Number((base * (1 - item.discountValue / 100)).toFixed(2)));
+  } else if (item.discountType === 'fixed' && item.discountValue > 0) {
+    base = Math.max(0, Number((base - item.discountValue).toFixed(2)));
+  }
+
+  const savingsPerUnit =
+    appliedMode !== 'retail' && Number(item.retailPrice || 0) > base
+      ? Number((Number(item.retailPrice) - base).toFixed(2))
+      : 0;
+
+  return {
+    unitPrice: base,
+    isWholesale: appliedMode !== 'retail',
+    appliedMode,
+    matchedTierMinQty: matchedTier ? Number(matchedTier.minQty) : undefined,
+    savingsPerUnit,
+    lineTotal: Number((base * safeQty).toFixed(2)),
+  };
 }
 
 export interface B2BSupplyOrderItem {

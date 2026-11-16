@@ -47,6 +47,9 @@ import {
   Share2,
   HelpCircle,
   Phone,
+  Scale,
+  Megaphone,
+  UserCheck,
 } from 'lucide-react';
 
 interface LandingPageProps {
@@ -1028,37 +1031,124 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="flex items-center justify-between pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
                 <div>
                   <span className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA] block">
-                    بوابة موردي الخامات المستقلة
+                    سوق موردين الشمساوية (B2B)
                   </span>
                   <span className="text-xs text-[#475569] dark:text-[#94A3B8]">
-                    أقسام الحرف الأربعة · جملة وقطاعي
+                    شرائح كميات · مقارنة أسعار · تقييمات · عروض
                   </span>
                 </div>
                 <Store className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
               </div>
 
               <div className="space-y-2.5 text-xs">
-                <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
-                  <div>
-                    <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">الحبال والنسيج</p>
-                    <p className="text-[#475569] dark:text-[#94A3B8]">مكرمية، قطن محلول، خيوط كليم وتافتنج</p>
+                <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">شرائح الكميات المتدرجة</p>
+                    <p className="text-[#475569] dark:text-[#94A3B8]">من 1 بكره: 95 ج · من 10: 85 ج · من 25: 78 ج</p>
                   </div>
-                  <span className="font-mono tabular-nums font-black text-[#C2410C] dark:text-[#FBBF24]">B2B</span>
+                  <span className="font-mono tabular-nums font-black text-emerald-700 dark:text-emerald-300 shrink-0">-18%</span>
                 </div>
-                <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
-                  <div>
-                    <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">الخرز والتطريز والريزن</p>
-                    <p className="text-[#475569] dark:text-[#94A3B8]">كريستال، إيبوكسي، سيليكون وألوان مايكا</p>
+                <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">جدول مقارنة أسعار الموردين</p>
+                    <p className="text-[#475569] dark:text-[#94A3B8]">اعرف أرخص وأعلى تقييم لنفس الخامة بلمحة واحدة</p>
                   </div>
-                  <span className="font-mono tabular-nums font-black text-emerald-700 dark:text-emerald-300">جملة وقطاعي</span>
+                  <Scale className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24] shrink-0" />
                 </div>
-                <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
-                  <div>
-                    <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">الأخشاب والخوص</p>
-                    <p className="text-[#475569] dark:text-[#94A3B8]">قواعد خشبية، دوائر أركت، حلقات بامبو</p>
+                <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-black text-[#0C1427] dark:text-[#F7F3EA]">تنبيهات العروض + تقييم الورش</p>
+                    <p className="text-[#475569] dark:text-[#94A3B8]">عروض فورية للورش + تقييم حقيقي 4.9 ★</p>
                   </div>
-                  <span className="font-mono tabular-nums font-black text-[#0C1427] dark:text-[#F7F3EA]">متجر QR</span>
+                  <Megaphone className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* 6C. Section: "طبلية عيلة الشمساوية & صفحتي الشخصية"           */}
+      {/* ------------------------------------------------------------- */}
+      {flags.familyCommunityEnabled !== false && (
+      <section id="family-profile" className="py-16 md:py-24 border-b border-[#D4CCBC] dark:border-[#22355E] bg-[#EFE9DC] dark:bg-[#060B18]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12 space-y-3">
+            <p className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
+              اللمة الحلوة والواجهة اللي تشرفك · مجتمع العيلة + صفحتي الشخصية
+            </p>
+            <h2 className="text-3xl sm:text-4xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight">
+              فنان ومورد قاعدين على{' '}
+              <span className="text-[#EA580C] dark:text-amber-300">طبلية واحدة</span>..
+              {' '}وكارت تعارف يحكي حكايتك!
+            </h2>
+            <p className="text-base sm:text-lg text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
+              الشغل لوحده بيزهّق، فجمعناكم في منتدى وشات «عيلة الشمساوية» عشان تتبادلوا الخبرة والعروض بروح حلوة — ومعاها صفحة شخصية لكل عضو تعبر عن براندك وتوري الناس أحلى شغلك بمزاجك.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Card 1: Family Community */}
+            <div className="p-6 sm:p-7 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-lg flex flex-col justify-between space-y-5">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="w-11 h-11 rounded-2xl bg-[#EA580C]/15 text-[#C2410C] dark:text-[#FBBF24] flex items-center justify-center">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <span className="text-xs font-mono font-black text-[#475569] dark:text-[#94A3B8]">
+                    فنانون · موردون · شات حي
+                  </span>
+                </div>
+                <h3 className="text-xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                  طبلية عيلة الشمساوية والمنتدى
+                </h3>
+                <p className="text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
+                  انشر صورة شغلك، اسأل على غرزة محيّراك، شوف أحدث خيوط الموردين في الشات، ولو شغْل حد عجَبك — <strong className="text-[#C2410C] dark:text-amber-300">دوس على صورته بس</strong> تفتح لك صفحته الشخصية وتعرف كل حكايته!
+                </p>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs space-y-1.5">
+                <div className="flex items-center gap-2 font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                  <MessageSquare className="w-4 h-4 text-[#EA580C]" />
+                  <span>من البوست أو الشات.. لبروفايل الصانع بضغطة</span>
+                </div>
+                <p className="text-[#475569] dark:text-[#94A3B8]">
+                  شعار البراند، النبذة، التواصل، ومعرض الأعمال جاهزين فورياً لكل عضو في العيلة.
+                </p>
+              </div>
+            </div>
+
+            {/* Card 2: Personal Profile & Visibility Matrix */}
+            <div className="p-6 sm:p-7 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-lg flex flex-col justify-between space-y-5">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 flex items-center justify-center">
+                    <UserCheck className="w-6 h-6" />
+                  </div>
+                  <span className="text-xs font-mono font-black text-[#475569] dark:text-[#94A3B8]">
+                    حتى 6 أعمال · معاينة ذكية
+                  </span>
+                </div>
+                <h3 className="text-xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                  صفحتي الشخصية.. بتفصيلة على مزاجك
+                </h3>
+                <p className="text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
+                  احكي قصة ورشتك أو مصنعك، ارفع <strong className="text-[#C2410C] dark:text-amber-300">أحلى 6 صور</strong> من أعمالك السابقة مع حفظ ذكي يقلل حجم الصور، وحدد بنفسك إيه اللي يظهر للفنانين، إيه للموردين، وإيه للعملاء — وتفرّج عليها بعيونهم من تحت الصفحة!
+                </p>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2 font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                  <Eye className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>معاينة حية: فنانين · موردين · عملاء</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenRegister}
+                  className="px-3.5 py-2 rounded-xl bg-[#0C1427] hover:bg-[#1A2B54] dark:bg-[#EA580C] dark:hover:bg-[#C2410C] text-[#FBBF24] dark:text-white font-black transition cursor-pointer shrink-0"
+                >
+                  اعمل صفحتك
+                </button>
               </div>
             </div>
           </div>

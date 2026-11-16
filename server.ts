@@ -58,6 +58,8 @@ const SUPPLIER_TREASURIES_FILE = path.resolve(__dirname, 'data/supplier_treasuri
 const SUPPLIER_TRANSACTIONS_FILE = path.resolve(__dirname, 'data/supplier_treasury_transactions.json');
 const SUPPLIER_EXPENSES_FILE = path.resolve(__dirname, 'data/supplier_expenses.json');
 const MEMBER_PROFILES_FILE = path.resolve(__dirname, 'data/member_profiles.json');
+const SUPPLIER_REVIEWS_FILE = path.resolve(__dirname, 'data/supplier_reviews.json');
+const SUPPLIER_OFFER_ALERTS_FILE = path.resolve(__dirname, 'data/supplier_offer_alerts.json');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUuid(val?: string | null): boolean {
@@ -4237,6 +4239,7 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
         userEmail: email,
         isSuperAdmin: superAdmin,
         useSearch,
+        accountRole: req.body?.accountRole === 'supplier' ? 'supplier' : 'artisan',
       },
       Array.isArray(images) ? images : undefined
     );
@@ -6417,6 +6420,15 @@ app.post('/api/suppliers/catalog', requireAuth, async (req: AuthenticatedRequest
 
   const b = req.body || {};
   const nowIso = new Date().toISOString();
+  const normalizedTiers = Array.isArray(b.tierPricing ?? b.tier_pricing)
+    ? (b.tierPricing ?? b.tier_pricing)
+        .map((t: any) => ({
+          minQty: Math.max(1, Number(t?.minQty ?? t?.min_qty ?? 0)),
+          unitPrice: Math.max(0, Number(t?.unitPrice ?? t?.unit_price ?? 0)),
+        }))
+        .filter((t: any) => t.minQty > 0 && t.unitPrice > 0)
+        .sort((a: any, c: any) => a.minQty - c.minQty)
+    : [];
   const row = {
     id: crypto.randomUUID(),
     supplier_id: supplier.id,
@@ -6427,6 +6439,7 @@ app.post('/api/suppliers/catalog', requireAuth, async (req: AuthenticatedRequest
     description: String(b.description || ''),
     images: Array.isArray(b.images) ? b.images.slice(0, 3) : [],
     variants: Array.isArray(b.variants) ? b.variants : [],
+    tier_pricing: normalizedTiers,
     stock_qty: Math.max(0, Number(b.stockQty ?? b.stock_qty ?? 0)),
     retail_price: Math.max(0, Number(b.retailPrice ?? b.retail_price ?? 0)),
     wholesale_price: Math.max(0, Number(b.wholesalePrice ?? b.wholesale_price ?? 0)),
@@ -6490,6 +6503,19 @@ app.put('/api/suppliers/catalog/:id', requireAuth, async (req: AuthenticatedRequ
   const idx = all.findIndex((x: any) => x.id === id && x.supplier_id === supplier.id);
   const prev = idx >= 0 ? all[idx] : {};
 
+  const normalizedTiers =
+    Array.isArray(b.tierPricing ?? b.tier_pricing)
+      ? (b.tierPricing ?? b.tier_pricing)
+          .map((t: any) => ({
+            minQty: Math.max(1, Number(t?.minQty ?? t?.min_qty ?? 0)),
+            unitPrice: Math.max(0, Number(t?.unitPrice ?? t?.unit_price ?? 0)),
+          }))
+          .filter((t: any) => t.minQty > 0 && t.unitPrice > 0)
+          .sort((a: any, c: any) => a.minQty - c.minQty)
+      : Array.isArray(prev.tier_pricing)
+      ? prev.tier_pricing
+      : [];
+
   const updated = {
     ...prev,
     id,
@@ -6501,6 +6527,7 @@ app.put('/api/suppliers/catalog/:id', requireAuth, async (req: AuthenticatedRequ
     description: String(b.description ?? prev.description ?? ''),
     images: Array.isArray(b.images) ? b.images.slice(0, 3) : Array.isArray(prev.images) ? prev.images.slice(0, 3) : [],
     variants: Array.isArray(b.variants) ? b.variants : prev.variants || [],
+    tier_pricing: normalizedTiers,
     stock_qty: Math.max(0, Number(b.stockQty ?? b.stock_qty ?? prev.stock_qty ?? 0)),
     retail_price: Math.max(0, Number(b.retailPrice ?? b.retail_price ?? prev.retail_price ?? 0)),
     wholesale_price: Math.max(0, Number(b.wholesalePrice ?? b.wholesale_price ?? prev.wholesale_price ?? 0)),
@@ -7158,7 +7185,39 @@ app.get('/api/public/supplier-store/:slug', async (req: Request, res: Response) 
   }
 
   const customerMemberProfile = await buildResolvedMemberProfileForViewer(found.id, 'customers', false);
-  return res.json({ success: true, supplier: found, items: catalog, memberProfile: customerMemberProfile });
+
+  // Include supplier workshop reviews
+  const revMap = new Map<string, any>();
+  readJsonArray(SUPPLIER_REVIEWS_FILE)
+    .filter((r: any) => r.supplier_id === found.id)
+    .forEach((r: any) => r?.id && revMap.set(r.id, r));
+  try {
+    const { data: revRows } = await supabaseAdminClient
+      .from('supplier_reviews')
+      .select('*')
+      .eq('supplier_id', found.id)
+      .order('created_at', { ascending: false });
+    if (Array.isArray(revRows)) {
+      revRows.forEach((r: any) => r?.id && revMap.set(r.id, r));
+    }
+  } catch {}
+  const reviews = Array.from(revMap.values()).sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+  const ratingAvg =
+    reviews.length > 0
+      ? Number((reviews.reduce((sum, r) => sum + Number(r.rating || 5), 0) / reviews.length).toFixed(1))
+      : Number(found.rating_stars ?? found.ratingStars ?? 5);
+
+  return res.json({
+    success: true,
+    supplier: { ...found, rating_stars: ratingAvg, reviews_count: reviews.length },
+    items: catalog,
+    memberProfile: customerMemberProfile,
+    reviews,
+    ratingAvg,
+    reviewsCount: reviews.length,
+  });
 });
 
 // =============================================================
@@ -7994,6 +8053,24 @@ app.get('/api/suppliers-market', async (req: Request, res: Response) => {
     }
   } catch {}
 
+  const revStatsMap = new Map<string, { sum: number; count: number }>();
+  const revAllMap = new Map<string, any>();
+  readJsonArray(SUPPLIER_REVIEWS_FILE).forEach((r: any) => r?.id && revAllMap.set(r.id, r));
+  try {
+    const { data: dbRevs } = await supabaseAdminClient.from('supplier_reviews').select('*');
+    if (Array.isArray(dbRevs)) {
+      dbRevs.forEach((r: any) => r?.id && revAllMap.set(r.id, { ...(revAllMap.get(r.id) || {}), ...r }));
+    }
+  } catch {}
+  revAllMap.forEach((r: any) => {
+    const sid = r.supplier_id || r.supplierId;
+    if (!sid) return;
+    const prev = revStatsMap.get(sid) || { sum: 0, count: 0 };
+    prev.sum += Number(r.rating || 5);
+    prev.count += 1;
+    revStatsMap.set(sid, prev);
+  });
+
   const allItems = Array.from(itemMap.values());
   const entries = Array.from(supMap.values())
     .filter((s: any) => {
@@ -8008,18 +8085,174 @@ app.get('/api/suppliers-market', async (req: Request, res: Response) => {
       );
       const retailPrices = items.map((i: any) => Number(i.retail_price || 0)).filter((n) => n > 0);
       const wholesalePrices = items.map((i: any) => Number(i.wholesale_price || 0)).filter((n) => n > 0);
+      const revStat = revStatsMap.get(s.id);
+      const ratingAvg = revStat && revStat.count > 0
+        ? Number((revStat.sum / revStat.count).toFixed(1))
+        : Number(s.rating_stars ?? s.ratingStars ?? 5);
+      const reviewsCount = revStat?.count || Number(s.reviews_count ?? 0);
       return {
-        supplier: s,
+        supplier: { ...s, rating_stars: ratingAvg, reviews_count: reviewsCount },
         items,
         minRetailPrice: retailPrices.length > 0 ? Math.min(...retailPrices) : 0,
         maxRetailPrice: retailPrices.length > 0 ? Math.max(...retailPrices) : 0,
         minWholesalePrice: wholesalePrices.length > 0 ? Math.min(...wholesalePrices) : 0,
         maxWholesalePrice: wholesalePrices.length > 0 ? Math.max(...wholesalePrices) : 0,
         hasWholesale: wholesalePrices.length > 0,
+        ratingAvg,
+        reviewsCount,
       };
     });
 
   return res.json({ success: true, entries });
+});
+
+// Supplier Workshop Reviews & Ratings APIs
+app.get('/api/suppliers/:supplierId/reviews', async (req: Request, res: Response) => {
+  const sid = decodeURIComponent(req.params.supplierId || '').trim();
+  if (!sid) return res.json({ success: true, reviews: [], ratingAvg: 5, reviewsCount: 0 });
+
+  const map = new Map<string, any>();
+  readJsonArray(SUPPLIER_REVIEWS_FILE)
+    .filter((r: any) => r.supplier_id === sid)
+    .forEach((r: any) => r?.id && map.set(r.id, r));
+  try {
+    const { data } = await supabaseAdminClient
+      .from('supplier_reviews')
+      .select('*')
+      .eq('supplier_id', sid)
+      .order('created_at', { ascending: false });
+    if (Array.isArray(data)) {
+      data.forEach((r: any) => r?.id && map.set(r.id, r));
+    }
+  } catch {}
+
+  const reviews = Array.from(map.values()).sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+  const ratingAvg =
+    reviews.length > 0
+      ? Number((reviews.reduce((sum, r) => sum + Number(r.rating || 5), 0) / reviews.length).toFixed(1))
+      : 5;
+  return res.json({ success: true, reviews, ratingAvg, reviewsCount: reviews.length });
+});
+
+app.post('/api/suppliers/:supplierId/reviews', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const sid = decodeURIComponent(req.params.supplierId || '').trim();
+  if (!sid) return res.status(400).json({ error: 'معرف المورد مطلوب' });
+  const b = req.body || {};
+  const rating = Math.min(5, Math.max(1, Math.round(Number(b.rating || 5))));
+  const comment = String(b.comment || '').trim();
+  if (!comment) return res.status(400).json({ error: 'يرجى كتابة تعليق عن تجربتك مع المورد' });
+
+  const nowIso = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    supplier_id: sid,
+    workshop_id: String(b.workshopId || req.headers['x-workshop-id'] || req.user?.id || ''),
+    reviewer_name: String(b.reviewerName || 'فنان بالشمساوية').trim(),
+    reviewer_brand: String(b.reviewerBrand || 'ورشة بالشمساوية').trim(),
+    reviewer_role: String(b.reviewerRole || 'artisan').trim(),
+    rating,
+    comment,
+    created_at: nowIso,
+  };
+
+  const allRevs = readJsonArray(SUPPLIER_REVIEWS_FILE);
+  allRevs.unshift(row);
+  writeJsonData(SUPPLIER_REVIEWS_FILE, allRevs);
+
+  const supRevs = allRevs.filter((r: any) => r.supplier_id === sid);
+  const avg = Number((supRevs.reduce((s: number, r: any) => s + Number(r.rating || 5), 0) / supRevs.length).toFixed(1));
+
+  // Update cached rating on supplier record locally
+  const supList = readJsonArray(PLATFORM_SUPPLIERS_FILE);
+  const sIdx = supList.findIndex((s: any) => s.id === sid);
+  if (sIdx >= 0) {
+    supList[sIdx] = { ...supList[sIdx], rating_stars: avg, reviews_count: supRevs.length, updated_at: nowIso };
+    writeJsonData(PLATFORM_SUPPLIERS_FILE, supList);
+  }
+
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_reviews').insert(row);
+    await supabaseAdminClient
+      .from('platform_suppliers')
+      .update({ rating_stars: avg, reviews_count: supRevs.length, updated_at: nowIso })
+      .eq('id', sid);
+  } catch {}
+
+  return res.json({ success: true, review: row, ratingAvg: avg, reviewsCount: supRevs.length });
+});
+
+// Supplier Offer & New Stock Alerts APIs
+app.get('/api/suppliers/offer-alerts', async (_req: Request, res: Response) => {
+  const map = new Map<string, any>();
+  readJsonArray(SUPPLIER_OFFER_ALERTS_FILE).forEach((a: any) => a?.id && map.set(a.id, a));
+  try {
+    const { data } = await supabaseAdminClient
+      .from('supplier_offer_alerts')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (Array.isArray(data)) {
+      data.forEach((a: any) => a?.id && map.set(a.id, a));
+    }
+  } catch {}
+
+  const alerts = Array.from(map.values())
+    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+    .slice(0, 25);
+  return res.json({ success: true, alerts });
+});
+
+app.post('/api/suppliers/offer-alerts', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const b = req.body || {};
+  const title = String(b.title || '').trim();
+  const message = String(b.message || '').trim();
+  if (!title || !message) {
+    return res.status(400).json({ error: 'يرجى كتابة عنوان ونص العرض أو التنبيه للورش.' });
+  }
+
+  const nowIso = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    supplier_id: supplier.id,
+    supplier_brand: supplier.brand_name || supplier.brandName || 'مورد معتمد',
+    supplier_slug: supplier.store_slug || supplier.id,
+    alert_type: b.alertType || 'offer',
+    title,
+    message,
+    section_id: b.sectionId || supplier.supply_sections?.[0] || 'all',
+    discount_badge: String(b.discountBadge || '').trim(),
+    created_at: nowIso,
+  };
+
+  const list = readJsonArray(SUPPLIER_OFFER_ALERTS_FILE);
+  list.unshift(row);
+  writeJsonData(SUPPLIER_OFFER_ALERTS_FILE, list.slice(0, 80));
+
+  try {
+    const client = getDbClient(req);
+    await client.from('supplier_offer_alerts').insert(row);
+    // Also mirror concise alert in workshop announcements inbox
+    const annRow = {
+      id: crypto.randomUUID(),
+      sender_name: `عرض المورد: ${row.supplier_brand}`,
+      recipient_type: 'all',
+      title: `📢 ${row.title}`,
+      content: `${row.message}${row.discount_badge ? `\n(${row.discount_badge})` : ''}\nرابط المتجر: #/supplier/${row.supplier_slug}`,
+      created_at: nowIso,
+    };
+    const localAnn = loadPersistentAnnouncements();
+    localAnn.unshift(annRow);
+    savePersistentAnnouncements(localAnn);
+    client.from('admin_announcements').insert(annRow).then(() => {}, () => {});
+  } catch {}
+
+  return res.json({ success: true, alert: row });
 });
 
 app.get('/api/b2b/workshop-orders', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
@@ -8096,8 +8329,22 @@ app.post('/api/b2b/orders', requireAuth, async (req: AuthenticatedRequest, res: 
       const retailBase = Number(cat?.retail_price ?? rawItem.retailPrice ?? rawItem.unitPrice ?? 0);
       const wholesaleBase = Number(cat?.wholesale_price ?? rawItem.wholesalePrice ?? 0);
       const minW = Math.max(1, Number(cat?.min_wholesale_qty ?? rawItem.minWholesaleQty ?? 1));
-      const useWholesale = wholesaleBase > 0 && qty >= minW;
-      let unitPrice = useWholesale ? wholesaleBase : retailBase;
+      const rawTiers = Array.isArray(cat?.tier_pricing)
+        ? cat.tier_pricing
+        : Array.isArray(rawItem.tierPricing)
+        ? rawItem.tierPricing
+        : [];
+      const matchedTier = [...rawTiers]
+        .filter((t: any) => Number(t.minQty) > 0 && Number(t.unitPrice) > 0)
+        .sort((a: any, c: any) => Number(c.minQty) - Number(a.minQty))
+        .find((t: any) => qty >= Number(t.minQty));
+
+      const useWholesale = Boolean(matchedTier) || (wholesaleBase > 0 && qty >= minW);
+      let unitPrice = matchedTier
+        ? Number(matchedTier.unitPrice)
+        : wholesaleBase > 0 && qty >= minW
+        ? wholesaleBase
+        : retailBase;
 
       const dType = cat?.discount_type || rawItem.discountType || 'none';
       const dVal = Number(cat?.discount_value ?? rawItem.discountValue ?? 0);

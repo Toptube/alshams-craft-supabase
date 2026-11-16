@@ -390,9 +390,9 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               <div className="flex flex-wrap items-center gap-1.5">
                 {[
                   { id: 'owner' as const, label: 'وضع التحرير (ملكي)' },
-                  { id: 'artisans' as const, label: 'كـ فنان ورشة' },
-                  { id: 'suppliers' as const, label: 'كـ مورد خامات' },
-                  { id: 'customers' as const, label: 'كـ عميل وزائر' },
+                  { id: 'artisans' as const, label: 'كما تظهر للفنانين' },
+                  { id: 'suppliers' as const, label: 'كما تظهر للموردين' },
+                  { id: 'customers' as const, label: 'كما تظهر للعملاء' },
                 ].map((opt) => (
                   <button
                     key={opt.id}
@@ -914,6 +914,41 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               </div>
             )}
           </section>
+
+          {/* Bottom Owner Audience Preview Switcher Bar */}
+          {isOwner && (
+            <section className="rounded-2xl bg-[#0C1427] dark:bg-[#132040] text-[#F7F3EA] p-3.5 sm:p-4 border border-[#22355E] flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs font-black text-[#FBBF24]">
+                <Eye className="w-4 h-4 shrink-0" />
+                <span>عرض صفحتك الشخصية كما يراها:</span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { id: 'owner' as const, label: 'وضع التحرير (ملكي)' },
+                  { id: 'artisans' as const, label: 'كما تظهر للفنانين' },
+                  { id: 'suppliers' as const, label: 'كما تظهر للموردين' },
+                  { id: 'customers' as const, label: 'كما تظهر للعملاء' },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      playButtonClickSound();
+                      setPreviewAs(opt.id);
+                    }}
+                    className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-[11px] font-black transition cursor-pointer whitespace-nowrap ${
+                      previewAs === opt.id
+                        ? 'bg-[#EA580C] text-white shadow-sm'
+                        : 'bg-white/10 text-[#CBD5E1] hover:bg-white/15'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
         </>
       )}
 

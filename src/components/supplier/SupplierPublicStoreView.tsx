@@ -3,32 +3,30 @@ import {
   ArrowRight,
   Boxes,
   Check,
-  CheckCircle2,
-  MapPin,
-  Minus,
-  Phone,
-  Plus,
   Search,
   Share2,
   ShieldAlert,
-  ShoppingBag,
   ShoppingCart,
-  Store,
+  Star,
   Table2,
   Trash2,
   User,
   X,
+  Plus,
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import {
   SUPPLIER_SUPPLY_SECTIONS,
   SupplierCatalogItem,
   SupplierProfile,
+  SupplierReview,
+  resolveSupplierItemPricing,
 } from '../../types/supplier';
 import { MemberPersonalProfile } from '../../types/memberProfile';
 import {
   fetchPublicSupplierStore,
   placeB2BSupplyOrder,
+  submitSupplierReview,
 } from '../../db/supplierService';
 import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
 import { playButtonClickSound, playErrorSound, playSuccessSound } from '../../lib/sounds';
@@ -47,18 +45,7 @@ interface CartLine {
 }
 
 function calcPrice(item: SupplierCatalogItem, qty: number) {
-  const isWholesale = item.wholesalePrice > 0 && qty >= Math.max(1, item.minWholesaleQty || 1);
-  let unitPrice = isWholesale ? item.wholesalePrice : item.retailPrice;
-  if (item.discountType === 'percent' && item.discountValue > 0 && item.discountValue <= 100) {
-    unitPrice = Math.max(0, Number((unitPrice * (1 - item.discountValue / 100)).toFixed(2)));
-  } else if (item.discountType === 'fixed' && item.discountValue > 0) {
-    unitPrice = Math.max(0, Number((unitPrice - item.discountValue).toFixed(2)));
-  }
-  return {
-    unitPrice,
-    isWholesale,
-    lineTotal: Number((unitPrice * qty).toFixed(2)),
-  };
+  return resolveSupplierItemPricing(item, qty);
 }
 
 export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = ({
@@ -72,8 +59,13 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
   const [supplier, setSupplier] = useState<SupplierProfile | null>(null);
   const [memberProfile, setMemberProfile] = useState<MemberPersonalProfile | null>(null);
   const [items, setItems] = useState<SupplierCatalogItem[]>([]);
+  const [reviews, setReviews] = useState<SupplierReview[]>([]);
+  const [ratingAvg, setRatingAvg] = useState(5);
+  const [revRating, setRevRating] = useState(5);
+  const [revComment, setRevComment] = useState('');
+  const [revSubmitting, setRevSubmitting] = useState(false);
   const [suspendedMsg, setSuspendedMsg] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'catalog' | 'price_table'>('catalog');
+  const [activeTab, setActiveTab] = useState<'catalog' | 'price_table' | 'reviews'>('catalog');
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -97,16 +89,20 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         setSupplier(null);
         setMemberProfile(null);
         setItems([]);
+        setReviews([]);
         setSuspendedMsg(null);
       } else if (res.suspended) {
         setSupplier(res.supplier);
         setMemberProfile(null);
         setItems([]);
+        setReviews([]);
         setSuspendedMsg(res.suspensionReason || 'متجر المورد غير متاح للعرض حالياً.');
       } else {
         setSupplier(res.supplier);
         setMemberProfile(res.memberProfile || null);
         setItems(res.items);
+        setReviews(res.reviews || []);
+        setRatingAvg(Number(res.ratingAvg ?? res.supplier.ratingStars ?? 5));
         setSuspendedMsg(null);
       }
       setLoading(false);
@@ -115,6 +111,29 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
       mounted = false;
     };
   }, [slug]);
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supplier || !hasAuthSession || !revComment.trim()) return;
+    setRevSubmitting(true);
+    const res = await submitSupplierReview(supplier.id, {
+      rating: revRating,
+      comment: revComment.trim(),
+      workshopId: profile?.workshopId || profile?.tenantId || profile?.id || '',
+      reviewerName: profile?.artistName || 'فنان بالشمساوية',
+      reviewerBrand: profile?.brandName || 'ورشة بالشمساوية',
+      reviewerRole: (profile as any)?.accountRole || 'artisan',
+    });
+    setRevSubmitting(false);
+    if (res.success && res.review) {
+      playSuccessSound();
+      setReviews((prev) => [res.review!, ...prev]);
+      if (res.ratingAvg) setRatingAvg(res.ratingAvg);
+      setRevComment('');
+      setToast('تم نشر تقييمك للمورد بنجاح');
+      setTimeout(() => setToast(null), 2500);
+    }
+  };
 
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -184,6 +203,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
           retailPrice: c.item.retailPrice,
           wholesalePrice: c.item.wholesalePrice,
           minWholesaleQty: c.item.minWholesaleQty,
+          tierPricing: c.item.tierPricing,
           discountType: c.item.discountType,
           discountValue: c.item.discountValue,
         })),
@@ -281,7 +301,13 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               className="w-10 h-10 rounded-xl object-contain bg-[#EFE9DC] dark:bg-[#132040] p-0.5 shrink-0"
             />
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-base font-black truncate">{supplier.brandName}</h1>
+              <h1 className="text-sm sm:text-base font-black truncate flex items-center gap-2">
+                <span>{supplier.brandName}</span>
+                <span className="inline-flex items-center gap-0.5 text-[11px] font-mono tabular-nums text-amber-600 dark:text-amber-300">
+                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+                  {ratingAvg.toFixed(1)}
+                </span>
+              </h1>
               <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] truncate">
                 {supplier.governorate || supplier.country} · {sectionNames.join('، ')}
               </p>
@@ -330,7 +356,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-5 space-y-5">
         <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setActiveTab('catalog')}
@@ -353,7 +379,19 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               }`}
             >
               <Table2 className="w-3.5 h-3.5" />
-              <span>جدول الأسعار الكامل (قطاعي / جملة)</span>
+              <span>جدول الأسعار والشرائح</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('reviews')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'reviews'
+                  ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#F7F3EA] dark:text-[#0C1427]'
+                  : 'bg-[#EFE9DC] dark:bg-[#132040]'
+              }`}
+            >
+              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+              <span>تقييمات الورش ({reviews.length})</span>
             </button>
           </div>
 
@@ -369,7 +407,71 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
           </div>
         </div>
 
-        {activeTab === 'price_table' ? (
+        {activeTab === 'reviews' ? (
+          <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 sm:p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#D4CCBC]/70 dark:border-[#22355E] pb-3">
+              <h2 className="text-sm sm:text-base font-black flex items-center gap-2">
+                <Star className="w-4 h-4 fill-amber-400 text-amber-500" />
+                <span>تقييمات ومراجعات الورش ({reviews.length}) · متوسط {ratingAvg.toFixed(1)} / 5</span>
+              </h2>
+            </div>
+
+            {hasAuthSession && (
+              <form
+                onSubmit={handleSubmitReview}
+                className="p-4 rounded-2xl bg-[#EFE9DC]/70 dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] space-y-2.5"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black">أضف تقييم ورشتك لهذا المورد:</span>
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((st) => (
+                      <button key={st} type="button" onClick={() => setRevRating(st)} className="p-1 cursor-pointer">
+                        <Star className={`w-4 h-4 ${st <= revRating ? 'fill-amber-400 text-amber-500' : 'text-stone-400'}`} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <textarea
+                  rows={2}
+                  required
+                  value={revComment}
+                  onChange={(e) => setRevComment(e.target.value)}
+                  placeholder="اكتب رأيك في جودة الخامات والأسعار ومواعيد التسليم..."
+                  className="w-full p-2.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                />
+                <button
+                  type="submit"
+                  disabled={revSubmitting}
+                  className="px-4 py-2 rounded-xl bg-[#EA580C] text-white text-xs font-black cursor-pointer disabled:opacity-50"
+                >
+                  {revSubmitting ? 'جاري النشر...' : 'إرسال التقييم'}
+                </button>
+              </form>
+            )}
+
+            {reviews.length === 0 ? (
+              <p className="text-center py-8 text-xs font-bold text-[#475569]">
+                لا توجد تقييمات مسجلة لهذا المورد بعد.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {reviews.map((rev) => (
+                  <div key={rev.id} className="p-3.5 rounded-2xl bg-[#EFE9DC]/50 dark:bg-[#132040]/50 border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black">{rev.reviewerBrand || rev.reviewerName}</span>
+                      <span className="inline-flex items-center gap-0.5">
+                        {Array.from({ length: rev.rating }).map((_, i) => (
+                          <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
+                        ))}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#334155] dark:text-[#CBD5E1]">{rev.comment}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : activeTab === 'price_table' ? (
           <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-x-auto">
             <table className="w-full text-right text-xs">
               <thead className="bg-[#EFE9DC] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E]">
@@ -378,7 +480,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   <th className="p-3 font-black">الوحدة</th>
                   <th className="p-3 font-black">سعر القطاعي</th>
                   <th className="p-3 font-black">سعر الجملة</th>
-                  <th className="p-3 font-black">حد الجملة</th>
+                  <th className="p-3 font-black">شرائح الكميات</th>
                   <th className="p-3 font-black">إجراء</th>
                 </tr>
               </thead>
@@ -392,11 +494,13 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                     </td>
                     <td className="p-3 font-mono tabular-nums font-black text-emerald-700 dark:text-emerald-400">
                       {it.wholesalePrice > 0
-                        ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${supplier.currencySymbol}`
+                        ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${supplier.currencySymbol} (≥${it.minWholesaleQty})`
                         : '—'}
                     </td>
-                    <td className="p-3 font-mono tabular-nums">
-                      {it.wholesalePrice > 0 ? `${it.minWholesaleQty} ${it.unit}` : '—'}
+                    <td className="p-3 font-mono tabular-nums text-[11px]">
+                      {it.tierPricing && it.tierPricing.length > 0
+                        ? it.tierPricing.map((t) => `≥${t.minQty}: ${t.unitPrice}`).join(' · ')
+                        : '—'}
                     </td>
                     <td className="p-3">
                       <button

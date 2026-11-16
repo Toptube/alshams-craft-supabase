@@ -2,6 +2,9 @@ import { supabase } from '../lib/supabase';
 import {
   SupplierProfile,
   SupplierCatalogItem,
+  SupplierPriceTier,
+  SupplierReview,
+  SupplierOfferAlert,
   B2BSupplyOrder,
   SupplierCustomer,
   SupplierTreasury,
@@ -74,6 +77,7 @@ export function mapDbSupplierRowToProfile(row: any): SupplierProfile {
     rejectionReason: row.rejection_reason || row.rejectionReason,
     medal: row.medal,
     ratingStars: Number(row.rating_stars ?? row.ratingStars ?? 5),
+    reviewsCount: Number(row.reviews_count ?? row.reviewsCount ?? 0),
     featuredRank: Number(row.featured_rank ?? row.featuredRank ?? 0),
     hideStorefront: Boolean(row.hide_storefront ?? row.hideStorefront),
     hideFromMarket: Boolean(row.hide_from_market ?? row.hideFromMarket),
@@ -233,6 +237,17 @@ export async function fetchSupplierCatalog(): Promise<SupplierCatalogItem[]> {
 }
 
 export function mapDbCatalogItem(r: any): SupplierCatalogItem {
+  const rawTiers = Array.isArray(r.tier_pricing || r.tierPricing)
+    ? r.tier_pricing || r.tierPricing
+    : [];
+  const tierPricing: SupplierPriceTier[] = rawTiers
+    .map((t: any) => ({
+      minQty: Math.max(1, Number(t?.minQty ?? t?.min_qty ?? 0)),
+      unitPrice: Math.max(0, Number(t?.unitPrice ?? t?.unit_price ?? 0)),
+    }))
+    .filter((t: SupplierPriceTier) => t.minQty > 0 && t.unitPrice > 0)
+    .sort((a: SupplierPriceTier, b: SupplierPriceTier) => a.minQty - b.minQty);
+
   return {
     id: r.id,
     supplierId: r.supplier_id || r.supplierId || '',
@@ -243,6 +258,7 @@ export function mapDbCatalogItem(r: any): SupplierCatalogItem {
     description: r.description || '',
     images: Array.isArray(r.images) ? r.images : [],
     variants: Array.isArray(r.variants) ? r.variants : [],
+    tierPricing,
     stockQty: Number(r.stock_qty ?? r.stockQty ?? 0),
     retailPrice: Number(r.retail_price ?? r.retailPrice ?? 0),
     wholesalePrice: Number(r.wholesale_price ?? r.wholesalePrice ?? 0),
@@ -606,6 +622,8 @@ export interface MarketEntryMapped {
   minWholesalePrice: number;
   maxWholesalePrice: number;
   hasWholesale: boolean;
+  ratingAvg?: number;
+  reviewsCount?: number;
 }
 
 export async function fetchSuppliersMarket(): Promise<MarketEntryMapped[]> {
@@ -622,6 +640,8 @@ export async function fetchSuppliersMarket(): Promise<MarketEntryMapped[]> {
           minWholesalePrice: Number(entry.minWholesalePrice || 0),
           maxWholesalePrice: Number(entry.maxWholesalePrice || 0),
           hasWholesale: Boolean(entry.hasWholesale),
+          ratingAvg: Number(entry.ratingAvg ?? entry.supplier?.rating_stars ?? 5),
+          reviewsCount: Number(entry.reviewsCount ?? entry.supplier?.reviews_count ?? 0),
         }));
       }
     }
@@ -629,10 +649,129 @@ export async function fetchSuppliersMarket(): Promise<MarketEntryMapped[]> {
   return [];
 }
 
+export function mapDbSupplierReview(r: any): SupplierReview {
+  return {
+    id: r.id,
+    supplierId: r.supplier_id || r.supplierId || '',
+    workshopId: r.workshop_id || r.workshopId || '',
+    reviewerName: r.reviewer_name || r.reviewerName || 'فنان بالشمساوية',
+    reviewerBrand: r.reviewer_brand || r.reviewerBrand || '',
+    reviewerRole: r.reviewer_role || r.reviewerRole || 'artisan',
+    rating: Math.min(5, Math.max(1, Number(r.rating || 5))),
+    comment: r.comment || '',
+    createdAt: r.created_at || r.createdAt,
+  };
+}
+
+export function mapDbOfferAlert(r: any): SupplierOfferAlert {
+  return {
+    id: r.id,
+    supplierId: r.supplier_id || r.supplierId || '',
+    supplierBrand: r.supplier_brand || r.supplierBrand || 'مورد معتمد',
+    supplierSlug: r.supplier_slug || r.supplierSlug || '',
+    alertType: (r.alert_type || r.alertType || 'offer') as SupplierOfferAlert['alertType'],
+    title: r.title || '',
+    message: r.message || '',
+    sectionId: r.section_id || r.sectionId || 'all',
+    discountBadge: r.discount_badge || r.discountBadge || '',
+    createdAt: r.created_at || r.createdAt,
+  };
+}
+
+export async function fetchSupplierReviews(supplierId: string): Promise<{
+  reviews: SupplierReview[];
+  ratingAvg: number;
+  reviewsCount: number;
+}> {
+  try {
+    const res = await fetch(`/api/suppliers/${encodeURIComponent(supplierId)}/reviews`);
+    if (res.ok) {
+      const json = await res.json();
+      return {
+        reviews: Array.isArray(json?.reviews) ? json.reviews.map(mapDbSupplierReview) : [],
+        ratingAvg: Number(json?.ratingAvg ?? 5),
+        reviewsCount: Number(json?.reviewsCount ?? 0),
+      };
+    }
+  } catch {}
+  return { reviews: [], ratingAvg: 5, reviewsCount: 0 };
+}
+
+export async function submitSupplierReview(
+  supplierId: string,
+  payload: {
+    rating: number;
+    comment: string;
+    workshopId?: string;
+    reviewerName?: string;
+    reviewerBrand?: string;
+    reviewerRole?: string;
+  }
+): Promise<{ success: boolean; review?: SupplierReview; ratingAvg?: number; reviewsCount?: number; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`/api/suppliers/${encodeURIComponent(supplierId)}/reviews`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success && json?.review) {
+      return {
+        success: true,
+        review: mapDbSupplierReview(json.review),
+        ratingAvg: Number(json.ratingAvg ?? 5),
+        reviewsCount: Number(json.reviewsCount ?? 0),
+      };
+    }
+    return { success: false, error: json?.error || 'تعذر إرسال التقييم' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال' };
+  }
+}
+
+export async function fetchSupplierOfferAlerts(): Promise<SupplierOfferAlert[]> {
+  try {
+    const res = await fetch('/api/suppliers/offer-alerts');
+    if (res.ok) {
+      const json = await res.json();
+      if (Array.isArray(json?.alerts)) return json.alerts.map(mapDbOfferAlert);
+    }
+  } catch {}
+  return [];
+}
+
+export async function publishSupplierOfferAlert(payload: {
+  alertType: 'offer' | 'new_stock' | 'price_drop';
+  title: string;
+  message: string;
+  sectionId?: string;
+  discountBadge?: string;
+}): Promise<{ success: boolean; alert?: SupplierOfferAlert; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/suppliers/offer-alerts', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success && json?.alert) {
+      return { success: true, alert: mapDbOfferAlert(json.alert) };
+    }
+    return { success: false, error: json?.error || 'تعذر إرسال التنبيه للورش' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال' };
+  }
+}
+
 export async function fetchPublicSupplierStore(slug: string): Promise<{
   supplier: SupplierProfile | null;
   items: SupplierCatalogItem[];
   memberProfile?: any;
+  reviews?: SupplierReview[];
+  ratingAvg?: number;
+  reviewsCount?: number;
   suspended?: boolean;
   hiddenStorefront?: boolean;
   suspensionReason?: string;
@@ -646,6 +785,9 @@ export async function fetchPublicSupplierStore(slug: string): Promise<{
       supplier: mapDbSupplierRowToProfile(json.supplier),
       items: Array.isArray(json.items) ? json.items.map(mapDbCatalogItem) : [],
       memberProfile: json.memberProfile || null,
+      reviews: Array.isArray(json.reviews) ? json.reviews.map(mapDbSupplierReview) : [],
+      ratingAvg: Number(json.ratingAvg ?? json.supplier?.rating_stars ?? 5),
+      reviewsCount: Number(json.reviewsCount ?? 0),
       suspended: Boolean(json.suspended),
       hiddenStorefront: Boolean(json.hiddenStorefront),
       suspensionReason: json.suspensionReason,
@@ -668,6 +810,7 @@ export async function placeB2BSupplyOrder(payload: {
     retailPrice: number;
     wholesalePrice: number;
     minWholesaleQty: number;
+    tierPricing?: SupplierPriceTier[];
     discountType?: 'none' | 'percent' | 'fixed';
     discountValue?: number;
   }[];
