@@ -75,6 +75,8 @@ export function mapDbSupplierRowToProfile(row: any): SupplierProfile {
     medal: row.medal,
     ratingStars: Number(row.rating_stars ?? row.ratingStars ?? 5),
     featuredRank: Number(row.featured_rank ?? row.featuredRank ?? 0),
+    hideStorefront: Boolean(row.hide_storefront ?? row.hideStorefront),
+    hideFromMarket: Boolean(row.hide_from_market ?? row.hideFromMarket),
     termsAcceptedAt: row.terms_accepted_at || row.termsAcceptedAt,
     createdAt: row.created_at || row.createdAt,
     updatedAt: row.updated_at || row.updatedAt,
@@ -591,4 +593,298 @@ export async function deleteSupplierExpense(id: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// =============================================================
+// Public Suppliers Market & Direct B2B Orders / Receiving
+// =============================================================
+export interface MarketEntryMapped {
+  supplier: SupplierProfile;
+  items: SupplierCatalogItem[];
+  minRetailPrice: number;
+  maxRetailPrice: number;
+  minWholesalePrice: number;
+  maxWholesalePrice: number;
+  hasWholesale: boolean;
+}
+
+export async function fetchSuppliersMarket(): Promise<MarketEntryMapped[]> {
+  try {
+    const res = await fetch('/api/suppliers-market');
+    if (res.ok) {
+      const json = await res.json();
+      if (Array.isArray(json?.entries)) {
+        return json.entries.map((entry: any) => ({
+          supplier: mapDbSupplierRowToProfile(entry.supplier),
+          items: Array.isArray(entry.items) ? entry.items.map(mapDbCatalogItem) : [],
+          minRetailPrice: Number(entry.minRetailPrice || 0),
+          maxRetailPrice: Number(entry.maxRetailPrice || 0),
+          minWholesalePrice: Number(entry.minWholesalePrice || 0),
+          maxWholesalePrice: Number(entry.maxWholesalePrice || 0),
+          hasWholesale: Boolean(entry.hasWholesale),
+        }));
+      }
+    }
+  } catch {}
+  return [];
+}
+
+export async function fetchPublicSupplierStore(slug: string): Promise<{
+  supplier: SupplierProfile | null;
+  items: SupplierCatalogItem[];
+  memberProfile?: any;
+  suspended?: boolean;
+  hiddenStorefront?: boolean;
+  suspensionReason?: string;
+} | null> {
+  try {
+    const res = await fetch(`/api/public/supplier-store/${encodeURIComponent(slug)}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!json?.supplier) return null;
+    return {
+      supplier: mapDbSupplierRowToProfile(json.supplier),
+      items: Array.isArray(json.items) ? json.items.map(mapDbCatalogItem) : [],
+      memberProfile: json.memberProfile || null,
+      suspended: Boolean(json.suspended),
+      hiddenStorefront: Boolean(json.hiddenStorefront),
+      suspensionReason: json.suspensionReason,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function placeB2BSupplyOrder(payload: {
+  supplierId: string;
+  workshopId?: string;
+  orderSource?: 'suppliers_market' | 'direct_supplier_store';
+  items: {
+    catalogItemId: string;
+    name: string;
+    unit: string;
+    variantLabel?: string;
+    quantity: number;
+    retailPrice: number;
+    wholesalePrice: number;
+    minWholesaleQty: number;
+    discountType?: 'none' | 'percent' | 'fixed';
+    discountValue?: number;
+  }[];
+  shippingFee?: number;
+  discount?: number;
+  paidAmount?: number;
+  paymentMethod?: string;
+  notes?: string;
+  buyerInfo?: {
+    workshopBrand?: string;
+    name?: string;
+    phone?: string;
+    country?: string;
+    governorate?: string;
+    address?: string;
+  };
+}): Promise<{ success: boolean; order?: B2BSupplyOrder; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/b2b/orders', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success && json?.order) {
+      return { success: true, order: mapDbB2BOrder(json.order) };
+    }
+    return { success: false, error: json?.error || 'تعذر إرسال طلب التوريد' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال بالخادم' };
+  }
+}
+
+export interface WorkshopB2BOrderRow extends B2BSupplyOrder {
+  supplierBrandName?: string;
+  supplierPhone?: string;
+  supplierSlug?: string;
+  currencySymbol?: string;
+}
+
+export async function fetchWorkshopB2BOrders(workshopId: string): Promise<WorkshopB2BOrderRow[]> {
+  if (!workshopId) return [];
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`/api/b2b/workshop-orders?workshopId=${encodeURIComponent(workshopId)}`, { headers });
+    if (res.ok) {
+      const json = await res.json();
+      if (Array.isArray(json?.orders)) {
+        return json.orders.map((r: any) => ({
+          ...mapDbB2BOrder(r),
+          supplierBrandName: r.supplierBrandName || 'مورد معتمد',
+          supplierPhone: r.supplierPhone || '',
+          supplierSlug: r.supplierSlug || r.supplier_id,
+          currencySymbol: r.currencySymbol || 'ج.م',
+        }));
+      }
+    }
+  } catch {}
+  return [];
+}
+
+export async function receiveB2BSupplyOrder(
+  orderId: string,
+  payload: {
+    workshopTreasuryId?: string | null;
+    paidAmount?: number;
+    paymentMethod?: string;
+  }
+): Promise<{ success: boolean; alreadySynced?: boolean; order?: B2BSupplyOrder; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`/api/b2b/orders/${encodeURIComponent(orderId)}/receive`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) {
+      return {
+        success: true,
+        alreadySynced: Boolean(json.alreadySynced),
+        order: json.order ? mapDbB2BOrder(json.order) : undefined,
+      };
+    }
+    return { success: false, error: json?.error || 'تعذر اعتماد استلام البضاعة' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال بالخادم' };
+  }
+}
+
+// =============================================================
+// Super Admin Suppliers, Customers & Granular Visibility APIs
+// =============================================================
+export interface AdminEnrichedSupplier extends SupplierProfile {
+  itemsCount: number;
+  marketItemsCount: number;
+  ordersCount: number;
+  customersCount: number;
+  totalRevenue: number;
+}
+
+export async function fetchAdminSuppliers(userEmail?: string): Promise<AdminEnrichedSupplier[]> {
+  try {
+    const headers = await getAuthHeaders(userEmail ? { 'x-user-email': userEmail } : {});
+    const res = await fetch('/api/admin/suppliers', { headers });
+    if (res.ok) {
+      const json = await res.json();
+      if (Array.isArray(json?.suppliers)) {
+        return json.suppliers.map((s: any) => ({
+          ...mapDbSupplierRowToProfile(s),
+          itemsCount: Number(s.itemsCount || 0),
+          marketItemsCount: Number(s.marketItemsCount || 0),
+          ordersCount: Number(s.ordersCount || 0),
+          customersCount: Number(s.customersCount || 0),
+          totalRevenue: Number(s.totalRevenue || 0),
+        }));
+      }
+    }
+  } catch {}
+  return [];
+}
+
+export async function fetchAdminSupplierCatalog(supplierId: string, userEmail?: string): Promise<SupplierCatalogItem[]> {
+  try {
+    const headers = await getAuthHeaders(userEmail ? { 'x-user-email': userEmail } : {});
+    const res = await fetch(`/api/admin/suppliers/${encodeURIComponent(supplierId)}/catalog`, { headers });
+    if (res.ok) {
+      const json = await res.json();
+      if (Array.isArray(json?.items)) return json.items.map(mapDbCatalogItem);
+    }
+  } catch {}
+  return [];
+}
+
+export async function updateSupplierVisibility(
+  supplierId: string,
+  payload: { hideStorefront?: boolean; hideFromMarket?: boolean },
+  userEmail?: string
+): Promise<{ success: boolean; cloudSynced?: boolean; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({
+      'Content-Type': 'application/json',
+      ...(userEmail ? { 'x-user-email': userEmail } : {}),
+    });
+    const res = await fetch(`/api/admin/suppliers/${encodeURIComponent(supplierId)}/visibility`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    return { success: res.ok && Boolean(json?.success), cloudSynced: json?.cloudSynced, error: json?.error };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function moderateAdminSupplier(
+  supplierId: string,
+  payload: {
+    status?: 'active' | 'suspended' | 'banned';
+    isFrozen?: boolean;
+    suspensionReason?: string;
+    medal?: string | null;
+    ratingStars?: number;
+    appealStatus?: string;
+    rejectionReason?: string;
+  },
+  userEmail?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({
+      'Content-Type': 'application/json',
+      ...(userEmail ? { 'x-user-email': userEmail } : {}),
+    });
+    const res = await fetch(`/api/admin/suppliers/${encodeURIComponent(supplierId)}/moderation`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    return { success: res.ok && Boolean(json?.success), error: json?.error };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function updateWorkshopVisibility(
+  workshopId: string,
+  payload: { hideStorefront?: boolean; hideFromMarket?: boolean },
+  userEmail?: string
+): Promise<{ success: boolean; cloudSynced?: boolean; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({
+      'Content-Type': 'application/json',
+      ...(userEmail ? { 'x-user-email': userEmail } : {}),
+    });
+    const res = await fetch(`/api/admin/workshops/${encodeURIComponent(workshopId)}/visibility`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    return { success: res.ok && Boolean(json?.success), cloudSynced: json?.cloudSynced, error: json?.error };
+  } catch (err: any) {
+    return { success: false, error: err?.message };
+  }
+}
+
+export async function fetchAdminCustomersDirectory(userEmail?: string): Promise<any[]> {
+  try {
+    const headers = await getAuthHeaders(userEmail ? { 'x-user-email': userEmail } : {});
+    const res = await fetch('/api/admin/customers-directory', { headers });
+    if (res.ok) {
+      const json = await res.json();
+      if (Array.isArray(json?.customers)) return json.customers;
+    }
+  } catch {}
+  return [];
 }

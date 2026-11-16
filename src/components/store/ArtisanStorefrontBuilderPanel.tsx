@@ -33,6 +33,7 @@ import {
   MessageCircle,
   Globe,
   Gift,
+  User,
 } from 'lucide-react';
 import { ArtisanContactDisplayMode } from '../../types/artisanStoreBuilder';
 
@@ -45,6 +46,7 @@ interface ArtisanStorefrontBuilderPanelProps {
   onChange: (next: ArtisanStoreConfig) => void;
   onSaveCloud: (next: ArtisanStoreConfig) => Promise<void> | void;
   onOpenPreview?: () => void;
+  onOpenPersonalProfile?: () => void;
 }
 
 export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPanelProps> = ({
@@ -56,6 +58,7 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
   onChange,
   onSaveCloud,
   onOpenPreview,
+  onOpenPersonalProfile,
 }) => {
   const activeCurr = getCurrencyInfo(config.storeCurrency);
   const previewTheme =
@@ -424,11 +427,23 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
             </div>
 
             <div className="md:col-span-2 p-3 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <label className="font-black">قصة الفنان ونبذة عن الورشة</label>
-                {renderToggleChip(config.showArtistStory, () =>
-                  onChange({ ...config, showArtistStory: !config.showArtistStory })
-                )}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="font-black">قصة الفنان ونبذة عن الورشة (تتزامن تلقائياً مع صفحتك الشخصية)</label>
+                <div className="flex items-center gap-2">
+                  {onOpenPersonalProfile && (
+                    <button
+                      type="button"
+                      onClick={onOpenPersonalProfile}
+                      className="px-2.5 py-1 rounded-lg bg-[#0C1427] dark:bg-[#132040] text-[#FBBF24] border border-[#22355E] text-[10px] font-black inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <User className="w-3 h-3" />
+                      <span>فتح صفحتي الشخصية</span>
+                    </button>
+                  )}
+                  {renderToggleChip(config.showArtistStory, () =>
+                    onChange({ ...config, showArtistStory: !config.showArtistStory })
+                  )}
+                </div>
               </div>
               <textarea
                 rows={2}
@@ -684,13 +699,30 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
         {/* 4. Before / After Portfolio Gallery */}
         <div className="p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h5 className="font-black flex items-center gap-2">
-              <ImageIcon className="w-4 h-4 text-[#EA580C]" />
-              <span>معرض الأعمال السابقة ولمسات التنفيذ (قبل / بعد)</span>
-            </h5>
-            {renderToggleChip(config.showPortfolioGallery, () =>
-              onChange({ ...config, showPortfolioGallery: !config.showPortfolioGallery })
-            )}
+            <div>
+              <h5 className="font-black flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-[#EA580C]" />
+                <span>معرض الأعمال السابقة ولمسات التنفيذ (قبل / بعد)</span>
+              </h5>
+              <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                يعرض تلقائياً أيضاً منشورات معرض الأعمال (الحد الأقصى ٦ منشورات) من صفحتك الشخصية.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {onOpenPersonalProfile && (
+                <button
+                  type="button"
+                  onClick={onOpenPersonalProfile}
+                  className="px-2.5 py-1 rounded-lg bg-[#0C1427] dark:bg-[#132040] text-[#FBBF24] border border-[#22355E] text-[10px] font-black inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <User className="w-3 h-3" />
+                  <span>منشورات صفحتي الشخصية (٦)</span>
+                </button>
+              )}
+              {renderToggleChip(config.showPortfolioGallery, () =>
+                onChange({ ...config, showPortfolioGallery: !config.showPortfolioGallery })
+              )}
+            </div>
           </div>
 
           <input

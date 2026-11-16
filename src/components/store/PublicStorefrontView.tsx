@@ -7,6 +7,7 @@ import {
   ShieldCheck,
   Truck,
   ArrowRight,
+  Home,
   ExternalLink,
   Share2,
   X,
@@ -31,7 +32,9 @@ import {
   Heart,
   Gift,
   Trash2,
+  User,
 } from 'lucide-react';
+import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
 import {
   fetchPublicStorefrontBySlug,
   normalizeCloudProduct,
@@ -158,6 +161,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const [fxTick, setFxTick] = useState<number>(0);
   const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>(() => getWishlistItems());
   const [isWishlistOpen, setIsWishlistOpen] = useState<boolean>(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isDarkTheme, setIsDarkTheme] = useState<boolean>(() =>
     typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : false
   );
@@ -745,6 +749,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   };
 
   const workshop = storeData?.workshop;
+  const memberProfile = (workshop as any)?.memberProfile || null;
+  const resolvedArtistStory = (artisanConfig.artistStory || '').trim() || memberProfile?.storyText || '';
+  const profileShowcasePosts: any[] = Array.isArray(memberProfile?.showcasePosts)
+    ? memberProfile.showcasePosts
+    : [];
   const brandName = workshop?.brandName || 'ورشة الشمساوية';
   const artistName = workshop?.artistName || 'فنان الشمساوية';
   const phone = workshop?.phoneNumber || OFFICIAL_SUPPORT_PHONE;
@@ -888,25 +897,31 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           <nav className="hidden md:flex items-center gap-6 text-xs font-bold text-[#334155] dark:text-[#CBD5E1]">
             <a
               href="/#/market"
+              onClick={(e) => {
+                if (onNavigateToMarket) {
+                  e.preventDefault();
+                  onNavigateToMarket();
+                }
+              }}
               className="hover:text-[#C2410C] dark:hover:text-[#FBBF24] transition-colors whitespace-nowrap shrink-0"
             >
               سوق الشمساوية
             </a>
-            {onNavigateToApp && (
+            {onNavigateToApp && Boolean(typeof window !== 'undefined' && localStorage.getItem('alshams_profile')) && (
               <button
                 type="button"
                 onClick={onNavigateToApp}
                 className="hover:text-[#C2410C] dark:hover:text-[#FBBF24] transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1"
               >
-                <span>دخول الحرفيين</span>
+                <span>لوحة ورشتي</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
             )}
           </nav>
 
-          {/* Zone 3: Share & Cart Actions (plus Owner Preview Close button) */}
+          {/* Zone 3: Share & Cart Actions (plus Owner Preview Close or Home/Market button) */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {isOwnerPreview && onClosePreview && (
+            {isOwnerPreview && onClosePreview ? (
               <button
                 type="button"
                 onClick={onClosePreview}
@@ -915,6 +930,28 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 <ArrowRight className="w-3.5 h-3.5" />
                 <span>عودة لمتجري</span>
               </button>
+            ) : (
+              (() => {
+                const hasLoggedSession =
+                  typeof window !== 'undefined' && Boolean(localStorage.getItem('alshams_profile'));
+                const targetHandler = hasLoggedSession
+                  ? onNavigateToApp || onNavigateToMarket
+                  : onNavigateToMarket || onNavigateToApp;
+                if (!targetHandler) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={targetHandler}
+                    className="px-2.5 sm:px-3 py-2 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-black transition flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                    title={hasLoggedSession ? 'الرجوع للرئيسية' : 'العودة لسوق الشمساوية'}
+                  >
+                    <Home className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
+                    <span className="hidden sm:inline">
+                      {hasLoggedSession ? 'الرئيسية' : 'سوق الشمساوية'}
+                    </span>
+                  </button>
+                );
+              })()
             )}
 
             <button
@@ -1054,9 +1091,9 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               </p>
             )}
 
-            {artisanConfig.showArtistStory && artisanConfig.artistStory && (
+            {artisanConfig.showArtistStory && resolvedArtistStory && (
               <p className="text-xs text-[#475569] dark:text-[#CBD5E1] leading-relaxed">
-                {artisanConfig.artistStory}
+                {resolvedArtistStory}
               </p>
             )}
 
@@ -1121,6 +1158,19 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                     <span>توصيل لجميع المحافظات</span>
                   </span>
                 )}
+              </div>
+            )}
+
+            {workshop?.id && (
+              <div className="pt-1 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-black transition cursor-pointer"
+                >
+                  <User className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24]" />
+                  <span>الصفحة الشخصية ومعرض الأعمال</span>
+                </button>
               </div>
             )}
           </div>
@@ -1645,59 +1695,109 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
         )}
 
-        {/* Optional Before / After Portfolio Gallery */}
-        {artisanConfig.showPortfolioGallery && artisanConfig.portfolioItems.length > 0 && (
-          <section className="pt-4 space-y-4">
-            <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-2.5">
+        {/* Optional Before / After Portfolio Gallery + Synced Member Showcase (Max 6) */}
+        {((artisanConfig.showPortfolioGallery && artisanConfig.portfolioItems.length > 0) ||
+          profileShowcasePosts.length > 0) && (
+          <section className="pt-4 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#D4CCBC] dark:border-[#22355E] pb-2.5">
               <h3 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
                 {artisanConfig.portfolioTitle || 'معرض أعمالنا السابقة ولمسات التنفيذ'}
               </h3>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {artisanConfig.portfolioItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden shadow-xs"
+              {workshop?.id && (
+                <button
+                  type="button"
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24] hover:underline inline-flex items-center gap-1 cursor-pointer"
                 >
-                  <div className={`grid ${item.beforeImageUrl ? 'grid-cols-2' : 'grid-cols-1'} aspect-[16/10] bg-[#E9E2D4] dark:bg-[#132040]`}>
-                    {item.beforeImageUrl && (
-                      <div className="relative h-full border-l border-[#D4CCBC] dark:border-[#22355E]">
-                        <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/75 text-white text-[10px] font-bold">
-                          قبل
-                        </span>
+                  <User className="w-3.5 h-3.5" />
+                  <span>زيارة الصفحة الشخصية للفنان</span>
+                </button>
+              )}
+            </div>
+
+            {artisanConfig.showPortfolioGallery && artisanConfig.portfolioItems.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {artisanConfig.portfolioItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden shadow-xs"
+                  >
+                    <div className={`grid ${item.beforeImageUrl ? 'grid-cols-2' : 'grid-cols-1'} aspect-[16/10] bg-[#E9E2D4] dark:bg-[#132040]`}>
+                      {item.beforeImageUrl && (
+                        <div className="relative h-full border-l border-[#D4CCBC] dark:border-[#22355E]">
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/75 text-white text-[10px] font-bold">
+                            قبل
+                          </span>
+                          <img
+                            src={item.beforeImageUrl}
+                            alt={`${item.title} قبل`}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
+                      <div className="relative h-full">
+                        {item.beforeImageUrl && (
+                          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-[#EA580C] text-white text-[10px] font-bold">
+                            بعد
+                          </span>
+                        )}
                         <img
-                          src={item.beforeImageUrl}
-                          alt={`${item.title} قبل`}
+                          src={item.imageUrl}
+                          alt={item.title}
                           className="w-full h-full object-cover"
                         />
                       </div>
-                    )}
-                    <div className="relative h-full">
-                      {item.beforeImageUrl && (
-                        <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-[#EA580C] text-white text-[10px] font-bold">
-                          بعد
-                        </span>
+                    </div>
+                    <div className="p-3 space-y-1">
+                      <h4 className="font-bold text-xs sm:text-sm text-[#0C1427] dark:text-[#F7F3EA]">
+                        {item.title}
+                      </h4>
+                      {item.caption && (
+                        <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] line-clamp-2">
+                          {item.caption}
+                        </p>
                       )}
-                      <img
-                        src={item.imageUrl}
-                        alt={item.title}
-                        className="w-full h-full object-cover"
-                      />
                     </div>
                   </div>
-                  <div className="p-3 space-y-1">
-                    <h4 className="font-bold text-xs sm:text-sm text-[#0C1427] dark:text-[#F7F3EA]">
-                      {item.title}
-                    </h4>
-                    {item.caption && (
-                      <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] line-clamp-2">
-                        {item.caption}
-                      </p>
+                ))}
+              </div>
+            )}
+
+            {profileShowcasePosts.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+                {profileShowcasePosts.slice(0, 6).map((post: any) => (
+                  <button
+                    key={post.id}
+                    type="button"
+                    onClick={() => setIsProfileModalOpen(true)}
+                    className="group text-right rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden hover:border-[#EA580C] transition cursor-pointer flex flex-col"
+                  >
+                    <div className="aspect-[4/3] w-full bg-[#E9E2D4] dark:bg-[#132040] overflow-hidden">
+                      <img
+                        src={post.imageUrl}
+                        alt={post.caption || 'من أعمال الورشة'}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                      />
+                    </div>
+                    {(post.caption || post.createdAt) && (
+                      <div className="p-2.5 sm:p-3 space-y-1">
+                        {post.caption && (
+                          <p className="text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] line-clamp-2">
+                            {post.caption}
+                          </p>
+                        )}
+                        {post.createdAt && (
+                          <p className="text-[10px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
+                            {new Date(post.createdAt).toLocaleDateString('ar-EG')}
+                          </p>
+                        )}
+                      </div>
                     )}
-                  </div>
-                </div>
-              ))}
-            </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
         )}
       </main>
@@ -2262,6 +2362,16 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
         </div>
       </footer>
+
+      {isProfileModalOpen && workshop?.id && (
+        <MemberPersonalProfileView
+          mode="modal"
+          targetMemberId={workshop.id}
+          currentUserProfile={ownerProfile || null}
+          onClose={() => setIsProfileModalOpen(false)}
+          onOpenStore={() => setIsProfileModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

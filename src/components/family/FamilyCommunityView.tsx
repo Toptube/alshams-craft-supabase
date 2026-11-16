@@ -26,6 +26,7 @@ import { ArtisanAvatar } from '../brand/BrandAssets';
 import { authedFetch } from '../../lib/apiClient';
 import { supabase } from '../../lib/supabase';
 import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
+import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
 
 export type FamilyReactionType = 'like' | 'dislike' | 'love' | 'clap' | 'rose';
 
@@ -40,7 +41,9 @@ export interface FamilyCommentItem {
   id: string;
   postId: string;
   workshopId: string;
+  memberId?: string;
   authorEmail: string;
+  authorRole?: 'artisan' | 'supplier' | 'superadmin';
   isSuperAdmin: boolean;
   authorName: string;
   brandName: string;
@@ -54,7 +57,9 @@ export interface FamilyCommentItem {
 export interface FamilyPostItem {
   id: string;
   workshopId: string;
+  memberId?: string;
   authorEmail: string;
+  authorRole?: 'artisan' | 'supplier' | 'superadmin';
   isSuperAdmin: boolean;
   authorName: string;
   brandName: string;
@@ -74,7 +79,9 @@ export interface FamilyPostItem {
 export interface FamilyChatMessage {
   id: string;
   workshopId: string;
+  memberId?: string;
   authorEmail: string;
+  authorRole?: 'artisan' | 'supplier' | 'superadmin';
   isSuperAdmin: boolean;
   authorName: string;
   brandName: string;
@@ -97,9 +104,11 @@ export interface FamilyRestrictionRecord {
 
 export interface FamilyMemberEntry {
   workshopId: string;
+  memberId?: string;
   email: string;
   artistName: string;
   brandName: string;
+  authorRole?: 'artisan' | 'supplier' | 'superadmin';
   avatarUrl?: string | null;
   medal?: string | null;
   ratingStars?: number;
@@ -110,6 +119,7 @@ export interface FamilyMemberEntry {
 interface FamilyCommunityViewProps {
   profile: UserProfile;
   isSwitchedWorkshop?: boolean;
+  onOpenMemberStore?: (slug: string, role: 'artisan' | 'supplier' | 'superadmin') => void;
 }
 
 const MEDAL_ICONS: Record<string, { emoji: string; title: string; className: string }> = {
@@ -167,10 +177,13 @@ interface AuthorIdentityProps {
   brandName: string;
   avatarUrl?: string | null;
   isSuperAdmin: boolean;
+  authorRole?: 'artisan' | 'supplier' | 'superadmin';
+  memberId?: string;
   medal?: string | null;
   ratingStars?: number;
   createdAt?: string;
   compact?: boolean;
+  onOpenProfile?: (memberId: string) => void;
 }
 
 const FamilyAuthorIdentity: React.FC<AuthorIdentityProps> = ({
@@ -178,62 +191,108 @@ const FamilyAuthorIdentity: React.FC<AuthorIdentityProps> = ({
   brandName,
   avatarUrl,
   isSuperAdmin,
+  authorRole,
+  memberId,
   medal,
   ratingStars = 5,
   createdAt,
   compact = false,
+  onOpenProfile,
 }) => {
   const medalInfo = medal ? MEDAL_ICONS[String(medal).toLowerCase()] : null;
+  const canOpenProfile = Boolean(onOpenProfile && memberId);
+
+  const avatarNode = isSuperAdmin ? (
+    <div
+      className={`${
+        compact ? 'w-8 h-8' : 'w-10 h-10'
+      } rounded-xl bg-gradient-to-br from-[#0C1427] via-[#1E3A8A] to-[#EA580C] text-[#FBBF24] border border-[#FBBF24]/70 flex items-center justify-center shrink-0 shadow-xs`}
+    >
+      <Crown className={compact ? 'w-4 h-4' : 'w-5 h-5'} />
+    </div>
+  ) : avatarUrl ? (
+    <img
+      src={avatarUrl}
+      alt={brandName || authorName}
+      referrerPolicy="no-referrer"
+      className={`${
+        compact ? 'w-8 h-8' : 'w-10 h-10'
+      } rounded-xl object-cover border border-[#EA580C]/45 bg-[#EFE9DC] dark:bg-[#132040] shrink-0`}
+    />
+  ) : (
+    <ArtisanAvatar
+      artistName={authorName}
+      size={compact ? 'sm' : 'md'}
+      className="shrink-0"
+    />
+  );
+
+  const nameTriggerContent = (
+    <>
+      <span
+        className={`${
+          compact ? 'text-xs' : 'text-sm'
+        } font-black ${
+          isSuperAdmin
+            ? 'text-[#C2410C] dark:text-[#FBBF24]'
+            : 'text-[#0C1427] dark:text-[#F7F3EA]'
+        } ${canOpenProfile ? 'group-hover/author:text-[#EA580C] dark:group-hover/author:text-[#FBBF24] group-hover/author:underline transition-colors' : ''}`}
+      >
+        {isSuperAdmin ? 'كبير العيلة' : authorName}
+      </span>
+
+      {!isSuperAdmin && brandName && (
+        <span
+          className={`${
+            compact ? 'text-[11px]' : 'text-xs'
+          } font-bold text-[#475569] dark:text-[#CBD5E1]`}
+        >
+          ({brandName})
+        </span>
+      )}
+
+      {!isSuperAdmin && authorRole === 'supplier' && (
+        <span className="text-[11px] font-black text-[#C2410C] dark:text-[#FBBF24]">
+          · مورد خامات
+        </span>
+      )}
+    </>
+  );
 
   return (
     <div className="flex items-start gap-2.5 min-w-0">
-      {isSuperAdmin ? (
-        <div
-          className={`${
-            compact ? 'w-8 h-8' : 'w-10 h-10'
-          } rounded-xl bg-gradient-to-br from-[#0C1427] via-[#1E3A8A] to-[#EA580C] text-[#FBBF24] border border-[#FBBF24]/70 flex items-center justify-center shrink-0 shadow-xs`}
+      {canOpenProfile ? (
+        <button
+          type="button"
+          onClick={() => {
+            playButtonClickSound();
+            onOpenProfile!(memberId!);
+          }}
+          title="عرض الصفحة الشخصية ومعرض الأعمال"
+          className="shrink-0 cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] hover:scale-[1.03] transition-transform"
         >
-          <Crown className={compact ? 'w-4 h-4' : 'w-5 h-5'} />
-        </div>
-      ) : avatarUrl ? (
-        <img
-          src={avatarUrl}
-          alt={brandName || authorName}
-          referrerPolicy="no-referrer"
-          className={`${
-            compact ? 'w-8 h-8' : 'w-10 h-10'
-          } rounded-xl object-cover border border-[#EA580C]/45 bg-[#EFE9DC] dark:bg-[#132040] shrink-0`}
-        />
+          {avatarNode}
+        </button>
       ) : (
-        <ArtisanAvatar
-          artistName={authorName}
-          size={compact ? 'sm' : 'md'}
-          className="shrink-0"
-        />
+        avatarNode
       )}
 
       <div className="min-w-0 flex-1 text-right">
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span
-            className={`${
-              compact ? 'text-xs' : 'text-sm'
-            } font-black ${
-              isSuperAdmin
-                ? 'text-[#C2410C] dark:text-[#FBBF24]'
-                : 'text-[#0C1427] dark:text-[#F7F3EA]'
-            }`}
-          >
-            {isSuperAdmin ? 'كبير العيلة' : authorName}
-          </span>
-
-          {!isSuperAdmin && brandName && (
-            <span
-              className={`${
-                compact ? 'text-[11px]' : 'text-xs'
-              } font-bold text-[#475569] dark:text-[#CBD5E1]`}
+          {canOpenProfile ? (
+            <button
+              type="button"
+              onClick={() => {
+                playButtonClickSound();
+                onOpenProfile!(memberId!);
+              }}
+              title="فتح الصفحة الشخصية ومعرض الأعمال"
+              className="group/author inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-right cursor-pointer focus-visible:outline-none focus-visible:underline"
             >
-              ({brandName})
-            </span>
+              {nameTriggerContent}
+            </button>
+          ) : (
+            nameTriggerContent
           )}
 
           {isSuperAdmin ? (
@@ -253,7 +312,7 @@ const FamilyAuthorIdentity: React.FC<AuthorIdentityProps> = ({
             </span>
           ) : (
             <span
-              title={`تقييم الورشة: ${ratingStars} نجوم`}
+              title={`تقييم العضو: ${ratingStars} نجوم`}
               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-[10px] font-black"
             >
               <span>{ratingStars}</span>
@@ -275,6 +334,7 @@ const FamilyAuthorIdentity: React.FC<AuthorIdentityProps> = ({
 export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
   profile,
   isSwitchedWorkshop = false,
+  onOpenMemberStore,
 }) => {
   const isAdmin = isUserAdmin(profile) && !isSwitchedWorkshop;
   const myWorkshopId = profile.workshopId || profile.tenantId || profile.id || '';
@@ -283,10 +343,13 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
     ? `w:${myWorkshopId.trim().toLowerCase()}`
     : `e:${myEmail}`;
 
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+
   const authorProfilePayload = {
     workshopId: myWorkshopId,
     artistName: profile.artistName || '',
     brandName: profile.brandName || '',
+    accountRole: (profile as any)?.accountRole || (isAdmin ? 'superadmin' : 'artisan'),
     avatarUrl: (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64 || null,
     medal: (profile as any)?.medal || null,
     ratingStars: (profile as any)?.ratingStars || (profile as any)?.rating_stars || 5,
@@ -966,7 +1029,7 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
       <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] px-3 py-2.5 sm:px-4 sm:py-3 shadow-xs">
         <div className="flex items-center justify-between gap-2 flex-nowrap">
           <h1 className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] truncate whitespace-nowrap min-w-0">
-            منور طبلية عيلة الشمساويه يافنان 🌹 اتفضل
+            منور طبلية عيلة الشمساويه (فنانين وموردين) 🌹 اتفضل
           </h1>
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -1039,9 +1102,12 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                       authorName={m.artistName}
                       brandName={m.brandName}
                       avatarUrl={m.avatarUrl}
-                      isSuperAdmin={false}
+                      isSuperAdmin={m.authorRole === 'superadmin'}
+                      authorRole={m.authorRole}
+                      memberId={m.memberId || m.workshopId || m.email}
                       medal={m.medal}
                       ratingStars={m.ratingStars}
+                      onOpenProfile={(id) => setSelectedMemberId(id)}
                       compact
                     />
 
@@ -1139,8 +1205,11 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                   (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64 || null
                 }
                 isSuperAdmin={isAdmin}
+                authorRole={(profile as any)?.accountRole}
+                memberId={myWorkshopId || myEmail}
                 medal={(profile as any)?.medal || null}
                 ratingStars={(profile as any)?.ratingStars || (profile as any)?.rating_stars || 5}
+                onOpenProfile={(id) => setSelectedMemberId(id)}
                 compact
               />
 
@@ -1339,9 +1408,12 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                     brandName={post.brandName}
                     avatarUrl={post.avatarUrl}
                     isSuperAdmin={post.isSuperAdmin}
+                    authorRole={post.authorRole}
+                    memberId={post.memberId || post.workshopId || post.authorEmail}
                     medal={post.medal}
                     ratingStars={post.ratingStars}
                     createdAt={post.createdAt}
+                    onOpenProfile={(id) => setSelectedMemberId(id)}
                   />
 
                   <div className="flex items-center gap-1 shrink-0">
@@ -1569,9 +1641,12 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                               brandName={comment.brandName}
                               avatarUrl={comment.avatarUrl}
                               isSuperAdmin={comment.isSuperAdmin}
+                              authorRole={comment.authorRole}
+                              memberId={comment.memberId || comment.workshopId || comment.authorEmail}
                               medal={comment.medal}
                               ratingStars={comment.ratingStars}
                               createdAt={comment.createdAt}
+                              onOpenProfile={(id) => setSelectedMemberId(id)}
                               compact
                             />
 
@@ -1790,9 +1865,12 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                           brandName={msg.brandName}
                           avatarUrl={msg.avatarUrl}
                           isSuperAdmin={msg.isSuperAdmin}
+                          authorRole={msg.authorRole}
+                          memberId={msg.memberId || msg.workshopId || msg.authorEmail}
                           medal={msg.medal}
                           ratingStars={msg.ratingStars}
                           createdAt={msg.createdAt}
+                          onOpenProfile={(id) => setSelectedMemberId(id)}
                           compact
                         />
 
@@ -1856,6 +1934,26 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Member Personal Profile Modal (Opens when clicking any author/commenter/chat sender) */}
+      {selectedMemberId && (
+        <MemberPersonalProfileView
+          mode="modal"
+          targetMemberId={selectedMemberId}
+          currentUserProfile={profile}
+          onClose={() => setSelectedMemberId(null)}
+          onOpenStore={(slug, role) => {
+            setSelectedMemberId(null);
+            if (onOpenMemberStore) {
+              onOpenMemberStore(slug, role);
+            } else {
+              window.location.hash = role === 'supplier'
+                ? `#/supplier/${encodeURIComponent(slug)}`
+                : `#/store/${encodeURIComponent(slug)}`;
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

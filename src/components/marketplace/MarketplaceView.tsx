@@ -59,6 +59,8 @@ import {
   AlertCircle,
   RotateCcw,
   ArrowLeft,
+  ArrowRight,
+  Home,
   ArrowUpDown,
   Tag,
   Copy,
@@ -84,6 +86,7 @@ interface MarketplaceViewProps {
   profile?: UserProfile | null;
   onNavigateHome: () => void;
   onOpenStoreModal?: () => void;
+  onNavigateToSuppliersMarket?: () => void;
 }
 
 const DECOR_CATEGORIES = [
@@ -146,7 +149,9 @@ function matchesSubCraft(product: MarketplaceProductRecord, subCraftId: string):
 
 export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   profile,
+  onNavigateHome,
   onOpenStoreModal,
+  onNavigateToSuppliersMarket,
 }) => {
   const isSuperAdmin = useMemo(() => isUserAdmin(profile), [profile]);
 
@@ -1040,7 +1045,34 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           </div>
 
           {/* Zone 3: Concise Actions */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (profile && profile.id) {
+                  onNavigateHome();
+                } else {
+                  resetAllFilters();
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              }}
+              className="px-2.5 sm:px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-black text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+              title={profile && profile.id ? 'الرجوع للرئيسية' : 'الرئيسية — سوق الشمساوية'}
+            >
+              <ArrowRight className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24]" />
+              <Home className="w-3.5 h-3.5 hidden sm:inline text-[#C2410C] dark:text-[#FBBF24]" />
+              <span>الرئيسية</span>
+            </button>
+            {onNavigateToSuppliersMarket && (
+              <button
+                type="button"
+                onClick={onNavigateToSuppliersMarket}
+                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 border border-emerald-600/35 text-emerald-800 dark:text-emerald-300 font-black text-xs transition cursor-pointer whitespace-nowrap shrink-0"
+                title="سوق موردين الشمساوية للخامات"
+              >
+                <span>سوق الموردين</span>
+              </button>
+            )}
             {customerUser ? (
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs whitespace-nowrap">
                 <User className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />

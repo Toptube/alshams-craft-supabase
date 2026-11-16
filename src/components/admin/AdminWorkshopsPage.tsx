@@ -18,6 +18,9 @@ import {
   Phone,
   ArrowUpDown,
   RotateCcw,
+  Store,
+  ShoppingBag,
+  EyeOff,
 } from 'lucide-react';
 import {
   EnrichedWorkshopProfile,
@@ -44,6 +47,10 @@ interface AdminWorkshopsPageProps {
   onBanWorkshop: (ws: EnrichedWorkshopProfile) => void;
   onReactivateWorkshop: (ws: EnrichedWorkshopProfile) => void;
   onDeleteWorkshop: (ws: EnrichedWorkshopProfile) => void;
+  onToggleWorkshopVisibility?: (
+    ws: EnrichedWorkshopProfile,
+    field: 'hideStorefront' | 'hideFromMarket'
+  ) => void;
 }
 
 export const AdminWorkshopsPage: React.FC<AdminWorkshopsPageProps> = ({
@@ -61,6 +68,7 @@ export const AdminWorkshopsPage: React.FC<AdminWorkshopsPageProps> = ({
   onBanWorkshop,
   onReactivateWorkshop,
   onDeleteWorkshop,
+  onToggleWorkshopVisibility,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'banned'>('all');
@@ -355,6 +363,16 @@ export const AdminWorkshopsPage: React.FC<AdminWorkshopsPageProps> = ({
                         <span className={`inline-block px-2 py-0.5 rounded-md border text-[10px] font-black ${statusMeta.badgeClass}`}>
                           {statusMeta.label}
                         </span>
+                        {(ws.hideStorefront || ws.hide_storefront) && (
+                          <div className="text-[9px] font-black text-amber-700 dark:text-amber-300 mt-0.5">
+                            المتجر مخفي
+                          </div>
+                        )}
+                        {(ws.hideFromMarket || ws.hide_from_market) && (
+                          <div className="text-[9px] font-black text-rose-700 dark:text-rose-300 mt-0.5">
+                            مخفي من السوق
+                          </div>
+                        )}
                         <div className="text-[10px] font-mono tabular-nums text-[#475569] dark:text-[#94A3B8] mt-1">
                           {inactivity === 0 ? 'نشط اليوم' : `منذ ${inactivity} يوم`}
                         </div>
@@ -460,6 +478,46 @@ export const AdminWorkshopsPage: React.FC<AdminWorkshopsPageProps> = ({
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
+                          {onToggleWorkshopVisibility && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => onToggleWorkshopVisibility(ws, 'hideStorefront')}
+                                title={
+                                  ws.hideStorefront || ws.hide_storefront
+                                    ? 'إظهار المتجر الخاص للورشة'
+                                    : 'إخفاء المتجر الخاص للورشة (تظل الورشة تعمل داخلياً)'
+                                }
+                                className={`p-1.5 rounded-lg border cursor-pointer transition ${
+                                  ws.hideStorefront || ws.hide_storefront
+                                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-800 dark:text-amber-300'
+                                    : 'bg-[#EFE9DC] dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA]'
+                                }`}
+                              >
+                                {ws.hideStorefront || ws.hide_storefront ? (
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Store className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onToggleWorkshopVisibility(ws, 'hideFromMarket')}
+                                title={
+                                  ws.hideFromMarket || ws.hide_from_market
+                                    ? 'إظهار منتجات الورشة في سوق الشمساوية'
+                                    : 'إخفاء منتجات الورشة من سوق الشمساوية العام'
+                                }
+                                className={`p-1.5 rounded-lg border cursor-pointer transition ${
+                                  ws.hideFromMarket || ws.hide_from_market
+                                    ? 'bg-rose-500/20 border-rose-500/50 text-rose-800 dark:text-rose-300'
+                                    : 'bg-[#EFE9DC] dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA]'
+                                }`}
+                              >
+                                <ShoppingBag className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
                           {waPhone && (
                             <a
                               href={`https://wa.me/${waPhone}`}
@@ -568,6 +626,34 @@ export const AdminWorkshopsPage: React.FC<AdminWorkshopsPageProps> = ({
                       >
                         <Ban className="w-3.5 h-3.5" />
                       </button>
+                    )}
+                    {onToggleWorkshopVisibility && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onToggleWorkshopVisibility(ws, 'hideStorefront')}
+                          className={`px-2 py-1.5 rounded-xl border text-[10px] font-black cursor-pointer flex items-center gap-1 ${
+                            ws.hideStorefront || ws.hide_storefront
+                              ? 'bg-amber-500/20 border-amber-500/50 text-amber-800 dark:text-amber-300'
+                              : 'bg-[#EFE9DC] dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E]'
+                          }`}
+                        >
+                          <Store className="w-3 h-3" />
+                          <span>{ws.hideStorefront || ws.hide_storefront ? 'إظهار المتجر' : 'إخفاء المتجر'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onToggleWorkshopVisibility(ws, 'hideFromMarket')}
+                          className={`px-2 py-1.5 rounded-xl border text-[10px] font-black cursor-pointer flex items-center gap-1 ${
+                            ws.hideFromMarket || ws.hide_from_market
+                              ? 'bg-rose-500/20 border-rose-500/50 text-rose-800 dark:text-rose-300'
+                              : 'bg-[#EFE9DC] dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E]'
+                          }`}
+                        >
+                          <ShoppingBag className="w-3 h-3" />
+                          <span>{ws.hideFromMarket || ws.hide_from_market ? 'إظهار بالسوق' : 'إخفاء من السوق'}</span>
+                        </button>
+                      </>
                     )}
                     {waPhone && (
                       <a

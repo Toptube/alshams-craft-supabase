@@ -25,43 +25,12 @@ import {
   Boxes,
 } from 'lucide-react';
 
+import { compressImageFile, MAX_ITEM_IMAGES } from '../../utils/imageCompressor';
+
 interface SupplierCatalogViewProps {
   profile: UserProfile;
   onGoBack: () => void;
   onGoHome: () => void;
-}
-
-async function compressImageFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const maxDim = 720;
-        let { width, height } = img;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return resolve(String(reader.result));
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/webp', 0.82));
-      };
-      img.onerror = reject;
-      img.src = String(reader.result);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
@@ -155,18 +124,28 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setDiscountValue(Number(item.discountValue || 0));
     setInStore(item.inStore);
     setInMarket(item.inMarket);
-    setImages(Array.isArray(item.images) ? item.images : []);
+    setImages(Array.isArray(item.images) ? item.images.slice(0, MAX_ITEM_IMAGES) : []);
     setVariants(Array.isArray(item.variants) ? item.variants : []);
     setFeedback(null);
     setIsModalOpen(true);
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []).slice(0, 4 - images.length);
+    const remaining = Math.max(0, MAX_ITEM_IMAGES - images.length);
+    const files = Array.from(e.target.files || []).slice(0, remaining);
     if (files.length === 0) return;
     try {
-      const encoded = await Promise.all(files.map(compressImageFile));
-      setImages((prev) => [...prev, ...encoded].slice(0, 4));
+      const encoded = await Promise.all(
+        files.map((file) =>
+          compressImageFile(file, {
+            maxWidth: 800,
+            maxHeight: 800,
+            targetMaxKb: 95,
+            initialQuality: 0.78,
+          })
+        )
+      );
+      setImages((prev) => [...prev, ...encoded].slice(0, MAX_ITEM_IMAGES));
     } catch {}
     e.target.value = '';
   };
@@ -668,14 +647,19 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                 ))}
               </div>
 
-              {/* Images Upload */}
+              {/* Images Upload (Max 3 compressed images) */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-black">صور الخامة (حتى ٤ صور)</span>
-                  {images.length < 4 && (
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <span className="font-black">صور الخامة ({images.length} / {MAX_ITEM_IMAGES} صور بحد أقصى)</span>
+                    <p className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8]">
+                      ضغط تلقائي ذكي لتقليل حجم الصور في قاعدة البيانات
+                    </p>
+                  </div>
+                  {images.length < MAX_ITEM_IMAGES ? (
                     <label className="px-3 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-black cursor-pointer inline-flex items-center gap-1.5">
                       <ImagePlus className="w-3.5 h-3.5 text-[#EA580C]" />
-                      <span>رفع صورة</span>
+                      <span>رفع صورة ({MAX_ITEM_IMAGES - images.length} متاح)</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -684,6 +668,10 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                         onChange={handleImageUpload}
                       />
                     </label>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 text-[10px] font-black">
+                      اكتمل الحد الأقصى (٣ صور)
+                    </span>
                   )}
                 </div>
                 {images.length > 0 && (

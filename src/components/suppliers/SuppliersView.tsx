@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { UserProfile, WorkshopProfile } from '../../types';
+import {
+  UserProfile,
+  WorkshopProfile,
+  RawMaterialItem,
+  SupplierPurchaseInvoice,
+} from '../../types';
 import {
   SupabaseSupplier,
   getSuppliersFromSupabase,
@@ -8,7 +13,18 @@ import {
   deleteSupplierInSupabase,
   generateUuid,
 } from '../../db/supabaseService';
+import {
+  fetchWorkshopB2BOrders,
+  receiveB2BSupplyOrder,
+  WorkshopB2BOrderRow,
+} from '../../db/supplierService';
 import { tenantStorage } from '../../db/dexieDB';
+import {
+  DisbursementSourceSelector,
+  SelectedDisbursementSource,
+  recordDisbursementExitTransaction,
+} from '../treasuries/DisbursementSourceSelector';
+import { playSuccessSound, playErrorSound } from '../../lib/sounds';
 import {
   Truck,
   Plus,
@@ -26,6 +42,10 @@ import {
   Boxes,
   AlertCircle,
   Receipt,
+  ShoppingBag,
+  PackageCheck,
+  Wallet,
+  ExternalLink,
 } from 'lucide-react';
 
 interface SuppliersViewProps {
@@ -35,6 +55,7 @@ interface SuppliersViewProps {
   onOpenHelp?: (sectionId: string) => void;
   onOpenDocumentPreview?: (docType: 'statement', data: any) => void;
   onOpenCreateSupplier?: () => void;
+  onOpenSuppliersMarket?: () => void;
 }
 
 export const SuppliersView: React.FC<SuppliersViewProps> = ({
@@ -43,6 +64,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
   onResetOpenAddModal,
   onOpenHelp,
   onOpenCreateSupplier,
+  onOpenSuppliersMarket,
 }) => {
   const workshopId = (workshop as any).tenantId || (workshop as any).workshopId || workshop.id || '';
   const [suppliers, setSuppliers] = useState<SupabaseSupplier[]>([]);
@@ -68,6 +90,30 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
 
   // Global notice toast
   const [notice, setNotice] = useState<{ text: string; isError?: boolean } | null>(null);
+
+  // B2B Supply Orders from Suppliers Market
+  const [b2bOrders, setB2bOrders] = useState<WorkshopB2BOrderRow[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [receivingOrder, setReceivingOrder] = useState<WorkshopB2BOrderRow | null>(null);
+  const [selectedSource, setSelectedSource] = useState<SelectedDisbursementSource | null>(null);
+  const [paymentChannel, setPaymentChannel] = useState<'cash' | 'instapay' | 'wallet'>('cash');
+  const [paidAmountInput, setPaidAmountInput] = useState<string>('0');
+  const [receivingBusy, setReceivingBusy] = useState(false);
+
+  const currencySymbol = (workshop as any)?.currencySymbol || 'ج.م';
+
+  const loadB2BOrders = async () => {
+    if (!workshopId) return;
+    setLoadingOrders(true);
+    try {
+      const list = await fetchWorkshopB2BOrders(workshopId);
+      setB2bOrders(list);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
 
   const loadSuppliers = async () => {
     if (!workshopId) return;
@@ -108,7 +154,167 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
 
   useEffect(() => {
     loadSuppliers();
+    loadB2BOrders();
   }, [workshopId]);
+
+  const openReceiveModal = (order: WorkshopB2BOrderRow) => {
+    const remainingDue = Math.max(0, Number(order.finalTotal || 0) - Number(order.paidAmount || 0));
+    setReceivingOrder(order);
+    setPaidAmountInput(String(remainingDue > 0 ? remainingDue : Number(order.finalTotal || 0)));
+    setPaymentChannel('cash');
+  };
+
+  const handleConfirmReceiveOrder = async () => {
+    if (!receivingOrder || !workshopId) return;
+    const payVal = Math.max(0, Number(paidAmountInput) || 0);
+    if (payVal > 0 && !selectedSource) {
+      setNotice({ text: 'يرجى تحديد خزينة الورشة أو العهدة لخصم المبلغ المسدد.', isError: true });
+      playErrorSound();
+      return;
+    }
+
+    setReceivingBusy(true);
+    try {
+      const res = await receiveB2BSupplyOrder(receivingOrder.id, {
+        workshopTreasuryId: selectedSource?.id || null,
+        paidAmount: payVal,
+        paymentMethod: paymentChannel,
+      });
+
+      if (!res.success) {
+        setNotice({ text: res.error || 'تعذر اعتماد استلام البضاعة', isError: true });
+        playErrorSound();
+        return;
+      }
+
+      if (!res.alreadySynced) {
+        // 1. خصم المبلغ المسدد من خزينة الورشة في Dexie + تسجيل حركة الصرف
+        if (payVal > 0 && selectedSource) {
+          await recordDisbursementExitTransaction({
+            tenantId: workshopId,
+            sourceId: selectedSource.id,
+            sourceName: selectedSource.name,
+            sourceKind: selectedSource.kind,
+            holderName: selectedSource.holderName,
+            channel: paymentChannel,
+            amount: payVal,
+            recipientName: `طلب توريد #${receivingOrder.orderNumber} - ${receivingOrder.supplierBrandName || 'مورد'}`,
+            category: 'مشتريات خامات',
+            title: `اعتماد استلام توريد #${receivingOrder.orderNumber}`,
+            notes: `توريد خامات من سوق موردين الشمساوية`,
+            referenceType: 'supplier_invoice',
+            referenceId: receivingOrder.id,
+          });
+        }
+
+        // 2. إضافة/تحديث الخامات في مخزن الورشة بمتوسط التكلفة المرجح (Weighted Average Cost)
+        const existingMats = await tenantStorage.getRawMaterials(workshopId).catch(() => []);
+        const todayIso = new Date().toISOString().slice(0, 10);
+
+        for (const item of receivingOrder.items || []) {
+          const itemDisplayName = item.variantLabel
+            ? `${item.name} - ${item.variantLabel}`
+            : item.name;
+          const normName = itemDisplayName.trim().toLowerCase();
+          const baseName = String(item.name || '').trim().toLowerCase();
+          const existing = existingMats.find(
+            (m) =>
+              m.id === item.catalogItemId ||
+              String(m.materialName || '').trim().toLowerCase() === normName ||
+              String(m.materialName || '').trim().toLowerCase() === baseName
+          );
+
+          const inQty = Math.max(0, Number(item.quantity || 0));
+          const inCost = Math.max(0, Number(item.unitPrice || 0));
+          const oldQty = Math.max(0, Number(existing?.currentStock || 0));
+          const oldCost = Math.max(0, Number(existing?.costPerUnit || 0));
+          const newQty = Math.round((oldQty + inQty) * 1000) / 1000;
+          const wac =
+            newQty > 0
+              ? Math.round(((oldQty * oldCost + inQty * inCost) / newQty) * 100) / 100
+              : inCost;
+
+          if (existing) {
+            await tenantStorage.saveRawMaterial({
+              ...existing,
+              currentStock: newQty,
+              costPerUnit: wac,
+              supplierId: receivingOrder.supplierId || existing.supplierId,
+              supplierName: receivingOrder.supplierBrandName || existing.supplierName,
+              lastPurchaseDate: todayIso,
+              updatedAt: Date.now(),
+            });
+          } else {
+            const newMat: RawMaterialItem = {
+              id: generateUuid(),
+              tenantId: workshopId,
+              workshopId,
+              materialName: itemDisplayName,
+              category: 'خامات موردين',
+              unit: item.unit || 'وحدة',
+              costPerUnit: inCost,
+              costPerGram: 0,
+              currentStock: inQty,
+              minAlertThreshold: 2,
+              isActive: true,
+              supplierId: receivingOrder.supplierId,
+              supplierName: receivingOrder.supplierBrandName || 'مورد الشمساوية',
+              lastPurchaseDate: todayIso,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            await tenantStorage.saveRawMaterial(newMat);
+          }
+        }
+
+        // 3. قيد فاتورة مشتريات بالورشة
+        const finalTotal = Number(receivingOrder.finalTotal || 0);
+        const remaining = Math.max(0, finalTotal - payVal);
+        const purchaseInvoice: SupplierPurchaseInvoice = {
+          id: `b2b_${receivingOrder.id}`,
+          tenantId: workshopId,
+          workshopId,
+          invoiceNumber: receivingOrder.orderNumber,
+          supplierId: receivingOrder.supplierId,
+          supplierName: receivingOrder.supplierBrandName || 'مورد الشمساوية',
+          date: todayIso,
+          totalAmount: finalTotal,
+          paidAmount: payVal,
+          remainingAmount: remaining,
+          status: remaining <= 0 ? 'paid' : payVal > 0 ? 'partial' : 'unpaid',
+          paymentMethod: paymentChannel,
+          items: (receivingOrder.items || []).map((it) => ({
+            materialId: it.catalogItemId,
+            materialName: it.variantLabel ? `${it.name} (${it.variantLabel})` : it.name,
+            quantity: Number(it.quantity || 0),
+            unitCost: Number(it.unitPrice || 0),
+            totalCost: Number(it.lineTotal || 0),
+            unit: it.unit,
+          })),
+          notes: `فاتورة توريد معتمدة من سوق موردين الشمساوية (#${receivingOrder.orderNumber})`,
+          createdAt: Date.now(),
+        };
+        await tenantStorage.recordSupplierPurchaseInvoice(purchaseInvoice).catch(() => {});
+
+        window.dispatchEvent(new CustomEvent('alshams_materials_updated'));
+        window.dispatchEvent(new CustomEvent('alshams_treasury_updated'));
+        window.dispatchEvent(new CustomEvent('alshams_financials_updated'));
+      }
+
+      playSuccessSound();
+      setNotice({
+        text: `تم اعتماد استلام الطلب #${receivingOrder.orderNumber} وتزويد مخزن الورشة بمتوسط التكلفة وتحديث الخزينة بنجاح.`,
+      });
+      setReceivingOrder(null);
+      await loadB2BOrders();
+    } catch (err: any) {
+      playErrorSound();
+      setNotice({ text: err?.message || 'حدث خطأ أثناء اعتماد الاستلام', isError: true });
+    } finally {
+      setReceivingBusy(false);
+      setTimeout(() => setNotice(null), 5000);
+    }
+  };
 
   useEffect(() => {
     if (initialOpenAddModal) {
@@ -265,27 +471,25 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              setMigrationNoticeText(
-                'عمليات فواتير المشتريات والأرصدة وتوريد الخامات قيد النقل للنظام الجديد بانتظار الجداول السحابية المخصصة.'
-              )
-            }
-            className="px-4 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold flex items-center gap-2 shadow-md cursor-pointer transition"
-          >
-            <Boxes className="w-4 h-4" />
-            <span>شراء وتوريد خامات (قيد النقل)</span>
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {onOpenSuppliersMarket && (
+            <button
+              type="button"
+              onClick={onOpenSuppliersMarket}
+              className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black flex items-center gap-2 shadow-md cursor-pointer transition"
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>تصفح سوق موردين الشمساوية</span>
+            </button>
+          )}
 
           <button
             type="button"
             onClick={handleOpenAddModal}
-            className="px-3.5 py-2.5 rounded-2xl border border-stone-300 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            className="px-3.5 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm transition"
           >
-            <Plus className="w-4 h-4 text-blue-600" />
-            <span>إضافة مورد</span>
+            <Plus className="w-4 h-4" />
+            <span>إضافة مورد خاص</span>
           </button>
         </div>
       </div>
@@ -473,29 +677,150 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
         </div>
       )}
 
-      {/* Invoices List / Under Migration Section */}
+      {/* Live B2B Supply Orders from Suppliers Market */}
       <div className="p-4 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-stone-200 dark:border-stone-800">
           <div className="flex items-center gap-2">
-            <Receipt className="w-4 h-4 text-blue-600" />
+            <Receipt className="w-4 h-4 text-emerald-600" />
             <h3 className="font-extrabold text-sm text-stone-900 dark:text-stone-100">
-              سجل فواتير توريد الخامات من الموردين
+              طلبات التوريد المباشر من سوق موردين الشمساوية ({b2bOrders.length})
             </h3>
           </div>
-          <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-bold">
-            قيد النقل
-          </span>
+          {onOpenSuppliersMarket && (
+            <button
+              type="button"
+              onClick={onOpenSuppliersMarket}
+              className="text-xs px-3 py-1.5 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-800 dark:text-emerald-300 font-black flex items-center gap-1.5 cursor-pointer transition"
+            >
+              <ShoppingBag className="w-3.5 h-3.5" />
+              <span>طلب خامات جديدة</span>
+            </button>
+          )}
         </div>
 
-        <div className="py-8 text-center rounded-2xl bg-stone-50/60 dark:bg-stone-850/60 border border-stone-200 dark:border-stone-800 space-y-2">
-          <FileText className="w-8 h-8 text-stone-400 mx-auto" />
-          <p className="text-xs font-bold text-stone-600 dark:text-stone-300">
-            عمليات الفواتير والأرصدة وكشوف الحساب قيد النقل للنظام الجديد
-          </p>
-          <p className="text-[11px] text-stone-400 max-w-md mx-auto">
-            يتم حالياً تجهيز الجداول السحابية لحفظ قيود التوريد وإثبات السداد المالي مع الخزن.
-          </p>
-        </div>
+        {loadingOrders ? (
+          <div className="py-8 text-center text-xs text-stone-400 font-bold">
+            جاري تحميل طلبات التوريد...
+          </div>
+        ) : b2bOrders.length === 0 ? (
+          <div className="py-8 text-center rounded-2xl bg-stone-50/60 dark:bg-stone-850/60 border border-stone-200 dark:border-stone-800 space-y-2">
+            <Boxes className="w-8 h-8 text-emerald-600/70 mx-auto" />
+            <p className="text-xs font-bold text-stone-700 dark:text-stone-300">
+              لا توجد طلبات توريد من سوق الموردين حتى الآن
+            </p>
+            <p className="text-[11px] text-stone-400 max-w-md mx-auto">
+              عند إرسال أي طلب شراء خامات من سوق موردين الشمساوية، سيظهر هنا لتتمكن من اعتماد الاستلام وتزويد المخزن آلياً.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {b2bOrders.map((ord) => {
+              const isReceived = ord.status === 'received' || Boolean(ord.inventorySyncedAt);
+              const isCancelled = ord.status === 'cancelled';
+              const statusLabel =
+                ord.status === 'received'
+                  ? 'تم الاستلام والتوريد للمخزن'
+                  : ord.status === 'shipped'
+                  ? 'في الطريق إليك'
+                  : ord.status === 'preparing'
+                  ? 'قيد التجهيز'
+                  : ord.status === 'cancelled'
+                  ? 'ملغي'
+                  : 'بانتظار مراجعة المورد';
+              const statusCls = isReceived
+                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/35'
+                : isCancelled
+                ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/35'
+                : 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/35';
+
+              return (
+                <div
+                  key={ord.id}
+                  className="p-4 rounded-2xl border border-stone-200 dark:border-stone-800 bg-stone-50/60 dark:bg-stone-800/40 space-y-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono font-black text-xs text-stone-900 dark:text-stone-100">
+                          #{ord.orderNumber}
+                        </span>
+                        <span className="text-xs font-black text-blue-700 dark:text-blue-300">
+                          {ord.supplierBrandName || 'مورد'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-md border text-[10px] font-black ${statusCls}`}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-mono text-stone-500 mt-0.5">
+                        {ord.createdAt ? new Date(ord.createdAt).toLocaleDateString('ar-EG') : ''} · التسعير:{' '}
+                        {ord.pricingTierApplied === 'wholesale' ? 'سعر الجملة' : 'سعر التجزئة'}
+                      </p>
+                    </div>
+
+                    <div className="text-left font-mono tabular-nums">
+                      <div className="text-sm font-black text-stone-900 dark:text-stone-100">
+                        {Number(ord.finalTotal || 0).toLocaleString()} {ord.currencySymbol || currencySymbol}
+                      </div>
+                      {Number(ord.remainingAmount || 0) > 0 && !isReceived && (
+                        <div className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                          متبقي: {Number(ord.remainingAmount).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Line Items */}
+                  <div className="flex flex-wrap gap-1.5 text-[11px]">
+                    {(ord.items || []).map((it, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 font-bold text-stone-700 dark:text-stone-300"
+                      >
+                        {it.name}
+                        {it.variantLabel ? ` (${it.variantLabel})` : ''} × {it.quantity} {it.unit}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Action Footer */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-stone-200/70 dark:border-stone-700/60">
+                    <div className="flex items-center gap-2">
+                      {ord.supplierSlug && (
+                        <a
+                          href={`/#/supplier/${encodeURIComponent(ord.supplierSlug)}`}
+                          className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>متجر المورد</span>
+                        </a>
+                      )}
+                      {ord.supplierPhone && (
+                        <a
+                          href={`tel:${ord.supplierPhone}`}
+                          dir="ltr"
+                          className="text-[11px] font-mono font-bold text-stone-500 hover:text-blue-600"
+                        >
+                          {ord.supplierPhone}
+                        </a>
+                      )}
+                    </div>
+
+                    {!isReceived && !isCancelled && (
+                      <button
+                        type="button"
+                        onClick={() => openReceiveModal(ord)}
+                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                      >
+                        <PackageCheck className="w-4 h-4" />
+                        <span>اعتماد استلام البضاعة وتوريدها للمخزن</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Add / Edit Supplier Modal */}
@@ -591,6 +916,91 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Receive B2B Order & Atomic ERP Sync Modal */}
+      {receivingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-emerald-400 dark:border-stone-700 max-w-md w-full space-y-4 text-right shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-stone-200 dark:border-stone-800 pb-3">
+              <button
+                type="button"
+                onClick={() => setReceivingOrder(null)}
+                className="text-stone-400 hover:text-stone-700 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <h3 className="font-extrabold text-sm text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                <PackageCheck className="w-4 h-4" />
+                <span>اعتماد استلام الطلب #{receivingOrder.orderNumber}</span>
+              </h3>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/70 border border-stone-200 dark:border-stone-700 text-xs space-y-1">
+              <div className="flex justify-between font-bold">
+                <span>المورد:</span>
+                <span>{receivingOrder.supplierBrandName || 'مورد'}</span>
+              </div>
+              <div className="flex justify-between font-mono font-black">
+                <span>إجمالي قيمة التوريد:</span>
+                <span>
+                  {Number(receivingOrder.finalTotal || 0).toLocaleString()} {currencySymbol}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                المبلغ المدفوع عند الاستلام ({currencySymbol})
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={paidAmountInput}
+                onChange={(e) => setPaidAmountInput(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-mono font-black outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {Number(paidAmountInput || 0) > 0 && (
+              <div className="space-y-1">
+                <DisbursementSourceSelector
+                  workshopId={workshopId}
+                  currencySymbol={currencySymbol}
+                  selectedSourceId={selectedSource?.id || ''}
+                  onSourceChange={setSelectedSource}
+                  selectedChannel={paymentChannel}
+                  onChannelChange={setPaymentChannel}
+                  disbursedAmount={Number(paidAmountInput || 0)}
+                  label="خزينة الورشة وقناة السداد:"
+                  required={true}
+                />
+              </div>
+            )}
+
+            <p className="text-[11px] text-stone-500 leading-relaxed">
+              عند التأكيد سيتم: (1) زيادة أرصدة الخامات في مخزن الورشة بمتوسط التكلفة المرجح، (2) خصم المبلغ المسدد من خزينة الورشة، (3) إشعار المورد وتحديث رصيده ومخزونه لحظياً.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
+              <button
+                type="button"
+                onClick={() => setReceivingOrder(null)}
+                className="px-4 py-2 text-xs font-bold text-stone-500 hover:text-stone-700 cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={receivingBusy}
+                onClick={handleConfirmReceiveOrder}
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer disabled:opacity-50"
+              >
+                {receivingBusy ? 'جاري الاعتماد والمزامنة...' : 'تأكيد الاستلام والترحيل للمخزن'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

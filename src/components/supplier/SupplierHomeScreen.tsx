@@ -26,6 +26,7 @@ import {
   TrendingUp,
   ArrowLeft,
   Truck,
+  User,
 } from 'lucide-react';
 
 interface SupplierHomeScreenProps {
@@ -35,6 +36,8 @@ interface SupplierHomeScreenProps {
   onNavigateToOrders: () => void;
   onNavigateToCustomers: () => void;
   onNavigateToFinance: () => void;
+  onNavigateToFamily?: () => void;
+  onNavigateToPersonalProfile?: () => void;
 }
 
 export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
@@ -44,6 +47,8 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   onNavigateToOrders,
   onNavigateToCustomers,
   onNavigateToFinance,
+  onNavigateToFamily,
+  onNavigateToPersonalProfile,
 }) => {
   const [catalog, setCatalog] = useState<SupplierCatalogItem[]>([]);
   const [orders, setOrders] = useState<B2BSupplyOrder[]>([]);
@@ -160,6 +165,32 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
       accent: 'text-amber-700 dark:text-amber-300',
       onClick: onNavigateToFinance,
     },
+    ...(onNavigateToPersonalProfile
+      ? [
+          {
+            id: 'personal_profile',
+            title: 'صفحتي الشخصية ومعرض أعمالي',
+            desc: 'صورتك الشخصية، قصتك، أذونات الظهور، و٦ منشورات لأعمالك المميزة',
+            stat: '٦ منشورات وقصتي',
+            icon: User,
+            accent: 'text-[#C2410C] dark:text-amber-300',
+            onClick: onNavigateToPersonalProfile,
+          },
+        ]
+      : []),
+    ...(onNavigateToFamily
+      ? [
+          {
+            id: 'family',
+            title: 'مجتمع عيلة الشمساوية',
+            desc: 'شارك في طبلية العيلة مع الفنانين، انشر عروضك، واستقبل رسائل الورش',
+            stat: 'فنانين وموردين',
+            icon: Users,
+            accent: 'text-rose-700 dark:text-rose-300',
+            onClick: onNavigateToFamily,
+          },
+        ]
+      : []),
   ];
 
   return (

@@ -67,6 +67,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
 
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [facebookLoading, setFacebookLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -445,6 +446,56 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
     }
   };
 
+  // 1.6 Facebook OAuth Sign-In / Sign-Up (Supabase)
+  const handleFacebookSignIn = async () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    onClearRecoveryError?.();
+    setFacebookLoading(true);
+    try {
+      try {
+        localStorage.setItem('alshams_oauth_intended_role', effectiveRole);
+      } catch {}
+
+      try {
+        const settingsRes = await fetch(`${supabaseConfig.url}/auth/v1/settings`, {
+          headers: { apikey: supabaseConfig.publishableKey },
+          cache: 'no-store',
+        });
+        if (settingsRes.ok) {
+          const settingsJson = await settingsRes.json();
+          if (settingsJson?.external && settingsJson.external.facebook !== true) {
+            setErrorMsg(
+              'تسجيل الدخول عبر Facebook غير مفعّل بعد في إعدادات Supabase (Authentication → Providers → Facebook). راجع خطوات التفعيل المرسلة لتشغيله فوراً.'
+            );
+            setFacebookLoading(false);
+            return;
+          }
+        }
+      } catch {}
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'facebook',
+        options: {
+          redirectTo: window.location.origin,
+          scopes: 'email,public_profile',
+        },
+      });
+      if (error) {
+        const errRes = getArabicSupabaseError(error);
+        setErrorMsg(
+          errRes.arabicMessage ||
+            'تعذر الاتصال بتسجيل الدخول عبر Facebook، تأكد من تفعيل مزود Facebook في إعدادات Supabase.'
+        );
+        setFacebookLoading(false);
+      }
+    } catch (err: any) {
+      const errRes = getArabicSupabaseError(err);
+      setErrorMsg(errRes.arabicMessage || 'حدث خطأ أثناء الاتصال بحساب Facebook.');
+      setFacebookLoading(false);
+    }
+  };
+
   // 2. Send Password Reset Link Modal
   const handleSendResetLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -612,6 +663,8 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             onSubmit={handleEmailAuth}
             onGoogleLogin={handleGoogleSignIn}
             googleLoading={googleLoading}
+            onFacebookLogin={handleFacebookSignIn}
+            facebookLoading={facebookLoading}
             onForgotPassword={() => {
               setForgotEmail(email);
               setForgotNotice(null);
@@ -651,6 +704,8 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             onSubmit={handleEmailAuth}
             onGoogleLogin={handleGoogleSignIn}
             googleLoading={googleLoading}
+            onFacebookLogin={handleFacebookSignIn}
+            facebookLoading={facebookLoading}
           />
         )}
 

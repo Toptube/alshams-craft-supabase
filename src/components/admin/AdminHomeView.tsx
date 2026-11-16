@@ -22,6 +22,9 @@ import {
   CheckCircle2,
   Activity,
   Eye,
+  EyeOff,
+  Users,
+  Truck,
 } from 'lucide-react';
 import {
   AdminPageId,
@@ -47,6 +50,10 @@ interface AdminHomeViewProps {
   onBanWorkshop: (workshop: EnrichedWorkshopProfile) => void;
   onReactivateWorkshop: (workshop: EnrichedWorkshopProfile) => void;
   onOpenAudit: (workshop: EnrichedWorkshopProfile) => void;
+  onToggleWorkshopVisibility?: (
+    workshop: EnrichedWorkshopProfile,
+    field: 'hideStorefront' | 'hideFromMarket'
+  ) => void;
 }
 
 export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
@@ -64,6 +71,7 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
   onBanWorkshop,
   onReactivateWorkshop,
   onOpenAudit,
+  onToggleWorkshopVisibility,
 }) => {
   const [quickSearch, setQuickSearch] = useState('');
   const [showManageMenu, setShowManageMenu] = useState(false);
@@ -105,6 +113,20 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       icon: <Building2 className="w-5 h-5 sm:w-6 sm:h-6 text-[#0C1427] dark:text-[#FBBF24]" />,
       circleClass: 'bg-[#E9E2D4] dark:bg-[#1A2B54] border-[#D4CCBC] dark:border-[#2D4475]',
       onClick: () => onNavigatePage('workshops'),
+    },
+    {
+      id: 'customers',
+      label: 'العملاء',
+      icon: <Users className="w-5 h-5 sm:w-6 sm:h-6 text-sky-700 dark:text-sky-300" />,
+      circleClass: 'bg-sky-100 dark:bg-sky-950/60 border-sky-300/60 dark:border-sky-700/60',
+      onClick: () => onNavigatePage('customers'),
+    },
+    {
+      id: 'suppliers',
+      label: 'الموردين',
+      icon: <Truck className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-700 dark:text-emerald-300" />,
+      circleClass: 'bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300/60 dark:border-emerald-700/60',
+      onClick: () => onNavigatePage('suppliers'),
     },
     {
       id: 'marketplace',
@@ -437,6 +459,52 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
                     <Ban className="w-3.5 h-3.5" />
                     <span>حظر نهائي</span>
                   </button>
+                )}
+
+                {onToggleWorkshopVisibility && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onToggleWorkshopVisibility(activeWorkshop, 'hideStorefront')}
+                      className={`px-3 py-2 rounded-xl text-xs font-black border flex items-center gap-1.5 cursor-pointer transition ${
+                        activeWorkshop.hideStorefront || activeWorkshop.hide_storefront
+                          ? 'bg-amber-500/20 border-amber-500/50 text-amber-800 dark:text-amber-300'
+                          : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C]'
+                      }`}
+                    >
+                      {activeWorkshop.hideStorefront || activeWorkshop.hide_storefront ? (
+                        <EyeOff className="w-3.5 h-3.5" />
+                      ) : (
+                        <Store className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24]" />
+                      )}
+                      <span>
+                        {activeWorkshop.hideStorefront || activeWorkshop.hide_storefront
+                          ? 'إظهار المتجر الخاص'
+                          : 'إخفاء المتجر الخاص'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onToggleWorkshopVisibility(activeWorkshop, 'hideFromMarket')}
+                      className={`px-3 py-2 rounded-xl text-xs font-black border flex items-center gap-1.5 cursor-pointer transition ${
+                        activeWorkshop.hideFromMarket || activeWorkshop.hide_from_market
+                          ? 'bg-rose-500/20 border-rose-500/50 text-rose-800 dark:text-rose-300'
+                          : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C]'
+                      }`}
+                    >
+                      {activeWorkshop.hideFromMarket || activeWorkshop.hide_from_market ? (
+                        <EyeOff className="w-3.5 h-3.5" />
+                      ) : (
+                        <ShoppingBag className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24]" />
+                      )}
+                      <span>
+                        {activeWorkshop.hideFromMarket || activeWorkshop.hide_from_market
+                          ? 'إظهار في سوق الشمساوية'
+                          : 'إخفاء من سوق الشمساوية'}
+                      </span>
+                    </button>
+                  </>
                 )}
               </div>
             )}

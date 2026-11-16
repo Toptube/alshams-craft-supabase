@@ -97,6 +97,7 @@ export interface PublicWorkshopStoreData {
     storeLayoutCols?: 1 | 2 | 3;
     storeProductOrder?: string[];
     storeConfig?: ArtisanStoreConfig;
+    memberProfile?: any;
   };
   products: CloudMarketplaceProduct[];
 }
@@ -255,7 +256,7 @@ export async function publishProductToMarketplace(
   const primaryEgpRetailPrice = toEgpAmount(rawRetailPrice, sourceCurr);
 
   const artisanExt = {
-    gallery_urls: Array.isArray(product.galleryUrls) ? product.galleryUrls.slice(0, 8) : [],
+    gallery_urls: Array.isArray(product.galleryUrls) ? product.galleryUrls.slice(0, 2) : [],
     size_variants: normalizedSizeVariants,
     source_currency: sourceCurr,
     product_discount: product.productDiscount || undefined,
@@ -461,7 +462,8 @@ export async function fetchApprovedMarketplaceProducts(): Promise<CloudMarketpla
           const ws = wsMap.get(row.workshop_id);
           if (!ws) return true;
           const st = ws.status || (ws.is_frozen ? 'suspended' : 'active');
-          return !ws.is_frozen && st !== 'banned' && st !== 'suspended';
+          const hiddenFromMarket = Boolean(ws.hide_from_market || ws.hideFromMarket);
+          return !hiddenFromMarket && !ws.is_frozen && st !== 'banned' && st !== 'suspended';
         })
         .map((row: any) => {
           const ws = wsMap.get(row.workshop_id);
@@ -591,6 +593,7 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
             storeConfig: data.workshop.storeConfig
               ? normalizeArtisanStoreConfig(data.workshop.storeConfig)
               : undefined,
+            memberProfile: data.workshop.memberProfile || null,
           },
           products: (data.products || []).map(normalizeCloudProduct),
         };
@@ -609,7 +612,10 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
       if (found) {
         const wid = found.id || found.workshop_id;
         const wsStatus = found.status || (found.is_frozen ? 'suspended' : 'active');
-        const isSuspended = Boolean(found.is_frozen || wsStatus === 'banned' || wsStatus === 'suspended');
+        const hiddenStorefront = Boolean(found.hide_storefront || found.hideStorefront);
+        const isSuspended = Boolean(
+          hiddenStorefront || found.is_frozen || wsStatus === 'banned' || wsStatus === 'suspended'
+        );
 
         const logo = found.logo_data || found.logo_url || found.logoUrl || null;
         const phone = found.phone_number || found.phone || found.phoneNumber || '';
@@ -631,7 +637,9 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
               medal: found.medal || 'gold',
               status: wsStatus,
               suspended: true,
-              suspensionReason: found.suspension_reason || found.suspended_reason || null,
+              suspensionReason: hiddenStorefront
+                ? 'هذا المتجر مخفي مؤقتاً للمراجعة وتحديث المعروضات بناءً على تعليمات إدارة المنصة.'
+                : found.suspension_reason || found.suspended_reason || null,
               selectedCrafts: Array.isArray(found.selected_crafts) ? found.selected_crafts : ['macrame'],
             },
             products: [],

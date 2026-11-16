@@ -26,6 +26,7 @@ import {
   RotateCcw,
   DollarSign,
   X,
+  ArrowRight,
   Search,
   Sparkles,
   Eye,
@@ -78,6 +79,7 @@ interface ArtisanStorefrontModalProps {
   initialOrderId?: string;
   initialTab?: BuilderTabId;
   onOpenCalculatorForRecord?: (record: SavedProductRecord) => void;
+  onOpenPersonalProfile?: () => void;
 }
 
 export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
@@ -87,6 +89,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   initialOrderId,
   initialTab = 'products',
   onOpenCalculatorForRecord,
+  onOpenPersonalProfile,
 }) => {
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
   const artisanSlug = getWorkshopCleanSlug(profile);
@@ -823,6 +826,16 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             <button
               type="button"
               onClick={onClose}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-black transition cursor-pointer shrink-0"
+              title="رجوع"
+            >
+              <ArrowRight className="w-3.5 h-3.5 text-[#EA580C]" />
+              <span>رجوع</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="إغلاق"
               className="w-9 h-9 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] flex items-center justify-center transition cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -1146,6 +1159,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             }}
             onSaveCloud={handleSaveStoreConfigCloud}
             onOpenPreview={() => setIsOwnerPreviewOpen(true)}
+            onOpenPersonalProfile={onOpenPersonalProfile}
           />
         )}
 

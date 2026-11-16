@@ -16,6 +16,8 @@ import {
   Users,
   Edit3,
   RefreshCw,
+  ShoppingBag,
+  EyeOff,
 } from 'lucide-react';
 import {
   EnrichedWorkshopProfile,
@@ -36,6 +38,10 @@ interface AdminStoresPageProps {
   onSuspendWorkshop: (ws: EnrichedWorkshopProfile) => void;
   onReactivateWorkshop: (ws: EnrichedWorkshopProfile) => void;
   onCopySuccess: (msg: string) => void;
+  onToggleWorkshopVisibility?: (
+    ws: EnrichedWorkshopProfile,
+    field: 'hideStorefront' | 'hideFromMarket'
+  ) => void;
 }
 
 export const AdminStoresPage: React.FC<AdminStoresPageProps> = ({
@@ -46,6 +52,7 @@ export const AdminStoresPage: React.FC<AdminStoresPageProps> = ({
   onSuspendWorkshop,
   onReactivateWorkshop,
   onCopySuccess,
+  onToggleWorkshopVisibility,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'frozen'>('all');
@@ -260,6 +267,40 @@ export const AdminStoresPage: React.FC<AdminStoresPageProps> = ({
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
                     </button>
+                  )}
+
+                  {onToggleWorkshopVisibility && (
+                    <div className="w-full grid grid-cols-2 gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => onToggleWorkshopVisibility(ws, 'hideStorefront')}
+                        className={`py-1.5 px-2 rounded-lg border text-[10px] font-black flex items-center justify-center gap-1 cursor-pointer transition ${
+                          ws.hideStorefront || ws.hide_storefront
+                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-800 dark:text-amber-300'
+                            : 'bg-[#EFE9DC] dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA]'
+                        }`}
+                      >
+                        {ws.hideStorefront || ws.hide_storefront ? (
+                          <EyeOff className="w-3 h-3" />
+                        ) : (
+                          <Store className="w-3 h-3 text-[#EA580C]" />
+                        )}
+                        <span>{ws.hideStorefront || ws.hide_storefront ? 'إظهار المتجر' : 'إخفاء المتجر'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onToggleWorkshopVisibility(ws, 'hideFromMarket')}
+                        className={`py-1.5 px-2 rounded-lg border text-[10px] font-black flex items-center justify-center gap-1 cursor-pointer transition ${
+                          ws.hideFromMarket || ws.hide_from_market
+                            ? 'bg-rose-500/20 border-rose-500/50 text-rose-800 dark:text-rose-300'
+                            : 'bg-[#EFE9DC] dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA]'
+                        }`}
+                      >
+                        <ShoppingBag className="w-3 h-3 text-[#EA580C]" />
+                        <span>{ws.hideFromMarket || ws.hide_from_market ? 'إظهار بالسوق' : 'إخفاء من السوق'}</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

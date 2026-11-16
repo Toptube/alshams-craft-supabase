@@ -34,6 +34,7 @@ import {
   Sparkles,
   RefreshCw,
   Package,
+  User,
 } from 'lucide-react';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { useFeatureFlags } from '../../types/featureFlags';
@@ -128,6 +129,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               },
             },
             { id: 'supplier_customers', label: 'عملائي (الورش والأفراد)', icon: Users },
+            { id: 'personal_profile', label: 'صفحتي الشخصية ومعرض أعمالي', icon: User },
           ],
         },
         {
@@ -149,7 +151,8 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           { id: 'work_orders', label: 'أوامر الشغل والتصنيع', icon: Hammer },
           { id: 'materials', label: 'الخامات والمخزون', icon: Boxes },
           { id: 'purchases', label: 'فواتير المشتريات', icon: Receipt },
-          { id: 'suppliers', label: 'سجل الموردين', icon: Truck },
+          { id: 'suppliers', label: 'مورديني', icon: Truck },
+          { id: 'suppliers_market', label: 'سوق موردين الشمساوية', icon: ShoppingBag },
           { id: 'archive', label: 'أرشيف المنتجات', icon: FolderArchive },
         ],
       },
@@ -233,6 +236,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           if (item.id === 'calculator' && !flags.craftCalculatorEnabled) return false;
           if ((item.id === 'store' || item.id === 'my_orders') && !flags.artisanStorefrontEnabled) return false;
           if (item.id === 'marketplace' && !flags.artisanMarketplaceEnabled) return false;
+          if (item.id === 'suppliers_market' && !flags.suppliersMarketplaceEnabled) return false;
           if (
             !flags.erpModulesEnabled &&
             ['work_orders', 'purchases', 'suppliers', 'customers', 'invoices'].includes(item.id)
@@ -510,6 +514,30 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               <ChevronLeft className="w-4 h-4 shrink-0 text-[#FBBF24]" />
             </button>
           )}
+
+          {/* صفحتي الشخصية ومعرض الأعمال (متاحة للفنانين والموردين) */}
+          <button
+            type="button"
+            onClick={() => {
+              onSelectView('personal_profile');
+              onClose();
+            }}
+            className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl border flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
+              activeView === 'personal_profile'
+                ? 'bg-[#EA580C] text-white border-[#FBBF24]'
+                : 'bg-[#F7F3EA] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#0D162E] dark:text-[#F7F3EA] dark:border-[#22355E] dark:hover:border-[#FBBF24]'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <User
+                className={`w-4 h-4 shrink-0 ${
+                  activeView === 'personal_profile' ? 'text-white' : 'text-[#C2410C] dark:text-[#FBBF24]'
+                }`}
+              />
+              <span className="text-xs font-black truncate">صفحتي الشخصية ومعرض أعمالي</span>
+            </div>
+            <ChevronLeft className="w-4 h-4 shrink-0 opacity-75" />
+          </button>
 
           {/* مجتمع عيلة الشمساويه في نهاية القائمة */}
           {(isAdmin || flags.familyCommunityEnabled) && (

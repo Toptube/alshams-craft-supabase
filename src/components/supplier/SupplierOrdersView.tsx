@@ -39,8 +39,10 @@ const SOURCE_LABELS: Record<SupplierOrderSource, string> = {
 const STATUS_LABELS: Record<B2BSupplyOrder['status'], string> = {
   pending: 'قيد المراجعة',
   confirmed: 'مؤكد',
+  preparing: 'قيد التجهيز',
   shipped: 'تم الشحن',
   delivered: 'تم التسليم',
+  received: 'معتمد ومسلّم للورشة',
   cancelled: 'ملغي',
 };
 

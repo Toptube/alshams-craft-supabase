@@ -64,6 +64,9 @@ import { AdminNotificationPages } from './AdminNotificationPages';
 import { AdminWorkshopModals } from './AdminWorkshopModals';
 import { AdminLandingCmsPage } from './AdminLandingCmsPage';
 import { AdminFeatureVisibilityPage } from './AdminFeatureVisibilityPage';
+import { AdminSuppliersPage } from './AdminSuppliersPage';
+import { AdminCustomersPage } from './AdminCustomersPage';
+import { updateWorkshopVisibility } from '../../db/supplierService';
 import { LandingCmsConfig, getStoredLandingCmsConfig } from '../../types/landingCms';
 import { PlatformFeatureFlags, getStoredFeatureFlags } from '../../types/featureFlags';
 
@@ -1668,6 +1671,61 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const handleToggleWorkshopVisibility = async (
+    targetWs: EnrichedWorkshopProfile,
+    field: 'hideStorefront' | 'hideFromMarket'
+  ) => {
+    const currentVal =
+      field === 'hideStorefront'
+        ? Boolean(targetWs.hideStorefront || targetWs.hide_storefront)
+        : Boolean(targetWs.hideFromMarket || targetWs.hide_from_market);
+    const nextVal = !currentVal;
+
+    // Optimistic update
+    setWorkshops((prev) =>
+      prev.map((w) => {
+        if (w.id !== targetWs.id) return w;
+        if (field === 'hideStorefront') {
+          return { ...w, hideStorefront: nextVal, hide_storefront: nextVal };
+        }
+        return { ...w, hideFromMarket: nextVal, hide_from_market: nextVal };
+      })
+    );
+
+    const payload =
+      field === 'hideStorefront' ? { hideStorefront: nextVal } : { hideFromMarket: nextVal };
+    const res = await updateWorkshopVisibility(targetWs.id, payload, profile.email);
+    if (!res.success) {
+      // Revert optimistic change on failure
+      setWorkshops((prev) =>
+        prev.map((w) => {
+          if (w.id !== targetWs.id) return w;
+          if (field === 'hideStorefront') {
+            return { ...w, hideStorefront: currentVal, hide_storefront: currentVal };
+          }
+          return { ...w, hideFromMarket: currentVal, hide_from_market: currentVal };
+        })
+      );
+      showError(res.error || 'تعذر تحديث إعدادات الظهور للورشة');
+      return;
+    }
+
+    playSuccessSound();
+    if (field === 'hideStorefront') {
+      showSuccess(
+        nextVal
+          ? `تم إخفاء المتجر الخاص لورشة "${targetWs.brandName}" عن الزوار مع بقاء حسابها الداخلي نشطاً.`
+          : `تم إعادة إظهار المتجر الخاص لورشة "${targetWs.brandName}" بنجاح.`
+      );
+    } else {
+      showSuccess(
+        nextVal
+          ? `تم إخفاء معروضات ورشة "${targetWs.brandName}" من سوق الشمساوية المركزي.`
+          : `تم إعادة إظهار معروضات ورشة "${targetWs.brandName}" في سوق الشمساوية المركزي.`
+      );
+    }
+  };
+
   // Appeals
   const handleAcceptAppeal = async (appealItem: any) => {
     try {
@@ -2129,6 +2187,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           }}
           onReactivateWorkshop={handleReactivateWorkshop}
           onOpenAudit={handleOpenAudit}
+          onToggleWorkshopVisibility={handleToggleWorkshopVisibility}
         />
       )}
 
@@ -2163,6 +2222,27 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             setDeleteConfirmText('');
             setSelectiveDeleteMode('cascade');
           }}
+          onToggleWorkshopVisibility={handleToggleWorkshopVisibility}
+        />
+      )}
+
+      {currentPage === 'customers' && (
+        <AdminCustomersPage
+          userEmail={profile.email}
+          workshops={workshops}
+          onBack={() => handleNavigatePage('home')}
+        />
+      )}
+
+      {currentPage === 'suppliers' && (
+        <AdminSuppliersPage
+          userEmail={profile.email}
+          onBack={() => handleNavigatePage('home')}
+          onNotifySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+          onNotifyError={showError}
         />
       )}
 
@@ -2229,6 +2309,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             playSuccessSound();
             showSuccess(msg);
           }}
+          onToggleWorkshopVisibility={handleToggleWorkshopVisibility}
         />
       )}
 

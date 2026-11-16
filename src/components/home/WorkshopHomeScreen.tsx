@@ -64,6 +64,7 @@ import {
   Globe,
   PackageCheck,
   BellRing,
+  User,
 } from 'lucide-react';
 import { checkUpcomingRecurringExpenses } from '../../services/recurringExpensesService';
 import {
@@ -108,9 +109,11 @@ export interface WorkshopHomeScreenProps {
   onNavigateToArchive: () => void;
   onNavigateToCatalog: (tab?: 'catalog' | 'store') => void;
   onOpenArtisanStore?: (tab?: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr') => void;
+  onOpenPersonalProfile?: () => void;
   onNavigateToAIAgent: () => void;
   onNavigateToMaterials: (openAdd?: boolean) => void;
   onNavigateToSuppliers: () => void;
+  onNavigateToSuppliersMarket?: () => void;
   onNavigateToSales: (mode?: string) => void;
   onNavigateToCustomers?: () => void;
   onNavigateToInvoices: (filter?: string) => void;
@@ -143,9 +146,11 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onNavigateToArchive,
   onNavigateToCatalog,
   onOpenArtisanStore,
+  onOpenPersonalProfile,
   onNavigateToAIAgent,
   onNavigateToMaterials,
   onNavigateToSuppliers,
+  onNavigateToSuppliersMarket,
   onNavigateToSales,
   onNavigateToCustomers,
   onNavigateToInvoices,
@@ -817,6 +822,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           title: 'الموردين وجهات التوريد',
           icon: Truck,
           items: [
+            ...(onNavigateToSuppliersMarket && (isAdminUser || flags.suppliersMarketplaceEnabled)
+              ? [
+                  {
+                    label: 'سوق موردين الشمساوية (شراء الخامات)',
+                    icon: ShoppingBag,
+                    onClick: onNavigateToSuppliersMarket,
+                  },
+                ]
+              : []),
             {
               label: 'إضافة مورد جديد',
               icon: UserPlus,
@@ -1145,6 +1159,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               onClick: () =>
                 onOpenArtisanStore ? onOpenArtisanStore('orders') : onNavigateToSales(),
             },
+            ...(onOpenPersonalProfile
+              ? [
+                  {
+                    label: 'صفحتي الشخصية ومعرضي',
+                    icon: User,
+                    onClick: () => onOpenPersonalProfile(),
+                  },
+                ]
+              : []),
           ],
         };
 

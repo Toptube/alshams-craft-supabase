@@ -3,6 +3,8 @@ import { WorkshopProfile } from '../../types';
 export type AdminPageId =
   | 'home'
   | 'workshops'
+  | 'customers'
+  | 'suppliers'
   | 'marketplace'
   | 'stores'
   | 'catalogs'
@@ -45,6 +47,8 @@ export function mapExecutiveTabToPage(tab?: ExecutiveTab): { page: AdminPageId; 
   switch (tab) {
     case 'home':
     case 'workshops':
+    case 'customers':
+    case 'suppliers':
     case 'marketplace':
     case 'stores':
     case 'catalogs':

@@ -1,3 +1,5 @@
+import { compressImageFile } from '../utils/imageCompressor';
+
 export type MarketBlockId = 'promo' | 'hero' | 'categories' | 'featured_matrices' | 'catalog_grid';
 
 export type MarketCouponType = 'percent' | 'fixed' | 'free_shipping';
@@ -544,35 +546,15 @@ export function saveStoredMarketBuilderConfig(cfg: MarketplaceBuilderConfig): vo
 
 export async function compressImageFileToDataUrl(
   file: File,
-  maxWidth = 1440,
-  maxHeight = 1440,
-  quality = 0.82
+  maxWidth = 1280,
+  maxHeight = 1280,
+  quality = 0.8
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('تعذر قراءة ملف الصورة'));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('ملف الصورة غير صالح'));
-      img.onload = () => {
-        let { width, height } = img;
-        const ratio = Math.min(1, maxWidth / Math.max(width, 1), maxHeight / Math.max(height, 1));
-        width = Math.max(1, Math.round(width * ratio));
-        height = Math.max(1, Math.round(height * ratio));
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(String(reader.result || ''));
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/webp', quality);
-        resolve(dataUrl.startsWith('data:image/') ? dataUrl : canvas.toDataURL('image/jpeg', quality));
-      };
-      img.src = String(reader.result || '');
-    };
-    reader.readAsDataURL(file);
+  return compressImageFile(file, {
+    maxWidth,
+    maxHeight,
+    initialQuality: quality,
+    targetMaxKb: maxWidth > 1100 ? 155 : 95,
+    preserveTransparency: file.type === 'image/png' && maxWidth <= 512,
   });
 }

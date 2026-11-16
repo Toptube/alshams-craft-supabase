@@ -34,6 +34,7 @@ import {
 } from '../../registry/craftsRegistry';
 import { playSuccessSound, playErrorSound } from '../../lib/sounds';
 import { useTranslation } from '../../lib/i18n';
+import { compressImageFile } from '../../utils/imageCompressor';
 import {
   Calculator,
   Scroll,
@@ -1329,16 +1330,24 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     }
   };
 
-  // Image Upload handler
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Image Upload handler with automatic compression to keep database lightweight
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) return;
+    try {
+      const compressed = await compressImageFile(file, {
+        maxWidth: 800,
+        maxHeight: 800,
+        targetMaxKb: 95,
+        initialQuality: 0.78,
+      });
+      setProductImageUrl(compressed);
+    } catch {
       const reader = new FileReader();
-      reader.onload = () => {
-        setProductImageUrl(reader.result as string);
-      };
+      reader.onload = () => setProductImageUrl(reader.result as string);
       reader.readAsDataURL(file);
     }
+    e.target.value = '';
   };
 
   // Save or Mutate Product in Archive (Button relocated to absolute bottom)

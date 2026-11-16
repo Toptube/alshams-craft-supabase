@@ -1162,6 +1162,28 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
                         {msg.content || msg.message}
                       </p>
 
+                      {(() => {
+                        const txt = String(msg.content || msg.message || '');
+                        const match = txt.match(/#\/supplier\/([^\s\n]+)/i);
+                        if (!match?.[1]) return null;
+                        const slug = match[1];
+                        return (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.location.hash = `#/supplier/${slug}`;
+                                onClose();
+                              }}
+                              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>فتح متجر وقائمة أسعار المورد مباشرة</span>
+                            </button>
+                          </div>
+                        );
+                      })()}
+
                       {hasReplied && (
                         <div className="p-3 rounded-xl bg-[#E9E2D4] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-1">
                           <span className="text-[10px] font-black text-[#C2410C] dark:text-[#FBBF24] block">

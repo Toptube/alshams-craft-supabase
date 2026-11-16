@@ -5,9 +5,10 @@ import {
   ProductSizeVariant,
 } from '../../types/artisanStoreBuilder';
 import { getCurrencyInfo, toEgpAmount } from '../../lib/currency';
-import { compressImageFileToDataUrl } from '../../types/marketplaceBuilder';
+import { compressImageFile, MAX_ITEM_IMAGES } from '../../utils/imageCompressor';
 import {
   X,
+  ArrowRight,
   Plus,
   Trash2,
   Upload,
@@ -58,10 +59,13 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
     product.imageUrl || '/alshams_falcon_emblem.png'
   );
   const [galleryUrls, setGalleryUrls] = useState<string[]>(
-    Array.isArray(product.galleryUrls) ? product.galleryUrls.filter(Boolean) : []
+    Array.isArray(product.galleryUrls)
+      ? product.galleryUrls.filter(Boolean).slice(0, MAX_ITEM_IMAGES - 1)
+      : []
   );
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [uploadingImg, setUploadingImg] = useState(false);
+  const [imgLimitNotice, setImgLimitNotice] = useState('');
 
   // Colors
   const [colors, setColors] = useState<string[]>(
@@ -129,18 +133,44 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
     setNewSizePrice('');
   };
 
+  const hasCustomPrimary = Boolean(
+    primaryImage && primaryImage !== '/alshams_falcon_emblem.png'
+  );
+  const totalImagesCount = (hasCustomPrimary ? 1 : 0) + galleryUrls.length;
+  const remainingImageSlots = Math.max(0, MAX_ITEM_IMAGES - totalImagesCount);
+
   const handleUploadImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+    const selectedFiles = Array.from(e.target.files || []);
+    if (selectedFiles.length === 0) return;
+
+    if (remainingImageSlots <= 0) {
+      setImgLimitNotice('الحد الأقصى المسموح به هو ٣ صور فقط لكل منتج لتخفيف مساحة قاعدة البيانات.');
+      e.target.value = '';
+      return;
+    }
+
+    setImgLimitNotice('');
     setUploadingImg(true);
     try {
-      for (const file of files.slice(0, 4)) {
-        const compressed = await compressImageFileToDataUrl(file, 1080, 1080, 0.8);
+      let slotsLeft = remainingImageSlots;
+      for (const file of selectedFiles.slice(0, slotsLeft)) {
+        const compressed = await compressImageFile(file, {
+          maxWidth: 800,
+          maxHeight: 800,
+          targetMaxKb: 95,
+          initialQuality: 0.78,
+        });
         if (!primaryImage || primaryImage === '/alshams_falcon_emblem.png') {
           setPrimaryImage(compressed);
         } else {
-          setGalleryUrls((prev) => (prev.length < 7 ? [...prev, compressed] : prev));
+          setGalleryUrls((prev) =>
+            prev.length < MAX_ITEM_IMAGES - 1 ? [...prev, compressed] : prev
+          );
         }
+        slotsLeft -= 1;
+      }
+      if (selectedFiles.length > remainingImageSlots) {
+        setImgLimitNotice('تم إضافة الحد الأقصى المسموح به فقط (٣ صور كحد أقصى لكل منتج).');
       }
     } catch {}
     setUploadingImg(false);
@@ -150,10 +180,17 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
   const handleAddImageUrl = () => {
     const clean = imageUrlInput.trim();
     if (!clean) return;
+    if (remainingImageSlots <= 0) {
+      setImgLimitNotice('الحد الأقصى المسموح به هو ٣ صور فقط لكل منتج.');
+      return;
+    }
+    setImgLimitNotice('');
     if (!primaryImage || primaryImage === '/alshams_falcon_emblem.png') {
       setPrimaryImage(clean);
     } else {
-      setGalleryUrls((prev) => [...prev, clean]);
+      setGalleryUrls((prev) =>
+        prev.length < MAX_ITEM_IMAGES - 1 ? [...prev, clean] : prev
+      );
     }
     setImageUrlInput('');
   };
@@ -241,19 +278,28 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
         className="w-full max-w-3xl max-h-[92vh] rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#EA580C]/50 shadow-2xl flex flex-col overflow-hidden text-right text-[#0C1427] dark:text-[#F7F3EA]"
       >
         {/* Header */}
-        <div className="px-5 py-3.5 bg-[#E9E2D4] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-3">
-          <div className="min-w-0">
+        <div className="px-4 sm:px-5 py-3.5 bg-[#E9E2D4] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black cursor-pointer shrink-0"
+          >
+            <ArrowRight className="w-3.5 h-3.5 text-[#EA580C]" />
+            <span>رجوع</span>
+          </button>
+          <div className="min-w-0 flex-1">
             <h3 className="font-black text-sm sm:text-base text-[#0C1427] dark:text-amber-300 truncate">
               تعديل بيانات وعرض المنتج: {product.productName}
             </h3>
-            <p className="text-[11px] font-bold text-[#475569] dark:text-[#CBD5E1]">
-              تحكم كامل بالسعر، المقاسات المتعددة، الخصم، الصور، والظهور في متجرك وسوق الشمساوية
+            <p className="text-[11px] font-bold text-[#475569] dark:text-[#CBD5E1] truncate">
+              تحكم كامل بالسعر، المقاسات المتعددة، الخصم، الصور (حتى ٣ صور مضغوطة)، والظهور في متجرك وسوق الشمساوية
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer hover:border-[#EA580C]"
+            aria-label="إغلاق"
+            className="w-8 h-8 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer hover:border-[#EA580C] shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -595,25 +641,41 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
             </div>
           </div>
 
-          {/* 5. Multi-Image Gallery Manager */}
+          {/* 5. Multi-Image Gallery Manager (Max 3 compressed images) */}
           <div className="p-4 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h4 className="font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5">
-                <ImageIcon className="w-4 h-4" />
-                <span>صور المنتج والمعرض ({galleryUrls.length + 1} صور)</span>
-              </h4>
-              <label className="px-3 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-black text-[11px] flex items-center gap-1.5 cursor-pointer">
-                <Upload className="w-3.5 h-3.5" />
-                <span>{uploadingImg ? 'جاري الرفع...' : 'رفع صور جديدة'}</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleUploadImageFile}
-                  className="hidden"
-                />
-              </label>
+              <div>
+                <h4 className="font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5">
+                  <ImageIcon className="w-4 h-4" />
+                  <span>صور المنتج والمعرض ({totalImagesCount} / {MAX_ITEM_IMAGES} صور بحد أقصى)</span>
+                </h4>
+                <p className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8] mt-0.5">
+                  يتم ضغط الصور تلقائياً بصيغة ذكية لتقليل مساحة التخزين والحفاظ على سرعة التحميل
+                </p>
+              </div>
+              {remainingImageSlots > 0 ? (
+                <label className="px-3 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-black text-[11px] flex items-center gap-1.5 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{uploadingImg ? 'جاري الضغط والرفع...' : `رفع صور (${remainingImageSlots} متاح)`}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleUploadImageFile}
+                    className="hidden"
+                  />
+                </label>
+              ) : (
+                <span className="px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border border-amber-300/60 text-[10px] font-black">
+                  اكتمل الحد الأقصى (٣ صور)
+                </span>
+              )}
             </div>
+            {imgLimitNotice && (
+              <div className="px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 text-[11px] font-bold">
+                {imgLimitNotice}
+              </div>
+            )}
 
             <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5">
               {/* Primary Image */}
@@ -662,23 +724,25 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
               ))}
             </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="url"
-                value={imageUrlInput}
-                onChange={(e) => setImageUrlInput(e.target.value)}
-                placeholder="أو الصق رابط صورة مباشر (https://...)"
-                dir="ltr"
-                className="flex-1 px-3 py-1.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-[11px] font-mono text-right"
-              />
-              <button
-                type="button"
-                onClick={handleAddImageUrl}
-                className="px-3 py-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold cursor-pointer"
-              >
-                إضافة رابط
-              </button>
-            </div>
+            {remainingImageSlots > 0 && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="url"
+                  value={imageUrlInput}
+                  onChange={(e) => setImageUrlInput(e.target.value)}
+                  placeholder="أو الصق رابط صورة مباشر (https://...)"
+                  dir="ltr"
+                  className="flex-1 px-3 py-1.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-[11px] font-mono text-right"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddImageUrl}
+                  className="px-3 py-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold cursor-pointer"
+                >
+                  إضافة رابط
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

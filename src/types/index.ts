@@ -119,6 +119,11 @@ export interface WorkshopProfile {
   // Store Slug (رابط المتجر النظيف المخصص)
   storeSlug?: string;
   store_slug?: string;
+  // Granular Super Admin Visibility Controls
+  hideStorefront?: boolean;
+  hide_storefront?: boolean;
+  hideFromMarket?: boolean;
+  hide_from_market?: boolean;
   // Multi-role Platform Support (Artisan Workshop vs Material Supplier)
   accountRole?: 'artisan' | 'supplier';
   supplierId?: string;

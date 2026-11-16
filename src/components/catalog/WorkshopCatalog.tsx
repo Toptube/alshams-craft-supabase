@@ -43,8 +43,11 @@ import {
   GripVertical,
   ArrowUp,
   ArrowDown,
+  ArrowRight,
+  Upload,
   Copy,
 } from 'lucide-react';
+import { compressImageFile } from '../../utils/imageCompressor';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import {
@@ -2515,16 +2518,24 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="p-5 border-b border-stone-200 dark:border-stone-800 flex items-center justify-between bg-stone-50 dark:bg-stone-800/50">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+            <div className="p-5 border-b border-stone-200 dark:border-stone-800 flex items-center justify-between gap-2 bg-stone-50 dark:bg-stone-800/50">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setEditingRecord(null)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-stone-200/80 dark:bg-stone-700 text-stone-800 dark:text-stone-100 text-xs font-black cursor-pointer shrink-0"
+                >
+                  <ArrowRight className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>رجوع</span>
+                </button>
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
                   <Edit3 className="w-5 h-5" />
                 </div>
-                <div>
-                  <h3 className="text-base font-black text-stone-900 dark:text-stone-100">
+                <div className="min-w-0">
+                  <h3 className="text-base font-black text-stone-900 dark:text-stone-100 truncate">
                     {tr('catalog_specs_modal_title')}
                   </h3>
-                  <p className="text-xs text-stone-500">
+                  <p className="text-xs text-stone-500 truncate">
                     كتابة وإكمال المواصفات الناقصة وحفظ التعديلات في الكتالوج
                   </p>
                 </div>
@@ -2532,7 +2543,8 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               <button
                 type="button"
                 onClick={() => setEditingRecord(null)}
-                className="p-2 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition"
+                aria-label="إغلاق"
+                className="p-2 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2722,24 +2734,47 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                 </div>
               </div>
 
-              {/* Image URL & Preview */}
+              {/* Image URL & Direct Compressed Upload */}
               <div>
                 <label className="block text-stone-700 dark:text-stone-300 font-bold mb-1.5">
-                  رابط صورة المنتج (URL)
+                  صورة المنتج (رفع مضغوط تلقائياً أو رابط URL)
                 </label>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
                   <input
                     type="url"
                     value={editFormData.imageUrl}
                     onChange={(e) => setEditFormData({ ...editFormData, imageUrl: e.target.value })}
-                    placeholder="https://... أو مسار الصورة المعتمدة"
-                    className="flex-1 px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                    placeholder="https://... أو ارفع صورة من الجهاز"
+                    className="flex-1 min-w-[200px] px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 font-bold outline-none focus:ring-2 focus:ring-amber-500"
                   />
+                  <label className="px-3.5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs inline-flex items-center gap-1.5 cursor-pointer shrink-0">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>رفع وضغط صورة</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const compressed = await compressImageFile(file, {
+                            maxWidth: 800,
+                            maxHeight: 800,
+                            targetMaxKb: 95,
+                            initialQuality: 0.78,
+                          });
+                          setEditFormData((prev: any) => ({ ...prev, imageUrl: compressed }));
+                        } catch {}
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
                   {editFormData.imageUrl && (
                     <img
                       src={editFormData.imageUrl}
                       alt="معاينة"
-                      className="w-10 h-10 rounded-xl object-cover border border-stone-300 dark:border-stone-700"
+                      className="w-10 h-10 rounded-xl object-cover border border-stone-300 dark:border-stone-700 shrink-0"
                     />
                   )}
                 </div>

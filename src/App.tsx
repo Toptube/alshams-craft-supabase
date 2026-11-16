@@ -91,6 +91,9 @@ import { SupplierOrdersView } from './components/supplier/SupplierOrdersView';
 import { SupplierCustomersView } from './components/supplier/SupplierCustomersView';
 import { SupplierFinanceView } from './components/supplier/SupplierFinanceView';
 import { SupplierStorefrontModal } from './components/supplier/SupplierStorefrontModal';
+import { SuppliersMarketView } from './components/supplier/SuppliersMarketView';
+import { SupplierPublicStoreView } from './components/supplier/SupplierPublicStoreView';
+import { MemberPersonalProfileView } from './components/profile/MemberPersonalProfileView';
 import {
   registerServiceWorker,
   subscribeToWebPush,
@@ -112,6 +115,7 @@ export type ActiveView =
   | 'materials'
   | 'purchases'
   | 'suppliers'
+  | 'suppliers_market'
   | 'customers'
   | 'sales'
   | 'invoices'
@@ -131,7 +135,8 @@ export type ActiveView =
   | 'supplier_orders'
   | 'supplier_customers'
   | 'supplier_finance'
-  | 'supplier_store';
+  | 'supplier_store'
+  | 'personal_profile';
 
 const processedRecoveryTokens = new Set<string>();
 
@@ -160,7 +165,8 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   catalog: 'كتالوج الورشة والمنتجات',
   materials: 'المخزن وإدارة الخامات',
   purchases: 'المشتريات وفواتير الخامات',
-  suppliers: 'سجل الموردين',
+  suppliers: 'مورديني',
+  suppliers_market: 'سوق موردين الشمساوية للخامات',
   customers: 'عملائي',
   sales: 'طلبيات ومبيعات الورشة',
   invoices: 'الفواتير وعروض الأسعار',
@@ -181,6 +187,7 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   supplier_customers: 'عملائي (الورش والأفراد)',
   supplier_finance: 'خزائن المورد والمصروفات',
   supplier_store: 'لوحة تحكم متجر المورد',
+  personal_profile: 'صفحتي الشخصية ومعرض الأعمال',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -1509,11 +1516,40 @@ export const App: React.FC = () => {
     setIsSidebarOpen(false);
   };
 
-  // Comprehensive Hash and Path routing for Public Storefronts and Central Marketplace
-  const parseAppRoute = (): { type: 'app' | 'market' | 'store'; slug?: string } => {
+  // Comprehensive Hash and Path routing for Public Storefronts and Central Marketplaces
+  const parseAppRoute = (): {
+    type: 'app' | 'market' | 'store' | 'suppliers_market' | 'supplier_store';
+    slug?: string;
+  } => {
     if (typeof window === 'undefined') return { type: 'app' };
     const pathname = window.location.pathname || '';
     const hash = window.location.hash || '';
+
+    // 0. Suppliers B2B Marketplace (/suppliers-market, /#/suppliers-market)
+    if (
+      /^\/suppliers-market(?:\/|$)/i.test(pathname) ||
+      /^#\/?suppliers-market(?:\/|$)/i.test(hash)
+    ) {
+      return { type: 'suppliers_market' };
+    }
+
+    // 0b. Direct Supplier Public Storefront (/supplier/:slug or /#/supplier/:slug)
+    const supPathMatch = pathname.match(/^\/supplier\/([^/?#]+)/i);
+    if (supPathMatch) {
+      try {
+        return { type: 'supplier_store', slug: decodeURIComponent(supPathMatch[1]) };
+      } catch {
+        return { type: 'supplier_store', slug: supPathMatch[1] };
+      }
+    }
+    const supHashMatch = hash.match(/^#\/?supplier\/([^/?#]+)/i);
+    if (supHashMatch) {
+      try {
+        return { type: 'supplier_store', slug: decodeURIComponent(supHashMatch[1]) };
+      } catch {
+        return { type: 'supplier_store', slug: supHashMatch[1] };
+      }
+    }
 
     // 1. Central Marketplace (/market, /marketplace, /#/market, #market)
     if (
@@ -1543,11 +1579,25 @@ export const App: React.FC = () => {
       }
     }
 
-    // 4. Query Params Support (?market=1, ?tab=market, ?store=...)
+    // 4. Query Params Support (?market=1, ?tab=market, ?store=..., ?supplier=...)
     const search = window.location.search || '';
     if (search) {
       try {
         const params = new URLSearchParams(search);
+        if (
+          params.get('suppliers_market') === '1' ||
+          params.get('view') === 'suppliers-market'
+        ) {
+          return { type: 'suppliers_market' };
+        }
+        const supplierParam = params.get('supplier');
+        if (supplierParam) {
+          try {
+            return { type: 'supplier_store', slug: decodeURIComponent(supplierParam) };
+          } catch {
+            return { type: 'supplier_store', slug: supplierParam };
+          }
+        }
         if (params.get('market') === '1' || params.get('tab') === 'market' || params.get('view') === 'market') {
           return { type: 'market' };
         }
@@ -1592,6 +1642,65 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // Render Suppliers Market if requested via direct link or hash
+  if (activeRoute.type === 'suppliers_market') {
+    return (
+      <SuppliersMarketView
+        profile={profile}
+        onNavigateBack={
+          profile
+            ? () => {
+                if (window.location.hash) window.location.hash = '';
+                if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+                setActiveRoute({ type: 'app' });
+              }
+            : undefined
+        }
+        onNavigateToMyOrders={() => {
+          if (window.location.hash) window.location.hash = '';
+          if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+          setActiveRoute({ type: 'app' });
+          setActiveView('suppliers');
+        }}
+        onOpenSupplierStore={(slug) => {
+          window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+          setActiveRoute({ type: 'supplier_store', slug });
+        }}
+        onNavigateToCentralMarket={() => {
+          window.location.hash = '#/market';
+          setActiveRoute({ type: 'market' });
+        }}
+      />
+    );
+  }
+
+  // Render Public Supplier Storefront if requested via /supplier/:slug or #/supplier/:slug
+  if (activeRoute.type === 'supplier_store' && activeRoute.slug) {
+    return (
+      <SupplierPublicStoreView
+        slug={activeRoute.slug}
+        profile={profile}
+        onNavigateToSuppliersMarket={() => {
+          window.location.hash = '#/suppliers-market';
+          setActiveRoute({ type: 'suppliers_market' });
+        }}
+        onNavigateToCentralMarket={() => {
+          window.location.hash = '#/market';
+          setActiveRoute({ type: 'market' });
+        }}
+        onNavigateToApp={
+          profile
+            ? () => {
+                if (window.location.hash) window.location.hash = '';
+                if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+                setActiveRoute({ type: 'app' });
+              }
+            : undefined
+        }
+      />
+    );
+  }
+
   // Render Central Marketplace if requested via direct link or hash
   if (activeRoute.type === 'market') {
     return (
@@ -1608,6 +1717,14 @@ export const App: React.FC = () => {
           if (window.location.hash) window.location.hash = '';
           setActiveRoute({ type: 'app' });
         }}
+        onNavigateToSuppliersMarket={
+          featureFlags.suppliersMarketplaceEnabled
+            ? () => {
+                window.location.hash = '#/suppliers-market';
+                setActiveRoute({ type: 'suppliers_market' });
+              }
+            : undefined
+        }
       />
     );
   }
@@ -2043,6 +2160,8 @@ export const App: React.FC = () => {
                 onNavigateToOrders={() => navigateTo('supplier_orders')}
                 onNavigateToCustomers={() => navigateTo('supplier_customers')}
                 onNavigateToFinance={() => navigateTo('supplier_finance')}
+                onNavigateToFamily={() => navigateTo('family')}
+                onNavigateToPersonalProfile={() => navigateTo('personal_profile')}
               />
             )
           ) : (
@@ -2052,9 +2171,11 @@ export const App: React.FC = () => {
               onNavigateToArchive={() => navigateTo('archive')}
               onNavigateToCatalog={handleNavigateToCatalog}
               onOpenArtisanStore={handleOpenArtisanStore}
+              onOpenPersonalProfile={() => navigateTo('personal_profile')}
               onNavigateToAIAgent={() => navigateTo('ai_agent')}
               onNavigateToMaterials={() => navigateTo('materials')}
               onNavigateToSuppliers={() => navigateTo('suppliers')}
+              onNavigateToSuppliersMarket={() => navigateTo('suppliers_market')}
               onNavigateToSales={() => navigateTo('sales')}
               onNavigateToCustomers={() => navigateTo('customers')}
               onNavigateToInvoices={() => navigateTo('invoices')}
@@ -2147,6 +2268,24 @@ export const App: React.FC = () => {
               setIsUserGuideOpen(true);
             }}
             onOpenCreateSupplier={() => setIsNewSupplierOpen(true)}
+            onOpenSuppliersMarket={
+              isUserAdmin(profile) || featureFlags.suppliersMarketplaceEnabled
+                ? () => navigateTo('suppliers_market')
+                : undefined
+            }
+          />
+        )}
+
+        {activeView === 'suppliers_market' && (
+          <SuppliersMarketView
+            profile={profile}
+            onNavigateBack={navigateBack}
+            onNavigateToMyOrders={() => navigateTo('suppliers')}
+            onOpenSupplierStore={(slug) => {
+              window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+              setActiveRoute({ type: 'supplier_store', slug });
+            }}
+            onNavigateToCentralMarket={() => navigateTo('marketplace')}
           />
         )}
 
@@ -2339,6 +2478,34 @@ export const App: React.FC = () => {
           <FamilyCommunityView
             profile={profile}
             isSwitchedWorkshop={Boolean(switchedWorkshopContext)}
+            onOpenMemberStore={(slug, role) => {
+              if (role === 'supplier') {
+                window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+                setActiveRoute({ type: 'supplier_store', slug });
+              } else {
+                window.location.hash = `#/store/${encodeURIComponent(slug)}`;
+                setActiveRoute({ type: 'store', slug });
+              }
+            }}
+          />
+        )}
+
+        {activeView === 'personal_profile' && (
+          <MemberPersonalProfileView
+            mode="page"
+            targetMemberId={profile.workshopId || profile.id || profile.email}
+            currentUserProfile={profile}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+            onOpenStore={(slug, role) => {
+              if (role === 'supplier') {
+                window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+                setActiveRoute({ type: 'supplier_store', slug });
+              } else {
+                window.location.hash = `#/store/${encodeURIComponent(slug)}`;
+                setActiveRoute({ type: 'store', slug });
+              }
+            }}
           />
         )}
 
@@ -2723,6 +2890,10 @@ export const App: React.FC = () => {
           navigateTo('calculator');
           setIsArtisanStoreModalOpen(false);
         }}
+        onOpenPersonalProfile={() => {
+          setIsArtisanStoreModalOpen(false);
+          navigateTo('personal_profile');
+        }}
       />
 
       {/* Supplier Storefront Config & QR Modal */}
@@ -2734,6 +2905,10 @@ export const App: React.FC = () => {
           onProfileUpdated={(updated) => {
             setProfile(updated);
             localStorage.setItem('alshams_profile', JSON.stringify(updated));
+          }}
+          onOpenPersonalProfile={() => {
+            setIsSupplierStoreModalOpen(false);
+            navigateTo('personal_profile');
           }}
         />
       )}

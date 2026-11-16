@@ -17,6 +17,7 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
+  User,
 } from 'lucide-react';
 
 interface SupplierStorefrontModalProps {
@@ -24,6 +25,7 @@ interface SupplierStorefrontModalProps {
   onClose: () => void;
   profile: UserProfile;
   onProfileUpdated: (updated: UserProfile) => void;
+  onOpenPersonalProfile?: () => void;
 }
 
 const THEME_PRESETS: { id: NonNullable<SupplierStoreConfig['themePreset']>; label: string }[] = [
@@ -38,6 +40,7 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
   onClose,
   profile,
   onProfileUpdated,
+  onOpenPersonalProfile,
 }) => {
   const initialCfg: SupplierStoreConfig = profile.storeConfig || {};
   const [tab, setTab] = useState<'appearance' | 'promotions' | 'qr'>('appearance');
@@ -271,7 +274,19 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
               </div>
 
               <div>
-                <label className="block font-bold mb-1">نبذة المتجر</label>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                  <label className="font-bold">نبذة المتجر (تتزامن تلقائياً مع قصتك بصفحتك الشخصية)</label>
+                  {onOpenPersonalProfile && (
+                    <button
+                      type="button"
+                      onClick={onOpenPersonalProfile}
+                      className="px-2.5 py-1 rounded-lg bg-[#0C1427] dark:bg-[#132040] text-[#FBBF24] border border-[#22355E] text-[10px] font-black inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <User className="w-3 h-3" />
+                      <span>فتح صفحتي الشخصية ومعرض الأعمال</span>
+                    </button>
+                  )}
+                </div>
                 <textarea
                   rows={2}
                   value={description}

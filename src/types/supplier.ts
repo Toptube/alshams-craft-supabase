@@ -59,9 +59,37 @@ export interface SupplierProfile {
   medal?: string;
   ratingStars?: number;
   featuredRank?: number;
+  hideStorefront?: boolean;
+  hideFromMarket?: boolean;
   termsAcceptedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface SupplierMarketEntry {
+  supplier: SupplierProfile;
+  items: SupplierCatalogItem[];
+  minRetailPrice: number;
+  maxRetailPrice: number;
+  minWholesalePrice: number;
+  maxWholesalePrice: number;
+  hasWholesale: boolean;
+}
+
+export interface AdminCustomerDirectoryRow {
+  id: string;
+  workshopId: string;
+  workshopBrand: string;
+  artistName: string;
+  name: string;
+  phone: string;
+  email?: string;
+  country?: string;
+  governorate?: string;
+  source?: string;
+  totalSpent: number;
+  ordersCount: number;
+  createdAt?: string;
 }
 
 export interface SupplierCatalogVariant {
@@ -133,7 +161,7 @@ export interface B2BSupplyOrder {
   paymentMethod: string;
   workshopTreasuryId?: string | null;
   supplierTreasuryId?: string | null;
-  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+  status: 'pending' | 'confirmed' | 'preparing' | 'shipped' | 'delivered' | 'received' | 'cancelled';
   workshopApprovedAt?: string | null;
   inventorySyncedAt?: string | null;
   financialPostedAt?: string | null;
