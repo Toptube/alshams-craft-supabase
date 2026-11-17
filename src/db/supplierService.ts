@@ -224,6 +224,56 @@ export async function updateSupplierStoreConfig(
   }
 }
 
+export interface UpdateSupplierProfileInput {
+  brandName?: string;
+  ownerName?: string;
+  gender?: Gender;
+  phone?: string;
+  country?: string;
+  governorate?: string;
+  currency?: string;
+  currencySymbol?: string;
+  storeSlug?: string;
+  logoUrl?: string;
+  businessTypes?: SupplierBusinessType[];
+  pricingModes?: SupplierPricingMode[];
+  supplySections?: MainSectionId[];
+  suppliedMaterials?: string[];
+  socials?: {
+    facebook?: string;
+    instagram?: string;
+  };
+}
+
+export async function updateSupplierProfileInBackend(
+  input: UpdateSupplierProfileInput
+): Promise<{ success: boolean; supplier?: SupplierProfile; userProfile?: UserProfile; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/suppliers/profile', {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(input),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success && json?.supplier) {
+      const mapped = mapDbSupplierRowToProfile(json.supplier);
+      const uProf = supplierProfileToUserProfile(mapped);
+      try {
+        localStorage.setItem(LOCAL_SUPPLIER_PROFILE_KEY, JSON.stringify(mapped));
+        localStorage.setItem('alshams_profile', JSON.stringify(uProf));
+      } catch {}
+      return { success: true, supplier: mapped, userProfile: uProf };
+    }
+    return {
+      success: false,
+      error: json?.error || `تعذر حفظ بيانات المورد (${res.status})`,
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'تعذر الاتصال بالخادم' };
+  }
+}
+
 // =============================================================
 // Catalog CRUD
 // =============================================================

@@ -39,6 +39,8 @@ import {
 import { compressImageFile } from '../../utils/imageCompressor';
 import { playButtonClickSound, playErrorSound, playSuccessSound } from '../../lib/sounds';
 import { ArtisanAvatar } from '../brand/BrandAssets';
+import { archiveReplacedImage } from '../../services/imageRollbackService';
+import { ImageRollbackBar } from '../common/ImageRollbackBar';
 
 interface MemberPersonalProfileViewProps {
   targetMemberId: string;
@@ -190,6 +192,13 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
         targetMaxKb: 55,
         initialQuality: 0.82,
       });
+      const rollbackSlot = `profile_logo_${currentUserProfile?.workshopId || currentUserProfile?.id || targetMemberId || 'default'}`;
+      archiveReplacedImage(
+        rollbackSlot,
+        'صورتي الشخصية وشعار البراند',
+        personalAvatarDraft || rawProfile?.brandLogo || '',
+        compressed
+      );
       setPersonalAvatarDraft(compressed);
       playButtonClickSound();
     } catch {
@@ -215,8 +224,38 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
     if (res.success && res.profile) {
       playSuccessSound();
       setRawProfile(res.profile);
+      const syncedPhoto = res.profile.personalAvatar || res.profile.brandLogo || '';
+      try {
+        const rawLocal = localStorage.getItem('alshams_profile');
+        if (rawLocal) {
+          const parsedLocal = JSON.parse(rawLocal);
+          localStorage.setItem(
+            'alshams_profile',
+            JSON.stringify({
+              ...parsedLocal,
+              logoUrl: syncedPhoto || parsedLocal.logoUrl,
+              logo_url: syncedPhoto || parsedLocal.logo_url,
+              logoBase64: res.profile.personalAvatar || '',
+              phoneNumber: res.profile.phone || parsedLocal.phoneNumber,
+              governorate: res.profile.governorate ?? parsedLocal.governorate,
+            })
+          );
+        }
+      } catch {}
+      window.dispatchEvent(
+        new CustomEvent('alshams_profile_synced', {
+          detail: {
+            logoUrl: syncedPhoto,
+            brandName: res.profile.brandName,
+            phoneNumber: res.profile.phone,
+            governorate: res.profile.governorate,
+            storyText: res.profile.storyText,
+            bioHeadline: res.profile.bioHeadline,
+          },
+        })
+      );
       setSaveFeedback({
-        text: 'تم حفظ بياناتك وأذونات الظهور بنجاح (ومتزامنة تلقائياً مع متجرك)!',
+        text: 'تم حفظ بياناتك وصورتك الموحدة وأذونات الظهور بنجاح!',
       });
       setTimeout(() => setSaveFeedback(null), 3500);
     } else {
@@ -449,14 +488,16 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     <ArtisanAvatar artistName={effectiveProfile.displayName} size="lg" />
                   )}
 
-                  {effectiveProfile.brandLogo && effectiveProfile.personalAvatar && (
-                    <img
-                      src={effectiveProfile.brandLogo}
-                      alt={effectiveProfile.brandName}
-                      title={`شعار: ${effectiveProfile.brandName}`}
-                      className="w-9 h-9 rounded-xl object-contain bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] p-0.5 absolute -bottom-2 -left-2 shadow-sm"
-                    />
-                  )}
+                  {effectiveProfile.brandLogo &&
+                    effectiveProfile.personalAvatar &&
+                    effectiveProfile.brandLogo !== effectiveProfile.personalAvatar && (
+                      <img
+                        src={effectiveProfile.brandLogo}
+                        alt={effectiveProfile.brandName}
+                        title={`شعار: ${effectiveProfile.brandName}`}
+                        className="w-9 h-9 rounded-xl object-contain bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] p-0.5 absolute -bottom-2 -left-2 shadow-sm"
+                      />
+                    )}
                 </div>
 
                 <div className="min-w-0 space-y-1.5">
@@ -538,7 +579,16 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   {personalAvatarDraft && (
                     <button
                       type="button"
-                      onClick={() => setPersonalAvatarDraft(null)}
+                      onClick={() => {
+                        const rollbackSlot = `profile_logo_${currentUserProfile?.workshopId || currentUserProfile?.id || targetMemberId || 'default'}`;
+                        archiveReplacedImage(
+                          rollbackSlot,
+                          'صورتي الشخصية وشعار البراند',
+                          personalAvatarDraft,
+                          ''
+                        );
+                        setPersonalAvatarDraft(null);
+                      }}
                       className="min-h-[40px] px-3 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
                     >
                       حذف الصورة الشخصية
@@ -546,9 +596,15 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   )}
 
                   <span className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
-                    ملاحظة: شعار البراند يُدار من إعدادات الحساب بينما هذه صورتك الشخصية المستقلة وتُحذف نسختها القديمة فوراً عند التعديل.
+                    صورتك الشخصية وشعار البراند موحدان في الحساب كله؛ أي تعديل هنا يظهر مباشرة في الإعدادات والمتجر وتُحفظ النسخة السابقة للتراجع خلال 8 ساعات فقط.
                   </span>
                 </div>
+
+                <ImageRollbackBar
+                  slotKey={`profile_logo_${currentUserProfile?.workshopId || currentUserProfile?.id || targetMemberId || 'default'}`}
+                  compact
+                  onRestored={(prevUrl) => setPersonalAvatarDraft(prevUrl)}
+                />
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
@@ -584,7 +640,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
 
                 <div>
                   <label className="block text-xs font-bold mb-1">
-                    قصتي وبدايتي في الشغل (تتزامن تلقائياً مع واجهة متجرك العام)
+                    قصتي وبدايتي في الشغل (النبذة التعريفية)
                   </label>
                   <textarea
                     rows={3}

@@ -108,6 +108,9 @@ export const ARTISAN_STORE_CONFIG_PREFIX = 'alshams_artisan_store_cfg_';
 export const ARTISAN_STORE_COUPONS_INDEX_KEY = 'alshams_artisan_store_coupons_index';
 export const ARTISAN_STORE_BUNDLES_INDEX_KEY = 'alshams_artisan_store_bundles_index';
 
+export const DEFAULT_ARTISAN_STORY =
+  'نصنع كل قطعة يدوياً بخامات مختارة بعناية ولمسات فنية فريدة تعكس روح الحرفة المصرية الأصيلة.';
+
 export const DEFAULT_ARTISAN_STORE_CONFIG: ArtisanStoreConfig = {
   themePreset: 'shams_sand',
   storeCurrency: 'EGP',
@@ -117,7 +120,7 @@ export const DEFAULT_ARTISAN_STORE_CONFIG: ArtisanStoreConfig = {
   showArtistSubtitle: true,
   welcomeMessage: 'أهلاً بك في متجرنا — قطع يدوية مصنوعة بحب وإتقان خصيصاً لمنزلك',
   showWelcomeMessage: true,
-  artistStory: 'نصنع كل قطعة يدوياً بخامات مختارة بعناية ولمسات فنية فريدة تعكس روح الحرفة المصرية الأصيلة.',
+  artistStory: DEFAULT_ARTISAN_STORY,
   showArtistStory: true,
   craftBadge: 'مشغولات يدوية أصلية 100%',
   showCraftBadge: true,

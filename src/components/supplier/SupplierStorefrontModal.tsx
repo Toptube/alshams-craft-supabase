@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { UserProfile } from '../../types';
 import { SupplierStoreConfig, SupplierStoreCoupon } from '../../types/supplier';
 import { updateSupplierStoreConfig } from '../../db/supplierService';
+import { fetchMemberPersonalProfile } from '../../db/memberProfileService';
 import { QRCodeCanvas } from 'qrcode.react';
 import {
   X,
@@ -18,6 +19,7 @@ import {
   CheckCircle2,
   AlertCircle,
   User,
+  ExternalLink,
 } from 'lucide-react';
 
 interface SupplierStorefrontModalProps {
@@ -26,6 +28,7 @@ interface SupplierStorefrontModalProps {
   profile: UserProfile;
   onProfileUpdated: (updated: UserProfile) => void;
   onOpenPersonalProfile?: () => void;
+  onPreviewPublicStore?: (slug: string) => void;
 }
 
 const THEME_PRESETS: { id: NonNullable<SupplierStoreConfig['themePreset']>; label: string }[] = [
@@ -41,6 +44,7 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
   profile,
   onProfileUpdated,
   onOpenPersonalProfile,
+  onPreviewPublicStore,
 }) => {
   const initialCfg: SupplierStoreConfig = profile.storeConfig || {};
   const [tab, setTab] = useState<'appearance' | 'promotions' | 'qr'>('appearance');
@@ -75,13 +79,58 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
   const [feedback, setFeedback] = useState<{ text: string; isError?: boolean } | null>(null);
   const qrWrapRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const cfg: SupplierStoreConfig = profile.storeConfig || {};
+    setBrandName(profile.brandName || '');
+    setStoreSlug(profile.storeSlug || profile.store_slug || '');
+    setPhone(profile.phoneNumber || '');
+    setGovernorate(profile.governorate || '');
+    setTagline(cfg.tagline || '');
+    setDescription(cfg.description || '');
+    setThemePreset(cfg.themePreset || 'warm_atelier');
+    setWhatsappNumber(cfg.whatsappNumber || profile.phoneNumber || '');
+    setInstagramUrl(cfg.instagramUrl || '');
+    setFacebookUrl(cfg.facebookUrl || '');
+    setShippingNote(cfg.shippingNote || '');
+    setFreeShippingAbove(Number(cfg.freeShippingAbove || 0));
+    setShowWholesalePricesPublicly(cfg.showWholesalePricesPublicly !== false);
+    setCoupons(cfg.coupons || []);
+    setFeedback(null);
+
+    const targetId = profile.supplierId || profile.id || '';
+    if (targetId) {
+      let active = true;
+      fetchMemberPersonalProfile(targetId, 'owner')
+        .then((res) => {
+          if (!active || !res.success || !res.profile) return;
+          if (res.profile.storyText && res.profile.storyText.trim()) {
+            setDescription(res.profile.storyText.trim());
+          }
+          if (res.profile.bioHeadline && res.profile.bioHeadline.trim() && !cfg.tagline) {
+            setTagline(res.profile.bioHeadline.trim());
+          }
+          if (res.profile.phone && !profile.phoneNumber) {
+            setPhone(res.profile.phone);
+          }
+          if (res.profile.governorate && !profile.governorate) {
+            setGovernorate(res.profile.governorate);
+          }
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }
+  }, [isOpen, profile]);
+
   if (!isOpen) return null;
 
   const effectiveSlug = (storeSlug || profile.id || '').trim();
   const storeUrl =
     typeof window !== 'undefined'
-      ? `${window.location.origin}/?supplier=${encodeURIComponent(effectiveSlug)}`
-      : `/?supplier=${encodeURIComponent(effectiveSlug)}`;
+      ? `${window.location.origin}/#/supplier/${encodeURIComponent(effectiveSlug)}`
+      : `/#/supplier/${encodeURIComponent(effectiveSlug)}`;
 
   const handleSave = async () => {
     setSaving(true);
@@ -122,7 +171,18 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
       storeConfig: res.supplier.storeConfig,
     };
     onProfileUpdated(updatedProfile);
-    setFeedback({ text: 'تم حفظ إعدادات متجر المورد بنجاح!' });
+    window.dispatchEvent(
+      new CustomEvent('alshams_profile_synced', {
+        detail: {
+          brandName: res.supplier.brandName,
+          phoneNumber: res.supplier.phone,
+          governorate: res.supplier.governorate,
+          storyText: nextConfig.description,
+          bioHeadline: nextConfig.tagline,
+        },
+      })
+    );
+    setFeedback({ text: 'تم حفظ إعدادات متجر المورد ونبذة المتجر بنجاح!' });
   };
 
   const handleAddCoupon = () => {
@@ -166,14 +226,29 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
             </h2>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="إغلاق"
-            className="w-8 h-8 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] flex items-center justify-center cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onPreviewPublicStore && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onPreviewPublicStore(effectiveSlug);
+                }}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black cursor-pointer shadow-xs"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">معاينة متجري العام</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="إغلاق"
+              className="w-8 h-8 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] flex items-center justify-center cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Sub Tabs */}
@@ -275,7 +350,7 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
 
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-                  <label className="font-bold">نبذة المتجر (تتزامن تلقائياً مع قصتك بصفحتك الشخصية)</label>
+                  <label className="font-bold">نبذة المتجر وقصة المورد</label>
                   {onOpenPersonalProfile && (
                     <button
                       type="button"
@@ -288,9 +363,10 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
                   )}
                 </div>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  placeholder="اكتب نبذة عن متجرك، خبرتك في الخامات، ومواعيد التجهيز والشحن..."
                   className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-bold"
                 />
               </div>

@@ -214,7 +214,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onNavigateToCatalog('store');
               }
             }}
-            title="متجري الخاص وطلبات الزبائن"
+            title={isSupplierAccount ? 'لوحة تحكم متجر المورد والمعاينة العامة' : 'متجري الخاص وطلبات الزبائن'}
             className={`${
               isSuperAdminMode
                 ? 'h-7 sm:h-8 px-1.5 sm:px-2.5 text-[10px] sm:text-[11px] gap-1'

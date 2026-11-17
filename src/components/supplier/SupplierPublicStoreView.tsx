@@ -355,6 +355,21 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
       </header>
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-5 space-y-5">
+        {(supplier.storeConfig?.tagline || memberProfile?.storyText || supplier.storeConfig?.description) && (
+          <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 sm:p-5 space-y-1.5">
+            {supplier.storeConfig?.tagline && (
+              <p className="text-xs sm:text-sm font-black text-[#C2410C] dark:text-[#FBBF24]">
+                {supplier.storeConfig.tagline}
+              </p>
+            )}
+            {(memberProfile?.storyText || supplier.storeConfig?.description) && (
+              <p className="text-xs sm:text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed whitespace-pre-wrap">
+                {memberProfile?.storyText || supplier.storeConfig?.description}
+              </p>
+            )}
+          </section>
+        )}
+
         <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button

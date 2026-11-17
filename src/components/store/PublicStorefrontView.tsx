@@ -70,6 +70,7 @@ import {
   getStoredArtisanStoreConfig,
   resolveProductOfferPricing,
   seedArtisanSocialDefaults,
+  DEFAULT_ARTISAN_STORY,
 } from '../../types/artisanStoreBuilder';
 import {
   SUPPORTED_CURRENCIES,
@@ -750,7 +751,14 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
   const workshop = storeData?.workshop;
   const memberProfile = (workshop as any)?.memberProfile || null;
-  const resolvedArtistStory = (artisanConfig.artistStory || '').trim() || memberProfile?.storyText || '';
+  const rawArtisanStory = (artisanConfig.artistStory || '').trim();
+  const resolvedArtistStory =
+    (rawArtisanStory && rawArtisanStory !== DEFAULT_ARTISAN_STORY
+      ? rawArtisanStory
+      : '') ||
+    memberProfile?.storyText ||
+    rawArtisanStory ||
+    '';
   const profileShowcasePosts: any[] = Array.isArray(memberProfile?.showcasePosts)
     ? memberProfile.showcasePosts
     : [];

@@ -136,7 +136,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         {
           key: 'crm',
           code: 'CRM',
-          titleAr: 'المتجر والعملاء',
+          titleAr: 'المتجر والعملاء والسوق',
           items: [
             {
               id: 'supplier_store',
@@ -147,6 +147,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
                 else onSelectView('supplier_store');
               },
             },
+            { id: 'suppliers_market', label: 'موردين الشمساوية (السوق العام)', icon: ShoppingBag },
             { id: 'supplier_customers', label: 'عملائي (الورش والأفراد)', icon: Users },
           ],
         },
@@ -229,6 +230,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
         code: 'FCA',
         titleAr: 'المالية والحسابات',
         items: [
+          { id: 'executive_brief', label: 'هلخصهالك (الملخص البسيط)', icon: FileText },
           { id: 'treasuries', label: 'الخزينة والأرصدة', icon: Wallet },
           { id: 'accounts', label: 'الدفتر المالي والحسابات', icon: Scale },
           { id: 'expenses', label: 'المصروفات الإدارية', icon: Coins },

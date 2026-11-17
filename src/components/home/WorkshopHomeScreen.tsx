@@ -84,6 +84,7 @@ import {
 } from 'recharts';
 
 export type HomeCardSection =
+  | 'executive_brief'
   | 'materials'
   | 'products'
   | 'purchases'
@@ -123,6 +124,7 @@ export interface WorkshopHomeScreenProps {
   onNavigateToAccounts?: () => void;
   onNavigateToHR: () => void;
   onNavigateToReports: () => void;
+  onNavigateToExecutiveBrief?: () => void;
   onNavigateToFixedAssets?: () => void;
   onOpenExchangeRatesModal?: () => void;
   // Modals
@@ -160,6 +162,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onNavigateToAccounts,
   onNavigateToHR,
   onNavigateToReports,
+  onNavigateToExecutiveBrief,
   onNavigateToFixedAssets,
   onOpenExchangeRatesModal,
   // Modals
@@ -607,8 +610,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
   const hasAnyFavorites = starredProducts.length > 0 || starredMaterials.length > 0;
 
-  // The 15 Unified Operational Cards definition
+  // Unified Operational Cards definition (16 cards including هلخصهالك)
   const coreCards = [
+    {
+      id: 'executive_brief' as HomeCardSection,
+      label: 'هلخصهالك 📋',
+      icon: FileText,
+      color: 'text-[#C2410C] dark:text-[#FBBF24]',
+      bgColor: 'bg-orange-100 dark:bg-amber-950/50',
+      borderColor: 'border-orange-300 dark:border-amber-700',
+    },
     {
       id: 'materials' as HomeCardSection,
       label: 'الخامات',
@@ -1351,6 +1362,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                   key={card.id}
                   type="button"
                   onClick={() => {
+                    if (card.id === 'executive_brief') {
+                      if (onNavigateToExecutiveBrief) {
+                        onNavigateToExecutiveBrief();
+                      } else {
+                        window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'executive_brief' } }));
+                      }
+                      return;
+                    }
                     setActiveSubSection(card.id);
                   }}
                   className="p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#F7F3EA] to-[#EFE9DC] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] hover:shadow-md transition-all duration-200 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 cursor-pointer group min-h-[82px] sm:min-h-[100px]"

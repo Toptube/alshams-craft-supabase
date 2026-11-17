@@ -31,6 +31,8 @@ import { SidebarDrawer } from './components/layout/SidebarDrawer';
 
 // Main Views
 import { WorkshopHomeScreen } from './components/home/WorkshopHomeScreen';
+import { ArtisanExecutiveBriefView } from './components/home/ArtisanExecutiveBriefView';
+import { purgeExpiredImageArchives } from './services/imageRollbackService';
 import { ProductionCalculator } from './components/calculator/ProductionCalculator';
 import { ProductArchive } from './components/archive/ProductArchive';
 import { WorkshopCatalog } from './components/catalog/WorkshopCatalog';
@@ -114,8 +116,13 @@ import { PermissionsOnboardingModal } from './components/permissions/Permissions
 import { OfflineIndicator } from './components/pwa/OfflineIndicator';
 import { initOfflineSyncListeners, flushOfflineMutations } from './db/offlineMutationQueue';
 
+import {
+  getStoredArtisanStoreConfig,
+  saveStoredArtisanStoreConfig,
+} from './types/artisanStoreBuilder';
+
 // Icons for the sub-page navigation bar
-import { ArrowRight, Home, Sparkles, X } from 'lucide-react';
+import { ArrowRight, ExternalLink, Home, ShoppingBag, Sparkles, X } from 'lucide-react';
 
 export type ActiveView =
   | 'home'
@@ -150,7 +157,8 @@ export type ActiveView =
   | 'supplier_pos'
   | 'supplier_warehouse_erp'
   | 'supplier_hr_terminal'
-  | 'personal_profile';
+  | 'personal_profile'
+  | 'executive_brief';
 
 const processedRecoveryTokens = new Set<string>();
 
@@ -206,6 +214,7 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   supplier_warehouse_erp: 'المخازن وكارت الصنف والمصانع',
   supplier_hr_terminal: 'شؤون العاملين وتثبيت الشاشات',
   personal_profile: 'صفحتي الشخصية ومعرض الأعمال',
+  executive_brief: 'هلخصهالك — الملخص البسيط لورشتك',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -339,6 +348,14 @@ export const App: React.FC = () => {
     setPurchaseInitialMaterial(mat);
     setIsMaterialsModalOpen(false);
     setActiveView('purchases');
+  }, []);
+
+  useEffect(() => {
+    purgeExpiredImageArchives();
+    const timer = window.setInterval(() => {
+      purgeExpiredImageArchives();
+    }, 10 * 60 * 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   // Modals state
@@ -1244,6 +1261,10 @@ export const App: React.FC = () => {
   // Listen to store opening events (with optional targeted order ID / tab)
   useEffect(() => {
     const handleOpenStore = (e: Event) => {
+      if (profile?.accountRole === 'supplier') {
+        setIsSupplierStoreModalOpen(true);
+        return;
+      }
       const customEvent = e as CustomEvent<{
         orderId?: string;
         tab?: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr';
@@ -1260,6 +1281,65 @@ export const App: React.FC = () => {
 
     window.addEventListener('alshams_open_store', handleOpenStore);
     return () => window.removeEventListener('alshams_open_store', handleOpenStore);
+  }, [profile?.accountRole]);
+
+  useEffect(() => {
+    const handleProfileSynced = (e: Event) => {
+      const detail = (e as CustomEvent<{
+        logoUrl?: string;
+        brandName?: string;
+        phoneNumber?: string;
+        governorate?: string;
+        storyText?: string;
+        bioHeadline?: string;
+      }>).detail;
+      if (!detail) return;
+
+      setProfile((prev) => {
+        if (!prev) return prev;
+        const nextLogo = detail.logoUrl !== undefined ? detail.logoUrl : prev.logoUrl;
+        const nextStoreConfig =
+          prev.accountRole === 'supplier'
+            ? {
+                ...(prev.storeConfig || {}),
+                ...(detail.phoneNumber !== undefined ? { phone: detail.phoneNumber } : {}),
+                ...(detail.governorate !== undefined ? { governorate: detail.governorate } : {}),
+                ...(detail.storyText !== undefined ? { description: detail.storyText } : {}),
+                ...(detail.bioHeadline !== undefined ? { tagline: detail.bioHeadline } : {}),
+              }
+            : prev.storeConfig;
+
+        const next: UserProfile = {
+          ...prev,
+          ...(detail.logoUrl !== undefined
+            ? { logoUrl: nextLogo, logo_url: nextLogo, logoBase64: nextLogo }
+            : {}),
+          ...(detail.brandName ? { brandName: detail.brandName } : {}),
+          ...(detail.phoneNumber !== undefined ? { phoneNumber: detail.phoneNumber } : {}),
+          ...(detail.governorate !== undefined ? { governorate: detail.governorate } : {}),
+          ...(nextStoreConfig ? { storeConfig: nextStoreConfig } : {}),
+        };
+        try {
+          localStorage.setItem('alshams_profile', JSON.stringify(next));
+        } catch {}
+
+        if (prev.accountRole !== 'supplier' && (detail.storyText !== undefined || detail.bioHeadline !== undefined)) {
+          const tenantId = prev.workshopId || prev.tenantId || prev.id || '';
+          if (tenantId) {
+            const existingCfg = getStoredArtisanStoreConfig(tenantId);
+            saveStoredArtisanStoreConfig(tenantId, {
+              ...existingCfg,
+              ...(detail.storyText !== undefined ? { artistStory: detail.storyText } : {}),
+              ...(detail.bioHeadline !== undefined ? { workshopTagline: detail.bioHeadline } : {}),
+            });
+          }
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener('alshams_profile_synced', handleProfileSynced);
+    return () => window.removeEventListener('alshams_profile_synced', handleProfileSynced);
   }, []);
 
   const [erpSelectedBranchId, setErpSelectedBranchId] = useState<string | undefined>(undefined);
@@ -1290,11 +1370,19 @@ export const App: React.FC = () => {
         return;
       }
       if (view === 'store') {
-        handleOpenArtisanStore('products');
+        if (profile?.accountRole === 'supplier') {
+          setIsSupplierStoreModalOpen(true);
+        } else {
+          handleOpenArtisanStore('products');
+        }
         return;
       }
       if (view === 'my_orders') {
-        handleOpenArtisanStore('orders');
+        if (profile?.accountRole === 'supplier') {
+          navigateTo('supplier_orders');
+        } else {
+          handleOpenArtisanStore('orders');
+        }
         return;
       }
       if (view && VIEW_TITLES[view as ActiveView]) {
@@ -1304,7 +1392,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('alshams_open_view', handleOpenView);
     return () => window.removeEventListener('alshams_open_view', handleOpenView);
-  }, [activeView]);
+  }, [activeView, profile?.accountRole]);
 
   // Listen to quick purchase invoice requests from Shamousa or other widgets
   useEffect(() => {
@@ -2215,6 +2303,11 @@ export const App: React.FC = () => {
                 onNavigateToHrTerminal={() => navigateTo('supplier_hr_terminal')}
                 onNavigateToFamily={() => navigateTo('family')}
                 onNavigateToPersonalProfile={() => navigateTo('personal_profile')}
+                onNavigateToSuppliersMarket={() => navigateTo('suppliers_market')}
+                onPreviewPublicStore={(slug) => {
+                  window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+                  setActiveRoute({ type: 'supplier_store', slug });
+                }}
               />
             )
           ) : (
@@ -2238,6 +2331,7 @@ export const App: React.FC = () => {
               onNavigateToAccounts={() => navigateTo('accounts')}
               onNavigateToHR={() => navigateTo('hr')}
               onNavigateToReports={() => navigateTo('reports')}
+              onNavigateToExecutiveBrief={() => navigateTo('executive_brief')}
               onNavigateToFixedAssets={() => navigateTo('fixed_assets')}
               onOpenExchangeRatesModal={() => setIsExchangeRatesOpen(true)}
               onOpenInventoryModal={(tab?: string) => {
@@ -2523,7 +2617,7 @@ export const App: React.FC = () => {
           <MarketplaceView
             profile={profile}
             onNavigateHome={goHome}
-            onOpenStoreModal={() => setIsArtisanStoreModalOpen(true)}
+            onOpenStoreModal={() => handleOpenArtisanStore('products')}
           />
         )}
 
@@ -2559,6 +2653,15 @@ export const App: React.FC = () => {
                 setActiveRoute({ type: 'store', slug });
               }
             }}
+          />
+        )}
+
+        {activeView === 'executive_brief' && (
+          <ArtisanExecutiveBriefView
+            profile={profile}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+            onNavigateToView={(v) => navigateTo(v as ActiveView)}
           />
         )}
 
@@ -2643,6 +2746,49 @@ export const App: React.FC = () => {
         )}
           </motion.div>
         </AnimatePresence>
+
+        {/* Persistent Orange Suppliers Market Footer Strip on Supplier Sub-pages */}
+        {profile &&
+          !isUserAdmin(profile) &&
+          profile.accountRole === 'supplier' &&
+          !switchedWorkshopContext &&
+          activeView !== 'home' &&
+          activeView !== 'suppliers_market' && (
+            <footer className="max-w-7xl mx-auto mt-8 pt-2">
+              <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs font-bold text-[#475569] dark:text-[#CBD5E1]">
+                  تنقل سريع لسوق موردين الشمساوية أو معاينة متجرك كما يظهر للجمهور:
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const slug =
+                        profile.storeSlug ||
+                        profile.store_slug ||
+                        profile.workshopId ||
+                        profile.id ||
+                        'supplier';
+                      window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+                      setActiveRoute({ type: 'supplier_store', slug });
+                    }}
+                    className="min-h-[42px] px-4 py-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <ExternalLink className="w-4 h-4 text-[#EA580C]" />
+                    <span>عرض متجري للجمهور</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigateTo('suppliers_market')}
+                    className="min-h-[42px] px-5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer transition shadow-sm"
+                  >
+                    <ShoppingBag className="w-4 h-4" />
+                    <span>موردين الشمساوية</span>
+                  </button>
+                </div>
+              </div>
+            </footer>
+          )}
       </main>
 
       {/* Floating Shamousa Chat Assistant: Active across workshops & gated by Feature Flag */}
@@ -3010,6 +3156,11 @@ export const App: React.FC = () => {
           onOpenPersonalProfile={() => {
             setIsSupplierStoreModalOpen(false);
             navigateTo('personal_profile');
+          }}
+          onPreviewPublicStore={(slug) => {
+            setIsSupplierStoreModalOpen(false);
+            window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+            setActiveRoute({ type: 'supplier_store', slug });
           }}
         />
       )}

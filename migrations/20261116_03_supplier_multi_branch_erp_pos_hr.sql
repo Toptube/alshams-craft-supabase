@@ -17,7 +17,7 @@ ALTER TABLE IF EXISTS public.platform_suppliers
 -- 2. Supplier Branches (Central Warehouse + Shops / Branches)
 CREATE TABLE IF NOT EXISTS public.supplier_branches (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   code TEXT NOT NULL,
   branch_type TEXT NOT NULL DEFAULT 'shop', -- 'central_warehouse' | 'shop'
@@ -35,7 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_sup_branches_supplier ON public.supplier_branches
 -- 3. Supplier Categories & Sub-Categories (Main & Sub)
 CREATE TABLE IF NOT EXISTS public.supplier_categories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   parent_id UUID NULL REFERENCES public.supplier_categories(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
@@ -45,7 +45,7 @@ CREATE INDEX IF NOT EXISTS idx_sup_cats_supplier ON public.supplier_categories(s
 -- 4. Zero-Image Branch Inventory & Multi-Unit Conversion (NUMERIC(14,3) for grams/fractions)
 CREATE TABLE IF NOT EXISTS public.supplier_branch_inventory (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   branch_id UUID NOT NULL REFERENCES public.supplier_branches(id) ON DELETE CASCADE,
   item_id TEXT NOT NULL,
   sku_code TEXT NOT NULL,
@@ -68,7 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_sup_inv_sku ON public.supplier_branch_inventory(s
 -- 5. Item History Card / Stock Movements Ledger (كارت الصنف - قصة حياة الصنف)
 CREATE TABLE IF NOT EXISTS public.supplier_stock_movements (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   branch_id UUID NOT NULL,
   to_branch_id UUID NULL,
   item_id TEXT NOT NULL,
@@ -90,7 +90,7 @@ CREATE INDEX IF NOT EXISTS idx_sup_mov_item ON public.supplier_stock_movements(s
 -- 6. Supplier Staff Credentials & Terminal Device Lock Binding
 CREATE TABLE IF NOT EXISTS public.supplier_staff_users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   branch_id UUID NULL,
   full_name TEXT NOT NULL,
   username TEXT NOT NULL,
@@ -111,7 +111,7 @@ CREATE INDEX IF NOT EXISTS idx_sup_staff_supplier ON public.supplier_staff_users
 -- 7. Supplier HR Logs (Attendance, Penalties, Bonuses, Advances, Salary Payouts)
 CREATE TABLE IF NOT EXISTS public.supplier_hr_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   staff_id UUID NOT NULL REFERENCES public.supplier_staff_users(id) ON DELETE CASCADE,
   branch_id UUID NULL,
   log_type TEXT NOT NULL, -- 'attendance_in' | 'attendance_out' | 'penalty' | 'bonus' | 'advance' | 'salary_paid'
@@ -126,7 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_sup_hr_staff ON public.supplier_hr_logs(supplier_
 -- 8. POS Cashier Shifts (ورديات الكاشير)
 CREATE TABLE IF NOT EXISTS public.supplier_pos_shifts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   branch_id UUID NOT NULL,
   staff_id TEXT DEFAULT '',
   staff_name TEXT NOT NULL,
@@ -147,7 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_sup_shifts_branch ON public.supplier_pos_shifts(s
 -- 9. Branch Treasuries & Pending Transfers to Owner Main Treasury
 CREATE TABLE IF NOT EXISTS public.supplier_branch_treasuries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   branch_id UUID NOT NULL,
   cash_balance NUMERIC(14,2) DEFAULT 0.00,
   instapay_balance NUMERIC(14,2) DEFAULT 0.00,
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS public.supplier_branch_treasuries (
 
 CREATE TABLE IF NOT EXISTS public.supplier_treasury_transfers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   branch_id UUID NOT NULL,
   branch_name TEXT DEFAULT '',
   shift_id UUID NULL,
@@ -179,7 +179,7 @@ CREATE INDEX IF NOT EXISTS idx_sup_transfers_supplier ON public.supplier_treasur
 CREATE TABLE IF NOT EXISTS public.supplier_pos_orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_number TEXT NOT NULL,
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   branch_id UUID NOT NULL,
   shift_id UUID NULL,
   staff_id TEXT DEFAULT '',
@@ -207,7 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_sup_pos_orders_sup ON public.supplier_pos_orders(
 -- 11. External Vendors/Factories & Procurement Invoices (علينا كام للموردين)
 CREATE TABLE IF NOT EXISTS public.supplier_vendors (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   phone TEXT DEFAULT '',
   vendor_type TEXT DEFAULT 'مصنع خامات',
@@ -219,7 +219,7 @@ CREATE TABLE IF NOT EXISTS public.supplier_vendors (
 
 CREATE TABLE IF NOT EXISTS public.supplier_purchases (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  supplier_id UUID NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES public.platform_suppliers(id) ON DELETE CASCADE,
   branch_id UUID NOT NULL,
   vendor_id UUID NULL,
   vendor_name TEXT DEFAULT '',
@@ -269,15 +269,15 @@ BEGIN
       'CREATE POLICY "Owner or admin full access on %I" ON public.%I FOR ALL TO authenticated USING (
         EXISTS (
           SELECT 1 FROM public.platform_suppliers ps
-          WHERE ps.id = %I.supplier_id
-          AND (ps.owner_uid = auth.uid() OR lower(ps.email) = lower(auth.jwt() ->> ''email''))
+          WHERE ps.id::text = %I.supplier_id::text
+          AND (ps.owner_uid::text = auth.uid()::text OR lower(ps.email) = lower(auth.jwt() ->> ''email''))
         )
         OR lower(auth.jwt() ->> ''email'') IN (''hmb.top.tube@gmail.com'', ''hmb.top.tupe@gmail.com'')
       ) WITH CHECK (
         EXISTS (
           SELECT 1 FROM public.platform_suppliers ps
-          WHERE ps.id = %I.supplier_id
-          AND (ps.owner_uid = auth.uid() OR lower(ps.email) = lower(auth.jwt() ->> ''email''))
+          WHERE ps.id::text = %I.supplier_id::text
+          AND (ps.owner_uid::text = auth.uid()::text OR lower(ps.email) = lower(auth.jwt() ->> ''email''))
         )
         OR lower(auth.jwt() ->> ''email'') IN (''hmb.top.tube@gmail.com'', ''hmb.top.tupe@gmail.com'')
       );',

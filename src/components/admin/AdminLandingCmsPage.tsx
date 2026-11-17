@@ -30,6 +30,8 @@ import {
 import { syncPlatformSettingsFromCloud } from '../../services/marketplaceCartService';
 import { processBrandAssetUpload } from '../../utils/imageTransparentProcessor';
 import { playSuccessSound, playErrorSound } from '../../lib/sounds';
+import { archiveReplacedImage } from '../../services/imageRollbackService';
+import { ImageRollbackBar } from '../common/ImageRollbackBar';
 
 interface AdminLandingCmsPageProps {
   onBack: () => void;
@@ -146,6 +148,13 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
       });
       hasDirtyChangesRef.current = true;
       setCms((prev) => {
+        const prevUrl = prev.brandAssets[slot][themeVariant];
+        archiveReplacedImage(
+          `cms_asset_${slot}_${themeVariant}`,
+          `${meta.title} (${themeVariant === 'dark' ? 'ليلي' : 'نهاري'})`,
+          prevUrl,
+          processed.dataUrl
+        );
         const updated: LandingCmsConfig = {
           ...prev,
           brandAssets: {
@@ -175,16 +184,27 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
 
   const handleRestoreAssetVariant = (slot: AssetSlotKey, themeVariant: 'light' | 'dark') => {
     const noticeKey = `${slot}_${themeVariant}`;
-    setCms((prev) => ({
-      ...prev,
-      brandAssets: {
-        ...prev.brandAssets,
-        [slot]: {
-          ...prev.brandAssets[slot],
-          [themeVariant]: DEFAULT_BRAND_ASSETS[slot][themeVariant],
+    hasDirtyChangesRef.current = true;
+    setCms((prev) => {
+      const prevUrl = prev.brandAssets[slot][themeVariant];
+      const defUrl = DEFAULT_BRAND_ASSETS[slot][themeVariant];
+      archiveReplacedImage(
+        `cms_asset_${slot}_${themeVariant}`,
+        `${slot} (${themeVariant})`,
+        prevUrl,
+        defUrl
+      );
+      return {
+        ...prev,
+        brandAssets: {
+          ...prev.brandAssets,
+          [slot]: {
+            ...prev.brandAssets[slot],
+            [themeVariant]: defUrl,
+          },
         },
-      },
-    }));
+      };
+    });
     setUploadNotice((prev) => ({
       ...prev,
       [noticeKey]: 'تمت استعادة الشكل الافتراضي',
@@ -339,6 +359,24 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
                           {notice}
                         </p>
                       )}
+
+                      <ImageRollbackBar
+                        slotKey={`cms_asset_${meta.key}_${variant}`}
+                        compact
+                        onRestored={(oldUrl) => {
+                          hasDirtyChangesRef.current = true;
+                          setCms((prev) => ({
+                            ...prev,
+                            brandAssets: {
+                              ...prev.brandAssets,
+                              [meta.key]: {
+                                ...prev.brandAssets[meta.key],
+                                [variant]: oldUrl,
+                              },
+                            },
+                          }));
+                        }}
+                      />
                     </div>
                   );
                 })}

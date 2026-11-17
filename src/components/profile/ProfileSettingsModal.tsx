@@ -3,6 +3,13 @@ import { UserProfile, Gender, ThemeMode, getDefaultFamilyNickname } from '../../
 import { COUNTRIES_CONFIG, getGenderArtistTitle } from '../../utils/macrameMath';
 import { tenantStorage } from '../../db/dexieDB';
 import { updateWorkshopProfileInSupabase } from '../../db/supabaseService';
+import { updateSupplierProfileInBackend } from '../../db/supplierService';
+import { saveMemberPersonalProfile } from '../../db/memberProfileService';
+import {
+  SUPPLIER_SUPPLY_SECTIONS,
+  SupplierBusinessType,
+  SupplierPricingMode,
+} from '../../types/supplier';
 import { MAIN_SECTIONS, SUB_CRAFTS_REGISTRY, MainSectionId } from '../../registry/craftsRegistry';
 import { NumberInput } from '../ui/NumberInput';
 import {
@@ -53,6 +60,10 @@ import {
   Layers,
   Sun,
   Moon,
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  Truck,
 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { supabase, supabaseConfig } from '../../lib/supabase';
@@ -68,6 +79,20 @@ import {
 import { generateCleanStoreSlug, getWorkshopStoreUrl } from '../../utils/slugify';
 import { QRCodeCanvas } from 'qrcode.react';
 import { AlShamsBrandLogo, AlShamsBrandIcon } from '../brand/BrandAssets';
+import { archiveReplacedImage } from '../../services/imageRollbackService';
+import { ImageRollbackBar } from '../common/ImageRollbackBar';
+
+const SUPPLIER_BUSINESS_TYPE_OPTIONS: { id: SupplierBusinessType; label: string }[] = [
+  { id: 'online', label: 'متجر أونلاين' },
+  { id: 'shop', label: 'محل / معرض' },
+  { id: 'factory', label: 'مصنع / مستورد' },
+];
+
+const SUPPLIER_PRICING_MODE_OPTIONS: { id: SupplierPricingMode; label: string }[] = [
+  { id: 'retail', label: 'قطاعي' },
+  { id: 'wholesale', label: 'جملة' },
+  { id: 'both', label: 'جملة وقطاعي' },
+];
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -118,6 +143,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       });
     }
   };
+  const isSupplier = (profile as any)?.accountRole === 'supplier';
   const [activeTab, setActiveTab] = useState<'profile' | 'language' | 'reminders' | 'export_data' | 'factory_reset'>('profile');
 
   // Language settings state
@@ -140,13 +166,38 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [gender, setGender] = useState<Gender>(profile.gender || 'female');
   const [countryName, setCountryName] = useState(profile.country || 'جمهورية مصر العربية');
   const [phoneNumber, setPhoneNumber] = useState(profile.phoneNumber || '');
-  const [address, setAddress] = useState(profile.address || (profile as any).settings?.address || '');
+  const [address, setAddress] = useState(
+    profile.governorate || profile.address || (profile as any).settings?.address || ''
+  );
   const [selectedCrafts, setSelectedCrafts] = useState<string[]>(
     Array.isArray(profile.selectedCrafts) && profile.selectedCrafts.length > 0
       ? profile.selectedCrafts
       : ['macrame']
   );
   const [craftsFilterSection, setCraftsFilterSection] = useState<MainSectionId | 'all'>('all');
+
+  // Supplier-only state
+  const [businessTypes, setBusinessTypes] = useState<SupplierBusinessType[]>(
+    Array.isArray(profile.businessTypes) && profile.businessTypes.length > 0
+      ? profile.businessTypes
+      : ['online']
+  );
+  const [pricingModes, setPricingModes] = useState<SupplierPricingMode[]>(
+    Array.isArray(profile.pricingModes) && profile.pricingModes.length > 0
+      ? profile.pricingModes
+      : ['retail']
+  );
+  const [supplySections, setSupplySections] = useState<MainSectionId[]>(
+    Array.isArray(profile.supplySections) && profile.supplySections.length > 0
+      ? (profile.supplySections as MainSectionId[])
+      : ['ropes_textiles']
+  );
+  const [suppliedMaterials, setSuppliedMaterials] = useState<string[]>(
+    Array.isArray(profile.suppliedMaterials) ? profile.suppliedMaterials : []
+  );
+  const [expandedSupSection, setExpandedSupSection] = useState<MainSectionId | ''>('ropes_textiles');
+  const [customMaterialDrafts, setCustomMaterialDrafts] = useState<Record<string, string>>({});
+
   const [logoUrl, setLogoUrl] = useState(profile.logoUrl || '');
   const [defaultWholesaleDiscountPercent, setDefaultWholesaleDiscountPercent] = useState<number>(
     profile.defaultWholesaleDiscountPercent ?? 25
@@ -175,8 +226,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
   // Socials
   const [activeSocials, setActiveSocials] = useState({
-    facebook: Boolean(profile.socials?.facebook),
-    instagram: Boolean(profile.socials?.instagram),
+    facebook: Boolean(profile.socials?.facebook || profile.storeConfig?.facebookUrl),
+    instagram: Boolean(profile.socials?.instagram || profile.storeConfig?.instagramUrl),
     tiktok: Boolean(profile.socials?.tiktok),
     youtube: Boolean(profile.socials?.youtube),
     store: Boolean(profile.socials?.store),
@@ -184,8 +235,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   });
 
   const [socialUrls, setSocialUrls] = useState({
-    facebook: profile.socials?.facebook || '',
-    instagram: profile.socials?.instagram || '',
+    facebook: profile.socials?.facebook || profile.storeConfig?.facebookUrl || '',
+    instagram: profile.socials?.instagram || profile.storeConfig?.instagramUrl || '',
     tiktok: profile.socials?.tiktok || '',
     youtube: profile.socials?.youtube || '',
     store: profile.socials?.store || '',
@@ -195,6 +246,76 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [saving, setSaving] = useState(false);
   const [validationError, setValidationError] = useState('');
   const [successNotice, setSuccessNotice] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setValidationError('');
+    setSuccessNotice(false);
+    setBrandName(profile.brandName || '');
+    setArtistName(profile.artistName || '');
+    setFamilyNickname(
+      profile.familyNickname || getDefaultFamilyNickname(profile.artistName, profile.gender)
+    );
+    setGender(profile.gender || 'female');
+    const matchedCountry = COUNTRIES_CONFIG.find(
+      (c) => c.name === profile.country || c.code === profile.country || c.name.includes(profile.country || '')
+    );
+    setCountryName(matchedCountry?.name || profile.country || 'جمهورية مصر العربية');
+    setPhoneNumber(profile.phoneNumber || '');
+    setAddress(profile.governorate || profile.address || (profile as any).settings?.address || '');
+    setSelectedCrafts(
+      Array.isArray(profile.selectedCrafts) && profile.selectedCrafts.length > 0
+        ? profile.selectedCrafts
+        : ['macrame']
+    );
+    setBusinessTypes(
+      Array.isArray(profile.businessTypes) && profile.businessTypes.length > 0
+        ? profile.businessTypes
+        : ['online']
+    );
+    setPricingModes(
+      Array.isArray(profile.pricingModes) && profile.pricingModes.length > 0
+        ? profile.pricingModes
+        : ['retail']
+    );
+    const secs: MainSectionId[] =
+      Array.isArray(profile.supplySections) && profile.supplySections.length > 0
+        ? (profile.supplySections as MainSectionId[])
+        : ['ropes_textiles'];
+    setSupplySections(secs);
+    setSuppliedMaterials(
+      Array.isArray(profile.suppliedMaterials) ? profile.suppliedMaterials : []
+    );
+    setExpandedSupSection(secs[0] || 'ropes_textiles');
+    const resolvedLogo =
+      profile.logoUrl || (profile as any).logo_url || profile.logoBase64 || '';
+    setLogoUrl(resolvedLogo === '/alshams_falcon_emblem.png' ? '' : resolvedLogo);
+    setStoreSlug(profile.storeSlug || profile.store_slug || '');
+    setDefaultWholesaleDiscountPercent(profile.defaultWholesaleDiscountPercent ?? 25);
+    setEnableDailySalesReminder(profile.enableDailySalesReminder ?? true);
+    setDailySalesReminderMode(profile.dailySalesReminderMode || 'closing_offset');
+    setDailySalesReminderTime(profile.dailySalesReminderTime || '20:00');
+    setWorkshopClosingHour(profile.workshopClosingHour || '21:00');
+    setActiveSocials({
+      facebook: Boolean(profile.socials?.facebook || profile.storeConfig?.facebookUrl),
+      instagram: Boolean(profile.socials?.instagram || profile.storeConfig?.instagramUrl),
+      tiktok: Boolean(profile.socials?.tiktok),
+      youtube: Boolean(profile.socials?.youtube),
+      store: Boolean(profile.socials?.store),
+      website: Boolean(profile.socials?.website),
+    });
+    setSocialUrls({
+      facebook: profile.socials?.facebook || profile.storeConfig?.facebookUrl || '',
+      instagram: profile.socials?.instagram || profile.storeConfig?.instagramUrl || '',
+      tiktok: profile.socials?.tiktok || '',
+      youtube: profile.socials?.youtube || '',
+      store: profile.socials?.store || '',
+      website: profile.socials?.website || '',
+    });
+    if ((profile as any)?.accountRole === 'supplier' && (activeTab === 'reminders' || activeTab === 'factory_reset')) {
+      setActiveTab('profile');
+    }
+  }, [isOpen, profile]);
 
   // Sound preference state
   const [soundActive, setSoundActive] = useState<boolean>(() => isSoundEnabled());
@@ -381,9 +502,14 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           if (compressed.length > 150 * 1024 * 1.37) {
             compressed = canvas.toDataURL('image/jpeg', 0.65);
           }
+          const rollbackSlot = `profile_logo_${profile.workshopId || profile.id || 'default'}`;
+          archiveReplacedImage(rollbackSlot, 'شعار البراند وصورتي الشخصية', logoUrl, compressed);
           setLogoUrl(compressed);
         } else {
-          setLogoUrl(reader.result as string);
+          const rawUrl = reader.result as string;
+          const rollbackSlot = `profile_logo_${profile.workshopId || profile.id || 'default'}`;
+          archiveReplacedImage(rollbackSlot, 'شعار البراند وصورتي الشخصية', logoUrl, rawUrl);
+          setLogoUrl(rawUrl);
         }
       };
       img.src = reader.result as string;
@@ -391,14 +517,55 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     reader.readAsDataURL(file);
   };
 
+  const toggleSupplierBusinessType = (t: SupplierBusinessType) => {
+    setBusinessTypes((prev) =>
+      prev.includes(t) ? (prev.length > 1 ? prev.filter((x) => x !== t) : prev) : [...prev, t]
+    );
+  };
+
+  const toggleSupplierPricingMode = (m: SupplierPricingMode) => {
+    setPricingModes((prev) =>
+      prev.includes(m) ? (prev.length > 1 ? prev.filter((x) => x !== m) : prev) : [...prev, m]
+    );
+  };
+
+  const toggleSupplierSection = (secId: MainSectionId) => {
+    setSupplySections((prev) => {
+      if (prev.includes(secId)) {
+        if (prev.length <= 1) {
+          setValidationError('يجب الإبقاء على قسم توريد واحد على الأقل.');
+          return prev;
+        }
+        return prev.filter((s) => s !== secId);
+      }
+      return [...prev, secId];
+    });
+    setExpandedSupSection(secId);
+  };
+
+  const toggleSupplierMaterial = (secId: MainSectionId, mat: string) => {
+    setSupplySections((prev) => (prev.includes(secId) ? prev : [...prev, secId]));
+    setSuppliedMaterials((prev) =>
+      prev.includes(mat) ? prev.filter((m) => m !== mat) : [...prev, mat]
+    );
+  };
+
+  const handleAddCustomSupplierMaterial = (secId: MainSectionId) => {
+    const val = (customMaterialDrafts[secId] || '').trim();
+    if (!val) return;
+    setSupplySections((prev) => (prev.includes(secId) ? prev : [...prev, secId]));
+    setSuppliedMaterials((prev) => (prev.includes(val) ? prev : [...prev, val]));
+    setCustomMaterialDrafts((prev) => ({ ...prev, [secId]: '' }));
+  };
+
   const handleSaveProfile = async () => {
     setValidationError('');
     if (!brandName.trim()) {
-      setValidationError('اسم البراند مطلوب');
+      setValidationError(isSupplier ? 'اسم متجر المورد مطلوب' : 'اسم البراند مطلوب');
       return;
     }
     if (!artistName.trim()) {
-      setValidationError('اسم الفنان / الفنانة مطلوب');
+      setValidationError(isSupplier ? 'اسم المالك / المسؤول مطلوب' : 'اسم الفنان / الفنانة مطلوب');
       return;
     }
 
@@ -412,6 +579,55 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
     setSaving(true);
     try {
+      if (isSupplier) {
+        const res = await updateSupplierProfileInBackend({
+          brandName: brandName.trim(),
+          ownerName: artistName.trim(),
+          gender,
+          phone: phoneNumber.trim(),
+          country: currentCountryConfig.name,
+          currency: currentCountryConfig.currency,
+          currencySymbol: currentCountryConfig.currencySymbol,
+          governorate: address.trim(),
+          storeSlug: storeSlug.trim() || undefined,
+          logoUrl: logoUrl || '/alshams_falcon_emblem.png',
+          businessTypes,
+          pricingModes,
+          supplySections,
+          suppliedMaterials,
+          socials: {
+            facebook: activeSocials.facebook ? socialUrls.facebook.trim() : '',
+            instagram: activeSocials.instagram ? socialUrls.instagram.trim() : '',
+          },
+        });
+
+        if (!res.success || !res.userProfile) {
+          playErrorSound();
+          setValidationError(res.error || 'تعذر حفظ بيانات المورد');
+          return;
+        }
+
+        const syncedPhoto = logoUrl || res.userProfile.logoUrl || '';
+        window.dispatchEvent(
+          new CustomEvent('alshams_profile_synced', {
+            detail: {
+              logoUrl: syncedPhoto,
+              brandName: res.userProfile.brandName,
+              phoneNumber: res.userProfile.phoneNumber,
+              governorate: res.userProfile.governorate,
+            },
+          })
+        );
+        playSuccessSound();
+        onProfileUpdated(res.userProfile);
+        setSuccessNotice(true);
+        setTimeout(() => {
+          setSuccessNotice(false);
+          onClose();
+        }, 900);
+        return;
+      }
+
       const workshopId = profile.id || profile.workshopId || profile.tenantId || '';
 
       const settingsPayload = {
@@ -433,8 +649,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
       const safeSelectedCrafts = selectedCrafts.length > 0 ? selectedCrafts : ['macrame'];
 
-      // Only update allowed fields on workshops table: brand_name, artist_name, gender, family_name,
-      // country, currency, phone, selected_crafts, settings, logo_data, welcome_shown, store_slug
+      // Only update allowed fields on workshops table
       const { updated, error } = await updateWorkshopProfileInSupabase(workshopId, {
         brandName: brandName.trim(),
         artistName: artistName.trim(),
@@ -468,6 +683,22 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         updated.store_slug = storeSlug.trim() || undefined;
         await tenantStorage.saveProfile(updated);
         await tenantStorage.generateProactiveNotifications(updated.id || workshopId, updated);
+        // Unify Brand Logo <-> Personal Profile Avatar immediately
+        saveMemberPersonalProfile({
+          personalAvatar: logoUrl || null,
+          phone: phoneNumber.trim(),
+          governorate: address.trim(),
+        }).catch(() => {});
+        window.dispatchEvent(
+          new CustomEvent('alshams_profile_synced', {
+            detail: {
+              logoUrl: logoUrl || '',
+              brandName: updated.brandName,
+              phoneNumber: updated.phoneNumber,
+              governorate: address.trim(),
+            },
+          })
+        );
         playSuccessSound();
         onProfileUpdated(updated);
         setSuccessNotice(true);
@@ -652,10 +883,14 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           <div className="flex items-center gap-3">
             <div className="text-right">
               <h2 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                إعدادات البراند وملف {getGenderArtistTitle(gender)}
+                {isSupplier
+                  ? 'إعدادات متجر وملف المورد'
+                  : `إعدادات البراند وملف ${getGenderArtistTitle(gender)}`}
               </h2>
               <p className="text-[11px] font-medium text-[#334155] dark:text-[#CBD5E1]">
-                بيانات الورشة، الشعار، الحِرف المختارة، وأمان الحساب
+                {isSupplier
+                  ? 'بيانات المورد، الشعار الموحد، أقسام التوريد، وأمان الحساب'
+                  : 'بيانات الورشة، الشعار الموحد، الحِرف المختارة، وأمان الحساب'}
               </p>
             </div>
             <AlShamsBrandLogo maxWidth={135} maxHeight={52} />
@@ -676,7 +911,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
             }`}
           >
-            البيانات والورش المختارة
+            {isSupplier ? 'البيانات وأقسام التوريد' : 'البيانات والورش المختارة'}
           </button>
           <button
             type="button"
@@ -693,21 +928,23 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             <Globe className="w-3.5 h-3.5" />
             <span>اللغة</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              playButtonClickSound();
-              setActiveTab('reminders');
-            }}
-            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'reminders'
-                ? 'bg-[#EA580C] text-white shadow-sm'
-                : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
-            }`}
-          >
-            <Bell className="w-3.5 h-3.5" />
-            <span>التنبيهات اليومية</span>
-          </button>
+          {!isSupplier && (
+            <button
+              type="button"
+              onClick={() => {
+                playButtonClickSound();
+                setActiveTab('reminders');
+              }}
+              className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'reminders'
+                  ? 'bg-[#EA580C] text-white shadow-sm'
+                  : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
+              }`}
+            >
+              <Bell className="w-3.5 h-3.5" />
+              <span>التنبيهات اليومية</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -723,21 +960,23 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             <Download className="w-3.5 h-3.5" />
             <span>تصدير البيانات</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              playButtonClickSound();
-              setActiveTab('factory_reset');
-            }}
-            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'factory_reset'
-                ? 'bg-[#0C1427] text-[#FBBF24] border border-[#EA580C] shadow-sm'
-                : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#C2410C] dark:text-[#FB923C] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
-            }`}
-          >
-            <ShieldAlert className="w-3.5 h-3.5" />
-            <span>تصفير قاعدة البيانات</span>
-          </button>
+          {!isSupplier && (
+            <button
+              type="button"
+              onClick={() => {
+                playButtonClickSound();
+                setActiveTab('factory_reset');
+              }}
+              className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'factory_reset'
+                  ? 'bg-[#0C1427] text-[#FBBF24] border border-[#EA580C] shadow-sm'
+                  : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#C2410C] dark:text-[#FB923C] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
+              }`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>تصفير قاعدة البيانات</span>
+            </button>
+          )}
         </div>
 
         {/* Alerts */}
@@ -772,27 +1011,48 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                     <AlShamsBrandIcon size={44} />
                   </div>
                 )}
-                <div>
-                  <p className="text-xs font-bold text-stone-800 dark:text-stone-200">
-                    تحميل لوجو البراند الخاص بك
-                  </p>
-                  <p className="text-[11px] text-stone-500">
-                    اختر صورة شعار متجرك الفردي ليظهر في عروض أسعار الواتساب والفواتير
-                  </p>
+                  <div>
+                    <p className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                      شعار البراند الموحد (نفس صورة صفحتك الشخصية)
+                    </p>
+                    <p className="text-[11px] text-stone-500">
+                      تغييره هنا يحدّث صورتك الشخصية وشعار متجرك وفواتيرك معاً تلقائياً
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="px-4 py-2 rounded-xl bg-white dark:bg-stone-800 border border-amber-500/50 text-amber-700 dark:text-amber-300 text-xs font-bold shadow-xs hover:bg-amber-50 cursor-pointer flex items-center gap-2">
+                    <Upload className="w-4 h-4" />
+                    <span>تغيير الشعار / الصورة</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const rollbackSlot = `profile_logo_${profile.workshopId || profile.id || 'default'}`;
+                        archiveReplacedImage(rollbackSlot, 'شعار البراند وصورتي الشخصية', logoUrl, '');
+                        setLogoUrl('');
+                      }}
+                      className="px-3 py-2 rounded-xl text-xs font-bold text-rose-600 border border-rose-300 hover:bg-rose-50 cursor-pointer"
+                    >
+                      إزالة
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <label className="px-4 py-2 rounded-xl bg-white dark:bg-stone-800 border border-amber-500/50 text-amber-700 dark:text-amber-300 text-xs font-bold shadow-xs hover:bg-amber-50 cursor-pointer flex items-center gap-2">
-                <Upload className="w-4 h-4" />
-                <span>تحميل لوجو البراند الخاص بك</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLogoUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
+            <ImageRollbackBar
+              slotKey={`profile_logo_${profile.workshopId || profile.id || 'default'}`}
+              compact
+              onRestored={(prevUrl) => setLogoUrl(prevUrl)}
+            />
 
             {/* مفتاح وضع الأداء الفائق وتوفير الطاقة (High-Performance Lite Mode) */}
             <div className="p-4 rounded-2xl bg-[#0C1427] text-white border-2 border-amber-500/40 shadow-xl flex items-center justify-between gap-4">
@@ -835,21 +1095,21 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
                 <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-                  اسم البراند / المشغل *
+                  {isSupplier ? 'اسم متجر المورد / الشركة *' : 'اسم البراند / المشغل *'}
                 </label>
                 <input
                   type="text"
                   required
                   value={brandName}
                   onChange={(e) => setBrandName(e.target.value)}
-                  placeholder="اسم البراند التجاري"
+                  placeholder={isSupplier ? 'مثال: الشروق للخيوط والخامات' : 'اسم البراند التجاري'}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 focus:placeholder-transparent"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-                  اسم الفنان / الفنانة *
+                  {isSupplier ? 'اسم المالك / المسؤول *' : 'اسم الفنان / الفنانة *'}
                 </label>
                 <input
                   type="text"
@@ -861,22 +1121,24 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 />
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
-                  <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
-                  <span>اسمك في العيلة (اختياري)</span>
-                </label>
-                <input
-                  type="text"
-                  value={familyNickname}
-                  onChange={(e) => setFamilyNickname(e.target.value)}
-                  placeholder={getDefaultFamilyNickname(artistName, gender)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
-                />
-                <span className="text-[10px] text-stone-400 mt-1 block">
-                  الاسم أو اللقب المحبب لك داخل عيلة الشمساوية (الافتراضي: {gender === 'female' ? 'الاسم الأول + الشمساوية' : 'الاسم الأول + الشمساوي'}).
-                </span>
-              </div>
+              {!isSupplier && (
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
+                    <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+                    <span>اسمك في العيلة (اختياري)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={familyNickname}
+                    onChange={(e) => setFamilyNickname(e.target.value)}
+                    placeholder={getDefaultFamilyNickname(artistName, gender)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <span className="text-[10px] text-stone-400 mt-1 block">
+                    الاسم أو اللقب المحبب لك داخل عيلة الشمساوية (الافتراضي: {gender === 'female' ? 'الاسم الأول + الشمساوية' : 'الاسم الأول + الشمساوي'}).
+                  </span>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
@@ -927,108 +1189,302 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               <div>
                 <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>عنوان الورشة</span>
+                  <span>{isSupplier ? 'المحافظة / مقر المورد' : 'عنوان الورشة'}</span>
                 </label>
                 <input
                   type="text"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="المحافظة / المدينة / عنوان الورشة"
+                  placeholder={isSupplier ? 'القاهرة / الإسكندرية / طنطا...' : 'المحافظة / المدينة / عنوان الورشة'}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500"
                 />
               </div>
 
-              {/* Selected Workshops / Crafts List */}
-              <div className="sm:col-span-2 p-4 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+              {/* SUPPLIER SECTIONS & PRICING VS ARTISAN WORKSHOPS */}
+              {isSupplier ? (
+                <div className="sm:col-span-2 p-4 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-4">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-xl bg-[#0C1427] text-[#FBBF24] flex items-center justify-center shrink-0">
-                      <Layers className="w-4 h-4" />
+                      <Truck className="w-4 h-4" />
                     </div>
                     <div>
                       <h4 className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                        الورش والحِرف المختارة في ورشتك ({selectedCrafts.length})
+                        نشاط التوريد وأقسام الخامات ({supplySections.length}/4 · {suppliedMaterials.length} خامة)
                       </h4>
                       <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1]">
-                        حدد الحِرف التي تعمل بها ورشتك لتظهر في الحاسبة والكتالوج
+                        حدّد نوع النشاط التجاري وآلية التسعير والخامات التي توفرها للفنانين
                       </p>
                     </div>
                   </div>
-                </div>
 
-                {/* Section filter buttons */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                  <button
-                    type="button"
-                    onClick={() => setCraftsFilterSection('all')}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap cursor-pointer transition ${
-                      craftsFilterSection === 'all'
-                        ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#EA580C] dark:text-white'
-                        : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#CBD5E1] border border-[#D4CCBC] dark:border-[#22355E]'
-                    }`}
-                  >
-                    الكل ({SUB_CRAFTS_REGISTRY.length})
-                  </button>
-                  {MAIN_SECTIONS.map((sec) => (
+                  {/* Business Types */}
+                  <div>
+                    <label className="block text-[11px] font-black mb-1.5 text-[#0C1427] dark:text-[#F7F3EA]">
+                      طبيعة نشاط المورد
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {SUPPLIER_BUSINESS_TYPE_OPTIONS.map((opt) => {
+                        const active = businessTypes.includes(opt.id);
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => toggleSupplierBusinessType(opt.id)}
+                            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                              active
+                                ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                                : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-stone-300 border-[#D4CCBC] dark:border-[#22355E]'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Pricing Modes */}
+                  <div>
+                    <label className="block text-[11px] font-black mb-1.5 text-[#0C1427] dark:text-[#F7F3EA]">
+                      آلية التسعير والبيع
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {SUPPLIER_PRICING_MODE_OPTIONS.map((opt) => {
+                        const active = pricingModes.includes(opt.id);
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => toggleSupplierPricingMode(opt.id)}
+                            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                              active
+                                ? 'bg-[#0C1427] dark:bg-amber-600 text-white border-transparent'
+                                : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-stone-300 border-[#D4CCBC] dark:border-[#22355E]'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 4 Supply Sections & Materials */}
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto pr-0.5">
+                    {SUPPLIER_SUPPLY_SECTIONS.map((sec) => {
+                      const isSecActive = supplySections.includes(sec.id);
+                      const isExpanded = expandedSupSection === sec.id;
+                      const customForSection = suppliedMaterials.filter(
+                        (m) => !SUPPLIER_SUPPLY_SECTIONS.some((s) => s.presetMaterials.includes(m))
+                      );
+                      return (
+                        <div
+                          key={sec.id}
+                          className={`rounded-xl border transition ${
+                            isSecActive
+                              ? 'border-[#EA580C]/60 bg-[#F7F3EA] dark:bg-[#0D162E]'
+                              : 'border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA]/60 dark:bg-[#0D162E]/60'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 p-2.5">
+                            <button
+                              type="button"
+                              onClick={() => toggleSupplierSection(sec.id)}
+                              className="flex items-center gap-2 text-right flex-1 cursor-pointer"
+                            >
+                              <span
+                                className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                                  isSecActive
+                                    ? 'bg-[#EA580C] border-[#EA580C] text-white'
+                                    : 'border-stone-400 bg-transparent'
+                                }`}
+                              >
+                                {isSecActive && <Check className="w-3 h-3" />}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="text-[11px] font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
+                                  {sec.titleAr}
+                                </div>
+                                <div className="text-[10px] text-[#475569] dark:text-[#94A3B8] truncate">
+                                  {sec.subtitleAr}
+                                </div>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedSupSection(isExpanded ? '' : sec.id)}
+                              className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-stone-500 cursor-pointer"
+                            >
+                              {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="px-2.5 pb-2.5 pt-1 border-t border-[#D4CCBC]/70 dark:border-[#22355E] space-y-2">
+                              <div className="grid grid-cols-1 gap-1">
+                                {sec.presetMaterials.map((mat) => {
+                                  const checked = suppliedMaterials.includes(mat);
+                                  return (
+                                    <label
+                                      key={mat}
+                                      className="flex items-center gap-1.5 text-[10px] font-bold text-[#0C1427] dark:text-[#CBD5E1] cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleSupplierMaterial(sec.id, mat)}
+                                        className="w-3.5 h-3.5 accent-[#EA580C] rounded cursor-pointer shrink-0"
+                                      />
+                                      <span className="truncate">{mat}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="flex items-center gap-1.5 pt-1">
+                                <input
+                                  type="text"
+                                  value={customMaterialDrafts[sec.id] || ''}
+                                  onChange={(e) =>
+                                    setCustomMaterialDrafts((prev) => ({
+                                      ...prev,
+                                      [sec.id]: e.target.value,
+                                    }))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleAddCustomSupplierMaterial(sec.id);
+                                    }
+                                  }}
+                                  placeholder="أضف خامة أخرى توفرها..."
+                                  className="flex-1 px-2 py-1 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#060B18] text-[10px] font-bold outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddCustomSupplierMaterial(sec.id)}
+                                  className="px-2 py-1 rounded-lg bg-[#EA580C] text-white text-[10px] font-black flex items-center gap-0.5 cursor-pointer shrink-0"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>إضافة</span>
+                                </button>
+                              </div>
+
+                              {customForSection.length > 0 && isSecActive && (
+                                <div className="flex flex-wrap gap-1 pt-1">
+                                  {customForSection.map((cm) => (
+                                    <button
+                                      key={cm}
+                                      type="button"
+                                      onClick={() =>
+                                        setSuppliedMaterials((prev) => prev.filter((x) => x !== cm))
+                                      }
+                                      className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/50 text-[10px] font-bold text-[#9A3412] dark:text-amber-200 cursor-pointer"
+                                    >
+                                      {cm} ✕
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="sm:col-span-2 p-4 rounded-2xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-[#0C1427] text-[#FBBF24] flex items-center justify-center shrink-0">
+                        <Layers className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                          الورش والحِرف المختارة في ورشتك ({selectedCrafts.length})
+                        </h4>
+                        <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1]">
+                          حدد الحِرف التي تعمل بها ورشتك لتظهر في الحاسبة والكتالوج
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section filter buttons */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
                     <button
-                      key={sec.id}
                       type="button"
-                      onClick={() => setCraftsFilterSection(sec.id)}
+                      onClick={() => setCraftsFilterSection('all')}
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap cursor-pointer transition ${
-                        craftsFilterSection === sec.id
+                        craftsFilterSection === 'all'
                           ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#EA580C] dark:text-white'
                           : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#CBD5E1] border border-[#D4CCBC] dark:border-[#22355E]'
                       }`}
                     >
-                      {sec.nameAr}
+                      الكل ({SUB_CRAFTS_REGISTRY.length})
                     </button>
-                  ))}
-                </div>
-
-                {/* Crafts Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-0.5">
-                  {(craftsFilterSection === 'all'
-                    ? SUB_CRAFTS_REGISTRY
-                    : SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === craftsFilterSection)
-                  ).map((craft) => {
-                    const checked = selectedCrafts.includes(craft.id);
-                    return (
+                    {MAIN_SECTIONS.map((sec) => (
                       <button
-                        key={craft.id}
+                        key={sec.id}
                         type="button"
-                        onClick={() => {
-                          setValidationError('');
-                          if (checked) {
-                            if (selectedCrafts.length <= 1) {
-                              setValidationError('يجب الإبقاء على ورشة أو حرفة واحدة على الأقل.');
-                              return;
-                            }
-                            setSelectedCrafts(selectedCrafts.filter((id) => id !== craft.id));
-                          } else {
-                            setSelectedCrafts([...selectedCrafts, craft.id]);
-                          }
-                        }}
-                        className={`p-2.5 rounded-xl border text-right flex items-center justify-between gap-2 cursor-pointer transition ${
-                          checked
-                            ? 'bg-[#0C1427] text-[#F7F3EA] border-[#EA580C] dark:bg-[#1A2B54] dark:border-[#FBBF24]'
-                            : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
+                        onClick={() => setCraftsFilterSection(sec.id)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap cursor-pointer transition ${
+                          craftsFilterSection === sec.id
+                            ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#EA580C] dark:text-white'
+                            : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#CBD5E1] border border-[#D4CCBC] dark:border-[#22355E]'
                         }`}
                       >
-                        <span className="text-xs font-bold truncate">{craft.nameAr}</span>
-                        <span
-                          className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
+                        {sec.nameAr}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Crafts Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-0.5">
+                    {(craftsFilterSection === 'all'
+                      ? SUB_CRAFTS_REGISTRY
+                      : SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === craftsFilterSection)
+                    ).map((craft) => {
+                      const checked = selectedCrafts.includes(craft.id);
+                      return (
+                        <button
+                          key={craft.id}
+                          type="button"
+                          onClick={() => {
+                            setValidationError('');
+                            if (checked) {
+                              if (selectedCrafts.length <= 1) {
+                                setValidationError('يجب الإبقاء على ورشة أو حرفة واحدة على الأقل.');
+                                return;
+                              }
+                              setSelectedCrafts(selectedCrafts.filter((id) => id !== craft.id));
+                            } else {
+                              setSelectedCrafts([...selectedCrafts, craft.id]);
+                            }
+                          }}
+                          className={`p-2.5 rounded-xl border text-right flex items-center justify-between gap-2 cursor-pointer transition ${
                             checked
-                              ? 'bg-[#EA580C] text-white'
-                              : 'border border-[#94A3B8] dark:border-[#2D4475]'
+                              ? 'bg-[#0C1427] text-[#F7F3EA] border-[#EA580C] dark:bg-[#1A2B54] dark:border-[#FBBF24]'
+                              : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
                           }`}
                         >
-                          {checked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                        </span>
-                      </button>
-                    );
-                  })}
+                          <span className="text-xs font-bold truncate">{craft.nameAr}</span>
+                          <span
+                            className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
+                              checked
+                                ? 'bg-[#EA580C] text-white'
+                                : 'border border-[#94A3B8] dark:border-[#2D4475]'
+                            }`}
+                          >
+                            {checked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Appearance Switcher inside Gear Settings */}
               {onSelectThemeMode && (
@@ -1078,37 +1534,39 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 </div>
               )}
 
-              {/* Wholesale margin discount percent */}
-              <div className="sm:col-span-2 p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60">
-                <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
-                  نسبة الخصم من هامش الربح لحساب سعر الجملة (%) (افتراضي 25%)
-                </label>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-1.5">
-                  <div className="w-full sm:w-36">
-                    <NumberInput
-                      value={defaultWholesaleDiscountPercent}
-                      onChange={(v) => setDefaultWholesaleDiscountPercent(v)}
-                      placeholder="25"
-                      className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold font-mono outline-none focus:ring-2 focus:ring-amber-500"
-                    />
+              {/* Wholesale margin discount percent (Artisans only) */}
+              {!isSupplier && (
+                <div className="sm:col-span-2 p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60">
+                  <label className="block text-xs font-bold mb-1 text-stone-700 dark:text-stone-300">
+                    نسبة الخصم من هامش الربح لحساب سعر الجملة (%) (افتراضي 25%)
+                  </label>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-1.5">
+                    <div className="w-full sm:w-36">
+                      <NumberInput
+                        value={defaultWholesaleDiscountPercent}
+                        onChange={(v) => setDefaultWholesaleDiscountPercent(v)}
+                        placeholder="25"
+                        className="w-full px-3.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold font-mono outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                    <span className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
+                      * تُخصم هذه النسبة من هامش الربح الصافي فقط عند حساب سعر الجملة مع حماية وضمان تغطية كافة تكاليف الخامات وأجور اليد العاملة.
+                    </span>
                   </div>
-                  <span className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed">
-                    * تُخصم هذه النسبة من هامش الربح الصافي فقط عند حساب سعر الجملة مع حماية وضمان تغطية كافة تكاليف الخامات وأجور اليد العاملة.
-                  </span>
                 </div>
-              </div>
+              )}
 
-              {/* رابط متجر الفنان الموحد والنظيف (Clean Store Slug) */}
+              {/* رابط المتجر الموحد والنظيف (Clean Store Slug) */}
               <div className="sm:col-span-2 p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-800 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-base">🏪</span>
                     <div>
                       <h4 className="text-xs font-black text-amber-950 dark:text-amber-200">
-                        رابط متجر الفنان الموحد (Clean Store Slug)
+                        {isSupplier ? 'رابط متجر المورد الموحد (Clean Store Slug)' : 'رابط متجر الفنان الموحد (Clean Store Slug)'}
                       </h4>
                       <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">
-                        رابط نظيف ومخصص لمتجرك الفردي يمكنك نشره ومشاركته مع عملائك
+                        {isSupplier ? 'رابط مخصص لكتالوج متجرك لمشاركته مع الورش والفنانين' : 'رابط نظيف ومخصص لمتجرك الفردي يمكنك نشره ومشاركته مع عملائك'}
                       </p>
                     </div>
                   </div>
@@ -1120,7 +1578,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   </label>
                   <div className="flex items-center gap-2" dir="ltr">
                     <span className="text-xs font-mono font-bold text-stone-500 shrink-0">
-                      /#/store/
+                      {isSupplier ? '/#/supplier/' : '/#/store/'}
                     </span>
                     <input
                       type="text"
@@ -1142,60 +1600,62 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   </span>
                 </div>
 
-                <div className="pt-2 border-t border-amber-200 dark:border-amber-800/60 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-[11px] font-mono font-bold text-amber-900 dark:text-amber-200 break-all select-all">
-                    {typeof window !== 'undefined'
-                      ? `${window.location.origin}/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`
-                      : `/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const url =
-                          typeof window !== 'undefined'
-                            ? `${window.location.origin}/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`
-                            : '';
-                        navigator.clipboard.writeText(url);
-                        setCopiedStoreLink(true);
-                        setTimeout(() => setCopiedStoreLink(false), 2000);
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-xs"
-                    >
-                      {copiedStoreLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedStoreLink ? 'تم النسخ' : 'نسخ الرابط'}</span>
-                    </button>
-                    <a
-                      href={`/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold flex items-center gap-1.5 transition"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>معاينة المتجر</span>
-                    </a>
-                  </div>
-                </div>
+                {(() => {
+                  const routePrefix = isSupplier ? '/#/supplier/' : '/#/store/';
+                  const resolvedSlug = storeSlug || generateCleanStoreSlug(brandName || artistName || profile.id || 'my-store');
+                  const relPath = `${routePrefix}${resolvedSlug}`;
+                  const fullUrl =
+                    typeof window !== 'undefined' ? `${window.location.origin}${relPath}` : `https://alshamsawiyah.ai.studio${relPath}`;
+                  return (
+                    <>
+                      <div className="pt-2 border-t border-amber-200 dark:border-amber-800/60 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-[11px] font-mono font-bold text-amber-900 dark:text-amber-200 break-all select-all">
+                          {fullUrl}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(fullUrl);
+                              setCopiedStoreLink(true);
+                              setTimeout(() => setCopiedStoreLink(false), 2000);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-xs"
+                          >
+                            {copiedStoreLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>{copiedStoreLink ? 'تم النسخ' : 'نسخ الرابط'}</span>
+                          </button>
+                          <a
+                            href={relPath}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold flex items-center gap-1.5 transition"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>معاينة المتجر</span>
+                          </a>
+                        </div>
+                      </div>
 
-                {/* Personal Store QR Code Card */}
-                <div className="p-3 rounded-xl bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row items-center gap-3">
-                  <div className="p-1.5 bg-white rounded-lg border border-stone-200 shrink-0 shadow-xs">
-                    <QRCodeCanvas
-                      value={typeof window !== 'undefined' ? `${window.location.origin}/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}` : `https://alshamsawiyah.ai.studio/#/store/${storeSlug || generateCleanStoreSlug(brandName || artistName)}`}
-                      size={80}
-                      level="M"
-                      includeMargin={false}
-                    />
-                  </div>
-                  <div className="flex-1 text-right">
-                    <span className="text-xs font-black text-amber-900 dark:text-amber-200 block">
-                      كود QR الخاص بمتجرك الفردي
-                    </span>
-                    <span className="text-[10px] text-stone-500 block leading-tight mt-0.5">
-                      يمكنك طباعة هذا الكود أو إرساله لعملائك لفتح متجرك مباشرة والشراء دون وسيط.
-                    </span>
-                  </div>
-                </div>
+                      {/* Personal Store QR Code Card */}
+                      <div className="p-3 rounded-xl bg-white dark:bg-stone-900 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row items-center gap-3">
+                        <div className="p-1.5 bg-white rounded-lg border border-stone-200 shrink-0 shadow-xs">
+                          <QRCodeCanvas value={fullUrl} size={80} level="M" includeMargin={false} />
+                        </div>
+                        <div className="flex-1 text-right">
+                          <span className="text-xs font-black text-amber-900 dark:text-amber-200 block">
+                            {isSupplier ? 'كود QR الخاص بمتجر المورد' : 'كود QR الخاص بمتجرك الفردي'}
+                          </span>
+                          <span className="text-[10px] text-stone-500 block leading-tight mt-0.5">
+                            {isSupplier
+                              ? 'يمكنك طباعة هذا الكود ومشاركته مع الفنانين لفتح كتالوج الخامات مباشرة.'
+                              : 'يمكنك طباعة هذا الكود أو إرساله لعملائك لفتح متجرك مباشرة والشراء دون وسيط.'}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Sound preference (Web Audio API) */}
@@ -1212,10 +1672,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   </div>
                   <div>
                     <div className="text-xs font-bold text-stone-800 dark:text-stone-200">
-                      أصوات الورشة التفاعلية
+                      أصوات النظام التفاعلية
                     </div>
                     <div className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
-                      نغمات هادئة فورية (ترحيب، تنبيه، نجاح، خطأ، تقليب صفحات) بدون أي ملفات خارجية
+                      نغمات هادئة فورية (ترحيب، تنبيه، نجاح، خطأ) بدون أي ملفات خارجية
                     </div>
                   </div>
                 </div>
@@ -1242,40 +1702,42 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 </button>
               </div>
 
-              {/* Daily Sales Reminder Preference */}
-              <div className="sm:col-span-2 p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`p-2.5 rounded-xl transition ${
+              {/* Daily Sales Reminder Preference (Artisans only) */}
+              {!isSupplier && (
+                <div className="sm:col-span-2 p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700/60 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`p-2.5 rounded-xl transition ${
+                        enableDailySalesReminder
+                          ? 'bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-400'
+                          : 'bg-stone-200 dark:bg-stone-700 text-stone-500 dark:text-stone-400'
+                      }`}
+                    >
+                      <Bell size={20} />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-stone-800 dark:text-stone-200">
+                        تنبيه مراجعة مبيعات اليوم
+                      </div>
+                      <div className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
+                        إشعار تذكيري يومي في شريط التنبيهات لتذكيرك بمراجعة مبيعات اليوم وتدقيق الحسابات قبل إغلاق النظام
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEnableDailySalesReminder((prev) => !prev)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
                       enableDailySalesReminder
-                        ? 'bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-400'
-                        : 'bg-stone-200 dark:bg-stone-700 text-stone-500 dark:text-stone-400'
+                        ? 'bg-sky-600 hover:bg-sky-700 text-white shadow-sm shadow-sky-600/20'
+                        : 'bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 dark:hover:bg-stone-600 text-stone-700 dark:text-stone-200'
                     }`}
                   >
-                    <Bell size={20} />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-stone-800 dark:text-stone-200">
-                      تنبيه مراجعة مبيعات اليوم
-                    </div>
-                    <div className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5">
-                      إشعار تذكيري يومي في شريط التنبيهات لتذكيرك بمراجعة مبيعات اليوم وتدقيق الحسابات قبل إغلاق النظام
-                    </div>
-                  </div>
+                    <Bell size={15} />
+                    <span>{enableDailySalesReminder ? 'مفعّل' : 'معطّل'}</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setEnableDailySalesReminder((prev) => !prev)}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-                    enableDailySalesReminder
-                      ? 'bg-sky-600 hover:bg-sky-700 text-white shadow-sm shadow-sky-600/20'
-                      : 'bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 dark:hover:bg-stone-600 text-stone-700 dark:text-stone-200'
-                  }`}
-                >
-                  <Bell size={15} />
-                  <span>{enableDailySalesReminder ? 'مفعّل' : 'معطّل'}</span>
-                </button>
-              </div>
+              )}
             </div>
 
             {/* Social channels */}
@@ -1500,7 +1962,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 className="px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-md shadow-amber-600/20 transition cursor-pointer disabled:opacity-50 flex items-center gap-2"
               >
                 <Check className="w-4 h-4" />
-                <span>حفظ بيانات الفنان والبراند</span>
+                <span>{isSupplier ? 'حفظ بيانات المورد والمتجر' : 'حفظ بيانات الفنان والبراند'}</span>
               </button>
             </div>
           </div>

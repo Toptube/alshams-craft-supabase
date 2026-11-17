@@ -36,6 +36,8 @@ import {
   Warehouse,
   MonitorSmartphone,
   Clock,
+  ExternalLink,
+  ShoppingBag,
 } from 'lucide-react';
 
 interface SupplierHomeScreenProps {
@@ -51,6 +53,8 @@ interface SupplierHomeScreenProps {
   onNavigateToHrTerminal?: () => void;
   onNavigateToFamily?: () => void;
   onNavigateToPersonalProfile?: () => void;
+  onNavigateToSuppliersMarket?: () => void;
+  onPreviewPublicStore?: (slug: string) => void;
 }
 
 export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
@@ -66,6 +70,8 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   onNavigateToHrTerminal,
   onNavigateToFamily,
   onNavigateToPersonalProfile,
+  onNavigateToSuppliersMarket,
+  onPreviewPublicStore,
 }) => {
   const flags = useFeatureFlags();
   const showErpModules = isUserAdmin(profile) || flags.supplierErpEnabled !== false;
@@ -81,8 +87,8 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   const slug = profile.storeSlug || profile.store_slug || profile.id;
   const storeUrl =
     typeof window !== 'undefined'
-      ? `${window.location.origin}/?supplier=${encodeURIComponent(slug)}`
-      : `/?supplier=${encodeURIComponent(slug)}`;
+      ? `${window.location.origin}/#/supplier/${encodeURIComponent(slug)}`
+      : `/#/supplier/${encodeURIComponent(slug)}`;
 
   useEffect(() => {
     let mounted = true;
@@ -287,6 +293,17 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {onPreviewPublicStore && (
+            <button
+              type="button"
+              onClick={() => onPreviewPublicStore(slug)}
+              className="px-3.5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition shadow-sm"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>معاينة متجري للجمهور</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleCopyStoreUrl}
@@ -299,103 +316,30 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
           <button
             type="button"
             onClick={onOpenStorefrontModal}
-            className="px-3.5 py-2 rounded-xl bg-[#0C1427] dark:bg-[#EA580C] hover:opacity-95 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition shadow-sm"
+            className="px-3.5 py-2 rounded-xl bg-[#0C1427] dark:bg-[#1A2B54] hover:opacity-95 text-white border border-[#22355E] text-xs font-black flex items-center gap-1.5 cursor-pointer transition shadow-sm"
           >
-            <QrCode className="w-3.5 h-3.5" />
+            <QrCode className="w-3.5 h-3.5 text-[#FBBF24]" />
             <span>إعدادات المتجر و QR</span>
           </button>
         </div>
       </section>
 
-      {/* KPI Metrics Row */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4">
-          <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">إجمالي أرصدة الخزائن</p>
-          <p className="mt-1.5 text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] font-mono tabular-nums">
-            {loading ? '...' : totalTreasuryBalance.toLocaleString()}{' '}
-            <span className="text-xs font-bold text-[#C2410C] dark:text-amber-300">{currencySymbol}</span>
-          </p>
-        </div>
-
-        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4">
-          <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">خامات الكتالوج</p>
-          <p className="mt-1.5 text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] font-mono tabular-nums">
-            {loading ? '...' : catalog.length}
-            {lowStockItems.length > 0 && (
-              <span className="mr-2 text-[11px] font-bold text-rose-600 dark:text-rose-400">
-                ({lowStockItems.length} منخفض)
-              </span>
-            )}
-          </p>
-        </div>
-
-        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4">
-          <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">أوردرات قيد التنفيذ</p>
-          <p className="mt-1.5 text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] font-mono tabular-nums">
-            {loading ? '...' : activeOrdersCount}
-            <span className="mr-2 text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
-              من إجمالي {orders.length}
-            </span>
-          </p>
-        </div>
-
-        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4">
-          <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">قاعدة العملاء</p>
-          <p className="mt-1.5 text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] font-mono tabular-nums">
-            {loading ? '...' : customers.length}
-          </p>
-        </div>
-      </section>
-
-      {/* Multi-Branch ERP Live Cashflow Summary Strip */}
-      {showErpModules && erpOverview && (
-        <section className="rounded-2xl bg-[#0C1427] text-[#F7F3EA] border border-[#22355E] p-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 flex-1 text-xs">
-            <div>
-              <p className="text-slate-300 font-bold">معانا كام (الخزن الكلية)</p>
-              <p className="font-mono tabular-nums font-black text-emerald-400 text-sm mt-0.5">
-                {Number(erpOverview.kpis.totalCashOnHand).toLocaleString()} {currencySymbol}
-              </p>
-            </div>
-            <div>
-              <p className="text-slate-300 font-bold">لينا بره كام (آجل العملاء)</p>
-              <p className="font-mono tabular-nums font-black text-amber-300 text-sm mt-0.5">
-                {Number(erpOverview.kpis.receivablesFromCustomers).toLocaleString()} {currencySymbol}
-              </p>
-            </div>
-            <div>
-              <p className="text-slate-300 font-bold">علينا كام (للمصانع)</p>
-              <p className="font-mono tabular-nums font-black text-rose-400 text-sm mt-0.5">
-                {Number(erpOverview.kpis.payablesToVendors).toLocaleString()} {currencySymbol}
-              </p>
-            </div>
-            <div>
-              <p className="text-slate-300 font-bold">قيمة المخزون بالفروع</p>
-              <p className="font-mono tabular-nums font-black text-sky-300 text-sm mt-0.5">
-                {Number(erpOverview.kpis.totalStockValuation).toLocaleString()} {currencySymbol}
-              </p>
-            </div>
-          </div>
-
-          {erpOverview.pendingTransfers.length > 0 && onNavigateToErpHub && (
-            <button
-              type="button"
-              onClick={onNavigateToErpHub}
-              className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0"
-            >
-              <Clock className="w-4 h-4" />
-              <span>{erpOverview.pendingTransfers.length} توريد بانتظار تأكيد الاستلام</span>
-            </button>
-          )}
-        </section>
-      )}
-
-      {/* Main Action Hub Grid */}
+      {/* Main Action Hub Grid FIRST — matching WorkshopHomeScreen visual hierarchy */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
             أدوات إدارة متجر المورد
           </h2>
+          {showErpModules && erpOverview && erpOverview.pendingTransfers.length > 0 && onNavigateToErpHub && (
+            <button
+              type="button"
+              onClick={onNavigateToErpHub}
+              className="px-3.5 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black flex items-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>{erpOverview.pendingTransfers.length} توريد بانتظار تأكيد الاستلام</span>
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
@@ -433,6 +377,78 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
               </button>
             );
           })}
+        </div>
+      </section>
+
+      {/* Financial & Operational Summaries BELOW Cards (No charts on Home) */}
+      {showErpModules && erpOverview && (
+        <section className="rounded-2xl bg-[#0C1427] text-[#F7F3EA] border border-[#22355E] p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 flex-1 text-xs">
+            <div>
+              <p className="text-slate-300 font-bold">معانا كام (الخزن الكلية)</p>
+              <p className="font-mono tabular-nums font-black text-emerald-400 text-sm mt-0.5">
+                {Number(erpOverview.kpis.totalCashOnHand).toLocaleString()} {currencySymbol}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-300 font-bold">لينا بره كام (آجل العملاء)</p>
+              <p className="font-mono tabular-nums font-black text-amber-300 text-sm mt-0.5">
+                {Number(erpOverview.kpis.receivablesFromCustomers).toLocaleString()} {currencySymbol}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-300 font-bold">علينا كام (للمصانع)</p>
+              <p className="font-mono tabular-nums font-black text-rose-400 text-sm mt-0.5">
+                {Number(erpOverview.kpis.payablesToVendors).toLocaleString()} {currencySymbol}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-300 font-bold">قيمة المخزون بالفروع</p>
+              <p className="font-mono tabular-nums font-black text-sky-300 text-sm mt-0.5">
+                {Number(erpOverview.kpis.totalStockValuation).toLocaleString()} {currencySymbol}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Compact KPI Metrics Row */}
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4">
+          <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">إجمالي أرصدة الخزائن</p>
+          <p className="mt-1.5 text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] font-mono tabular-nums">
+            {loading ? '...' : totalTreasuryBalance.toLocaleString()}{' '}
+            <span className="text-xs font-bold text-[#C2410C] dark:text-amber-300">{currencySymbol}</span>
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4">
+          <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">خامات الكتالوج</p>
+          <p className="mt-1.5 text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] font-mono tabular-nums">
+            {loading ? '...' : catalog.length}
+            {lowStockItems.length > 0 && (
+              <span className="mr-2 text-[11px] font-bold text-rose-600 dark:text-rose-400">
+                ({lowStockItems.length} منخفض)
+              </span>
+            )}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4">
+          <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">أوردرات قيد التنفيذ</p>
+          <p className="mt-1.5 text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] font-mono tabular-nums">
+            {loading ? '...' : activeOrdersCount}
+            <span className="mr-2 text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
+              من إجمالي {orders.length}
+            </span>
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4">
+          <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">قاعدة العملاء</p>
+          <p className="mt-1.5 text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] font-mono tabular-nums">
+            {loading ? '...' : customers.length}
+          </p>
         </div>
       </section>
 
@@ -522,6 +538,39 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
           )}
         </div>
       </section>
+
+      {/* Bottom Orange Marketplace Footer for Suppliers */}
+      {(onNavigateToSuppliersMarket || onPreviewPublicStore) && (
+        <footer className="pt-2">
+          <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs font-bold text-[#475569] dark:text-[#CBD5E1]">
+              تصفح عروض السوق ومقارنة أسعار الموردين في المنظومة مباشرة:
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {onPreviewPublicStore && (
+                <button
+                  type="button"
+                  onClick={() => onPreviewPublicStore(slug)}
+                  className="min-h-[42px] px-4 py-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-1.5 cursor-pointer transition"
+                >
+                  <ExternalLink className="w-4 h-4 text-[#EA580C]" />
+                  <span>عرض متجري للجمهور</span>
+                </button>
+              )}
+              {onNavigateToSuppliersMarket && (
+                <button
+                  type="button"
+                  onClick={onNavigateToSuppliersMarket}
+                  className="min-h-[42px] px-5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer transition shadow-sm"
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>موردين الشمساوية</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </footer>
+      )}
     </div>
   );
 };

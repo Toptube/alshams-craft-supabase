@@ -37,6 +37,7 @@ import { playTaskDoneSound, playButtonClickSound, playSuccessSound } from '../..
 import { dispatchArtisanNotification } from '../../lib/pushNotifications';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { fetchSupplierErpOverview } from '../../db/supplierErpService';
+import { buildArtisanExecutiveBrief } from '../../services/executiveBriefService';
 
 export interface ShamousaActionLink {
   label: string;
@@ -62,6 +63,30 @@ export interface SmartActionChip {
   };
 }
 
+export type DisambiguationIntentKey =
+  | 'root_ambiguous'
+  | 'wh_menu'
+  | 'wh_materials'
+  | 'wh_products'
+  | 'tr_menu'
+  | 'tr_cash'
+  | 'tr_receivables'
+  | 'tr_payables'
+  | 'full_brief'
+  | 'sup_root_ambiguous'
+  | 'sup_wh_menu'
+  | 'sup_tr_menu'
+  | 'sup_cash'
+  | 'sup_receivables'
+  | 'sup_payables'
+  | 'sup_stock';
+
+export interface DisambiguationChoice {
+  id: string;
+  label: string;
+  intentKey: DisambiguationIntentKey;
+}
+
 export interface ShamousaMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -70,6 +95,7 @@ export interface ShamousaMessage {
   actionLink?: ShamousaActionLink;
   contactAction?: ShamousaContactAction;
   actionChips?: SmartActionChip[];
+  disambiguationChoices?: DisambiguationChoice[];
   attachmentPreview?: string;
   sources?: Array<{ title: string; url: string }>;
   searchUsed?: boolean;
@@ -118,6 +144,9 @@ export function extractUserFirstName(rawName?: string): string {
 // الكشف الذكي عن روابط التنقل السريع عند طلب المستخدم صراحة
 function detectNavigationIntent(text: string, isSupplier = false): ShamousaActionLink | undefined {
   const lower = text.toLowerCase();
+  if (!isSupplier && (lower.includes('هلخصهالك') || lower.includes('بطاقة الملخص'))) {
+    return { label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' };
+  }
   if (lower.includes('صفحتي الشخصية') || lower.includes('الصفحة الشخصية') || lower.includes('بروفايل') || lower.includes('معرض أعمال')) {
     return { label: 'فتح صفحتي الشخصية 👤', view: 'personal_profile' };
   }
@@ -178,12 +207,96 @@ function detectNavigationIntent(text: string, isSupplier = false): ShamousaActio
   return undefined;
 }
 
-// الكشف الذكي بالكلمات الدلالية وتوليد أزرار إجراء فورية بدون نصوص مكررة
-export function detectKeywordActionChips(text: string, isSupplier = false): SmartActionChip[] {
-  const chips: SmartActionChip[] = [];
-  const lower = text.toLowerCase();
+// كشف الاستفسارات الغامضة أو الملتبسة (مثل "المخزينه" أو "تلخيص" عام) لتقديم أزرار توضيح ذكية
+export function detectSummaryOrAmbiguousIntent(
+  text: string,
+  isSupplier = false
+): DisambiguationIntentKey | null {
+  const clean = text.trim().toLowerCase();
+  if (!clean) return null;
 
-  // 0. الصفحة الشخصية ومعرض الأعمال + مجتمع العيلة
+  // استبعاد الأسئلة عن الصور أو الألوان أو بحث السوق أو المساعدة العامة الطويلة جداً غير المرتبطة بالملخص
+  if (/صقر|منافسين|دراسة سوق|تعديل صوره|تعديل صورة/i.test(clean)) return null;
+
+  // 1) كلمات ملتبسة حرفياً (مثل "المخزينه" أو خلط الخزنة مع المخزن)
+  const hasHybridTypo = /مخزين|المخزين|الخزن[هة]\s*(ولا|و|أو)\s*المخزن|المخزن\s*(ولا|و|أو)\s*الخزن/i.test(clean);
+  if (hasHybridTypo) {
+    return isSupplier ? 'sup_root_ambiguous' : 'root_ambiguous';
+  }
+
+  // 2) طلب صريح ومحدد لفرع من فروع هلخصهالك / الملخص
+  if (!isSupplier) {
+    if (/هلخصهالك|بطاق[هة]\s*الملخص|ملخص\s*شامل|لخصي?لي\s*كل\s*حاج[هة]/i.test(clean)) {
+      return 'full_brief';
+    }
+    if (/معانا\s*كام|معايا\s*كام|الفلوس\s*فين|كاش\s*وانستا|السيول[هة]\s*فين/i.test(clean)) {
+      return 'tr_cash';
+    }
+    if (/لينا\s*(كام\s*)?بره|فلوس(نا)?\s*عند\s*(مين|العملا)|مين\s*عليه\s*فلوس|متأخر(ين)?\s*في\s*السداد/i.test(clean)) {
+      return 'tr_receivables';
+    }
+    if (/علينا\s*(كام\s*)?(للموردين|لمين|بره)?|مستحقات\s*الموردين/i.test(clean)) {
+      return 'tr_payables';
+    }
+    if (/مخزن\s*الخامات|أكتر\s*خام|سحب\s*الخامات|خامات\s*ناقص/i.test(clean)) {
+      return 'wh_materials';
+    }
+    if (/مخزن\s*المنتج|أكتر\s*منتج\s*(ماشي|شغال|مبيع)|أقل\s*منتج\s*شغال/i.test(clean)) {
+      return 'wh_products';
+    }
+  } else {
+    if (/معانا\s*كام|حصيل[هة]\s*الفروع|خزين[هة]\s*المالك/i.test(clean)) {
+      return 'sup_cash';
+    }
+    if (/لينا\s*(كام\s*)?بره|آجل\s*العملاء|فلوس\s*الورش/i.test(clean)) {
+      return 'sup_receivables';
+    }
+    if (/علينا\s*(كام\s*)?(للمصانع|لمين)?|مستحقات\s*المصانع/i.test(clean)) {
+      return 'sup_payables';
+    }
+    if (/قيم[هة]\s*المخزون|مخزون\s*الفروع/i.test(clean)) {
+      return 'sup_stock';
+    }
+  }
+
+  // 3) أسئلة عامة/غائمة تحتاج تفصيل باختيار واضح دون إحراج
+  const hasWarehouseWord = /مخزن|المخزن|مخازن|بضاع[هة]/i.test(clean);
+  const hasTreasuryWord = /خزن[هة]|الخزن[هة]|خزائن|حسابات|الفلوس|النقدية|سيول[هة]/i.test(clean);
+  const isSummaryAsk = /تلخيص|ملخص|لخص|مختصر|وضع(نا)?\s*(ايه|إيه)|الدنيا\s*(ايه|إيه|فيها)/i.test(clean);
+
+  if (hasWarehouseWord && hasTreasuryWord) {
+    return isSupplier ? 'sup_root_ambiguous' : 'root_ambiguous';
+  }
+  if (isSummaryAsk && hasWarehouseWord) {
+    return isSupplier ? 'sup_wh_menu' : 'wh_menu';
+  }
+  if (isSummaryAsk && hasTreasuryWord) {
+    return isSupplier ? 'sup_tr_menu' : 'tr_menu';
+  }
+  if (isSummaryAsk && !/شرائح|مقارن|سوق|صقر|موعد|ميعاد/i.test(clean)) {
+    return isSupplier ? 'sup_root_ambiguous' : 'root_ambiguous';
+  }
+  if (/^(المخزن|مخزن|ملخص المخزن)$/i.test(clean)) {
+    return isSupplier ? 'sup_wh_menu' : 'wh_menu';
+  }
+  if (/^(الخزنة|الخزنه|خزنة|ملخص الخزنة|الحسابات)$/i.test(clean)) {
+    return isSupplier ? 'sup_tr_menu' : 'tr_menu';
+  }
+
+  return null;
+}
+
+// الكشف الذكي بالكلمات الدلالية وتوليد أزرار إجراء مرتبطة فقط بموضوع السؤال الفعلي
+export function detectKeywordActionChips(userQuery: string, isSupplier = false): SmartActionChip[] {
+  const chips: SmartActionChip[] = [];
+  const lower = userQuery.toLowerCase();
+
+  // 0. هلخصهالك والملخص للورش
+  if (!isSupplier && /هلخصهالك|ملخص|تلخيص|لخص|معانا كام|لينا بره|علينا كام|موقف مالي/i.test(lower)) {
+    chips.push({ id: 'chip_exec_brief', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' });
+  }
+
+  // 1. الصفحة الشخصية ومعرض الأعمال + مجتمع العيلة
   if (/صفحتي|شخصي|بروفايل|معرض أعمال|6 صور|صور أعمال|خصوصي|معاينة/i.test(lower)) {
     chips.push({ id: 'chip_personal_profile', label: 'فتح صفحتي الشخصية 👤', view: 'personal_profile' });
   }
@@ -191,7 +304,7 @@ export function detectKeywordActionChips(text: string, isSupplier = false): Smar
     chips.push({ id: 'chip_family', label: 'طبلية عيلة الشمساوية 👨‍👩‍👧‍👦', view: 'family' });
   }
 
-  // 0b. إدارة الفروع وتثبيت الأجهزة والـ POS للمورد
+  // 2. إدارة الفروع وتثبيت الأجهزة والـ POS للمورد
   if (isSupplier && /فرع|فروع|شجرة|مركزي|توريد|استلام الفلوس|اعتماد|خزن|معانا كام/i.test(lower)) {
     chips.push({ id: 'chip_sup_erp_hub', label: 'مركز قيادة الفروع والخزينة 🌿', view: 'supplier_erp_hub' });
   }
@@ -205,49 +318,46 @@ export function detectKeywordActionChips(text: string, isSupplier = false): Smar
     chips.push({ id: 'chip_sup_hr', label: 'شؤون العاملين وتثبيت الأجهزة 🖥️', view: 'supplier_hr_terminal' });
   }
 
-  // 1. الخزينة / الفلوس / السيولة / الكاش / المصروف
-  if (/خزن|خزنة|خزينة|سيول|سيولة|فلوس|كاش|نقدية|مصروف|آجل|لينا بره/i.test(lower)) {
-    chips.push({ id: 'chip_treasuries', label: 'فتح الخزائن والأرصدة 💰', view: isSupplier ? 'supplier_erp_hub' : 'treasuries' });
-    if (!isSupplier) {
-      chips.push({ id: 'chip_expenses', label: 'تسجيل مصروف وحركة نقدية 💵', action: 'open_expenses', view: 'treasuries' });
-    }
+  // 3. الخزينة / الفلوس / السيولة / الكاش / المصروف
+  if (!isSupplier && /خزن|خزنة|خزينة|سيول|سيولة|كاش|انستاباي|إنستاباي|محفظة|نقدية|معانا كام/i.test(lower)) {
+    chips.push({ id: 'chip_treasuries', label: 'فتح الخزائن والأرصدة 💰', view: 'treasuries' });
   }
 
-  // 2. الخامات / الشرائح / المقارنة / الموردين / التوريد
-  if (/خام|خامات|نواقص|مخزن|مستلزمات|توريد|شراء|شرائح|مقارنة|عروض|تقييم/i.test(lower)) {
-    if (isSupplier) {
-      chips.push({ id: 'chip_sup_cat', label: 'كتالوج الخامات والشرائح 📦', view: 'supplier_catalog' });
-      chips.push({ id: 'chip_sup_market', label: 'سوق موردين الشمساوية 🚚', view: 'suppliers_market' });
-    } else {
-      chips.push({ id: 'chip_mats', label: 'المخزن وإدارة الخامات 📦', view: 'materials' });
-      chips.push({ id: 'chip_sup_market', label: 'سوق الموردين ومقارنة الأسعار 🚚', view: 'suppliers_market' });
-    }
+  // 4. الخامات / المشتريات / الموردين
+  if (!isSupplier && /خام|خامات|نواقص|سحب/i.test(lower)) {
+    chips.push({ id: 'chip_mats', label: 'مخزن الخامات 🧶', view: 'materials' });
+  }
+  if (!isSupplier && /علينا كام|مورد|موردين|فواتير شراء|سوق الموردين/i.test(lower)) {
+    chips.push({ id: 'chip_sups', label: 'الموردين والمشتريات 🚚', view: 'suppliers' });
   }
 
-  // 3. المبيعات / الفواتير / العملاء / الطلبيات / المتجر
-  if (/بيع|مبيعات|فاتورة|فواتير|عميل|عملاء|طلب|طلبية|أوردر|متجر|سوق/i.test(lower)) {
-    chips.push({ id: 'chip_sales', label: isSupplier ? 'كاشير POS وأوردرات التوريد 🧾' : 'تسجيل بيع جديد 🧾', view: isSupplier ? 'supplier_pos' : 'sales' });
-    chips.push({ id: 'chip_custs', label: 'سجل العملاء والحسابات 👥', view: isSupplier ? 'supplier_customers' : 'customers' });
+  // 5. العملاء / لينا بره / المبيعات / المنتجات
+  if (!isSupplier && /لينا بره|عميل|عملاء|متأخر|تحصيل|آجل/i.test(lower)) {
+    chips.push({ id: 'chip_custs', label: 'عملائي وكشف الحساب 👥', view: 'customers' });
+  } else if (!isSupplier && /مبيعات|أوردر|طلبية|بيع/i.test(lower)) {
+    chips.push({ id: 'chip_sales', label: 'سجل المبيعات والطلبات 🧾', view: 'sales' });
+  }
+  if (!isSupplier && /منتج ماشي|أكتر منتج|كتالوج|منتجات جاهزة/i.test(lower)) {
+    chips.push({ id: 'chip_cat', label: 'كتالوج المنتجات 🛍️', view: 'catalog' });
   }
 
-  // 4. الحاسبة والتسعير (للورش)
-  if (!isSupplier && /حاسبة|تسعير|سعر بيع|هامش|تكلفة|فتلات|غرز/i.test(lower)) {
+  // 6. الحاسبة والتسعير (للورش)
+  if (!isSupplier && /حاسبة|تسعير|سعر بيع|هامش|تكلفة/i.test(lower)) {
     chips.push({ id: 'chip_calc', label: 'فتح حاسبة التكاليف 🧮', view: 'calculator' });
   }
 
-  // 5. المواعيد / الأجندة / التقويم / التسليم
+  // 7. المواعيد / الأجندة / التقويم / التسليم
   if (/موعد|مواعيد|أجندة|اجندة|تقويم|تسليم|ميعاد/i.test(lower)) {
     chips.push({ id: 'chip_agenda', label: 'عرض مواعيد وأجندة الورشة 📅', action: 'open_agenda' });
     chips.push({ id: 'chip_new_appt', label: 'تسجيل موعد جديد ➕', action: 'new_appointment' });
   }
 
-  // 6. أوامر التشغيل / التصنيع / الصنايعية
+  // 8. أوامر التشغيل / التصنيع / الصنايعية
   if (!isSupplier && /تشغيل|أمر تشغيل|تصنيع|صنايعي|حرفي|عمال|أجور/i.test(lower)) {
     chips.push({ id: 'chip_wo', label: 'سجل أوامر التشغيل 🔨', view: 'work_orders' });
-    chips.push({ id: 'chip_hr', label: 'إدارة الحرفيين والعمالة 👷', view: 'hr' });
   }
 
-  return chips.slice(0, 4);
+  return chips.slice(0, 3);
 }
 
 // دالة إنشاء رابط تقويم جوجل بنقرة واحدة
@@ -879,6 +989,309 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     }
   };
 
+  const resolveDisambiguationIntent = async (
+    intentKey: DisambiguationIntentKey
+  ): Promise<Omit<ShamousaMessage, 'id' | 'role'>> => {
+    const currency = profile.currencySymbol || 'ج.م';
+    const fmt = (n: number) => Math.round(n || 0).toLocaleString('ar-EG');
+
+    // Level 1 & Level 2 Guided Menus (توضيح بدون إحراج + اختيارات بأزرار واضحة)
+    if (intentKey === 'root_ambiguous') {
+      return {
+        content: `حاضر يا **${firstName}** ☀️ تقصد إيه بالظبط من دول عشان أجيب لك الأرقام المظبوطة؟ اختار من الأزرار دي:`,
+        disambiguationChoices: [
+          { id: 'c_wh_menu', label: 'ملخص المخزن 📦', intentKey: 'wh_menu' },
+          { id: 'c_tr_menu', label: 'ملخص الخزنة والفلوس 💰', intentKey: 'tr_menu' },
+          { id: 'c_full', label: 'الخلاصة كلها في (هلخصهالك) 📋', intentKey: 'full_brief' },
+        ],
+      };
+    }
+
+    if (intentKey === 'wh_menu') {
+      return {
+        content: `من عيوني يا **${firstName}** 📦 تحب أراجع لك أي مخزن فيهم؟`,
+        disambiguationChoices: [
+          { id: 'c_wh_mat', label: 'مخزن الخامات 🧶', intentKey: 'wh_materials' },
+          { id: 'c_wh_prod', label: 'مخزن المنتجات النهائية 🛍️', intentKey: 'wh_products' },
+          { id: 'c_wh_full', label: 'الاثنين في هلخصهالك 📋', intentKey: 'full_brief' },
+        ],
+      };
+    }
+
+    if (intentKey === 'tr_menu') {
+      return {
+        content: `أهلاً بيك يا **${firstName}** 💰 عاوز تعرف إيه بالظبط في الفلوس والحسابات؟`,
+        disambiguationChoices: [
+          { id: 'c_tr_cash', label: 'معانا كام وفين (السيولة) 💵', intentKey: 'tr_cash' },
+          { id: 'c_tr_rec', label: 'لينا كام بره وعند مين 📥', intentKey: 'tr_receivables' },
+          { id: 'c_tr_pay', label: 'علينا كام ولمين (للموردين) 📤', intentKey: 'tr_payables' },
+          { id: 'c_tr_full', label: 'الموقف المالي كله 📋', intentKey: 'full_brief' },
+        ],
+      };
+    }
+
+    if (intentKey === 'sup_root_ambiguous') {
+      return {
+        content: `تحت أمرك يا **${firstName}** ☀️ تقصد تراجع إيه في فروع المورد دلوقتي؟`,
+        disambiguationChoices: [
+          { id: 'c_sup_tr', label: 'ملخص خزائن الفروع والكاشير 💰', intentKey: 'sup_tr_menu' },
+          { id: 'c_sup_wh', label: 'ملخص مخزون الفروع وكارت الصنف 🏭', intentKey: 'sup_stock' },
+        ],
+      };
+    }
+
+    if (intentKey === 'sup_tr_menu') {
+      return {
+        content: `اختار التفاصيل المالية اللي تحب تراجعها يا **${firstName}** 💰:`,
+        disambiguationChoices: [
+          { id: 'c_sup_cash', label: 'معانا كام في الفروع والمالك 💵', intentKey: 'sup_cash' },
+          { id: 'c_sup_rec', label: 'لينا كام عند الورش والعملاء 📥', intentKey: 'sup_receivables' },
+          { id: 'c_sup_pay', label: 'علينا كام للمصانع 📤', intentKey: 'sup_payables' },
+        ],
+      };
+    }
+
+    // Supplier live leaf briefs (عزل تام لحساب المورد)
+    if (isSupplierAccount) {
+      const ov = await fetchSupplierErpOverview().catch(() => null);
+      const k: Partial<NonNullable<typeof ov>['kpis']> = ov?.kpis || {};
+      if (intentKey === 'sup_cash') {
+        return {
+          content:
+            `💵 **موقف الخزائن معاك يا ${firstName}:**\n` +
+            `• إجمالي السيولة المتاحة: **${fmt(k.totalCashOnHand || 0)} ${currency}**\n` +
+            `• خزينة المالك المعتمدة: **${fmt(k.ownerMainTreasuryTotal || 0)} ${currency}**\n` +
+            `• عهد وخزائن الفروع قبل التوريد: **${fmt(k.branchesPendingTreasuryTotal || 0)} ${currency}**\n` +
+            `• توريدات معلقة بانتظار تأكيد استلامك: **${ov?.pendingTransfers?.length || 0}** توريد.`,
+          actionChips: [
+            { id: 'chip_erp', label: 'فتح مركز قيادة الفروع والخزينة 🌿', view: 'supplier_erp_hub' },
+          ],
+        };
+      }
+      if (intentKey === 'sup_receivables') {
+        return {
+          content:
+            `📥 **اللي لينا بره عند الورش والعملاء يا ${firstName}:**\n` +
+            `• إجمالي المديونيات الآجلة بره: **${fmt(k.receivablesFromCustomers || 0)} ${currency}**.\n` +
+            `تقدر تشوف تفاصيل كل عميل ومكالمته من شاشة العملاء أو الكاشير.`,
+          actionChips: [
+            { id: 'chip_scust', label: 'فتح عملائي (الورش والأفراد) 👥', view: 'supplier_customers' },
+          ],
+        };
+      }
+      if (intentKey === 'sup_payables') {
+        return {
+          content:
+            `📤 **اللي علينا للمصانع والموردين الكبار يا ${firstName}:**\n` +
+            `• إجمالي المستحق للمصانع: **${fmt(k.payablesToVendors || 0)} ${currency}**.`,
+          actionChips: [
+            { id: 'chip_swh', label: 'فتح المخازن والمصانع 🏭', view: 'supplier_warehouse_erp' },
+          ],
+        };
+      }
+      return {
+        content:
+          `🏭 **ملخص مخزون الفروع يا ${firstName}:**\n` +
+          `• عدد الفروع النشطة: **${ov?.branches?.length || 1}** فرع.\n` +
+          `• قيمة المخزون الإجمالية: **${fmt(k.totalStockValuation || 0)} ${currency}**.\n` +
+          `• مبيعات الكاشير اليوم: **${k.todayPosOrdersCount || 0}** فاتورة بإجمالي **${fmt(k.todayPosSales || 0)} ${currency}**.`,
+        actionChips: [
+          { id: 'chip_swh', label: 'المخازن وكارت الصنف 🏭', view: 'supplier_warehouse_erp' },
+          { id: 'chip_spos', label: 'كاشير نقاط البيع (POS) 🛒', view: 'supplier_pos' },
+        ],
+      };
+    }
+
+    // Artisan Live Leaf Briefs (هلخصهالك الحية بالبلدي)
+    const brief = await buildArtisanExecutiveBrief(workshopId, currency);
+
+    if (intentKey === 'tr_cash') {
+      const liq = brief.financial.liquidity;
+      const lines = liq.treasuries
+        .map((t) => `• ${t.name} (${t.kindLabel}): **${fmt(t.balance)} ${currency}**`)
+        .join('\n');
+      return {
+        content:
+          `💵 **معانا كام وفين دلوقتي يا ${firstName}:**\n` +
+          `• إجمالي الفلوس اللي في إيدنا: **${fmt(liq.totalLiquidity)} ${currency}**\n` +
+          `• متقسمين: **${fmt(liq.cashTotal)} ${currency}** كاش، و **${fmt(liq.instapayBankTotal)} ${currency}** في إنستاباي/البنك، و **${fmt(liq.walletsCustodyTotal)} ${currency}** في المحافظ والعُهد.\n` +
+          (lines ? `\n**تفاصيل الخزائن:**\n${lines}` : ''),
+        actionChips: [
+          { id: 'chip_tr', label: 'فتح الخزائن والعُهد 💰', view: 'treasuries' },
+          { id: 'chip_eb', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' },
+        ],
+      };
+    }
+
+    if (intentKey === 'tr_receivables') {
+      const debtors = brief.financial.debtors;
+      if (debtors.length === 0) {
+        return {
+          content: `📥 يا **${firstName}**، مفيش فلوس لينا بره عند أي عميل دلوقتي — كل الفواتير متحصّلة تمام ✅`,
+          actionChips: [
+            { id: 'chip_eb', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' },
+          ],
+        };
+      }
+      const firstOverdueWithPhone = debtors.find((d) => d.isOverdue && d.phone) || debtors.find((d) => d.phone);
+      const listLines = debtors
+        .slice(0, 6)
+        .map((d) =>
+          `• إنت ليك عند **${d.name}**: **${fmt(d.totalOwed)} ${currency}**` +
+          (d.isOverdue
+            ? `\n  ⚠️ *تحذير: ده عدّى ميعاد السداد بقاله ${d.daysOverdue} يوم — ياريت تطالبه وبلاش تتعامل آجل معاه تاني غير لما يصفّي القديم!*`
+            : '')
+        )
+        .join('\n');
+
+      return {
+        content:
+          `📥 **اللي لينا بره عند العملاء يا ${firstName} (الإجمالي ${fmt(brief.financial.receivablesTotal)} ${currency}):**\n${listLines}`,
+        contactAction: firstOverdueWithPhone?.phone
+          ? { name: firstOverdueWithPhone.name, phone: firstOverdueWithPhone.phone, type: 'customer' }
+          : undefined,
+        actionChips: [
+          { id: 'chip_cust', label: 'فتح كشف حساب العملاء 👥', view: 'customers' },
+          { id: 'chip_eb', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' },
+        ],
+      };
+    }
+
+    if (intentKey === 'tr_payables') {
+      const creds = brief.financial.creditors;
+      if (creds.length === 0) {
+        return {
+          content: `📤 يا **${firstName}**، مفيش علينا أي مبالغ مستحقة للموردين دلوقتي — دفاترنا معاهم خالصة ✅`,
+          actionChips: [
+            { id: 'chip_eb', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' },
+          ],
+        };
+      }
+      const listLines = creds
+        .slice(0, 6)
+        .map((c) => `• علينا لـ **${c.name}**: **${fmt(c.totalOwed)} ${currency}**`)
+        .join('\n');
+
+      return {
+        content:
+          `📤 **اللي علينا للموردين يا ${firstName} (الإجمالي ${fmt(brief.financial.payablesTotal)} ${currency}):**\n${listLines}`,
+        actionChips: [
+          { id: 'chip_sup', label: 'فتح حسابات الموردين 🚚', view: 'suppliers' },
+          { id: 'chip_eb', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' },
+        ],
+      };
+    }
+
+    if (intentKey === 'wh_materials') {
+      const w = brief.warehouse;
+      const fastText =
+        w.fastMovingMaterials.length > 0
+          ? w.fastMovingMaterials.map((m) => `${m.name} (اتسحب ${m.consumedQty} ${m.unit})`).join('، ')
+          : 'لسه مفيش صرف تشغيل مسجل';
+      const slowText =
+        w.slowMovingMaterials.length > 0
+          ? w.slowMovingMaterials.map((m) => `${m.name} (رصيد ${m.currentStock} ${m.unit})`).join('، ')
+          : 'كل الخامات شغالة كويس';
+      const lowText =
+        w.lowStockMaterials.length > 0
+          ? `\n⚠️ **خامات قربت تخلص:** ${w.lowStockMaterials.slice(0, 3).map((m) => `${m.name} (${m.currentStock} ${m.unit})`).join('، ')}`
+          : '\n✅ كل الخامات فوق حد الأمان.';
+
+      return {
+        content:
+          `🧶 **تقرير مدير المخزن عن الخامات يا ${firstName}:**\n` +
+          `• عندك **${w.materialsCount}** خامة بقيمة إجمالية **${fmt(w.materialsTotalValue)} ${currency}**.\n` +
+          `• **أكتر خامات بتتسحب:** ${fastText}.\n` +
+          `• **خامات سحبها قليل:** ${slowText}.${lowText}`,
+        actionChips: [
+          { id: 'chip_mat', label: 'فتح مخزن الخامات 🧶', view: 'materials' },
+          { id: 'chip_eb', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' },
+        ],
+      };
+    }
+
+    if (intentKey === 'wh_products') {
+      const w = brief.warehouse;
+      const bestText =
+        w.bestSellingProducts.length > 0
+          ? w.bestSellingProducts.map((p) => `${p.name} (مباع ${p.soldQty} قطعة)`).join('، ')
+          : 'لسه مفيش مبيعات مسجلة لقياس الأكثر مبيعاً';
+      const slowText =
+        w.slowestProducts.length > 0
+          ? w.slowestProducts.map((p) => `${p.name} (مباع ${p.soldQty})`).join('، ')
+          : 'كل المنتجات ماشية تمام';
+
+      return {
+        content:
+          `🛍️ **تقرير مخزن المنتجات يا ${firstName}:**\n` +
+          `• عندك **${w.productsCount}** منتج بتكلفة **${fmt(w.productsCostValue)} ${currency}** (وقيمة بيع **${fmt(w.productsRetailValue)} ${currency}**).\n` +
+          `• **أكتر منتج ماشي معانا:** ${bestText}.\n` +
+          `• **أقل منتج شغال:** ${slowText}.`,
+        actionChips: [
+          { id: 'chip_cat', label: 'فتح كتالوج المنتجات 🛍️', view: 'catalog' },
+          { id: 'chip_eb', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' },
+        ],
+      };
+    }
+
+    // full_brief ("هلخصهالك" كاملة)
+    const f = brief.financial;
+    const w = brief.warehouse;
+    const topDebtor = f.debtors[0];
+    const overdueNote =
+      f.overdueDebtorsCount > 0 && topDebtor
+        ? `\n⚠️ **تنبيه مهم:** عندك ${f.overdueDebtorsCount} عميل عدّى ميعاد السداد (أولهم **${topDebtor.name}** بـ ${fmt(topDebtor.totalOwed)} ${currency}) — ياريت تطالبه وبلاش آجل معاه غير لما يصفّي!`
+        : '';
+
+    return {
+      content:
+        `📋 **ملخص هلخصهالك السريع لورشتك يا ${firstName}:**\n` +
+        `• **معانا كام:** **${fmt(f.liquidity.totalLiquidity)} ${currency}** (كاش ${fmt(f.liquidity.cashTotal)} + إنستاباي/بنك ${fmt(f.liquidity.instapayBankTotal)} + محافظ/عُهد ${fmt(f.liquidity.walletsCustodyTotal)}).\n` +
+        `• **لينا بره:** **${fmt(f.receivablesTotal)} ${currency}** عند ${f.debtors.length} عميل.${overdueNote}\n` +
+        `• **علينا للموردين:** **${fmt(f.payablesTotal)} ${currency}**.\n` +
+        `• **المخزن:** خامات بـ **${fmt(w.materialsTotalValue)} ${currency}** ومنتجات بسعر بيع **${fmt(w.productsRetailValue)} ${currency}**` +
+        (w.bestSellingProducts[0] ? ` (الأكثر مبيعاً: **${w.bestSellingProducts[0].name}**)` : '') +
+        `.`,
+      actionChips: [
+        { id: 'chip_eb_open', label: 'فتح بطاقة هلخصهالك كاملة 📋', view: 'executive_brief' },
+      ],
+    };
+  };
+
+  const handleDisambiguationChoiceClick = async (choice: DisambiguationChoice) => {
+    if (isLoading) return;
+    playButtonClickSound();
+    const userChoiceMsg: ShamousaMessage = {
+      id: `u_${Date.now()}`,
+      role: 'user',
+      content: choice.label,
+    };
+    setMessages((prev) => [...prev, userChoiceMsg]);
+    setIsLoading(true);
+    try {
+      const responseMsg = await resolveDisambiguationIntent(choice.intentKey);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a_${Date.now()}`,
+          role: 'assistant',
+          ...responseMsg,
+        },
+      ]);
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `e_${Date.now()}`,
+          role: 'assistant',
+          content: `⚠️ ${err?.message || 'حصل خطأ بسيط، جربي تاني.'}`,
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const send = async (text: string) => {
     if (isRecordingVoice) {
       stopVoiceRecording();
@@ -895,18 +1308,40 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       inputRef.current.style.height = 'auto';
     }
 
-    const detectedChips = detectKeywordActionChips(message, isSupplierAccount);
-    const userMsg: ShamousaMessage = { 
-      id: `u_${Date.now()}`, 
-      role: 'user', 
+    // 0. فحص هل السؤال ملتبس/عام أو طلب مباشر لفرع من "هلخصهالك" (بدون صور مرفقة)
+    const preIntent = !currentAttachment
+      ? detectSummaryOrAmbiguousIntent(message, isSupplierAccount)
+      : null;
+
+    const userMsg: ShamousaMessage = {
+      id: `u_${Date.now()}`,
+      role: 'user',
       content: message || (currentAttachment ? `📸 [صورة مرفقة: ${currentAttachment.name}]` : ''),
-      actionChips: detectedChips.length > 0 ? detectedChips : undefined,
       attachmentPreview: currentAttachment ? currentAttachment.base64 : undefined,
     };
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
+
+    if (preIntent) {
+      try {
+        const directReply = await resolveDisambiguationIntent(preIntent);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_${Date.now()}`,
+            role: 'assistant',
+            ...directReply,
+          },
+        ]);
+        return;
+      } catch (err) {
+        console.warn('Disambiguation/Brief direct resolution fallback to AI:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
 
     try {
       let currentTreasury = 0;
@@ -929,11 +1364,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         currentTreasury = (safe.mainSafe || 0) + (safe.subSafe || 0);
       }
 
-      // جمع سياق الورشة الفعلي المباشر: الخامات الناقصة، أوامر التشغيل، والطلبيات
+      // جمع سياق الورشة الفعلي المباشر: الخامات الناقصة، أوامر التشغيل، الطلبيات، وملخص هلخصهالك
       let lowMaterialsList: string[] = [];
       let openWorkOrdersList: string[] = [];
       let pendingOrdersCount = 0;
       let supplierErpOverviewData: any = null;
+      let executiveBriefPayload: any = null;
 
       try {
         if (isSupplierAccount) {
@@ -942,11 +1378,34 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             currentTreasury = Number(supplierErpOverviewData.kpis.totalCashOnHand ?? currentTreasury);
           }
         } else {
-          const [mats, wOrders, ords] = await Promise.all([
+          const [mats, wOrders, ords, fullBrief] = await Promise.all([
             tenantStorage.getRawMaterials(workshopId).catch(() => []),
             tenantStorage.getWorkOrders(workshopId).catch(() => []),
             tenantStorage.getOrders(workshopId).catch(() => []),
+            buildArtisanExecutiveBrief(workshopId, profile.currencySymbol || 'ج.م').catch(() => null),
           ]);
+
+          if (fullBrief) {
+            executiveBriefPayload = {
+              cashTotal: fullBrief.financial.liquidity.cashTotal,
+              instapayBankTotal: fullBrief.financial.liquidity.instapayBankTotal,
+              walletsCustodyTotal: fullBrief.financial.liquidity.walletsCustodyTotal,
+              receivablesTotal: fullBrief.financial.receivablesTotal,
+              debtors: fullBrief.financial.debtors.slice(0, 8),
+              payablesTotal: fullBrief.financial.payablesTotal,
+              creditors: fullBrief.financial.creditors.slice(0, 8),
+              netWorkingPosition: fullBrief.financial.netWorkingPosition,
+              materialsTotalValue: fullBrief.warehouse.materialsTotalValue,
+              materialsCount: fullBrief.warehouse.materialsCount,
+              fastMovingMaterials: fullBrief.warehouse.fastMovingMaterials,
+              slowMovingMaterials: fullBrief.warehouse.slowMovingMaterials,
+              productsCount: fullBrief.warehouse.productsCount,
+              productsCostValue: fullBrief.warehouse.productsCostValue,
+              productsRetailValue: fullBrief.warehouse.productsRetailValue,
+              bestSellingProducts: fullBrief.warehouse.bestSellingProducts,
+              slowestProducts: fullBrief.warehouse.slowestProducts,
+            };
+          }
 
           const lowMats = (mats || []).filter(
             (m) => (Number(m.currentStock) || 0) <= (Number(m.minAlertThreshold) || 5)
@@ -995,6 +1454,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             openWorkOrdersCount: openWorkOrdersList.length,
             openWorkOrdersList,
             pendingOrdersCount,
+            ...(executiveBriefPayload ? { executiveBrief: executiveBriefPayload } : {}),
             ...(supplierErpOverviewData ? { supplierErpOverview: supplierErpOverviewData } : {}),
           },
         }),
@@ -1005,12 +1465,14 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
       if (typeof data.remaining === 'number') setRemaining(data.remaining);
 
-      const isInternalData = /خزن|خزينة|خزينه|سيول|سيولة|رصيد|عهدة|عهده|فلوس|خامات|مخزن|أوردر|اوردر|طلب|مبيعات|عميل|عملاء|مورد|موردين|موظف|عمال|دفاتر|حسابات|صفحتي|عيلة|شرائح/i.test(message + ' ' + (data.reply || ''));
+      const isInternalData = /هلخصهالك|خزن|خزينة|خزينه|سيول|سيولة|رصيد|عهدة|عهده|فلوس|خامات|مخزن|أوردر|اوردر|طلب|مبيعات|عميل|عملاء|مورد|موردين|موظف|عمال|دفاتر|حسابات|صفحتي|عيلة|شرائح/i.test(message + ' ' + (data.reply || ''));
       const isFalconExplicitlyRequested = /صقر|تحليل صوره|تحليل صورة|حلل الصورة|دراسة سوق|دراسة السوق|المنافسين/i.test(message);
       const shouldHandoff = !isInternalData && (Boolean(data.handoffToFalcon) || isFalconExplicitlyRequested);
 
-      const dynamicLink = data.actionLink || detectNavigationIntent(message, isSupplierAccount) || detectNavigationIntent(data.reply || '', isSupplierAccount);
-      const replyChips = detectKeywordActionChips(data.reply || message, isSupplierAccount);
+      const dynamicLink = data.actionLink || detectNavigationIntent(message, isSupplierAccount);
+      const replyChips = detectKeywordActionChips(message, isSupplierAccount).filter(
+        (c) => !dynamicLink || c.view !== dynamicLink.view
+      );
 
       setMessages((prev) => [
         ...prev,
@@ -1213,6 +1675,22 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                         </div>
                       )}
                     </Bubble>
+
+                    {/* أزرار التوضيح التفاعلية عند وجود استفسار غائم أو متشعب */}
+                    {m.disambiguationChoices && m.disambiguationChoices.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
+                        {m.disambiguationChoices.map((choice) => (
+                          <button
+                            key={choice.id}
+                            type="button"
+                            onClick={() => handleDisambiguationChoiceClick(choice)}
+                            className="inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1.5 rounded-xl bg-[#0C1427] hover:bg-[#EA580C] text-[#FBBF24] hover:text-white dark:bg-[#1A2B54] dark:hover:bg-[#EA580C] border border-[#EA580C]/60 transition shadow-xs cursor-pointer active:scale-95"
+                          >
+                            <span>{choice.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     {/* أزرار الإجراءات السريعة بالكلمات الدلالية */}
                     {m.actionChips && m.actionChips.length > 0 && (

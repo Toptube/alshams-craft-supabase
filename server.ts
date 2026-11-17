@@ -3164,7 +3164,7 @@ function enrichFamilyRecord(raw: any, dirMap: Map<string, any>) {
       authorRole: 'superadmin',
       authorName: 'كبير العيلة',
       brandName: '',
-      avatarUrl: raw.avatar_url || raw.avatarUrl || '/brand icon light.png',
+      avatarUrl: raw.avatar_url || raw.avatarUrl || '/brand_icon_light.png',
       medal: 'diamond',
       ratingStars: 5,
     };
@@ -3240,7 +3240,7 @@ async function resolveFamilyAuthorContext(req: AuthenticatedRequest, client: Sup
       email,
       authorName: 'كبير العيلة',
       brandName: '',
-      avatarUrl: '/brand icon light.png',
+      avatarUrl: '/brand_icon_light.png',
       medal: 'diamond',
       ratingStars: 5,
     };
@@ -5566,11 +5566,21 @@ app.post('/api/store/config', requireAuth, async (req: AuthenticatedRequest, res
     configs[targetWid] = { ...storeConfig, updatedAt: nowIso };
     savePersistentStoreConfigs(configs);
 
-    // Sync artisan story into member_profiles if provided
+    // Sync artisan story into member_profiles if provided (ignore generic default placeholder)
+    const DEFAULT_PLACEHOLDER_STORY =
+      'نصنع كل قطعة يدوياً بخامات مختارة بعناية ولمسات فنية فريدة تعكس روح الحرفة المصرية الأصيلة.';
     if (typeof storeConfig.artistStory === 'string') {
+      const incomingStory = storeConfig.artistStory.trim().slice(0, 1800);
       try {
         const existingMp = await buildResolvedMemberProfileForViewer(targetWid, 'owner', true);
         if (existingMp) {
+          const isPlaceholder = incomingStory === DEFAULT_PLACEHOLDER_STORY;
+          const nextStory =
+            isPlaceholder && existingMp.storyText && existingMp.storyText.trim()
+              ? existingMp.storyText
+              : isPlaceholder
+              ? ''
+              : incomingStory;
           await persistMemberProfileRow({
             member_id: existingMp.memberId,
             owner_uid: existingMp.ownerUid || req.user?.id || '',
@@ -5582,7 +5592,7 @@ app.post('/api/store/config', requireAuth, async (req: AuthenticatedRequest, res
             personal_avatar: existingMp.personalAvatar ?? null,
             brand_logo: existingMp.brandLogo ?? null,
             bio_headline: existingMp.bioHeadline || '',
-            story_text: storeConfig.artistStory.trim().slice(0, 1800),
+            story_text: nextStory,
             phone: existingMp.phone || '',
             country: existingMp.country || 'مصر',
             governorate: existingMp.governorate || '',
@@ -6015,7 +6025,7 @@ app.get('/family', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const pageTitle = `مجتمع عيلة الشمساوية | ملتقى فناني المشغولات اليدوية`;
     const pageDesc = `ملتقى فناني الشمساوية لتبادل الخبرات والملاحظات اليومية والنقاش المباشر تحت إشراف كبير العيلة.`;
-    const pageImage = '/brand icon light.png';
+    const pageImage = '/brand_icon_light.png';
 
     const indexPath = isProduction
       ? path.resolve(__dirname, 'dist/index.html')
@@ -6047,7 +6057,7 @@ app.get(['/market', '/marketplace'], async (req: Request, res: Response, next: N
   try {
     const pageTitle = `سوق الشمساوية المركزي | أرقى المشغولات اليدوية والديكورات الحرفية`;
     const pageDesc = `تسوق مباشرة من كبار فناني المشغولات اليدوية والمكرميات والكروشيه بضمان منظومة الشمساوية للفنون والأعمال اليدوية. عاين واستلم بالضمان وعربون 33% فقط.`;
-    const pageImage = '/brand icon light.png';
+    const pageImage = '/brand_icon_light.png';
 
     const indexPath = isProduction
       ? path.resolve(__dirname, 'dist/index.html')
@@ -6118,7 +6128,7 @@ app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: 
     const workshopName = ws?.brandName || ws?.artistName || cleanSlug.replace(/-/g, ' ');
     const pageTitle = `متجر ${workshopName} | منظومة الشمساوية`;
     const pageDesc = `تصفح أرقى المشغولات اليدوية والديكورات الحرفية بضمان منظومة الشمساوية للفنون والأعمال اليدوية.`;
-    const pageImage = ws?.logoUrl || '/brand icon light.png';
+    const pageImage = ws?.logoUrl || '/brand_icon_light.png';
 
     const indexPath = isProduction
       ? path.resolve(__dirname, 'dist/index.html')
@@ -6420,6 +6430,117 @@ app.put('/api/suppliers/store-config', requireAuth, async (req: AuthenticatedReq
         updated_at: nowIso,
       });
     }
+  } catch {}
+
+  return res.json({ success: true, supplier: updated });
+});
+
+app.put('/api/suppliers/profile', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const supplier = await resolveActiveSupplierForReq(req);
+  if (!supplier) return res.status(404).json({ error: 'حساب المورد غير موجود' });
+
+  const body = req.body || {};
+  const nowIso = new Date().toISOString();
+  const nextSlug = body.storeSlug
+    ? String(body.storeSlug).trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06FF-]+/g, '-')
+    : supplier.store_slug;
+  const nextLogoUrl = body.logoUrl !== undefined
+    ? (String(body.logoUrl || '').trim() || '/alshams_falcon_emblem.png')
+    : supplier.logo_url;
+
+  const updated = {
+    ...supplier,
+    brand_name: body.brandName !== undefined ? String(body.brandName).trim() : supplier.brand_name,
+    owner_name: body.ownerName !== undefined ? String(body.ownerName).trim() : supplier.owner_name,
+    gender: body.gender === 'female' ? 'female' : (body.gender === 'male' ? 'male' : supplier.gender),
+    phone: body.phone !== undefined ? String(body.phone).trim() : supplier.phone,
+    country: body.country !== undefined ? String(body.country).trim() : supplier.country,
+    governorate: body.governorate !== undefined ? String(body.governorate).trim() : supplier.governorate,
+    currency: body.currency !== undefined ? String(body.currency).trim() : supplier.currency,
+    currency_symbol: body.currencySymbol !== undefined ? String(body.currencySymbol).trim() : supplier.currency_symbol,
+    store_slug: nextSlug,
+    logo_url: nextLogoUrl,
+    business_types: Array.isArray(body.businessTypes) && body.businessTypes.length > 0
+      ? body.businessTypes
+      : supplier.business_types,
+    pricing_modes: Array.isArray(body.pricingModes) && body.pricingModes.length > 0
+      ? body.pricingModes
+      : supplier.pricing_modes,
+    supply_sections: Array.isArray(body.supplySections)
+      ? body.supplySections
+      : supplier.supply_sections,
+    supplied_materials: Array.isArray(body.suppliedMaterials)
+      ? body.suppliedMaterials
+      : supplier.supplied_materials,
+    store_config: {
+      ...(supplier.store_config || {}),
+      ...(body.socials && typeof body.socials === 'object'
+        ? {
+            instagramUrl: body.socials.instagram || '',
+            facebookUrl: body.socials.facebook || '',
+            whatsappNumber: body.phone !== undefined ? String(body.phone).trim() : (supplier.store_config?.whatsappNumber || supplier.phone || ''),
+          }
+        : {}),
+    },
+    updated_at: nowIso,
+  };
+
+  const list = readJsonArray(PLATFORM_SUPPLIERS_FILE);
+  const idx = list.findIndex((s: any) => s.id === supplier.id);
+  if (idx >= 0) list[idx] = updated;
+  else list.unshift(updated);
+  writeJsonData(PLATFORM_SUPPLIERS_FILE, list);
+
+  try {
+    const client = getDbClient(req);
+    await client
+      .from('platform_suppliers')
+      .update({
+        brand_name: updated.brand_name,
+        owner_name: updated.owner_name,
+        gender: updated.gender,
+        phone: updated.phone,
+        country: updated.country,
+        governorate: updated.governorate,
+        currency: updated.currency,
+        currency_symbol: updated.currency_symbol,
+        store_slug: updated.store_slug,
+        logo_url: updated.logo_url,
+        business_types: updated.business_types,
+        pricing_modes: updated.pricing_modes,
+        supply_sections: updated.supply_sections,
+        supplied_materials: updated.supplied_materials,
+        store_config: updated.store_config,
+        updated_at: nowIso,
+      })
+      .eq('id', supplier.id);
+  } catch {}
+
+  // Sync unified photo + identity into member_profiles
+  try {
+    const existingMp = await buildResolvedMemberProfileForViewer(supplier.id, 'owner', true);
+    const unifiedPhoto = nextLogoUrl && nextLogoUrl !== '/alshams_falcon_emblem.png' ? nextLogoUrl : (existingMp?.personalAvatar ?? null);
+    await persistMemberProfileRow({
+      member_id: supplier.id,
+      owner_uid: existingMp?.ownerUid || supplier.owner_uid || req.user?.id || '',
+      email: existingMp?.email || supplier.email || (req.userEmail || '').toLowerCase(),
+      account_role: 'supplier',
+      display_name: updated.owner_name || existingMp?.displayName || '',
+      brand_name: updated.brand_name || existingMp?.brandName || '',
+      family_nickname: existingMp?.familyNickname || updated.owner_name || '',
+      personal_avatar: unifiedPhoto,
+      brand_logo: unifiedPhoto,
+      bio_headline: existingMp?.bioHeadline || '',
+      story_text: existingMp?.storyText || updated.store_config?.description || '',
+      phone: updated.phone || '',
+      country: updated.country || 'مصر',
+      governorate: updated.governorate || '',
+      store_slug: updated.store_slug || '',
+      crafts_labels: updated.supply_sections || [],
+      showcase_posts: existingMp?.showcasePosts || [],
+      profile_visibility: normalizeMemberVisibility(existingMp?.visibility),
+      updated_at: nowIso,
+    });
   } catch {}
 
   return res.json({ success: true, supplier: updated });
@@ -7298,7 +7419,7 @@ async function resolveCanonicalMemberRecord(lookupIdOrEmail: string): Promise<{
       displayName: 'كبير العيلة — مؤسس ومدير منظومة الشمساوية',
       brandName: 'منظومة الشمساوية الحرفية',
       familyNickname: 'كبير العيلة',
-      brandLogo: '/brand icon light.png',
+      brandLogo: '/brand_icon_light.png',
       phone: '',
       country: 'مصر',
       governorate: '',
@@ -7446,6 +7567,7 @@ async function buildResolvedMemberProfileForViewer(
 
   if (!canonical && !mp) return null;
 
+  const unifiedPhoto = mp?.personalAvatar || canonical?.brandLogo || mp?.brandLogo || null;
   const base = {
     memberId: canonical?.memberId || mp.memberId,
     ownerUid: canonical?.ownerUid || mp?.ownerUid || '',
@@ -7454,8 +7576,8 @@ async function buildResolvedMemberProfileForViewer(
     displayName: mp?.displayName || canonical?.displayName || 'عضو الشمساوية',
     brandName: mp?.brandName || canonical?.brandName || '',
     familyNickname: mp?.familyNickname || canonical?.familyNickname || '',
-    personalAvatar: mp?.personalAvatar ?? null,
-    brandLogo: canonical?.brandLogo || mp?.brandLogo || null,
+    personalAvatar: unifiedPhoto,
+    brandLogo: unifiedPhoto,
     bioHeadline: mp?.bioHeadline || '',
     storyText: mp?.storyText !== undefined && mp?.storyText !== '' ? mp.storyText : (canonical?.legacyStory || ''),
     phone: mp?.phone || canonical?.phone || '',
@@ -7566,6 +7688,11 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
         ? normalizeMemberVisibility(body.visibility)
         : normalizeMemberVisibility(existingMp?.visibility);
 
+    const unifiedAvatar =
+      body.personalAvatar !== undefined
+        ? (body.personalAvatar || null)
+        : (existingMp?.personalAvatar || existingCanon?.brandLogo || existingMp?.brandLogo || null);
+
     const record = {
       member_id: memberId,
       owner_uid: existingCanon?.ownerUid || existingMp?.ownerUid || req.user?.id || '',
@@ -7578,11 +7705,8 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
       family_nickname: body.familyNickname !== undefined
         ? String(body.familyNickname).trim()
         : (existingMp?.familyNickname || existingCanon?.familyNickname || ''),
-      personal_avatar:
-        body.personalAvatar !== undefined
-          ? (body.personalAvatar || null)
-          : (existingMp?.personalAvatar ?? null),
-      brand_logo: existingCanon?.brandLogo || existingMp?.brandLogo || null,
+      personal_avatar: unifiedAvatar,
+      brand_logo: unifiedAvatar,
       bio_headline: body.bioHeadline !== undefined
         ? String(body.bioHeadline).trim().slice(0, 160)
         : (existingMp?.bioHeadline || ''),
@@ -7605,24 +7729,63 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
 
     await persistMemberProfileRow(record);
 
-    // Sync story back to storefront builder automatically (Single Source of Truth)
-    if (body.storyText !== undefined) {
-      if (record.account_role === 'supplier') {
-        const list = readJsonArray(PLATFORM_SUPPLIERS_FILE);
-        const idx = list.findIndex((s: any) => s.id === memberId);
-        if (idx >= 0) {
-          list[idx] = {
-            ...list[idx],
-            store_config: { ...(list[idx].store_config || {}), description: record.story_text },
-            updated_at: nowIso,
-          };
-          writeJsonData(PLATFORM_SUPPLIERS_FILE, list);
-        }
-      } else if (record.account_role === 'artisan') {
+    // Bi-directionally sync Photo, Bio/Story, Phone & Governorate to Supplier / Workshop Storefront & Settings
+    if (record.account_role === 'supplier') {
+      const list = readJsonArray(PLATFORM_SUPPLIERS_FILE);
+      const idx = list.findIndex((s: any) => s.id === memberId);
+      const existingSup = idx >= 0 ? list[idx] : null;
+      const nextStoreConfig = {
+        ...(existingSup?.store_config || {}),
+        ...(body.storyText !== undefined ? { description: record.story_text } : {}),
+        ...(body.bioHeadline !== undefined ? { tagline: record.bio_headline } : {}),
+      };
+      const nextSupLogo = body.personalAvatar !== undefined
+        ? (unifiedAvatar || '/alshams_falcon_emblem.png')
+        : existingSup?.logo_url;
+      if (idx >= 0) {
+        list[idx] = {
+          ...existingSup,
+          ...(body.personalAvatar !== undefined ? { logo_url: nextSupLogo } : {}),
+          ...(body.phone !== undefined ? { phone: record.phone } : {}),
+          ...(body.governorate !== undefined ? { governorate: record.governorate } : {}),
+          store_config: nextStoreConfig,
+          updated_at: nowIso,
+        };
+        writeJsonData(PLATFORM_SUPPLIERS_FILE, list);
+      }
+      try {
+        const supPatch: any = { store_config: nextStoreConfig, updated_at: nowIso };
+        if (body.personalAvatar !== undefined) supPatch.logo_url = nextSupLogo;
+        if (body.phone !== undefined) supPatch.phone = record.phone;
+        if (body.governorate !== undefined) supPatch.governorate = record.governorate;
+        await supabaseAdminClient.from('platform_suppliers').update(supPatch).eq('id', memberId);
+      } catch {}
+    } else if (record.account_role === 'artisan') {
+      if (body.storyText !== undefined) {
         const configs = loadPersistentStoreConfigs();
         configs[memberId] = { ...(configs[memberId] || {}), artistStory: record.story_text, updatedAt: nowIso };
         savePersistentStoreConfigs(configs);
       }
+      // Sync unified photo / contact back to workshops (local + Supabase)
+      try {
+        const wsList = loadPersistentWorkshops();
+        const wsIdx = wsList.findIndex((w: any) => w.id === memberId || w.workshopId === memberId);
+        if (wsIdx >= 0) {
+          wsList[wsIdx] = {
+            ...wsList[wsIdx],
+            ...(body.personalAvatar !== undefined ? { logo_data: unifiedAvatar || '', logoUrl: unifiedAvatar || '' } : {}),
+            ...(body.phone !== undefined ? { phone: record.phone, phone_number: record.phone } : {}),
+            updated_at: nowIso,
+          };
+          savePersistentWorkshops(wsList);
+        }
+        const wsPatch: any = {};
+        if (body.personalAvatar !== undefined) wsPatch.logo_data = unifiedAvatar || '';
+        if (body.phone !== undefined) wsPatch.phone = record.phone;
+        if (Object.keys(wsPatch).length > 0) {
+          await supabaseAdminClient.from('workshops').update(wsPatch).eq('id', memberId);
+        }
+      } catch {}
     }
 
     const updatedFull = await buildResolvedMemberProfileForViewer(memberId, 'owner', true);

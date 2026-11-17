@@ -428,7 +428,7 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
 
             <div className="md:col-span-2 p-3 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <label className="font-black">قصة الفنان ونبذة عن الورشة (تتزامن تلقائياً مع صفحتك الشخصية)</label>
+                <label className="font-black">قصة الفنان ونبذة عن الورشة</label>
                 <div className="flex items-center gap-2">
                   {onOpenPersonalProfile && (
                     <button

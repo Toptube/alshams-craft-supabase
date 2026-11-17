@@ -54,7 +54,9 @@ import {
   saveArtisanStoreConfigCloud,
   resolveProductOfferPricing,
   seedArtisanSocialDefaults,
+  DEFAULT_ARTISAN_STORY,
 } from '../../types/artisanStoreBuilder';
+import { fetchMemberPersonalProfile } from '../../db/memberProfileService';
 import { SUPPORTED_CURRENCIES, getCurrencyInfo, toEgpAmount } from '../../lib/currency';
 import {
   publishProductToMarketplace,
@@ -199,20 +201,31 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
           (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
         );
 
-        // Hydrate store config from server if available, else local cache
-        const localCfg = seedArtisanSocialDefaults(
+        // Hydrate store config from server if available, else local cache, and resolve live story from member_profiles
+        let workingCfg = seedArtisanSocialDefaults(
           getStoredArtisanStoreConfig(tenantId),
           profile.phoneNumber
         );
-        if (isMounted) setStoreConfig(localCfg);
+        if (isMounted) setStoreConfig(workingCfg);
         try {
-          const remoteStore = await fetchPublicStorefrontBySlug(artisanSlug || tenantId);
-          if (isMounted && remoteStore?.workshop?.storeConfig) {
-            const merged = saveStoredArtisanStoreConfig(
-              tenantId,
-              seedArtisanSocialDefaults(remoteStore.workshop.storeConfig, profile.phoneNumber)
-            );
-            setStoreConfig(merged);
+          const [remoteStore, mpRes] = await Promise.all([
+            fetchPublicStorefrontBySlug(artisanSlug || tenantId).catch(() => null),
+            fetchMemberPersonalProfile(tenantId, 'owner').catch(() => ({ success: false, profile: undefined })),
+          ]);
+          if (isMounted) {
+            if (remoteStore?.workshop?.storeConfig) {
+              workingCfg = seedArtisanSocialDefaults(
+                remoteStore.workshop.storeConfig,
+                profile.phoneNumber
+              );
+            }
+            const liveStory = (mpRes?.profile?.storyText || '').trim();
+            const currentStory = (workingCfg.artistStory || '').trim();
+            if (liveStory && (!currentStory || currentStory === DEFAULT_ARTISAN_STORY)) {
+              workingCfg = { ...workingCfg, artistStory: liveStory };
+            }
+            const savedMerged = saveStoredArtisanStoreConfig(tenantId, workingCfg);
+            setStoreConfig(savedMerged);
           }
         } catch {}
 
@@ -259,14 +272,26 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
     loadData();
     const handleRefresh = () => loadData();
+    const handleProfileSynced = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail && typeof detail.storyText === 'string' && detail.storyText.trim()) {
+        setStoreConfig((prev) => {
+          const updated = { ...prev, artistStory: detail.storyText.trim() };
+          saveStoredArtisanStoreConfig(tenantId, updated);
+          return updated;
+        });
+      }
+    };
     window.addEventListener('alshams:products-pulled', handleRefresh);
     window.addEventListener('alshams_products_changed', handleRefresh);
     window.addEventListener('alshams_new_order_received', handleRefresh);
+    window.addEventListener('alshams_profile_synced', handleProfileSynced);
     return () => {
       isMounted = false;
       window.removeEventListener('alshams:products-pulled', handleRefresh);
       window.removeEventListener('alshams_products_changed', handleRefresh);
       window.removeEventListener('alshams_new_order_received', handleRefresh);
+      window.removeEventListener('alshams_profile_synced', handleProfileSynced);
     };
   }, [isOpen, tenantId, initialOrderId, artisanSlug, profile.email, profile.phoneNumber]);
 

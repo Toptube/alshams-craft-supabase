@@ -33,6 +33,25 @@ export interface ShamousaContext {
     productsSummary?: any[];
     ordersSummary?: any[];
     supplierErpOverview?: any;
+    executiveBrief?: {
+      cashTotal?: number;
+      instapayBankTotal?: number;
+      walletsCustodyTotal?: number;
+      receivablesTotal?: number;
+      debtors?: Array<{ name: string; totalOwed: number; daysOverdue: number; isOverdue: boolean; phone?: string }>;
+      payablesTotal?: number;
+      creditors?: Array<{ name: string; totalOwed: number }>;
+      netWorkingPosition?: number;
+      materialsTotalValue?: number;
+      materialsCount?: number;
+      fastMovingMaterials?: Array<{ name: string; consumedQty: number; unit: string }>;
+      slowMovingMaterials?: Array<{ name: string; currentStock: number; unit: string }>;
+      productsCount?: number;
+      productsCostValue?: number;
+      productsRetailValue?: number;
+      bestSellingProducts?: Array<{ name: string; soldQty: number; soldRevenue: number }>;
+      slowestProducts?: Array<{ name: string; soldQty: number; currentStock: number }>;
+    };
   };
 }
 
@@ -459,6 +478,10 @@ function buildShamousaSystemPrompt(ctx: ShamousaContext, metrics: ShamousaLiveMe
 3. دليل شموسة التفاعلي وموسوعة الشمساوية الحية الشاملة (لكل شاشة وزر قديم وحديث):
    عندما يسألك ${firstName} "أجيب منين كذا؟"، "إزاي أسجل أوردر؟"، "فين زر كذا؟"، أو "إيه الجديد في المنظومة؟"، أرشديه فوراً وبدقة باسم الشاشة والزر المحدد:
    - 🏠 الرئيسية وأعلى القائمة الجانبية: في كل شاشة يوجد شريط علوي للرجوع والتراجع والعودة لـ [الرئيسية]، وفي أعلى القائمة الجانبية زرين بارزين: [🏠 الرئيسية] و [👤 صفحتي الشخصية].
+   - 📋 بطاقة [هلخصهالك] للورش والفنانين (executive_brief): بطاقة ذكية في الرئيسية والقائمة الجانبية تشرح وضع الورشة بالعامية المصرية الراقية بدون مصطلحات معقدة (بأسلوب المدير المالي ومدير المخزن):
+     • المدير المالي: معانا كام وفين (كاش / إنستاباي وبنك / محافظ وعُهد)، لينا كام بره وعند مين بالاسم (مع تنبيه وتحذير واضح لأي عميل عدّى ميعاد السداد بضرورة المطالبة وعدم التعامل آجل معه مجدداً حتى يسدد القديم)، وعلينا كام ولمين من الموردين.
+     • مدير المخزن: قيمة مخزن الخامات وأكثر الخامات سحباً مقابل الخامات قليلة السحب، وقيمة مخزن المنتجات وأكثر منتج ماشي معانا مقابل أقل منتج شغال.
+   - 🖼️ نظام الحماية والتراجع عن الصور (مهلة 8 ساعات + زر "لن أتراجع"): عند تغيير شعار البراند أو الصورة الشخصية أو أيقونات المنظومة، تُحفظ النسخة السابقة مؤقتاً لمدة 8 ساعات فقط للتراجع إذا غيّر العضو رأيه، وبعد 8 ساعات تُحذف تلقائياً، ويمكنه حذفها فوراً بزر [لن أتراجع (حذف القديم نهائياً)] لتخفيف المساحة.
    - 👤 صفحتي الشخصية ومعرض الـ 6 أعمال ومصفوفة الظهور: من أعلى القائمة الجانبية -> [صفحتي الشخصية]؛ يكتب فيها الفنان أو المورد قصته، يرفع حتى (6 صور مميزة) بضغط تلقائي خفيف، ويعاين صفحته بعين (الفنانين / الموردين / العملاء).
    - 👨‍👩‍👧‍👦 مجتمع عيلة الشمساوية (طبلية العيلة والشات): من الشاشة الرئيسية أو القائمة الجانبية -> [عيلة الشمساوية]؛ يشارك الفنانون والموردون المنشورات والشات الحي، والضغط على صورة أي عضو يفتح صفحته الشخصية فوراً.
    - 🚚 منظومة الموردين B2B وسوق موردين الشمساوية:
@@ -503,7 +526,40 @@ ${metrics.openWorkOrdersDesc ? `   - تفاصيل أوامر التشغيل ال
 4. المبيعات والطلبيات:
    - عدد الطلبيات المعلقة قيد التنفيذ: ${metrics.pendingOrdersCount} طلبية.` : ''}
 
-- عندما يسألك ${firstName} عن رصيد الخزنة، لينا بره كام، علينا كام، النواقص، الفروع، أو المبيعات: أجيبي فوراً بالأرقام الحقيقية أعلاه وباستخدام الأدوات المتصلة بحسابه فقط.
+${(() => {
+  const eb = ctx.clientContext?.executiveBrief;
+  if (!eb || isSupplierRole) return '';
+  const debtorsLines = Array.isArray(eb.debtors) && eb.debtors.length > 0
+    ? eb.debtors.slice(0, 6).map((d) =>
+        `  • ليك عند ${d.name}: ${Number(d.totalOwed).toLocaleString('ar-EG')} ج.م${d.isOverdue ? ` (⚠️ متأخر بـ ${d.daysOverdue} يوم — انصحه بالمطالبة وعدم البيع آجل له مجدداً حتى يصفي القديم)` : ''}`
+      ).join('\n')
+    : '  • لا توجد ديون عند العملاء حالياً.';
+  const creditorsLines = Array.isArray(eb.creditors) && eb.creditors.length > 0
+    ? eb.creditors.slice(0, 6).map((c) => `  • علينا لـ ${c.name}: ${Number(c.totalOwed).toLocaleString('ar-EG')} ج.م`).join('\n')
+    : '  • لا توجد مستحقات آجلة علينا للموردين حالياً.';
+  const fastMats = Array.isArray(eb.fastMovingMaterials) && eb.fastMovingMaterials.length > 0
+    ? eb.fastMovingMaterials.map((m) => `${m.name} (${m.consumedQty} ${m.unit})`).join('، ')
+    : 'لم تُسجل حركات صرف بعد';
+  const slowMats = Array.isArray(eb.slowMovingMaterials) && eb.slowMovingMaterials.length > 0
+    ? eb.slowMovingMaterials.map((m) => `${m.name} (متبقي ${m.currentStock} ${m.unit})`).join('، ')
+    : 'لا يوجد ركود واضح';
+  const bestProds = Array.isArray(eb.bestSellingProducts) && eb.bestSellingProducts.length > 0
+    ? eb.bestSellingProducts.map((p) => `${p.name} (مباع ${p.soldQty} قطعة)`).join('، ')
+    : 'لم تُسجل مبيعات بعد';
+  const slowProds = Array.isArray(eb.slowestProducts) && eb.slowestProducts.length > 0
+    ? eb.slowestProducts.map((p) => `${p.name} (مباع ${p.soldQty})`).join('، ')
+    : 'كل المنتجات تتحرك';
+  return `5. ملخص (هلخصهالك) الحي لوضع الورشة (بدون مصطلحات دائن/مدين — تحدثي دائماً بلغة صاحب المنشأة المصرية السلسة):
+   - توزيع السيولة: كاش ${Number(eb.cashTotal || 0).toLocaleString('ar-EG')} ج.م | إنستاباي وبنك ${Number(eb.instapayBankTotal || 0).toLocaleString('ar-EG')} ج.م | محافظ وعُهد ${Number(eb.walletsCustodyTotal || 0).toLocaleString('ar-EG')} ج.م.
+   - لينا كام بره (${Number(eb.receivablesTotal || 0).toLocaleString('ar-EG')} ج.م):
+${debtorsLines}
+   - علينا كام للموردين (${Number(eb.payablesTotal || 0).toLocaleString('ar-EG')} ج.م):
+${creditorsLines}
+   - مخزن الخامات (${eb.materialsCount || 0} صنف بقيمة ${Number(eb.materialsTotalValue || 0).toLocaleString('ar-EG')} ج.م): الأكثر سحباً [${fastMats}] | قليل السحب [${slowMats}].
+   - مخزن المنتجات (${eb.productsCount || 0} منتج بتكلفة ${Number(eb.productsCostValue || 0).toLocaleString('ar-EG')} وقيمة بيع ${Number(eb.productsRetailValue || 0).toLocaleString('ar-EG')} ج.م): الأكثر مبيعاً [${bestProds}] | الأقل حركة [${slowProds}].`;
+})()}
+
+- عندما يسألك ${firstName} عن الملخص، أو عن رصيد الخزنة، لينا بره كام، علينا كام، النواقص، إيه اللي شغال في المنتجات، الفروع، أو المبيعات: أجيبي فوراً بالأرقام الحقيقية أعلاه بلغة بسيطة وودودة وخالية من تعقيدات الدائن والمدين، ووضّحي للعملاء المتأخرين تحذير "عدم التعامل آجل تاني غير لما يصفّي القديم".
 لديكِ أدوات استعلام فعلية معزولة تماماً (search_treasuries, search_materials, search_orders, search_customers, search_suppliers, search_employees, workshop_overview) بالإضافة إلى محرك بحث جوجل الحي (googleSearch).`;
 }
 
