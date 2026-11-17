@@ -133,9 +133,6 @@ export default defineConfig(() => {
             if (id.includes('/@supabase/')) {
               return 'vendor-supabase';
             }
-            if (id.includes('/firebase/') || id.includes('/@firebase/')) {
-              return 'vendor-firebase';
-            }
             if (id.includes('/recharts/') || id.includes('/victory-')) {
               return 'vendor-charts';
             }

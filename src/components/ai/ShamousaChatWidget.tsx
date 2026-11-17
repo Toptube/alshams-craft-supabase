@@ -32,7 +32,7 @@ import { authedFetch } from '../../lib/apiClient';
 import type { UserProfile } from '../../types';
 import { DraggableShamosa } from './DraggableShamosa';
 import { tenantStorage } from '../../db/dexieDB';
-import { firestoreService } from '../../db/firestoreService';
+import { getWorkOrdersFromSupabase } from '../../db/workshopInvoicesCloud';
 import { playTaskDoneSound, playButtonClickSound, playSuccessSound } from '../../lib/sounds';
 import { dispatchArtisanNotification } from '../../lib/pushNotifications';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
@@ -732,7 +732,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       // 2. Open work orders
       const [dexieWo, fsWo] = await Promise.all([
         tenantStorage.getWorkOrders(workshopId).catch(() => []),
-        firestoreService.getWorkOrders(workshopId).catch(() => []),
+        getWorkOrdersFromSupabase(workshopId).catch(() => []),
       ]);
       const woMap = new Map<string, any>();
       for (const w of fsWo || []) woMap.set(w.id, w);

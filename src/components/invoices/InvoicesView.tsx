@@ -8,7 +8,17 @@ import {
   InvoicePaymentRecord,
   InvoiceReturnRecord,
 } from '../../types';
-import { firestoreService } from '../../db/firestoreService';
+import {
+  getInvoicesFromSupabase,
+  getWorkshopCustomersMerged,
+  saveWorkshopCustomerToSupabase,
+  getWorkshopFinishedProductsMerged,
+  getWorkshopTreasuriesMerged,
+  getNextInvoiceNumberFromSupabase,
+  saveInvoiceToSupabase,
+  recordInvoicePaymentInSupabase,
+  recordInvoiceReturnInSupabase,
+} from '../../db/workshopInvoicesCloud';
 import { tenantStorage } from '../../db/dexieDB';
 import {
   calculateInvoiceTotals,
@@ -116,10 +126,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setLoading(true);
     try {
       const [invList, custList, prodList, trList, rates] = await Promise.all([
-        firestoreService.getInvoices(workshop.id),
-        firestoreService.getCustomers(workshop.id),
-        firestoreService.getFinishedProducts(workshop.id),
-        firestoreService.getTreasuries(workshop.id),
+        getInvoicesFromSupabase(workshop.id),
+        getWorkshopCustomersMerged(workshop.id),
+        getWorkshopFinishedProductsMerged(workshop.id),
+        getWorkshopTreasuriesMerged(workshop.id),
         getOrInitExchangeRates(workshop.id),
       ]);
       setInvoices(invList);
@@ -243,12 +253,12 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           updatedAt: Date.now(),
           createdBy: workshop.email,
         };
-        await firestoreService.saveCustomer(workshop.id, newCust);
+        await saveWorkshopCustomerToSupabase(workshop.id, newCust);
       }
 
       const invoiceNumber = editingInvoiceId
         ? (invoices.find((i) => i.id === editingInvoiceId)?.invoiceNumber || 'INV-0001')
-        : await firestoreService.getNextInvoiceNumber(workshop.id);
+        : await getNextInvoiceNumberFromSupabase(workshop.id);
 
       const rate = invoiceCurrency === baseCurrency ? 1.0 : (Number(invoiceExchangeRate) || dailyRates[invoiceCurrency] || 1.0);
       const baseCurrencyAmount = invoiceCurrency === baseCurrency
@@ -287,26 +297,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         createdBy: workshop.email,
       };
 
-      await firestoreService.saveInvoice(workshop.id, invoiceRecord);
-      try {
-        const { supabase } = await import('../../lib/supabase');
-        await supabase.from('invoices').upsert({
-          id: invoiceRecord.id,
-          workshop_id: workshop.id,
-          invoice_number: invoiceRecord.invoiceNumber,
-          customer_id: invoiceRecord.customerId,
-          customer_name: invoiceRecord.customerName,
-          total_amount: invoiceRecord.totalAmount,
-          paid_amount: invoiceRecord.paidAmount,
-          remaining_amount: invoiceRecord.remainingAmount,
-          status: invoiceRecord.status,
-          items: invoiceRecord.items,
-          date: invoiceRecord.date,
-          notes: invoiceRecord.notes,
-          created_at: new Date(invoiceRecord.createdAt || Date.now()).toISOString(),
-          updated_at: new Date(invoiceRecord.updatedAt || Date.now()).toISOString(),
-        });
-      } catch {}
+      await saveInvoiceToSupabase(workshop.id, invoiceRecord);
       setNotice({ text: `تم حفظ الفاتورة #${invoiceNumber} بنجاح!` });
       setIsInvoiceModalOpen(false);
       await loadAllData();
@@ -341,7 +332,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         createdAt: Date.now(),
       };
 
-      await firestoreService.recordInvoicePayment(
+      await recordInvoicePaymentInSupabase(
         workshop.id,
         payingInvoice.id,
         payment,
@@ -387,7 +378,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         createdAt: Date.now(),
       };
 
-      await firestoreService.recordInvoiceReturn(
+      await recordInvoiceReturnInSupabase(
         workshop.id,
         returningInvoice.id,
         retRecord,

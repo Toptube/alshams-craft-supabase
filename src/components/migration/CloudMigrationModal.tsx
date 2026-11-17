@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { firestoreService } from '../../db/firestoreService';
+import { migrateDexieToSupabase } from '../../db/workshopInvoicesCloud';
 import {
   CloudUpload,
   X,
@@ -43,7 +43,7 @@ export const CloudMigrationModal: React.FC<CloudMigrationModalProps> = ({
     setStatusMessage('بدء قراءة قواعد البيانات المحلية...');
 
     try {
-      const res = await firestoreService.migrateFromDexie(
+      const res = await migrateDexieToSupabase(
         workshopId,
         userEmail,
         (percent, stepName) => {
@@ -100,7 +100,7 @@ export const CloudMigrationModal: React.FC<CloudMigrationModalProps> = ({
 
         {/* Info Box */}
         <div className="p-3.5 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 text-xs text-blue-900 dark:text-blue-200 leading-relaxed font-medium">
-          هذه الأداة تقوم بنقل كافة الأصناف والخامات والموردين والعملاء والطلبيات المسجلة سابقاً على هذا المتصفح إلى حساب ورشتك السحابي الآمن على Firebase في دفعات منظمة (400 سجل لكل دفعة) لضمان عدم فقدان أي بيانات سابقة.
+          هذه الأداة تقوم بنقل كافة الأصناف والخامات والموردين والعملاء والطلبيات المسجلة سابقاً على هذا المتصفح إلى حساب ورشتك السحابي الآمن على Supabase بشكل منظم لضمان عدم فقدان أي بيانات سابقة.
         </div>
 
         {/* Error */}

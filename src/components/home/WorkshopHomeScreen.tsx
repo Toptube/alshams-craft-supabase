@@ -3,7 +3,7 @@ import { UserProfile, ThemeMode, isUserAdmin } from '../../types';
 import { useFeatureFlags } from '../../types/featureFlags';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { tenantStorage } from '../../db/dexieDB';
-import { firestoreService } from '../../db/firestoreService';
+import { getWorkOrdersFromSupabase } from '../../db/workshopInvoicesCloud';
 import { playTaskDoneSound, playButtonClickSound } from '../../lib/sounds';
 import { useTranslation } from '../../lib/i18n';
 import { FalconMascotAvatar, ShamousaMascotAvatar } from '../brand/BrandAssets';
@@ -400,10 +400,10 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           setLoadingSummary(false);
         }
 
-        // 2. Refresh remote treasury & Firestore work orders in parallel with strict 2s timeout
+        // 2. Refresh remote treasury & Supabase work orders in parallel with strict 2s timeout
         const [treasuryRes, fsWo] = await Promise.all([
           withTimeout(getTreasuryBalancesFromSupabase(workshopId), 2000, { data: null as any, error: null }),
-          withTimeout(firestoreService.getWorkOrders(workshopId), 2000, [] as any[]),
+          withTimeout(getWorkOrdersFromSupabase(workshopId), 2000, [] as any[]),
         ]);
 
         if (isMounted) {
