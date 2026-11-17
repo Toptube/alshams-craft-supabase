@@ -15,6 +15,7 @@ import {
   SupplierVendor,
 } from '../../types/supplierErp';
 import {
+  confirmStockTransferReceipt,
   createErpPurchaseInvoice,
   deleteErpCategory,
   fetchBranchInventory,
@@ -22,6 +23,7 @@ import {
   fetchErpPurchases,
   fetchErpVendors,
   fetchItemHistoryCard,
+  fetchPendingStockTransfers,
   fetchSupplierErpOverview,
   saveErpCategory,
   saveErpVendor,
@@ -32,6 +34,8 @@ import { playErrorSound, playSuccessSound } from '../../lib/sounds';
 import {
   ArrowLeftRight,
   ArrowRight,
+  CheckCircle2,
+  Clock,
   Factory,
   History,
   Layers,
@@ -91,12 +95,15 @@ export const SupplierBranchesWarehouseView: React.FC<SupplierBranchesWarehouseVi
   const [catName, setCatName] = useState('');
   const [catParentId, setCatParentId] = useState('');
 
-  // Stock Transfer Form
+  // Stock Transfer Form & Pending 2-Step Transfers
   const [fromBranchId, setFromBranchId] = useState('');
   const [toBranchId, setToBranchId] = useState('');
   const [transferItemId, setTransferItemId] = useState('');
   const [transferQty, setTransferQty] = useState(1);
   const [transferNotes, setTransferNotes] = useState('');
+  const [requireConfirmation, setRequireConfirmation] = useState(true);
+  const [pendingTransfers, setPendingTransfers] = useState<SupplierStockMovement[]>([]);
+  const [confirmingTransferId, setConfirmingTransferId] = useState<string | null>(null);
 
   // Item History Card Modal (كارت الصنف)
   const [cardItem, setCardItem] = useState<SupplierBranchInventoryItem | null>(null);
@@ -126,12 +133,13 @@ export const SupplierBranchesWarehouseView: React.FC<SupplierBranchesWarehouseVi
 
   const loadAll = async () => {
     setLoading(true);
-    const [ov, cats, inv, vends, purs] = await Promise.all([
+    const [ov, cats, inv, vends, purs, pendTr] = await Promise.all([
       fetchSupplierErpOverview(),
       fetchErpCategories(),
       fetchBranchInventory(lockedBranchId || (selectedBranchId !== 'all' ? selectedBranchId : undefined)),
       fetchErpVendors(),
       fetchErpPurchases(),
+      fetchPendingStockTransfers(),
     ]);
     const allBr = ov?.branches || [];
     setBranches(allBr);
@@ -139,6 +147,7 @@ export const SupplierBranchesWarehouseView: React.FC<SupplierBranchesWarehouseVi
     setInventory(inv);
     setVendors(vends);
     setPurchases(purs);
+    setPendingTransfers(pendTr);
 
     if (allBr.length > 0) {
       const cw = allBr.find((b) => b.branchType === 'central_warehouse') || allBr[0];
@@ -223,13 +232,34 @@ export const SupplierBranchesWarehouseView: React.FC<SupplierBranchesWarehouseVi
       itemId: transferItemId,
       quantity: transferQty,
       notes: transferNotes,
+      requireConfirmation,
     });
     if (res.success) {
       setTransferNotes('');
       await loadAll();
-      showMsg(`تم التحويل بنجاح برقم مستند ${res.referenceNo} وتحديث كارت الصنف.`);
+      if (res.pendingConfirmation) {
+        showMsg(`تم تسجيل طلب الشحن #${res.referenceNo} وخصم الكمية من المُرسِل — بانتظار تأكيد الاستلام في الفرع المستلِم.`);
+      } else {
+        showMsg(`تم التحويل الفوري بنجاح برقم مستند ${res.referenceNo} وتحديث كارت الصنف.`);
+      }
     } else {
       showMsg(res.error || 'تعذر التحويل بين المخازن', true);
+    }
+  };
+
+  const handleConfirmPendingTransfer = async (movementId: string, action: 'confirm' | 'reject') => {
+    setConfirmingTransferId(movementId);
+    const res = await confirmStockTransferReceipt(movementId, action === 'confirm');
+    setConfirmingTransferId(null);
+    if (res.success) {
+      await loadAll();
+      showMsg(
+        action === 'confirm'
+          ? 'تم تأكيد استلام البضاعة وإضافتها لرصيد المخزن المستلِم وتحديث كارت الصنف ✓'
+          : 'تم رفض الاستلام وإرجاع الكمية للمخزن المُرسِل ↩️'
+      );
+    } else {
+      showMsg(res.error || 'تعذر تنفيذ العملية على التحويل', true);
     }
   };
 
@@ -365,7 +395,14 @@ export const SupplierBranchesWarehouseView: React.FC<SupplierBranchesWarehouseVi
         {(
           [
             { id: 'stock', label: 'الجرد والرصيد وكارت الصنف', icon: Warehouse },
-            { id: 'transfers', label: 'التحويل بين المخازن والفروع', icon: ArrowLeftRight },
+            {
+              id: 'transfers',
+              label:
+                pendingTransfers.length > 0
+                  ? `التحويل بين المخازن (${pendingTransfers.length} معلق)`
+                  : 'التحويل بين المخازن والفروع',
+              icon: ArrowLeftRight,
+            },
             { id: 'categories', label: 'التصنيفات الرئيسية والفرعية', icon: Layers },
             ...(isKioskLocked ? [] : [{ id: 'vendors', label: 'المصانع وفواتير الشراء (علينا كام)', icon: Factory }]),
           ] as const
@@ -479,87 +516,191 @@ export const SupplierBranchesWarehouseView: React.FC<SupplierBranchesWarehouseVi
         </div>
       )}
 
-      {/* TAB 2: Stock Transfers */}
+      {/* TAB 2: Stock Transfers (Two-Step Approval + Pending Receipts) */}
       {tab === 'transfers' && (
-        <form
-          onSubmit={handleTransfer}
-          className="max-w-2xl rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-5 space-y-3"
-        >
-          <h2 className="text-sm font-black">تحويل بضاعة من المخزن المركزي أو فرع ← إلى فرع آخر</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div>
-              <label className="block font-bold mb-1">من مخزن / فرع (المُرسِل)</label>
-              <select
-                value={fromBranchId}
-                onChange={(e) => setFromBranchId(e.target.value)}
-                className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-              >
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-bold mb-1">إلى فرع / مخزن (المُستلِم)</label>
-              <select
-                value={toBranchId}
-                onChange={(e) => setToBranchId(e.target.value)}
-                className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-              >
-                {branches.filter((b) => b.id !== fromBranchId).map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div className="sm:col-span-2">
-              <label className="block font-bold mb-1">الصنف (بوحدة البيع)</label>
-              <select
-                required
-                value={transferItemId}
-                onChange={(e) => setTransferItemId(e.target.value)}
-                className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-              >
-                <option value="">اختر الصنف...</option>
-                {sourceBranchItems.map((it) => (
-                  <option key={it.id} value={it.itemId}>
-                    {it.itemName} ({it.skuCode}) — متاح {it.quantity} {it.saleUnit}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-bold mb-1">الكمية المحولة</label>
-              <input
-                type="number"
-                step="0.001"
-                min="0.001"
-                required
-                value={transferQty}
-                onChange={(e) => setTransferQty(Number(e.target.value || 0))}
-                className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black"
-              />
-            </div>
-          </div>
-
-          <input
-            type="text"
-            value={transferNotes}
-            onChange={(e) => setTransferNotes(e.target.value)}
-            placeholder="ملاحظات التحويل (اختياري)"
-            className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
-          />
-
-          <button
-            type="submit"
-            disabled={!transferItemId || !toBranchId}
-            className="px-5 py-2.5 rounded-xl bg-[#EA580C] text-white text-xs font-black cursor-pointer disabled:opacity-45"
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+          <form
+            onSubmit={handleTransfer}
+            className="lg:col-span-6 rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-5 space-y-3"
           >
-            اعتماد التحويل وترحيل الأرصدة
-          </button>
-        </form>
+            <h2 className="text-sm font-black">تحويل بضاعة من المخزن المركزي أو فرع ← إلى فرع آخر</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block font-bold mb-1">من مخزن / فرع (المُرسِل)</label>
+                <select
+                  value={fromBranchId}
+                  onChange={(e) => setFromBranchId(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                >
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold mb-1">إلى فرع / مخزن (المُستلِم)</label>
+                <select
+                  value={toBranchId}
+                  onChange={(e) => setToBranchId(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                >
+                  {branches.filter((b) => b.id !== fromBranchId).map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="sm:col-span-2">
+                <label className="block font-bold mb-1">الصنف (بوحدة البيع)</label>
+                <select
+                  required
+                  value={transferItemId}
+                  onChange={(e) => setTransferItemId(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                >
+                  <option value="">اختر الصنف...</option>
+                  {sourceBranchItems.map((it) => (
+                    <option key={it.id} value={it.itemId}>
+                      {it.itemName} ({it.skuCode}) — متاح {it.quantity} {it.saleUnit}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold mb-1">الكمية المحولة</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0.001"
+                  required
+                  value={transferQty}
+                  onChange={(e) => setTransferQty(Number(e.target.value || 0))}
+                  className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black"
+                />
+              </div>
+            </div>
+
+            <input
+              type="text"
+              value={transferNotes}
+              onChange={(e) => setTransferNotes(e.target.value)}
+              placeholder="ملاحظات التحويل (اختياري)"
+              className="w-full h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+            />
+
+            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-[#EFE9DC]/90 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] cursor-pointer text-xs">
+              <input
+                type="checkbox"
+                checked={requireConfirmation}
+                onChange={(e) => setRequireConfirmation(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-[#EA580C]"
+              />
+              <div>
+                <span className="font-black block text-[#0C1427] dark:text-[#F7F3EA]">
+                  نظام الاستلام على مرحلتين (شحن ⇠ تأكيد استلام)
+                </span>
+                <span className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                  يُخصم الصنف فوراً من المخزن المُرسِل ولا يدخل رصيد الفرع المستلِم إلا بعد ضغط «تأكيد الاستلام» عند وصول الشحنة فعلياً.
+                </span>
+              </div>
+            </label>
+
+            <button
+              type="submit"
+              disabled={!transferItemId || !toBranchId}
+              className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black cursor-pointer disabled:opacity-45"
+            >
+              {requireConfirmation ? 'إصدار إذن شحن (بانتظار الاستلام)' : 'تحويل وترحيل فوري للأرصدة'}
+            </button>
+          </form>
+
+          {/* Pending Incoming Stock Transfers Queue */}
+          <div className="lg:col-span-6 rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-black flex items-center gap-2">
+                <Clock className="w-4 h-4 text-[#EA580C]" />
+                <span>شحنات في الطريق وبانتظار تأكيد الاستلام ({pendingTransfers.length})</span>
+              </h2>
+            </div>
+
+            {pendingTransfers.length === 0 ? (
+              <div className="rounded-xl bg-[#EFE9DC]/70 dark:bg-[#132040]/70 border border-dashed border-[#D4CCBC] dark:border-[#22355E] p-6 text-center text-xs text-[#475569] dark:text-[#94A3B8]">
+                لا توجد تحويلات بضاعة معلقة حالياً — جميع الشحنات تم استلامها ومطابقتها.
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-[420px] overflow-y-auto">
+                {pendingTransfers.map((tr) => {
+                  const fromName = branches.find((b) => b.id === tr.branchId)?.name || 'مخزن مرسل';
+                  const toName = branches.find((b) => b.id === tr.toBranchId)?.name || 'فرع مستلم';
+                  const qtyAbs = Math.abs(Number(tr.qtyDelta || 0));
+                  const canActOnDest = !isKioskLocked || !lockedBranchId || tr.toBranchId === lockedBranchId;
+                  return (
+                    <div
+                      key={tr.id}
+                      className="rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#EA580C]/40 p-3.5 space-y-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                            {tr.itemName}{' '}
+                            <span className="font-mono text-[10px] text-[#C2410C] dark:text-amber-300">
+                              ({tr.skuCode})
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[#475569] dark:text-[#94A3B8] mt-0.5">
+                            من: <strong className="text-[#0C1427] dark:text-white">{fromName}</strong> ⇠ إلى:{' '}
+                            <strong className="text-[#EA580C] dark:text-amber-300">{toName}</strong>
+                          </div>
+                          <div className="text-[10px] font-mono text-[#475569] dark:text-[#94A3B8] mt-0.5">
+                            مستند: {tr.referenceNo} · بواسطة {tr.actorName}
+                          </div>
+                        </div>
+
+                        <div className="px-2.5 py-1 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono tabular-nums text-xs font-black text-emerald-700 dark:text-emerald-300 shrink-0">
+                          {qtyAbs} {tr.unitLabel}
+                        </div>
+                      </div>
+
+                      {tr.notes && (
+                        <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1] bg-[#F7F3EA]/70 dark:bg-[#0D162E]/70 px-2.5 py-1.5 rounded-lg">
+                          {tr.notes}
+                        </p>
+                      )}
+
+                      {canActOnDest ? (
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={confirmingTransferId === tr.id}
+                            onClick={() => handleConfirmPendingTransfer(tr.id, 'confirm')}
+                            className="flex-1 min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>تأكيد الاستلام بالمخزن</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={confirmingTransferId === tr.id}
+                            onClick={() => handleConfirmPendingTransfer(tr.id, 'reject')}
+                            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 border border-rose-500/40 text-rose-700 dark:text-rose-300 text-xs font-black cursor-pointer disabled:opacity-50"
+                          >
+                            رفض وإرجاع
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                          بانتظار تأكيد الاستلام من مسؤول فرع ({toName}).
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* TAB 3: Main & Sub Categories */}

@@ -222,12 +222,38 @@ export async function transferWarehouseStock(payload: {
   itemId: string;
   quantity: number;
   notes?: string;
-}): Promise<{ success: boolean; referenceNo?: string; error?: string }> {
+  requireConfirmation?: boolean;
+}): Promise<{ success: boolean; pendingConfirmation?: boolean; referenceNo?: string; error?: string }> {
   const headers = await erpHeaders({ 'Content-Type': 'application/json' });
   const res = await fetch('/api/supplier/erp/transfer', {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
+  });
+  return res.json().catch(() => ({ success: false }));
+}
+
+export async function fetchPendingStockTransfers(): Promise<SupplierStockMovement[]> {
+  try {
+    const headers = await erpHeaders();
+    const res = await fetch('/api/supplier/erp/transfers/pending', { headers });
+    if (res.ok) {
+      const json = await res.json();
+      return Array.isArray(json?.transfers) ? json.transfers : [];
+    }
+  } catch {}
+  return [];
+}
+
+export async function confirmStockTransferReceipt(
+  movementId: string,
+  approve: boolean
+): Promise<{ success: boolean; approved?: boolean; error?: string }> {
+  const headers = await erpHeaders({ 'Content-Type': 'application/json' });
+  const res = await fetch(`/api/supplier/erp/transfer/${encodeURIComponent(movementId)}/confirm`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ approve }),
   });
   return res.json().catch(() => ({ success: false }));
 }

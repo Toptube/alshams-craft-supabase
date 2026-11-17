@@ -3,6 +3,15 @@ import {
   getTreasuryBalancesFromSupabase,
   getTreasuryChannelBalancesFromSupabase,
 } from '../db/supabaseService';
+import {
+  fetchSupplierErpOverview,
+  fetchBranchInventory,
+  fetchErpVendors,
+} from '../db/supplierErpService';
+import {
+  fetchSupplierCustomers,
+  fetchSupplierFinance,
+} from '../db/supplierService';
 
 export interface TreasuryChannelSummary {
   cashTotal: number;
@@ -656,3 +665,248 @@ export async function buildArtisanExecutiveBrief(
     },
   };
 }
+
+export function buildPoliteCollectionWhatsAppUrl(
+  phone: string | undefined,
+  clientName: string,
+  amount: number,
+  currencySymbol: string,
+  brandName: string,
+  daysOverdue = 0
+): string {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  const intlPhone = digits.startsWith('0') ? `20${digits.slice(1)}` : digits;
+  const formattedAmt = Math.round(amount || 0).toLocaleString('ar-EG');
+  const greeting = daysOverdue > 0
+    ? `أهلاً بحضرتك يا أ/ ${clientName}، كل التحية والتقدير من ${brandName || 'منظومة الشمساوية'} 🌿.\nنذكّركم بكل ود بأن هناك رصيد مستحق بقيمة ${formattedAmt} ${currencySymbol} (متأخر منذ ${daysOverdue} يوم) وبنسعد جداً بسداده أو تأكيد ميعاد التحصيل المناسب لحضرتك. شاكرين جداً لتعاونك وذوقك!`
+    : `أهلاً بحضرتك يا أ/ ${clientName}، كل التحية والتقدير من ${brandName || 'منظومة الشمساوية'} 🌿.\nحابين نطمئن على شغلكم ونذكّركم بكل ود أن رصيد الحساب المتبقي حالياً هو ${formattedAmt} ${currencySymbol}. لو تحب تحدد ميعاد السداد المناسب لحضرتك بنشرف دايماً بالتعامل معاك!`;
+  return `https://wa.me/${intlPhone}?text=${encodeURIComponent(greeting)}`;
+}
+
+export interface SupplierExecutiveBrief {
+  generatedAt: number;
+  currencySymbol: string;
+  brandName: string;
+  financial: {
+    ownerMainTreasuryTotal: number;
+    branchesPendingTreasuryTotal: number;
+    totalCashOnHand: number;
+    legacyTreasuryTotal: number;
+    cashChannelTotal: number;
+    instapayChannelTotal: number;
+    walletChannelTotal: number;
+    pendingTransfersCount: number;
+    receivablesTotal: number;
+    debtors: DebtorSummaryItem[];
+    payablesTotal: number;
+    creditors: CreditorSummaryItem[];
+    netWorkingPosition: number;
+    todayPosSales: number;
+    todayPosOrdersCount: number;
+    branchesSummary: Array<{
+      branchId: string;
+      branchName: string;
+      branchType: string;
+      cash: number;
+      instapay: number;
+      wallet: number;
+      total: number;
+    }>;
+  };
+  warehouse: {
+    branchesCount: number;
+    itemsCount: number;
+    totalStockValuation: number;
+    lowStockItems: Array<{
+      id: string;
+      skuCode: string;
+      name: string;
+      branchName: string;
+      quantity: number;
+      minAlert: number;
+      saleUnit: string;
+      valuation: number;
+    }>;
+    highestValueItems: Array<{
+      id: string;
+      name: string;
+      branchName: string;
+      quantity: number;
+      saleUnit: string;
+      valuation: number;
+    }>;
+  };
+}
+
+export async function buildSupplierExecutiveBrief(
+  currencySymbol = 'ج.م',
+  brandName = 'متجر المورد'
+): Promise<SupplierExecutiveBrief> {
+  const [overview, customers, finance, inventory, vendors] = await Promise.all([
+    fetchSupplierErpOverview().catch(() => null),
+    fetchSupplierCustomers().catch(() => []),
+    fetchSupplierFinance().catch(() => ({ treasuries: [], transactions: [], expenses: [] })),
+    fetchBranchInventory().catch(() => []),
+    fetchErpVendors().catch(() => []),
+  ]);
+
+  const legacyTreasuryTotal = (finance.treasuries || []).reduce(
+    (sum, t) => sum + Number(t.balance || 0),
+    0
+  );
+
+  const branches = overview?.branches || [];
+  const branchTreasuries = overview?.branchTreasuries || [];
+
+  let cashChannelTotal = 0;
+  let instapayChannelTotal = 0;
+  let walletChannelTotal = 0;
+
+  const branchesSummary = branchTreasuries.map((bt) => {
+    const br = branches.find((b) => b.id === bt.branchId);
+    const cash = Number(bt.cashBalance || 0);
+    const instapay = Number(bt.instapayBalance || 0);
+    const wallet = Number(bt.walletBalance || 0);
+    cashChannelTotal += cash;
+    instapayChannelTotal += instapay;
+    walletChannelTotal += wallet;
+    return {
+      branchId: bt.branchId,
+      branchName: br?.name || 'فرع / خزينة',
+      branchType: br?.branchType || 'shop',
+      cash: Math.round(cash),
+      instapay: Math.round(instapay),
+      wallet: Math.round(wallet),
+      total: Math.round(cash + instapay + wallet),
+    };
+  });
+
+  // Fallback to legacy treasury channels if no ERP branch treasuries exist yet
+  if (branchTreasuries.length === 0 && (finance.treasuries || []).length > 0) {
+    for (const tr of finance.treasuries || []) {
+      const cls = classifyChannel(tr.name);
+      const bal = Number(tr.balance || 0);
+      if (cls === 'cash') cashChannelTotal += bal;
+      else if (cls === 'instapay_bank') instapayChannelTotal += bal;
+      else walletChannelTotal += bal;
+    }
+  }
+
+  const ownerMainTreasuryTotal = Math.round(
+    overview?.kpis?.ownerMainTreasuryTotal ?? legacyTreasuryTotal
+  );
+  const branchesPendingTreasuryTotal = Math.round(
+    overview?.kpis?.branchesPendingTreasuryTotal ?? 0
+  );
+  const totalCashOnHand = Math.round(
+    overview?.kpis?.totalCashOnHand ??
+      ownerMainTreasuryTotal + branchesPendingTreasuryTotal
+  );
+
+  // Debtors from supplier_customers & overview KPI
+  const debtors: DebtorSummaryItem[] = (customers || [])
+    .filter((c) => Number(c.balanceDue || 0) > 0.5)
+    .map((c) => ({
+      key: c.id,
+      name: c.name || 'ورشة / عميل',
+      phone: c.phone || undefined,
+      totalOwed: Math.round(Number(c.balanceDue || 0)),
+      invoicesCount: 1,
+      daysOverdue: 0,
+      isOverdue: Number(c.balanceDue || 0) >= 1000,
+      shouldWarnNoMoreCredit: false,
+      warningText:
+        Number(c.balanceDue || 0) >= 3000
+          ? 'مديونية عالية — يفضّل التحصيل أولاً قبل فتح طلبيات آجلة جديدة.'
+          : undefined,
+    }))
+    .sort((a, b) => b.totalOwed - a.totalOwed);
+
+  const receivablesTotal = Math.round(
+    Math.max(
+      Number(overview?.kpis?.receivablesFromCustomers || 0),
+      debtors.reduce((s, d) => s + d.totalOwed, 0)
+    )
+  );
+
+  // Creditors (vendors / factories)
+  const creditors: CreditorSummaryItem[] = (vendors || [])
+    .filter((v) => Number(v.balanceOwed || 0) > 0.5)
+    .map((v) => ({
+      key: v.id,
+      name: v.name,
+      phone: v.phone || undefined,
+      totalOwed: Math.round(Number(v.balanceOwed || 0)),
+      invoicesCount: 1,
+    }))
+    .sort((a, b) => b.totalOwed - a.totalOwed);
+
+  const payablesTotal = Math.round(
+    Math.max(
+      Number(overview?.kpis?.payablesToVendors || 0),
+      creditors.reduce((s, c) => s + c.totalOwed, 0)
+    )
+  );
+
+  const enrichedItems = (inventory || []).map((it) => {
+    const brName = branches.find((b) => b.id === it.branchId)?.name || 'المخزن الرئيسي';
+    const val = Math.round(Number(it.quantity || 0) * Number(it.avgCost || 0));
+    return {
+      id: it.id,
+      skuCode: it.skuCode || '',
+      name: it.itemName,
+      branchName: brName,
+      quantity: Number(it.quantity || 0),
+      minAlert: Number(it.minAlert || 5),
+      saleUnit: it.saleUnit || 'وحدة',
+      valuation: val,
+    };
+  });
+
+  const lowStockItems = enrichedItems
+    .filter((i) => i.quantity <= i.minAlert)
+    .sort((a, b) => a.quantity - b.quantity)
+    .slice(0, 6);
+
+  const highestValueItems = [...enrichedItems]
+    .sort((a, b) => b.valuation - a.valuation)
+    .slice(0, 6);
+
+  const computedValuation = enrichedItems.reduce((s, i) => s + i.valuation, 0);
+  const totalStockValuation = Math.round(
+    Number(overview?.kpis?.totalStockValuation || 0) || computedValuation
+  );
+
+  return {
+    generatedAt: Date.now(),
+    currencySymbol,
+    brandName: overview?.brandName || brandName,
+    financial: {
+      ownerMainTreasuryTotal,
+      branchesPendingTreasuryTotal,
+      totalCashOnHand,
+      legacyTreasuryTotal: Math.round(legacyTreasuryTotal),
+      cashChannelTotal: Math.round(cashChannelTotal),
+      instapayChannelTotal: Math.round(instapayChannelTotal),
+      walletChannelTotal: Math.round(walletChannelTotal),
+      pendingTransfersCount: overview?.pendingTransfers?.length || 0,
+      receivablesTotal,
+      debtors,
+      payablesTotal,
+      creditors,
+      netWorkingPosition: Math.round(totalCashOnHand + receivablesTotal - payablesTotal),
+      todayPosSales: Math.round(overview?.kpis?.todayPosSales || 0),
+      todayPosOrdersCount: Number(overview?.kpis?.todayPosOrdersCount || 0),
+      branchesSummary,
+    },
+    warehouse: {
+      branchesCount: branches.length || 1,
+      itemsCount: enrichedItems.length,
+      totalStockValuation,
+      lowStockItems,
+      highestValueItems,
+    },
+  };
+}
+

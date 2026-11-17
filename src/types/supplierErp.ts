@@ -57,6 +57,8 @@ export type StockMovementType =
   | 'purchase_in'
   | 'transfer_out'
   | 'transfer_in'
+  | 'transfer_pending'
+  | 'transfer_rejected'
   | 'pos_sale'
   | 'b2b_sale'
   | 'adjustment';

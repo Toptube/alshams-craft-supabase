@@ -11,36 +11,15 @@ import {
   Settings,
   Eye,
   MessageSquare,
-  ShoppingBag,
-  Globe,
   Home,
-  Calculator,
-  Hammer,
-  Boxes,
-  Receipt,
-  Truck,
-  FolderArchive,
-  Store,
-  ShoppingCart,
-  FileText,
   Users,
-  Wallet,
-  Scale,
-  Coins,
-  Building,
-  BarChart3,
-  ArrowLeftRight,
-  Users2,
   Sparkles,
   RefreshCw,
-  Package,
   User,
-  GitBranch,
-  MonitorSmartphone,
-  Warehouse,
 } from 'lucide-react';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { useFeatureFlags } from '../../types/featureFlags';
+import { getUiIcon, useUiLayoutConfig } from '../../types/uiLayoutConfig';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -102,173 +81,87 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onLogout,
 }) => {
   const flags = useFeatureFlags();
+  const uiLayout = useUiLayoutConfig();
   const isAdmin = isUserAdmin(profile);
   const isSupplier = (profile as any)?.accountRole === 'supplier';
+  const sidebarLayout = isSupplier ? uiLayout.supplier.sidebar : uiLayout.artisan.sidebar;
 
   const navGroups: NavGroup[] = useMemo(() => {
-    if (isSupplier) {
-      const showErp = isAdmin || flags.supplierErpEnabled !== false;
-      const supplierGroups: NavGroup[] = [
-        ...(showErp
-          ? [
-              {
-                key: 'hr' as SectionKey,
-                code: 'POS',
-                titleAr: 'الفروع والكاشير والمخازن (ERP)',
-                items: [
-                  { id: 'supplier_erp_hub', label: 'مركز قيادة الفروع والخزينة', icon: GitBranch },
-                  { id: 'supplier_pos', label: 'كاشير نقاط البيع (POS)', icon: ShoppingCart },
-                  { id: 'supplier_warehouse_erp', label: 'المخازن وكارت الصنف والمصانع', icon: Warehouse },
-                  { id: 'supplier_hr_terminal', label: 'شؤون العاملين وتثبيت الأجهزة', icon: MonitorSmartphone },
-                ],
-              },
-            ]
-          : []),
-        {
-          key: 'erp',
-          code: 'B2B',
-          titleAr: 'كتالوج الخامات والمخزون',
-          items: [
-            { id: 'supplier_catalog', label: 'كتالوج الخامات والأسعار', icon: Boxes },
-            { id: 'supplier_orders', label: 'أوردراتي وطلبات التوريد', icon: Package },
-          ],
-        },
-        {
-          key: 'crm',
-          code: 'CRM',
-          titleAr: 'المتجر والعملاء والسوق',
-          items: [
-            {
-              id: 'supplier_store',
-              label: 'لوحة تحكم متجر المورد',
-              icon: Store,
-              action: () => {
-                if (onOpenArtisanStore) onOpenArtisanStore('products');
-                else onSelectView('supplier_store');
-              },
-            },
-            { id: 'suppliers_market', label: 'موردين الشمساوية (السوق العام)', icon: ShoppingBag },
-            { id: 'supplier_customers', label: 'عملائي (الورش والأفراد)', icon: Users },
-          ],
-        },
-        {
-          key: 'fca',
-          code: 'FCA',
-          titleAr: 'الخزينة والمصروفات',
-          items: [{ id: 'supplier_finance', label: 'الخزائن والمصروفات والتدفقات', icon: Wallet }],
-        },
-      ];
-      return supplierGroups;
-    }
+    const resolveAction = (id: string): (() => void) | undefined => {
+      if (id === 'supplier_store') {
+        return () => {
+          if (onOpenArtisanStore) onOpenArtisanStore('products');
+          else onSelectView('supplier_store');
+        };
+      }
+      if (id === 'catalog') {
+        return () => {
+          if (onNavigateToCatalog) onNavigateToCatalog('catalog');
+          else onSelectView('catalog');
+        };
+      }
+      if (id === 'store') {
+        return () => {
+          if (onOpenArtisanStore) onOpenArtisanStore('products');
+          else if (onNavigateToCatalog) onNavigateToCatalog('store');
+          else onSelectView('store');
+        };
+      }
+      if (id === 'my_orders') {
+        return () => {
+          if (onOpenArtisanStore) onOpenArtisanStore('orders');
+          else onSelectView('my_orders');
+        };
+      }
+      return undefined;
+    };
 
-    const baseGroups: NavGroup[] = [
-      {
-        key: 'erp',
-        code: 'ERP',
-        titleAr: 'الإنتاج والمخازن',
-        items: [
-          { id: 'calculator', label: 'حاسبة التكاليف والتسعير', icon: Calculator },
-          { id: 'work_orders', label: 'أوامر الشغل والتصنيع', icon: Hammer },
-          { id: 'materials', label: 'الخامات والمخزون', icon: Boxes },
-          { id: 'purchases', label: 'فواتير المشتريات', icon: Receipt },
-          { id: 'suppliers', label: 'مورديني', icon: Truck },
-          { id: 'suppliers_market', label: 'سوق موردين الشمساوية', icon: ShoppingBag },
-          { id: 'archive', label: 'أرشيف المنتجات', icon: FolderArchive },
-        ],
-      },
-      {
-        key: 'crm',
-        code: 'CRM',
-        titleAr: 'العملاء والمتجر والسوق',
-        items: [
-          {
-            id: 'catalog',
-            label: 'منصتي والكتالوج',
-            icon: Globe,
-            action: () => {
-              if (onNavigateToCatalog) {
-                onNavigateToCatalog('catalog');
-              } else {
-                onSelectView('catalog');
-              }
-            },
-          },
-          {
-            id: 'store',
-            label: 'لوحة التحكم بالمتجر',
-            icon: Store,
-            action: () => {
-              if (onOpenArtisanStore) {
-                onOpenArtisanStore('products');
-              } else if (onNavigateToCatalog) {
-                onNavigateToCatalog('store');
-              } else {
-                onSelectView('store');
-              }
-            },
-          },
-          {
-            id: 'my_orders',
-            label: 'أوردراتي',
-            icon: Package,
-            action: () => {
-              if (onOpenArtisanStore) {
-                onOpenArtisanStore('orders');
-              } else {
-                onSelectView('my_orders');
-              }
-            },
-          },
-          { id: 'marketplace', label: 'سوق الشمساوية', icon: ShoppingBag },
-          { id: 'sales', label: 'تسجيل مبيعات الورشة', icon: ShoppingCart },
-          { id: 'invoices', label: 'الفواتير وعروض الأسعار', icon: FileText },
-          { id: 'customers', label: 'عملائي', icon: Users },
-        ],
-      },
-      {
-        key: 'fca',
-        code: 'FCA',
-        titleAr: 'المالية والحسابات',
-        items: [
-          { id: 'executive_brief', label: 'هلخصهالك (الملخص البسيط)', icon: FileText },
-          { id: 'treasuries', label: 'الخزينة والأرصدة', icon: Wallet },
-          { id: 'accounts', label: 'الدفتر المالي والحسابات', icon: Scale },
-          { id: 'expenses', label: 'المصروفات الإدارية', icon: Coins },
-          { id: 'fixed_assets', label: 'الأصول الثابتة', icon: Building },
-          { id: 'reports', label: 'التقارير المالية', icon: BarChart3 },
-          { id: 'currency_rates', label: 'أسعار الصرف', icon: ArrowLeftRight },
-        ],
-      },
-      {
-        key: 'hr',
-        code: 'HR',
-        titleAr: 'العاملون والحرفيون',
-        items: [{ id: 'hr', label: 'شؤون العاملين والأجور', icon: Users2 }],
-      },
-    ];
-
-    if (isAdmin) return baseGroups;
-
-    return baseGroups
-      .filter((g) => (flags.erpModulesEnabled ? true : g.key !== 'fca' && g.key !== 'hr'))
+    const dynamicGroups: NavGroup[] = sidebarLayout.groups
+      .filter((g) => isAdmin || g.visible !== false)
       .map((g) => ({
-        ...g,
-        items: g.items.filter((item) => {
-          if (item.id === 'calculator' && !flags.craftCalculatorEnabled) return false;
-          if ((item.id === 'store' || item.id === 'my_orders') && !flags.artisanStorefrontEnabled) return false;
-          if (item.id === 'marketplace' && !flags.artisanMarketplaceEnabled) return false;
-          if (item.id === 'suppliers_market' && !flags.suppliersMarketplaceEnabled) return false;
-          if (
-            !flags.erpModulesEnabled &&
-            ['work_orders', 'purchases', 'suppliers', 'customers', 'invoices'].includes(item.id)
-          ) {
-            return false;
-          }
-          return true;
-        }),
+        key: (g.id as SectionKey) || 'erp',
+        code: g.code,
+        titleAr: g.titleAr,
+        items: g.items
+          .filter((it) => it.visible !== false)
+          .filter((item) => {
+            if (isAdmin) return true;
+            if (isSupplier) {
+              if (
+                ['supplier_erp_hub', 'supplier_pos', 'supplier_warehouse_erp', 'supplier_hr_terminal'].includes(
+                  item.id
+                ) &&
+                flags.supplierErpEnabled === false
+              ) {
+                return false;
+              }
+              return true;
+            }
+            if (item.id === 'calculator' && !flags.craftCalculatorEnabled) return false;
+            if ((item.id === 'store' || item.id === 'my_orders') && !flags.artisanStorefrontEnabled) return false;
+            if (item.id === 'marketplace' && !flags.artisanMarketplaceEnabled) return false;
+            if (item.id === 'suppliers_market' && !flags.suppliersMarketplaceEnabled) return false;
+            if (
+              !flags.erpModulesEnabled &&
+              ['work_orders', 'purchases', 'suppliers', 'customers', 'invoices', 'treasuries', 'accounts', 'expenses', 'fixed_assets', 'reports', 'currency_rates', 'hr'].includes(
+                item.id
+              )
+            ) {
+              return false;
+            }
+            return true;
+          })
+          .map((item) => ({
+            id: item.id,
+            label: item.label,
+            icon: getUiIcon(item.iconKey) as unknown as React.FC<{ className?: string }>,
+            action: resolveAction(item.id),
+          })),
       }))
       .filter((g) => g.items.length > 0);
-  }, [isAdmin, isSupplier, flags, onNavigateToCatalog, onOpenArtisanStore, onSelectView]);
+
+    return dynamicGroups;
+  }, [isAdmin, isSupplier, flags, sidebarLayout, onNavigateToCatalog, onOpenArtisanStore, onSelectView]);
 
   // Determine initial open group from activeView (default: ERP open if home)
   const initialOpenKey = useMemo<SectionKey>(() => {

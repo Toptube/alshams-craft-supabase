@@ -628,7 +628,7 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
     const { supplier, client, actorName, staff } = actor;
-    const { fromBranchId, toBranchId, itemId, quantity, notes } = req.body || {};
+    const { fromBranchId, toBranchId, itemId, quantity, notes, requireConfirmation } = req.body || {};
     const qty = r3(Number(quantity || 0));
     if (!fromBranchId || !toBranchId || fromBranchId === toBranchId || !itemId || qty <= 0) {
       return res.status(400).json({ error: 'بيانات التحويل بين المخازن غير مكتملة' });
@@ -649,6 +649,58 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
       quantity: nextSrcQty,
       updated_at: nowIso,
     });
+
+    // Two-step transfer: stock held in transit until receiving branch confirms receipt
+    if (requireConfirmation) {
+      const pendingMov = {
+        id: crypto.randomUUID(),
+        supplier_id: supplier.id,
+        branch_id: toBranchId,
+        to_branch_id: fromBranchId,
+        item_id: src.item_id,
+        sku_code: src.sku_code,
+        item_name: src.item_name,
+        movement_type: 'transfer_pending',
+        qty_delta: qty,
+        balance_after: nextSrcQty,
+        unit_label: src.sale_unit,
+        unit_cost: src.avg_cost,
+        reference_no: refNo,
+        actor_staff_id: staff?.id || '',
+        actor_name: actorName,
+        notes: notes || 'شحنة تحويل بالطريق بانتظار تأكيد استلام الفرع',
+        created_at: nowIso,
+      };
+      await Promise.all([
+        upsertRow(client, 'supplier_stock_movements', FILES.movements, {
+          id: crypto.randomUUID(),
+          supplier_id: supplier.id,
+          branch_id: fromBranchId,
+          to_branch_id: toBranchId,
+          item_id: src.item_id,
+          sku_code: src.sku_code,
+          item_name: src.item_name,
+          movement_type: 'transfer_out',
+          qty_delta: -qty,
+          balance_after: nextSrcQty,
+          unit_label: src.sale_unit,
+          unit_cost: src.avg_cost,
+          reference_no: refNo,
+          actor_staff_id: staff?.id || '',
+          actor_name: actorName,
+          notes: `${notes ? notes + ' · ' : ''}مشحون لفرع آخر (بانتظار تأكيد الاستلام)`,
+          created_at: nowIso,
+        }),
+        upsertRow(client, 'supplier_stock_movements', FILES.movements, pendingMov),
+      ]);
+      return res.json({
+        success: true,
+        pendingConfirmation: true,
+        referenceNo: refNo,
+        fromBalance: nextSrcQty,
+        movement: mapMovement(pendingMov),
+      });
+    }
 
     const dst = allInv.find((i: any) => i.branch_id === toBranchId && i.item_id === itemId);
     const nextDstQty = r3(Number(dst?.quantity || 0) + qty);
@@ -718,6 +770,111 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
     ]);
 
     return res.json({ success: true, referenceNo: refNo, fromBalance: nextSrcQty, toBalance: nextDstQty });
+  });
+
+  app.get('/api/supplier/erp/transfers/pending', async (req: Request, res: Response) => {
+    const actor = await resolveErpActor(req, res);
+    if (!actor) return;
+    const allMovements = await loadSupplierTable(actor.client, 'supplier_stock_movements', FILES.movements, actor.supplier.id);
+    const pending = allMovements
+      .filter((m: any) => m.movement_type === 'transfer_pending')
+      .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    return res.json({ success: true, transfers: pending.map(mapMovement) });
+  });
+
+  app.post('/api/supplier/erp/transfer/:movementId/confirm', async (req: Request, res: Response) => {
+    const actor = await resolveErpActor(req, res);
+    if (!actor) return;
+    const { supplier, client, actorName, staff } = actor;
+    const movementId = req.params.movementId;
+    const approve = req.body?.approve !== false;
+
+    const allMovements = await loadSupplierTable(client, 'supplier_stock_movements', FILES.movements, supplier.id);
+    const mov = allMovements.find((m: any) => m.id === movementId && m.movement_type === 'transfer_pending');
+    if (!mov) {
+      return res.status(404).json({ error: 'حركة التحويل المعلقة غير موجودة أو تم البت فيها بالفعل' });
+    }
+
+    const allInv = await loadSupplierTable(client, 'supplier_branch_inventory', FILES.inventory, supplier.id);
+    const fromBranchId = mov.to_branch_id;
+    const toBranchId = mov.branch_id;
+    const qty = r3(Number(mov.qty_delta || 0));
+    const nowIso = new Date().toISOString();
+
+    const src = allInv.find((i: any) => i.branch_id === fromBranchId && i.item_id === mov.item_id);
+
+    if (approve) {
+      const dst = allInv.find((i: any) => i.branch_id === toBranchId && i.item_id === mov.item_id);
+      const nextDstQty = r3(Number(dst?.quantity || 0) + qty);
+      const srcAvgCost = Number(mov.unit_cost || src?.avg_cost || 0);
+      const dstRow = {
+        ...(dst || {
+          id: crypto.randomUUID(),
+          supplier_id: supplier.id,
+          branch_id: toBranchId,
+          item_id: mov.item_id,
+          sku_code: mov.sku_code,
+          item_name: mov.item_name,
+          category_id: src?.category_id || '',
+          sub_category_id: src?.sub_category_id || '',
+          purchase_unit: src?.purchase_unit || 'طرد',
+          sale_unit: mov.unit_label || src?.sale_unit || 'كيلو',
+          conversion_factor: src?.conversion_factor || 1,
+          min_alert: src?.min_alert || 5,
+          avg_cost: srcAvgCost,
+          retail_price: src?.retail_price || 0,
+          wholesale_price: src?.wholesale_price || 0,
+        }),
+        quantity: nextDstQty,
+        avg_cost: dst?.avg_cost
+          ? r2((Number(dst.quantity) * Number(dst.avg_cost) + qty * srcAvgCost) / Math.max(0.001, nextDstQty))
+          : srcAvgCost,
+        updated_at: nowIso,
+      };
+      await upsertRow(client, 'supplier_branch_inventory', FILES.inventory, dstRow);
+      await upsertRow(client, 'supplier_stock_movements', FILES.movements, {
+        ...mov,
+        movement_type: 'transfer_in',
+        balance_after: nextDstQty,
+        notes: `${mov.notes || ''} · تم تأكيد الاستلام بواسطة ${actorName}`,
+      });
+      return res.json({ success: true, approved: true, toBalance: nextDstQty });
+    } else {
+      // Reject & restore to sender branch
+      if (src) {
+        const restoredQty = r3(Number(src.quantity || 0) + qty);
+        await upsertRow(client, 'supplier_branch_inventory', FILES.inventory, {
+          ...src,
+          quantity: restoredQty,
+          updated_at: nowIso,
+        });
+        await upsertRow(client, 'supplier_stock_movements', FILES.movements, {
+          id: crypto.randomUUID(),
+          supplier_id: supplier.id,
+          branch_id: fromBranchId,
+          to_branch_id: toBranchId,
+          item_id: mov.item_id,
+          sku_code: mov.sku_code,
+          item_name: mov.item_name,
+          movement_type: 'adjustment',
+          qty_delta: qty,
+          balance_after: restoredQty,
+          unit_label: mov.unit_label,
+          unit_cost: mov.unit_cost,
+          reference_no: mov.reference_no,
+          actor_staff_id: staff?.id || '',
+          actor_name: actorName,
+          notes: `مرتجع تحويل مرفوض من الفرع المستلم (${actorName})`,
+          created_at: nowIso,
+        });
+      }
+      await upsertRow(client, 'supplier_stock_movements', FILES.movements, {
+        ...mov,
+        movement_type: 'transfer_rejected',
+        notes: `مرفوض وأُعيدت الكمية للمُرسِل بواسطة ${actorName}`,
+      });
+      return res.json({ success: true, approved: false });
+    }
   });
 
   app.get('/api/supplier/erp/item-card/:itemId', async (req: Request, res: Response) => {

@@ -930,48 +930,98 @@ export const SupplierPosView: React.FC<SupplierPosViewProps> = ({
         </section>
       )}
 
-      {/* Printable Receipt Modal */}
+      {/* Printable Receipt Modal (80mm Thermal & Standard A4) */}
       {printOrder && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" dir="rtl">
-          <div className="w-full max-w-md rounded-2xl bg-white text-[#0C1427] p-5 space-y-3">
-            <div className="flex items-center justify-between border-b pb-2">
-              <div>
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3 print:static print:bg-white print:p-0" dir="rtl">
+          <style>{`
+            @media print {
+              body * { visibility: hidden !important; }
+              #pos-printable-receipt, #pos-printable-receipt * { visibility: visible !important; }
+              #pos-printable-receipt {
+                position: fixed !important;
+                top: 0 !important;
+                left: 50% !important;
+                transform: translateX(-50%) !important;
+                width: 78mm !important;
+                max-width: 78mm !important;
+                padding: 3mm !important;
+                margin: 0 !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+              }
+              .no-print { display: none !important; }
+            }
+          `}</style>
+          <div
+            id="pos-printable-receipt"
+            className="w-full max-w-[320px] rounded-2xl bg-white text-[#0C1427] p-4 space-y-2.5 shadow-2xl border border-dashed border-stone-300"
+          >
+            <div className="flex items-start justify-between border-b border-dashed border-stone-400 pb-2">
+              <div className="text-center flex-1">
                 <h3 className="text-sm font-black">{profile.brandName}</h3>
-                <p className="text-[11px] font-mono">فاتورة #{printOrder.orderNumber}</p>
+                <p className="text-[10px] font-bold text-stone-600">
+                  {branches.find((b) => b.id === printOrder.branchId)?.name || 'الفرع الرئيسي'}
+                </p>
+                <p className="text-[11px] font-mono tabular-nums font-bold mt-0.5">
+                  إيصال #{printOrder.orderNumber}
+                </p>
+                <p className="text-[10px] font-mono tabular-nums text-stone-500">
+                  {printOrder.createdAt ? new Date(printOrder.createdAt).toLocaleString('ar-EG') : new Date().toLocaleString('ar-EG')}
+                </p>
               </div>
-              <button type="button" onClick={() => setPrintOrder(null)} className="p-1 cursor-pointer">
+              <button type="button" onClick={() => setPrintOrder(null)} className="no-print p-1 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="text-xs space-y-1">
+            <div className="text-[11px] space-y-0.5 border-b border-dashed border-stone-300 pb-2">
               <p>العميل: <strong>{printOrder.customerName}</strong> {printOrder.customerPhone ? `(${printOrder.customerPhone})` : ''}</p>
               <p>القناة: {printOrder.salesChannel === 'online' ? `أونلاين · ${printOrder.deliveryGovernorate} - ${printOrder.deliveryAddress}` : 'بيع مباشر بالفرع'}</p>
               <p>الكاشير: {printOrder.staffName}</p>
             </div>
-            <div className="border-y py-2 space-y-1 text-xs">
+            <div className="border-b border-dashed border-stone-300 pb-2 space-y-1 text-[11px]">
+              <div className="flex justify-between font-black text-[10px] text-stone-600 border-b border-stone-200 pb-1">
+                <span>الصنف × الكمية</span>
+                <span>الإجمالي</span>
+              </div>
               {printOrder.items.map((it, idx) => (
-                <div key={idx} className="flex justify-between font-mono tabular-nums">
-                  <span className="font-sans">
-                    {it.itemName} ({it.quantity} {it.saleUnit} × {it.unitPrice})
+                <div key={idx} className="flex justify-between items-start gap-2 font-mono tabular-nums">
+                  <span className="font-sans leading-snug">
+                    {it.itemName}
+                    <span className="block text-[10px] font-mono text-stone-600">
+                      [{it.skuCode}] {it.quantity} {it.saleUnit} × {it.unitPrice}
+                    </span>
                   </span>
-                  <span className="font-black">{it.lineTotal} {currency}</span>
+                  <span className="font-black shrink-0">{it.lineTotal} {currency}</span>
                 </div>
               ))}
             </div>
             <div className="text-xs space-y-1 font-mono tabular-nums">
               {printOrder.shippingFee > 0 && <div className="flex justify-between"><span>الشحن:</span><span>{printOrder.shippingFee} {currency}</span></div>}
               {printOrder.discount > 0 && <div className="flex justify-between"><span>الخصم:</span><span>-{printOrder.discount} {currency}</span></div>}
-              <div className="flex justify-between text-sm font-black"><span>الإجمالي:</span><span>{printOrder.finalTotal} {currency}</span></div>
+              <div className="flex justify-between text-sm font-black border-t border-dashed border-stone-400 pt-1">
+                <span>الإجمالي:</span>
+                <span>{printOrder.finalTotal} {currency}</span>
+              </div>
               <div className="flex justify-between"><span>المدفوع:</span><span>{printOrder.paidAmount} {currency}</span></div>
-              {printOrder.remainingAmount > 0 && <div className="flex justify-between text-rose-600 font-black"><span>المتبقي آجل:</span><span>{printOrder.remainingAmount} {currency}</span></div>}
+              {printOrder.remainingAmount > 0 && (
+                <div className="flex justify-between text-rose-600 font-black">
+                  <span>المتبقي آجل:</span>
+                  <span>{printOrder.remainingAmount} {currency}</span>
+                </div>
+              )}
+            </div>
+            <div className="text-center text-[10px] text-stone-500 pt-1 border-t border-dashed border-stone-300">
+              شكراً لتعاملكم مع {profile.brandName} · منظومة الشمساوية
             </div>
             <button
               type="button"
               onClick={() => window.print()}
-              className="w-full py-2.5 rounded-xl bg-[#0C1427] text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+              className="no-print w-full py-2.5 rounded-xl bg-[#0C1427] text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>طباعة الإيصال</span>
+              <span>طباعة إيصال حراري 80mm</span>
             </button>
           </div>
         </div>

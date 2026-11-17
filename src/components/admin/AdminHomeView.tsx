@@ -25,6 +25,7 @@ import {
   EyeOff,
   Users,
   Truck,
+  Palette,
 } from 'lucide-react';
 import {
   AdminPageId,
@@ -210,6 +211,13 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       icon: <Eye className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-700 dark:text-emerald-300" />,
       circleClass: 'bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300/60 dark:border-emerald-700/60',
       onClick: () => onNavigatePage('feature_visibility'),
+    },
+    {
+      id: 'ui_layout_studio',
+      label: 'هندسة الواجهات والقوائم 🎨',
+      icon: <Palette className="w-5 h-5 sm:w-6 sm:h-6 text-[#C2410C] dark:text-[#FBBF24]" />,
+      circleClass: 'bg-orange-100 dark:bg-orange-950/60 border-orange-300/60 dark:border-orange-700/60',
+      onClick: () => onNavigatePage('ui_layout_studio'),
     },
   ];
 

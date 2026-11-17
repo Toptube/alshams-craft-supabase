@@ -99,6 +99,7 @@ import { SupplierErpHubView } from './components/supplier/SupplierErpHubView';
 import { SupplierPosView } from './components/supplier/SupplierPosView';
 import { SupplierBranchesWarehouseView } from './components/supplier/SupplierBranchesWarehouseView';
 import { SupplierHrTerminalView } from './components/supplier/SupplierHrTerminalView';
+import { SupplierExecutiveBriefView } from './components/supplier/SupplierExecutiveBriefView';
 import { LockedTerminalShell } from './components/supplier/LockedTerminalShell';
 import {
   getLockedTerminalConfig,
@@ -158,7 +159,8 @@ export type ActiveView =
   | 'supplier_warehouse_erp'
   | 'supplier_hr_terminal'
   | 'personal_profile'
-  | 'executive_brief';
+  | 'executive_brief'
+  | 'supplier_executive_brief';
 
 const processedRecoveryTokens = new Set<string>();
 
@@ -215,6 +217,7 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   supplier_hr_terminal: 'شؤون العاملين وتثبيت الشاشات',
   personal_profile: 'صفحتي الشخصية ومعرض الأعمال',
   executive_brief: 'هلخصهالك — الملخص البسيط لورشتك',
+  supplier_executive_brief: 'هلخصهالك للموردين — الملخص البسيط لمتجرك وفروعك',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -2101,6 +2104,10 @@ export const App: React.FC = () => {
           }
           navigateTo('family');
         }}
+        onNavigateToExecutiveBrief={() =>
+          navigateTo(profile?.accountRole === 'supplier' ? 'supplier_executive_brief' : 'executive_brief')
+        }
+        onOpenPersonalProfile={() => navigateTo('personal_profile')}
         activeView={activeView}
         isDarkMode={isDarkMode}
         onToggleTheme={handleToggleTheme}
@@ -2301,6 +2308,7 @@ export const App: React.FC = () => {
                 onNavigateToPos={() => navigateTo('supplier_pos')}
                 onNavigateToWarehouseErp={() => navigateTo('supplier_warehouse_erp')}
                 onNavigateToHrTerminal={() => navigateTo('supplier_hr_terminal')}
+                onNavigateToExecutiveBrief={() => navigateTo('supplier_executive_brief')}
                 onNavigateToFamily={() => navigateTo('family')}
                 onNavigateToPersonalProfile={() => navigateTo('personal_profile')}
                 onNavigateToSuppliersMarket={() => navigateTo('suppliers_market')}
@@ -2658,6 +2666,15 @@ export const App: React.FC = () => {
 
         {activeView === 'executive_brief' && (
           <ArtisanExecutiveBriefView
+            profile={profile}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+            onNavigateToView={(v) => navigateTo(v as ActiveView)}
+          />
+        )}
+
+        {activeView === 'supplier_executive_brief' && (
+          <SupplierExecutiveBriefView
             profile={profile}
             onGoBack={navigateBack}
             onGoHome={goHome}

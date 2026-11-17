@@ -5037,6 +5037,7 @@ app.get('/api/platform-settings', async (_req: Request, res: Response) => {
     suppliersMarketBuilder: freshest?.suppliersMarketBuilder || psCfg?.suppliersMarketBuilder || wsCfg?.suppliersMarketBuilder || localCfg.suppliersMarketBuilder || null,
     landingCms: freshest?.landingCms || psCfg?.landingCms || wsCfg?.landingCms || localCfg.landingCms || null,
     featureFlags: freshest?.featureFlags || psCfg?.featureFlags || wsCfg?.featureFlags || localCfg.featureFlags || null,
+    uiLayoutConfig: freshest?.uiLayoutConfig || psCfg?.uiLayoutConfig || wsCfg?.uiLayoutConfig || localCfg.uiLayoutConfig || null,
   };
   return res.json({ success: true, settings: merged });
 });
@@ -5071,6 +5072,10 @@ app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest,
       body.featureFlags !== undefined
         ? body.featureFlags
         : existing.featureFlags || null,
+    uiLayoutConfig:
+      body.uiLayoutConfig !== undefined
+        ? body.uiLayoutConfig
+        : existing.uiLayoutConfig || null,
     updatedAt: new Date().toISOString(),
   };
   savePersistentPlatformSettings(nextSettings);

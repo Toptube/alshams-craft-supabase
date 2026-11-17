@@ -158,7 +158,7 @@ export const InteractiveTourModal: React.FC<InteractiveTourModalProps> = ({
           </div>
           <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2 text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
             <Coins className="w-4 h-4 shrink-0" />
-            <span>أسفل البطاقات يظهر الملخص المالي والمخزني الحي محدثاً لحظياً.</span>
+            <span>بطاقة «هلخصهالك 📋» تشرح لك (معانا كام وفين، لينا عند مين مع زر تذكير لطيف بالواتساب، علينا لمين، وحركة المخازن) بالبلدي بدون تعقيدات دائن ومدين.</span>
           </div>
         </div>
       ),
@@ -375,9 +375,9 @@ export const InteractiveTourModal: React.FC<InteractiveTourModalProps> = ({
       ),
     },
     {
-      title: 'الأوردرات والعملاء والخزينة + طبلية العيلة',
-      subtitle: 'إدارة مالية كاملة وشراكة حقيقية مع الفنانين',
-      badge: 'الخطوة 5 • العمليات والعيلة',
+      title: 'هلخصهالك للموردين 📋 + الفروع + ريسيت 80 مم',
+      subtitle: 'خلاصة خزائن فروعك واستلام البضاعة على مرحلتين',
+      badge: 'الخطوة 5 • القيادة والفروع والـ POS',
       icon: (
         <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 flex items-center justify-center">
           <Store className="w-6 h-6" />
@@ -386,15 +386,15 @@ export const InteractiveTourModal: React.FC<InteractiveTourModalProps> = ({
       content: (
         <div className="space-y-2.5 text-right text-xs">
           <div className="p-3 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-1">
-            <strong className="text-stone-900 dark:text-stone-100 block">1. توحيد الأوردرات والخزينة:</strong>
+            <strong className="text-stone-900 dark:text-stone-100 block">1. بطاقة «هلخصهالك للموردين» + تذكير الواتساب:</strong>
             <p className="text-[11px] text-stone-500 dark:text-stone-400">
-              أوردرات الورش B2B وطلبات متجرك والطلبات الخارجية تسجل تلقائياً في شاشة «أوردراتي»، «عملائي»، و«خزائن المورد والمصروفات».
+              شوف خزينة المالك، عُهد الفروع، التوريدات المعلقة، مديونيات الورش بره (مع تذكير لطيف بالواتساب بنقرة)، ومستحقات المصانع وقيمة مخزون كل فرع.
             </p>
           </div>
           <div className="p-3 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-1">
-            <strong className="text-stone-900 dark:text-stone-100 block">2. المشاركة في عيلة الشمساوية + شموسة AI:</strong>
+            <strong className="text-stone-900 dark:text-stone-100 block">2. كاشير 80 مم + استلام المخازن على مرحلتين + شموسة AI:</strong>
             <p className="text-[11px] text-stone-500 dark:text-stone-400">
-              انشر في المنتدى وشارك في الشات العائلي لتتواصل مباشرة مع الورش، واستشر شموسة العائمة في أي لحظة!
+              بيع بالوزن والكسر واطبع ريسيت 80 مم للعميل، وتحويلات المخزن المركزي تدخل الفرع بعد تأكيد الاستلام. كما تقدر تسأل شموسة في أي وقت عن أرقام فروعك!
             </p>
           </div>
         </div>

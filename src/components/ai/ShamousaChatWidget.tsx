@@ -37,7 +37,7 @@ import { playTaskDoneSound, playButtonClickSound, playSuccessSound } from '../..
 import { dispatchArtisanNotification } from '../../lib/pushNotifications';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { fetchSupplierErpOverview } from '../../db/supplierErpService';
-import { buildArtisanExecutiveBrief } from '../../services/executiveBriefService';
+import { buildArtisanExecutiveBrief, buildSupplierExecutiveBrief } from '../../services/executiveBriefService';
 
 export interface ShamousaActionLink {
   label: string;
@@ -79,7 +79,8 @@ export type DisambiguationIntentKey =
   | 'sup_cash'
   | 'sup_receivables'
   | 'sup_payables'
-  | 'sup_stock';
+  | 'sup_stock'
+  | 'sup_full_brief';
 
 export interface DisambiguationChoice {
   id: string;
@@ -146,6 +147,9 @@ function detectNavigationIntent(text: string, isSupplier = false): ShamousaActio
   const lower = text.toLowerCase();
   if (!isSupplier && (lower.includes('هلخصهالك') || lower.includes('بطاقة الملخص'))) {
     return { label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' };
+  }
+  if (isSupplier && (lower.includes('هلخصهالك') || lower.includes('بطاقة الملخص'))) {
+    return { label: 'فتح هلخصهالك للموردين 📋', view: 'supplier_executive_brief' };
   }
   if (lower.includes('صفحتي الشخصية') || lower.includes('الصفحة الشخصية') || lower.includes('بروفايل') || lower.includes('معرض أعمال')) {
     return { label: 'فتح صفحتي الشخصية 👤', view: 'personal_profile' };
@@ -245,6 +249,9 @@ export function detectSummaryOrAmbiguousIntent(
       return 'wh_products';
     }
   } else {
+    if (/هلخصهالك|بطاق[هة]\s*الملخص|ملخص\s*شامل|لخصي?لي\s*كل\s*حاج[هة]/i.test(clean)) {
+      return 'sup_full_brief';
+    }
     if (/معانا\s*كام|حصيل[هة]\s*الفروع|خزين[هة]\s*المالك/i.test(clean)) {
       return 'sup_cash';
     }
@@ -291,9 +298,12 @@ export function detectKeywordActionChips(userQuery: string, isSupplier = false):
   const chips: SmartActionChip[] = [];
   const lower = userQuery.toLowerCase();
 
-  // 0. هلخصهالك والملخص للورش
+  // 0. هلخصهالك والملخص للورش والموردين
   if (!isSupplier && /هلخصهالك|ملخص|تلخيص|لخص|معانا كام|لينا بره|علينا كام|موقف مالي/i.test(lower)) {
     chips.push({ id: 'chip_exec_brief', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' });
+  }
+  if (isSupplier && /هلخصهالك|ملخص|تلخيص|لخص|معانا كام|لينا بره|علينا كام|موقف مالي/i.test(lower)) {
+    chips.push({ id: 'chip_sup_exec_brief', label: 'هلخصهالك للموردين 📋', view: 'supplier_executive_brief' });
   }
 
   // 1. الصفحة الشخصية ومعرض الأعمال + مجتمع العيلة
@@ -1036,6 +1046,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         disambiguationChoices: [
           { id: 'c_sup_tr', label: 'ملخص خزائن الفروع والكاشير 💰', intentKey: 'sup_tr_menu' },
           { id: 'c_sup_wh', label: 'ملخص مخزون الفروع وكارت الصنف 🏭', intentKey: 'sup_stock' },
+          { id: 'c_sup_full', label: 'الخلاصة كلها في (هلخصهالك للموردين) 📋', intentKey: 'sup_full_brief' },
         ],
       };
     }
@@ -1047,12 +1058,34 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           { id: 'c_sup_cash', label: 'معانا كام في الفروع والمالك 💵', intentKey: 'sup_cash' },
           { id: 'c_sup_rec', label: 'لينا كام عند الورش والعملاء 📥', intentKey: 'sup_receivables' },
           { id: 'c_sup_pay', label: 'علينا كام للمصانع 📤', intentKey: 'sup_payables' },
+          { id: 'c_sup_tr_full', label: 'الخلاصة كلها في هلخصهالك 📋', intentKey: 'sup_full_brief' },
         ],
       };
     }
 
     // Supplier live leaf briefs (عزل تام لحساب المورد)
     if (isSupplierAccount) {
+      if (intentKey === 'sup_full_brief') {
+        const sb = await buildSupplierExecutiveBrief(currency, profile.brandName || 'متجر المورد');
+        const sf = sb.financial;
+        const sw = sb.warehouse;
+        const topDebtor = sf.debtors[0];
+        return {
+          content:
+            `📋 **ملخص هلخصهالك للموردين يا ${firstName}:**\n` +
+            `• **معانا كام:** **${fmt(sf.totalCashOnHand)} ${currency}** (خزينة المالك المعتمدة ${fmt(sf.ownerMainTreasuryTotal)} + عُهد الفروع ${fmt(sf.branchesPendingTreasuryTotal)} ${currency}).\n` +
+            `• **لينا بره عند الورش والعملاء:** **${fmt(sf.receivablesTotal)} ${currency}** (${sf.debtors.length} عميل${topDebtor ? ` — أكبرهم ${topDebtor.name}: ${fmt(topDebtor.totalOwed)} ${currency}` : ''}).\n` +
+            `• **علينا للمصانع:** **${fmt(sf.payablesTotal)} ${currency}**.\n` +
+            `• **قيمة مخزون الفروع (${sw.branchesCount} فرع):** **${fmt(sw.totalStockValuation)} ${currency}** (${sw.lowStockItems.length} صنف قريب من حد الأمان).\n` +
+            `• **مبيعات الكاشير اليوم:** **${sf.todayPosOrdersCount}** فاتورة بإجمالي **${fmt(sf.todayPosSales)} ${currency}**.\n` +
+            `💡 تقدر تبعت رسالة **تذكير لطيف بالواتساب** لأي عميل عليه مديونية مباشرة من شاشة هلخصهالك.`,
+          actionChips: [
+            { id: 'chip_sup_eb_open', label: 'فتح هلخصهالك للموردين كاملة 📋', view: 'supplier_executive_brief' },
+            { id: 'chip_erp_hub', label: 'مركز قيادة الفروع 🌿', view: 'supplier_erp_hub' },
+          ],
+        };
+      }
+
       const ov = await fetchSupplierErpOverview().catch(() => null);
       const k: Partial<NonNullable<typeof ov>['kpis']> = ov?.kpis || {};
       if (intentKey === 'sup_cash') {
@@ -1065,6 +1098,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             `• توريدات معلقة بانتظار تأكيد استلامك: **${ov?.pendingTransfers?.length || 0}** توريد.`,
           actionChips: [
             { id: 'chip_erp', label: 'فتح مركز قيادة الفروع والخزينة 🌿', view: 'supplier_erp_hub' },
+            { id: 'chip_sup_eb', label: 'فتح هلخصهالك للموردين 📋', view: 'supplier_executive_brief' },
           ],
         };
       }
@@ -1073,8 +1107,9 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           content:
             `📥 **اللي لينا بره عند الورش والعملاء يا ${firstName}:**\n` +
             `• إجمالي المديونيات الآجلة بره: **${fmt(k.receivablesFromCustomers || 0)} ${currency}**.\n` +
-            `تقدر تشوف تفاصيل كل عميل ومكالمته من شاشة العملاء أو الكاشير.`,
+            `تقدر تشوف تفاصيل كل عميل وتبعت له **تذكير لطيف بالواتساب** بضغطة زر من هلخصهالك أو شاشة العملاء.`,
           actionChips: [
+            { id: 'chip_sup_eb', label: 'هلخصهالك + تذكير واتساب 📋', view: 'supplier_executive_brief' },
             { id: 'chip_scust', label: 'فتح عملائي (الورش والأفراد) 👥', view: 'supplier_customers' },
           ],
         };
@@ -1086,6 +1121,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             `• إجمالي المستحق للمصانع: **${fmt(k.payablesToVendors || 0)} ${currency}**.`,
           actionChips: [
             { id: 'chip_swh', label: 'فتح المخازن والمصانع 🏭', view: 'supplier_warehouse_erp' },
+            { id: 'chip_sup_eb', label: 'فتح هلخصهالك للموردين 📋', view: 'supplier_executive_brief' },
           ],
         };
       }
@@ -1098,6 +1134,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         actionChips: [
           { id: 'chip_swh', label: 'المخازن وكارت الصنف 🏭', view: 'supplier_warehouse_erp' },
           { id: 'chip_spos', label: 'كاشير نقاط البيع (POS) 🛒', view: 'supplier_pos' },
+          { id: 'chip_sup_eb', label: 'هلخصهالك للموردين 📋', view: 'supplier_executive_brief' },
         ],
       };
     }

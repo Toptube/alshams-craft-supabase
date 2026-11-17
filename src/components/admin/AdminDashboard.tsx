@@ -64,12 +64,18 @@ import { AdminNotificationPages } from './AdminNotificationPages';
 import { AdminWorkshopModals } from './AdminWorkshopModals';
 import { AdminLandingCmsPage } from './AdminLandingCmsPage';
 import { AdminFeatureVisibilityPage } from './AdminFeatureVisibilityPage';
+import { AdminUiLayoutStudioPage } from './AdminUiLayoutStudioPage';
 import { AdminSuppliersPage } from './AdminSuppliersPage';
 import { AdminSuppliersMarketPage } from './AdminSuppliersMarketPage';
 import { AdminCustomersPage } from './AdminCustomersPage';
 import { updateWorkshopVisibility } from '../../db/supplierService';
 import { LandingCmsConfig, getStoredLandingCmsConfig } from '../../types/landingCms';
 import { PlatformFeatureFlags, getStoredFeatureFlags } from '../../types/featureFlags';
+import {
+  PlatformUiLayoutConfig,
+  getStoredUiLayoutConfig,
+  saveStoredUiLayoutConfig,
+} from '../../types/uiLayoutConfig';
 import {
   SuppliersMarketBuilderConfig,
   getStoredSuppliersMarketBuilderConfig,
@@ -1208,6 +1214,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         suppliersMarketBuilder: getStoredSuppliersMarketBuilderConfig(),
         landingCms: getStoredLandingCmsConfig(),
         featureFlags: getStoredFeatureFlags(),
+        uiLayoutConfig: getStoredUiLayoutConfig(),
       };
       const res = await savePlatformSettingsCloud(payload, profile.email);
       if (!res.success) {
@@ -1235,6 +1242,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         suppliersMarketBuilder: cfgToSave,
         landingCms: getStoredLandingCmsConfig(),
         featureFlags: getStoredFeatureFlags(),
+        uiLayoutConfig: getStoredUiLayoutConfig(),
       };
       const res = await savePlatformSettingsCloud(payload, profile.email);
       if (!res.success) {
@@ -2393,6 +2401,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 marketBuilder: getStoredMarketBuilderConfig(),
                 landingCms: getStoredLandingCmsConfig(),
                 featureFlags: getStoredFeatureFlags(),
+                uiLayoutConfig: getStoredUiLayoutConfig(),
               },
               profile.email
             ).catch(() => {});
@@ -2546,6 +2555,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   suppliersMarketBuilder: getStoredSuppliersMarketBuilderConfig(),
                   landingCms: nextCms,
                   featureFlags: getStoredFeatureFlags(),
+                  uiLayoutConfig: getStoredUiLayoutConfig(),
                 },
                 profile.email
               );
@@ -2584,6 +2594,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   suppliersMarketBuilder: getStoredSuppliersMarketBuilderConfig(),
                   landingCms: nextCms,
                   featureFlags: nextFlags,
+                  uiLayoutConfig: getStoredUiLayoutConfig(),
                 },
                 profile.email
               );
@@ -2599,6 +2610,47 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               );
             } catch (err: any) {
               showError(err?.message || 'حدث خطأ أثناء حفظ إعدادات الظهور.');
+              throw err;
+            } finally {
+              setSavingMarketSettings(false);
+            }
+          }}
+        />
+      )}
+
+      {currentPage === 'ui_layout_studio' && (
+        <AdminUiLayoutStudioPage
+          onBack={() => handleNavigatePage('home')}
+          saving={savingMarketSettings}
+          onPublishToCloud={async (nextLayout: PlatformUiLayoutConfig) => {
+            setSavingMarketSettings(true);
+            try {
+              saveStoredUiLayoutConfig(nextLayout);
+              const res = await savePlatformSettingsCloud(
+                {
+                  ...shippingConfig,
+                  centralShippingPrivacy,
+                  marketBuilder: getStoredMarketBuilderConfig(),
+                  suppliersMarketBuilder: getStoredSuppliersMarketBuilderConfig(),
+                  landingCms: getStoredLandingCmsConfig(),
+                  featureFlags: getStoredFeatureFlags(),
+                  uiLayoutConfig: nextLayout,
+                },
+                profile.email
+              );
+              if (!res.success) {
+                const msg = res.error || 'تعذر نشر تخطيط الواجهات على السيرفر.';
+                showError(msg);
+                throw new Error(msg);
+              }
+              playSuccessSound();
+              showSuccess(
+                res.cloudSynced
+                  ? 'تم نشر هندسة الواجهات والقوائم فوراً لجميع الفنانين والموردين ✅'
+                  : 'تم حفظ ونشر هندسة الواجهات محلياً وعلى السيرفر.'
+              );
+            } catch (err: any) {
+              showError(err?.message || 'حدث خطأ أثناء نشر هندسة الواجهات.');
               throw err;
             } finally {
               setSavingMarketSettings(false);

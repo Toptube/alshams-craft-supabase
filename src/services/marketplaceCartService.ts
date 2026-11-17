@@ -8,6 +8,7 @@ import { saveStoredMarketBuilderConfig } from '../types/marketplaceBuilder';
 import { saveStoredSuppliersMarketBuilderConfig } from '../types/suppliersMarketBuilder';
 import { saveStoredLandingCmsConfig } from '../types/landingCms';
 import { saveStoredFeatureFlags } from '../types/featureFlags';
+import { saveStoredUiLayoutConfig } from '../types/uiLayoutConfig';
 
 const CART_STORAGE_KEY = 'alshams_marketplace_cart';
 const CUSTOMER_STORAGE_KEY = 'alshams_customer_session';
@@ -321,6 +322,9 @@ export async function syncPlatformSettingsFromCloud(): Promise<GovernoratesShipp
     }
     if (cloudSettings.featureFlags) {
       saveStoredFeatureFlags(cloudSettings.featureFlags);
+    }
+    if (cloudSettings.uiLayoutConfig) {
+      saveStoredUiLayoutConfig(cloudSettings.uiLayoutConfig);
     }
     return mergedCfg;
   }

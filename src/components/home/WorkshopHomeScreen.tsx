@@ -8,6 +8,12 @@ import { playTaskDoneSound, playButtonClickSound } from '../../lib/sounds';
 import { useTranslation } from '../../lib/i18n';
 import { FalconMascotAvatar, ShamousaMascotAvatar } from '../brand/BrandAssets';
 import {
+  getUiColorPreset,
+  getUiIcon,
+  UiHomeCardConfig,
+  useUiLayoutConfig,
+} from '../../types/uiLayoutConfig';
+import {
   Layers,
   ShoppingBag,
   Truck,
@@ -180,10 +186,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 }) => {
   const { t: tr, lang } = useTranslation();
   const flags = useFeatureFlags();
+  const uiLayout = useUiLayoutConfig();
+  const artisanHomeCfg = uiLayout.artisan.home;
   const isAdminUser = isUserAdmin(profile);
 
-  // Active sub-screen state (null = main 11-card grid)
-  const [activeSubSection, setActiveSubSection] = useState<HomeCardSection | null>(null);
+  // Active sub-screen card id (null = main operational cards grid)
+  const [activeSubSection, setActiveSubSection] = useState<string | null>(null);
   const [workforceTab, setWorkforceTab] = useState<'artisans' | 'employees'>('artisans');
 
   const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
@@ -610,588 +618,216 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
   const hasAnyFavorites = starredProducts.length > 0 || starredMaterials.length > 0;
 
-  // Unified Operational Cards definition (16 cards including هلخصهالك)
-  const coreCards = [
-    {
-      id: 'executive_brief' as HomeCardSection,
-      label: 'هلخصهالك 📋',
-      icon: FileText,
-      color: 'text-[#C2410C] dark:text-[#FBBF24]',
-      bgColor: 'bg-orange-100 dark:bg-amber-950/50',
-      borderColor: 'border-orange-300 dark:border-amber-700',
-    },
-    {
-      id: 'materials' as HomeCardSection,
-      label: 'الخامات',
-      icon: Layers,
-      color: 'text-amber-600 dark:text-amber-400',
-      bgColor: 'bg-amber-50 dark:bg-amber-950/40',
-      borderColor: 'border-amber-200/80 dark:border-amber-900/40',
-    },
-    {
-      id: 'products' as HomeCardSection,
-      label: 'المنتجات',
-      icon: ShoppingBag,
-      color: 'text-orange-600 dark:text-orange-400',
-      bgColor: 'bg-orange-50 dark:bg-orange-950/40',
-      borderColor: 'border-orange-200/80 dark:border-orange-900/40',
-    },
-    {
-      id: 'my_platform' as HomeCardSection,
-      label: 'منصتي 🌐',
-      icon: Store,
-      color: 'text-amber-600 dark:text-amber-400',
-      bgColor: 'bg-amber-50 dark:bg-amber-950/40',
-      borderColor: 'border-amber-200/80 dark:border-amber-900/40',
-    },
-    {
-      id: 'purchases' as HomeCardSection,
-      label: 'المشتريات',
-      icon: PackagePlus,
-      color: 'text-rose-600 dark:text-rose-400',
-      bgColor: 'bg-rose-50 dark:bg-rose-950/40',
-      borderColor: 'border-rose-200/80 dark:border-rose-900/40',
-    },
-    {
-      id: 'suppliers' as HomeCardSection,
-      label: 'الموردين',
-      icon: Truck,
-      color: 'text-blue-600 dark:text-blue-400',
-      bgColor: 'bg-blue-50 dark:bg-blue-950/40',
-      borderColor: 'border-blue-200/80 dark:border-blue-900/40',
-    },
-    {
-      id: 'inventory' as HomeCardSection,
-      label: 'المخازن',
-      icon: Boxes,
-      color: 'text-indigo-600 dark:text-indigo-400',
-      bgColor: 'bg-indigo-50 dark:bg-indigo-950/40',
-      borderColor: 'border-indigo-200/80 dark:border-indigo-900/40',
-    },
-    {
-      id: 'work_orders' as HomeCardSection,
-      label: 'أوامر التشغيل',
-      icon: Hammer,
-      color: 'text-cyan-600 dark:text-cyan-400',
-      bgColor: 'bg-cyan-50 dark:bg-cyan-950/40',
-      borderColor: 'border-cyan-200/80 dark:border-cyan-900/40',
-    },
-    {
-      id: 'sales' as HomeCardSection,
-      label: 'المبيعات',
-      icon: ShoppingCart,
-      color: 'text-teal-600 dark:text-teal-400',
-      bgColor: 'bg-teal-50 dark:bg-teal-950/40',
-      borderColor: 'border-teal-200/80 dark:border-teal-900/40',
-    },
-    {
-      id: 'customers' as HomeCardSection,
-      label: 'العملاء',
-      icon: Users,
-      color: 'text-emerald-600 dark:text-emerald-400',
-      bgColor: 'bg-emerald-50 dark:bg-emerald-950/40',
-      borderColor: 'border-emerald-200/80 dark:border-emerald-900/40',
-    },
-    {
-      id: 'workforce' as HomeCardSection,
-      label: 'فريق العمل والحرفيين',
-      icon: Users2,
-      color: 'text-violet-600 dark:text-violet-400',
-      bgColor: 'bg-violet-50 dark:bg-violet-950/40',
-      borderColor: 'border-violet-200/80 dark:border-violet-900/40',
-    },
-    {
-      id: 'expenses' as HomeCardSection,
-      label: 'المصروفات',
-      icon: DollarSign,
-      color: 'text-red-600 dark:text-red-400',
-      bgColor: 'bg-red-50 dark:bg-red-950/40',
-      borderColor: 'border-red-200/80 dark:border-red-900/40',
-    },
-    {
-      id: 'treasuries' as HomeCardSection,
-      label: 'الخزائن والعهد',
-      icon: Wallet,
-      color: 'text-lime-600 dark:text-lime-400',
-      bgColor: 'bg-lime-50 dark:bg-lime-950/40',
-      borderColor: 'border-lime-200/80 dark:border-lime-900/40',
-    },
-    {
-      id: 'accounts' as HomeCardSection,
-      label: 'الحسابات',
-      icon: Scale,
-      color: 'text-sky-600 dark:text-sky-400',
-      bgColor: 'bg-sky-50 dark:bg-sky-950/40',
-      borderColor: 'border-sky-200/80 dark:border-sky-900/40',
-    },
-    {
-      id: 'reports' as HomeCardSection,
-      label: 'التقارير',
-      icon: BarChart3,
-      color: 'text-purple-600 dark:text-purple-400',
-      bgColor: 'bg-purple-50 dark:bg-purple-950/40',
-      borderColor: 'border-purple-200/80 dark:border-purple-900/40',
-    },
-    {
-      id: 'ai_helpers' as HomeCardSection,
-      label: 'مساعدو الشمساوية',
-      icon: Sparkles,
-      color: 'text-amber-600 dark:text-amber-400',
-      bgColor: 'bg-amber-50 dark:bg-amber-950/40',
-      borderColor: 'border-amber-300 dark:border-amber-800',
-    },
-  ];
-
-  // Sub-actions definition with translations
-  const getSubActions = (section: HomeCardSection) => {
-    switch (section) {
-      case 'materials':
-        return {
-          title: 'الخامات ومستلزمات الإنتاج',
-          icon: Layers,
-          items: [
-            {
-              label: 'إضافة خامة جديدة',
-              icon: PlusCircle,
-              onClick: onOpenNewMaterialModal,
-            },
-            {
-              label: 'أرصدة وبطاقات الخامات',
-              icon: Layers,
-              onClick: () => onNavigateToMaterials(false),
-            },
-            {
-              label: 'أسعار الشراء ووحدات القياس',
-              icon: Tag,
-              onClick: () => onNavigateToMaterials(false),
-            },
-            {
-              label: 'حدود إعادة الطلب والتنبيهات',
-              icon: AlertTriangle,
-              onClick: () => onNavigateToMaterials(false),
-            },
-          ],
-        };
-
-      case 'products':
-        return {
-          title: 'المنتجات وحاسبة التكاليف',
-          icon: ShoppingBag,
-          items: [
-            ...(isAdminUser || flags.craftCalculatorEnabled
-              ? [
-                  {
-                    label: 'حاسبة تكاليف المنتج الشاملة',
-                    icon: Calculator,
-                    onClick: onNavigateToCalculator,
-                  },
-                ]
-              : []),
-            {
-              label: 'المنتجات الجاهزة بالمخزن',
-              icon: PackagePlus,
-              onClick: () => onOpenInventoryModal('products'),
-            },
-            {
-              label: 'أرشيف المشغولات والتصاميم',
-              icon: FolderArchive,
-              onClick: onNavigateToArchive,
-            },
-          ],
-        };
-
-      case 'purchases':
-        return {
-          title: 'المشتريات وفواتير الخامات',
-          icon: PackagePlus,
-          items: [
-            {
-              label: 'تسجيل فاتورة شراء خامات',
-              icon: PlusCircle,
-              onClick: onOpenSupplierInvoice,
-            },
-            {
-              label: 'سجل المشتريات وتوريد الخامات',
-              icon: Truck,
-              onClick: () => (onNavigateToPurchases ? onNavigateToPurchases() : onNavigateToSuppliers()),
-            },
-            {
-              label: 'أمر شراء جديد للمورد',
-              icon: Receipt,
-              onClick: onOpenSupplierInvoice,
-            },
-            {
-              label: 'إذن استلام وفحص الخامات',
-              icon: ClipboardCheck,
-              onClick: () => onOpenInventoryModal('audit'),
-            },
-          ],
-        };
-
-      case 'suppliers':
-        return {
-          title: 'الموردين وجهات التوريد',
-          icon: Truck,
-          items: [
-            ...(onNavigateToSuppliersMarket && (isAdminUser || flags.suppliersMarketplaceEnabled)
-              ? [
-                  {
-                    label: 'سوق موردين الشمساوية (شراء الخامات)',
-                    icon: ShoppingBag,
-                    onClick: onNavigateToSuppliersMarket,
-                  },
-                ]
-              : []),
-            {
-              label: 'إضافة مورد جديد',
-              icon: UserPlus,
-              onClick: onOpenCreateSupplier,
-            },
-            {
-              label: 'دليل وبيانات الموردين',
-              icon: Truck,
-              onClick: onNavigateToSuppliers,
-            },
-            {
-              label: 'كشف حساب ومدفوعات الموردين',
-              icon: FileText,
-              onClick: onNavigateToSuppliers,
-            },
-          ],
-        };
-
-      case 'inventory':
-        return {
-          title: 'المخازن وحركة الأصناف',
-          icon: Boxes,
-          items: [
-            {
-              label: 'أرصدة خامات الورشة',
-              icon: Layers,
-              onClick: () => onOpenInventoryModal('materials'),
-            },
-            {
-              label: 'مخزن المنتج التام',
-              icon: ShoppingBag,
-              onClick: () => onOpenInventoryModal('products'),
-            },
-            {
-              label: 'إذن الصرف والاستلام والتحويل',
-              icon: ArrowLeftRight,
-              onClick: () => onOpenInventoryModal('audit'),
-            },
-            {
-              label: 'دفتر حركة المخزن والتسويات',
-              icon: History,
-              onClick: () => onOpenInventoryModal('audit'),
-            },
-          ],
-        };
-
-      case 'work_orders':
-        return {
-          title: 'أوامر التشغيل وبوابة الإنتاج',
-          icon: Hammer,
-          items: [
-            {
-              label: 'أمر تشغيل وتصنيع جديد',
-              icon: PlusCircle,
-              onClick: () => onNavigateToWorkOrders('create'),
-            },
-            {
-              label: 'إذن صرف خامات للتصنيع',
-              icon: Boxes,
-              onClick: () => onNavigateToWorkOrders('issue'),
-            },
-            {
-              label: 'إذن استلام وتوريد منتج تام',
-              icon: PackageCheck,
-              onClick: () => onNavigateToWorkOrders('receive'),
-            },
-            {
-              label: 'سجل ومتابعة أوامر التشغيل',
-              icon: Hammer,
-              onClick: () => onNavigateToWorkOrders(),
-            },
-          ],
-        };
-
-      case 'sales':
-        return {
-          title: 'المبيعات والفواتير',
-          icon: ShoppingCart,
-          items: [
-            {
-              label: 'تسجيل بيع / فاتورة جديدة',
-              icon: PlusCircle,
-              onClick: () => onNavigateToSales('new'),
-            },
-            {
-              label: 'سجل فواتير المبيعات',
-              icon: Receipt,
-              onClick: () => onNavigateToInvoices(),
-            },
-            {
-              label: 'المدفوعات (كاش / إنستاباي / آجل)',
-              icon: Wallet,
-              onClick: () => onNavigateToSales(),
-            },
-            {
-              label: 'مرتجعات المبيعات',
-              icon: RotateCcw,
-              onClick: () => onNavigateToInvoices('returns'),
-            },
-          ],
-        };
-
-      case 'customers':
-        return {
-          title: 'العملاء وكشف الحساب',
-          icon: Users,
-          items: [
-            {
-              label: 'عملائي',
-              icon: Users,
-              onClick: () =>
-                onNavigateToCustomers ? onNavigateToCustomers() : onNavigateToSales(),
-            },
-            {
-              label: 'إضافة عميل جديد',
-              icon: UserPlus,
-              onClick: onOpenNewClientModal,
-            },
-            {
-              label: 'كشف حساب العملاء والمستحقات',
-              icon: FileText,
-              onClick: () => onNavigateToSales(),
-            },
-          ],
-        };
-
-      case 'workforce':
-      case 'artisans':
-      case 'employees':
-        return {
-          title: 'فريق العمل والحرفيين',
-          icon: Users2,
-          isWorkforce: true,
-          items:
-            workforceTab === 'artisans'
-              ? [
-                  {
-                    label: 'سجل صناع الورشة وتخصصاتهم',
-                    icon: Users,
-                    onClick: () => onNavigateToHR(),
-                  },
-                  {
-                    label: 'حساب أجر القطعة ومستحقات الإنتاج',
-                    icon: Award,
-                    onClick: () => onNavigateToHR(),
-                  },
-                  {
-                    label: 'تسوية وصرف مستحقات حرفي',
-                    icon: Wallet,
-                    onClick: () => onNavigateToHR(),
-                  },
-                  {
-                    label: 'تكليف ومتابعة إنجاز المشغولات',
-                    icon: Hammer,
-                    onClick: () => onNavigateToWorkOrders(),
-                  },
-                ]
-              : [
-                  {
-                    label: 'إضافة موظف / صانع جديد',
-                    icon: UserPlus,
-                    onClick: () => onOpenNewEmployeeModal(),
-                  },
-                  {
-                    label: 'مسير الرواتب والأجور الشهرية',
-                    icon: Wallet,
-                    onClick: () => onNavigateToHR(),
-                  },
-                  {
-                    label: 'السلف والدفعات النقدية المقدمة',
-                    icon: DollarSign,
-                    onClick: () => onNavigateToHR(),
-                  },
-                  {
-                    label: 'سجل الحضور والانضباط',
-                    icon: ClipboardCheck,
-                    onClick: () => onNavigateToHR(),
-                  },
-                ],
-        };
-
-      case 'ai_helpers':
-        return {
-          title: 'مساعدو الشمساوية الذكية',
-          icon: Sparkles,
-          items: [
-            {
-              label: 'استشارة صقر الشمساوية AI',
-              icon: Sparkles,
-              onClick: () => onNavigateToAIAgent(),
-            },
-            {
-              label: 'محادثة شموسة مديرة الأعمال',
-              icon: Sparkles,
-              onClick: () => window.dispatchEvent(new CustomEvent('alshams_open_shamousa')),
-            },
-          ],
-        };
-
-      case 'expenses':
-        return {
-          title: 'المصروفات والمصروفات الإدارية',
-          icon: DollarSign,
-          items: [
-            {
-              label: 'تسجيل مصروف مع تحديد مصدر الصرف',
-              icon: PlusCircle,
-              onClick: () => onOpenAdminCostsModal(),
-            },
-            {
-              label: 'بنود المصروفات والإيجار والفواتير',
-              icon: DollarSign,
-              onClick: () => onOpenAdminCostsModal(),
-            },
-            {
-              label: 'أسعار الصرف اليومية للعملات',
-              icon: Coins,
-              onClick: () => onOpenExchangeRatesModal && onOpenExchangeRatesModal(),
-            },
-            {
-              label: 'الأصول الثابتة وإهلاك المعدات',
-              icon: Building,
-              onClick: () => onNavigateToFixedAssets && onNavigateToFixedAssets(),
-            },
-            {
-              label: 'تحليل وتوزيع المصروفات',
-              icon: BarChart3,
-              onClick: () => onNavigateToReports(),
-            },
-          ],
-        };
-
-      case 'treasuries':
-        return {
-          title: 'الخزائن والعهد المالية',
-          icon: Wallet,
-          items: [
-            {
-              label: 'الخزينة النقدية الرئيسية (الكاش)',
-              icon: Wallet,
-              onClick: () => onNavigateToTreasuries(),
-            },
-            {
-              label: 'إنستاباي والبنك والمحافظ الإلكترونية',
-              icon: Coins,
-              onClick: () => onNavigateToTreasuries(),
-            },
-            {
-              label: 'إدارة العهد المالية المغلقة ومتابعة تسويتها',
-              icon: Lock,
-              onClick: () => onNavigateToTreasuries(),
-            },
-            {
-              label: 'تحويل نقدي بين الخزائن والعهد',
-              icon: ArrowLeftRight,
-              onClick: () => onNavigateToTreasuries(),
-            },
-          ],
-        };
-
-      case 'accounts':
-        return {
-          title: 'الحسابات والدفاتر المالية',
-          icon: Scale,
-          items: [
-            {
-              label: 'دفتر اليومية وسجل الحركات الحية',
-              icon: Receipt,
-              onClick: () => (onNavigateToAccounts ? onNavigateToAccounts() : onNavigateToReports()),
-            },
-            {
-              label: 'صافي الأرباح والخسائر للورشة',
-              icon: TrendingUp,
-              onClick: () => (onNavigateToAccounts ? onNavigateToAccounts() : onNavigateToReports()),
-            },
-            {
-              label: 'كشف مستحقات الورشة والالتزامات',
-              icon: Scale,
-              onClick: () => (onNavigateToAccounts ? onNavigateToAccounts() : onNavigateToReports()),
-            },
-          ],
-        };
-
-      case 'reports':
-        return {
-          title: 'التقارير ولوحة المؤشرات',
-          icon: BarChart3,
-          items: [
-            {
-              label: 'تقارير المبيعات والأرباح',
-              icon: BarChart3,
-              onClick: () => onNavigateToReports(),
-            },
-            {
-              label: 'تقرير المخزون وحركة الخامات',
-              icon: TrendingUp,
-              onClick: () => onNavigateToReports(),
-            },
-            {
-              label: 'تقرير السيولة الحية والتدفقات النقدية',
-              icon: Lock,
-              onClick: () => onNavigateToReports(),
-            },
-          ],
-        };
-
-      case 'my_platform':
-        return {
-          title: 'منصتي',
-          icon: Store,
-          items: [
-            {
-              label: 'الكتالوج',
-              icon: BookOpen,
-              onClick: () => onNavigateToCatalog('catalog'),
-            },
-            {
-              label: 'لوحة التحكم بالمتجر',
-              icon: Store,
-              onClick: () =>
-                onOpenArtisanStore ? onOpenArtisanStore('products') : onNavigateToCatalog('store'),
-            },
-            {
-              label: 'أوردراتي',
-              icon: ShoppingBag,
-              onClick: () =>
-                onOpenArtisanStore ? onOpenArtisanStore('orders') : onNavigateToSales(),
-            },
-            ...(onOpenPersonalProfile
-              ? [
-                  {
-                    label: 'صفحتي الشخصية ومعرضي',
-                    icon: User,
-                    onClick: () => onOpenPersonalProfile(),
-                  },
-                ]
-              : []),
-          ],
-        };
-
+  // Execute any configured artisan actionKey cleanly
+  const executeArtisanAction = (actionKey: string) => {
+    switch (actionKey) {
+      case 'open_executive_brief':
+        if (onNavigateToExecutiveBrief) {
+          onNavigateToExecutiveBrief();
+        } else {
+          window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'executive_brief' } }));
+        }
+        return;
+      case 'modal_new_material':
+        onOpenNewMaterialModal();
+        return;
+      case 'nav_materials':
+        onNavigateToMaterials(false);
+        return;
+      case 'nav_calculator':
+        onNavigateToCalculator();
+        return;
+      case 'modal_inv_products':
+        onOpenInventoryModal('products');
+        return;
+      case 'nav_archive':
+        onNavigateToArchive();
+        return;
+      case 'nav_catalog':
+        onNavigateToCatalog('catalog');
+        return;
+      case 'open_artisan_store_products':
+        if (onOpenArtisanStore) onOpenArtisanStore('products');
+        else onNavigateToCatalog('store');
+        return;
+      case 'open_artisan_store_orders':
+        if (onOpenArtisanStore) onOpenArtisanStore('orders');
+        else onNavigateToSales();
+        return;
+      case 'nav_marketplace':
+        window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'marketplace' } }));
+        return;
+      case 'nav_personal_profile':
+        if (onOpenPersonalProfile) {
+          onOpenPersonalProfile();
+        } else {
+          window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'personal_profile' } }));
+        }
+        return;
+      case 'modal_supplier_invoice':
+        onOpenSupplierInvoice();
+        return;
+      case 'nav_purchases':
+        if (onNavigateToPurchases) onNavigateToPurchases();
+        else onNavigateToSuppliers();
+        return;
+      case 'modal_inv_audit':
+        onOpenInventoryModal('audit');
+        return;
+      case 'nav_suppliers_market':
+        if (onNavigateToSuppliersMarket) onNavigateToSuppliersMarket();
+        else window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'suppliers_market' } }));
+        return;
+      case 'modal_create_supplier':
+        onOpenCreateSupplier();
+        return;
+      case 'nav_suppliers':
+        onNavigateToSuppliers();
+        return;
+      case 'modal_inv_materials':
+        onOpenInventoryModal('materials');
+        return;
+      case 'nav_work_orders_create':
+        onNavigateToWorkOrders('create');
+        return;
+      case 'nav_work_orders_issue':
+        onNavigateToWorkOrders('issue');
+        return;
+      case 'nav_work_orders_receive':
+        onNavigateToWorkOrders('receive');
+        return;
+      case 'nav_work_orders':
+        onNavigateToWorkOrders();
+        return;
+      case 'nav_sales_new':
+        onNavigateToSales('new');
+        return;
+      case 'nav_invoices':
+        onNavigateToInvoices();
+        return;
+      case 'nav_sales':
+        onNavigateToSales();
+        return;
+      case 'nav_invoices_returns':
+        onNavigateToInvoices('returns');
+        return;
+      case 'nav_customers':
+        if (onNavigateToCustomers) onNavigateToCustomers();
+        else onNavigateToSales();
+        return;
+      case 'modal_new_client':
+        onOpenNewClientModal();
+        return;
+      case 'nav_hr':
+        onNavigateToHR();
+        return;
+      case 'modal_new_employee':
+        onOpenNewEmployeeModal();
+        return;
+      case 'modal_admin_costs':
+        onOpenAdminCostsModal();
+        return;
+      case 'modal_exchange_rates':
+        if (onOpenExchangeRatesModal) onOpenExchangeRatesModal();
+        return;
+      case 'nav_fixed_assets':
+        if (onNavigateToFixedAssets) onNavigateToFixedAssets();
+        else window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'fixed_assets' } }));
+        return;
+      case 'nav_treasuries':
+        onNavigateToTreasuries();
+        return;
+      case 'nav_accounts':
+        if (onNavigateToAccounts) onNavigateToAccounts();
+        else onNavigateToReports();
+        return;
+      case 'nav_reports':
+        onNavigateToReports();
+        return;
+      case 'nav_ai_agent':
+        onNavigateToAIAgent();
+        return;
+      case 'open_shamousa':
+        window.dispatchEvent(new CustomEvent('alshams_open_shamousa'));
+        return;
+      case 'nav_family':
+        window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'family' } }));
+        return;
       default:
-        return {
-          title: '',
-          icon: Layers,
-          items: [],
-        };
+        window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: actionKey } }));
     }
   };
 
-  const currentSubHub = activeSubSection ? getSubActions(activeSubSection) : null;
+  const visibleArtisanCards = useMemo<UiHomeCardConfig[]>(() => {
+    return (artisanHomeCfg.cards || []).filter((card) => {
+      if (card.visible === false) return false;
+      if (isAdminUser) return true;
+      if (card.id === 'ai_helpers' && !flags.aiAssistantsEnabled) return false;
+      if (
+        card.id === 'my_platform' &&
+        !flags.artisanStorefrontEnabled &&
+        !flags.artisanMarketplaceEnabled
+      ) {
+        return false;
+      }
+      if (
+        !flags.erpModulesEnabled &&
+        [
+          'purchases',
+          'suppliers',
+          'work_orders',
+          'customers',
+          'workforce',
+          'expenses',
+          'treasuries',
+          'accounts',
+        ].includes(card.id)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [artisanHomeCfg.cards, isAdminUser, flags]);
+
+  const activeDynamicCard = useMemo(() => {
+    if (!activeSubSection) return null;
+    return visibleArtisanCards.find((c) => c.id === activeSubSection) || null;
+  }, [activeSubSection, visibleArtisanCards]);
+
+  const activeCardVisibleItems = useMemo(() => {
+    if (!activeDynamicCard) return [];
+    const base = (activeDynamicCard.items || []).filter((it) => {
+      if (it.visible === false) return false;
+      if (!isAdminUser) {
+        if (it.actionKey === 'nav_calculator' && !flags.craftCalculatorEnabled) return false;
+        if (it.actionKey === 'nav_suppliers_market' && !flags.suppliersMarketplaceEnabled) return false;
+        if (
+          (it.actionKey === 'open_artisan_store_products' || it.actionKey === 'open_artisan_store_orders') &&
+          !flags.artisanStorefrontEnabled
+        ) {
+          return false;
+        }
+      }
+      if (activeDynamicCard.id === 'workforce' && it.subGroup) {
+        return it.subGroup === workforceTab;
+      }
+      return true;
+    });
+    return base;
+  }, [activeDynamicCard, isAdminUser, flags, workforceTab]);
+
+  const gridClassName = useMemo(() => {
+    const mob = artisanHomeCfg.columnsMobile === 2 ? 'grid-cols-2' : 'grid-cols-3';
+    const desk =
+      artisanHomeCfg.columnsDesktop === 3
+        ? 'sm:grid-cols-3 md:grid-cols-3'
+        : artisanHomeCfg.columnsDesktop === 4
+        ? 'sm:grid-cols-4 md:grid-cols-4'
+        : 'sm:grid-cols-5 md:grid-cols-5';
+    return `grid ${mob} ${desk} gap-2 sm:gap-3`;
+  }, [artisanHomeCfg.columnsDesktop, artisanHomeCfg.columnsMobile]);
+
+  const activeCardIconComp = activeDynamicCard ? getUiIcon(activeDynamicCard.iconKey) : Layers;
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200">
@@ -1230,19 +866,19 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         </div>
       )}
 
-      {/* Sub-Screen View (Opens when a card is clicked) */}
-      {activeSubSection && currentSubHub ? (
+      {/* Sub-Screen View (Opens when a multi-button card is clicked) */}
+      {activeDynamicCard ? (
         <div className="p-4 sm:p-6 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#D4CCBC] dark:border-[#22355E] shadow-md space-y-4 animate-in slide-in-from-right-3 duration-200">
           {/* Sub-Hub Top Bar */}
           <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-[#E9E2D4] to-[#F5DFC6] dark:from-[#1A2B54] dark:to-[#132040] text-[#C2410C] dark:text-amber-300 border border-[#EA580C]/25 flex items-center justify-center shadow-xs">
-                <currentSubHub.icon className="w-4 h-4" />
+                {React.createElement(activeCardIconComp, { className: 'w-4 h-4' })}
               </div>
               <div>
                 <span className="text-[10px] text-[#475569] dark:text-[#CBD5E1] font-bold block">{tr('section_management')}</span>
                 <h2 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                  {currentSubHub.title}
+                  {activeDynamicCard.label}
                 </h2>
               </div>
             </div>
@@ -1259,7 +895,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           </div>
 
           {/* Workforce Tabs Switcher (صناع بالقطعة vs موظفون ورواتب) */}
-          {(currentSubHub as any).isWorkforce && (
+          {activeDynamicCard.id === 'workforce' && (
             <div className="flex items-center gap-2 bg-[#E9E2D4] dark:bg-[#132040] p-1.5 rounded-2xl w-full max-w-xl mx-auto border border-[#D4CCBC] dark:border-[#22355E]">
               <button
                 type="button"
@@ -1286,17 +922,17 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             </div>
           )}
 
-          {/* Sub-Action Buttons Grid: Same style (Icon + Short Word) */}
+          {/* Sub-Action Buttons Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5 pt-1">
-            {currentSubHub.items.map((sub, idx) => {
-              const SubIcon = sub.icon;
-              const isFalcon = sub.label.includes('صقر');
-              const isShamousa = sub.label.includes('شموسة');
+            {activeCardVisibleItems.map((sub) => {
+              const SubIcon = getUiIcon(sub.iconKey);
+              const isFalcon = sub.actionKey === 'nav_ai_agent' || sub.label.includes('صقر');
+              const isShamousa = sub.actionKey === 'open_shamousa' || sub.label.includes('شموسة');
               return (
                 <button
-                  key={idx}
+                  key={sub.id}
                   type="button"
-                  onClick={sub.onClick}
+                  onClick={() => executeArtisanAction(sub.actionKey)}
                   className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-b from-[#F7F3EA] to-[#E9E2D4] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] transition-all flex flex-col items-center justify-center gap-2 cursor-pointer group text-center min-h-[90px]"
                 >
                   <div className="w-9 h-9 rounded-xl bg-transparent text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-none group-hover:scale-110 transition-transform overflow-hidden p-0.5">
@@ -1307,7 +943,11 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                         <ShamousaMascotAvatar size="sm" statusDot={false} className="w-full h-full" />
                       </div>
                     ) : (
-                      <div className="w-8 h-8 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-2xs p-0.5 border border-[#D4CCBC] dark:border-[#22355E]">
+                      <div
+                        className={`w-8 h-8 ${
+                          artisanHomeCfg.iconShape === 'circle' ? 'rounded-full' : 'rounded-xl'
+                        } bg-[#F7F3EA] dark:bg-[#0D162E] text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-2xs p-0.5 border border-[#D4CCBC] dark:border-[#22355E]`}
+                      >
                         <SubIcon className="w-4 h-4" />
                       </div>
                     )}
@@ -1322,71 +962,63 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         </div>
       ) : (
         <>
+          {/* 2. شبكة البطاقات التشغيلية الديناميكية (تُضبط من هندسة الواجهات) */}
+          <div className={gridClassName}>
+            {visibleArtisanCards.map((card) => {
+              const Icon = getUiIcon(card.iconKey);
+              const preset = getUiColorPreset(card.colorPreset);
+              const isWideShape = artisanHomeCfg.cardShape === 'wide';
+              const isCompactShape = artisanHomeCfg.cardShape === 'compact';
+              const iconRadiusClass = artisanHomeCfg.iconShape === 'circle' ? 'rounded-full' : 'rounded-2xl';
+              const visibleItemsCount = card.items.filter((it) => it.visible !== false).length;
 
-
-
-          {/* 2. شبكة البطاقات التشغيلية الموحدة للورشة (15 بطاقة) */}
-          <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-5 gap-2 sm:gap-3">
-            {coreCards
-              .filter((card) => {
-                if (isAdminUser) return true;
-                if (card.id === 'ai_helpers' && !flags.aiAssistantsEnabled) return false;
-                if (
-                  card.id === 'my_platform' &&
-                  !flags.artisanStorefrontEnabled &&
-                  !flags.artisanMarketplaceEnabled
-                ) {
-                  return false;
-                }
-                if (
-                  !flags.erpModulesEnabled &&
-                  [
-                    'purchases',
-                    'suppliers',
-                    'work_orders',
-                    'customers',
-                    'workforce',
-                    'expenses',
-                    'treasuries',
-                    'accounts',
-                  ].includes(card.id)
-                ) {
-                  return false;
-                }
-                return true;
-              })
-              .map((card) => {
-              const Icon = card.icon;
               return (
                 <button
                   key={card.id}
                   type="button"
                   onClick={() => {
-                    if (card.id === 'executive_brief') {
-                      if (onNavigateToExecutiveBrief) {
-                        onNavigateToExecutiveBrief();
-                      } else {
-                        window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'executive_brief' } }));
-                      }
+                    if (visibleItemsCount === 0 && card.directActionKey) {
+                      executeArtisanAction(card.directActionKey);
                       return;
+                    }
+                    if (visibleItemsCount === 1) {
+                      const onlyItem = card.items.find((it) => it.visible !== false);
+                      if (onlyItem) {
+                        executeArtisanAction(onlyItem.actionKey);
+                        return;
+                      }
                     }
                     setActiveSubSection(card.id);
                   }}
-                  className="p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#F7F3EA] to-[#EFE9DC] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] hover:shadow-md transition-all duration-200 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 cursor-pointer group min-h-[82px] sm:min-h-[100px]"
+                  className={`rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#F7F3EA] to-[#EFE9DC] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] hover:shadow-md transition-all duration-200 cursor-pointer group ${
+                    isWideShape
+                      ? 'p-3 sm:p-4 flex items-center gap-2.5 text-right min-h-[78px] sm:min-h-[88px]'
+                      : isCompactShape
+                      ? 'p-2 sm:p-3 flex flex-col items-center justify-center text-center gap-1 min-h-[70px] sm:min-h-[82px]'
+                      : 'p-2.5 sm:p-4 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 min-h-[82px] sm:min-h-[100px]'
+                  }`}
                 >
                   <div
-                    className={`w-9 h-9 sm:w-11 sm:h-11 rounded-2xl ${card.bgColor} ${card.color} border border-[#D4CCBC]/70 dark:border-[#22355E] flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform`}
+                    className={`${
+                      isCompactShape ? 'w-8 h-8 sm:w-9 sm:h-9' : 'w-9 h-9 sm:w-11 sm:h-11'
+                    } ${iconRadiusClass} ${preset.bgColor} ${preset.color} border ${preset.borderColor} flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform shrink-0`}
                   >
                     <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                   </div>
-                  <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] tracking-tight block leading-tight">
-                    {card.label}
-                  </span>
+                  <div className="min-w-0">
+                    <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] tracking-tight block leading-tight">
+                      {card.label}
+                    </span>
+                    {isWideShape && card.subtitle && (
+                      <span className="text-[10px] text-[#64748B] dark:text-[#94A3B8] font-bold block mt-0.5 line-clamp-1">
+                        {card.subtitle}
+                      </span>
+                    )}
+                  </div>
                 </button>
               );
             })}
           </div>
-
         </>
       )}
 

@@ -18,11 +18,13 @@ import {
   Truck,
   Users,
   Wallet,
+  MessageCircle,
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import {
   ArtisanExecutiveBrief,
   buildArtisanExecutiveBrief,
+  buildPoliteCollectionWhatsAppUrl,
 } from '../../services/executiveBriefService';
 import { extractUserFirstName } from '../ai/ShamousaChatWidget';
 
@@ -289,13 +291,31 @@ export const ArtisanExecutiveBriefView: React.FC<ArtisanExecutiveBriefViewProps>
                             )}
 
                             {d.phone && (
-                              <a
-                                href={`tel:${d.phone}`}
-                                className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 dark:text-emerald-300 hover:underline pt-0.5"
-                              >
-                                <PhoneCall className="w-3 h-3" />
-                                <span>كلم {d.name}: {d.phone}</span>
-                              </a>
+                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                                <a
+                                  href={`tel:${d.phone}`}
+                                  className="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 dark:text-emerald-300 hover:underline"
+                                >
+                                  <PhoneCall className="w-3 h-3" />
+                                  <span>اتصال: {d.phone}</span>
+                                </a>
+                                <a
+                                  href={buildPoliteCollectionWhatsAppUrl(
+                                    d.phone,
+                                    d.name,
+                                    d.totalOwed,
+                                    currency,
+                                    profile.brandName || 'ورشتنا',
+                                    d.daysOverdue
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black transition"
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                  <span>تذكير لطيف بالواتساب</span>
+                                </a>
+                              </div>
                             )}
                           </div>
                         ))}

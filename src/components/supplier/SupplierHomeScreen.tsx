@@ -18,26 +18,23 @@ import { SupplierErpOverview } from '../../types/supplierErp';
 import { useFeatureFlags } from '../../types/featureFlags';
 import { isUserAdmin } from '../../types';
 import {
-  Boxes,
-  Store,
-  Package,
-  Users,
-  Wallet,
-  Copy,
-  Check,
-  QrCode,
+  getUiColorPreset,
+  getUiIcon,
+  UiHomeCardConfig,
+  useUiLayoutConfig,
+} from '../../types/uiLayoutConfig';
+import {
   AlertTriangle,
-  TrendingUp,
   ArrowLeft,
-  Truck,
-  User,
-  GitBranch,
-  ShoppingCart,
-  Warehouse,
-  MonitorSmartphone,
+  ArrowRight,
+  Check,
   Clock,
+  Copy,
   ExternalLink,
+  QrCode,
   ShoppingBag,
+  TrendingUp,
+  Truck,
 } from 'lucide-react';
 
 interface SupplierHomeScreenProps {
@@ -51,6 +48,7 @@ interface SupplierHomeScreenProps {
   onNavigateToPos?: () => void;
   onNavigateToWarehouseErp?: () => void;
   onNavigateToHrTerminal?: () => void;
+  onNavigateToExecutiveBrief?: () => void;
   onNavigateToFamily?: () => void;
   onNavigateToPersonalProfile?: () => void;
   onNavigateToSuppliersMarket?: () => void;
@@ -68,12 +66,15 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   onNavigateToPos,
   onNavigateToWarehouseErp,
   onNavigateToHrTerminal,
+  onNavigateToExecutiveBrief,
   onNavigateToFamily,
   onNavigateToPersonalProfile,
   onNavigateToSuppliersMarket,
   onPreviewPublicStore,
 }) => {
   const flags = useFeatureFlags();
+  const uiLayout = useUiLayoutConfig();
+  const homeCfg = uiLayout.supplier.home;
   const showErpModules = isUserAdmin(profile) || flags.supplierErpEnabled !== false;
   const [catalog, setCatalog] = useState<SupplierCatalogItem[]>([]);
   const [orders, setOrders] = useState<B2BSupplyOrder[]>([]);
@@ -82,6 +83,7 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   const [erpOverview, setErpOverview] = useState<SupplierErpOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [activeSubCard, setActiveSubCard] = useState<UiHomeCardConfig | null>(null);
 
   const currencySymbol = profile.currencySymbol || 'ج.م';
   const slug = profile.storeSlug || profile.store_slug || profile.id;
@@ -147,131 +149,131 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
       .join(' • ');
   }, [profile.supplySections]);
 
-  const hubCards = [
-    ...(showErpModules && onNavigateToErpHub
-      ? [
-          {
-            id: 'erp_hub',
-            title: 'مركز قيادة الفروع والخزينة (ERP)',
-            desc: 'شجرة الفروع والمخزن المركزي، الموافقات المالية، واستلام توريدات الفروع',
-            stat: `${erpOverview?.branches?.length || 1} فرع نشط`,
-            icon: GitBranch,
-            accent: 'text-[#EA580C]',
-            onClick: onNavigateToErpHub,
-          },
-        ]
-      : []),
-    ...(showErpModules && onNavigateToPos
-      ? [
-          {
-            id: 'pos_cashier',
-            title: 'كاشير نقاط البيع (POS)',
-            desc: 'بيع بالوزن أو الوحدة بالكسور، عميل فرع أو أونلاين، وكاش أو إنستاباي أو آجل',
-            stat: erpOverview ? `اليوم: ${erpOverview.kpis.todayPosOrdersCount} فاتورة` : 'فتح الكاشير',
-            icon: ShoppingCart,
-            accent: 'text-emerald-700 dark:text-emerald-300',
-            onClick: onNavigateToPos,
-          },
-        ]
-      : []),
-    ...(showErpModules && onNavigateToWarehouseErp
-      ? [
-          {
-            id: 'warehouse_erp',
-            title: 'المخازن وكارت الصنف والمصانع',
-            desc: 'جرد بدون صور، تحويل وحدة (طرد ← كيلو)، كارت الصنف، ومستحقات المصانع',
-            stat: erpOverview ? `${Number(erpOverview.kpis.totalStockValuation).toLocaleString()} ${currencySymbol}` : 'جرد المخازن',
-            icon: Warehouse,
-            accent: 'text-sky-700 dark:text-sky-300',
-            onClick: onNavigateToWarehouseErp,
-          },
-        ]
-      : []),
-    ...(showErpModules && onNavigateToHrTerminal
-      ? [
-          {
-            id: 'hr_terminal',
-            title: 'شؤون العاملين وتثبيت الأجهزة (HR)',
-            desc: 'حسابات الموظفين، الحضور والجزاءات والسلف، وتثبيت الشاشات على أجهزة الفروع',
-            stat: 'Kiosk & HR',
-            icon: MonitorSmartphone,
-            accent: 'text-amber-700 dark:text-amber-300',
-            onClick: onNavigateToHrTerminal,
-          },
-        ]
-      : []),
-    {
-      id: 'catalog',
-      title: 'كتالوج الخامات والمخزون',
-      desc: 'إضافة الخامات، أسعار الجملة والقطاعي، الألوان والسمك، والمخزون',
-      stat: `${catalog.length} خامة`,
-      icon: Boxes,
-      accent: 'text-[#C2410C] dark:text-amber-300',
-      onClick: onNavigateToCatalog,
-    },
-    {
-      id: 'orders',
-      title: 'أوردراتي وطلبات التوريد',
-      desc: 'فلترة متجري / موردين الشمساوية / خارج المنظومة + تسجيل أوردر يدوي',
-      stat: `${orders.length} طلب`,
-      icon: Package,
-      accent: 'text-sky-700 dark:text-sky-300',
-      onClick: onNavigateToOrders,
-    },
-    {
-      id: 'storefront',
-      title: 'لوحة تحكم متجر المورد',
-      desc: 'المظهر، رابط المتجر، رمز QR، كوبونات الخصم، وإعدادات الواتساب',
-      stat: 'متجرك الإلكتروني',
-      icon: Store,
-      accent: 'text-emerald-700 dark:text-emerald-300',
-      onClick: onOpenStorefrontModal,
-    },
-    {
-      id: 'customers',
-      title: 'عملائي (الورش والأفراد)',
-      desc: 'دليل العملاء الكامل مع الفلتر والبحث بالاسم أو الهاتف أو المحافظة',
-      stat: `${customers.length} عميل`,
-      icon: Users,
-      accent: 'text-indigo-700 dark:text-indigo-300',
-      onClick: onNavigateToCustomers,
-    },
-    {
-      id: 'finance',
-      title: 'الخزائن والمصروفات والتدفقات',
-      desc: 'متابعة أرصدة الخزائن، الإيداعات، والمصروفات التشغيلية للمخزن',
-      stat: `${totalTreasuryBalance.toLocaleString()} ${currencySymbol}`,
-      icon: Wallet,
-      accent: 'text-amber-700 dark:text-amber-300',
-      onClick: onNavigateToFinance,
-    },
-    ...(onNavigateToPersonalProfile
-      ? [
-          {
-            id: 'personal_profile',
-            title: 'صفحتي الشخصية ومعرض أعمالي',
-            desc: 'صورتك الشخصية، قصتك، أذونات الظهور، و٦ منشورات لأعمالك المميزة',
-            stat: '٦ منشورات وقصتي',
-            icon: User,
-            accent: 'text-[#C2410C] dark:text-amber-300',
-            onClick: onNavigateToPersonalProfile,
-          },
-        ]
-      : []),
-    ...(onNavigateToFamily
-      ? [
-          {
-            id: 'family',
-            title: 'مجتمع عيلة الشمساوية',
-            desc: 'شارك في طبلية العيلة مع الفنانين، انشر عروضك، واستقبل رسائل الورش',
-            stat: 'فنانين وموردين',
-            icon: Users,
-            accent: 'text-rose-700 dark:text-rose-300',
-            onClick: onNavigateToFamily,
-          },
-        ]
-      : []),
-  ];
+  const executeSupplierAction = (actionKey?: string) => {
+    switch (actionKey) {
+      case 'sup_executive_brief':
+        onNavigateToExecutiveBrief?.();
+        break;
+      case 'sup_erp_hub':
+        onNavigateToErpHub?.();
+        break;
+      case 'sup_pos':
+        onNavigateToPos?.();
+        break;
+      case 'sup_warehouse_erp':
+        onNavigateToWarehouseErp?.();
+        break;
+      case 'sup_hr_terminal':
+        onNavigateToHrTerminal?.();
+        break;
+      case 'sup_catalog':
+        onNavigateToCatalog();
+        break;
+      case 'sup_orders':
+        onNavigateToOrders();
+        break;
+      case 'sup_storefront':
+        onOpenStorefrontModal();
+        break;
+      case 'sup_customers':
+        onNavigateToCustomers();
+        break;
+      case 'sup_finance':
+        onNavigateToFinance();
+        break;
+      case 'sup_personal_profile':
+        onNavigateToPersonalProfile?.();
+        break;
+      case 'sup_family':
+        onNavigateToFamily?.();
+        break;
+      case 'sup_market':
+        onNavigateToSuppliersMarket?.();
+        break;
+      default:
+        break;
+    }
+  };
+
+  const getDynamicStat = (card: UiHomeCardConfig): string => {
+    const key = card.directActionKey || card.id;
+    switch (key) {
+      case 'sup_executive_brief':
+      case 'supplier_executive_brief':
+        return erpOverview
+          ? `${Number(erpOverview.kpis.totalCashOnHand).toLocaleString()} ${currencySymbol}`
+          : 'ملخص فوري';
+      case 'sup_erp_hub':
+      case 'erp_hub':
+        return `${erpOverview?.branches?.length || 1} فرع نشط`;
+      case 'sup_pos':
+      case 'pos_cashier':
+        return erpOverview ? `اليوم: ${erpOverview.kpis.todayPosOrdersCount} فاتورة` : 'فتح الكاشير';
+      case 'sup_warehouse_erp':
+      case 'warehouse_erp':
+        return erpOverview
+          ? `${Number(erpOverview.kpis.totalStockValuation).toLocaleString()} ${currencySymbol}`
+          : 'جرد المخازن';
+      case 'sup_hr_terminal':
+      case 'hr_terminal':
+        return 'Kiosk & HR';
+      case 'sup_catalog':
+      case 'catalog':
+        return `${catalog.length} خامة`;
+      case 'sup_orders':
+      case 'orders':
+        return `${orders.length} طلب`;
+      case 'sup_storefront':
+      case 'storefront':
+        return 'متجرك الإلكتروني';
+      case 'sup_customers':
+      case 'customers':
+        return `${customers.length} عميل`;
+      case 'sup_finance':
+      case 'finance':
+        return `${totalTreasuryBalance.toLocaleString()} ${currencySymbol}`;
+      case 'sup_personal_profile':
+      case 'personal_profile':
+        return '٦ منشورات وقصتي';
+      case 'sup_family':
+      case 'family':
+        return 'فنانين وموردين';
+      default:
+        return card.items.length > 0 ? `${card.items.filter((i) => i.visible).length} أدوات` : 'قسم مخصص';
+    }
+  };
+
+  const visibleCards = useMemo(() => {
+    return homeCfg.cards.filter((card) => {
+      if (!card.visible) return false;
+      if (!showErpModules && ['erp_hub', 'pos_cashier', 'warehouse_erp', 'hr_terminal'].includes(card.id)) {
+        return false;
+      }
+      if (card.directActionKey === 'sup_personal_profile' && !onNavigateToPersonalProfile) return false;
+      if (card.directActionKey === 'sup_family' && !onNavigateToFamily) return false;
+      if (card.directActionKey === 'sup_executive_brief' && !onNavigateToExecutiveBrief) return false;
+      return true;
+    });
+  }, [
+    homeCfg.cards,
+    showErpModules,
+    onNavigateToPersonalProfile,
+    onNavigateToFamily,
+    onNavigateToExecutiveBrief,
+  ]);
+
+  const gridColsClass = useMemo(() => {
+    const mob = homeCfg.columnsMobile === 3 ? 'grid-cols-3' : 'grid-cols-2';
+    const dsk =
+      homeCfg.columnsDesktop === 5
+        ? 'lg:grid-cols-5'
+        : homeCfg.columnsDesktop === 4
+        ? 'lg:grid-cols-4'
+        : 'lg:grid-cols-3';
+    return `grid ${mob} md:grid-cols-3 ${dsk} gap-3`;
+  }, [homeCfg.columnsDesktop, homeCfg.columnsMobile]);
+
+  const iconShapeClass = homeCfg.iconShape === 'circle' ? 'rounded-full' : 'rounded-2xl';
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-7 space-y-6 text-right" dir="rtl">
@@ -324,61 +326,152 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
         </div>
       </section>
 
-      {/* Main Action Hub Grid FIRST — matching WorkshopHomeScreen visual hierarchy */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
-            أدوات إدارة متجر المورد
-          </h2>
-          {showErpModules && erpOverview && erpOverview.pendingTransfers.length > 0 && onNavigateToErpHub && (
+      {/* Sub-Card View (when a supplier card contains moved/custom internal buttons) */}
+      {activeSubCard ? (
+        <section className="rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#D4CCBC] dark:border-[#22355E] p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-10 h-10 ${iconShapeClass} bg-[#EFE9DC] dark:bg-[#132040] text-[#EA580C] flex items-center justify-center border border-[#D4CCBC]`}>
+                {React.createElement(getUiIcon(activeSubCard.iconKey), { className: 'w-5 h-5' })}
+              </div>
+              <div>
+                <h2 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                  {activeSubCard.label}
+                </h2>
+                {activeSubCard.subtitle && (
+                  <p className="text-xs text-[#475569] dark:text-[#94A3B8]">{activeSubCard.subtitle}</p>
+                )}
+              </div>
+            </div>
             <button
               type="button"
-              onClick={onNavigateToErpHub}
-              className="px-3.5 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black flex items-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
+              onClick={() => setActiveSubCard(null)}
+              className="px-3.5 py-2 rounded-xl bg-[#FFEAD5] text-[#9A3412] text-xs font-black flex items-center gap-1.5 cursor-pointer"
             >
-              <Clock className="w-3.5 h-3.5" />
-              <span>{erpOverview.pendingTransfers.length} توريد بانتظار تأكيد الاستلام</span>
+              <ArrowRight className="w-4 h-4" />
+              <span>رجوع للبطاقات</span>
             </button>
-          )}
-        </div>
+          </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-          {hubCards.map((card) => {
-            const Icon = card.icon;
-            return (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {activeSubCard.items
+              .filter((b) => b.visible)
+              .map((btn) => {
+                const BtnIcon = getUiIcon(btn.iconKey);
+                return (
+                  <button
+                    key={btn.id}
+                    type="button"
+                    onClick={() => executeSupplierAction(btn.actionKey)}
+                    className="p-4 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] flex flex-col items-center justify-center gap-2 text-center cursor-pointer"
+                  >
+                    <div className={`w-9 h-9 ${iconShapeClass} bg-[#F7F3EA] dark:bg-[#0D162E] text-[#EA580C] flex items-center justify-center border border-[#D4CCBC]`}>
+                      <BtnIcon className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">{btn.label}</span>
+                  </button>
+                );
+              })}
+          </div>
+        </section>
+      ) : (
+        /* Main Action Hub Grid — Driven Dynamically by UI Layout Studio */
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
+              أدوات إدارة متجر المورد
+            </h2>
+            {showErpModules && erpOverview && erpOverview.pendingTransfers.length > 0 && onNavigateToErpHub && (
               <button
-                key={card.id}
                 type="button"
-                onClick={card.onClick}
-                className="group text-right rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] p-5 transition flex flex-col justify-between gap-4 cursor-pointer"
+                onClick={onNavigateToErpHub}
+                className="px-3.5 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black flex items-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shrink-0">
-                    <Icon className={`w-5 h-5 ${card.accent}`} />
-                  </div>
-                  <span className="text-xs font-black text-[#0C1427] dark:text-amber-300 font-mono tabular-nums">
-                    {card.stat}
-                  </span>
-                </div>
-
-                <div className="space-y-1">
-                  <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-amber-300 transition">
-                    {card.title}
-                  </h3>
-                  <p className="text-xs text-[#475569] dark:text-[#94A3B8] leading-relaxed">
-                    {card.desc}
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-end text-[11px] font-black text-[#C2410C] dark:text-amber-300 gap-1 pt-2 border-t border-[#D4CCBC]/70 dark:border-[#22355E]/70">
-                  <span>فتح القسم</span>
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                </div>
+                <Clock className="w-3.5 h-3.5" />
+                <span>{erpOverview.pendingTransfers.length} توريد بانتظار تأكيد الاستلام</span>
               </button>
-            );
-          })}
-        </div>
-      </section>
+            )}
+          </div>
+
+          <div className={gridColsClass}>
+            {visibleCards.map((card) => {
+              const Icon = getUiIcon(card.iconKey);
+              const preset = getUiColorPreset(card.colorPreset);
+              const hasSubButtons = card.items.some((i) => i.visible);
+              const statLabel = getDynamicStat(card);
+
+              const handleCardClick = () => {
+                if (hasSubButtons) {
+                  setActiveSubCard(card);
+                } else {
+                  executeSupplierAction(card.directActionKey);
+                }
+              };
+
+              if (homeCfg.cardShape === 'compact' || homeCfg.cardShape === 'classic') {
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={handleCardClick}
+                    className={`group rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] transition flex flex-col items-center justify-center text-center cursor-pointer ${
+                      homeCfg.cardShape === 'compact' ? 'p-3 gap-1.5 min-h-[90px]' : 'p-4 gap-2 min-h-[112px]'
+                    }`}
+                  >
+                    <div
+                      className={`w-10 h-10 ${iconShapeClass} ${preset.bgColor} ${preset.color} border ${preset.borderColor} flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform`}
+                    >
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-amber-300 leading-tight">
+                      {card.label}
+                    </h3>
+                    <span className="text-[11px] font-black text-[#C2410C] dark:text-amber-300 font-mono tabular-nums">
+                      {statLabel}
+                    </span>
+                  </button>
+                );
+              }
+
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={handleCardClick}
+                  className="group text-right rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] p-5 transition flex flex-col justify-between gap-4 cursor-pointer"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div
+                      className={`w-11 h-11 ${iconShapeClass} ${preset.bgColor} ${preset.color} border ${preset.borderColor} flex items-center justify-center shrink-0`}
+                    >
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-black text-[#0C1427] dark:text-amber-300 font-mono tabular-nums">
+                      {statLabel}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-amber-300 transition">
+                      {card.label}
+                    </h3>
+                    {card.subtitle && (
+                      <p className="text-xs text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+                        {card.subtitle}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-end text-[11px] font-black text-[#C2410C] dark:text-amber-300 gap-1 pt-2 border-t border-[#D4CCBC]/70 dark:border-[#22355E]/70">
+                    <span>{hasSubButtons ? 'عرض الأدوات' : 'فتح القسم'}</span>
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Financial & Operational Summaries BELOW Cards (No charts on Home) */}
       {showErpModules && erpOverview && (
