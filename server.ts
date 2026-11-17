@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
+import compression from 'compression';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import fs from 'fs';
@@ -298,6 +299,17 @@ const PORT = 3000;
 const HOST = '0.0.0.0';
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Enable gzip compression for fast JSON, HTML, and bundle delivery
+app.use(
+  compression({
+    threshold: 1024,
+    filter: (req, res) => {
+      if (req.headers.accept === 'text/event-stream') return false;
+      return compression.filter(req, res);
+    },
+  })
+);
+
 // Body parsers with appropriate limits
 app.use(express.json({ limit: '35mb' }));
 app.use(express.urlencoded({ extended: true, limit: '35mb' }));
@@ -321,6 +333,65 @@ export const supabaseAdminClient = createClient(supabaseServerUrl, supabaseServi
     persistSession: false,
   },
 });
+
+// Performance caches (JWT verification, platform settings, decoded media)
+const verifiedJwtCache = new Map<string, { user: any; expiresAt: number }>();
+let platformSettingsCache: { data: any; ts: number } | null = null;
+const PLATFORM_SETTINGS_TTL_MS = 60_000;
+const decodedMediaCache = new Map<string, { contentType: string; buf: Buffer; ts: number }>();
+const MEDIA_CACHE_TTL_MS = 5 * 60_000;
+
+function cacheMediaEntry(key: string, contentType: string, buf: Buffer) {
+  if (decodedMediaCache.size >= 100) {
+    const firstKey = decodedMediaCache.keys().next().value;
+    if (firstKey) decodedMediaCache.delete(firstKey);
+  }
+  decodedMediaCache.set(key, { contentType, buf, ts: Date.now() });
+}
+
+function serveMediaDataUriOrRedirect(
+  cacheKey: string,
+  rawMedia: string | null | undefined,
+  res: Response
+): void {
+  const cached = decodedMediaCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < MEDIA_CACHE_TTL_MS) {
+    res.setHeader('Content-Type', cached.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(cached.buf);
+    return;
+  }
+
+  const val = typeof rawMedia === 'string' ? rawMedia.trim() : '';
+  if (val.startsWith('data:image/')) {
+    const match = val.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/s);
+    if (match) {
+      try {
+        const buf = Buffer.from(match[2], 'base64');
+        cacheMediaEntry(cacheKey, match[1], buf);
+        res.setHeader('Content-Type', match[1]);
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.send(buf);
+        return;
+      } catch {}
+    }
+  }
+  if (val && !val.startsWith('data:')) {
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.redirect(val);
+    return;
+  }
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.redirect('/alshams_falcon_emblem.png');
+}
+
+function slimImageUrl(raw: string | null | undefined, fallbackProxyUrl: string): string | null {
+  if (!raw || typeof raw !== 'string') return raw || null;
+  if (raw.length > 4096 || raw.startsWith('data:')) {
+    return fallbackProxyUrl;
+  }
+  return raw;
+}
 
 // Rate Limits
 const FALCON_DAILY_LIMIT = Number(process.env.FALCON_DAILY_LIMIT) || 20;
@@ -397,7 +468,24 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     try {
-      const { data: { user }, error } = await supabaseAuthClient.auth.getUser(token);
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const cached = verifiedJwtCache.get(tokenHash);
+      let user: any = null;
+      let error: any = null;
+      if (cached && Date.now() < cached.expiresAt) {
+        user = cached.user;
+      } else {
+        const authRes = await supabaseAuthClient.auth.getUser(token);
+        user = authRes.data?.user || null;
+        error = authRes.error;
+        if (!error && user) {
+          if (verifiedJwtCache.size >= 250) {
+            const firstKey = verifiedJwtCache.keys().next().value;
+            if (firstKey) verifiedJwtCache.delete(firstKey);
+          }
+          verifiedJwtCache.set(tokenHash, { user, expiresAt: Date.now() + 45_000 });
+        }
+      }
       if (!error && user) {
         req.user = user;
         const userEmail = user.email || (user.user_metadata?.email as string) || devEmail || '';
@@ -529,9 +617,11 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
     let dbProfiles: any[] = [];
 
     try {
+      const workshopLightCols =
+        'id, owner_id, owner_uid, brand_name, artist_name, email, phone, phone_number, country, currency, currency_symbol, calling_code, selected_crafts, default_vat_percent, role, status, is_frozen, frozen_reason, suspended_reason, suspension_reason, suspension_duration, suspended_until, appeal_status, appeal_message, rejection_reason, appeal_submitted_at, rating_stars, medal, medal_note, medal_awarded_at, store_slug, hide_storefront, hide_from_market, logo_url, created_at, updated_at, created_by';
       const [wsRes, profRes] = await Promise.all([
-        client.from('workshops').select('*').order('created_at', { ascending: false }),
-        client.from('profiles').select('*'),
+        client.from('workshops').select(workshopLightCols).order('created_at', { ascending: false }),
+        client.from('profiles').select('id, email, workshop_id, artist_name, full_name, name, brand_name, phone_number, phone, status, suspended_until, appeal_status, rejection_reason, country, currency, currency_symbol, selected_crafts, role, created_at, updated_at'),
       ]);
 
       if (!wsRes.error && Array.isArray(wsRes.data) && wsRes.data.length > 0) {
@@ -726,10 +816,10 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
 
     try {
       const [pRows, mpRows, oRows, moRows] = await Promise.all([
-        client.from('products').select('workshop_id, updated_at').limit(5000),
-        client.from('marketplace_products').select('workshop_id, updated_at').limit(5000),
-        client.from('orders').select('workshop_id, updated_at').limit(5000),
-        client.from('marketplace_orders').select('workshop_id, updated_at').limit(5000),
+        client.from('products').select('workshop_id, updated_at').limit(2000),
+        client.from('marketplace_products').select('workshop_id, updated_at').limit(2000),
+        client.from('orders').select('workshop_id, updated_at').limit(2000),
+        client.from('marketplace_orders').select('workshop_id, updated_at').limit(2000),
       ]);
 
       (pRows.data || []).forEach((r: any) => {
@@ -767,8 +857,15 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
         w.updatedAt || (w.updated_at ? new Date(w.updated_at).getTime() : 0),
         latestActivityTs.get(wid) || 0
       );
+      const { settings: _omitSettings, logo_data: _omitLogoData, logoBase64: _omitLogoB64, ...slimWs } = w;
+      const safeLogoUrl = slimImageUrl(
+        w.logo_url || w.logoUrl,
+        `/api/media/workshop-logo/${encodeURIComponent(wid)}`
+      );
       return {
-        ...w,
+        ...slimWs,
+        logo_url: safeLogoUrl,
+        logoUrl: safeLogoUrl,
         hide_storefront: Boolean(w.hide_storefront ?? w.hideStorefront),
         hideStorefront: Boolean(w.hide_storefront ?? w.hideStorefront),
         hide_from_market: Boolean(w.hide_from_market ?? w.hideFromMarket),
@@ -4537,6 +4634,77 @@ function isWorkshopBlocked(ws: any): boolean {
   return st === 'banned' || st === 'suspended' || Boolean(ws.is_frozen || ws.isFrozen);
 }
 
+// Media proxy endpoints for heavy base64 assets (offloads multi-MB data URIs from list APIs)
+app.get('/api/media/workshop-logo/:id', async (req: Request, res: Response) => {
+  const wid = req.params.id;
+  const cacheKey = `ws_logo_${wid}`;
+  const cached = decodedMediaCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < MEDIA_CACHE_TTL_MS) {
+    res.setHeader('Content-Type', cached.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(cached.buf);
+    return;
+  }
+
+  let rawMedia: string | null = null;
+  const localWs = loadPersistentWorkshops().find((w: any) => w.id === wid || w.workshopId === wid);
+  if (localWs) {
+    rawMedia = localWs.logo_data || localWs.logo_url || localWs.logoUrl || localWs.logoBase64 || null;
+  }
+  if (!rawMedia) {
+    try {
+      const { data } = await supabaseAdminClient
+        .from('workshops')
+        .select('logo_data, logo_url')
+        .eq('id', wid)
+        .maybeSingle();
+      if (data) {
+        rawMedia = data.logo_data || data.logo_url || null;
+      }
+    } catch {}
+  }
+  serveMediaDataUriOrRedirect(cacheKey, rawMedia, res);
+});
+
+app.get('/api/media/marketplace-product/:id', async (req: Request, res: Response) => {
+  const pid = req.params.id;
+  const cacheKey = `mkt_prod_${pid}`;
+  const cached = decodedMediaCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < MEDIA_CACHE_TTL_MS) {
+    res.setHeader('Content-Type', cached.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(cached.buf);
+    return;
+  }
+
+  let rawMedia: string | null = null;
+  const localProd = loadPersistentMarketplaceProducts().find((p: any) => p.id === pid);
+  if (localProd) {
+    rawMedia = localProd.image_url || localProd.imageUrl || null;
+  }
+  if (!rawMedia) {
+    try {
+      const { data } = await supabaseAdminClient
+        .from('marketplace_products')
+        .select('image_url')
+        .eq('id', pid)
+        .maybeSingle();
+      if (data?.image_url) rawMedia = data.image_url;
+    } catch {}
+  }
+  if (!rawMedia) {
+    try {
+      const { data } = await supabaseAdminClient
+        .from('products')
+        .select('image_url')
+        .eq('id', pid)
+        .maybeSingle();
+      if (data?.image_url) rawMedia = data.image_url;
+    } catch {}
+  }
+  serveMediaDataUriOrRedirect(cacheKey, rawMedia, res);
+});
+
 // 1. Get Marketplace Products for Public Shoppers (Strictly APPROVED & from ACTIVE workshops only)
 app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
   try {
@@ -4553,7 +4721,9 @@ app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
     } catch {}
 
     try {
-      const { data: wsRows } = await client.from('workshops').select('*');
+      const { data: wsRows } = await client
+        .from('workshops')
+        .select('id, brand_name, artist_name, phone, phone_number, logo_url, store_slug, rating_stars, medal, status, is_frozen, hide_from_market');
       if (Array.isArray(wsRows)) {
         wsRows.forEach((w: any) => {
           const wid = w.id || w.workshop_id;
@@ -4594,12 +4764,15 @@ app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
       .map((p: any) => {
         const wid = p.workshop_id || p.workshopId || '';
         const ws = workshopLookup.get(wid);
+        const rawImg = p.image_url || p.imageUrl || null;
+        const rawLogo = ws?.logo_url || ws?.logoUrl || p.logo_url || p.logoUrl || null;
         const enriched = {
           ...p,
           brand_name: ws?.brand_name || ws?.brandName || p.brand_name || p.brandName || 'ورشة الشمساوية',
           artist_name: ws?.artist_name || ws?.artistName || p.artist_name || p.artistName || 'فنان الشمساوية',
           phone_number: ws?.phone_number || ws?.phone || ws?.phoneNumber || p.phone_number || p.phoneNumber || '',
-          logo_url: ws?.logo_data || ws?.logo_url || ws?.logoUrl || p.logo_url || p.logoUrl || null,
+          image_url: slimImageUrl(rawImg, `/api/media/marketplace-product/${encodeURIComponent(p.id)}`),
+          logo_url: slimImageUrl(rawLogo, `/api/media/workshop-logo/${encodeURIComponent(wid)}`),
           store_slug: ws?.store_slug || ws?.storeSlug || p.store_slug || p.storeSlug || wid,
           workshop_rating_stars: ws?.rating_stars ?? ws?.ratingStars ?? 5,
           workshop_medal: ws?.medal ?? null,
@@ -4763,8 +4936,13 @@ app.get('/api/admin/marketplace/products', requireAuth, async (req: Authenticate
   try {
     const [mktRes, catRes, wsRes] = await Promise.all([
       client.from('marketplace_products').select('*').order('updated_at', { ascending: false }),
-      client.from('products').select('*').eq('is_active', true),
-      client.from('workshops').select('*'),
+      client
+        .from('products')
+        .select('id, workshop_id, product_name, category, craft_name, retail_price, wholesale_price, cost_price, image_url, available_colors, available_sizes, dimensions, specs, local_record, is_active, created_at, updated_at')
+        .eq('is_active', true),
+      client
+        .from('workshops')
+        .select('id, brand_name, artist_name, phone, phone_number, logo_url, store_slug'),
     ]);
 
     if (Array.isArray(wsRes.data)) {
@@ -4788,7 +4966,7 @@ app.get('/api/admin/marketplace/products', requireAuth, async (req: Authenticate
           brand_name: ws?.brand_name || ws?.brandName || lr.brandName || 'ورشة الشمساوية',
           artist_name: ws?.artist_name || ws?.artistName || lr.artistName || 'فنان الشمساوية',
           phone_number: ws?.phone_number || ws?.phone || ws?.phoneNumber || '',
-          logo_url: ws?.logo_data || ws?.logo_url || null,
+          logo_url: ws?.logo_url || null,
           store_slug: ws?.store_slug || p.workshop_id,
           product_name: p.product_name,
           category: p.category || lr.category || 'أعمال يدوية',
@@ -4815,15 +4993,19 @@ app.get('/api/admin/marketplace/products', requireAuth, async (req: Authenticate
   } catch {}
 
   let allProducts = Array.from(map.values()).map((p: any) => {
-    const ws = wsMap.get(p.workshop_id || p.workshopId);
-    if (!ws) return p;
+    const wid = p.workshop_id || p.workshopId || '';
+    const ws = wsMap.get(wid);
+    const { local_record: _omitLr, ...rest } = p;
+    const rawImg = rest.image_url || rest.imageUrl || '/alshams_falcon_emblem.png';
+    const rawLogo = rest.logo_url || ws?.logo_url || ws?.logoUrl || null;
     return {
-      ...p,
-      brand_name: p.brand_name || ws.brand_name || ws.brandName,
-      artist_name: p.artist_name || ws.artist_name || ws.artistName,
-      phone_number: p.phone_number || ws.phone_number || ws.phone || ws.phoneNumber,
-      logo_url: p.logo_url || ws.logo_data || ws.logo_url || null,
-      store_slug: p.store_slug || ws.store_slug || ws.id,
+      ...rest,
+      brand_name: rest.brand_name || ws?.brand_name || ws?.brandName,
+      artist_name: rest.artist_name || ws?.artist_name || ws?.artistName,
+      phone_number: rest.phone_number || ws?.phone_number || ws?.phone || ws?.phoneNumber,
+      image_url: slimImageUrl(rawImg, `/api/media/marketplace-product/${encodeURIComponent(p.id)}`),
+      logo_url: slimImageUrl(rawLogo, `/api/media/workshop-logo/${encodeURIComponent(wid)}`),
+      store_slug: rest.store_slug || ws?.store_slug || ws?.id,
     };
   });
 
@@ -4869,6 +5051,13 @@ app.post('/api/admin/marketplace/review', requireAuth, async (req: Authenticated
   }
 
   if (!targetProduct && productPayload) {
+    let resolvedOriginalImage = productPayload.image_url || productPayload.imageUrl || '/alshams_falcon_emblem.png';
+    if (typeof resolvedOriginalImage === 'string' && resolvedOriginalImage.startsWith('/api/media/')) {
+      try {
+        const { data: prodRow } = await client.from('products').select('image_url').eq('id', productId).maybeSingle();
+        if (prodRow?.image_url) resolvedOriginalImage = prodRow.image_url;
+      } catch {}
+    }
     targetProduct = {
       id: productId,
       workshop_id: productPayload.workshop_id || productPayload.workshopId || '',
@@ -4884,7 +5073,7 @@ app.post('/api/admin/marketplace/review', requireAuth, async (req: Authenticated
       wholesale_price: Number(productPayload.wholesale_price ?? productPayload.wholesalePrice ?? 0),
       cost_price: Number(productPayload.cost_price ?? productPayload.costPrice ?? 0),
       current_stock: Number(productPayload.current_stock ?? productPayload.currentStock ?? 1),
-      image_url: productPayload.image_url || productPayload.imageUrl || '/alshams_falcon_emblem.png',
+      image_url: resolvedOriginalImage,
       store_description: productPayload.store_description || productPayload.storeDescription || '',
       available_colors: productPayload.available_colors || productPayload.availableColors || [],
       available_sizes: productPayload.available_sizes || productPayload.availableSizes || [],
@@ -4988,7 +5177,11 @@ app.post('/api/admin/marketplace/review', requireAuth, async (req: Authenticated
 // Platform Config & Central Marketplace Orders Sync Endpoints
 // -------------------------------------------------------------
 app.get('/api/platform-settings', async (_req: Request, res: Response) => {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+  if (platformSettingsCache && Date.now() - platformSettingsCache.ts < PLATFORM_SETTINGS_TTL_MS) {
+    return res.json({ success: true, settings: platformSettingsCache.data });
+  }
+
   const localCfg = loadPersistentPlatformSettings();
   let psCfg: any = null;
   let wsCfg: any = null;
@@ -5004,15 +5197,17 @@ app.get('/api/platform-settings', async (_req: Request, res: Response) => {
     }
   } catch {}
 
-  try {
-    const { data: wsRows } = await supabaseAdminClient.from('workshops').select('id, settings').limit(10);
-    if (Array.isArray(wsRows)) {
-      const host = wsRows.find((w: any) => w.settings && w.settings.platformConfig);
-      if (host?.settings?.platformConfig) {
-        wsCfg = host.settings.platformConfig;
+  if (!psCfg) {
+    try {
+      const { data: wsRows } = await supabaseAdminClient.from('workshops').select('id, settings').limit(5);
+      if (Array.isArray(wsRows)) {
+        const host = wsRows.find((w: any) => w.settings && w.settings.platformConfig);
+        if (host?.settings?.platformConfig) {
+          wsCfg = host.settings.platformConfig;
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   const candidates = [localCfg, psCfg, wsCfg].filter((c) => c && typeof c === 'object');
   candidates.sort((a, b) => {
@@ -5039,6 +5234,7 @@ app.get('/api/platform-settings', async (_req: Request, res: Response) => {
     featureFlags: freshest?.featureFlags || psCfg?.featureFlags || wsCfg?.featureFlags || localCfg.featureFlags || null,
     uiLayoutConfig: freshest?.uiLayoutConfig || psCfg?.uiLayoutConfig || wsCfg?.uiLayoutConfig || localCfg.uiLayoutConfig || null,
   };
+  platformSettingsCache = { data: merged, ts: Date.now() };
   return res.json({ success: true, settings: merged });
 });
 
@@ -5079,6 +5275,7 @@ app.put('/api/platform-settings', requireAuth, async (req: AuthenticatedRequest,
     updatedAt: new Date().toISOString(),
   };
   savePersistentPlatformSettings(nextSettings);
+  platformSettingsCache = { data: nextSettings, ts: Date.now() };
 
   const client = getDbClient(req);
   let cloudSynced = false;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   UserProfile,
@@ -20,102 +20,316 @@ import { syncPlatformSettingsFromCloud } from './services/marketplaceCartService
 import { getStoredLandingCmsConfig, syncBrandFaviconFromCms } from './types/landingCms';
 import { useFeatureFlags } from './types/featureFlags';
 import { getCurrentSupplierFromSupabase } from './db/supplierService';
-
-// Access Control & Messaging
-import { AccessGate } from './components/gate/AccessGate';
-import { MessagesHubModal } from './components/messages/MessagesHubModal';
-
-// Layout Components
-import { Navbar } from './components/layout/Navbar';
-import { SidebarDrawer } from './components/layout/SidebarDrawer';
-
-// Main Views
-import { WorkshopHomeScreen } from './components/home/WorkshopHomeScreen';
-import { ArtisanExecutiveBriefView } from './components/home/ArtisanExecutiveBriefView';
+import type { StructuredCalculatorExport } from './components/ai/FalconAIAgent';
+import type { ExecutiveTab } from './components/admin/AdminDashboard';
+import type { GlobalSearchDataCache } from './components/search/GlobalSearchModal';
 import { purgeExpiredImageArchives } from './services/imageRollbackService';
-import { ProductionCalculator } from './components/calculator/ProductionCalculator';
-import { ProductArchive } from './components/archive/ProductArchive';
-import { WorkshopCatalog } from './components/catalog/WorkshopCatalog';
-import { MaterialsView } from './components/materials/MaterialsView';
-import { SuppliersView } from './components/suppliers/SuppliersView';
-import { CustomersView } from './components/customers/CustomersView';
-import { SalesOrdersView } from './components/sales/SalesOrdersView';
-import { InvoicesView } from './components/invoices/InvoicesView';
-import { WorkOrdersView } from './components/workOrders/WorkOrdersView';
-import { TreasuriesView } from './components/treasuries/TreasuriesView';
-import { FixedAssetsView } from './components/assets/FixedAssetsView';
-import { HRWorkforceModule } from './components/hr/HRWorkforceModule';
-import { SaaSReportsAnalyticsView } from './components/reports/SaaSReportsAnalyticsView';
-import { FalconAIAgent, StructuredCalculatorExport } from './components/ai/FalconAIAgent';
-import { AdminDashboard } from './components/admin/AdminDashboard';
-import { PurchasesView } from './components/purchases/PurchasesView';
-import { AccountsView } from './components/accounting/AccountsView';
-import { AuthGateway } from './components/auth/AuthGateway';
-import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
-import { CompleteWorkshopScreen } from './components/auth/CompleteWorkshopScreen';
-import { LandingPage } from './components/landing/LandingPage';
-
-// Modals & Drawers
-import { GlobalSearchModal, GlobalSearchDataCache } from './components/search/GlobalSearchModal';
-import { UnifiedAlertsModal } from './components/notifications/UnifiedAlertsModal';
-import { ProfileSettingsModal } from './components/profile/ProfileSettingsModal';
-import { CraftsSelectorModal } from './components/onboarding/CraftsSelectorModal';
-import { UserGuideModal } from './components/guide/UserGuideModal';
-import { CloudMigrationModal } from './components/migration/CloudMigrationModal';
-import { SupportModal } from './components/support/SupportModal';
-import { InteractiveTourModal } from './components/tour/InteractiveTourModal';
-import { ExchangeRatesModal } from './components/currency/ExchangeRatesModal';
-import { InventoryLedgerModal } from './components/inventory/InventoryLedgerModal';
-import { MaterialsInventoryModal } from './components/inventory/MaterialsInventoryModal';
-import { ProductsInventoryModal } from './components/inventory/ProductsInventoryModal';
-import { AdminExpensesModal } from './components/adminCosts/AdminExpensesModal';
-import { WhatsAppQuoteDrawer } from './components/sharing/WhatsAppQuoteDrawer';
-
-// Creation Modals
-import {
-  NewMaterialModal,
-  NewClientModal,
-  NewSupplierModal,
-  NewEmployeeModal,
-} from './components/modals/CreationModals';
-
-// Shamousa Chat Widget & Unified AI
-import { ShamousaChatWidget } from './components/ai/ShamousaChatWidget';
-import { UnifiedAICommandCenter } from './components/ai/UnifiedAICommandCenter';
-import { ExecutiveTab } from './components/admin/AdminDashboard';
-import { MarketplaceView } from './components/marketplace/MarketplaceView';
-import { ArtisanStorefrontModal } from './components/store/ArtisanStorefrontModal';
-import { PublicStorefrontView } from './components/store/PublicStorefrontView';
-import { FamilyCommunityView } from './components/family/FamilyCommunityView';
-import { SupplierHomeScreen } from './components/supplier/SupplierHomeScreen';
-import { SupplierCatalogView } from './components/supplier/SupplierCatalogView';
-import { SupplierOrdersView } from './components/supplier/SupplierOrdersView';
-import { SupplierCustomersView } from './components/supplier/SupplierCustomersView';
-import { SupplierFinanceView } from './components/supplier/SupplierFinanceView';
-import { SupplierStorefrontModal } from './components/supplier/SupplierStorefrontModal';
-import { SuppliersMarketView } from './components/supplier/SuppliersMarketView';
-import { SupplierPublicStoreView } from './components/supplier/SupplierPublicStoreView';
-import { SupplierErpHubView } from './components/supplier/SupplierErpHubView';
-import { SupplierPosView } from './components/supplier/SupplierPosView';
-import { SupplierBranchesWarehouseView } from './components/supplier/SupplierBranchesWarehouseView';
-import { SupplierHrTerminalView } from './components/supplier/SupplierHrTerminalView';
-import { SupplierExecutiveBriefView } from './components/supplier/SupplierExecutiveBriefView';
-import { LockedTerminalShell } from './components/supplier/LockedTerminalShell';
 import {
   getLockedTerminalConfig,
   KIOSK_LOCK_CHANGED_EVENT,
 } from './db/supplierErpService';
 import { LockedTerminalConfig } from './types/supplierErp';
-import { MemberPersonalProfileView } from './components/profile/MemberPersonalProfileView';
 import {
   registerServiceWorker,
   subscribeToWebPush,
   unsubscribeFromWebPush,
   checkAndDispatchEquipmentMaintenanceAlerts,
 } from './lib/pushNotifications';
-import { PermissionsOnboardingModal } from './components/permissions/PermissionsOnboardingModal';
-import { OfflineIndicator } from './components/pwa/OfflineIndicator';
 import { initOfflineSyncListeners, flushOfflineMutations } from './db/offlineMutationQueue';
+
+// Core Shell Components (eager)
+import { Navbar } from './components/layout/Navbar';
+import { OfflineIndicator } from './components/pwa/OfflineIndicator';
+
+// Lazy-loaded Views, Gateways & Dashboards
+const AccessGate = lazy(() =>
+  import('./components/gate/AccessGate').then((m) => ({ default: m.AccessGate }))
+);
+const MessagesHubModal = lazy(() =>
+  import('./components/messages/MessagesHubModal').then((m) => ({ default: m.MessagesHubModal }))
+);
+const SidebarDrawer = lazy(() =>
+  import('./components/layout/SidebarDrawer').then((m) => ({ default: m.SidebarDrawer }))
+);
+const WorkshopHomeScreen = lazy(() =>
+  import('./components/home/WorkshopHomeScreen').then((m) => ({ default: m.WorkshopHomeScreen }))
+);
+const ArtisanExecutiveBriefView = lazy(() =>
+  import('./components/home/ArtisanExecutiveBriefView').then((m) => ({
+    default: m.ArtisanExecutiveBriefView,
+  }))
+);
+const ProductionCalculator = lazy(() =>
+  import('./components/calculator/ProductionCalculator').then((m) => ({
+    default: m.ProductionCalculator,
+  }))
+);
+const ProductArchive = lazy(() =>
+  import('./components/archive/ProductArchive').then((m) => ({ default: m.ProductArchive }))
+);
+const WorkshopCatalog = lazy(() =>
+  import('./components/catalog/WorkshopCatalog').then((m) => ({ default: m.WorkshopCatalog }))
+);
+const MaterialsView = lazy(() =>
+  import('./components/materials/MaterialsView').then((m) => ({ default: m.MaterialsView }))
+);
+const SuppliersView = lazy(() =>
+  import('./components/suppliers/SuppliersView').then((m) => ({ default: m.SuppliersView }))
+);
+const CustomersView = lazy(() =>
+  import('./components/customers/CustomersView').then((m) => ({ default: m.CustomersView }))
+);
+const SalesOrdersView = lazy(() =>
+  import('./components/sales/SalesOrdersView').then((m) => ({ default: m.SalesOrdersView }))
+);
+const InvoicesView = lazy(() =>
+  import('./components/invoices/InvoicesView').then((m) => ({ default: m.InvoicesView }))
+);
+const WorkOrdersView = lazy(() =>
+  import('./components/workOrders/WorkOrdersView').then((m) => ({ default: m.WorkOrdersView }))
+);
+const TreasuriesView = lazy(() =>
+  import('./components/treasuries/TreasuriesView').then((m) => ({ default: m.TreasuriesView }))
+);
+const FixedAssetsView = lazy(() =>
+  import('./components/assets/FixedAssetsView').then((m) => ({ default: m.FixedAssetsView }))
+);
+const HRWorkforceModule = lazy(() =>
+  import('./components/hr/HRWorkforceModule').then((m) => ({ default: m.HRWorkforceModule }))
+);
+const SaaSReportsAnalyticsView = lazy(() =>
+  import('./components/reports/SaaSReportsAnalyticsView').then((m) => ({
+    default: m.SaaSReportsAnalyticsView,
+  }))
+);
+const FalconAIAgent = lazy(() =>
+  import('./components/ai/FalconAIAgent').then((m) => ({ default: m.FalconAIAgent }))
+);
+const AdminDashboard = lazy(() =>
+  import('./components/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard }))
+);
+const PurchasesView = lazy(() =>
+  import('./components/purchases/PurchasesView').then((m) => ({ default: m.PurchasesView }))
+);
+const AccountsView = lazy(() =>
+  import('./components/accounting/AccountsView').then((m) => ({ default: m.AccountsView }))
+);
+const AuthGateway = lazy(() =>
+  import('./components/auth/AuthGateway').then((m) => ({ default: m.AuthGateway }))
+);
+const ResetPasswordScreen = lazy(() =>
+  import('./components/auth/ResetPasswordScreen').then((m) => ({
+    default: m.ResetPasswordScreen,
+  }))
+);
+const CompleteWorkshopScreen = lazy(() =>
+  import('./components/auth/CompleteWorkshopScreen').then((m) => ({
+    default: m.CompleteWorkshopScreen,
+  }))
+);
+const LandingPage = lazy(() =>
+  import('./components/landing/LandingPage').then((m) => ({ default: m.LandingPage }))
+);
+
+// Lazy-loaded Modals & Drawers
+const GlobalSearchModal = lazy(() =>
+  import('./components/search/GlobalSearchModal').then((m) => ({ default: m.GlobalSearchModal }))
+);
+const UnifiedAlertsModal = lazy(() =>
+  import('./components/notifications/UnifiedAlertsModal').then((m) => ({
+    default: m.UnifiedAlertsModal,
+  }))
+);
+const ProfileSettingsModal = lazy(() =>
+  import('./components/profile/ProfileSettingsModal').then((m) => ({
+    default: m.ProfileSettingsModal,
+  }))
+);
+const CraftsSelectorModal = lazy(() =>
+  import('./components/onboarding/CraftsSelectorModal').then((m) => ({
+    default: m.CraftsSelectorModal,
+  }))
+);
+const UserGuideModal = lazy(() =>
+  import('./components/guide/UserGuideModal').then((m) => ({ default: m.UserGuideModal }))
+);
+const CloudMigrationModal = lazy(() =>
+  import('./components/migration/CloudMigrationModal').then((m) => ({
+    default: m.CloudMigrationModal,
+  }))
+);
+const SupportModal = lazy(() =>
+  import('./components/support/SupportModal').then((m) => ({ default: m.SupportModal }))
+);
+const InteractiveTourModal = lazy(() =>
+  import('./components/tour/InteractiveTourModal').then((m) => ({
+    default: m.InteractiveTourModal,
+  }))
+);
+const ExchangeRatesModal = lazy(() =>
+  import('./components/currency/ExchangeRatesModal').then((m) => ({
+    default: m.ExchangeRatesModal,
+  }))
+);
+const InventoryLedgerModal = lazy(() =>
+  import('./components/inventory/InventoryLedgerModal').then((m) => ({
+    default: m.InventoryLedgerModal,
+  }))
+);
+const MaterialsInventoryModal = lazy(() =>
+  import('./components/inventory/MaterialsInventoryModal').then((m) => ({
+    default: m.MaterialsInventoryModal,
+  }))
+);
+const ProductsInventoryModal = lazy(() =>
+  import('./components/inventory/ProductsInventoryModal').then((m) => ({
+    default: m.ProductsInventoryModal,
+  }))
+);
+const AdminExpensesModal = lazy(() =>
+  import('./components/adminCosts/AdminExpensesModal').then((m) => ({
+    default: m.AdminExpensesModal,
+  }))
+);
+const WhatsAppQuoteDrawer = lazy(() =>
+  import('./components/sharing/WhatsAppQuoteDrawer').then((m) => ({
+    default: m.WhatsAppQuoteDrawer,
+  }))
+);
+const NewMaterialModal = lazy(() =>
+  import('./components/modals/CreationModals').then((m) => ({ default: m.NewMaterialModal }))
+);
+const NewClientModal = lazy(() =>
+  import('./components/modals/CreationModals').then((m) => ({ default: m.NewClientModal }))
+);
+const NewSupplierModal = lazy(() =>
+  import('./components/modals/CreationModals').then((m) => ({ default: m.NewSupplierModal }))
+);
+const NewEmployeeModal = lazy(() =>
+  import('./components/modals/CreationModals').then((m) => ({ default: m.NewEmployeeModal }))
+);
+
+// Lazy-loaded Assistants, Marketplaces & Supplier Views
+const ShamousaChatWidget = lazy(() =>
+  import('./components/ai/ShamousaChatWidget').then((m) => ({ default: m.ShamousaChatWidget }))
+);
+const UnifiedAICommandCenter = lazy(() =>
+  import('./components/ai/UnifiedAICommandCenter').then((m) => ({
+    default: m.UnifiedAICommandCenter,
+  }))
+);
+const MarketplaceView = lazy(() =>
+  import('./components/marketplace/MarketplaceView').then((m) => ({ default: m.MarketplaceView }))
+);
+const ArtisanStorefrontModal = lazy(() =>
+  import('./components/store/ArtisanStorefrontModal').then((m) => ({
+    default: m.ArtisanStorefrontModal,
+  }))
+);
+const PublicStorefrontView = lazy(() =>
+  import('./components/store/PublicStorefrontView').then((m) => ({
+    default: m.PublicStorefrontView,
+  }))
+);
+const FamilyCommunityView = lazy(() =>
+  import('./components/family/FamilyCommunityView').then((m) => ({
+    default: m.FamilyCommunityView,
+  }))
+);
+const SupplierHomeScreen = lazy(() =>
+  import('./components/supplier/SupplierHomeScreen').then((m) => ({
+    default: m.SupplierHomeScreen,
+  }))
+);
+const SupplierCatalogView = lazy(() =>
+  import('./components/supplier/SupplierCatalogView').then((m) => ({
+    default: m.SupplierCatalogView,
+  }))
+);
+const SupplierOrdersView = lazy(() =>
+  import('./components/supplier/SupplierOrdersView').then((m) => ({
+    default: m.SupplierOrdersView,
+  }))
+);
+const SupplierCustomersView = lazy(() =>
+  import('./components/supplier/SupplierCustomersView').then((m) => ({
+    default: m.SupplierCustomersView,
+  }))
+);
+const SupplierFinanceView = lazy(() =>
+  import('./components/supplier/SupplierFinanceView').then((m) => ({
+    default: m.SupplierFinanceView,
+  }))
+);
+const SupplierStorefrontModal = lazy(() =>
+  import('./components/supplier/SupplierStorefrontModal').then((m) => ({
+    default: m.SupplierStorefrontModal,
+  }))
+);
+const SuppliersMarketView = lazy(() =>
+  import('./components/supplier/SuppliersMarketView').then((m) => ({
+    default: m.SuppliersMarketView,
+  }))
+);
+const SupplierPublicStoreView = lazy(() =>
+  import('./components/supplier/SupplierPublicStoreView').then((m) => ({
+    default: m.SupplierPublicStoreView,
+  }))
+);
+const SupplierErpHubView = lazy(() =>
+  import('./components/supplier/SupplierErpHubView').then((m) => ({
+    default: m.SupplierErpHubView,
+  }))
+);
+const SupplierPosView = lazy(() =>
+  import('./components/supplier/SupplierPosView').then((m) => ({ default: m.SupplierPosView }))
+);
+const SupplierBranchesWarehouseView = lazy(() =>
+  import('./components/supplier/SupplierBranchesWarehouseView').then((m) => ({
+    default: m.SupplierBranchesWarehouseView,
+  }))
+);
+const SupplierHrTerminalView = lazy(() =>
+  import('./components/supplier/SupplierHrTerminalView').then((m) => ({
+    default: m.SupplierHrTerminalView,
+  }))
+);
+const SupplierExecutiveBriefView = lazy(() =>
+  import('./components/supplier/SupplierExecutiveBriefView').then((m) => ({
+    default: m.SupplierExecutiveBriefView,
+  }))
+);
+const LockedTerminalShell = lazy(() =>
+  import('./components/supplier/LockedTerminalShell').then((m) => ({
+    default: m.LockedTerminalShell,
+  }))
+);
+const MemberPersonalProfileView = lazy(() =>
+  import('./components/profile/MemberPersonalProfileView').then((m) => ({
+    default: m.MemberPersonalProfileView,
+  }))
+);
+const PermissionsOnboardingModal = lazy(() =>
+  import('./components/permissions/PermissionsOnboardingModal').then((m) => ({
+    default: m.PermissionsOnboardingModal,
+  }))
+);
+
+const AppScreenFallback: React.FC = () => (
+  <div className="min-h-screen flex items-center justify-center bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] font-sans" dir="rtl">
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-10 h-10 border-4 border-[#EA580C] border-t-transparent rounded-full animate-spin" />
+      <p className="text-sm font-bold text-[#334155] dark:text-[#CBD5E1]">جاري التحميل...</p>
+    </div>
+  </div>
+);
+
+const ViewFallback: React.FC = () => (
+  <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 space-y-3" dir="rtl">
+    <div className="w-10 h-10 border-4 border-[#D4CCBC] dark:border-[#22355E] border-t-[#EA580C] rounded-full animate-spin" />
+    <p className="text-xs font-bold text-[#475569] dark:text-[#CBD5E1]">جاري فتح الشاشة...</p>
+  </div>
+);
 
 import {
   getStoredArtisanStoreConfig,
@@ -267,7 +481,26 @@ export const App: React.FC = () => {
   });
 
   const featureFlags = useFeatureFlags();
-  const [authChecking, setAuthChecking] = useState<boolean>(true);
+  const [authChecking, setAuthChecking] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const search = window.location.search || '';
+    const hash = window.location.hash || '';
+    const hasUrlAuth =
+      /[?&](code=|token_hash=|type=recovery|error=|error_code=)/i.test(search) ||
+      /(type=recovery|access_token=|error=)/i.test(hash);
+    if (hasUrlAuth) return true;
+    if (profile) return false;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i) || '';
+        if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+          const val = localStorage.getItem(k);
+          if (val && val.includes('access_token')) return true;
+        }
+      }
+    } catch {}
+    return false;
+  });
   const [suspensionNotice, setSuspensionNotice] = useState<string | null>(null);
   const [showAuthGateway, setShowAuthGateway] = useState<boolean>(false);
   const [authGatewayMode, setAuthGatewayMode] = useState<'login' | 'signup'>('login');
@@ -761,8 +994,21 @@ export const App: React.FC = () => {
 
         await handleInitialUrlAuthParams();
 
+        let hasStoredSbSession = false;
+        try {
+          if (typeof window !== 'undefined') {
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i) || '';
+              if (k.startsWith('sb-') && k.endsWith('-auth-token') && localStorage.getItem(k)) {
+                hasStoredSbSession = true;
+                break;
+              }
+            }
+          }
+        } catch {}
+
         let { data: { session } } = await supabase.auth.getSession();
-        if (!session && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+        if (!session && (hadCodeInUrl || hasStoredSbSession) && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
           try {
             const { data: refreshed } = await supabase.auth.refreshSession();
             if (refreshed?.session) {
@@ -949,9 +1195,6 @@ export const App: React.FC = () => {
         return;
       }
       if (session?.user && mounted && !recoveryActive) {
-        syncPlatformSettingsFromCloud()
-          .then(() => syncBrandFaviconFromCms(getStoredLandingCmsConfig()))
-          .catch(() => {});
         checkSession();
       }
     });
@@ -1772,118 +2015,128 @@ export const App: React.FC = () => {
   // Render Suppliers Market if requested via direct link or hash
   if (activeRoute.type === 'suppliers_market') {
     return (
-      <SuppliersMarketView
-        profile={profile}
-        onNavigateBack={
-          profile
-            ? () => {
-                if (window.location.hash) window.location.hash = '';
-                if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
-                setActiveRoute({ type: 'app' });
-              }
-            : undefined
-        }
-        onNavigateToMyOrders={() => {
-          if (window.location.hash) window.location.hash = '';
-          if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
-          setActiveRoute({ type: 'app' });
-          setActiveView('suppliers');
-        }}
-        onOpenSupplierStore={(slug) => {
-          window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
-          setActiveRoute({ type: 'supplier_store', slug });
-        }}
-        onNavigateToCentralMarket={() => {
-          window.location.hash = '#/market';
-          setActiveRoute({ type: 'market' });
-        }}
-      />
+      <Suspense fallback={<AppScreenFallback />}>
+        <SuppliersMarketView
+          profile={profile}
+          onNavigateBack={
+            profile
+              ? () => {
+                  if (window.location.hash) window.location.hash = '';
+                  if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+                  setActiveRoute({ type: 'app' });
+                }
+              : undefined
+          }
+          onNavigateToMyOrders={() => {
+            if (window.location.hash) window.location.hash = '';
+            if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+            setActiveRoute({ type: 'app' });
+            setActiveView('suppliers');
+          }}
+          onOpenSupplierStore={(slug) => {
+            window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+            setActiveRoute({ type: 'supplier_store', slug });
+          }}
+          onNavigateToCentralMarket={() => {
+            window.location.hash = '#/market';
+            setActiveRoute({ type: 'market' });
+          }}
+        />
+      </Suspense>
     );
   }
 
   // Render Public Supplier Storefront if requested via /supplier/:slug or #/supplier/:slug
   if (activeRoute.type === 'supplier_store' && activeRoute.slug) {
     return (
-      <SupplierPublicStoreView
-        slug={activeRoute.slug}
-        profile={profile}
-        onNavigateToSuppliersMarket={() => {
-          window.location.hash = '#/suppliers-market';
-          setActiveRoute({ type: 'suppliers_market' });
-        }}
-        onNavigateToCentralMarket={() => {
-          window.location.hash = '#/market';
-          setActiveRoute({ type: 'market' });
-        }}
-        onNavigateToApp={
-          profile
-            ? () => {
-                if (window.location.hash) window.location.hash = '';
-                if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
-                setActiveRoute({ type: 'app' });
-              }
-            : undefined
-        }
-      />
+      <Suspense fallback={<AppScreenFallback />}>
+        <SupplierPublicStoreView
+          slug={activeRoute.slug}
+          profile={profile}
+          onNavigateToSuppliersMarket={() => {
+            window.location.hash = '#/suppliers-market';
+            setActiveRoute({ type: 'suppliers_market' });
+          }}
+          onNavigateToCentralMarket={() => {
+            window.location.hash = '#/market';
+            setActiveRoute({ type: 'market' });
+          }}
+          onNavigateToApp={
+            profile
+              ? () => {
+                  if (window.location.hash) window.location.hash = '';
+                  if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+                  setActiveRoute({ type: 'app' });
+                }
+              : undefined
+          }
+        />
+      </Suspense>
     );
   }
 
   // Render Central Marketplace if requested via direct link or hash
   if (activeRoute.type === 'market') {
     return (
-      <MarketplaceView
-        profile={profile}
-        onNavigateHome={() => {
-          if (window.location.hash) window.location.hash = '';
-          if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
-          setActiveRoute({ type: 'app' });
-        }}
-        onOpenStoreModal={() => {
-          setCatalogInitialTab('store');
-          setActiveView('catalog');
-          if (window.location.hash) window.location.hash = '';
-          setActiveRoute({ type: 'app' });
-        }}
-        onNavigateToSuppliersMarket={
-          featureFlags.suppliersMarketplaceEnabled
-            ? () => {
-                window.location.hash = '#/suppliers-market';
-                setActiveRoute({ type: 'suppliers_market' });
-              }
-            : undefined
-        }
-      />
+      <Suspense fallback={<AppScreenFallback />}>
+        <MarketplaceView
+          profile={profile}
+          onNavigateHome={() => {
+            if (window.location.hash) window.location.hash = '';
+            if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+            setActiveRoute({ type: 'app' });
+          }}
+          onOpenStoreModal={() => {
+            setCatalogInitialTab('store');
+            setActiveView('catalog');
+            if (window.location.hash) window.location.hash = '';
+            setActiveRoute({ type: 'app' });
+          }}
+          onNavigateToSuppliersMarket={
+            featureFlags.suppliersMarketplaceEnabled
+              ? () => {
+                  window.location.hash = '#/suppliers-market';
+                  setActiveRoute({ type: 'suppliers_market' });
+                }
+              : undefined
+          }
+        />
+      </Suspense>
     );
   }
 
   // Render Public Artisan Store if requested via direct link or hash
   if (activeRoute.type === 'store' && activeRoute.slug) {
     return (
-      <PublicStorefrontView
-        slug={activeRoute.slug}
-        onNavigateToApp={() => {
-          if (window.location.hash) window.location.hash = '';
-          if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
-          setActiveRoute({ type: 'app' });
-        }}
-        onNavigateToMarket={() => {
-          window.location.hash = '#/market';
-          setActiveRoute({ type: 'market' });
-        }}
-      />
+      <Suspense fallback={<AppScreenFallback />}>
+        <PublicStorefrontView
+          slug={activeRoute.slug}
+          onNavigateToApp={() => {
+            if (window.location.hash) window.location.hash = '';
+            if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+            setActiveRoute({ type: 'app' });
+          }}
+          onNavigateToMarket={() => {
+            window.location.hash = '#/market';
+            setActiveRoute({ type: 'market' });
+          }}
+        />
+      </Suspense>
     );
   }
 
   // Kiosk Locked Device Mode takes top priority when a branch terminal is pinned to this browser
   if (lockedTerminal) {
     return (
-      <LockedTerminalShell
-        config={lockedTerminal}
-        onUnlocked={() => {
-          setLockedTerminal(null);
-          setActiveView('home');
-        }}
-      />
+      <Suspense fallback={<AppScreenFallback />}>
+        <LockedTerminalShell
+          config={lockedTerminal}
+          onUnlocked={() => {
+            setLockedTerminal(null);
+            setActiveView('home');
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -1901,63 +2154,67 @@ export const App: React.FC = () => {
   // Password recovery flow always takes top priority over cached profiles/landing
   if (isPasswordRecovery) {
     return (
-      <ResetPasswordScreen
-        onSuccess={async () => {
-          if (typeof window !== 'undefined') {
-            window.history.replaceState({}, '', '/');
-          }
-          setIsPasswordRecovery(false);
-          const supProfile = await getCurrentSupplierFromSupabase();
-          if (supProfile) {
-            setProfile(supProfile);
-            localStorage.setItem('alshams_profile', JSON.stringify(supProfile));
-            return;
-          }
-          const { workshop } = await getCurrentWorkshopFromSupabase();
-          if (workshop) {
-            setProfile(workshop);
-            localStorage.setItem('alshams_profile', JSON.stringify(workshop));
-          } else {
-            setShowAuthGateway(true);
+      <Suspense fallback={<AppScreenFallback />}>
+        <ResetPasswordScreen
+          onSuccess={async () => {
+            if (typeof window !== 'undefined') {
+              window.history.replaceState({}, '', '/');
+            }
+            setIsPasswordRecovery(false);
+            const supProfile = await getCurrentSupplierFromSupabase();
+            if (supProfile) {
+              setProfile(supProfile);
+              localStorage.setItem('alshams_profile', JSON.stringify(supProfile));
+              return;
+            }
+            const { workshop } = await getCurrentWorkshopFromSupabase();
+            if (workshop) {
+              setProfile(workshop);
+              localStorage.setItem('alshams_profile', JSON.stringify(workshop));
+            } else {
+              setShowAuthGateway(true);
+              setAuthGatewayMode('login');
+            }
+          }}
+          onRequestNewLink={async () => {
+            if (typeof window !== 'undefined') {
+              window.history.replaceState({}, '', '/');
+            }
+            await supabase.auth.signOut().catch(() => {});
+            setIsPasswordRecovery(false);
+            setProfile(null);
             setAuthGatewayMode('login');
-          }
-        }}
-        onRequestNewLink={async () => {
-          if (typeof window !== 'undefined') {
-            window.history.replaceState({}, '', '/');
-          }
-          await supabase.auth.signOut().catch(() => {});
-          setIsPasswordRecovery(false);
-          setProfile(null);
-          setAuthGatewayMode('login');
-          setShowAuthGateway(true);
-        }}
-      />
+            setShowAuthGateway(true);
+          }}
+        />
+      </Suspense>
     );
   }
 
   // First-time Google OAuth user needs to complete their workshop or supplier profile once
   if (!profile && pendingGoogleSessionUser) {
     return (
-      <CompleteWorkshopScreen
-        userEmail={pendingGoogleSessionUser.email}
-        initialArtistName={pendingGoogleSessionUser.fullName}
-        initialAccountRole={oauthIntendedRole}
-        onWorkshopCreated={(newProfile) => {
-          setPendingGoogleSessionUser(null);
-          setShowAuthGateway(false);
-          setProfile(newProfile);
-          localStorage.setItem('alshams_profile', JSON.stringify(newProfile));
-        }}
-        onLogout={async () => {
-          await supabase.auth.signOut().catch(() => {});
-          localStorage.removeItem('alshams_profile');
-          localStorage.removeItem('alshams_supplier_profile');
-          setPendingGoogleSessionUser(null);
-          setProfile(null);
-          setShowAuthGateway(true);
-        }}
-      />
+      <Suspense fallback={<AppScreenFallback />}>
+        <CompleteWorkshopScreen
+          userEmail={pendingGoogleSessionUser.email}
+          initialArtistName={pendingGoogleSessionUser.fullName}
+          initialAccountRole={oauthIntendedRole}
+          onWorkshopCreated={(newProfile) => {
+            setPendingGoogleSessionUser(null);
+            setShowAuthGateway(false);
+            setProfile(newProfile);
+            localStorage.setItem('alshams_profile', JSON.stringify(newProfile));
+          }}
+          onLogout={async () => {
+            await supabase.auth.signOut().catch(() => {});
+            localStorage.removeItem('alshams_profile');
+            localStorage.removeItem('alshams_supplier_profile');
+            setPendingGoogleSessionUser(null);
+            setProfile(null);
+            setShowAuthGateway(true);
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -1965,46 +2222,50 @@ export const App: React.FC = () => {
   if (!profile) {
     if (showAuthGateway || suspensionNotice) {
       return (
-        <AuthGateway
-          initialMode={authGatewayMode}
-          initialRegisterRole={authRegisterRole}
-          onBackToLanding={() => {
-            setSuspensionNotice(null);
-            setShowAuthGateway(false);
-          }}
-          recoveryError={suspensionNotice}
-          onClearRecoveryError={() => setSuspensionNotice(null)}
-          onAuthenticated={(p) => {
-            setSuspensionNotice(null);
-            setPendingGoogleSessionUser(null);
-            setShowAuthGateway(false);
-            setProfile(p);
-            localStorage.setItem('alshams_profile', JSON.stringify(p));
-          }}
-        />
+        <Suspense fallback={<AppScreenFallback />}>
+          <AuthGateway
+            initialMode={authGatewayMode}
+            initialRegisterRole={authRegisterRole}
+            onBackToLanding={() => {
+              setSuspensionNotice(null);
+              setShowAuthGateway(false);
+            }}
+            recoveryError={suspensionNotice}
+            onClearRecoveryError={() => setSuspensionNotice(null)}
+            onAuthenticated={(p) => {
+              setSuspensionNotice(null);
+              setPendingGoogleSessionUser(null);
+              setShowAuthGateway(false);
+              setProfile(p);
+              localStorage.setItem('alshams_profile', JSON.stringify(p));
+            }}
+          />
+        </Suspense>
       );
     }
 
     return (
-      <LandingPage
-        onOpenLogin={() => {
-          setAuthRegisterRole('artisan');
-          setAuthGatewayMode('login');
-          setShowAuthGateway(true);
-        }}
-        onOpenRegister={() => {
-          setAuthRegisterRole('artisan');
-          setAuthGatewayMode('signup');
-          setShowAuthGateway(true);
-        }}
-        onOpenRegisterSupplier={() => {
-          setAuthRegisterRole('supplier');
-          setAuthGatewayMode('signup');
-          setShowAuthGateway(true);
-        }}
-        isDarkMode={isDarkMode}
-        onToggleTheme={handleToggleTheme}
-      />
+      <Suspense fallback={<AppScreenFallback />}>
+        <LandingPage
+          onOpenLogin={() => {
+            setAuthRegisterRole('artisan');
+            setAuthGatewayMode('login');
+            setShowAuthGateway(true);
+          }}
+          onOpenRegister={() => {
+            setAuthRegisterRole('artisan');
+            setAuthGatewayMode('signup');
+            setShowAuthGateway(true);
+          }}
+          onOpenRegisterSupplier={() => {
+            setAuthRegisterRole('supplier');
+            setAuthGatewayMode('signup');
+            setShowAuthGateway(true);
+          }}
+          isDarkMode={isDarkMode}
+          onToggleTheme={handleToggleTheme}
+        />
+      </Suspense>
     );
   }
 
@@ -2016,11 +2277,13 @@ export const App: React.FC = () => {
 
   if (isSuspendedOrBanned) {
     return (
-      <AccessGate
-        workshop={profile}
-        onRefreshStatus={checkWorkshopStatus}
-        onLogout={handleLogout}
-      />
+      <Suspense fallback={<AppScreenFallback />}>
+        <AccessGate
+          workshop={profile}
+          onRefreshStatus={checkWorkshopStatus}
+          onLogout={handleLogout}
+        />
+      </Suspense>
     );
   }
 
@@ -2224,6 +2487,7 @@ export const App: React.FC = () => {
             exit={isPerformanceMode ? undefined : { opacity: 0, y: -8 }}
             transition={isPerformanceMode ? { duration: 0 } : { duration: 0.18, ease: 'easeOut' }}
           >
+            <Suspense fallback={<ViewFallback />}>
             {activeView === 'home' && (
           isUserAdmin(profile) && !switchedWorkshopContext ? (
             <AdminDashboard
@@ -2761,6 +3025,7 @@ export const App: React.FC = () => {
             onDeviceLocked={() => setLockedTerminal(getLockedTerminalConfig())}
           />
         )}
+            </Suspense>
           </motion.div>
         </AnimatePresence>
 
@@ -2813,13 +3078,16 @@ export const App: React.FC = () => {
         activeView !== 'ai_agent' &&
         activeView !== 'family' &&
         (isUserAdmin(profile) || featureFlags.aiAssistantsEnabled) && (
-          <ShamousaChatWidget
-            profile={profile}
-            onOpenFalcon={() => navigateTo('ai_agent')}
-            isAnyModalOpen={isAnyModalOpen}
-          />
+          <Suspense fallback={null}>
+            <ShamousaChatWidget
+              profile={profile}
+              onOpenFalcon={() => navigateTo('ai_agent')}
+              isAnyModalOpen={isAnyModalOpen}
+            />
+          </Suspense>
         )}
 
+      <Suspense fallback={null}>
       {/* Sidebar Drawer Navigation */}
       {isSidebarOpen && (
         <SidebarDrawer
@@ -3140,25 +3408,27 @@ export const App: React.FC = () => {
 
 
       {/* Artisan Storefront Modal & Order Lifecycle */}
-      <ArtisanStorefrontModal
-        isOpen={isArtisanStoreModalOpen}
-        onClose={() => {
-          setIsArtisanStoreModalOpen(false);
-          setSelectedStoreOrderId(undefined);
-        }}
-        profile={profile}
-        initialOrderId={selectedStoreOrderId}
-        initialTab={artisanStoreInitialTab}
-        onOpenCalculatorForRecord={(rec: any) => {
-          setCalculatorInitialRecord(rec);
-          navigateTo('calculator');
-          setIsArtisanStoreModalOpen(false);
-        }}
-        onOpenPersonalProfile={() => {
-          setIsArtisanStoreModalOpen(false);
-          navigateTo('personal_profile');
-        }}
-      />
+      {isArtisanStoreModalOpen && (
+        <ArtisanStorefrontModal
+          isOpen={isArtisanStoreModalOpen}
+          onClose={() => {
+            setIsArtisanStoreModalOpen(false);
+            setSelectedStoreOrderId(undefined);
+          }}
+          profile={profile}
+          initialOrderId={selectedStoreOrderId}
+          initialTab={artisanStoreInitialTab}
+          onOpenCalculatorForRecord={(rec: any) => {
+            setCalculatorInitialRecord(rec);
+            navigateTo('calculator');
+            setIsArtisanStoreModalOpen(false);
+          }}
+          onOpenPersonalProfile={() => {
+            setIsArtisanStoreModalOpen(false);
+            navigateTo('personal_profile');
+          }}
+        />
+      )}
 
       {/* Supplier Storefront Config & QR Modal */}
       {isSupplierStoreModalOpen && (
@@ -3183,12 +3453,15 @@ export const App: React.FC = () => {
       )}
 
       {/* Permissions & Background Onboarding Modal */}
-      <PermissionsOnboardingModal
-        isOpen={isPermissionsModalOpen}
-        onClose={() => setIsPermissionsModalOpen(false)}
-        isInitialOnboarding={typeof window !== 'undefined' && !localStorage.getItem('alshams_permissions_prompted')}
-        profile={profile}
-      />
+      {isPermissionsModalOpen && (
+        <PermissionsOnboardingModal
+          isOpen={isPermissionsModalOpen}
+          onClose={() => setIsPermissionsModalOpen(false)}
+          isInitialOnboarding={typeof window !== 'undefined' && !localStorage.getItem('alshams_permissions_prompted')}
+          profile={profile}
+        />
+      )}
+      </Suspense>
 
       {/* Offline / Online Status Banner */}
       <OfflineIndicator />

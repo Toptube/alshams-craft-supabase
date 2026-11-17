@@ -18,20 +18,36 @@ import {
 import { MainSectionId } from '../registry/craftsRegistry';
 import { UserProfile, Gender } from '../types';
 
+let cachedAuthBase: { headers: Record<string, string>; ts: number } | null = null;
+let inFlightAuthBase: Promise<Record<string, string>> | null = null;
+
 async function getAuthHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
-  const headers: Record<string, string> = { ...extra };
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      headers['Authorization'] = `Bearer ${session.access_token}`;
-    }
-    if (session?.user?.email) {
-      headers['x-user-email'] = session.user.email;
-    }
-  } catch {}
-  return headers;
+  const now = Date.now();
+  if (cachedAuthBase && now - cachedAuthBase.ts < 3000) {
+    return { ...cachedAuthBase.headers, ...extra };
+  }
+  if (!inFlightAuthBase) {
+    inFlightAuthBase = (async () => {
+      const base: Record<string, string> = {};
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          base['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        if (session?.user?.email) {
+          base['x-user-email'] = session.user.email;
+        }
+      } catch {}
+      cachedAuthBase = { headers: base, ts: Date.now() };
+      return base;
+    })().finally(() => {
+      inFlightAuthBase = null;
+    });
+  }
+  const base = await inFlightAuthBase;
+  return { ...base, ...extra };
 }
 
 const LOCAL_SUPPLIER_PROFILE_KEY = 'alshams_supplier_profile';
@@ -95,8 +111,15 @@ export function mapDbSupplierRowToProfile(row: any): SupplierProfile {
 export async function getCurrentSupplierFromSupabase(): Promise<UserProfile | null> {
   try {
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      data: { session },
+    } = await supabase.auth.getSession();
+    let user = session?.user ?? null;
+    if (!user) {
+      const {
+        data: { user: fetchedUser },
+      } = await supabase.auth.getUser();
+      user = fetchedUser;
+    }
     if (!user) return null;
 
     // 1. Check backend API first (combines Supabase + JSON store seamlessly)

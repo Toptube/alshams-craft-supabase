@@ -267,68 +267,85 @@ export function estimateDeliveryWindow(
   };
 }
 
-export async function syncPlatformSettingsFromCloud(): Promise<GovernoratesShippingConfig | null> {
-  let cloudSettings: any = null;
-  try {
-    const res = await fetch(`/api/platform-settings?_ts=${Date.now()}`, {
-      cache: 'no-store',
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.settings && typeof data.settings === 'object') {
-        cloudSettings = data.settings;
-      }
-    }
-  } catch {}
+let inFlightPlatformSync: Promise<GovernoratesShippingConfig | null> | null = null;
+let lastPlatformSyncedAt = 0;
+let lastPlatformSyncedCfg: GovernoratesShippingConfig | null = null;
+const PLATFORM_SYNC_TTL_MS = 15_000;
 
-  // Fallback directly to Supabase public.platform_settings if server endpoint returned nothing or lacked landingCms
-  if (!cloudSettings || !cloudSettings.landingCms) {
+export async function syncPlatformSettingsFromCloud(force = false): Promise<GovernoratesShippingConfig | null> {
+  const now = Date.now();
+  if (!force && lastPlatformSyncedCfg && now - lastPlatformSyncedAt < PLATFORM_SYNC_TTL_MS) {
+    return lastPlatformSyncedCfg;
+  }
+  if (!force && inFlightPlatformSync) {
+    return inFlightPlatformSync;
+  }
+
+  const run = async (): Promise<GovernoratesShippingConfig | null> => {
+    let cloudSettings: any = null;
     try {
-      const { data: psRow } = await supabase
-        .from('platform_settings')
-        .select('value')
-        .eq('key', 'global_platform_config')
-        .maybeSingle();
-      if (psRow?.value && typeof psRow.value === 'object') {
-        cloudSettings = {
-          ...(cloudSettings || {}),
-          ...(psRow.value as any),
-        };
+      const res = await fetch('/api/platform-settings');
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.settings && typeof data.settings === 'object') {
+          cloudSettings = data.settings;
+        }
       }
     } catch {}
-  }
 
-  if (cloudSettings) {
-    const mergedCfg: GovernoratesShippingConfig = {
-      ...DEFAULT_SHIPPING_CONFIG,
-      ...cloudSettings,
-      governorateRates: {
-        ...DEFAULT_SHIPPING_CONFIG.governorateRates,
-        ...(cloudSettings.governorateRates || {}),
-      },
-    };
-    saveShippingConfig(mergedCfg);
-    if (typeof cloudSettings.centralShippingPrivacy === 'boolean') {
-      setClientPrivacyActive(cloudSettings.centralShippingPrivacy);
+    // Fallback directly to Supabase public.platform_settings ONLY if server endpoint returned nothing
+    if (!cloudSettings) {
+      try {
+        const { data: psRow } = await supabase
+          .from('platform_settings')
+          .select('value')
+          .eq('key', 'global_platform_config')
+          .maybeSingle();
+        if (psRow?.value && typeof psRow.value === 'object') {
+          cloudSettings = psRow.value as any;
+        }
+      } catch {}
     }
-    if (cloudSettings.marketBuilder) {
-      saveStoredMarketBuilderConfig(cloudSettings.marketBuilder);
+
+    if (cloudSettings) {
+      const mergedCfg: GovernoratesShippingConfig = {
+        ...DEFAULT_SHIPPING_CONFIG,
+        ...cloudSettings,
+        governorateRates: {
+          ...DEFAULT_SHIPPING_CONFIG.governorateRates,
+          ...(cloudSettings.governorateRates || {}),
+        },
+      };
+      saveShippingConfig(mergedCfg);
+      if (typeof cloudSettings.centralShippingPrivacy === 'boolean') {
+        setClientPrivacyActive(cloudSettings.centralShippingPrivacy);
+      }
+      if (cloudSettings.marketBuilder) {
+        saveStoredMarketBuilderConfig(cloudSettings.marketBuilder);
+      }
+      if (cloudSettings.suppliersMarketBuilder) {
+        saveStoredSuppliersMarketBuilderConfig(cloudSettings.suppliersMarketBuilder);
+      }
+      if (cloudSettings.landingCms) {
+        saveStoredLandingCmsConfig(cloudSettings.landingCms);
+      }
+      if (cloudSettings.featureFlags) {
+        saveStoredFeatureFlags(cloudSettings.featureFlags);
+      }
+      if (cloudSettings.uiLayoutConfig) {
+        saveStoredUiLayoutConfig(cloudSettings.uiLayoutConfig);
+      }
+      lastPlatformSyncedCfg = mergedCfg;
+      lastPlatformSyncedAt = Date.now();
+      return mergedCfg;
     }
-    if (cloudSettings.suppliersMarketBuilder) {
-      saveStoredSuppliersMarketBuilderConfig(cloudSettings.suppliersMarketBuilder);
-    }
-    if (cloudSettings.landingCms) {
-      saveStoredLandingCmsConfig(cloudSettings.landingCms);
-    }
-    if (cloudSettings.featureFlags) {
-      saveStoredFeatureFlags(cloudSettings.featureFlags);
-    }
-    if (cloudSettings.uiLayoutConfig) {
-      saveStoredUiLayoutConfig(cloudSettings.uiLayoutConfig);
-    }
-    return mergedCfg;
-  }
-  return null;
+    return null;
+  };
+
+  inFlightPlatformSync = run().finally(() => {
+    inFlightPlatformSync = null;
+  });
+  return inFlightPlatformSync;
 }
 
 // 5. Central Marketplace Orders Storage

@@ -55,24 +55,41 @@ export function setStaffTerminalToken(token: string) {
   else localStorage.removeItem(STAFF_TOKEN_STORAGE_KEY);
 }
 
+let cachedErpAuth: { headers: Record<string, string>; ts: number } | null = null;
+let inFlightErpAuth: Promise<Record<string, string>> | null = null;
+
 async function erpHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
   const headers: Record<string, string> = { ...extra };
   const staffToken = getStaffTerminalToken();
   if (staffToken) {
     headers['x-staff-token'] = staffToken;
   }
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      headers['Authorization'] = `Bearer ${session.access_token}`;
-    }
-    if (session?.user?.email) {
-      headers['x-user-email'] = session.user.email;
-    }
-  } catch {}
-  return headers;
+  const now = Date.now();
+  if (cachedErpAuth && now - cachedErpAuth.ts < 3000) {
+    return { ...cachedErpAuth.headers, ...headers };
+  }
+  if (!inFlightErpAuth) {
+    inFlightErpAuth = (async () => {
+      const base: Record<string, string> = {};
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          base['Authorization'] = `Bearer ${session.access_token}`;
+        }
+        if (session?.user?.email) {
+          base['x-user-email'] = session.user.email;
+        }
+      } catch {}
+      cachedErpAuth = { headers: base, ts: Date.now() };
+      return base;
+    })().finally(() => {
+      inFlightErpAuth = null;
+    });
+  }
+  const base = await inFlightErpAuth;
+  return { ...base, ...headers };
 }
 
 export async function fetchSupplierErpOverview(): Promise<SupplierErpOverview | null> {

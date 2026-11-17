@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import { UserProfile, WorkshopProfile, isUserAdmin } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
@@ -51,23 +51,62 @@ import {
   mapExecutiveTabToPage,
 } from './adminTypes';
 import { AdminHomeView } from './AdminHomeView';
-import { AdminWorkshopsPage } from './AdminWorkshopsPage';
-import { AdminMarketplaceBuilderPage } from './AdminMarketplaceBuilderPage';
-import { AdminStoresPage, AdminCatalogsPage } from './AdminStoresCatalogPages';
-import {
-  AdminApplicationsPage,
-  AdminProductApprovalsPage,
-  AdminAppealsPage,
-} from './AdminOperationsPages';
-import { AdminReportsPage } from './AdminReportsPage';
-import { AdminNotificationPages } from './AdminNotificationPages';
-import { AdminWorkshopModals } from './AdminWorkshopModals';
-import { AdminLandingCmsPage } from './AdminLandingCmsPage';
-import { AdminFeatureVisibilityPage } from './AdminFeatureVisibilityPage';
-import { AdminUiLayoutStudioPage } from './AdminUiLayoutStudioPage';
-import { AdminSuppliersPage } from './AdminSuppliersPage';
-import { AdminSuppliersMarketPage } from './AdminSuppliersMarketPage';
-import { AdminCustomersPage } from './AdminCustomersPage';
+
+const AdminWorkshopsPage = lazy(() =>
+  import('./AdminWorkshopsPage').then((m) => ({ default: m.AdminWorkshopsPage }))
+);
+const AdminMarketplaceBuilderPage = lazy(() =>
+  import('./AdminMarketplaceBuilderPage').then((m) => ({ default: m.AdminMarketplaceBuilderPage }))
+);
+const AdminStoresPage = lazy(() =>
+  import('./AdminStoresCatalogPages').then((m) => ({ default: m.AdminStoresPage }))
+);
+const AdminCatalogsPage = lazy(() =>
+  import('./AdminStoresCatalogPages').then((m) => ({ default: m.AdminCatalogsPage }))
+);
+const AdminApplicationsPage = lazy(() =>
+  import('./AdminOperationsPages').then((m) => ({ default: m.AdminApplicationsPage }))
+);
+const AdminProductApprovalsPage = lazy(() =>
+  import('./AdminOperationsPages').then((m) => ({ default: m.AdminProductApprovalsPage }))
+);
+const AdminAppealsPage = lazy(() =>
+  import('./AdminOperationsPages').then((m) => ({ default: m.AdminAppealsPage }))
+);
+const AdminReportsPage = lazy(() =>
+  import('./AdminReportsPage').then((m) => ({ default: m.AdminReportsPage }))
+);
+const AdminNotificationPages = lazy(() =>
+  import('./AdminNotificationPages').then((m) => ({ default: m.AdminNotificationPages }))
+);
+const AdminWorkshopModals = lazy(() =>
+  import('./AdminWorkshopModals').then((m) => ({ default: m.AdminWorkshopModals }))
+);
+const AdminLandingCmsPage = lazy(() =>
+  import('./AdminLandingCmsPage').then((m) => ({ default: m.AdminLandingCmsPage }))
+);
+const AdminFeatureVisibilityPage = lazy(() =>
+  import('./AdminFeatureVisibilityPage').then((m) => ({ default: m.AdminFeatureVisibilityPage }))
+);
+const AdminUiLayoutStudioPage = lazy(() =>
+  import('./AdminUiLayoutStudioPage').then((m) => ({ default: m.AdminUiLayoutStudioPage }))
+);
+const AdminSuppliersPage = lazy(() =>
+  import('./AdminSuppliersPage').then((m) => ({ default: m.AdminSuppliersPage }))
+);
+const AdminSuppliersMarketPage = lazy(() =>
+  import('./AdminSuppliersMarketPage').then((m) => ({ default: m.AdminSuppliersMarketPage }))
+);
+const AdminCustomersPage = lazy(() =>
+  import('./AdminCustomersPage').then((m) => ({ default: m.AdminCustomersPage }))
+);
+
+const AdminSubViewFallback: React.FC = () => (
+  <div className="min-h-[50vh] flex flex-col items-center justify-center p-6 space-y-3" dir="rtl">
+    <div className="w-10 h-10 border-4 border-[#D4CCBC] dark:border-[#22355E] border-t-[#EA580C] rounded-full animate-spin" />
+    <p className="text-xs font-bold text-[#475569] dark:text-[#CBD5E1]">جاري تجهيز القسم...</p>
+  </div>
+);
 import { updateWorkshopVisibility } from '../../db/supplierService';
 import { LandingCmsConfig, getStoredLandingCmsConfig } from '../../types/landingCms';
 import { PlatformFeatureFlags, getStoredFeatureFlags } from '../../types/featureFlags';
@@ -242,21 +281,35 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     typeof val === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim());
 
-  const getAdminAuthHeaders = async (includeJson = false): Promise<Record<string, string>> => {
-    const headers: Record<string, string> = {
-      'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-    };
-    if (includeJson) headers['Content-Type'] = 'application/json';
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data?.session?.access_token;
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-    } catch {}
-    return headers;
-  };
+  const adminTokenCacheRef = useRef<{ token: string; ts: number }>({ token: '', ts: 0 });
+  const getAdminAuthHeaders = useCallback(
+    async (includeJson = false): Promise<Record<string, string>> => {
+      const headers: Record<string, string> = {
+        'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+      };
+      if (includeJson) headers['Content-Type'] = 'application/json';
+      const now = Date.now();
+      if (adminTokenCacheRef.current.token && now - adminTokenCacheRef.current.ts < 3000) {
+        headers['Authorization'] = `Bearer ${adminTokenCacheRef.current.token}`;
+        return headers;
+      }
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token || '';
+        if (token) {
+          adminTokenCacheRef.current = { token, ts: now };
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+      } catch {}
+      return headers;
+    },
+    [profile.email]
+  );
 
   // Selected Workshop & Deep ERP State
   const [selectedWorkshopId, setSelectedWorkshopId] = useState<string>(profile.id);
+  const selectedWorkshopIdRef = useRef<string>(selectedWorkshopId);
+  selectedWorkshopIdRef.current = selectedWorkshopId;
   const [centralShippingPrivacy, setCentralShippingPrivacy] = useState<boolean>(() =>
     isClientHiddenForWorkshop(getStoredMarketBuilderConfig(), undefined, getClientPrivacyActive())
   );
@@ -271,6 +324,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
   // Cloud Marketplace Products & Admin Alerts
   const [cloudProductsForReview, setCloudProductsForReview] = useState<CloudMarketplaceProduct[]>([]);
+  const [cloudProductsLoaded, setCloudProductsLoaded] = useState<boolean>(false);
+  const [pendingProductsFromNotifs, setPendingProductsFromNotifs] = useState<number>(0);
   const [loadingCloudProducts, setLoadingCloudProducts] = useState<boolean>(false);
   const [cloudRejectingProduct, setCloudRejectingProduct] = useState<CloudMarketplaceProduct | null>(null);
   const [cloudRejectReason, setCloudRejectReason] = useState<string>('');
@@ -379,7 +434,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     return () => window.removeEventListener('alshams_reset_subview', handleReset);
   }, []);
 
-  // Load All Workshops (with server-enriched product/showcase/activity metrics)
+  // Load All Workshops (from optimized & slimmed server endpoint; Supabase direct fallback only on failure)
   const loadWorkshops = useCallback(
     async (isSilent = false) => {
       if (!isAdmin) return;
@@ -389,17 +444,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
       try {
         let serverWorkshops: EnrichedWorkshopProfile[] = [];
-        let directSupaWorkshops: EnrichedWorkshopProfile[] = [];
 
         try {
-          const token = (await supabase.auth.getSession()).data.session?.access_token;
-          const res = await fetch('/api/admin/workshops', {
-            headers: {
-              'Content-Type': 'application/json',
-              'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-          });
+          const headers = await getAdminAuthHeaders(true);
+          const res = await fetch('/api/admin/workshops', { headers });
           if (res.ok) {
             const json = await res.json();
             if (Array.isArray(json.workshops)) {
@@ -409,6 +457,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 ownerUid: row.owner_uid || row.ownerUid || row.id,
                 brandName: row.brand_name || row.brandName || 'ورشة',
                 artistName: row.artist_name || row.artistName || 'فنان',
+                gender: row.gender || 'female',
                 email: row.email || '',
                 phoneNumber: row.phone_number || row.phoneNumber || row.phone || '',
                 country: row.country || 'مصر',
@@ -441,6 +490,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 medal_note: row.medal_note || row.medalNote || null,
                 medalNote: row.medal_note || row.medalNote || null,
                 storeSlug: row.store_slug || row.storeSlug || undefined,
+                hideStorefront: Boolean(row.hideStorefront ?? row.hide_storefront),
+                hide_storefront: Boolean(row.hide_storefront ?? row.hideStorefront),
+                hideFromMarket: Boolean(row.hideFromMarket ?? row.hide_from_market),
+                hide_from_market: Boolean(row.hide_from_market ?? row.hideFromMarket),
                 productsCount: Number(row.productsCount ?? row.products_count ?? 0),
                 marketplaceProductsCount: Number(
                   row.marketplaceProductsCount ?? row.marketplace_products_count ?? 0
@@ -465,84 +518,75 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           console.warn('[Admin Dashboard] Server workshops fetch notice:', err?.message);
         }
 
-        try {
-          const { data: wsRows, error: wsErr } = await supabase
-            .from('workshops')
-            .select('*')
-            .order('created_at', { ascending: false });
+        // Fallback to slimmed Supabase query ONLY if server returned nothing
+        if (serverWorkshops.length === 0) {
+          try {
+            const { data: wsRows, error: wsErr } = await supabase
+              .from('workshops')
+              .select('id, owner_id, owner_uid, brand_name, artist_name, gender, email, phone, phone_number, country, currency, currency_symbol, calling_code, selected_crafts, default_vat_percent, role, status, is_frozen, suspension_reason, suspension_duration, suspended_until, appeal_status, appeal_message, rejection_reason, rating_stars, medal, medal_awarded_at, medal_note, store_slug, hide_storefront, hide_from_market, created_at, updated_at, created_by')
+              .order('created_at', { ascending: false });
 
-          if (!wsErr && Array.isArray(wsRows)) {
-            directSupaWorkshops = wsRows.map((row: any) => ({
-              id: row.id,
-              workshopId: row.id,
-              ownerUid: row.owner_id || row.owner_uid || row.id,
-              brandName: row.brand_name || 'ورشة الشمساوية',
-              artistName: row.artist_name || 'فنان',
-              gender: row.gender || 'female',
-              email: row.email || '',
-              phoneNumber: row.phone || row.phone_number || row.phoneNumber || '',
-              country: row.country || 'مصر',
-              currency: row.currency || 'EGP',
-              currencySymbol: row.currency_symbol || 'ج.م',
-              callingCode: row.calling_code || '+20',
-              selectedCrafts: Array.isArray(row.selected_crafts) ? row.selected_crafts : ['macrame'],
-              defaultVatPercent: row.default_vat_percent ?? 14,
-              showTaxInfoOnInvoice: false,
-              role: row.role || 'artisan',
-              status: row.status || (row.is_frozen ? 'suspended' : 'active'),
-              isFrozen: Boolean(
-                row.is_frozen || row.status === 'suspended' || row.status === 'banned'
-              ),
-              suspension_reason: row.suspension_reason || row.suspended_reason,
-              suspension_duration: row.suspension_duration || null,
-              suspended_until: row.suspended_until || null,
-              appeal_status: row.appeal_status || 'none',
-              appeal_message: row.appeal_message || '',
-              rejection_reason: row.rejection_reason || '',
-              rating_stars: row.rating_stars || 5,
-              ratingStars: row.rating_stars || 5,
-              medal: row.medal || null,
-              medal_awarded_at: row.medal_awarded_at || null,
-              medalAwardedAt: row.medal_awarded_at || null,
-              medal_note: row.medal_note || null,
-              medalNote: row.medal_note || null,
-              storeSlug: row.store_slug || undefined,
-              createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
-              updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
-              createdBy: row.created_by || row.owner_id || row.id || 'system',
-            }));
+            if (!wsErr && Array.isArray(wsRows)) {
+              serverWorkshops = wsRows.map((row: any) => ({
+                id: row.id,
+                workshopId: row.id,
+                ownerUid: row.owner_id || row.owner_uid || row.id,
+                brandName: row.brand_name || 'ورشة الشمساوية',
+                artistName: row.artist_name || 'فنان',
+                gender: row.gender || 'female',
+                email: row.email || '',
+                phoneNumber: row.phone || row.phone_number || row.phoneNumber || '',
+                country: row.country || 'مصر',
+                currency: row.currency || 'EGP',
+                currencySymbol: row.currency_symbol || 'ج.م',
+                callingCode: row.calling_code || '+20',
+                selectedCrafts: Array.isArray(row.selected_crafts) ? row.selected_crafts : ['macrame'],
+                defaultVatPercent: row.default_vat_percent ?? 14,
+                showTaxInfoOnInvoice: false,
+                role: row.role || 'artisan',
+                status: row.status || (row.is_frozen ? 'suspended' : 'active'),
+                isFrozen: Boolean(
+                  row.is_frozen || row.status === 'suspended' || row.status === 'banned'
+                ),
+                suspension_reason: row.suspension_reason,
+                suspension_duration: row.suspension_duration || null,
+                suspended_until: row.suspended_until || null,
+                appeal_status: row.appeal_status || 'none',
+                appeal_message: row.appeal_message || '',
+                rejection_reason: row.rejection_reason || '',
+                rating_stars: row.rating_stars || 5,
+                ratingStars: row.rating_stars || 5,
+                medal: row.medal || null,
+                medal_awarded_at: row.medal_awarded_at || null,
+                medalAwardedAt: row.medal_awarded_at || null,
+                medal_note: row.medal_note || null,
+                medalNote: row.medal_note || null,
+                storeSlug: row.store_slug || undefined,
+                hideStorefront: Boolean(row.hide_storefront),
+                hide_storefront: Boolean(row.hide_storefront),
+                hideFromMarket: Boolean(row.hide_from_market),
+                hide_from_market: Boolean(row.hide_from_market),
+                createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+                updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now(),
+                createdBy: row.created_by || row.owner_id || row.id || 'system',
+              }));
+            }
+          } catch (supaErr: any) {
+            console.warn('[Admin Dashboard] Direct Supabase sync notice:', supaErr?.message);
           }
-        } catch (supaErr: any) {
-          console.warn('[Admin Dashboard] Direct Supabase sync notice:', supaErr?.message);
         }
 
-        const map = new Map<string, EnrichedWorkshopProfile>();
-        directSupaWorkshops.forEach((w) => {
-          if (w.id) map.set(w.id, w);
-        });
-        serverWorkshops.forEach((w) => {
-          if (w.id && map.has(w.id)) {
-            const existing = map.get(w.id)!;
-            map.set(w.id, {
-              ...existing,
-              ...w,
-              phoneNumber: existing.phoneNumber || w.phoneNumber,
-            });
-          } else if (w.id) {
-            map.set(w.id, w);
-          }
-        });
-
-        const list = Array.from(map.values())
+        const list = serverWorkshops
           .filter((w) => {
             const id = (w.id || '').toLowerCase();
-            return id !== '00000000-0000-0000-0000-000000000000';
+            return id && id !== '00000000-0000-0000-0000-000000000000';
           })
           .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
         setWorkshops(list);
+        const currentSelected = selectedWorkshopIdRef.current;
         if (list.length > 0) {
-          if (!selectedWorkshopId || !list.some((w) => w.id === selectedWorkshopId)) {
+          if (!currentSelected || !list.some((w) => w.id === currentSelected)) {
             setSelectedWorkshopId(list[0].id);
           }
         } else {
@@ -555,7 +599,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         setRefreshing(false);
       }
     },
-    [isAdmin, profile.email, selectedWorkshopId]
+    [isAdmin, getAdminAuthHeaders]
   );
 
   // Load Deep Executive ERP Data for a Selected Workshop
@@ -564,14 +608,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       if (!workshopId || !isAdmin) return;
       setDeepDataLoading(true);
       try {
-        const token = (await supabase.auth.getSession()).data.session?.access_token;
-        const res = await fetch(`/api/admin/workshops/${workshopId}/deep-data`, {
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        });
+        const headers = await getAdminAuthHeaders(true);
+        const res = await fetch(`/api/admin/workshops/${workshopId}/deep-data`, { headers });
 
         if (res.ok) {
           const data = await res.json();
@@ -604,14 +642,14 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         setDeepDataLoading(false);
       }
     },
-    [isAdmin, profile.email]
+    [isAdmin, getAdminAuthHeaders]
   );
 
   useEffect(() => {
-    if (selectedWorkshopId) {
+    if (selectedWorkshopId && currentPage === 'catalogs') {
       loadDeepData(selectedWorkshopId);
     }
-  }, [selectedWorkshopId, loadDeepData]);
+  }, [selectedWorkshopId, currentPage, loadDeepData]);
 
   // Load Workshop Applications
   const loadWorkshopApplications = useCallback(async () => {
@@ -620,7 +658,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     try {
       const { data, error } = await supabase
         .from('workshop_applications')
-        .select('*')
+        .select('id, brand_name, artist_name, email, phone_number, country, crafts, status, workshop_id, user_id, review_notes, reviewed_at, created_at')
         .order('created_at', { ascending: false });
       if (!error && Array.isArray(data)) {
         setWorkshopApplications(data);
@@ -648,7 +686,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     } finally {
       setAppealsLoading(false);
     }
-  }, [isAdmin, profile.email]);
+  }, [isAdmin, getAdminAuthHeaders]);
 
   // Load Messaging Inbox & Sent Announcements
   const loadMessagingHub = useCallback(async () => {
@@ -670,7 +708,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     } catch (e) {
       console.warn('Load messaging hub warning:', e);
     }
-  }, [isAdmin, profile.email]);
+  }, [isAdmin, getAdminAuthHeaders]);
 
   const markInboxAllRead = useCallback(async () => {
     if (!isAdmin) return;
@@ -685,40 +723,45 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       setInboxList((prev) => prev.map((m) => ({ ...m, admin_read_at: m.admin_read_at || nowIso })));
       window.dispatchEvent(new CustomEvent('alshams_admin_inbox_changed'));
     } catch {}
-  }, [isAdmin, profile.email]);
+  }, [isAdmin, getAdminAuthHeaders]);
 
-  // Load Central Marketplace Cloud Products
+  // Load Central Marketplace Cloud Products (server slimmed endpoint, Supabase fallback on error)
   const loadCloudMarketplaceProducts = useCallback(async () => {
     if (!isAdmin) return;
     setLoadingCloudProducts(true);
     try {
-      let supaProds: any[] = [];
-      try {
-        const { data, error } = await supabase
-          .from('marketplace_products')
-          .select('*')
-          .order('created_at', { ascending: false });
-        if (!error && Array.isArray(data)) supaProds = data;
-      } catch {}
-
       const headers = await getAdminAuthHeaders();
       const res = await fetch('/api/admin/marketplace/products', { headers });
-      let serverProds: any[] = [];
+      let serverProds: any[] | null = null;
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.products)) serverProds = data.products;
       }
 
-      const pMap = new Map<string, any>();
-      supaProds.forEach((p) => pMap.set(p.id, p));
-      serverProds.forEach((p) => pMap.set(p.id, { ...(pMap.get(p.id) || {}), ...p }));
-      setCloudProductsForReview(Array.from(pMap.values()));
+      if (serverProds) {
+        setCloudProductsForReview(serverProds);
+        setCloudProductsLoaded(true);
+      } else {
+        const { data, error } = await supabase
+          .from('marketplace_products')
+          .select('id, workshop_id, brand_name, artist_name, product_name, category, store_price, retail_price, wholesale_price, current_stock, status, admin_rating, rejection_reason, store_slug, created_at, updated_at')
+          .order('created_at', { ascending: false });
+        if (!error && Array.isArray(data)) {
+          setCloudProductsForReview(
+            data.map((p: any) => ({
+              ...p,
+              image_url: `/api/media/marketplace-product/${p.id}`,
+            })) as CloudMarketplaceProduct[]
+          );
+          setCloudProductsLoaded(true);
+        }
+      }
     } catch (e) {
       console.warn('Load cloud marketplace products warning:', e);
     } finally {
       setLoadingCloudProducts(false);
     }
-  }, [isAdmin, profile.email]);
+  }, [isAdmin, getAdminAuthHeaders]);
 
   // Load Central Marketplace Settings & Cloud Orders
   const loadMarketplaceControlData = useCallback(async () => {
@@ -753,32 +796,45 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         if (Array.isArray(data.notifications)) {
           setAdminAlerts(data.notifications);
         }
+        if (data.counts && typeof data.counts.pendingProducts === 'number') {
+          setPendingProductsFromNotifs(data.counts.pendingProducts);
+        }
       }
     } catch (e) {
       console.warn('Load admin notifications warning:', e);
     }
-  }, [isAdmin, profile.email]);
+  }, [isAdmin, getAdminAuthHeaders]);
 
-  // Initial Data Load
+  // Initial Data Load (critical Home data immediately; heavier sub-view datasets deferred after paint)
   useEffect(() => {
-    if (isAdmin) {
-      loadWorkshops();
-      loadAppeals();
-      loadMessagingHub();
+    if (!isAdmin) return;
+    loadWorkshops();
+    loadAdminNotifications();
+    loadAppeals();
+    loadWorkshopApplications();
+
+    if (initialRoute.page !== 'home') {
       loadCloudMarketplaceProducts();
-      loadWorkshopApplications();
+      loadMessagingHub();
       loadMarketplaceControlData();
-      loadAdminNotifications();
+      return;
     }
+
+    const timer = setTimeout(() => {
+      loadCloudMarketplaceProducts();
+      loadMessagingHub();
+      loadMarketplaceControlData();
+    }, 650);
+    return () => clearTimeout(timer);
   }, [
     isAdmin,
     loadWorkshops,
     loadAppeals,
-    loadMessagingHub,
-    loadCloudMarketplaceProducts,
     loadWorkshopApplications,
-    loadMarketplaceControlData,
     loadAdminNotifications,
+    loadCloudMarketplaceProducts,
+    loadMessagingHub,
+    loadMarketplaceControlData,
   ]);
 
   // Realtime Subscriptions & Window Events
@@ -897,8 +953,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   );
 
   const pendingProductsCount = useMemo(
-    () => cloudProductsForReview.filter((p) => p.status === 'pending_approval').length,
-    [cloudProductsForReview]
+    () =>
+      cloudProductsLoaded
+        ? cloudProductsForReview.filter((p) => p.status === 'pending_approval').length
+        : pendingProductsFromNotifs,
+    [cloudProductsLoaded, cloudProductsForReview, pendingProductsFromNotifs]
   );
 
   const pendingAppealsCount = useMemo(
@@ -913,8 +972,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const handleNavigatePage = (page: AdminPageId) => {
     setCurrentPage(page);
     if (page === 'applications') loadWorkshopApplications();
-    if (page === 'product_approvals' || page === 'marketplace' || page === 'stores')
+    if (page === 'product_approvals' || page === 'marketplace' || page === 'stores' || page === 'reports')
       loadCloudMarketplaceProducts();
+    if (page === 'marketplace' || page === 'reports')
+      loadMarketplaceControlData();
     if (page === 'appeals') loadAppeals();
     if (page === 'notif_messages') {
       loadMessagingHub();
@@ -922,6 +983,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     }
     if (page === 'notif_workshops' || page === 'notif_store' || page === 'notif_system') {
       loadAdminNotifications();
+      if (page === 'notif_store' || page === 'notif_system') {
+        loadCloudMarketplaceProducts();
+        loadMarketplaceControlData();
+      }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -2327,6 +2392,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         />
       )}
 
+      <Suspense fallback={<AdminSubViewFallback />}>
       {currentPage === 'workshops' && (
         <AdminWorkshopsPage
           workshops={workshops}
@@ -2695,89 +2761,104 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           onExportCsv={exportSystemReportCSV}
         />
       )}
+      </Suspense>
 
-      {/* All Super Admin Action & Moderation Modals */}
-      <AdminWorkshopModals
-        editingWorkshop={editingWorkshop}
-        setEditingWorkshop={setEditingWorkshop}
-        isSuspendingModalOpen={isSuspendingModalOpen}
-        setIsSuspendingModalOpen={setIsSuspendingModalOpen}
-        isBanningModalOpen={isBanningModalOpen}
-        setIsBanningModalOpen={setIsBanningModalOpen}
-        onSaveEditedWorkshop={handleSaveEditedWorkshop}
-        editNewPassword={editNewPassword}
-        setEditNewPassword={setEditNewPassword}
-        showPasswordPlain={showPasswordPlain}
-        setShowPasswordPlain={setShowPasswordPlain}
-        onGenerateRandomPassword={generateRandomPassword}
-        onCredentialOverride={handleCredentialOverride}
-        overridingCredentials={overridingCredentials}
-        savingAction={savingAction}
-        credentialSuccessModal={credentialSuccessModal}
-        setCredentialSuccessModal={setCredentialSuccessModal}
-        copiedNotice={copiedNotice}
-        setCopiedNotice={setCopiedNotice}
-        suspensionDurationChoice={suspensionDurationChoice}
-        setSuspensionDurationChoice={setSuspensionDurationChoice}
-        suspensionReasonInput={suspensionReasonInput}
-        setSuspensionReasonInput={setSuspensionReasonInput}
-        onExecuteSuspension={handleExecuteSuspension}
-        banReasonInput={banReasonInput}
-        setBanReasonInput={setBanReasonInput}
-        onExecuteBan={handleExecuteBan}
-        rejectingAppealWorkshop={rejectingAppealWorkshop}
-        setRejectingAppealWorkshop={setRejectingAppealWorkshop}
-        rejectionReasonInput={rejectionReasonInput}
-        setRejectionReasonInput={setRejectionReasonInput}
-        onConfirmRejectAppeal={handleConfirmRejectAppeal}
-        cloudRejectingProduct={cloudRejectingProduct}
-        setCloudRejectingProduct={setCloudRejectingProduct}
-        cloudRejectReason={cloudRejectReason}
-        setCloudRejectReason={setCloudRejectReason}
-        onConfirmRejectProduct={handleConfirmRejectCloudProduct}
-        deletingWorkshop={deletingWorkshop}
-        setDeletingWorkshop={setDeletingWorkshop}
-        selectiveDeleteMode={selectiveDeleteMode}
-        setSelectiveDeleteMode={setSelectiveDeleteMode}
-        deleteConfirmText={deleteConfirmText}
-        setDeleteConfirmText={setDeleteConfirmText}
-        onConfirmSelectiveDelete={handleSelectiveDeleteWorkshop}
-        editingMaterial={editingMaterial}
-        setEditingMaterial={setEditingMaterial}
-        newMaterialPrice={newMaterialPrice}
-        setNewMaterialPrice={setNewMaterialPrice}
-        onSaveMaterialPrice={handleSaveMaterialPrice}
-        isNewWorkshopModalOpen={isNewWorkshopModalOpen}
-        setIsNewWorkshopModalOpen={setIsNewWorkshopModalOpen}
-        newBrandName={newBrandName}
-        setNewBrandName={setNewBrandName}
-        newArtistName={newArtistName}
-        setNewArtistName={setNewArtistName}
-        newEmail={newEmail}
-        setNewEmail={setNewEmail}
-        newPhone={newPhone}
-        setNewPhone={setNewPhone}
-        newCountry={newCountry}
-        setNewCountry={setNewCountry}
-        newRole={newRole}
-        setNewRole={setNewRole}
-        onCreateNewWorkshop={handleCreateNewWorkshop}
-        awardingWorkshop={awardingWorkshop}
-        setAwardingWorkshop={setAwardingWorkshop}
-        selectedStars={selectedStars}
-        setSelectedStars={setSelectedStars}
-        selectedMedal={selectedMedal}
-        setSelectedMedal={setSelectedMedal}
-        awardCustomNote={awardCustomNote}
-        setAwardCustomNote={setAwardCustomNote}
-        savingAward={savingAward}
-        onSaveAward={handleSaveAward}
-        auditingWorkshop={auditingWorkshop}
-        setAuditingWorkshop={setAuditingWorkshop}
-        auditData={auditData}
-        setAuditData={setAuditData}
-        loadingAudit={loadingAudit}
-      />
+      {/* All Super Admin Action & Moderation Modals (loaded on demand) */}
+      {(editingWorkshop ||
+        isSuspendingModalOpen ||
+        isBanningModalOpen ||
+        deletingWorkshop ||
+        editingMaterial ||
+        isNewWorkshopModalOpen ||
+        awardingWorkshop ||
+        auditingWorkshop ||
+        rejectingAppealWorkshop ||
+        cloudRejectingProduct ||
+        credentialSuccessModal) && (
+        <Suspense fallback={null}>
+          <AdminWorkshopModals
+            editingWorkshop={editingWorkshop}
+            setEditingWorkshop={setEditingWorkshop}
+            isSuspendingModalOpen={isSuspendingModalOpen}
+            setIsSuspendingModalOpen={setIsSuspendingModalOpen}
+            isBanningModalOpen={isBanningModalOpen}
+            setIsBanningModalOpen={setIsBanningModalOpen}
+            onSaveEditedWorkshop={handleSaveEditedWorkshop}
+            editNewPassword={editNewPassword}
+            setEditNewPassword={setEditNewPassword}
+            showPasswordPlain={showPasswordPlain}
+            setShowPasswordPlain={setShowPasswordPlain}
+            onGenerateRandomPassword={generateRandomPassword}
+            onCredentialOverride={handleCredentialOverride}
+            overridingCredentials={overridingCredentials}
+            savingAction={savingAction}
+            credentialSuccessModal={credentialSuccessModal}
+            setCredentialSuccessModal={setCredentialSuccessModal}
+            copiedNotice={copiedNotice}
+            setCopiedNotice={setCopiedNotice}
+            suspensionDurationChoice={suspensionDurationChoice}
+            setSuspensionDurationChoice={setSuspensionDurationChoice}
+            suspensionReasonInput={suspensionReasonInput}
+            setSuspensionReasonInput={setSuspensionReasonInput}
+            onExecuteSuspension={handleExecuteSuspension}
+            banReasonInput={banReasonInput}
+            setBanReasonInput={setBanReasonInput}
+            onExecuteBan={handleExecuteBan}
+            rejectingAppealWorkshop={rejectingAppealWorkshop}
+            setRejectingAppealWorkshop={setRejectingAppealWorkshop}
+            rejectionReasonInput={rejectionReasonInput}
+            setRejectionReasonInput={setRejectionReasonInput}
+            onConfirmRejectAppeal={handleConfirmRejectAppeal}
+            cloudRejectingProduct={cloudRejectingProduct}
+            setCloudRejectingProduct={setCloudRejectingProduct}
+            cloudRejectReason={cloudRejectReason}
+            setCloudRejectReason={setCloudRejectReason}
+            onConfirmRejectProduct={handleConfirmRejectCloudProduct}
+            deletingWorkshop={deletingWorkshop}
+            setDeletingWorkshop={setDeletingWorkshop}
+            selectiveDeleteMode={selectiveDeleteMode}
+            setSelectiveDeleteMode={setSelectiveDeleteMode}
+            deleteConfirmText={deleteConfirmText}
+            setDeleteConfirmText={setDeleteConfirmText}
+            onConfirmSelectiveDelete={handleSelectiveDeleteWorkshop}
+            editingMaterial={editingMaterial}
+            setEditingMaterial={setEditingMaterial}
+            newMaterialPrice={newMaterialPrice}
+            setNewMaterialPrice={setNewMaterialPrice}
+            onSaveMaterialPrice={handleSaveMaterialPrice}
+            isNewWorkshopModalOpen={isNewWorkshopModalOpen}
+            setIsNewWorkshopModalOpen={setIsNewWorkshopModalOpen}
+            newBrandName={newBrandName}
+            setNewBrandName={setNewBrandName}
+            newArtistName={newArtistName}
+            setNewArtistName={setNewArtistName}
+            newEmail={newEmail}
+            setNewEmail={setNewEmail}
+            newPhone={newPhone}
+            setNewPhone={setNewPhone}
+            newCountry={newCountry}
+            setNewCountry={setNewCountry}
+            newRole={newRole}
+            setNewRole={setNewRole}
+            onCreateNewWorkshop={handleCreateNewWorkshop}
+            awardingWorkshop={awardingWorkshop}
+            setAwardingWorkshop={setAwardingWorkshop}
+            selectedStars={selectedStars}
+            setSelectedStars={setSelectedStars}
+            selectedMedal={selectedMedal}
+            setSelectedMedal={setSelectedMedal}
+            awardCustomNote={awardCustomNote}
+            setAwardCustomNote={setAwardCustomNote}
+            savingAward={savingAward}
+            onSaveAward={handleSaveAward}
+            auditingWorkshop={auditingWorkshop}
+            setAuditingWorkshop={setAuditingWorkshop}
+            auditData={auditData}
+            setAuditData={setAuditData}
+            loadingAudit={loadingAudit}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };
