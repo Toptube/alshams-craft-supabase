@@ -832,6 +832,8 @@ export interface ExtraMaterialRow {
   totalCost: number;
 }
 
+export type UnifiedPricingMode = 'insulated' | 'margin' | 'markup';
+
 export interface CalculationInput {
   category: CraftCategory;
   productName: string;
@@ -858,14 +860,45 @@ export interface CalculationInput {
   toolDepreciationRatePercent?: number;
   toolDepreciationCost?: number;
   profitMarginPercent: number;
+  // Unified Corrected Financial & Operations Rules (المعادلات المصححة)
+  pricingMode?: UnifiedPricingMode; // 'margin' (ر من سعر البيع), 'markup' (ز_ي على التكلفة), or legacy 'insulated'
+  platformCommissionPercent?: number; // عمولة المنصة ج%
+  advertisedDiscountPercent?: number; // خصم معلن% لحساب سعر القائمة
+  vatPercent?: number; // ضريبة القيمة المضافة ض% (لا تدخل ضمن التكلفة)
+  // Labor breakdown & difficulty (زمن الإعداد + الإنتاج + التشطيب × معامل الصعوبة)
+  setupHours?: number;
+  productionHours?: number;
+  finishingHours?: number;
+  hourlyRateOverride?: number;
+  difficultyMultiplier?: number; // ل_ص
+  difficultyReason?: string;
+  customDesignFee?: number; // رسوم التصميم للطلبات الخاصة (بند مستقل)
+  // Operations, Energy & Mold Amortization (الطاقة الكهربائية وإهلاك القوالب والماكينات)
+  machinePowerKw?: number;
+  machineRunHours?: number;
+  kwhPrice?: number;
+  fuelGasCost?: number;
+  toolHourlyDepreciation?: number;
+  moldTotalCost?: number;
+  moldExpectedUses?: number;
+  // Batch & Defects (تكلفة الدفعة والقطع السليمة والتالفة)
+  batchQuantity?: number; // n
+  goodPiecesCount?: number; // n_good
+  batchSetupCost?: number; // C_setup
+  // Multi-Craft Specialized Inputs (الحبال والنسيج وكافة الأقسام الـ 14)
+  craftId?: string;
+  craftType?: string;
+  mainSectionId?: string;
+  workshopParams?: Record<string, number | string | boolean>;
+  calibrationOverrides?: Record<string, number>;
+  fusionSecondaryCraftId?: string;
+  fusionSecondarySectionId?: string;
+  fusionSecondaryParams?: Record<string, number | string | boolean>;
   manualOverrideStrands?: number;
   manualOverrideStrandLength?: number;
   manualOverrideTotalWeightKg?: number;
   personalNotes: string;
   productImageUrl?: string;
-  // Multi-Craft Specialized Inputs (الحبال والنسيج)
-  craftId?: string;
-  craftType?: string;
   // 1. Crochet specific inputs
   hasSolidBase?: boolean;
   crochetDepthCm?: number;
@@ -940,10 +973,32 @@ export interface CalculationOutput {
     strandLength: boolean;
     weight: boolean;
   };
+  // Unified Corrected Financial Breakdown (شفافية المعادلات المصححة)
+  unifiedBreakdown?: {
+    pricingMode: UnifiedPricingMode;
+    energyCost: number; // C_energy
+    moldCostPerPiece: number; // C_mold = C_mold_total / n_uses
+    customDesignFee: number;
+    totalOperationalOverhead: number; // C_o + C_energy + C_dep + C_mold + transit
+    totalUnitCost: number; // TC = C_m + C_l + C_o + C_p
+    batchQuantity: number;
+    goodPiecesCount: number;
+    batchTotalCost: number; // C_batch
+    goodPieceCost: number; // C_good = C_batch / n_good
+    marginPercent: number; // ر (من سعر البيع)
+    markupPercent: number; // ز_ي (من التكلفة)
+    platformCommissionPercent: number;
+    platformCommissionAmount: number;
+    priceBeforeDiscountAndVat: number; // P
+    listPriceBeforeDiscount: number; // P_list = P / (1 - d)
+    vatAmount: number;
+    finalPriceWithVat: number; // P_final = P * (1 + v)
+  };
   // Specific Craft Technical Outputs
   craftMetrics?: {
     craftId: string;
     craftNameAr: string;
+    mainSectionId?: string;
     // Common Geometry Outputs
     pieceType?: string;
     baseShape?: string;
@@ -951,6 +1006,20 @@ export interface CalculationOutput {
     wallAreaCm2?: number;
     totalSurfaceAreaCm2?: number;
     perimeterCm?: number;
+    volumeCm3?: number;
+    // Unified Net vs Waste vs Gross Audit
+    netQtyLabel?: string;
+    grossQtyLabel?: string;
+    wasteMode?: 'on_net' | 'nesting_efficiency' | 'yield_factor';
+    wasteFactorPercent?: number;
+    wasteAmount?: number;
+    equationSummaryAr?: string;
+    safetyWarning?: string;
+    detailedLines?: Array<{
+      label: string;
+      value: string;
+      highlight?: boolean;
+    }>;
     // Crochet
     baseWeightGrams?: number;
     wallWeightGrams?: number;
@@ -994,9 +1063,6 @@ export interface CalculationOutput {
     tuftingYarnWeightKg?: number;
     tuftingLatexKg?: number;
     tuftingLatexCost?: number;
-    // Waste
-    wasteFactorPercent?: number;
-    wasteAmount?: number;
   };
 }
 
@@ -1021,8 +1087,11 @@ export interface SavedProductRecord {
   output: CalculationOutput;
   currentStock?: number; // رصيد المخزون الفعلي
   imageUrl?: string;
+  isCatalogVisible?: boolean; // هل تم تصدير المشغولة من الأرشيف إلى الكتالوج
   inStore?: boolean; // هل تم تصدير المشغولة إلى متجري
   isPublishedInStore?: boolean; // مفتاح "نشر في المتجر"
+  inMarket?: boolean; // هل تم تصدير المشغولة إلى سوق الشمساوية المركزي
+  marketStatus?: 'none' | 'pending_approval' | 'approved' | 'rejected';
   storePrice?: number; // السعر التسويقي في المتجر
   storeDescription?: string; // وصف العرض في المتجر
   isMarketplaceApproved?: boolean;

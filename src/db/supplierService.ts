@@ -344,9 +344,22 @@ export function mapDbCatalogItem(r: any): SupplierCatalogItem {
     discountType: r.discount_type || r.discountType || 'none',
     discountValue: Number(r.discount_value ?? r.discountValue ?? 0),
     inStore: r.in_store !== undefined ? Boolean(r.in_store) : r.inStore !== false,
-    inMarket: r.in_market !== undefined ? Boolean(r.in_market) : r.inMarket !== false,
-    isApproved: r.is_approved !== undefined ? Boolean(r.is_approved) : r.isApproved !== false,
+    inMarket: r.in_market !== undefined ? Boolean(r.in_market) : Boolean(r.inMarket),
+    isApproved: r.is_approved !== undefined ? Boolean(r.is_approved) : Boolean(r.isApproved),
+    marketStatus:
+      (r.market_status || r.marketStatus) ||
+      ((r.in_market !== undefined ? Boolean(r.in_market) : Boolean(r.inMarket))
+        ? (r.is_approved !== undefined ? Boolean(r.is_approved) : Boolean(r.isApproved))
+          ? 'approved'
+          : 'pending_approval'
+        : 'none'),
     sourceCurrency: r.source_currency || r.sourceCurrency || 'EGP',
+    unifiedCode: r.unified_code || r.unifiedCode || '',
+    specCode: r.spec_code || r.specCode || '',
+    brandCode: r.brand_code || r.brandCode || 'B000',
+    skuCode: r.sku_code || r.skuCode || '',
+    unitChain: r.unit_chain || r.unitChain || '',
+    bridgeValues: r.bridge_values || r.bridgeValues || undefined,
     createdAt: r.created_at || r.createdAt,
     updatedAt: r.updated_at || r.updatedAt,
   };

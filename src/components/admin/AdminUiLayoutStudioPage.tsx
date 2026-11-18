@@ -984,6 +984,26 @@ export const AdminUiLayoutStudioPage: React.FC<AdminUiLayoutStudioPageProps> = (
                   <option value="circle">دائري</option>
                 </select>
               </label>
+
+              <label className="flex items-center gap-1.5 font-black">
+                <span>أقصى عدد صور للمنتج:</span>
+                <select
+                  value={roleConfig.maxProductImages || 3}
+                  onChange={(e) =>
+                    updateRole((r) => ({
+                      ...r,
+                      maxProductImages: Math.min(8, Math.max(1, Number(e.target.value) || 3)),
+                    }))
+                  }
+                  className="h-8 px-2 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] font-mono font-black"
+                >
+                  {[1, 2, 3, 4, 5, 6, 8].map((n) => (
+                    <option key={n} value={n}>
+                      {n} {n === 1 ? 'صورة' : 'صور'}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <button

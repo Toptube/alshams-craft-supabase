@@ -46,12 +46,15 @@ import {
   ArrowRight,
   Upload,
   Copy,
+  Send,
+  Archive,
 } from 'lucide-react';
 import { compressImageFile } from '../../utils/imageCompressor';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import {
   publishProductToMarketplace,
+  fetchWorkshopMarketplaceProducts,
   getLocalWorkshopStoreLayout,
   saveWorkshopStoreLayout,
 } from '../../db/marketplaceCloud';
@@ -132,8 +135,12 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   const [isCustomerPreviewOpen, setIsCustomerPreviewOpen] = useState<boolean>(false);
   const [storeLayoutCols, setStoreLayoutCols] = useState<1 | 2 | 3>(2);
   const [copiedFooterTarget, setCopiedFooterTarget] = useState<'store' | 'market' | null>(null);
+  const [selectedStoreMarketIds, setSelectedStoreMarketIds] = useState<Set<string>>(new Set());
+  const [marketStatusMap, setMarketStatusMap] = useState<Record<string, 'pending_approval' | 'approved' | 'rejected'>>({});
+  const [pendingBannerMessage, setPendingBannerMessage] = useState<string>('');
+  const pendingBannerTimerRef = useRef<number | null>(null);
 
-  // Multi-selection state
+  // Multi-selection state (Catalog tab)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Search & Filter state
@@ -228,12 +235,25 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     return () => window.removeEventListener('alshams_store_layout_updated', handleLayoutEvt);
   }, [tenantId]);
 
-  // Load all products ONCE from database
+  // Load all products ONCE from database + live marketplace approval status
   const loadCatalogData = async () => {
     setLoading(true);
     try {
       const items = await tenantStorage.getProducts(tenantId);
       setAllProducts(items);
+      if (tenantId) {
+        fetchWorkshopMarketplaceProducts(tenantId)
+          .then((cloudItems) => {
+            const nextMap: Record<string, 'pending_approval' | 'approved' | 'rejected'> = {};
+            cloudItems.forEach((cm) => {
+              if (cm.id && cm.status) {
+                nextMap[cm.id] = cm.status;
+              }
+            });
+            setMarketStatusMap(nextMap);
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       console.error('Failed to load workshop products for catalog:', err);
     } finally {
@@ -243,6 +263,11 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
 
   useEffect(() => {
     loadCatalogData();
+    return () => {
+      if (pendingBannerTimerRef.current) {
+        window.clearTimeout(pendingBannerTimerRef.current);
+      }
+    };
   }, [tenantId]);
 
   // Crafts selected by the artisan
@@ -334,10 +359,15 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     return (p.category as string) || 'مكرمية';
   };
 
+  // Products visible in Reference Catalog (exported from Archive, or legacy without explicit false)
+  const catalogVisibleProducts = useMemo(() => {
+    return allProducts.filter((p) => p.isCatalogVisible !== false);
+  }, [allProducts]);
+
   // Ordered unique categories for Category Priority Drag & Drop bar
   const orderedCategories = useMemo(() => {
     const counts = new Map<string, number>();
-    allProducts.forEach((p) => {
+    catalogVisibleProducts.forEach((p) => {
       const cat = getCraftDisplay(p);
       counts.set(cat, (counts.get(cat) || 0) + 1);
     });
@@ -350,7 +380,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       return a.localeCompare(b, 'ar');
     });
     return uniqueCats.map((name) => ({ name, count: counts.get(name) || 0 }));
-  }, [allProducts, categoryOrder]);
+  }, [catalogVisibleProducts, categoryOrder]);
 
   // Master priority index lookup combining localStorage order + sortOrder property + category order
   const productPriorityRankMap = useMemo(() => {
@@ -481,9 +511,9 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     await handleReorderCategories(catName, list[targetIdx]);
   };
 
-  // Purely in-memory search and filtering
+  // Purely in-memory search and filtering (only items exported from Archive / visible in Catalog)
   const filteredProducts = useMemo(() => {
-    let result = [...allProducts];
+    let result = [...catalogVisibleProducts];
 
     // 1. Filter by Main Section
     if (selectedMainSection !== 'all') {
@@ -546,7 +576,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     });
 
     return result;
-  }, [allProducts, selectedMainSection, selectedCraft, searchQuery, sortBy, sortOrder, productPriorityRankMap]);
+  }, [catalogVisibleProducts, selectedMainSection, selectedCraft, searchQuery, sortBy, sortOrder, productPriorityRankMap]);
 
   // Target products for exports/shares (selected products if any are selected, else all filtered)
   const targetProductsForExport = useMemo(() => {
@@ -673,11 +703,33 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     }
   };
 
+  // Return product to Archive-only (hide from Catalog without deleting Archive record)
+  const handleHideFromCatalog = async (p: SavedProductRecord) => {
+    try {
+      const updated: SavedProductRecord = {
+        ...p,
+        isCatalogVisible: false,
+        updatedAt: Date.now(),
+      };
+      await tenantStorage.mutateProduct(updated);
+      setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(p.id);
+        return next;
+      });
+      setNotice(`تمت إزالة "${p.productName}" من الكتالوج (تظل محفوظة ككارت صنف في الأرشيف).`);
+      setTimeout(() => setNotice(''), 3500);
+    } catch (err: any) {
+      console.error('Failed to hide product from catalog:', err);
+    }
+  };
+
   // =========================================================================
-  // STORE MANAGEMENT LOGIC (قسم متجري ونشر المشغولات)
+  // STORE MANAGEMENT LOGIC (قسم متجري ثم التصدير الصريح لسوق الشمساوية)
   // =========================================================================
 
-  // Export product to My Store
+  // Export product to My Store ONLY (does NOT auto-publish to Central Market)
   const handleExportToStore = async (p: SavedProductRecord) => {
     try {
       const defaultPrice = p.storePrice || getRetailPrice(p);
@@ -689,6 +741,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
 
       const updated: SavedProductRecord = {
         ...p,
+        isCatalogVisible: true,
         inStore: true,
         isPublishedInStore: p.isPublishedInStore !== undefined ? p.isPublishedInStore : true,
         storePrice: defaultPrice,
@@ -699,24 +752,20 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       await tenantStorage.mutateProduct(updated);
       setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
 
-      // Sync to cloud marketplace table with status pending_approval
-      publishProductToMarketplace(updated, profile).catch((err) => {
-        console.warn('Marketplace cloud sync notice:', err);
-      });
-
-      setNotice(`تم تصدير "${p.productName}" إلى متجرك بنجاح! تم إرسال القطعة للمراجعة المركزية.`);
+      playSuccessSound();
+      setNotice(`✓ تم نقل "${p.productName}" إلى متجرك الخاص! يمكنك التعديل أو التصدير لسوق الشمساوية من تبويب متجري.`);
       setTimeout(() => setNotice(''), 4000);
     } catch (err: any) {
       console.error('Failed to export product to store:', err);
-      setNotice('تعذر تصدير المشغولة إلى متجري: ' + (err.message || 'خطأ غير معروف'));
+      setNotice('تعذر نقل المشغولة إلى متجري: ' + (err.message || 'خطأ غير معروف'));
       setTimeout(() => setNotice(''), 4000);
     }
   };
 
-  // Bulk Export selected products or entire filtered category to My Store
+  // Bulk Export selected products or filtered catalog items to My Store ONLY
   const handleBulkExportToStore = async () => {
     const targets = selectedIds.size > 0
-      ? allProducts.filter((p) => selectedIds.has(p.id))
+      ? catalogVisibleProducts.filter((p) => selectedIds.has(p.id))
       : filteredProducts;
 
     if (targets.length === 0) return;
@@ -733,6 +782,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
 
         const updated: SavedProductRecord = {
           ...p,
+          isCatalogVisible: true,
           inStore: true,
           isPublishedInStore: true,
           storePrice: defaultPrice,
@@ -741,18 +791,18 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         };
         await tenantStorage.mutateProduct(updated);
         updatedRecords.push(updated);
-        publishProductToMarketplace(updated, profile).catch(() => {});
       }
 
       const updatedMap = new Map(updatedRecords.map((t) => [t.id, t]));
       setAllProducts((prev) =>
         prev.map((item) => updatedMap.get(item.id) || item)
       );
-      setNotice(`✓ تم تصدير (${targets.length}) مشغولة إلى متجرك وسوق الشمساوية بنجاح 🏪`);
+      playSuccessSound();
+      setNotice(`✓ تم نقل (${targets.length}) مشغولة إلى متجرك الخاص 🏪 (جاهزة للتصدير لسوق الشمساوية من تبويب متجري)`);
       setTimeout(() => setNotice(''), 4500);
       setSelectedIds(new Set());
     } catch (err: any) {
-      setNotice('تعذر التصدير الجماعي للمتجر: ' + (err.message || 'خطأ غير معروف'));
+      setNotice('تعذر النقل الجماعي للمتجر: ' + (err.message || 'خطأ غير معروف'));
       setTimeout(() => setNotice(''), 4000);
     }
   };
@@ -767,7 +817,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         updatedAt: Date.now(),
       };
       await tenantStorage.mutateProduct(updated);
-      if (updated.inStore && updated.isPublishedInStore) {
+      if (updated.inMarket && updated.isPublishedInStore) {
         publishProductToMarketplace(updated, profile).catch(() => {});
       }
       setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
@@ -782,31 +832,127 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     }
   };
 
-  // Save Store marketing price and description (keeping costPrice strictly unchanged!)
+  // Save Store marketing price and description — resets Market approval to pending_approval if item is already in Market
   const handleSaveStoreProductDetails = async (
     p: SavedProductRecord,
     newPrice: number,
     newDesc: string
   ) => {
     try {
+      const wasInMarket = Boolean(p.inMarket || marketStatusMap[p.id]);
       const updated: SavedProductRecord = {
         ...p,
         storePrice: Number(newPrice) > 0 ? Number(newPrice) : getRetailPrice(p),
         storeDescription: newDesc.trim(),
+        isMarketplaceApproved: wasInMarket ? false : p.isMarketplaceApproved,
+        marketStatus: wasInMarket ? 'pending_approval' : p.marketStatus,
         updatedAt: Date.now(),
       };
-      // Original p.costPrice remains completely intact and protected!
       await tenantStorage.mutateProduct(updated);
-      if (updated.inStore) {
-        publishProductToMarketplace(updated, profile).catch(() => {});
+      if (wasInMarket) {
+        setMarketStatusMap((prev) => ({ ...prev, [p.id]: 'pending_approval' }));
+        publishProductToMarketplace(updated, profile, { reSubmitForApproval: true }).catch(() => {});
       }
       setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-      setNotice(`تم حفظ تعديلات العرض في المتجر لمشغولة "${p.productName}" بنجاح!`);
-      setTimeout(() => setNotice(''), 3500);
+      playSuccessSound();
+      setNotice(
+        wasInMarket
+          ? `✓ تم حفظ تعديلات "${p.productName}" وإعادة إرسالها لمراجعة الأدمن قبل الظهور في سوق الشمساوية.`
+          : `✓ تم حفظ تعديلات العرض في المتجر لمشغولة "${p.productName}" بنجاح!`
+      );
+      setTimeout(() => setNotice(''), 4000);
     } catch (err: any) {
       console.error('Failed to update store details:', err);
       setNotice('حدث خطأ أثناء حفظ بيانات المتجر.');
       setTimeout(() => setNotice(''), 3000);
+    }
+  };
+
+  // Show 3-second waiting admin approval banner
+  const triggerPendingAdminBanner = (productName?: string) => {
+    if (pendingBannerTimerRef.current) {
+      window.clearTimeout(pendingBannerTimerRef.current);
+    }
+    setPendingBannerMessage(
+      productName
+        ? `هذا المنتج في انتظار مراجعة الأدمن (${productName})`
+        : 'هذا المنتج في انتظار مراجعة الأدمن'
+    );
+    pendingBannerTimerRef.current = window.setTimeout(() => {
+      setPendingBannerMessage('');
+    }, 3000);
+  };
+
+  // Resolve market status for a product
+  const getProductMarketStatus = (p: SavedProductRecord): 'none' | 'pending_approval' | 'approved' | 'rejected' => {
+    const cloudSt = marketStatusMap[p.id];
+    if (cloudSt) return cloudSt;
+    if (p.marketStatus) return p.marketStatus;
+    if (p.inMarket) return p.isMarketplaceApproved ? 'approved' : 'pending_approval';
+    return 'none';
+  };
+
+  // Explicit single export from My Store -> Central Market (سوق الشمساوية)
+  const handleExportProductToMarket = async (p: SavedProductRecord) => {
+    try {
+      const updated: SavedProductRecord = {
+        ...p,
+        inStore: true,
+        isPublishedInStore: true,
+        inMarket: true,
+        isMarketplaceApproved: false,
+        marketStatus: 'pending_approval',
+        storePrice: p.storePrice || getRetailPrice(p),
+        updatedAt: Date.now(),
+      };
+      await tenantStorage.mutateProduct(updated);
+      setMarketStatusMap((prev) => ({ ...prev, [p.id]: 'pending_approval' }));
+      setAllProducts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      publishProductToMarketplace(updated, profile, { reSubmitForApproval: true }).catch(() => {});
+      playSuccessSound();
+      triggerPendingAdminBanner(p.productName);
+    } catch (err: any) {
+      setNotice('تعذر إرسال المنتج لسوق الشمساوية: ' + (err.message || 'خطأ غير معروف'));
+      setTimeout(() => setNotice(''), 3500);
+    }
+  };
+
+  // Bulk export selected (or non-approved) products from My Store -> Central Market
+  const handleBulkExportStoreToMarket = async () => {
+    const targets = selectedStoreMarketIds.size > 0
+      ? storeProducts.filter((p) => selectedStoreMarketIds.has(p.id))
+      : storeProducts.filter((p) => getProductMarketStatus(p) !== 'approved');
+
+    if (targets.length === 0) return;
+
+    try {
+      const nextStatusMap: Record<string, 'pending_approval'> = {};
+      const updatedMap = new Map<string, SavedProductRecord>();
+      for (const p of targets) {
+        const updated: SavedProductRecord = {
+          ...p,
+          inStore: true,
+          isPublishedInStore: true,
+          inMarket: true,
+          isMarketplaceApproved: false,
+          marketStatus: 'pending_approval',
+          storePrice: p.storePrice || getRetailPrice(p),
+          updatedAt: Date.now(),
+        };
+        await tenantStorage.mutateProduct(updated);
+        updatedMap.set(updated.id, updated);
+        nextStatusMap[updated.id] = 'pending_approval';
+        publishProductToMarketplace(updated, profile, { reSubmitForApproval: true }).catch(() => {});
+      }
+      setMarketStatusMap((prev) => ({ ...prev, ...nextStatusMap }));
+      setAllProducts((prev) => prev.map((item) => updatedMap.get(item.id) || item));
+      setSelectedStoreMarketIds(new Set());
+      playSuccessSound();
+      setNotice(`✓ تم إرسال (${targets.length}) منتج لسوق الشمساوية العام وبانتظار مراجعة واعتماد الأدمن.`);
+      setTimeout(() => setNotice(''), 4500);
+    } catch (err: any) {
+      setNotice('تعذر التصدير الجماعي لسوق الشمساوية: ' + (err.message || 'خطأ غير معروف'));
+      setTimeout(() => setNotice(''), 4000);
     }
   };
 
@@ -817,6 +963,9 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         ...p,
         inStore: false,
         isPublishedInStore: false,
+        inMarket: false,
+        marketStatus: 'none',
+        isMarketplaceApproved: false,
         updatedAt: Date.now(),
       };
       await tenantStorage.mutateProduct(updated);
@@ -1037,7 +1186,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
           <BookOpen className="w-4 h-4" />
           <span>الكتالوج</span>
           <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
-            {allProducts.length}
+            {catalogVisibleProducts.length}
           </span>
         </button>
 
@@ -1097,7 +1246,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                 playSuccessSound();
                 setNotice(
                   summary.pendingRemaining === 0
-                    ? `تمت المزامنة الشاملة بنجاح! كافة مشغولات الكتالوج (${allProducts.length}) ومعروضات المتجر (${summary.pushedStore > 0 ? `+${summary.pushedStore} مرفوعة حديثاً` : 'محدثة'}) متطابقة سحابياً ومحلياً ✨`
+                    ? `تمت المزامنة الشاملة بنجاح! كافة مشغولات الكتالوج (${catalogVisibleProducts.length}) ومعروضات المتجر (${summary.pushedStore > 0 ? `+${summary.pushedStore} مرفوعة حديثاً` : 'محدثة'}) متطابقة سحابياً ومحلياً ✨`
                     : `تم الحفظ محلياً مع بقاء (${summary.pendingRemaining}) عملية بالانتظار لحين استقرار الاتصال بالسحابة.`
                 );
                 setTimeout(() => setNotice(''), 4000);
@@ -1315,7 +1464,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             <span className="font-mono font-black text-amber-700 dark:text-amber-400">
               {filteredProducts.length}
             </span>
-            <span>من إجمالي {allProducts.length} منتج مسجل بالورشة</span>
+            <span>من إجمالي {catalogVisibleProducts.length} منتج في الكتالوج</span>
           </div>
 
           {/* Sort selector */}
@@ -1761,6 +1910,14 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                             >
                               <Share2 className="w-3.5 h-3.5" />
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => handleHideFromCatalog(p)}
+                              title="إزالة من الكتالوج فقط (تبقى في الأرشيف)"
+                              className="p-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                            >
+                              <Archive className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -2062,6 +2219,62 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             </div>
           </div>
 
+          {/* شريط الإشعار المؤقت عند الضغط على اللمبة الحمراء المضيئة (3 ثواني) */}
+          {pendingBannerMessage && (
+            <div className="p-3.5 rounded-2xl bg-rose-600 text-white text-xs sm:text-sm font-black flex items-center justify-between gap-3 shadow-lg animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 animate-pulse" />
+                <span>{pendingBannerMessage}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingBannerMessage('')}
+                className="p-1 rounded-lg bg-white/15 hover:bg-white/25 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* شريط التصدير الجماعي من متجري إلى سوق الشمساوية */}
+          {storeProducts.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-2xl bg-gradient-to-r from-emerald-600/15 via-amber-500/10 to-transparent border border-emerald-500/30">
+              <div className="flex items-center gap-2 text-xs font-bold text-stone-800 dark:text-stone-100">
+                <ShoppingBag className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>
+                  {selectedStoreMarketIds.size > 0
+                    ? `تم تحديد (${selectedStoreMarketIds.size}) منتج للتصدير إلى سوق الشمساوية`
+                    : 'حدد منتجات من متجرك لإرسالها إلى سوق الشمساوية المركزي للمراجعة والبيع'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedStoreMarketIds.size === storeProducts.length) {
+                      setSelectedStoreMarketIds(new Set());
+                    } else {
+                      setSelectedStoreMarketIds(new Set(storeProducts.map((sp) => sp.id)));
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl border border-emerald-500/40 text-emerald-900 dark:text-emerald-200 text-xs font-bold hover:bg-emerald-500/10 transition cursor-pointer"
+                >
+                  {selectedStoreMarketIds.size === storeProducts.length ? 'إلغاء تحديد الكل' : 'تحديد الكل'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkExportStoreToMarket}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>
+                    تصدير المحدد لسوق الشمساوية ({selectedStoreMarketIds.size > 0 ? selectedStoreMarketIds.size : storeProducts.filter((p) => getProductMarketStatus(p) !== 'approved').length})
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* شريط البحث وتصفية المتجر */}
           <div className="p-4 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="relative w-full sm:w-80">
@@ -2168,6 +2381,8 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                 const imgUrl = p.imageUrl || p.input?.productImageUrl;
                 const serial = getProductSerialDisplay(p, idx);
                 const craft = getCraftDisplay(p);
+                const marketSt = getProductMarketStatus(p);
+                const isMarketSelected = selectedStoreMarketIds.has(p.id);
                 const isDragging = draggedProductId === p.id;
                 const isDragOver = dragOverProductId === p.id && draggedProductId !== p.id;
 
@@ -2207,10 +2422,73 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                         ? 'border-amber-500 ring-2 ring-amber-500 scale-[1.01]'
                         : isDragging
                         ? 'opacity-50 border-dashed border-amber-500'
+                        : isMarketSelected
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/40'
                         : 'border-stone-200 dark:border-stone-800 hover:border-amber-300 dark:hover:border-amber-700'
                     }`}
                   >
                     <div className="p-4 space-y-3">
+                      {/* رأس البطاقة: تحديد للتصدير + مقبض الترتيب + لمبة حالة السوق */}
+                      <div className="flex items-center justify-between gap-2 pb-1 border-b border-stone-100 dark:border-stone-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedStoreMarketIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(p.id)) next.delete(p.id);
+                              else next.add(p.id);
+                              return next;
+                            });
+                          }}
+                          className="flex items-center gap-1.5 text-[11px] font-bold text-stone-600 dark:text-stone-300 cursor-pointer"
+                        >
+                          {isMarketSelected ? (
+                            <CheckSquare className="w-4 h-4 text-emerald-600" />
+                          ) : (
+                            <Square className="w-4 h-4 text-stone-400" />
+                          )}
+                          <span>تحديد للسوق</span>
+                        </button>
+
+                        {marketSt === 'approved' ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-400/60 text-[10px] font-black shadow-[0_0_12px_rgba(16,185,129,0.45)]"
+                            title="هذا المنتج معتمد ومنشور في سوق الشمساوية"
+                          >
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
+                            <span>بسوق الشمساوية ✓</span>
+                          </span>
+                        ) : marketSt === 'pending_approval' ? (
+                          <button
+                            type="button"
+                            onClick={() => triggerPendingAdminBanner(p.productName)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse shadow-[0_0_12px_rgba(225,29,72,0.55)] cursor-pointer"
+                            title="اضغط لمعرفة حالة المراجعة"
+                          >
+                            <span className="w-2 h-2 rounded-full bg-white" />
+                            <span>بانتظار الأدمن</span>
+                          </button>
+                        ) : marketSt === 'rejected' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleExportProductToMarket(p)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-black cursor-pointer hover:bg-amber-200"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            <span>إعادة إرسال للسوق</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleExportProductToMarket(p)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-emerald-600 hover:text-white text-[10px] font-black transition cursor-pointer"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>تصدير لسوق الشمساوية</span>
+                          </button>
+                        )}
+                      </div>
+
                       {/* رأس البطاقة: الصورة والبيانات + مقبض السحب والترتيب */}
                       <div className="flex gap-2.5 items-start">
                         <div

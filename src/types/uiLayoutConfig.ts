@@ -361,6 +361,7 @@ export interface UiSidebarGroupConfig {
 }
 
 export interface RoleUiLayoutConfig {
+  maxProductImages?: number;
   home: {
     columnsDesktop: 3 | 4 | 5;
     columnsMobile: 2 | 3;
@@ -384,6 +385,7 @@ export interface PlatformUiLayoutConfig {
 }
 
 export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
+  maxProductImages: 3,
   home: {
     columnsDesktop: 5,
     columnsMobile: 3,
@@ -682,6 +684,7 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
 };
 
 export const DEFAULT_SUPPLIER_UI_LAYOUT: RoleUiLayoutConfig = {
+  maxProductImages: 3,
   home: {
     columnsDesktop: 3,
     columnsMobile: 2,
@@ -954,7 +957,14 @@ function mergeRoleLayout(raw: Partial<RoleUiLayoutConfig> | undefined, fallback:
   const colsD = raw?.home?.columnsDesktop;
   const colsM = raw?.home?.columnsMobile;
 
+  const rawMaxImg = Number(raw?.maxProductImages);
+  const maxProductImages =
+    Number.isFinite(rawMaxImg) && rawMaxImg >= 1 && rawMaxImg <= 8
+      ? Math.round(rawMaxImg)
+      : fallback.maxProductImages || 3;
+
   return {
+    maxProductImages,
     home: {
       columnsDesktop: colsD === 3 || colsD === 4 || colsD === 5 ? colsD : fallback.home.columnsDesktop,
       columnsMobile: colsM === 2 || colsM === 3 ? colsM : fallback.home.columnsMobile,

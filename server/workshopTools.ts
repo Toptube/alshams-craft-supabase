@@ -1,6 +1,23 @@
 import fs from 'fs';
 import path from 'path';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  loadUnifiedMaterialsState,
+  buildMergedUnifiedSnapshot,
+} from './unifiedMaterialsService.js';
+import { searchUnifiedMaterials } from '../src/registry/unifiedMaterialsRegistry.js';
+import {
+  MAIN_SECTIONS,
+  SUB_CRAFTS_REGISTRY,
+  executeCraftCalculation,
+  getMainSectionForCraft,
+} from '../src/registry/craftsRegistry.js';
+import {
+  WORKSHOP_SPECS,
+  getWorkshopSpec,
+  getDefaultParamsForWorkshop,
+  normalizeWorkshopId,
+} from '../src/utils/craftEquationsEngine.js';
 
 /**
  * أدوات قاعدة بيانات الورشة والمورد لمساعدة البيانات "شموسة" (Function Calling)
@@ -152,6 +169,51 @@ export const workshopToolSchemas: ToolSchema[] = [
     name: 'list_all_workshops',
     description: 'يستعرض قائمة بكافة الورش المسجلة على المنظومة وتفاصيلها وحالتها (متاح حصرياً للمشرف العام والباشمهندس حسام).',
     parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'search_unified_materials',
+    description:
+      'يبحث في منظومة الخامات الموحدة (395+ خامة أساسية، 12 اختصار قسم مثل TH/WD/BD، مواصفات .01، الماركات B000..B053، الأسماء الدارجة AL00001+، وسلاسل الوحدات ل1..ل8 وحقول الجسر) ويكشف التباس المسميات المشتركة مثل خرز.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'اسم الخامة أو المسمى الدارج أو الكود الموحد مثل TH0001 أو اختصار مثل th' },
+        prefix: { type: 'string', description: 'اختياري: اختصار القسم مثل TH, BD, CL, WD, LT, MT, DC, AR, PK, PP, GL, AX' },
+      },
+    },
+  },
+  {
+    name: 'list_craft_equations',
+    description:
+      'يستعرض الأقسام الـ 14 والورش الحرفية الـ 50+ ومعادلاتها الهندسية المصححة، المتغيرات المطلوبة، ثوابت المعايرة، أجر الساعة الاسترشادي، وتحذيرات السلامة المهنية.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'اسم الورشة أو القسم أو الحرفة مثل ريزن، صابون، شموع، جلد، نحاس، موزاييك، ليزر' },
+        section_id: { type: 'string', description: 'معرف القسم اختياري مثل ropes_textiles أو clays_composites أو woods' },
+      },
+    },
+  },
+  {
+    name: 'calculate_craft_estimate',
+    description:
+      'يشغل محرك الحساب الهندسي والتسعير المصحح (ث1-ث6) لأي ورشة من الـ 50+ ورشة ويحسب الهالك على الصافي، استهلاك الطاقة والقوالب، العائد الدفعي، وهامش البيع أو الزيادة على التكلفة.',
+    parameters: {
+      type: 'object',
+      properties: {
+        craft_id: { type: 'string', description: 'معرف الورشة مثل resin, cold_process_soap, candles, leathercraft, pottery, laser_cnc' },
+        pricing_mode: { type: 'string', enum: ['margin', 'markup', 'insulated'] },
+        margin_or_markup_percent: { type: 'number', description: 'نسبة الهامش من البيع (مثلا 35) أو الزيادة على التكلفة (مثلا 50)' },
+        commission_percent: { type: 'number', description: 'عمولة المنصة أو بوابة الدفع % اختياري' },
+        vat_percent: { type: 'number', description: 'نسبة ضريبة القيمة المضافة % اختياري' },
+        hourly_rate: { type: 'number', description: 'أجر الساعة بالعملة المحلية اختياري (الافتراضي 60)' },
+        production_hours: { type: 'number', description: 'ساعات الإنتاج الفعلية اختياري' },
+        batch_quantity: { type: 'number', description: 'عدد القطع في الدفعة اختياري' },
+        good_pieces_count: { type: 'number', description: 'عدد القطع السليمة بعد الفرز اختياري' },
+        workshop_params_json: { type: 'string', description: 'JSON نصي لمعاملات الورشة الخاصة مثل {"volumeCm3":300,"mixPricePerKg":350}' },
+      },
+      required: ['craft_id'],
+    },
   },
 ];
 
@@ -994,6 +1056,169 @@ async function listAllWorkshops(ctx: WorkshopToolContext): Promise<ToolResult> {
   };
 }
 
+async function searchUnifiedMaterialsTool(ctx: WorkshopToolContext, args: any): Promise<ToolResult> {
+  const state = loadUnifiedMaterialsState();
+  const snap = buildMergedUnifiedSnapshot(state, {
+    memberRole: ctx.accountRole,
+    memberId: ctx.supplierId || ctx.workshopId,
+    isSuperAdmin: ctx.isSuperAdmin,
+  });
+  const q = String(args?.query || '').trim();
+  const prefixRaw = String(args?.prefix || 'all').trim().toUpperCase();
+  const res = searchUnifiedMaterials(q, snap.masters, snap.specs, snap.aliases, {
+    prefixFilter: prefixRaw === 'ALL' ? 'all' : (prefixRaw as any),
+    includeArchived: Boolean(ctx.isSuperAdmin),
+  });
+
+  return {
+    total_found: res.matches.length,
+    disambiguation_message: res.disambiguationMessage || null,
+    categories_count: snap.categories.length,
+    brands_count: snap.brands.length,
+    items: res.matches.slice(0, 15).map((m) => ({
+      code: m.master.code,
+      prefix: m.master.prefix,
+      canonical_name: m.master.canonicalName,
+      unit_chain: m.master.unitChain,
+      bridge_fields: m.master.bridgeFields,
+      artist_aliases: m.master.artistAliases,
+      supplier_aliases: m.master.supplierAliases,
+      specs: m.specs.slice(0, 6).map((s) => ({
+        spec_code: s.specCode,
+        label: s.label,
+        origin: s.origin || null,
+        thickness_mm: s.thicknessMm || null,
+      })),
+      matched_via: m.matchedVia,
+    })),
+  };
+}
+
+async function listCraftEquationsTool(args: any): Promise<ToolResult> {
+  const q = String(args?.query || '').trim();
+  const secFilter = String(args?.section_id || '').trim();
+
+  const matchingCrafts = SUB_CRAFTS_REGISTRY.filter((c) => {
+    const secMatch = !secFilter || c.mainSectionId === secFilter;
+    const spec = getWorkshopSpec(c.id);
+    const haystack = `${c.id} ${c.nameAr} ${c.description} ${spec?.formulaSummaryAr || ''}`;
+    return secMatch && matches(haystack, q);
+  });
+
+  return {
+    total_sections: MAIN_SECTIONS.length,
+    total_crafts_in_registry: SUB_CRAFTS_REGISTRY.length,
+    matched_count: matchingCrafts.length,
+    sections: MAIN_SECTIONS.map((s) => ({
+      id: s.id,
+      name_ar: s.nameAr,
+      is_new_star: Boolean(s.isNewStar),
+    })),
+    crafts: matchingCrafts.slice(0, 15).map((c) => {
+      const spec = getWorkshopSpec(c.id);
+      return {
+        craft_id: c.id,
+        name_ar: c.nameAr,
+        section_id: c.mainSectionId,
+        is_new_star: Boolean(c.isNewStar),
+        formula_summary: spec?.formulaSummaryAr || c.description,
+        default_waste_percent: spec?.defaultWastePercent ?? 10,
+        indicative_hourly_rate: spec?.indicativeHourlyRateRange || [50, 90],
+        safety_warning: spec?.safetyWarning || null,
+        fields: (spec?.fields || []).map((f) => ({
+          key: f.key,
+          label_ar: f.labelAr,
+          default: f.defaultValue,
+          is_calibration: Boolean(f.isCalibration),
+        })),
+      };
+    }),
+  };
+}
+
+async function calculateCraftEstimateTool(args: any): Promise<ToolResult> {
+  const rawCraftId = String(args?.craft_id || 'resin').trim();
+  const normId = normalizeWorkshopId(rawCraftId);
+  const spec = getWorkshopSpec(normId);
+  const defaults = getDefaultParamsForWorkshop(normId);
+
+  let parsedParams: Record<string, any> = {};
+  if (typeof args?.workshop_params_json === 'string' && args.workshop_params_json.trim()) {
+    try {
+      parsedParams = JSON.parse(args.workshop_params_json);
+    } catch {}
+  }
+
+  const pricingMode = (['margin', 'markup', 'insulated'].includes(String(args?.pricing_mode))
+    ? args.pricing_mode
+    : 'margin') as 'margin' | 'markup' | 'insulated';
+
+  const prodHours = Number(args?.production_hours) || 2;
+  const hourly = Number(args?.hourly_rate) || 60;
+  const batchQty = Math.max(1, Number(args?.batch_quantity) || 1);
+  const goodQty = Math.max(1, Math.min(batchQty, Number(args?.good_pieces_count) || batchQty));
+
+  const out = executeCraftCalculation(normId, {
+    category: (spec?.nameAr || 'أخرى') as any,
+    productName: spec?.nameAr || normId,
+    craftId: normId,
+    mainSectionId: getMainSectionForCraft(normId),
+    shape3D: 'rectangle',
+    widthCm: 40,
+    diameterCm: 0,
+    baseDiameterCm: 0,
+    sideHeightCm: 10,
+    totalLengthCm: 50,
+    fringeLengthCm: 10,
+    cordTypeId: 'cotton_twisted_4mm',
+    cordThicknessMm: 4,
+    pricePerKg: 180,
+    curtainRodCost: 0,
+    cushionCoverCost: 0,
+    fiberCost: 0,
+    bagAccessoriesCost: 0,
+    extraMaterials: [],
+    laborWage: prodHours * hourly,
+    setupHours: 0,
+    productionHours: prodHours,
+    finishingHours: 0,
+    hourlyRateOverride: hourly,
+    difficultyMultiplier: 1,
+    customDesignFee: 0,
+    packagingCost: 15,
+    transitFees: 0,
+    adminExpensesShare: 15,
+    toolDepreciationRatePercent: 3,
+    pricingMode,
+    profitMarginPercent: Number(args?.margin_or_markup_percent ?? 35),
+    platformCommissionPercent: Number(args?.commission_percent ?? 0),
+    advertisedDiscountPercent: 0,
+    vatPercent: Number(args?.vat_percent ?? 0),
+    batchQuantity: batchQty,
+    goodPiecesCount: goodQty,
+    batchSetupCost: 0,
+    personalNotes: '',
+    workshopParams: { ...defaults, ...parsedParams },
+  });
+
+  const unitCost = out.unifiedBreakdown?.goodPieceCost ?? out.unifiedBreakdown?.totalUnitCost ?? (out.totalDirectMaterialsCost + out.laborWage + out.packagingCost + out.adminExpensesShare);
+  return {
+    craft_id: normId,
+    craft_name_ar: out.craftMetrics?.craftNameAr || spec?.nameAr || normId,
+    pricing_mode: pricingMode,
+    safety_warning: out.craftMetrics?.safetyWarning || spec?.safetyWarning || null,
+    total_direct_materials_cost: out.totalDirectMaterialsCost,
+    labor_wage: out.laborWage,
+    total_unit_cost: unitCost,
+    recommended_retail_price: out.finalSellingPrice,
+    wholesale_price: Math.round(unitCost + (out.finalSellingPrice - unitCost) * 0.65),
+    net_qty_label: out.craftMetrics?.netQtyLabel || null,
+    gross_qty_label: out.craftMetrics?.grossQtyLabel || null,
+    detailed_lines: out.craftMetrics?.detailedLines || [],
+    unified_breakdown: out.unifiedBreakdown || null,
+  };
+}
+
 export async function runWorkshopTool(name: string, args: any, ctx: WorkshopToolContext): Promise<ToolResult> {
   try {
     switch (name) {
@@ -1019,6 +1244,12 @@ export async function runWorkshopTool(name: string, args: any, ctx: WorkshopTool
         return await workshopOverview(ctx);
       case 'list_all_workshops':
         return await listAllWorkshops(ctx);
+      case 'search_unified_materials':
+        return await searchUnifiedMaterialsTool(ctx, args);
+      case 'list_craft_equations':
+        return await listCraftEquationsTool(args);
+      case 'calculate_craft_estimate':
+        return await calculateCraftEstimateTool(args);
       default:
         return { error: `أداة غير معروفة: ${name}` };
     }

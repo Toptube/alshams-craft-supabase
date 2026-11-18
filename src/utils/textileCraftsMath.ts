@@ -4,6 +4,8 @@ import {
   ExtraMaterialRow,
 } from '../types';
 import { calculateMacrame } from './macrameMath';
+import { buildUnifiedFinancialOutput } from './craftUnifiedFinancials';
+import { executeWorkshopSpec } from './craftEquationsEngine';
 
 export interface CraftEngineResult extends CalculationOutput {}
 
@@ -735,33 +737,84 @@ export function calculateTufting(input: CalculationInput): CalculationOutput {
 
 /**
  * Dispatcher الرئيسي لقسم [الحبال والنسيج]:
- * يوجّه المدخلات تلقائياً إلى المحرك الرياضي المتخصص
+ * يوجّه المدخلات تلقائياً إلى المحرك الرياضي المتخصص ثم يطبق القواعد المالية الموحدة
  */
 export function calculateTextileCraft(craftId: string, input: CalculationInput): CalculationOutput {
   const normId = (craftId || '').toLowerCase().trim();
 
+  let raw: CalculationOutput;
+
   switch (normId) {
     case 'macrame':
-      return calculateMacrame(input);
+      raw = calculateMacrame(input);
+      break;
 
     case 'crochet':
-      return calculateCrochet(input);
+      raw = calculateCrochet(input);
+      break;
 
     case 'zigzag':
-      return calculateZigzag(input);
+      raw = calculateZigzag(input);
+      break;
 
     case 'kilim':
     case 'kelim':
-      return calculateKilim(input);
+      raw = calculateKilim(input);
+      break;
 
     case 'punch_needle':
-      return calculatePunchNeedle(input);
+      raw = calculatePunchNeedle(input);
+      break;
 
     case 'tufting':
     case 'tufting_gun':
-      return calculateTufting(input);
+      raw = calculateTufting(input);
+      break;
 
-    default:
-      return calculateMacrame(input);
+    case 'aqqada':
+    case 'spinning':
+    case 'knitting':
+    case 'felting':
+    case 'dyeing': {
+      const specialized = executeWorkshopSpec(normId, input);
+      if (specialized) return specialized;
+      raw = calculateMacrame(input);
+      break;
+    }
+
+    default: {
+      const fallbackSpec = executeWorkshopSpec(normId, input);
+      if (fallbackSpec) return fallbackSpec;
+      raw = calculateMacrame(input);
+      break;
+    }
   }
+
+  // تطبيق القواعد المالية الموحدة المصححة مع دعم وضع "المعزول" التاريخي
+  return buildUnifiedFinancialOutput(
+    {
+      ...input,
+      laborWage: input.laborWage !== undefined ? input.laborWage : raw.laborWage,
+      packagingCost: input.packagingCost !== undefined ? input.packagingCost : raw.packagingCost,
+      transitFees: input.transitFees !== undefined ? input.transitFees : raw.transitFees,
+      adminExpensesShare: input.adminExpensesShare !== undefined ? input.adminExpensesShare : raw.adminExpensesShare,
+      pricingMode: input.pricingMode || 'margin',
+    },
+    {
+      totalDirectMaterialsCost: raw.totalDirectMaterialsCost,
+      yarnCost: raw.yarnCost,
+      extraMaterialsTotalCost: raw.extraMaterialsTotalCost,
+      totalWeightKg: raw.totalWeightKg,
+      totalWeightGrams: raw.totalWeightGrams,
+      totalYarnLengthMeters: raw.totalYarnLengthMeters,
+      baseStrandsCount: raw.baseStrandsCount,
+      workingCordsCount: raw.workingCordsCount,
+      singleStrandLengthCm: raw.singleStrandLengthCm,
+      craftMetrics: {
+        ...(raw.craftMetrics || { craftId: normId, craftNameAr: normId }),
+        wasteMode: raw.craftMetrics?.wasteMode || 'on_net',
+      },
+      isOverridden: raw.isOverridden,
+    }
+  );
 }

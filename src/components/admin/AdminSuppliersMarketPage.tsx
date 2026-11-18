@@ -181,21 +181,46 @@ export const AdminSuppliersMarketPage: React.FC<AdminSuppliersMarketPageProps> =
 
   const handleToggleItemMarketVisibility = async (item: AdminSuppliersMarketCatalogRow) => {
     const nextInMarket = !item.inMarket;
-    const res = await adminUpdateSupplierCatalogItem(item.id, { inMarket: nextInMarket }, userEmail);
+    const res = await adminUpdateSupplierCatalogItem(
+      item.id,
+      { inMarket: nextInMarket, ...(nextInMarket ? { isApproved: true } : {}) },
+      userEmail
+    );
     if (res.success) {
       setOverview((prev) => ({
         ...prev,
         catalogItems: prev.catalogItems.map((it) =>
-          it.id === item.id ? { ...it, inMarket: nextInMarket } : it
+          it.id === item.id
+            ? { ...it, inMarket: nextInMarket, ...(nextInMarket ? { isApproved: true } : {}) }
+            : it
         ),
       }));
       onNotifySuccess(
         nextInMarket
-          ? `تم إظهار خامة "${item.name}" في سوق موردين الشمساوية.`
+          ? `تم اعتماد وإظهار خامة "${item.name}" في سوق موردين الشمساوية.`
           : `تم إخفاء خامة "${item.name}" من سوق موردين الشمساوية.`
       );
     } else {
       onNotifyError(res.error || 'تعذر تحديث حالة الخامة');
+    }
+  };
+
+  const handleApprovePendingItem = async (item: AdminSuppliersMarketCatalogRow) => {
+    const res = await adminUpdateSupplierCatalogItem(
+      item.id,
+      { inMarket: true, isApproved: true },
+      userEmail
+    );
+    if (res.success) {
+      setOverview((prev) => ({
+        ...prev,
+        catalogItems: prev.catalogItems.map((it) =>
+          it.id === item.id ? { ...it, inMarket: true, isApproved: true } : it
+        ),
+      }));
+      onNotifySuccess(`✓ تم اعتماد ونشر خامة "${item.name}" في سوق موردين الشمساوية!`);
+    } else {
+      onNotifyError(res.error || 'تعذر اعتماد الخامة');
     }
   };
 
@@ -331,7 +356,8 @@ export const AdminSuppliersMarketPage: React.FC<AdminSuppliersMarketPageProps> =
     return overview.catalogItems.filter((it) => {
       if (catalogSectionFilter !== 'all' && it.sectionId !== catalogSectionFilter) return false;
       if (catalogStatusFilter === 'visible' && (!it.inMarket || !it.isApproved)) return false;
-      if (catalogStatusFilter === 'hidden' && it.inMarket && it.isApproved) return false;
+      if ((catalogStatusFilter as string) === 'pending' && (!it.inMarket || it.isApproved)) return false;
+      if (catalogStatusFilter === 'hidden' && it.inMarket) return false;
       if (!q) return true;
       return (
         (it.name || '').toLowerCase().includes(q) ||
@@ -1188,6 +1214,9 @@ export const AdminSuppliersMarketPage: React.FC<AdminSuppliersMarketPageProps> =
                 className="h-10 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
               >
                 <option value="all">كل الحالات</option>
+                <option value="pending">
+                  بانتظار الاعتماد ({overview.catalogItems.filter((x) => x.inMarket && !x.isApproved).length})
+                </option>
                 <option value="visible">معروضة في سوق الموردين</option>
                 <option value="hidden">مخفية عن السوق</option>
               </select>
@@ -1207,52 +1236,69 @@ export const AdminSuppliersMarketPage: React.FC<AdminSuppliersMarketPageProps> =
                       <th className="p-3 font-black">القطاعي</th>
                       <th className="p-3 font-black">الجملة / شرائح</th>
                       <th className="p-3 font-black">المخزون</th>
-                      <th className="p-3 font-black">الظهور بالسوق</th>
+                      <th className="p-3 font-black">الحالة والاعتماد</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#D4CCBC]/60 dark:divide-[#22355E]">
-                    {filteredCatalog.map((it) => (
-                      <tr key={it.id} className="hover:bg-[#EFE9DC]/40 dark:hover:bg-[#132040]/40">
-                        <td className="p-3">
-                          <div className="font-black">{it.name}</div>
-                          <div className="text-[10px] text-[#475569] dark:text-[#94A3B8]">/{it.unit}</div>
-                        </td>
-                        <td className="p-3 font-bold">
-                          {it.supplierBrandName}
-                          {it.supplierGovernorate ? ` · ${it.supplierGovernorate}` : ''}
-                        </td>
-                        <td className="p-3 font-mono tabular-nums font-bold">
-                          {it.retailPrice.toLocaleString('ar-EG')} {it.supplierCurrencySymbol}
-                        </td>
-                        <td className="p-3 font-mono tabular-nums text-[11px]">
-                          <span className="font-black text-emerald-700 dark:text-emerald-400">
-                            {it.wholesalePrice > 0
-                              ? `${it.wholesalePrice.toLocaleString('ar-EG')} (≥${it.minWholesaleQty})`
-                              : '—'}
-                          </span>
-                          {it.tierPricing && it.tierPricing.length > 0 && (
-                            <span className="block text-[10px] text-[#475569]">
-                              +{it.tierPricing.length} شرائح كمية
+                    {filteredCatalog.map((it) => {
+                      const isPending = it.inMarket && !it.isApproved;
+                      const isLive = it.inMarket && it.isApproved;
+                      return (
+                        <tr key={it.id} className="hover:bg-[#EFE9DC]/40 dark:hover:bg-[#132040]/40">
+                          <td className="p-3">
+                            <div className="font-black">{it.name}</div>
+                            <div className="text-[10px] text-[#475569] dark:text-[#94A3B8]">/{it.unit}</div>
+                          </td>
+                          <td className="p-3 font-bold">
+                            {it.supplierBrandName}
+                            {it.supplierGovernorate ? ` · ${it.supplierGovernorate}` : ''}
+                          </td>
+                          <td className="p-3 font-mono tabular-nums font-bold">
+                            {it.retailPrice.toLocaleString('ar-EG')} {it.supplierCurrencySymbol}
+                          </td>
+                          <td className="p-3 font-mono tabular-nums text-[11px]">
+                            <span className="font-black text-emerald-700 dark:text-emerald-400">
+                              {it.wholesalePrice > 0
+                                ? `${it.wholesalePrice.toLocaleString('ar-EG')} (≥${it.minWholesaleQty})`
+                                : '—'}
                             </span>
-                          )}
-                        </td>
-                        <td className="p-3 font-mono tabular-nums">{it.stockQty}</td>
-                        <td className="p-3">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleItemMarketVisibility(it)}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-black cursor-pointer flex items-center gap-1 ${
-                              it.inMarket
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-stone-500 text-white'
-                            }`}
-                          >
-                            {it.inMarket ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                            <span>{it.inMarket ? 'معروض بالسوق' : 'مخفي'}</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                            {it.tierPricing && it.tierPricing.length > 0 && (
+                              <span className="block text-[10px] text-[#475569]">
+                                +{it.tierPricing.length} شرائح كمية
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 font-mono tabular-nums">{it.stockQty}</td>
+                          <td className="p-3">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {isPending && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleApprovePendingItem(it)}
+                                  className="px-3 py-1.5 rounded-lg text-[11px] font-black cursor-pointer bg-rose-600 hover:bg-emerald-600 text-white animate-pulse flex items-center gap-1"
+                                >
+                                  <span>اعتماد ونشر بالسوق ✓</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleItemMarketVisibility(it)}
+                                className={`px-3 py-1.5 rounded-lg text-[11px] font-black cursor-pointer flex items-center gap-1 ${
+                                  isLive
+                                    ? 'bg-emerald-600 text-white'
+                                    : isPending
+                                    ? 'bg-stone-700 text-white'
+                                    : 'bg-stone-500 text-white'
+                                }`}
+                              >
+                                {it.inMarket ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                <span>{isLive ? 'معتمد بالسوق' : it.inMarket ? 'إلغاء من السوق' : 'نشر واعتماد بالسوق'}</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

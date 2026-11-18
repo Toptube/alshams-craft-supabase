@@ -225,7 +225,8 @@ export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
  */
 export async function publishProductToMarketplace(
   product: SavedProductRecord,
-  profile: UserProfile
+  profile: UserProfile,
+  options?: { reSubmitForApproval?: boolean }
 ): Promise<{
   success: boolean;
   cloudSynced: boolean;
@@ -233,9 +234,12 @@ export async function publishProductToMarketplace(
   error?: string;
 }> {
   const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
-  const initialStatus: 'pending_approval' | 'approved' | 'rejected' = product.isMarketplaceApproved
-    ? 'approved'
-    : 'pending_approval';
+  const initialStatus: 'pending_approval' | 'approved' | 'rejected' =
+    options?.reSubmitForApproval
+      ? 'pending_approval'
+      : product.isMarketplaceApproved
+      ? 'approved'
+      : 'pending_approval';
 
   const sourceCurr = product.sourceCurrency || profile.currency || 'EGP';
   const rawStorePrice = Number(product.storePrice || product.retailPrice || 0);
@@ -256,7 +260,7 @@ export async function publishProductToMarketplace(
   const primaryEgpRetailPrice = toEgpAmount(rawRetailPrice, sourceCurr);
 
   const artisanExt = {
-    gallery_urls: Array.isArray(product.galleryUrls) ? product.galleryUrls.slice(0, 2) : [],
+    gallery_urls: Array.isArray(product.galleryUrls) ? product.galleryUrls.slice(0, 7) : [],
     size_variants: normalizedSizeVariants,
     source_currency: sourceCurr,
     product_discount: product.productDiscount || undefined,
@@ -323,6 +327,7 @@ export async function publishProductToMarketplace(
         headers,
         body: JSON.stringify({
           ...safeCloudRow,
+          reSubmitForApproval: Boolean(options?.reSubmitForApproval),
           logo_url: (profile as any).logo_url || profile.logoUrl || undefined,
           store_slug: profile.store_slug || profile.storeSlug || undefined,
         }),

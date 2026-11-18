@@ -434,7 +434,17 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           if (tenantId) {
             const localProds = await tenantStorage.getProducts(tenantId).catch(() => []);
             publishedLocal = localProds
-              .filter((p) => p && p.inStore && p.isPublishedInStore !== false && p.isMarketplaceApproved === true)
+              .filter(
+                (p) =>
+                  p &&
+                  p.inStore &&
+                  p.isPublishedInStore !== false &&
+                  p.isMarketplaceApproved === true &&
+                  p.inMarket !== false &&
+                  p.marketStatus !== 'none' &&
+                  p.marketStatus !== 'pending_approval' &&
+                  p.marketStatus !== 'rejected'
+              )
               .map((p) => {
                 const srcCurr = p.sourceCurrency || 'EGP';
                 const rawStore = Number(p.storePrice || p.retailPrice || 0);
@@ -447,6 +457,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                   : [];
                 return {
                   ...p,
+                  marketStatus: 'approved' as const,
                   storePrice: toEgpAmount(rawStore, srcCurr),
                   retailPrice: toEgpAmount(rawRetail, srcCurr),
                   sizeVariants: variants,

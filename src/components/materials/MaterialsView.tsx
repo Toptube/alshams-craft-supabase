@@ -63,6 +63,15 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { StockLevelProgressBar } from './StockLevelProgressBar';
+import {
+  UnifiedMaterialPickerModal,
+  UnifiedPickerSelectionItem,
+} from './UnifiedMaterialPickerModal';
+import {
+  getLocalMaterialCodeMap,
+  saveLocalMaterialCodeMapping,
+  updateOrProposeUnifiedMasterApi,
+} from '../../db/unifiedMaterialsService';
 
 export interface MaterialCategoryGroup {
   id: string;
@@ -186,6 +195,14 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
   // Delete Confirm Modal
   const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(null);
 
+  // Unified Materials System Integration
+  const [isUnifiedPickerOpen, setIsUnifiedPickerOpen] = useState(false);
+  const [localUnifiedMap, setLocalUnifiedMap] = useState<
+    Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }>
+  >({});
+  const [editingUnifiedCode, setEditingUnifiedCode] = useState('');
+  const [editingSpecCode, setEditingSpecCode] = useState('');
+
   // Load Data directly from Supabase & Dexie Stock
   const loadData = async () => {
     if (!workshopId) return;
@@ -285,6 +302,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       }
 
       setStockData(stocks);
+      setLocalUnifiedMap(getLocalMaterialCodeMap('artisan', workshopId));
     } catch (err: any) {
       console.error('Failed to load materials data from Supabase:', err);
       setNotice({ text: 'حدث خطأ أثناء تحميل بيانات الخامات.', isError: true });
@@ -346,6 +364,8 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     setMarketUnitFactor(1);
     const defaultCat = materialCategories.find((c) => c.kind === 'primary')?.id || 'cat_threads';
     setSelectedMaterialCategory(defaultCat);
+    setEditingUnifiedCode('');
+    setEditingSpecCode('');
     setIsMaterialModalOpen(true);
   };
 
@@ -363,6 +383,12 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     setMarketUnitFactor(Number(item.market_unit_factor) || 1);
     const existingCat = materialCategoryMap[item.id] || (item.kind === 'extra' ? 'cat_woods' : 'cat_threads');
     setSelectedMaterialCategory(existingCat);
+    const linked = localUnifiedMap[item.id] || {
+      masterCode: (item as any).unified_code || '',
+      specCode: (item as any).spec_code || '',
+    };
+    setEditingUnifiedCode(linked.masterCode || '');
+    setEditingSpecCode(linked.specCode || '');
     setIsMaterialModalOpen(true);
   };
 
@@ -481,6 +507,24 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         }
       }
 
+      // Persist unified code link & notify Super Admin on local rename without modifying global catalog
+      if (savedMaterialId && editingUnifiedCode.trim()) {
+        saveLocalMaterialCodeMapping('artisan', workshopId, savedMaterialId, {
+          masterCode: editingUnifiedCode.trim().toUpperCase(),
+          specCode: editingSpecCode.trim().toUpperCase() || undefined,
+        });
+        if (editingMaterial && editingMaterial.name.trim() !== payload.name) {
+          updateOrProposeUnifiedMasterApi(editingUnifiedCode.trim().toUpperCase(), {
+            action: 'update',
+            canonicalName: payload.name,
+            actorRole: 'artisan',
+            actorId: workshopId,
+            actorName: workshop.brandName || workshop.artistName || 'فنان',
+            reason: `تعديل مسمى الخامة لدى الورشة من "${editingMaterial.name}" إلى "${payload.name}"`,
+          }).catch(() => {});
+        }
+      }
+
       await loadData();
       setIsMaterialModalOpen(false);
     } catch (err: any) {
@@ -491,15 +535,30 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     }
   };
 
-  // Delete Material
+  // Delete Material (Scoped strictly to this workshop + notifies Super Admin if linked to Unified Code)
   const handleDeleteMaterial = async (materialId: string) => {
     try {
+      const targetMat = materials.find((m) => m.id === materialId);
+      const linked = localUnifiedMap[materialId] || {
+        masterCode: (targetMat as any)?.unified_code || '',
+        specCode: (targetMat as any)?.spec_code || '',
+      };
+
       const res = await deleteMaterialFromSupabase(materialId, workshopId);
       if (res.error) {
         setNotice({ text: res.error.arabicMessage, isError: true });
       } else {
         setMaterials((prev) => prev.filter((m) => m.id !== materialId));
-        setNotice({ text: 'تم حذف الخامة بنجاح.', isError: false });
+        if (linked?.masterCode) {
+          updateOrProposeUnifiedMasterApi(linked.masterCode, {
+            action: 'remove_local',
+            actorRole: 'artisan',
+            actorId: workshopId,
+            actorName: workshop.brandName || workshop.artistName || 'فنان',
+            reason: `أزال الفنان الخامة (${targetMat?.name || linked.masterCode}) من قائمة ورشته الخاصة فقط`,
+          }).catch(() => {});
+        }
+        setNotice({ text: 'تم حذف الخامة من قائمة ورشتك بنجاح (لا تتأثر المنظومة الموحدة للجميع).', isError: false });
       }
       setDeletingMaterialId(null);
     } catch (err: any) {
@@ -507,6 +566,96 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       setNotice({ text: 'حدث خطأ أثناء حذف الخامة.', isError: true });
       setDeletingMaterialId(null);
     }
+  };
+
+  // Bulk import selected items from Unified Materials System
+  const handleBulkImportFromUnified = async (selected: UnifiedPickerSelectionItem[]) => {
+    if (selected.length === 0) return;
+    let currentUnits = units;
+    if (currentUnits.length === 0) {
+      try {
+        currentUnits = await ensureDefaultUnitsInSupabase(workshopId);
+        setUnits(currentUnits);
+      } catch {}
+    }
+
+    const prefixToGroupCat: Record<string, string> = {
+      TH: 'cat_threads',
+      WD: 'cat_woods',
+      MT: 'cat_metals',
+      BD: 'cat_beads',
+      PK: 'cat_packaging',
+      LT: 'cat_fabrics',
+    };
+
+    const nextCatMap = { ...materialCategoryMap };
+    let importedCount = 0;
+
+    for (const item of selected) {
+      const displayName = item.spec
+        ? `${item.master.canonicalName} — ${item.spec.label}`
+        : item.master.canonicalName;
+
+      const matchingUnit =
+        currentUnits.find((u) => u.name.includes(item.recommendedUnitName)) || currentUnits[0];
+      if (!matchingUnit) continue;
+
+      const matId = generateUuid();
+      const payload = {
+        id: matId,
+        name: displayName,
+        kind: item.kind,
+        supplier_id: null,
+        unit_id: matchingUnit.id,
+        purchase_price: 0,
+        market_name: item.master.supplierAliases?.[0] || null,
+        market_unit_factor: 1,
+      };
+
+      const res = await createMaterialInSupabase(workshopId, payload);
+      if (!res.error) {
+        const savedId = res.data?.id || matId;
+        importedCount += 1;
+        saveLocalMaterialCodeMapping('artisan', workshopId, savedId, {
+          masterCode: item.master.code,
+          specCode: item.specCode,
+          unitChain: item.master.unitChain,
+        });
+        nextCatMap[savedId] =
+          prefixToGroupCat[item.master.prefix] || (item.kind === 'extra' ? 'cat_woods' : 'cat_threads');
+        try {
+          await tenantStorage.saveRawMaterial(
+            {
+              id: savedId,
+              tenantId: workshopId,
+              workshopId,
+              materialName: displayName,
+              category: (item.kind === 'extra' ? 'خامة إضافية' : 'خامة أساسية') as any,
+              unit: (matchingUnit.name || 'كيلو') as any,
+              unitId: matchingUnit.id,
+              currentStock: 0,
+              minAlertThreshold: 5,
+              costPerUnit: 0,
+              costPerGram: 0,
+              isActive: true,
+              updatedAt: Date.now(),
+            } as any,
+            { skipCloudQueue: true }
+          );
+        } catch {}
+      }
+    }
+
+    setMaterialCategoryMap(nextCatMap);
+    try {
+      localStorage.setItem('alshams_mat_cat_map_' + workshopId, JSON.stringify(nextCatMap));
+    } catch {}
+
+    await loadData();
+    setNotice({
+      text: `تم استيراد (${importedCount}) خامة من المنظومة الموحدة إلى ورشتك وربطها بأكوادها الموحدة بنجاح ✅`,
+      isError: false,
+    });
   };
 
   // Category Management Handlers
@@ -1010,9 +1159,11 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       if (onlyLowStock && !isLow) return false;
 
       const q = (searchQuery || '').toLowerCase().trim();
+      const linkedCode = localUnifiedMap[m.id]?.specCode || localUnifiedMap[m.id]?.masterCode || (m as any).unified_code || '';
       const matchesSearch =
         !q ||
         String(m.name || '').toLowerCase().includes(q) ||
+        String(linkedCode).toLowerCase().includes(q) ||
         (sup && String(sup.name || '').toLowerCase().includes(q)) ||
         (unt && String(unt.name || '').toLowerCase().includes(q)) ||
         (catObj && String(catObj.name || '').toLowerCase().includes(q)) ||
@@ -1309,6 +1460,15 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
           >
             <Scale className="w-4 h-4 text-amber-300" />
             <span>إدارة وحدات القياس</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsUnifiedPickerOpen(true)}
+            className="px-4 py-2.5 rounded-2xl bg-[#0C1427] hover:bg-[#1E293B] text-[#FBBF24] border border-amber-300/40 text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md active:scale-95"
+          >
+            <Layers className="w-4 h-4" />
+            <span>استيراد من منظومة الخامات الموحدة</span>
           </button>
 
           <button
@@ -1821,8 +1981,13 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                     >
                       <td className="p-3.5">
                         <div className="space-y-1">
-                          <div className="font-extrabold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
-                            {m.name}
+                          <div className="font-extrabold text-stone-900 dark:text-stone-100 flex items-center gap-1.5 flex-wrap">
+                            <span>{m.name}</span>
+                            {(localUnifiedMap[m.id]?.specCode || localUnifiedMap[m.id]?.masterCode) && (
+                              <span className="px-1.5 py-0.5 rounded bg-[#0C1427] dark:bg-[#1A2B54] text-[#FBBF24] font-mono tabular-nums text-[10px] font-black">
+                                {localUnifiedMap[m.id]?.specCode || localUnifiedMap[m.id]?.masterCode}
+                              </span>
+                            )}
                           </div>
                           {isLowStock && (
                             <div className="flex flex-wrap items-center gap-1.5 pt-1">
@@ -2035,6 +2200,15 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                   placeholder="مثال: خيط قطن محلول 4 مم، حلقة حديد 20 سم، ريزن إيبوكسي..."
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:border-amber-500"
                 />
+                {editingUnifiedCode && (
+                  <div className="mt-1.5 flex items-center gap-2 text-[11px] font-bold text-amber-800 dark:text-amber-300">
+                    <span>مربوطة بالكود الموحد:</span>
+                    <span className="px-2 py-0.5 rounded bg-[#0C1427] text-[#FBBF24] font-mono tabular-nums">
+                      {editingSpecCode || editingUnifiedCode}
+                    </span>
+                    <span className="text-[10px] text-stone-500">(أي تعديل هنا يُطبق على ورشتك ويُرسل كاقتراح للإدارة)</span>
+                  </div>
+                )}
               </div>
 
               {/* Classification: Basic (primary) vs Extra */}
@@ -3154,6 +3328,23 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
           }
         }
       `}</style>
+
+      {/* Unified Materials System Smart Picker Modal */}
+      <UnifiedMaterialPickerModal
+        isOpen={isUnifiedPickerOpen}
+        onClose={() => setIsUnifiedPickerOpen(false)}
+        mode="artisan"
+        actorId={workshopId}
+        actorName={workshop.brandName || workshop.artistName || 'ورشة'}
+        onConfirmSelection={handleBulkImportFromUnified}
+        alreadyLinkedCodes={
+          new Set(
+            Object.values(localUnifiedMap)
+              .map((v) => v.masterCode)
+              .filter(Boolean)
+          )
+        }
+      />
     </div>
   );
 };

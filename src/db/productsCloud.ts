@@ -209,8 +209,12 @@ function rowToRecord(row: any, workshopId: string): SavedProductRecord {
       extraMaterials: [],
     },
     output: {
-      totalWeightGrams: specs.totalWeightGrams,
-      totalYarnLengthMeters: specs.totalYarnLengthMeters,
+      baseStrandsCount: Number(specs.baseStrandsCount ?? 0),
+      workingCordsCount: Number(specs.workingCordsCount ?? 0),
+      singleStrandLengthCm: Number(specs.singleStrandLengthCm ?? 0),
+      totalWeightKg: specs.totalWeightGrams ? Number(specs.totalWeightGrams) / 1000 : Number(specs.totalWeightKg ?? 0),
+      totalWeightGrams: Number(specs.totalWeightGrams ?? 0),
+      totalYarnLengthMeters: Number(specs.totalYarnLengthMeters ?? 0),
       finalSellingPrice: Number(row.retail_price ?? 0),
     },
     imageUrl: row.image_url ?? undefined,
@@ -394,10 +398,10 @@ export async function syncAllWorkshopProductsAndStore(profile: UserProfile): Pro
     const remoteMap = new Map(remoteStoreProds.map((rp) => [rp.id, rp]));
     const localMap = new Map(localAfterPull.map((lp) => [lp.id, lp]));
 
-    // 2a. Push any local store-published product missing remotely or updated more recently
+    // 2a. Push ONLY products explicitly exported to Market (lp.inMarket === true)
     for (const lp of localAfterPull) {
-      if (lp.inStore && lp.isPublishedInStore !== false) {
-        const rp = remoteMap.get(lp.id);
+      const rp = remoteMap.get(lp.id);
+      if (lp.inMarket && lp.inStore && lp.isPublishedInStore !== false) {
         const remoteUpdatedMs = rp?.updated_at
           ? typeof rp.updated_at === 'number'
             ? rp.updated_at
@@ -412,14 +416,34 @@ export async function syncAllWorkshopProductsAndStore(profile: UserProfile): Pro
           // Reconcile remote approval/rejection status back into local Dexie
           const isApproved = rp.status === 'approved';
           const rejectReason = rp.rejection_reason || rp.rejectionReason || undefined;
-          if (lp.isMarketplaceApproved !== isApproved || (lp as any).rejectReason !== rejectReason) {
+          const nextMarketStatus = (rp.status === 'approved' || rp.status === 'rejected' ? rp.status : 'pending_approval') as 'approved' | 'rejected' | 'pending_approval';
+          if (
+            lp.isMarketplaceApproved !== isApproved ||
+            (lp as any).rejectReason !== rejectReason ||
+            lp.marketStatus !== nextMarketStatus
+          ) {
             await tenantStorage.applyRemoteProduct({
               ...lp,
+              inMarket: true,
+              marketStatus: nextMarketStatus,
               isMarketplaceApproved: isApproved,
               ...(rejectReason ? { rejectReason } : {}),
             } as any);
             pulled++;
           }
+        }
+      } else if (rp) {
+        // If already in marketplace remotely, reconcile remote status back cleanly
+        const isApproved = rp.status === 'approved';
+        const nextMarketStatus = (rp.status === 'approved' || rp.status === 'rejected' ? rp.status : 'pending_approval') as 'approved' | 'rejected' | 'pending_approval';
+        if (lp.marketStatus !== nextMarketStatus || lp.isMarketplaceApproved !== isApproved || !lp.inMarket) {
+          await tenantStorage.applyRemoteProduct({
+            ...lp,
+            inMarket: true,
+            marketStatus: nextMarketStatus,
+            isMarketplaceApproved: isApproved,
+          } as any);
+          pulled++;
         }
       }
     }
@@ -444,12 +468,23 @@ export async function syncAllWorkshopProductsAndStore(profile: UserProfile): Pro
           storeDescription: rp.store_description || rp.storeDescription || '',
           availableColors: rp.available_colors || [],
           availableSizes: rp.available_sizes || [],
+          isCatalogVisible: true,
           inStore: true,
           isPublishedInStore: rp.status !== 'rejected',
+          inMarket: true,
+          marketStatus: rp.status === 'approved' ? 'approved' : rp.status === 'rejected' ? 'rejected' : 'pending_approval',
           isMarketplaceApproved: rp.status === 'approved',
           isActive: true,
           input: {} as any,
-          output: { finalSellingPrice: Number(rp.store_price ?? rp.retail_price ?? 0) } as any,
+          output: {
+            baseStrandsCount: 0,
+            workingCordsCount: 0,
+            singleStrandLengthCm: 0,
+            totalYarnLengthMeters: 0,
+            totalWeightKg: 0,
+            totalWeightGrams: 0,
+            finalSellingPrice: Number(rp.store_price ?? rp.retail_price ?? 0),
+          } as any,
           createdAt: typeof rp.created_at === 'number' ? rp.created_at : Date.parse(String(rp.created_at || '')) || Date.now(),
           updatedAt: typeof rp.updated_at === 'number' ? rp.updated_at : Date.parse(String(rp.updated_at || '')) || Date.now(),
         };

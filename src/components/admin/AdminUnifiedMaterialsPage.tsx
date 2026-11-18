@@ -1,0 +1,1298 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowRight,
+  Search,
+  Plus,
+  CheckCircle2,
+  Archive,
+  RotateCcw,
+  Trash2,
+  Edit3,
+  Bell,
+  Layers,
+  Tag,
+  Scale,
+  AlertTriangle,
+  X,
+  RefreshCw,
+} from 'lucide-react';
+import {
+  UnifiedCategoryPrefix,
+  UnitChainCode,
+  BridgeFieldKey,
+  BRIDGE_FIELD_LABELS,
+  UnifiedMaterialMaster,
+  UnifiedMaterialsSnapshot,
+  searchUnifiedMaterials,
+} from '../../registry/unifiedMaterialsRegistry';
+import {
+  fetchUnifiedMaterialsSnapshot,
+  createUnifiedMasterApi,
+  createUnifiedSpecApi,
+  createUnifiedAliasApi,
+  createUnifiedBrandApi,
+  updateOrProposeUnifiedMasterApi,
+  resolveUnifiedMaterialNotificationApi,
+  getSeededFallbackSnapshot,
+} from '../../db/unifiedMaterialsService';
+
+interface AdminUnifiedMaterialsPageProps {
+  userEmail: string;
+  onBack: () => void;
+  onNotifySuccess: (msg: string) => void;
+  onNotifyError: (msg: string) => void;
+}
+
+export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps> = ({
+  userEmail,
+  onBack,
+  onNotifySuccess,
+  onNotifyError,
+}) => {
+  const [snapshot, setSnapshot] = useState<UnifiedMaterialsSnapshot>(() => getSeededFallbackSnapshot());
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'directory' | 'notifications' | 'brands_units'>('directory');
+
+  // Directory filters
+  const [selectedPrefix, setSelectedPrefix] = useState<UnifiedCategoryPrefix | 'all'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'new_only' | 'archived' | 'added_equations' | 'all'>('active');
+  const [workshopFilter, setWorkshopFilter] = useState<string>('all');
+
+  // Selected master detail / specs modal
+  const [inspectMaster, setInspectMaster] = useState<UnifiedMaterialMaster | null>(null);
+  const [newSpecLabel, setNewSpecLabel] = useState('');
+  const [newSpecThickness, setNewSpecThickness] = useState('');
+  const [newSpecPlies, setNewSpecPlies] = useState('');
+  const [newSpecOrigin, setNewSpecOrigin] = useState('');
+  const [newSpecWeightPerMeter, setNewSpecWeightPerMeter] = useState('');
+  const [newSpecPackWeight, setNewSpecPackWeight] = useState('');
+  const [newSpecPackLength, setNewSpecPackLength] = useState('');
+  const [newAliasName, setNewAliasName] = useState('');
+  const [newAliasType, setNewAliasType] = useState<'artisan' | 'supplier' | 'common'>('artisan');
+  const [newAliasContext, setNewAliasContext] = useState('');
+  const [savingDetail, setSavingDetail] = useState(false);
+
+  // Add / Edit Master Modal
+  const [isMasterModalOpen, setIsMasterModalOpen] = useState(false);
+  const [editingMaster, setEditingMaster] = useState<UnifiedMaterialMaster | null>(null);
+  const [formPrefix, setFormPrefix] = useState<UnifiedCategoryPrefix>('TH');
+  const [formName, setFormName] = useState('');
+  const [formUnitChain, setFormUnitChain] = useState<UnitChainCode>('ل1');
+  const [formBridgeFields, setFormBridgeFields] = useState<BridgeFieldKey[]>(['وزن_متر']);
+  const [formArtistAliasesText, setFormArtistAliasesText] = useState('');
+  const [formSupplierAliasesText, setFormSupplierAliasesText] = useState('');
+  const [formWorkshopsText, setFormWorkshopsText] = useState('');
+  const [formSafetyNote, setFormSafetyNote] = useState('');
+  const [savingMaster, setSavingMaster] = useState(false);
+
+  // Add Brand form
+  const [newBrandName, setNewBrandName] = useState('');
+  const [newBrandCategory, setNewBrandCategory] = useState('');
+  const [savingBrand, setSavingBrand] = useState(false);
+
+  // Confirm archive/delete reason modal
+  const [archiveTarget, setArchiveTarget] = useState<{
+    master: UnifiedMaterialMaster;
+    mode: 'archive' | 'delete_unused';
+  } | null>(null);
+  const [archiveReason, setArchiveReason] = useState('');
+
+  const reloadData = async () => {
+    setLoading(true);
+    const data = await fetchUnifiedMaterialsSnapshot({ role: 'super_admin' });
+    setSnapshot(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    reloadData();
+  }, []);
+
+  const allWorkshops = useMemo(() => {
+    const set = new Set<string>();
+    snapshot.masters.forEach((m) => m.workshopTags.forEach((w) => set.add(w)));
+    return Array.from(set).sort();
+  }, [snapshot.masters]);
+
+  const pendingNotifications = useMemo(
+    () => snapshot.notifications.filter((n) => n.status === 'pending'),
+    [snapshot.notifications]
+  );
+
+  const searchOutcome = useMemo(() => {
+    const base = searchUnifiedMaterials(searchQuery, snapshot.masters, snapshot.specs, snapshot.aliases, {
+      prefixFilter: selectedPrefix,
+      workshopFilter,
+      includeArchived: statusFilter === 'archived' || statusFilter === 'all',
+    });
+
+    const filtered = base.matches.filter(({ master }) => {
+      if (statusFilter === 'active') return master.status === 'active';
+      if (statusFilter === 'archived') return master.status === 'archived';
+      if (statusFilter === 'new_only') return master.reviewStatus === 'new';
+      if (statusFilter === 'added_equations') return Boolean(master.isAddedForEquations);
+      return master.status !== 'reserved_deleted';
+    });
+
+    return { ...base, matches: filtered };
+  }, [searchQuery, snapshot, selectedPrefix, workshopFilter, statusFilter]);
+
+  const counts = useMemo(() => {
+    const activeMasters = snapshot.masters.filter((m) => m.status === 'active').length;
+    const archivedMasters = snapshot.masters.filter((m) => m.status === 'archived').length;
+    const newMasters = snapshot.masters.filter((m) => m.reviewStatus === 'new' && m.status === 'active').length;
+    return {
+      activeMasters,
+      archivedMasters,
+      newMasters,
+      specsCount: snapshot.specs.length,
+      aliasesCount: snapshot.aliases.length,
+      brandsCount: snapshot.brands.length,
+      pendingNotifs: pendingNotifications.length,
+    };
+  }, [snapshot, pendingNotifications]);
+
+  const openAddMasterModal = () => {
+    setEditingMaster(null);
+    setFormPrefix(selectedPrefix === 'all' ? 'TH' : selectedPrefix);
+    setFormName('');
+    const cat = snapshot.categories.find((c) => c.prefix === (selectedPrefix === 'all' ? 'TH' : selectedPrefix));
+    setFormUnitChain(cat?.defaultUnitChain || 'ل1');
+    setFormBridgeFields(['وزن_متر']);
+    setFormArtistAliasesText('');
+    setFormSupplierAliasesText('');
+    setFormWorkshopsText('');
+    setFormSafetyNote('');
+    setIsMasterModalOpen(true);
+  };
+
+  const openEditMasterModal = (m: UnifiedMaterialMaster) => {
+    setEditingMaster(m);
+    setFormPrefix(m.prefix);
+    setFormName(m.canonicalName);
+    setFormUnitChain(m.unitChain);
+    setFormBridgeFields(m.bridgeFields || []);
+    setFormArtistAliasesText((m.artistAliases || []).join('، '));
+    setFormSupplierAliasesText((m.supplierAliases || []).join('، '));
+    setFormWorkshopsText((m.workshopTags || []).join('، '));
+    setFormSafetyNote(m.safetyNote || '');
+    setIsMasterModalOpen(true);
+  };
+
+  const handleSaveMaster = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formName.trim()) return;
+    setSavingMaster(true);
+
+    const artistAliases = formArtistAliasesText
+      .split(/[،,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const supplierAliases = formSupplierAliasesText
+      .split(/[،,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const workshopTags = formWorkshopsText
+      .split(/[،,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (editingMaster) {
+      const res = await updateOrProposeUnifiedMasterApi(editingMaster.code, {
+        action: 'update',
+        canonicalName: formName.trim(),
+        unitChain: formUnitChain,
+        bridgeFields: formBridgeFields,
+        artistAliases,
+        supplierAliases,
+        workshopTags,
+        safetyNote: formSafetyNote.trim(),
+        actorRole: 'super_admin',
+        actorId: 'super_admin',
+        actorName: userEmail,
+      });
+      setSavingMaster(false);
+      if (!res.success) {
+        onNotifyError(res.error || 'تعذر تحديث الخامة');
+        return;
+      }
+      onNotifySuccess(`تم تحديث الصنف [${editingMaster.code}] عالمياً في منظومة الخامات.`);
+    } else {
+      const res = await createUnifiedMasterApi({
+        prefix: formPrefix,
+        canonicalName: formName.trim(),
+        unitChain: formUnitChain,
+        bridgeFields: formBridgeFields,
+        artistAliases,
+        supplierAliases,
+        workshopTags,
+        safetyNote: formSafetyNote.trim(),
+        actorRole: 'super_admin',
+        actorId: 'super_admin',
+        actorName: userEmail,
+      });
+      setSavingMaster(false);
+      if (!res.success) {
+        onNotifyError(res.error || 'تعذر إنشاء الصنف');
+        return;
+      }
+      onNotifySuccess(`تمت إضافة الصنف الجديد بالكود [${res.master?.code}] ونشره فوراً.`);
+    }
+
+    setIsMasterModalOpen(false);
+    await reloadData();
+  };
+
+  const handleConfirmArchiveOrDelete = async () => {
+    if (!archiveTarget) return;
+    const res = await updateOrProposeUnifiedMasterApi(archiveTarget.master.code, {
+      action: archiveTarget.mode,
+      reason: archiveReason.trim() || (archiveTarget.mode === 'archive' ? 'أرشفة إدارية' : 'حذف صنف غير مستخدم'),
+      actorRole: 'super_admin',
+      actorId: 'super_admin',
+      actorName: userEmail,
+    });
+    if (!res.success) {
+      onNotifyError(res.error || 'تعذر تنفيذ الإجراء');
+      return;
+    }
+    onNotifySuccess(
+      archiveTarget.mode === 'archive'
+        ? `تمت أرشفة الصنف [${archiveTarget.master.code}] لحفظ ارتباطاته السابقة.`
+        : `تم حذف الصنف [${archiveTarget.master.code}] مع حجز الكود نهائياً لعدم تكراره.`
+    );
+    setArchiveTarget(null);
+    setArchiveReason('');
+    await reloadData();
+  };
+
+  const handleAddSpec = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inspectMaster || !newSpecLabel.trim()) return;
+    setSavingDetail(true);
+    const bridgeValues: Record<string, any> = {};
+    if (newSpecWeightPerMeter) bridgeValues.weightPerMeterGrams = Number(newSpecWeightPerMeter);
+    if (newSpecPackWeight) bridgeValues.packWeightGrams = Number(newSpecPackWeight);
+    if (newSpecPackLength) bridgeValues.packLengthMeters = Number(newSpecPackLength);
+
+    const res = await createUnifiedSpecApi({
+      masterCode: inspectMaster.code,
+      label: newSpecLabel.trim(),
+      thicknessMm: newSpecThickness ? Number(newSpecThickness) : undefined,
+      plies: newSpecPlies ? Number(newSpecPlies) : undefined,
+      origin: newSpecOrigin.trim() || undefined,
+      bridgeValues,
+      actorRole: 'super_admin',
+      actorId: 'super_admin',
+      actorName: userEmail,
+    });
+    setSavingDetail(false);
+    if (!res.success) {
+      onNotifyError(res.error || 'تعذر إضافة المواصفة');
+      return;
+    }
+    setNewSpecLabel('');
+    setNewSpecThickness('');
+    setNewSpecPlies('');
+    setNewSpecOrigin('');
+    setNewSpecWeightPerMeter('');
+    setNewSpecPackWeight('');
+    setNewSpecPackLength('');
+    onNotifySuccess(`تمت إضافة المواصفة [${res.spec?.specCode}] بنجاح.`);
+    await reloadData();
+  };
+
+  const handleAddAlias = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inspectMaster || !newAliasName.trim()) return;
+    setSavingDetail(true);
+    const res = await createUnifiedAliasApi({
+      targetCode: inspectMaster.code,
+      aliasName: newAliasName.trim(),
+      aliasType: newAliasType,
+      contextHint: newAliasContext.trim() || undefined,
+      actorRole: 'super_admin',
+      actorId: 'super_admin',
+      actorName: userEmail,
+    });
+    setSavingDetail(false);
+    if (!res.success) {
+      onNotifyError(res.error || 'تعذر إضافة الاسم الدارج');
+      return;
+    }
+    setNewAliasName('');
+    setNewAliasContext('');
+    onNotifySuccess(`تم ربط الاسم [${res.alias?.aliasCode}] بالكود [${inspectMaster.code}].`);
+    await reloadData();
+  };
+
+  const handleResolveNotification = async (
+    notifId: string,
+    decision: 'accept_global' | 'keep_local' | 'archive' | 'dismiss'
+  ) => {
+    const res = await resolveUnifiedMaterialNotificationApi(notifId, decision);
+    if (!res.success) {
+      onNotifyError(res.error || 'تعذر معالجة الإشعار');
+      return;
+    }
+    onNotifySuccess('تم تنفيذ القرار وتحديث منظومة الخامات بنجاح.');
+    await reloadData();
+  };
+
+  const handleAddBrand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBrandName.trim()) return;
+    setSavingBrand(true);
+    const res = await createUnifiedBrandApi({
+      brandName: newBrandName.trim(),
+      categoryHint: newBrandCategory.trim() || 'عام',
+    });
+    setSavingBrand(false);
+    if (!res.success) {
+      onNotifyError(res.error || 'تعذر إضافة الماركة');
+      return;
+    }
+    setNewBrandName('');
+    setNewBrandCategory('');
+    onNotifySuccess(`تمت إضافة الماركة [${res.brand?.brandCode}] ${res.brand?.brandName}.`);
+    await reloadData();
+  };
+
+  const inspectedSpecs = useMemo(() => {
+    if (!inspectMaster) return [];
+    return snapshot.specs.filter((s) => s.masterCode === inspectMaster.code);
+  }, [inspectMaster, snapshot.specs]);
+
+  const inspectedAliases = useMemo(() => {
+    if (!inspectMaster) return [];
+    return snapshot.aliases.filter((a) => a.targetCode === inspectMaster.code);
+  }, [inspectMaster, snapshot.aliases]);
+
+  return (
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5" dir="rtl">
+      {/* Top Bar */}
+      <header className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-[#D4CCBC] dark:border-[#22355E]">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={onBack}
+            className="px-3 py-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-black inline-flex items-center gap-1.5 hover:border-[#EA580C] border border-[#D4CCBC] dark:border-[#22355E] cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <ArrowRight className="w-4 h-4" />
+            <span>الرئيسية</span>
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
+              منظومة الخامات الموحدة (4 مستويات)
+            </h1>
+            <p className="text-xs text-[#475569] dark:text-[#94A3B8]">
+              القسم · الصنف الأم · المواصفة وحقول الجسر · الـ SKU التجاري للموردين والأسماء المرتبطة
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={reloadData}
+            className="px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span>تحديث</span>
+          </button>
+          <button
+            type="button"
+            onClick={openAddMasterModal}
+            className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>إضافة صنف أم جديد</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Metrics Summary Strip (Tabular Numerals) */}
+      <section className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
+        <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E]">
+          <div className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">الأصناف النشطة</div>
+          <div className="text-lg font-black font-mono tabular-nums mt-0.5">{counts.activeMasters}</div>
+        </div>
+        <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E]">
+          <div className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">الأقسام الرئيسية</div>
+          <div className="text-lg font-black font-mono tabular-nums mt-0.5">{snapshot.categories.length}</div>
+        </div>
+        <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E]">
+          <div className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">المواصفات (.01)</div>
+          <div className="text-lg font-black font-mono tabular-nums mt-0.5">{counts.specsCount}</div>
+        </div>
+        <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E]">
+          <div className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">الماركات (B000+)</div>
+          <div className="text-lg font-black font-mono tabular-nums mt-0.5">{counts.brandsCount}</div>
+        </div>
+        <div className="p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E]">
+          <div className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">المؤرشف</div>
+          <div className="text-lg font-black font-mono tabular-nums mt-0.5">{counts.archivedMasters}</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setActiveTab('notifications')}
+          className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 text-right cursor-pointer"
+        >
+          <div className="text-[11px] font-bold text-amber-800 dark:text-amber-300">إشعارات المراجعة</div>
+          <div className="text-lg font-black font-mono tabular-nums text-[#EA580C] dark:text-[#FBBF24] mt-0.5">
+            {counts.pendingNotifs}
+          </div>
+        </button>
+      </section>
+
+      {/* Primary Segmented Tabs */}
+      <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] w-fit">
+        <button
+          type="button"
+          onClick={() => setActiveTab('directory')}
+          className={`px-3.5 py-2 rounded-lg text-xs font-black transition cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+            activeTab === 'directory'
+              ? 'bg-white dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] shadow-xs'
+              : 'text-[#475569] dark:text-[#CBD5E1]'
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>دليل الخامات الموحد ({counts.activeMasters})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('notifications')}
+          className={`px-3.5 py-2 rounded-lg text-xs font-black transition cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+            activeTab === 'notifications'
+              ? 'bg-white dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] shadow-xs'
+              : 'text-[#475569] dark:text-[#CBD5E1]'
+          }`}
+        >
+          <Bell className="w-3.5 h-3.5" />
+          <span>إشعارات ومراجعات الخامات ({counts.pendingNotifs})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('brands_units')}
+          className={`px-3.5 py-2 rounded-lg text-xs font-black transition cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+            activeTab === 'brands_units'
+              ? 'bg-white dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] shadow-xs'
+              : 'text-[#475569] dark:text-[#CBD5E1]'
+          }`}
+        >
+          <Scale className="w-3.5 h-3.5" />
+          <span>الماركات والوحدات وحقول الجسر</span>
+        </button>
+      </div>
+
+      {/* ================================================================= */}
+      {/* TAB 1: UNIFIED MATERIALS DIRECTORY                                */}
+      {/* ================================================================= */}
+      {activeTab === 'directory' && (
+        <div className="space-y-4">
+          {/* Category Prefix Selector */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectedPrefix('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black border cursor-pointer whitespace-nowrap shrink-0 ${
+                selectedPrefix === 'all'
+                  ? 'bg-[#0C1427] text-white dark:bg-[#FBBF24] dark:text-[#0C1427] border-transparent'
+                  : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#475569] dark:text-[#CBD5E1]'
+              }`}
+            >
+              كل الأقسام (12)
+            </button>
+            {snapshot.categories.map((cat) => (
+              <button
+                key={cat.prefix}
+                type="button"
+                onClick={() => setSelectedPrefix(cat.prefix)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+                  selectedPrefix === cat.prefix
+                    ? 'bg-[#EA580C] text-white border-transparent'
+                    : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA]'
+                }`}
+                title={cat.description}
+              >
+                <span className="font-mono font-black">{cat.prefix}</span>
+                <span>{cat.nameAr.replace(' ★', '')}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Search & Filters Toolbar */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 bg-[#F7F3EA] dark:bg-[#0D162E] p-3 rounded-2xl border border-[#D4CCBC] dark:border-[#22355E]">
+            <div className="md:col-span-6 relative">
+              <Search className="w-4 h-4 text-[#64748B] absolute right-3 top-2.5" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="بحث ذكي: اكتب الاسم، اسم السوق، الاختصار (مثل th أو wd)، أو الكود (TH0001)..."
+                className="w-full pr-9 pl-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] text-xs font-bold outline-none"
+              />
+            </div>
+
+            <div className="md:col-span-3">
+              <select
+                value={workshopFilter}
+                onChange={(e) => setWorkshopFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] text-xs font-bold outline-none"
+              >
+                <option value="all">كل الورش ({allWorkshops.length})</option>
+                {allWorkshops.map((w) => (
+                  <option key={w} value={w}>
+                    ورشة: {w}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="md:col-span-3">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] text-xs font-bold outline-none"
+              >
+                <option value="active">الأصناف النشطة ({counts.activeMasters})</option>
+                <option value="new_only">إضافات جديدة للمراجعة ({counts.newMasters})</option>
+                <option value="added_equations">مضاف للمعادلات ★</option>
+                <option value="archived">الأرشيف ({counts.archivedMasters})</option>
+                <option value="all">الكل</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Disambiguation Guidance */}
+          {searchOutcome.disambiguationMessage && (
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 flex items-center gap-2 text-xs font-bold text-amber-900 dark:text-amber-200">
+              <AlertTriangle className="w-4 h-4 text-[#EA580C] shrink-0" />
+              <span>{searchOutcome.disambiguationMessage}</span>
+            </div>
+          )}
+
+          {/* Results Table */}
+          <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] overflow-hidden">
+            <div className="px-4 py-2.5 bg-[#EFE9DC]/60 dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between text-xs font-bold">
+              <span>النتائج المطابقة: {searchOutcome.matches.length} صنف أم</span>
+              <span className="text-[#475569] dark:text-[#94A3B8]">الأكواد المحذوفة لا يُعاد استخدامها مطلقاً</span>
+            </div>
+
+            {searchOutcome.matches.length === 0 ? (
+              <div className="p-10 text-center space-y-3">
+                <p className="text-sm font-bold text-[#475569] dark:text-[#94A3B8]">
+                  لا توجد خامات مطابقة لمعايير البحث الحالية.
+                </p>
+                <button
+                  type="button"
+                  onClick={openAddMasterModal}
+                  className="px-4 py-2 rounded-xl bg-[#EA580C] text-white text-xs font-black cursor-pointer"
+                >
+                  + إضافة صنف أم جديد
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead className="bg-[#F7F3EA] dark:bg-[#132040]/70 border-b border-[#D4CCBC] dark:border-[#22355E] text-[#475569] dark:text-[#CBD5E1]">
+                    <tr>
+                      <th className="py-2.5 px-3 font-black whitespace-nowrap">الكود</th>
+                      <th className="py-2.5 px-3 font-black">الاسم المعتمد والأسماء الدارجة</th>
+                      <th className="py-2.5 px-3 font-black whitespace-nowrap">الوحدات والجسور</th>
+                      <th className="py-2.5 px-3 font-black">الورش المرتبطة</th>
+                      <th className="py-2.5 px-3 font-black whitespace-nowrap">الحالة</th>
+                      <th className="py-2.5 px-3 font-black text-left whitespace-nowrap">إجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFE9DC] dark:divide-[#1E2E52]">
+                    {searchOutcome.matches.map(({ master, specs }) => {
+                      const isNew = master.reviewStatus === 'new';
+                      const isArchived = master.status === 'archived';
+                      return (
+                        <tr
+                          key={master.code}
+                          className="hover:bg-[#F7F3EA]/60 dark:hover:bg-[#132040]/40 transition-colors"
+                        >
+                          <td className="py-2.5 px-3 align-top whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setInspectMaster(master)}
+                              className="font-mono tabular-nums font-black text-xs text-[#C2410C] dark:text-[#FBBF24] hover:underline cursor-pointer"
+                            >
+                              {master.code}
+                            </button>
+                            <div className="text-[11px] text-[#64748B] font-mono tabular-nums">
+                              {specs.length} مواصفة
+                            </div>
+                          </td>
+
+                          <td className="py-2.5 px-3 align-top max-w-md">
+                            <div className="font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-1.5">
+                              <span>{master.canonicalName}</span>
+                              {master.isAddedForEquations && (
+                                <span className="text-[#EA580C]" title="مضاف للمعادلات الهندسية">★</span>
+                              )}
+                            </div>
+                            {(master.artistAliases.length > 0 || master.supplierAliases.length > 0) && (
+                              <div className="text-[11px] text-[#475569] dark:text-[#94A3B8] mt-0.5 leading-relaxed">
+                                {master.artistAliases.length > 0 && (
+                                  <span>فنان: {master.artistAliases.join(' · ')}</span>
+                                )}
+                                {master.artistAliases.length > 0 && master.supplierAliases.length > 0 && (
+                                  <span className="mx-1.5">/</span>
+                                )}
+                                {master.supplierAliases.length > 0 && (
+                                  <span>مورد: {master.supplierAliases.join(' · ')}</span>
+                                )}
+                              </div>
+                            )}
+                            {master.safetyNote && (
+                              <div className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5 font-bold">
+                                تنبيه: {master.safetyNote}
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="py-2.5 px-3 align-top whitespace-nowrap">
+                            <div className="font-bold text-[#0C1427] dark:text-[#F7F3EA]">
+                              سلسلة {master.unitChain}
+                            </div>
+                            <div className="text-[11px] text-[#64748B] mt-0.5">
+                              {master.bridgeFields.length > 0 ? master.bridgeFields.join(' · ') : 'بدون حقول جسر'}
+                            </div>
+                          </td>
+
+                          <td className="py-2.5 px-3 align-top">
+                            <div className="text-[11px] text-[#475569] dark:text-[#CBD5E1]">
+                              {master.workshopTags.length > 0 ? master.workshopTags.join(' · ') : 'عام لكل الورش'}
+                            </div>
+                          </td>
+
+                          <td className="py-2.5 px-3 align-top whitespace-nowrap text-[11px] font-bold">
+                            {isArchived ? (
+                              <span className="text-amber-700 dark:text-amber-300">مؤرشف</span>
+                            ) : isNew ? (
+                              <span className="text-[#EA580C] dark:text-[#FBBF24]">جديد · بانتظار الاعتماد</span>
+                            ) : (
+                              <span className="text-emerald-700 dark:text-emerald-400">معتمد</span>
+                            )}
+                          </td>
+
+                          <td className="py-2.5 px-3 align-top text-left whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5">
+                              {isNew && !isArchived && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await updateOrProposeUnifiedMasterApi(master.code, {
+                                      action: 'approve',
+                                      actorRole: 'super_admin',
+                                      actorId: 'super_admin',
+                                      actorName: userEmail,
+                                    });
+                                    onNotifySuccess(`تم اعتماد الصنف [${master.code}] رسمياً.`);
+                                    reloadData();
+                                  }}
+                                  className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold cursor-pointer"
+                                >
+                                  اعتماد
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setInspectMaster(master)}
+                                className="px-2 py-1 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] text-[11px] font-bold hover:border-[#EA580C] cursor-pointer"
+                              >
+                                المواصفات والأسماء
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditMasterModal(master)}
+                                className="p-1.5 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] cursor-pointer"
+                                title="تعديل الصنف الأم"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              {isArchived ? (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await updateOrProposeUnifiedMasterApi(master.code, {
+                                      action: 'restore',
+                                      actorRole: 'super_admin',
+                                      actorId: 'super_admin',
+                                      actorName: userEmail,
+                                    });
+                                    onNotifySuccess(`تمت استعادة الصنف [${master.code}] للنشط.`);
+                                    reloadData();
+                                  }}
+                                  className="p-1.5 rounded-lg border border-emerald-400 text-emerald-700 cursor-pointer"
+                                  title="استعادة من الأرشيف"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setArchiveTarget({ master, mode: 'archive' });
+                                      setArchiveReason('');
+                                    }}
+                                    className="p-1.5 rounded-lg border border-amber-300 text-amber-700 cursor-pointer"
+                                    title="أرشفة (للمستخدم سابقاً)"
+                                  >
+                                    <Archive className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setArchiveTarget({ master, mode: 'delete_unused' });
+                                      setArchiveReason('');
+                                    }}
+                                    className="p-1.5 rounded-lg border border-rose-300 text-rose-600 cursor-pointer"
+                                    title="حذف (غير مستخدم — مع حجز الكود)"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* TAB 2: MATERIALS NOTIFICATIONS & ARCHIVE AUDIT                    */}
+      {/* ================================================================= */}
+      {activeTab === 'notifications' && (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] p-4 space-y-3">
+            <h2 className="text-sm font-black">
+              سجل إشعارات الإضافة والتعديل والإزالة من الفنانين والموردين ({snapshot.notifications.length})
+            </h2>
+
+            {snapshot.notifications.length === 0 ? (
+              <div className="py-8 text-center text-xs font-bold text-[#64748B]">
+                لا توجد إشعارات خامات حالياً. أي خامة يضيفها فنان أو مورد أو يقترح تعديلها/إزالتها ستظهر هنا فوراً.
+              </div>
+            ) : (
+              <div className="divide-y divide-[#EFE9DC] dark:divide-[#1E2E52]">
+                {snapshot.notifications.map((n) => (
+                  <div key={n.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2 text-xs font-black">
+                        <span className="font-mono text-[#EA580C] dark:text-[#FBBF24]">{n.targetCode}</span>
+                        <span>·</span>
+                        <span>{n.targetName}</span>
+                        <span>·</span>
+                        <span className="text-[#475569] dark:text-[#94A3B8] font-bold">
+                          {n.eventType === 'new_master'
+                            ? 'إضافة صنف جديد'
+                            : n.eventType === 'new_spec'
+                            ? 'إضافة مواصفة جديدة'
+                            : n.eventType === 'new_alias'
+                            ? 'إضافة اسم دارج'
+                            : n.eventType === 'member_local_remove'
+                            ? 'إزالة من قائمة عضو (لسبب)'
+                            : 'اقتراح تعديل من عضو'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-[#475569] dark:text-[#CBD5E1]">
+                        بواسطة: <strong>{n.actorName}</strong> ({n.actorRole === 'supplier' ? 'مورد' : 'فنان'})
+                        {n.reason ? ` — السبب/التفاصيل: ${n.reason}` : ''}
+                      </div>
+                    </div>
+
+                    {n.status === 'pending' ? (
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleResolveNotification(n.id, 'accept_global')}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-black cursor-pointer whitespace-nowrap"
+                        >
+                          اعتماد في المنظومة ككل
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleResolveNotification(n.id, 'keep_local')}
+                          className="px-3 py-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] text-[11px] font-bold border border-[#D4CCBC] dark:border-[#22355E] cursor-pointer whitespace-nowrap"
+                        >
+                          إبقاء للعضو فقط
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleResolveNotification(n.id, 'archive')}
+                          className="px-3 py-1.5 rounded-lg border border-amber-400 text-amber-700 dark:text-amber-300 text-[11px] font-bold cursor-pointer whitespace-nowrap"
+                        >
+                          أرشفة
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] font-bold text-[#64748B] shrink-0">
+                        تمت المعالجة: {n.status}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* TAB 3: BRANDS, UNIT CHAINS & BRIDGE FIELDS                        */}
+      {/* ================================================================= */}
+      {activeTab === 'brands_units' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Brands Registry */}
+          <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] p-4 space-y-3">
+            <h2 className="text-sm font-black flex items-center gap-2">
+              <Tag className="w-4 h-4 text-[#EA580C]" />
+              <span>سجل الماركات المعتمد (B000..B053+)</span>
+            </h2>
+
+            <form onSubmit={handleAddBrand} className="flex flex-wrap gap-2">
+              <input
+                type="text"
+                required
+                value={newBrandName}
+                onChange={(e) => setNewBrandName(e.target.value)}
+                placeholder="اسم الماركة الجديدة (تسلسل B054+)"
+                className="flex-1 min-w-[160px] px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] text-xs font-bold outline-none"
+              />
+              <input
+                type="text"
+                value={newBrandCategory}
+                onChange={(e) => setNewBrandCategory(e.target.value)}
+                placeholder="التصنيف (اختياري)"
+                className="w-36 px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] text-xs font-bold outline-none"
+              />
+              <button
+                type="submit"
+                disabled={savingBrand}
+                className="px-4 py-2 rounded-xl bg-[#EA580C] text-white text-xs font-black cursor-pointer"
+              >
+                {savingBrand ? 'جاري...' : '+ إضافة ماركة'}
+              </button>
+            </form>
+
+            <div className="max-h-[420px] overflow-y-auto divide-y divide-[#EFE9DC] dark:divide-[#1E2E52] text-xs">
+              {snapshot.brands.map((b) => (
+                <div key={b.brandCode} className="py-2 flex items-center justify-between gap-2">
+                  <div>
+                    <span className="font-mono font-black text-[#EA580C] dark:text-[#FBBF24] ml-2">
+                      {b.brandCode}
+                    </span>
+                    <span className="font-bold">{b.brandName}</span>
+                    {b.needsReview && (
+                      <span className="text-[11px] text-amber-700 dark:text-amber-300 mr-2">
+                        · للمراجعة ({b.reviewNote})
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-[#64748B]">{b.categoryHint}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Unit Chains & Fixed Conversions */}
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] p-4 space-y-2.5">
+              <h2 className="text-sm font-black">سلاسل الوحدات الجاهزة (ل1..ل8)</h2>
+              <div className="divide-y divide-[#EFE9DC] dark:divide-[#1E2E52] text-xs">
+                {snapshot.unitChains.map((u) => (
+                  <div key={u.code} className="py-2 space-y-0.5">
+                    <div className="font-black">
+                      <span className="font-mono text-[#EA580C] dark:text-[#FBBF24] ml-1.5">{u.code}</span>
+                      {u.titleAr}
+                    </div>
+                    <div className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                      المورد: {u.supplierFlow} · الصرف: {u.issueUnits.join(' / ')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] p-4 space-y-2">
+              <h2 className="text-sm font-black">التحويلات الثابتة المعتمدة</h2>
+              <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono tabular-nums">
+                {snapshot.fixedConversions.map((fc, idx) => (
+                  <div
+                    key={idx}
+                    className="p-2 rounded-lg bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                  >
+                    {fc.labelAr}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* MODAL: INSPECT MASTER SPECS (.01) & ALIASES (AL00001)             */}
+      {/* ================================================================= */}
+      {inspectMaster && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-5 space-y-5">
+            <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
+              <div>
+                <div className="font-mono text-xs font-black text-[#EA580C] dark:text-[#FBBF24]">
+                  {inspectMaster.code} · سلسلة {inspectMaster.unitChain}
+                </div>
+                <h3 className="text-base font-black">{inspectMaster.canonicalName}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectMaster(null)}
+                className="p-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Specs List & Add Spec */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-black">المواصفات الفرعية (مستوى مخزن الفنان والوصفات: {inspectMaster.code}.xx)</h4>
+              <div className="divide-y divide-[#EFE9DC] dark:divide-[#1E2E52] border border-[#D4CCBC] dark:border-[#22355E] rounded-xl px-3">
+                {inspectedSpecs.length === 0 ? (
+                  <div className="py-3 text-xs text-[#64748B]">لا توجد مواصفات مسجلة بعد لهذا الصنف.</div>
+                ) : (
+                  inspectedSpecs.map((s) => (
+                    <div key={s.specCode} className="py-2.5 flex items-center justify-between gap-2 text-xs">
+                      <div>
+                        <span className="font-mono font-black text-[#EA580C] dark:text-[#FBBF24] ml-2">
+                          {s.specCode}
+                        </span>
+                        <span className="font-bold">{s.label}</span>
+                        {s.origin && <span className="text-[11px] text-[#64748B] mr-2">· المنشأ: {s.origin}</span>}
+                      </div>
+                      <div className="text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#94A3B8]">
+                        {s.bridgeValues?.weightPerMeterGrams ? `وزن_متر: ${s.bridgeValues.weightPerMeterGrams}جم ` : ''}
+                        {s.bridgeValues?.packWeightGrams ? `عبوة: ${s.bridgeValues.packWeightGrams}جم ` : ''}
+                        {s.bridgeValues?.packLengthMeters ? `طول: ${s.bridgeValues.packLengthMeters}م` : ''}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <form onSubmit={handleAddSpec} className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] text-xs">
+                <input
+                  type="text"
+                  required
+                  value={newSpecLabel}
+                  onChange={(e) => setNewSpecLabel(e.target.value)}
+                  placeholder="وصف المواصفة (مثلاً: قطن مجدول 6 مم)"
+                  className="col-span-2 px-3 py-2 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] font-bold outline-none"
+                />
+                <input
+                  type="number"
+                  step="0.1"
+                  value={newSpecThickness}
+                  onChange={(e) => setNewSpecThickness(e.target.value)}
+                  placeholder="السُمك (مم)"
+                  className="px-3 py-2 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] font-mono outline-none"
+                />
+                <input
+                  type="text"
+                  value={newSpecOrigin}
+                  onChange={(e) => setNewSpecOrigin(e.target.value)}
+                  placeholder="المنشأ (مثل دمياطي)"
+                  className="px-3 py-2 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] outline-none"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newSpecWeightPerMeter}
+                  onChange={(e) => setNewSpecWeightPerMeter(e.target.value)}
+                  placeholder="جسر: وزن المتر (جم)"
+                  className="px-3 py-2 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] font-mono outline-none"
+                />
+                <input
+                  type="number"
+                  step="0.1"
+                  value={newSpecPackWeight}
+                  onChange={(e) => setNewSpecPackWeight(e.target.value)}
+                  placeholder="جسر: وزن العبوة (جم)"
+                  className="px-3 py-2 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] font-mono outline-none"
+                />
+                <input
+                  type="number"
+                  step="0.1"
+                  value={newSpecPackLength}
+                  onChange={(e) => setNewSpecPackLength(e.target.value)}
+                  placeholder="جسر: طول العبوة (م)"
+                  className="px-3 py-2 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] font-mono outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={savingDetail}
+                  className="px-3 py-2 rounded-lg bg-[#EA580C] text-white font-black cursor-pointer"
+                >
+                  + إضافة مواصفة
+                </button>
+              </form>
+            </div>
+
+            {/* Aliases List & Add Alias */}
+            <div className="space-y-2.5">
+              <h4 className="text-xs font-black">جدول الأسماء المرتبطة (AL00001+)</h4>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {inspectedAliases.map((a) => (
+                  <span
+                    key={a.aliasCode}
+                    className="px-2.5 py-1 rounded-lg bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                  >
+                    <span className="font-mono text-[#EA580C] ml-1">{a.aliasCode}</span>
+                    {a.aliasName}
+                    {a.contextHint ? ` (${a.contextHint})` : ''}
+                  </span>
+                ))}
+              </div>
+              <form onSubmit={handleAddAlias} className="flex flex-wrap gap-2 text-xs">
+                <input
+                  type="text"
+                  required
+                  value={newAliasName}
+                  onChange={(e) => setNewAliasName(e.target.value)}
+                  placeholder="اسم دارج جديد للفنان أو المورد..."
+                  className="flex-1 min-w-[180px] px-3 py-2 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] font-bold outline-none"
+                />
+                <select
+                  value={newAliasType}
+                  onChange={(e) => setNewAliasType(e.target.value as any)}
+                  className="px-3 py-2 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] font-bold outline-none"
+                >
+                  <option value="artisan">اسم فنان</option>
+                  <option value="supplier">اسم مورد</option>
+                  <option value="common">دارج عام</option>
+                </select>
+                <input
+                  type="text"
+                  value={newAliasContext}
+                  onChange={(e) => setNewAliasContext(e.target.value)}
+                  placeholder="السياق (مثل: خيط)"
+                  className="w-32 px-3 py-2 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={savingDetail}
+                  className="px-4 py-2 rounded-lg bg-[#0C1427] dark:bg-[#FBBF24] text-white dark:text-[#0C1427] font-black cursor-pointer"
+                >
+                  + ربط اسم
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* MODAL: ADD / EDIT MASTER ITEM                                     */}
+      {/* ================================================================= */}
+      {isMasterModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <form
+            onSubmit={handleSaveMaster}
+            className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-5 space-y-4 text-xs"
+          >
+            <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
+              <h3 className="text-sm font-black">
+                {editingMaster ? `تعديل الصنف الأم [${editingMaster.code}]` : 'إضافة صنف أم جديد بالكود التلقائي'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsMasterModalOpen(false)}
+                className="p-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold mb-1">القسم (البادئة)</label>
+                <select
+                  disabled={Boolean(editingMaster)}
+                  value={formPrefix}
+                  onChange={(e) => setFormPrefix(e.target.value as UnifiedCategoryPrefix)}
+                  className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] font-bold outline-none disabled:opacity-60"
+                >
+                  {snapshot.categories.map((c) => (
+                    <option key={c.prefix} value={c.prefix}>
+                      {c.prefix} — {c.nameAr}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold mb-1">سلسلة الوحدات</label>
+                <select
+                  value={formUnitChain}
+                  onChange={(e) => setFormUnitChain(e.target.value as UnitChainCode)}
+                  className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] font-bold outline-none"
+                >
+                  {snapshot.unitChains.map((u) => (
+                    <option key={u.code} value={u.code}>
+                      {u.code} — {u.titleAr}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">الاسم المعتمد (Canonical Name) *</label>
+              <input
+                type="text"
+                required
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder="مثال: قطن مجدول"
+                className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] font-bold outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">أسماء الفنانين (مفصولة بفاصلة)</label>
+              <input
+                type="text"
+                value={formArtistAliasesText}
+                onChange={(e) => setFormArtistAliasesText(e.target.value)}
+                placeholder="مثال: خيط مكرمية، خيط سلب"
+                className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">أسماء الموردين (مفصولة بفاصلة)</label>
+              <input
+                type="text"
+                value={formSupplierAliasesText}
+                onChange={(e) => setFormSupplierAliasesText(e.target.value)}
+                placeholder="مثال: قطن مبروم، خرز على اتنين"
+                className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">الورش المرتبطة (مفصولة بفاصلة)</label>
+              <input
+                type="text"
+                value={formWorkshopsText}
+                onChange={(e) => setFormWorkshopsText(e.target.value)}
+                placeholder="مثال: مكرمية، زجزاج وحبال"
+                className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">حقول الجسر المطلوبة</label>
+              <div className="flex flex-wrap gap-1.5">
+                {(Object.keys(BRIDGE_FIELD_LABELS) as BridgeFieldKey[]).map((key) => {
+                  const active = formBridgeFields.includes(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() =>
+                        setFormBridgeFields((prev) =>
+                          prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+                        )
+                      }
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer ${
+                        active
+                          ? 'bg-[#EA580C] text-white border-transparent'
+                          : 'bg-[#F7F3EA] dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E]'
+                      }`}
+                    >
+                      {key}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#D4CCBC] dark:border-[#22355E]">
+              <button
+                type="button"
+                onClick={() => setIsMasterModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] font-bold cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="submit"
+                disabled={savingMaster}
+                className="px-5 py-2 rounded-xl bg-[#EA580C] text-white font-black cursor-pointer"
+              >
+                {savingMaster ? 'جاري الحفظ...' : 'حفظ ونشر'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* MODAL: ARCHIVE / DELETE UNUSED WITH REASON                        */}
+      {/* ================================================================= */}
+      {archiveTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-5 space-y-4 text-xs">
+            <h3 className="text-sm font-black">
+              {archiveTarget.mode === 'archive'
+                ? `أرشفة الصنف [${archiveTarget.master.code}]`
+                : `حذف الصنف [${archiveTarget.master.code}] (حجز الكود)`}
+            </h3>
+            <p className="text-[#475569] dark:text-[#94A3B8]">
+              {archiveTarget.mode === 'archive'
+                ? 'إذا استخدم هذا الصنف من قبل في وصفات أو فواتير، تضمن الأرشفة عدم كسر أي سجلات سابقة.'
+                : 'سيتم حذف الصنف من القائمة مع حجز الكود نهائياً بحيث لا يُعاد استخدامه لصنف آخر.'}
+            </p>
+            <input
+              type="text"
+              value={archiveReason}
+              onChange={(e) => setArchiveReason(e.target.value)}
+              placeholder="اكتب السبب (اختياري)..."
+              className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] font-bold outline-none"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setArchiveTarget(null)}
+                className="px-4 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] font-bold cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmArchiveOrDelete}
+                className={`px-4 py-2 rounded-xl text-white font-black cursor-pointer ${
+                  archiveTarget.mode === 'archive' ? 'bg-amber-600' : 'bg-rose-600'
+                }`}
+              >
+                تأكيد التنفيذ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

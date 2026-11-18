@@ -100,6 +100,9 @@ const AdminSuppliersMarketPage = lazy(() =>
 const AdminCustomersPage = lazy(() =>
   import('./AdminCustomersPage').then((m) => ({ default: m.AdminCustomersPage }))
 );
+const AdminUnifiedMaterialsPage = lazy(() =>
+  import('./AdminUnifiedMaterialsPage').then((m) => ({ default: m.AdminUnifiedMaterialsPage }))
+);
 
 const AdminSubViewFallback: React.FC = () => (
   <div className="min-h-[50vh] flex flex-col items-center justify-center p-6 space-y-3" dir="rtl">
@@ -2722,6 +2725,18 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               setSavingMarketSettings(false);
             }
           }}
+        />
+      )}
+
+      {currentPage === 'unified_materials' && (
+        <AdminUnifiedMaterialsPage
+          userEmail={profile.email}
+          onBack={() => handleNavigatePage('home')}
+          onNotifySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+          onNotifyError={showError}
         />
       )}
 

@@ -27,9 +27,19 @@ import {
   Boxes,
   Megaphone,
   Layers,
+  Send,
+  Radio,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 
 import { compressImageFile, MAX_ITEM_IMAGES } from '../../utils/imageCompressor';
+import { useUiLayoutConfig } from '../../types/uiLayoutConfig';
+import {
+  UnifiedMaterialPickerModal,
+  UnifiedPickerSelectionItem,
+} from '../materials/UnifiedMaterialPickerModal';
+import { updateOrProposeUnifiedMasterApi } from '../../db/unifiedMaterialsService';
 
 interface SupplierCatalogViewProps {
   profile: UserProfile;
@@ -42,12 +52,17 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   onGoBack,
   onGoHome,
 }) => {
+  const uiLayout = useUiLayoutConfig();
+  const maxAllowedImages = Math.min(8, Math.max(1, Number(uiLayout.supplier?.maxProductImages || MAX_ITEM_IMAGES)));
   const currencySymbol = profile.currencySymbol || 'ج.م';
   const [items, setItems] = useState<SupplierCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [sectionFilter, setSectionFilter] = useState<'all' | MainSectionId>('all');
   const [search, setSearch] = useState('');
   const [onlyLowStock, setOnlyLowStock] = useState(false);
+  const [selectedMarketIds, setSelectedMarketIds] = useState<Set<string>>(new Set());
+  const [exportingMarket, setExportingMarket] = useState(false);
+  const [pendingAdminBanner, setPendingAdminBanner] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -70,6 +85,12 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   const [images, setImages] = useState<string[]>([]);
   const [variants, setVariants] = useState<SupplierCatalogVariant[]>([]);
   const [tierPricing, setTierPricing] = useState<SupplierPriceTier[]>([]);
+  const [unifiedCode, setUnifiedCode] = useState('');
+  const [specCode, setSpecCode] = useState('');
+  const [brandCode, setBrandCode] = useState('');
+  const [skuCode, setSkuCode] = useState('');
+  const [unitChain, setUnitChain] = useState('');
+  const [isUnifiedPickerOpen, setIsUnifiedPickerOpen] = useState(false);
 
   // Offer & New Stock Alert Modal
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
@@ -97,7 +118,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
       if (sectionFilter !== 'all' && item.sectionId !== sectionFilter) return false;
       if (onlyLowStock && Number(item.stockQty) > 5) return false;
       if (q) {
-        const hay = `${item.name} ${item.description || ''} ${item.unit}`.toLowerCase();
+        const hay = `${item.name} ${item.description || ''} ${item.unit} ${item.skuCode || ''} ${item.unifiedCode || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -117,10 +138,15 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setDiscountType('none');
     setDiscountValue(0);
     setInStore(true);
-    setInMarket(true);
+    setInMarket(false);
     setImages([]);
     setVariants([]);
     setTierPricing([]);
+    setUnifiedCode('');
+    setSpecCode('');
+    setBrandCode('');
+    setSkuCode('');
+    setUnitChain('');
     setFeedback(null);
     setIsModalOpen(true);
   };
@@ -138,16 +164,21 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setDiscountType(item.discountType || 'none');
     setDiscountValue(Number(item.discountValue || 0));
     setInStore(item.inStore);
-    setInMarket(item.inMarket);
-    setImages(Array.isArray(item.images) ? item.images.slice(0, MAX_ITEM_IMAGES) : []);
+    setInMarket(Boolean(item.inMarket));
+    setImages(Array.isArray(item.images) ? item.images.slice(0, maxAllowedImages) : []);
     setVariants(Array.isArray(item.variants) ? item.variants : []);
     setTierPricing(Array.isArray(item.tierPricing) ? item.tierPricing : []);
+    setUnifiedCode(item.unifiedCode || '');
+    setSpecCode(item.specCode || '');
+    setBrandCode(item.brandCode || '');
+    setSkuCode(item.skuCode || '');
+    setUnitChain(item.unitChain || '');
     setFeedback(null);
     setIsModalOpen(true);
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const remaining = Math.max(0, MAX_ITEM_IMAGES - images.length);
+    const remaining = Math.max(0, maxAllowedImages - images.length);
     const files = Array.from(e.target.files || []).slice(0, remaining);
     if (files.length === 0) return;
     try {
@@ -161,7 +192,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
           })
         )
       );
-      setImages((prev) => [...prev, ...encoded].slice(0, MAX_ITEM_IMAGES));
+      setImages((prev) => [...prev, ...encoded].slice(0, maxAllowedImages));
     } catch {}
     e.target.value = '';
   };
@@ -179,14 +210,23 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     ]);
   };
 
-  const handleSaveItem = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const triggerPendingAdminBanner = () => {
+    setPendingAdminBanner('هذا المنتج في انتظار مراجعة الأدمن');
+    setTimeout(() => setPendingAdminBanner(null), 3000);
+  };
+
+  const saveItemWithMode = async (mode: 'store_only' | 'market_submit') => {
     if (!name.trim()) {
       setFeedback({ text: 'يرجى كتابة اسم الخامة.', isError: true });
       return;
     }
     setSaving(true);
     setFeedback(null);
+    const targetInMarket = mode === 'market_submit' ? true : Boolean(inMarket);
+    const prevEditing = editingId ? items.find((it) => it.id === editingId) : undefined;
+    const shouldReSubmit =
+      mode === 'market_submit' || Boolean(prevEditing?.inMarket);
+
     const res = await upsertSupplierCatalogItem({
       id: editingId,
       name: name.trim(),
@@ -200,12 +240,18 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
       discountType,
       discountValue: Number(discountValue || 0),
       inStore,
-      inMarket,
-      images,
+      inMarket: targetInMarket,
+      reSubmitForApproval: targetInMarket && shouldReSubmit,
+      images: images.slice(0, maxAllowedImages),
       variants: variants.filter((v) => v.colorOrSize.trim()),
       tierPricing: tierPricing
         .filter((t) => Number(t.minQty) > 0 && Number(t.unitPrice) > 0)
         .sort((a, b) => Number(a.minQty) - Number(b.minQty)),
+      unifiedCode: unifiedCode.trim() || undefined,
+      specCode: specCode.trim() || undefined,
+      brandCode: brandCode.trim() || undefined,
+      skuCode: skuCode.trim() || undefined,
+      unitChain: unitChain.trim() || undefined,
       sourceCurrency: profile.currency || 'EGP',
     });
     setSaving(false);
@@ -215,8 +261,50 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
       return;
     }
 
+    if (prevEditing && unifiedCode.trim() && prevEditing.name.trim() !== name.trim()) {
+      updateOrProposeUnifiedMasterApi(unifiedCode.trim(), {
+        action: 'update',
+        canonicalName: name.trim(),
+        actorRole: 'supplier',
+        actorId: profile.id,
+        actorName: profile.brandName || profile.artistName || 'مورد',
+        reason: `تعديل مسمى الصنف لدى المورد من "${prevEditing.name}" إلى "${name.trim()}"`,
+      }).catch(() => {});
+    }
+
     await loadItems();
     setIsModalOpen(false);
+    setAlertToast(
+      targetInMarket
+        ? `تم حفظ "${name.trim()}" وإرسالها لمراجعة الأدمن قبل الظهور في سوق الموردين`
+        : `تم حفظ "${name.trim()}" في الكتالوج والمتجر الخاص بنجاح`
+    );
+    setTimeout(() => setAlertToast(null), 4000);
+  };
+
+  const handleSaveItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveItemWithMode(inMarket ? 'market_submit' : 'store_only');
+  };
+
+  const handleBulkExportToSupplierMarket = async (targets: SupplierCatalogItem[]) => {
+    if (targets.length === 0) return;
+    setExportingMarket(true);
+    try {
+      for (const item of targets) {
+        await upsertSupplierCatalogItem({
+          ...item,
+          inMarket: true,
+          reSubmitForApproval: true,
+        });
+      }
+      await loadItems();
+      setSelectedMarketIds(new Set());
+      setAlertToast(`تم إرسال (${targets.length}) خامة لمراجعة الأدمن تمهيداً للعرض في سوق الموردين`);
+      setTimeout(() => setAlertToast(null), 4500);
+    } finally {
+      setExportingMarket(false);
+    }
   };
 
   const handleSendOfferAlert = async (e: React.FormEvent) => {
@@ -242,9 +330,59 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   };
 
   const handleDelete = async (id: string) => {
+    const targetItem = items.find((x) => x.id === id);
     const ok = await deleteSupplierCatalogItem(id);
     if (ok) {
       setItems((prev) => prev.filter((x) => x.id !== id));
+      if (targetItem?.unifiedCode) {
+        updateOrProposeUnifiedMasterApi(targetItem.unifiedCode, {
+          action: 'remove_local',
+          actorRole: 'supplier',
+          actorId: profile.id,
+          actorName: profile.brandName || profile.artistName || 'مورد',
+          reason: `أزال المورد الصنف (${targetItem.name}) من كتالوجه الخاص فقط`,
+        }).catch(() => {});
+      }
+    }
+  };
+
+  const handleUnifiedLinkForSupplier = (selected: UnifiedPickerSelectionItem[]) => {
+    const pick = selected[0];
+    if (!pick) return;
+    const prefixToSupplySection: Record<string, MainSectionId> = {
+      TH: 'ropes_textiles',
+      BD: 'beads_embroidery',
+      WD: 'woods',
+      LT: 'beads_embroidery',
+      MT: 'beads_embroidery',
+      CL: 'clays_composites',
+      AR: 'beads_embroidery',
+      DC: 'woods',
+      PK: 'ropes_textiles',
+      PP: 'clays_composites',
+      GL: 'clays_composites',
+      AX: 'ropes_textiles',
+    };
+    const composedName = pick.spec
+      ? `${pick.master.canonicalName} — ${pick.spec.label}${pick.brandName && pick.brandCode !== 'B000' ? ` (${pick.brandName})` : ''}`
+      : `${pick.master.canonicalName}${pick.brandName && pick.brandCode !== 'B000' ? ` (${pick.brandName})` : ''}`;
+
+    setUnifiedCode(pick.master.code);
+    setSpecCode(pick.specCode || '');
+    setBrandCode(pick.brandCode || '');
+    setSkuCode(pick.skuCode || pick.specCode || pick.master.code);
+    setUnitChain(pick.master.unitChain);
+    if (!name.trim()) setName(composedName);
+    if (prefixToSupplySection[pick.master.prefix]) {
+      setSectionId(prefixToSupplySection[pick.master.prefix]);
+    }
+    if (SUPPLIER_DEFAULT_UNITS.includes(pick.recommendedUnitName)) {
+      setUnit(pick.recommendedUnitName);
+    }
+    if (!isModalOpen) {
+      setEditingId(undefined);
+      setName(composedName);
+      setIsModalOpen(true);
     }
   };
 
@@ -280,6 +418,14 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
           >
             <Megaphone className="w-4 h-4" />
             <span>تنبيه عروض / وصول جديد للورش</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsUnifiedPickerOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-[#0C1427] hover:bg-[#1A2B54] text-[#FBBF24] border border-amber-400/40 text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm"
+          >
+            <Layers className="w-4 h-4" />
+            <span>استيراد من منظومة الخامات الموحدة</span>
           </button>
           <button
             type="button"
@@ -361,6 +507,63 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
         </div>
       </div>
 
+      {/* 3-Second Pending Admin Review Banner */}
+      {pendingAdminBanner && (
+        <div className="rounded-2xl px-4 py-3 bg-rose-600 text-white text-xs sm:text-sm font-black flex items-center justify-between gap-2 shadow-lg">
+          <div className="flex items-center gap-2">
+            <Radio className="w-4 h-4 animate-pulse shrink-0" />
+            <span>{pendingAdminBanner}</span>
+          </div>
+          <span className="text-[10px] opacity-85">بانتظار مراجعة واعتماد السوبر أدمن</span>
+        </div>
+      )}
+
+      {/* Multi-select & Bulk Export to Suppliers Market Bar */}
+      {filtered.length > 0 && (
+        <div className="p-3 rounded-2xl bg-[#EFE9DC]/80 dark:bg-[#132040]/80 border border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedMarketIds.size === filtered.length) {
+                setSelectedMarketIds(new Set());
+              } else {
+                setSelectedMarketIds(new Set(filtered.map((x) => x.id)));
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black cursor-pointer"
+          >
+            {selectedMarketIds.size === filtered.length && filtered.length > 0 ? (
+              <CheckSquare className="w-4 h-4 text-[#EA580C]" />
+            ) : (
+              <Square className="w-4 h-4 text-[#475569]" />
+            )}
+            <span>
+              {selectedMarketIds.size === filtered.length
+                ? 'إلغاء تحديد الكل'
+                : `تحديد الكل للتصدير لسوق الموردين (${filtered.length})`}
+            </span>
+          </button>
+
+          {selectedMarketIds.size > 0 && (
+            <button
+              type="button"
+              disabled={exportingMarket}
+              onClick={() =>
+                handleBulkExportToSupplierMarket(filtered.filter((x) => selectedMarketIds.has(x.id)))
+              }
+              className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-55"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>
+                {exportingMarket
+                  ? 'جاري التصدير...'
+                  : `تصدير المحدد لسوق الموردين (${selectedMarketIds.size})`}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Catalog Grid */}
       {loading ? (
         <div className="py-12 text-center text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
@@ -386,28 +589,65 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
             const secTitle =
               SUPPLIER_SUPPLY_SECTIONS.find((s) => s.id === item.sectionId)?.titleAr ||
               item.sectionId;
+            const isChecked = selectedMarketIds.has(item.id);
+            const isApprovedInMarket = Boolean(item.inMarket && item.isApproved);
+            const isPendingInMarket = Boolean(item.inMarket && !item.isApproved);
+
             return (
               <div
                 key={item.id}
-                className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden flex flex-col justify-between"
+                className={`rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border overflow-hidden flex flex-col justify-between transition ${
+                  isChecked
+                    ? 'border-[#EA580C] ring-2 ring-[#EA580C]/40'
+                    : 'border-[#D4CCBC] dark:border-[#22355E]'
+                }`}
               >
                 <div>
-                  {item.images[0] ? (
-                    <img
-                      src={item.images[0]}
-                      alt={item.name}
-                      className="w-full h-40 object-cover border-b border-[#D4CCBC] dark:border-[#22355E]"
-                    />
-                  ) : (
-                    <div className="w-full h-28 bg-[#EFE9DC] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
-                      {secTitle}
-                    </div>
-                  )}
+                  <div className="relative">
+                    {item.images[0] ? (
+                      <img
+                        src={item.images[0]}
+                        alt={item.name}
+                        className="w-full h-40 object-cover border-b border-[#D4CCBC] dark:border-[#22355E]"
+                      />
+                    ) : (
+                      <div className="w-full h-28 bg-[#EFE9DC] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
+                        {secTitle}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedMarketIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(item.id)) next.delete(item.id);
+                          else next.add(item.id);
+                          return next;
+                        })
+                      }
+                      className="absolute top-2.5 left-2.5 w-7 h-7 rounded-lg bg-white/95 dark:bg-[#0C1427]/90 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-xs cursor-pointer"
+                      title="تحديد للتصدير لسوق الموردين"
+                    >
+                      {isChecked ? (
+                        <CheckSquare className="w-4 h-4 text-[#EA580C]" />
+                      ) : (
+                        <Square className="w-4 h-4 text-[#475569]" />
+                      )}
+                    </button>
+                  </div>
 
                   <div className="p-4 space-y-2.5">
                     <div>
-                      <div className="text-[10px] font-bold text-[#C2410C] dark:text-amber-300">
-                        {secTitle}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[10px] font-bold text-[#C2410C] dark:text-amber-300">
+                          {secTitle}
+                        </div>
+                        {(item.skuCode || item.specCode || item.unifiedCode) && (
+                          <span className="px-2 py-0.5 rounded-md bg-[#0C1427] text-[#FBBF24] font-mono tabular-nums text-[10px] font-black">
+                            {item.skuCode || item.specCode || item.unifiedCode}
+                          </span>
+                        )}
                       </div>
                       <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
                         {item.name}
@@ -458,10 +698,42 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                         المتوفر: {item.stockQty} {item.unit}
                       </span>
                       <span className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8]">
-                        {item.inStore ? 'متجري' : ''}
-                        {item.inStore && item.inMarket ? ' • ' : ''}
-                        {item.inMarket ? 'سوق الموردين' : ''}
+                        {item.inStore ? 'متجر المورد' : ''}
                       </span>
+                    </div>
+
+                    {/* Market Status Lamp */}
+                    <div className="pt-1">
+                      {isApprovedInMarket ? (
+                        <div className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-400/60 flex items-center justify-between text-[11px] font-black text-emerald-800 dark:text-emerald-200">
+                          <span className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.9)]" />
+                            <span>معروض بسوق الموردين</span>
+                          </span>
+                          <span className="text-[10px]">معتمد ✓</span>
+                        </div>
+                      ) : isPendingInMarket ? (
+                        <button
+                          type="button"
+                          onClick={triggerPendingAdminBanner}
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 border border-rose-500 text-rose-700 dark:text-rose-300 flex items-center justify-between text-[11px] font-black cursor-pointer animate-pulse"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shadow-[0_0_10px_rgba(225,29,72,0.95)]" />
+                            <span>قيد مراجعة الأدمن</span>
+                          </span>
+                          <span className="text-[10px] underline">اضغط للتفاصيل</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleBulkExportToSupplierMarket([item])}
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] hover:border-[#EA580C] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center gap-1.5 text-[11px] font-black cursor-pointer transition"
+                        >
+                          <Send className="w-3 h-3 text-[#EA580C]" />
+                          <span>تصدير لسوق الموردين</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -529,6 +801,36 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                   <span>{feedback.text}</span>
                 </div>
               )}
+
+              {/* Unified Material SKU Link Banner inside Modal */}
+              <div className="p-3 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-0.5">
+                  <span className="font-black text-[#0C1427] dark:text-[#F7F3EA] block">
+                    الربط مع منظومة الخامات الموحدة (SKU + الماركة)
+                  </span>
+                  {skuCode || unifiedCode ? (
+                    <span className="text-[11px] font-bold text-[#334155] dark:text-[#CBD5E1] inline-flex items-center gap-2">
+                      <span>الكود التجاري المعتمد:</span>
+                      <span className="px-2 py-0.5 rounded bg-[#0C1427] text-[#FBBF24] font-mono tabular-nums font-black">
+                        {skuCode || specCode || unifiedCode}
+                      </span>
+                      {unitChain && <span className="font-mono">({unitChain})</span>}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-[#475569] dark:text-[#94A3B8]">
+                      اختياري: اربط الصنف بكود المنظومة الموحد + الماركة (#B003) لتوحيد البحث مع جميع الورش
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsUnifiedPickerOpen(true)}
+                  className="px-3 py-1.5 rounded-xl bg-[#0C1427] text-[#FBBF24] font-black cursor-pointer inline-flex items-center gap-1"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>{unifiedCode ? 'تغيير الكود الموحد' : 'اختيار / ربط كود موحد'}</span>
+                </button>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -785,19 +1087,19 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                 ))}
               </div>
 
-              {/* Images Upload (Max 3 compressed images) */}
+              {/* Images Upload (Dynamic max images per Super Admin Studio) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div>
-                    <span className="font-black">صور الخامة ({images.length} / {MAX_ITEM_IMAGES} صور بحد أقصى)</span>
+                    <span className="font-black">صور الخامة ({images.length} / {maxAllowedImages} صور بحد أقصى)</span>
                     <p className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8]">
                       ضغط تلقائي ذكي لتقليل حجم الصور في قاعدة البيانات
                     </p>
                   </div>
-                  {images.length < MAX_ITEM_IMAGES ? (
+                  {images.length < maxAllowedImages ? (
                     <label className="px-3 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-black cursor-pointer inline-flex items-center gap-1.5">
                       <ImagePlus className="w-3.5 h-3.5 text-[#EA580C]" />
-                      <span>رفع صورة ({MAX_ITEM_IMAGES - images.length} متاح)</span>
+                      <span>رفع صورة ({maxAllowedImages - images.length} متاح)</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -808,7 +1110,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                     </label>
                   ) : (
                     <span className="px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 text-[10px] font-black">
-                      اكتمل الحد الأقصى (٣ صور)
+                      اكتمل الحد الأقصى ({maxAllowedImages} صور)
                     </span>
                   )}
                 </div>
@@ -830,8 +1132,8 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                 )}
               </div>
 
-              {/* Visibility Toggles */}
-              <div className="flex flex-wrap items-center gap-4 pt-1">
+              {/* Store visibility toggle */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                 <label className="flex items-center gap-2 font-bold cursor-pointer">
                   <input
                     type="checkbox"
@@ -841,18 +1143,12 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                   />
                   <span>عرض في متجري المباشر</span>
                 </label>
-                <label className="flex items-center gap-2 font-bold cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={inMarket}
-                    onChange={(e) => setInMarket(e.target.checked)}
-                    className="accent-[#EA580C] w-4 h-4"
-                  />
-                  <span>عرض في سوق موردين الشمساوية</span>
-                </label>
+                <span className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8]">
+                  يظهر في سوق الموردين فقط عند التصدير ومراجعة الأدمن
+                </span>
               </div>
 
-              <div className="pt-3 border-t border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -860,13 +1156,31 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                 >
                   إلغاء
                 </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-black cursor-pointer disabled:opacity-50"
-                >
-                  {saving ? 'جاري الحفظ...' : 'حفظ الخامة'}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => saveItemWithMode('store_only')}
+                    className="px-4 py-2 rounded-xl bg-[#0C1427] hover:bg-[#1A2B54] text-amber-300 border border-[#22355E] font-black cursor-pointer disabled:opacity-50"
+                  >
+                    {saving ? 'جاري الحفظ...' : 'حفظ في الكتالوج والمتجر فقط'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => saveItemWithMode('market_submit')}
+                    className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-black cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>
+                      {saving
+                        ? 'جاري الإرسال...'
+                        : inMarket
+                        ? 'حفظ وإعادة الإرسال لسوق الموردين'
+                        : 'حفظ وتصدير لسوق الموردين'}
+                    </span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -959,6 +1273,16 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Unified Materials System Smart Picker Modal (Supplier SKU + Brand) */}
+      <UnifiedMaterialPickerModal
+        isOpen={isUnifiedPickerOpen}
+        onClose={() => setIsUnifiedPickerOpen(false)}
+        mode="supplier"
+        actorId={profile.id}
+        actorName={profile.brandName || profile.artistName || 'مورد'}
+        onConfirmSelection={handleUnifiedLinkForSupplier}
+      />
     </div>
   );
 };

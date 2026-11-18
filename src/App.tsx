@@ -20,6 +20,7 @@ import { syncPlatformSettingsFromCloud } from './services/marketplaceCartService
 import { getStoredLandingCmsConfig, syncBrandFaviconFromCms } from './types/landingCms';
 import { useFeatureFlags } from './types/featureFlags';
 import { getCurrentSupplierFromSupabase } from './db/supplierService';
+import { getMainSectionForCraft } from './registry/craftsRegistry';
 import type { StructuredCalculatorExport } from './components/ai/FalconAIAgent';
 import type { ExecutiveTab } from './components/admin/AdminDashboard';
 import type { GlobalSearchDataCache } from './components/search/GlobalSearchModal';
@@ -1808,21 +1809,27 @@ export const App: React.FC = () => {
     const wholesalePrice = data.wholesalePrice || data.minMarketPrice || Math.round(costPrice * 1.3);
     const retailPrice = data.retailPrice || data.recommendedFairPrice || Math.round(costPrice * 1.6);
 
+    const resolvedCraftId = (data as any).craftId || 'macrame';
+    const resolvedSectionId = (data as any).mainSectionId || getMainSectionForCraft(resolvedCraftId);
+
     const synthesizedRecord: SavedProductRecord = {
       id: 'calc_export_' + Date.now(),
       workshopId: (profile as any)?.workshopId || undefined,
       tenantId: (profile as any)?.tenantId || undefined,
       productName: prodName,
       productCode: 'SH-' + Math.floor(1000 + Math.random() * 9000),
-      mainSectionId: 'ropes_textiles',
-      craftId: (data as any).craftId || 'macrame',
+      mainSectionId: resolvedSectionId,
+      craftId: resolvedCraftId,
       category: safeCategory,
       costPrice,
       retailPrice,
       wholesalePrice,
       imageUrl: data.imageUrl,
-      inStore: true,
-      isPublishedInStore: true,
+      isCatalogVisible: false,
+      inStore: false,
+      isPublishedInStore: false,
+      inMarket: false,
+      marketStatus: 'none',
       currentStock: 0,
       isActive: true,
       createdAt: Date.now(),
@@ -1830,6 +1837,9 @@ export const App: React.FC = () => {
       input: {
         category: safeCategory,
         productName: prodName,
+        craftId: resolvedCraftId,
+        mainSectionId: resolvedSectionId,
+        pricingMode: 'margin',
         shape3D: 'rectangle',
         widthCm: Number(data.widthCm) || 40,
         diameterCm: Number(data.diameterCm) || 0,

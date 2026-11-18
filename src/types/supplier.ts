@@ -160,7 +160,15 @@ export interface SupplierCatalogItem {
   inStore: boolean;
   inMarket: boolean;
   isApproved: boolean;
+  marketStatus?: 'none' | 'pending_approval' | 'approved' | 'rejected';
+  reSubmitForApproval?: boolean;
   sourceCurrency?: string;
+  unifiedCode?: string;
+  specCode?: string;
+  brandCode?: string;
+  skuCode?: string;
+  unitChain?: string;
+  bridgeValues?: Record<string, any>;
   createdAt?: string;
   updatedAt?: string;
 }

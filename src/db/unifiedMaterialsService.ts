@@ -1,0 +1,291 @@
+import { supabase } from '../lib/supabase';
+import {
+  UNIFIED_CATEGORIES,
+  UNIT_CHAINS,
+  FIXED_UNIT_CONVERSIONS,
+  SEEDED_BRANDS,
+  SEEDED_UNIFIED_MASTERS,
+  SEEDED_UNIFIED_SPECS,
+  SEEDED_UNIFIED_ALIASES,
+  UnifiedMaterialsSnapshot,
+  UnifiedCategoryPrefix,
+  UnitChainCode,
+  BridgeFieldKey,
+  UnifiedMaterialMaster,
+  UnifiedMaterialSpec,
+  UnifiedMaterialAlias,
+  UnifiedBrandRecord,
+  UnifiedMaterialNotification,
+} from '../registry/unifiedMaterialsRegistry';
+
+const CACHE_KEY = 'alshams_unified_materials_snapshot_v1';
+
+async function getAuthHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { ...extra };
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+    if (session?.user?.email) {
+      headers['x-user-email'] = session.user.email;
+    }
+  } catch {}
+  return headers;
+}
+
+export function getSeededFallbackSnapshot(): UnifiedMaterialsSnapshot {
+  return {
+    categories: UNIFIED_CATEGORIES,
+    unitChains: UNIT_CHAINS,
+    fixedConversions: FIXED_UNIT_CONVERSIONS,
+    brands: SEEDED_BRANDS,
+    masters: SEEDED_UNIFIED_MASTERS,
+    specs: SEEDED_UNIFIED_SPECS,
+    aliases: SEEDED_UNIFIED_ALIASES,
+    notifications: [],
+    memberCustomizations: [],
+    reservedMasterSeqs: {},
+  };
+}
+
+export function readCachedUnifiedSnapshot(): UnifiedMaterialsSnapshot {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.masters) && parsed.masters.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return getSeededFallbackSnapshot();
+}
+
+export async function fetchUnifiedMaterialsSnapshot(options?: {
+  role?: 'artisan' | 'supplier' | 'super_admin';
+  memberId?: string;
+}): Promise<UnifiedMaterialsSnapshot> {
+  try {
+    const headers = await getAuthHeaders();
+    const qs = new URLSearchParams();
+    if (options?.role) qs.set('role', options.role === 'supplier' ? 'supplier' : 'artisan');
+    if (options?.memberId) qs.set('memberId', options.memberId);
+
+    const res = await fetch(`/api/unified-materials?${qs.toString()}`, { headers });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.success && Array.isArray(json.masters)) {
+        const snapshot: UnifiedMaterialsSnapshot = {
+          categories: json.categories || UNIFIED_CATEGORIES,
+          unitChains: json.unitChains || UNIT_CHAINS,
+          fixedConversions: json.fixedConversions || FIXED_UNIT_CONVERSIONS,
+          brands: json.brands || SEEDED_BRANDS,
+          masters: json.masters,
+          specs: json.specs || SEEDED_UNIFIED_SPECS,
+          aliases: json.aliases || SEEDED_UNIFIED_ALIASES,
+          notifications: Array.isArray(json.notifications) ? json.notifications : [],
+          memberCustomizations: Array.isArray(json.memberCustomizations) ? json.memberCustomizations : [],
+          reservedMasterSeqs: json.reservedMasterSeqs || {},
+        };
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(snapshot));
+        } catch {}
+        return snapshot;
+      }
+    }
+  } catch {}
+  return readCachedUnifiedSnapshot();
+}
+
+export async function createUnifiedMasterApi(payload: {
+  prefix: UnifiedCategoryPrefix;
+  canonicalName: string;
+  unitChain?: UnitChainCode;
+  bridgeFields?: BridgeFieldKey[];
+  specFields?: string[];
+  artistAliases?: string[];
+  supplierAliases?: string[];
+  workshopTags?: string[];
+  safetyNote?: string;
+  initialSpecLabel?: string;
+  initialSpecThicknessMm?: number;
+  initialSpecOrigin?: string;
+  initialBridgeValues?: Record<string, any>;
+  actorRole: 'super_admin' | 'artisan' | 'supplier';
+  actorId: string;
+  actorName: string;
+}): Promise<{
+  success: boolean;
+  master?: UnifiedMaterialMaster;
+  spec?: UnifiedMaterialSpec | null;
+  notification?: UnifiedMaterialNotification | null;
+  error?: string;
+}> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/unified-materials/master', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) return json;
+    return { success: false, error: json?.error || 'تعذر حفظ الخامة الموحدة' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال' };
+  }
+}
+
+export async function createUnifiedSpecApi(payload: {
+  masterCode: string;
+  label: string;
+  thicknessMm?: number;
+  plies?: number;
+  sizeLabel?: string;
+  color?: string;
+  origin?: string;
+  bridgeValues?: Record<string, any>;
+  actorRole: 'super_admin' | 'artisan' | 'supplier';
+  actorId: string;
+  actorName: string;
+}): Promise<{ success: boolean; spec?: UnifiedMaterialSpec; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/unified-materials/spec', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) return json;
+    return { success: false, error: json?.error || 'تعذر إضافة المواصفة' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال' };
+  }
+}
+
+export async function createUnifiedAliasApi(payload: {
+  targetCode: string;
+  aliasName: string;
+  aliasType: 'artisan' | 'supplier' | 'common';
+  contextHint?: string;
+  isAmbiguous?: boolean;
+  actorRole: 'super_admin' | 'artisan' | 'supplier';
+  actorId: string;
+  actorName: string;
+}): Promise<{ success: boolean; alias?: UnifiedMaterialAlias; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/unified-materials/alias', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) return json;
+    return { success: false, error: json?.error || 'تعذر إضافة الاسم الدارج' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال' };
+  }
+}
+
+export async function createUnifiedBrandApi(payload: {
+  brandName: string;
+  categoryHint?: string;
+}): Promise<{ success: boolean; brand?: UnifiedBrandRecord; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/unified-materials/brand', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) return json;
+    return { success: false, error: json?.error || 'تعذر إضافة الماركة' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال' };
+  }
+}
+
+export async function updateOrProposeUnifiedMasterApi(
+  code: string,
+  payload: {
+    action: 'update' | 'archive' | 'restore' | 'delete_unused' | 'approve' | 'remove_local';
+    canonicalName?: string;
+    unitChain?: UnitChainCode;
+    bridgeFields?: BridgeFieldKey[];
+    artistAliases?: string[];
+    supplierAliases?: string[];
+    workshopTags?: string[];
+    safetyNote?: string;
+    reason?: string;
+    actorRole: 'super_admin' | 'artisan' | 'supplier';
+    actorId: string;
+    actorName: string;
+  }
+): Promise<{ success: boolean; scope?: 'global' | 'member_only'; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`/api/unified-materials/${encodeURIComponent(code)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) return json;
+    return { success: false, error: json?.error || 'تعذر تحديث الخامة' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال' };
+  }
+}
+
+export async function resolveUnifiedMaterialNotificationApi(
+  notifId: string,
+  decision: 'accept_global' | 'keep_local' | 'archive' | 'dismiss'
+): Promise<{ success: boolean; notification?: UnifiedMaterialNotification; error?: string }> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`/api/unified-materials/notifications/${encodeURIComponent(notifId)}/resolve`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ decision }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) return json;
+    return { success: false, error: json?.error || 'تعذر تنفيذ القرار' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال' };
+  }
+}
+
+export function getMemberMaterialCodeMapKey(role: 'artisan' | 'supplier', memberId: string): string {
+  return `alshams_member_unified_map_${role}_${memberId}`;
+}
+
+export function getLocalMaterialCodeMap(
+  role: 'artisan' | 'supplier',
+  memberId: string
+): Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }> {
+  try {
+    const raw = localStorage.getItem(getMemberMaterialCodeMapKey(role, memberId));
+    if (raw) return JSON.parse(raw) || {};
+  } catch {}
+  return {};
+}
+
+export function saveLocalMaterialCodeMapping(
+  role: 'artisan' | 'supplier',
+  memberId: string,
+  localMaterialId: string,
+  mapping: { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }
+): void {
+  try {
+    const current = getLocalMaterialCodeMap(role, memberId);
+    current[localMaterialId] = mapping;
+    localStorage.setItem(getMemberMaterialCodeMapKey(role, memberId), JSON.stringify(current));
+  } catch {}
+}

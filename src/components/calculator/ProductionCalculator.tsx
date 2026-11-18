@@ -10,6 +10,7 @@ import {
   RawMaterialItem,
   EmployeeProfile,
   FixedAsset,
+  UnifiedPricingMode,
 } from '../../types';
 import {
   CRAFT_CATEGORIES,
@@ -31,7 +32,15 @@ import {
   SUB_CRAFTS_REGISTRY,
   MainSectionId,
   executeCraftCalculation,
+  calculateFusionCraftCost,
+  getMainSectionForCraft,
 } from '../../registry/craftsRegistry';
+import {
+  getDefaultParamsForWorkshop,
+  getWorkshopSpec,
+} from '../../utils/craftEquationsEngine';
+import { WorkshopDynamicFieldsCard } from './WorkshopDynamicFieldsCard';
+import { UnifiedPricingStep4Panel } from './UnifiedPricingStep4Panel';
 import { playSuccessSound, playErrorSound } from '../../lib/sounds';
 import { useTranslation } from '../../lib/i18n';
 import { compressImageFile } from '../../utils/imageCompressor';
@@ -168,15 +177,11 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     }
   }, [availableMainSections, selectedSectionId]);
 
-  // Sub-crafts under selected main section (all 6 crafts always available under ropes_textiles)
+  // Sub-crafts under selected main section (all workshops under active section available immediately)
   const availableSubCrafts = useMemo(() => {
     if (!selectedSectionId) return [];
-    if (selectedSectionId === 'ropes_textiles') {
-      return SUB_CRAFTS_REGISTRY.filter((sc) => sc.mainSectionId === 'ropes_textiles');
-    }
-    const filtered = userSubCrafts.filter((sc) => sc.mainSectionId === selectedSectionId);
-    return filtered.length > 0 ? filtered : SUB_CRAFTS_REGISTRY.filter((sc) => sc.mainSectionId === selectedSectionId);
-  }, [userSubCrafts, selectedSectionId]);
+    return SUB_CRAFTS_REGISTRY.filter((sc) => sc.mainSectionId === selectedSectionId);
+  }, [selectedSectionId]);
 
   const [selectedCraftId, setSelectedCraftId] = useState<string>(() => {
     if (initialRecord?.craftId) return initialRecord.craftId;
@@ -540,10 +545,81 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     initialRecord?.input?.toolDepreciationRatePercent !== undefined ? (initialRecord.input.toolDepreciationRatePercent > 0) : true
   );
 
-  // Insulated profit margin (0 - 500%)
-  const [profitMarginPercent, setProfitMarginPercent] = useState<number>(
-    initialRecord?.input?.profitMarginPercent ?? 80
+  // Unified Pricing Mode ('margin' | 'markup' | 'insulated') — preserves legacy 'insulated' when loading old records
+  const [pricingMode, setPricingMode] = useState<UnifiedPricingMode>(
+    initialRecord?.input?.pricingMode || (initialRecord ? 'insulated' : 'margin')
   );
+
+  // Profit margin / markup % (35% default for margin mode, 80% for legacy insulated)
+  const [profitMarginPercent, setProfitMarginPercent] = useState<number>(
+    initialRecord?.input?.profitMarginPercent ?? (initialRecord ? 80 : 35)
+  );
+  const [platformCommissionPercent, setPlatformCommissionPercent] = useState<number>(
+    initialRecord?.input?.platformCommissionPercent ?? 0
+  );
+  const [advertisedDiscountPercent, setAdvertisedDiscountPercent] = useState<number>(
+    initialRecord?.input?.advertisedDiscountPercent ?? 0
+  );
+  const [vatPercent, setVatPercent] = useState<number>(
+    initialRecord?.input?.vatPercent ?? (profile.defaultVatPercent || 0)
+  );
+
+  // Time Breakdown & Difficulty & Custom Design Fee
+  const [setupHours, setSetupHours] = useState<number>(initialRecord?.input?.setupHours ?? 0);
+  const [productionHours, setProductionHours] = useState<number>(initialRecord?.input?.productionHours ?? 0);
+  const [finishingHours, setFinishingHours] = useState<number>(initialRecord?.input?.finishingHours ?? 0);
+  const [hourlyRateOverride, setHourlyRateOverride] = useState<number>(initialRecord?.input?.hourlyRateOverride ?? 60);
+  const [difficultyMultiplier, setDifficultyMultiplier] = useState<number>(initialRecord?.input?.difficultyMultiplier ?? 1);
+  const [customDesignFee, setCustomDesignFee] = useState<number>(initialRecord?.input?.customDesignFee ?? 0);
+
+  // Energy, Mold Amortization & Batch/Defect Costing
+  const [machinePowerKw, setMachinePowerKw] = useState<number>(initialRecord?.input?.machinePowerKw ?? 0);
+  const [machineRunHours, setMachineRunHours] = useState<number>(initialRecord?.input?.machineRunHours ?? 0);
+  const [kwhPrice, setKwhPrice] = useState<number>(initialRecord?.input?.kwhPrice ?? 2.15);
+  const [fuelGasCost, setFuelGasCost] = useState<number>(initialRecord?.input?.fuelGasCost ?? 0);
+  const [moldTotalCost, setMoldTotalCost] = useState<number>(initialRecord?.input?.moldTotalCost ?? 0);
+  const [moldExpectedUses, setMoldExpectedUses] = useState<number>(initialRecord?.input?.moldExpectedUses ?? 20);
+  const [batchQuantity, setBatchQuantity] = useState<number>(initialRecord?.input?.batchQuantity ?? 1);
+  const [goodPiecesCount, setGoodPiecesCount] = useState<number>(initialRecord?.input?.goodPiecesCount ?? 1);
+  const [batchSetupCost, setBatchSetupCost] = useState<number>(initialRecord?.input?.batchSetupCost ?? 0);
+
+  // Specialized Workshop Parameters & Editable Calibration Constants & Fusion
+  const [workshopParams, setWorkshopParams] = useState<Record<string, number | string | boolean>>(() =>
+    initialRecord?.input?.workshopParams || getDefaultParamsForWorkshop(initialRecord?.craftId || 'macrame')
+  );
+  const [calibrationOverrides, setCalibrationOverrides] = useState<Record<string, number>>(
+    initialRecord?.input?.calibrationOverrides || {}
+  );
+  const [fusionPrimaryCraftId, setFusionPrimaryCraftId] = useState<string>('macrame');
+  const [fusionSecondaryCraftId, setFusionSecondaryCraftId] = useState<string>(
+    initialRecord?.input?.fusionSecondaryCraftId || 'resin'
+  );
+  const [fusionSecondaryParams, setFusionSecondaryParams] = useState<Record<string, number | string | boolean>>(() =>
+    initialRecord?.input?.fusionSecondaryParams || getDefaultParamsForWorkshop(initialRecord?.input?.fusionSecondaryCraftId || 'resin')
+  );
+
+  // Sync workshopParams defaults whenever selectedCraftId switches
+  const isCoreTextileGeometryCraft = useMemo(() => {
+    const id = (selectedCraftId || '').toLowerCase();
+    const core = ['macrame', 'crochet', 'zigzag', 'kilim', 'kelim', 'punch_needle', 'tufting_gun', 'tufting'];
+    if (core.includes(id)) return true;
+    if (id === 'craft_fusion') {
+      return core.includes((fusionPrimaryCraftId || '').toLowerCase());
+    }
+    return false;
+  }, [selectedCraftId, fusionPrimaryCraftId]);
+
+  useEffect(() => {
+    const activeId = selectedCraftId === 'craft_fusion' ? fusionPrimaryCraftId : selectedCraftId;
+    const defaults = getDefaultParamsForWorkshop(activeId);
+    if (Object.keys(defaults).length > 0) {
+      setWorkshopParams((prev) => {
+        // Keep existing keys if same workshop or seed fresh defaults
+        const hasMatch = Object.keys(defaults).some((k) => k in prev);
+        return hasMatch ? { ...defaults, ...prev } : defaults;
+      });
+    }
+  }, [selectedCraftId, fusionPrimaryCraftId]);
 
   // Pencil manual override toggles
   const [overrideStrandsActive, setOverrideStrandsActive] = useState<boolean>(
@@ -650,6 +726,13 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   // تحديث الحقول فوراً عند تصدير قطعة هندسية من صقر الشمساوية أو استرجاع منتج
   useEffect(() => {
     if (!initialRecord) return;
+    const recCraft = initialRecord.craftId || initialRecord.input?.craftId;
+    if (recCraft) {
+      setSelectedCraftId(recCraft);
+      setSelectedSectionId(initialRecord.mainSectionId || getMainSectionForCraft(recCraft));
+    } else if (initialRecord.mainSectionId) {
+      setSelectedSectionId(initialRecord.mainSectionId);
+    }
     if (initialRecord.input) {
       const inp = initialRecord.input;
       if (inp.category) setCategory(inp.category);
@@ -669,6 +752,13 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       if (typeof inp.packagingCost === 'number') setPackagingCost(inp.packagingCost);
       if (typeof inp.transitFees === 'number') setTransitFees(inp.transitFees);
       if (typeof inp.adminExpensesShare === 'number') setAdminExpensesShare(inp.adminExpensesShare);
+      if (inp.pricingMode) setPricingMode(inp.pricingMode);
+      else setPricingMode('insulated');
+      if (typeof inp.profitMarginPercent === 'number') setProfitMarginPercent(inp.profitMarginPercent);
+      if (inp.workshopParams) setWorkshopParams(inp.workshopParams);
+      if (inp.calibrationOverrides) setCalibrationOverrides(inp.calibrationOverrides);
+      if (inp.fusionSecondaryCraftId) setFusionSecondaryCraftId(inp.fusionSecondaryCraftId);
+      if (inp.fusionSecondaryParams) setFusionSecondaryParams(inp.fusionSecondaryParams);
       if ((inp as any).notes || inp.personalNotes) setPersonalNotes((inp as any).notes || inp.personalNotes || '');
     }
     if (initialRecord.imageUrl) setProductImageUrl(initialRecord.imageUrl);
@@ -1183,6 +1273,31 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       tuftingPileType,
       tuftingPrimaryClothMarginM,
       tuftingLatexGlueKgPerSqM,
+      // Unified Corrected Equations & Financials
+      mainSectionId: selectedSectionId,
+      pricingMode,
+      platformCommissionPercent: Number(platformCommissionPercent) || 0,
+      advertisedDiscountPercent: Number(advertisedDiscountPercent) || 0,
+      vatPercent: Number(vatPercent) || 0,
+      setupHours: Number(setupHours) || 0,
+      productionHours: Number(productionHours) || 0,
+      finishingHours: Number(finishingHours) || 0,
+      hourlyRateOverride: Number(hourlyRateOverride) || 60,
+      difficultyMultiplier: Number(difficultyMultiplier) || 1,
+      customDesignFee: Number(customDesignFee) || 0,
+      machinePowerKw: Number(machinePowerKw) || 0,
+      machineRunHours: Number(machineRunHours) || 0,
+      kwhPrice: Number(kwhPrice) || 2.15,
+      fuelGasCost: Number(fuelGasCost) || 0,
+      moldTotalCost: Number(moldTotalCost) || 0,
+      moldExpectedUses: Number(moldExpectedUses) || 1,
+      batchQuantity: Number(batchQuantity) || 1,
+      goodPiecesCount: Number(goodPiecesCount) || 1,
+      batchSetupCost: Number(batchSetupCost) || 0,
+      workshopParams,
+      calibrationOverrides,
+      fusionSecondaryCraftId,
+      fusionSecondaryParams,
     };
   }, [
     category,
@@ -1219,6 +1334,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     personalNotes,
     productImageUrl,
     selectedCraftId,
+    selectedSectionId,
     hasSolidBase,
     crochetDepthCm,
     crochetStitchDistributions,
@@ -1251,15 +1367,102 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     tuftingPileType,
     tuftingPrimaryClothMarginM,
     tuftingLatexGlueKgPerSqM,
+    pricingMode,
+    platformCommissionPercent,
+    advertisedDiscountPercent,
+    vatPercent,
+    setupHours,
+    productionHours,
+    finishingHours,
+    hourlyRateOverride,
+    difficultyMultiplier,
+    customDesignFee,
+    machinePowerKw,
+    machineRunHours,
+    kwhPrice,
+    fuelGasCost,
+    moldTotalCost,
+    moldExpectedUses,
+    batchQuantity,
+    goodPiecesCount,
+    batchSetupCost,
+    workshopParams,
+    calibrationOverrides,
+    fusionSecondaryCraftId,
+    fusionSecondaryParams,
   ]);
 
-  // Execute Specialized Math Engine according to active craft
+  // Execute Specialized Math Engine (including Universal Multi-Craft Fusion)
   const output: CalculationOutput = useMemo(() => {
+    if (selectedCraftId === 'craft_fusion') {
+      const first = executeCraftCalculation(fusionPrimaryCraftId, {
+        ...calculationInput,
+        craftId: fusionPrimaryCraftId,
+      });
+      const second = executeCraftCalculation(fusionSecondaryCraftId, {
+        ...calculationInput,
+        craftId: fusionSecondaryCraftId,
+        workshopParams: fusionSecondaryParams,
+        extraMaterials: [],
+        curtainRodCost: 0,
+        cushionCoverCost: 0,
+        fiberCost: 0,
+        bagAccessoriesCost: 0,
+        packagingCost: 0,
+        transitFees: 0,
+        adminExpensesShare: 0,
+        setupHours: 0,
+        productionHours: 0,
+        finishingHours: 0,
+        laborWage: 0,
+        customDesignFee: 0,
+        machinePowerKw: 0,
+        fuelGasCost: 0,
+        moldTotalCost: 0,
+      });
+      return calculateFusionCraftCost(first, second, {
+        packagingCost,
+        transitFees,
+        adminExpensesShare,
+        pricingMode,
+        profitMarginPercent,
+        platformCommissionPercent,
+        advertisedDiscountPercent,
+        vatPercent,
+        batchQuantity,
+        goodPiecesCount,
+        batchSetupCost,
+        customDesignFee,
+      });
+    }
     return executeCraftCalculation(selectedCraftId, calculationInput);
-  }, [selectedCraftId, calculationInput]);
+  }, [
+    selectedCraftId,
+    fusionPrimaryCraftId,
+    fusionSecondaryCraftId,
+    fusionSecondaryParams,
+    calculationInput,
+    packagingCost,
+    transitFees,
+    adminExpensesShare,
+    pricingMode,
+    profitMarginPercent,
+    platformCommissionPercent,
+    advertisedDiscountPercent,
+    vatPercent,
+    batchQuantity,
+    goodPiecesCount,
+    batchSetupCost,
+    customDesignFee,
+  ]);
 
-  // 1. Cost Price (إجمالي الخامات المباشرة + المصنعية + التغليف + النقل + المصاريف الإدارية + مصاريف تشغيل وإهلاك الآلات)
+  // 1. Cost Price (تكلفة الوحدة أو القطعة السليمة عند تعدد الدفعة)
   const costPrice = useMemo(() => {
+    if (output.unifiedBreakdown) {
+      return batchQuantity > 1
+        ? output.unifiedBreakdown.goodPieceCost
+        : output.unifiedBreakdown.totalUnitCost;
+    }
     return Math.round(
       (output.totalDirectMaterialsCost || 0) +
       (output.laborWage || 0) +
@@ -1268,7 +1471,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       (output.adminExpensesShare || 0) +
       (output.toolDepreciationCost || 0)
     );
-  }, [output]);
+  }, [output, batchQuantity]);
 
   // 2. Retail Price (السعر القطاعي)
   const retailPrice = output.finalSellingPrice || 0;
@@ -1403,25 +1606,27 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   };
 
   const handleSaveProduct = async () => {
-    // 1. فحص الأبعاد الأساسية والتحقق المالي الحي
-    if (!is3D && (!widthCm || widthCm <= 0)) {
-      setValidationWarning('يرجى كتابة أبعاد المشغولة لحساب وزن الخيط');
-      playErrorSound();
-      return;
-    }
-    if (shape3D === 'circle' && (!diameterCm || diameterCm <= 0)) {
-      setValidationWarning('يرجى إدخال قطر المشغولة الدائرية لحساب المساحة والخيط');
-      playErrorSound();
-      return;
-    }
-    if (shape3D === 'cylinder' && ((!baseDiameterCm || baseDiameterCm <= 0) || (!sideHeightCm || sideHeightCm <= 0))) {
-      setValidationWarning('يرجى إدخال قطر القاعدة وارتفاع الجدران للمجسم الاسطواني');
-      playErrorSound();
-      return;
+    // 1. فحص الأبعاد الأساسية للورش النصية فقط والتحقق المالي الحي للجميع
+    if (isCoreTextileGeometryCraft) {
+      if (!is3D && (!widthCm || widthCm <= 0)) {
+        setValidationWarning('يرجى كتابة أبعاد المشغولة لحساب وزن الخيط');
+        playErrorSound();
+        return;
+      }
+      if (shape3D === 'circle' && (!diameterCm || diameterCm <= 0)) {
+        setValidationWarning('يرجى إدخال قطر المشغولة الدائرية لحساب المساحة والخيط');
+        playErrorSound();
+        return;
+      }
+      if (shape3D === 'cylinder' && ((!baseDiameterCm || baseDiameterCm <= 0) || (!sideHeightCm || sideHeightCm <= 0))) {
+        setValidationWarning('يرجى إدخال قطر القاعدة وارتفاع الجدران للمجسم الاسطواني');
+        playErrorSound();
+        return;
+      }
     }
     // 2. منع حفظ منتج ناتج تكلفته أو سعره صفر لحماية هوامش أرباح الفنان
     if (costPrice <= 0 || retailPrice <= 0) {
-      setValidationWarning('⚠️ تنبيه أمان: لا يمكن حفظ أو تصدير منتج تكلفته أو سعره صفر! يرجى إدخال أبعاد المشغولة وتحديد خاماتها لضمان حساب أرباحك بدقة.');
+      setValidationWarning('⚠️ تنبيه أمان: لا يمكن حفظ أو تصدير منتج تكلفته أو سعره صفر! يرجى إدخال مقاسات ومعطيات الورشة وتحديد خاماتها لضمان حساب أرباحك بدقة.');
       playErrorSound();
       return;
     }
@@ -1469,8 +1674,11 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         input: calculationInput,
         output,
         imageUrl: productImageUrl,
-        inStore: initialRecord?.inStore ?? true,
-        isPublishedInStore: initialRecord?.isPublishedInStore ?? true,
+        isCatalogVisible: initialRecord?.isCatalogVisible ?? false,
+        inStore: initialRecord?.inStore ?? false,
+        isPublishedInStore: initialRecord?.isPublishedInStore ?? false,
+        inMarket: initialRecord?.inMarket ?? false,
+        marketStatus: initialRecord?.marketStatus ?? 'none',
         storePrice: initialRecord?.storePrice || retailPrice,
         currentStock: initialRecord?.currentStock ?? 0,
         isActive: true,
@@ -1480,26 +1688,16 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
 
       // Mutates / overwrites existing record via Dexie instead of duplicating
       await tenantStorage.mutateProduct(savedRecord);
-      // ثبّت المعرف فوراً بعد الحفظ المحلي (قبل أي اتصال بالنت) عشان أي حفظ تاني يعدّل نفس المنتج
       setExistingRecordId(recordId);
       pendingNewIdRef.current = null;
-      // اتحفظ على الجهاز واتسجّل في طابور المزامنة (من mutateProduct).
-      // لو فيه نت بيترفع حالاً، ولو مفيش بيترفع لوحده أول ما النت يرجع.
       let cloudSynced = false;
       try {
         const primaryName = basicMaterials.find((m) => m.id === cordTypeId)?.materialName;
         if (tenantId) {
           markProductDirty(tenantId, savedRecord.id, primaryName);
-          // ما نستناش النت أكتر من 6 ثواني — الحفظ المحلي تم، والرفع يكمل في الخلفية
           const attempt = async () => {
             await flushProductSync(tenantId);
             if (isPending(tenantId, savedRecord.id) && navigator.onLine) await flushProductSync(tenantId);
-            if (savedRecord.inStore && savedRecord.isPublishedInStore !== false) {
-              const pubRes = await publishProductToMarketplace(savedRecord, profile).catch(() => null);
-              if (pubRes?.status === 'approved' && !savedRecord.isMarketplaceApproved) {
-                await tenantStorage.applyRemoteProduct({ ...savedRecord, isMarketplaceApproved: true });
-              }
-            }
           };
           await Promise.race([attempt().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]);
           cloudSynced = !isPending(tenantId, savedRecord.id);
@@ -1737,13 +1935,13 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         </div>
       )}
 
-      {/* 0. Quick Craft Switcher Bar for Ropes & Textiles (ورش قسم الحبال والنسيج الـ 6) */}
+      {/* 0. Quick Section & Craft Switcher Bar (14 أقسام رئيسية + 50+ ورشة متخصصة) */}
       <div className="p-3.5 sm:p-4 rounded-3xl bg-slate-900 border border-amber-500/30 shadow-lg space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 border-b border-slate-800 pb-2.5">
           <div className="flex items-center gap-2">
             <Scroll className="w-4 h-4 text-amber-400" />
             <h3 className="text-xs sm:text-sm font-black text-amber-300">
-              ورش قسم [الحبال والنسيج] — التبديل السريع لمحركات الحساب المتخصصة
+              منظومة الورش الهندسية (14 قسماً • {SUB_CRAFTS_REGISTRY.length} ورشة) — التبديل السريع
             </h3>
           </div>
           <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
@@ -1751,31 +1949,72 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           </span>
         </div>
 
+        {/* 14 Main Sections Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-thin">
+          {availableMainSections.map((sec) => {
+            const isActiveSec = selectedSectionId === sec.id;
+            return (
+              <button
+                key={sec.id}
+                type="button"
+                onClick={() => {
+                  setSelectedSectionId(sec.id);
+                  const craftsInSec = SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === sec.id);
+                  if (craftsInSec.length > 0) {
+                    const firstCraft = craftsInSec[0];
+                    setSelectedCraftId(firstCraft.id);
+                    if (firstCraft.sampleCategories && firstCraft.sampleCategories.length > 0) {
+                      setCategory(firstCraft.sampleCategories[0] as any);
+                    }
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-bold whitespace-nowrap border transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  isActiveSec
+                    ? 'bg-amber-500 text-stone-950 border-amber-300 shadow-sm'
+                    : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:border-amber-500/50 hover:text-white'
+                }`}
+              >
+                <span>{sec.nameAr}</span>
+                {sec.isNewStar && <span className="text-[9px] text-amber-300">★</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Workshops under Active Section */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          {TEXTILE_WORKSHOPS.map((workshop) => {
-            const isSelected = selectedCraftId === workshop.id || (selectedCraftId === 'kelim' && workshop.id === 'kilim');
+          {availableSubCrafts.map((workshop) => {
+            const textileMeta = TEXTILE_WORKSHOPS.find(
+              (w) => w.id === workshop.id || (workshop.id === 'kelim' && w.id === 'kilim')
+            );
+            const isSelected =
+              selectedCraftId === workshop.id ||
+              (selectedCraftId === 'kelim' && workshop.id === 'kilim');
             return (
               <button
                 key={workshop.id}
                 type="button"
                 onClick={() => {
-                  setSelectedSectionId('ropes_textiles');
+                  setSelectedSectionId(workshop.mainSectionId);
                   setSelectedCraftId(workshop.id);
-                  const craftDef = SUB_CRAFTS_REGISTRY.find((c) => c.id === workshop.id || (workshop.id === 'kilim' && c.id === 'kelim'));
-                  if (craftDef?.sampleCategories && craftDef.sampleCategories.length > 0) {
-                    setCategory(craftDef.sampleCategories[0] as any);
+                  if (workshop.sampleCategories && workshop.sampleCategories.length > 0) {
+                    setCategory(workshop.sampleCategories[0] as any);
                   }
                 }}
-                className={`p-2.5 rounded-2xl flex flex-col items-center gap-1.5 transition-all text-xs font-bold border cursor-pointer ${
+                className={`p-2.5 rounded-2xl flex flex-col items-center gap-1 transition-all text-xs font-bold border cursor-pointer relative ${
                   isSelected
                     ? 'bg-gradient-to-b from-amber-500 to-amber-600 text-stone-950 border-amber-300 shadow-md scale-[1.02] ring-2 ring-amber-400/50'
                     : 'bg-slate-800/80 hover:bg-slate-800 text-slate-200 border-slate-700/80 hover:border-amber-500/50 hover:text-white'
                 }`}
               >
-                <span className="text-xl">{workshop.icon}</span>
-                <span className="text-center font-black truncate w-full">{workshop.shortName}</span>
-                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-amber-950/30 text-amber-950 font-black' : 'bg-slate-700 text-amber-300/80'}`}>
-                  {workshop.nameAr.split(' ')[0]}
+                {workshop.isNewStar && (
+                  <span className="absolute top-1 left-1.5 text-[9px] font-black px-1.5 py-0.2 rounded-full bg-emerald-500 text-stone-950">
+                    جديد ★
+                  </span>
+                )}
+                <span className="text-lg">{textileMeta?.icon || (workshop.id === 'craft_fusion' ? '🔀' : '🛠️')}</span>
+                <span className="text-center font-black line-clamp-2 w-full leading-tight">
+                  {textileMeta?.shortName || workshop.nameAr}
                 </span>
               </button>
             );
@@ -1815,7 +2054,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   onChange={(e) => {
                     const newSecId = e.target.value;
                     setSelectedSectionId(newSecId);
-                    const craftsInSec = userSubCrafts.filter((c) => c.mainSectionId === newSecId);
+                    const craftsInSec = SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === newSecId);
                     if (craftsInSec.length > 0) {
                       const firstCraft = craftsInSec[0];
                       setSelectedCraftId(firstCraft.id);
@@ -2097,6 +2336,43 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                     </div>
                   </div>
                 )}
+
+                {output.craftMetrics.safetyWarning && (
+                  <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200 text-[11px] font-bold flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+                    <span>{output.craftMetrics.safetyWarning}</span>
+                  </div>
+                )}
+
+                {!['crochet', 'zigzag', 'kilim', 'punch_needle', 'tufting_gun', 'tufting'].includes(output.craftMetrics.craftId) && (
+                  <div className="space-y-2 text-xs">
+                    {output.craftMetrics.netQtyLabel && (
+                      <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                        <span className="text-stone-600 dark:text-stone-400">الصافي الهندسي (Net):</span>
+                        <span className="font-mono font-bold text-stone-900 dark:text-stone-100">{output.craftMetrics.netQtyLabel}</span>
+                      </div>
+                    )}
+                    {output.craftMetrics.grossQtyLabel && (
+                      <div className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700 flex justify-between">
+                        <span className="text-stone-600 dark:text-stone-400">الإجمالي بالهالك على الصافي (Gross):</span>
+                        <span className="font-mono font-bold text-amber-700 dark:text-amber-300">{output.craftMetrics.grossQtyLabel}</span>
+                      </div>
+                    )}
+                    {Array.isArray(output.craftMetrics.detailedLines) && output.craftMetrics.detailedLines.map((line, i) => (
+                      <div key={i} className={`p-2.5 rounded-xl border flex justify-between gap-2 ${line.highlight ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700' : 'bg-stone-50 dark:bg-stone-800/50 border-stone-200 dark:border-stone-700'}`}>
+                        <span className="text-stone-600 dark:text-stone-400">{line.label}:</span>
+                        <span className="font-mono font-bold text-stone-900 dark:text-stone-100 text-left">
+                          {line.value}
+                        </span>
+                      </div>
+                    ))}
+                    {output.craftMetrics.equationSummaryAr && (
+                      <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[11px] font-medium text-amber-900 dark:text-amber-200">
+                        {output.craftMetrics.equationSummaryAr}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               /* Macrame Default Output */
@@ -2247,22 +2523,30 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             currencySymbol={profile.currencySymbol}
           />
 
-          {/* Insulated Selling Price Breakdown Card */}
+          {/* Selling Price Breakdown Card (Unified Margin / Markup & Legacy Insulated) */}
           <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-600 via-amber-700 to-amber-900 text-white shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-white/15 pb-3">
-              <span className="text-xs font-bold text-amber-200">
-                منظومة التسعير العادل المعزول
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-white/15 text-amber-100">
+                {pricingMode === 'margin'
+                  ? 'هامش من البيع (Margin %)'
+                  : pricingMode === 'markup'
+                  ? 'زيادة على التكلفة (Markup %)'
+                  : 'المعزول القديم (خامات فقط)'}
               </span>
               <h3 className="text-sm font-extrabold flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-amber-300" />
-                <span>حساب سعر البيع المعزول</span>
+                <span>ملخص التسعير والربحية</span>
               </h3>
             </div>
 
             {/* Direct Materials Cost */}
             <div className="space-y-1.5 text-xs">
               <div className="flex justify-between items-center text-amber-100">
-                <span>تكلفة الخيط ({output.totalWeightKg.toFixed(2)} كجم):</span>
+                <span>
+                  {isCoreTextileGeometryCraft
+                    ? `تكلفة الخامة الرئيسية (${output.totalWeightKg.toFixed(2)} كجم):`
+                    : 'تكلفة الخامة الأساسية والوصفة:'}
+                </span>
                 <span className="font-mono font-bold text-white">
                   {output.yarnCost} {profile.currencySymbol}
                 </span>
@@ -2285,29 +2569,64 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </div>
             </div>
 
-            {/* Insulated Profit Highlight */}
+            {/* Profit Highlight */}
             <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 space-y-1">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-bold text-amber-200">
-                  صافي الربح المعزول ({profitMarginPercent}% على الخامات فقط):
+                  {pricingMode === 'margin'
+                    ? `صافي الربح المستهدف (${profitMarginPercent}% من البيع):`
+                    : pricingMode === 'markup'
+                    ? `صافي الربح المستهدف (${profitMarginPercent}% على التكلفة):`
+                    : `صافي الربح المعزول (${profitMarginPercent}% على الخامات فقط):`}
                 </span>
                 <span className="font-mono font-extrabold text-amber-300 text-sm">
                   +{output.insulatedProfitAmount} {profile.currencySymbol}
                 </span>
               </div>
-              <p className="text-[10px] text-amber-200/70 leading-relaxed">
-                * معزول تماماً: لا يتم ضرب نسبة الربح في أجور المصنعية أو التغليف أو المصاريف الإدارية.
+              <p className="text-[10px] text-amber-200/75 leading-relaxed">
+                {pricingMode === 'margin'
+                  ? `معادلة التسعير: البيع قبل الضريبة = التكلفة ÷ (1 - ${(profitMarginPercent / 100).toFixed(2)} - ${(platformCommissionPercent / 100).toFixed(2)})`
+                  : pricingMode === 'markup'
+                  ? `معادلة التسعير: البيع قبل الضريبة = التكلفة × (1 + ${(profitMarginPercent / 100).toFixed(2)}) ÷ (1 - ${(platformCommissionPercent / 100).toFixed(2)})`
+                  : '* الوضع المعزول القديم: تُضرب النسبة في تكلفة الخامات فقط.'}
               </p>
             </div>
 
             {/* Other Cost Additions */}
             <div className="space-y-1.5 text-xs text-amber-100/90">
               <div className="flex justify-between items-center">
-                <span>أجرة المصنعية لليد العاملة:</span>
+                <span>أجرة المصنعية واليد العاملة:</span>
                 <span className="font-mono font-bold text-white">
                   +{output.laborWage} {profile.currencySymbol}
                 </span>
               </div>
+
+              {(output.unifiedBreakdown?.customDesignFee || 0) > 0 && (
+                <div className="flex justify-between items-center">
+                  <span>رسم التصميم/الباترون الخاص:</span>
+                  <span className="font-mono font-bold text-white">
+                    +{output.unifiedBreakdown?.customDesignFee} {profile.currencySymbol}
+                  </span>
+                </div>
+              )}
+
+              {(output.unifiedBreakdown?.energyCost || 0) > 0 && (
+                <div className="flex justify-between items-center">
+                  <span>كهرباء الماكينات / الغاز والفرن:</span>
+                  <span className="font-mono font-bold text-amber-200">
+                    +{output.unifiedBreakdown?.energyCost} {profile.currencySymbol}
+                  </span>
+                </div>
+              )}
+
+              {(output.unifiedBreakdown?.moldCostPerPiece || 0) > 0 && (
+                <div className="flex justify-between items-center">
+                  <span>إطفاء واستهلاك القوالب للقطعة:</span>
+                  <span className="font-mono font-bold text-amber-200">
+                    +{output.unifiedBreakdown?.moldCostPerPiece} {profile.currencySymbol}
+                  </span>
+                </div>
+              )}
 
               <div className="flex justify-between items-center">
                 <span>التغليف والحماية:</span>
@@ -2335,11 +2654,19 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               {(output.toolDepreciationCost || 0) > 0 && (
                 <div className="flex justify-between items-center bg-white/10 px-2.5 py-1.5 rounded-xl border border-white/15">
                   <span className="flex items-center gap-1.5">
-                    <span className="font-bold text-amber-200">مصاريف تشغيل وإهلاك الآلات ({output.toolDepreciationRatePercent}%):</span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-200 font-bold">صندوق الصيانة ⚙️</span>
+                    <span className="font-bold text-amber-200">صيانة وإهلاك الآلات ({output.toolDepreciationRatePercent}%):</span>
                   </span>
                   <span className="font-mono font-bold text-amber-300">
                     +{output.toolDepreciationCost} {profile.currencySymbol}
+                  </span>
+                </div>
+              )}
+
+              {(output.unifiedBreakdown?.platformCommissionAmount || 0) > 0 && (
+                <div className="flex justify-between items-center text-amber-200">
+                  <span>عمولة المنصة/الدفع ({platformCommissionPercent}%):</span>
+                  <span className="font-mono font-bold">
+                    +{output.unifiedBreakdown?.platformCommissionAmount} {profile.currencySymbol}
                   </span>
                 </div>
               )}
@@ -2347,7 +2674,11 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
 
             {/* Total Cost of Production */}
             <div className="flex justify-between items-center text-xs text-amber-200/90 pt-1 border-t border-white/10 font-bold">
-              <span>إجمالي تكلفة الإنتاج والمصنعية:</span>
+              <span>
+                {batchQuantity > 1
+                  ? `تكلفة القطعة السليمة (${goodPiecesCount} سليمة من ${batchQuantity}):`
+                  : 'إجمالي التكلفة الكلية للوحدة (TC):'}
+              </span>
               <span className="font-mono text-white">
                 {costPrice} {profile.currencySymbol}
               </span>
@@ -2356,8 +2687,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             {/* Final Grand Selling Price (Retail) */}
             <div className="pt-3 border-t border-white/20 flex items-baseline justify-between">
               <div>
-                <span className="text-xs text-amber-200 font-bold">سعر البيع المقترح (قطاعي):</span>
-                <p className="text-[10px] text-amber-300/80">شامل كافة التكاليف وهوامش الأمان</p>
+                <span className="text-xs text-amber-200 font-bold">سعر البيع الصافي المقترح (قطاعي):</span>
+                <p className="text-[10px] text-amber-300/80">شامل التكاليف + العمولة + الربح</p>
               </div>
               <div className="text-left font-mono">
                 <span className="text-3xl font-black text-white tracking-tight">
@@ -2368,6 +2699,23 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                 </span>
               </div>
             </div>
+
+            {((output.unifiedBreakdown?.listPriceBeforeDiscount || 0) > retailPrice || vatPercent > 0) && (
+              <div className="p-2.5 rounded-2xl bg-black/25 border border-white/15 space-y-1 text-xs">
+                {(output.unifiedBreakdown?.listPriceBeforeDiscount || 0) > retailPrice && (
+                  <div className="flex justify-between items-center text-amber-100">
+                    <span>السعر المعلن قبل خصم ({advertisedDiscountPercent}%):</span>
+                    <span className="font-mono font-bold">{output.unifiedBreakdown?.listPriceBeforeDiscount} {profile.currencySymbol}</span>
+                  </div>
+                )}
+                {vatPercent > 0 && (
+                  <div className="flex justify-between items-center text-emerald-200 font-black">
+                    <span>السعر النهائي للعميل شامل الضريبة ({vatPercent}% VAT):</span>
+                    <span className="font-mono text-sm">{output.unifiedBreakdown?.finalPriceWithVat} {profile.currencySymbol}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Wholesale Price Box */}
             <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-between">
@@ -2824,16 +3172,40 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
             </div>
           </div>
 
-          {/* Card: 2. 3D Geometry Overrides & Dimensions */}
+          {/* Card: 2. 3D Geometry Overrides & Dynamic Workshop Equations */}
           <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b border-stone-200 dark:border-stone-800 pb-3">
               <span className="text-[11px] font-bold text-stone-500">خطوة 2 من 4</span>
               <h3 className="text-sm font-extrabold text-stone-900 dark:text-stone-100">
-                الأبعاد الهندسية والتشكيل الحرفي
+                {isCoreTextileGeometryCraft
+                  ? 'الأبعاد الهندسية والتشكيل الحرفي'
+                  : 'المواصفات والمعادلات المتخصصة للورشة'}
               </h3>
             </div>
 
-            {selectedCraftId === 'zigzag' ? (
+            {(Boolean(getWorkshopSpec(selectedCraftId)) || selectedCraftId === 'craft_fusion') && (
+              <WorkshopDynamicFieldsCard
+                craftId={selectedCraftId}
+                params={workshopParams}
+                onChangeParams={setWorkshopParams}
+                calibrations={calibrationOverrides}
+                onChangeCalibrations={setCalibrationOverrides}
+                onApplySuggestedHourlyRate={(r) => setHourlyRateOverride(r)}
+                fusionPrimaryCraftId={fusionPrimaryCraftId}
+                onChangeFusionPrimaryCraftId={(id) => setFusionPrimaryCraftId(id)}
+                fusionSecondaryCraftId={fusionSecondaryCraftId}
+                onChangeFusionSecondaryCraftId={(id) => {
+                  setFusionSecondaryCraftId(id);
+                  setFusionSecondaryParams(getDefaultParamsForWorkshop(id));
+                }}
+                fusionSecondaryParams={fusionSecondaryParams}
+                onChangeFusionSecondaryParams={setFusionSecondaryParams}
+              />
+            )}
+
+            {isCoreTextileGeometryCraft && (
+              <>
+              {selectedCraftId === 'zigzag' ? (
               <div className="space-y-4">
                 {/* 1. طبيعة المشغولة */}
                 <div>
@@ -3182,6 +3554,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                 />
               </div>
             ) : null}
+              </>
+            )}
           </div>
 
           {/* Card: 2.1 Specialized Craft Parameters for the 5 New Textile Workshops */}
@@ -3915,28 +4289,30 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </div>
             </div>
 
-            {/* Thickness */}
-            <div>
-              <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
-                سمك الخيط (ملليمتر) *
-              </label>
-              <div className="flex items-center gap-2">
-                {[3, 4, 5, 6].map((th) => (
-                  <button
-                    key={th}
-                    type="button"
-                    onClick={() => setCordThicknessMm(th)}
-                    className={`flex-1 py-2 rounded-xl text-xs font-bold font-mono transition ${
-                      cordThicknessMm === th
-                        ? 'bg-amber-600 text-white shadow-sm'
-                        : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
-                    }`}
-                  >
-                    {th} مم
-                  </button>
-                ))}
+            {/* Thickness (Only shown for textile cord crafts) */}
+            {isCoreTextileGeometryCraft && (
+              <div>
+                <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
+                  سمك الخيط (ملليمتر) *
+                </label>
+                <div className="flex items-center gap-2">
+                  {[3, 4, 5, 6].map((th) => (
+                    <button
+                      key={th}
+                      type="button"
+                      onClick={() => setCordThicknessMm(th)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold font-mono transition ${
+                        cordThicknessMm === th
+                          ? 'bg-amber-600 text-white shadow-sm'
+                          : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
+                      }`}
+                    >
+                      {th} مم
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Conditional Material Costing by Category */}
             {(category === 'ستائر' || category === 'سجاد') && (
@@ -4210,32 +4586,49 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </h3>
             </div>
 
-            {/* Profit Margin Slider (Up to 500%) */}
-            <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-stone-800/60 border border-amber-200 dark:border-stone-700 space-y-2">
-              <div className="flex justify-between items-center text-xs font-bold">
-                <span className="font-mono text-base text-amber-600 dark:text-amber-400">
-                  {profitMarginPercent}%
-                </span>
-                <span className="text-stone-800 dark:text-stone-200">
-                  نسبة هامش الربح المعزول (0% إلى 500%)
-                </span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="500"
-                step="5"
-                value={profitMarginPercent}
-                onChange={(e) => setProfitMarginPercent(Number(e.target.value))}
-                className="w-full accent-amber-600 cursor-pointer"
-              />
-              <div className="flex justify-between text-[10px] text-stone-500 font-mono">
-                <span>0% (تكلفة فقط)</span>
-                <span>100% (ضعف الخامات)</span>
-                <span>250%</span>
-                <span>500% (أعلى تصدير)</span>
-              </div>
-            </div>
+            <UnifiedPricingStep4Panel
+              currencySymbol={profile.currencySymbol}
+              pricingMode={pricingMode}
+              onChangePricingMode={setPricingMode}
+              profitMarginPercent={profitMarginPercent}
+              onChangeProfitMarginPercent={setProfitMarginPercent}
+              platformCommissionPercent={platformCommissionPercent}
+              onChangePlatformCommissionPercent={setPlatformCommissionPercent}
+              advertisedDiscountPercent={advertisedDiscountPercent}
+              onChangeAdvertisedDiscountPercent={setAdvertisedDiscountPercent}
+              vatPercent={vatPercent}
+              onChangeVatPercent={setVatPercent}
+              setupHours={setupHours}
+              onChangeSetupHours={setSetupHours}
+              productionHours={productionHours}
+              onChangeProductionHours={setProductionHours}
+              finishingHours={finishingHours}
+              onChangeFinishingHours={setFinishingHours}
+              hourlyRateOverride={hourlyRateOverride}
+              onChangeHourlyRateOverride={setHourlyRateOverride}
+              difficultyMultiplier={difficultyMultiplier}
+              onChangeDifficultyMultiplier={setDifficultyMultiplier}
+              customDesignFee={customDesignFee}
+              onChangeCustomDesignFee={setCustomDesignFee}
+              machinePowerKw={machinePowerKw}
+              onChangeMachinePowerKw={setMachinePowerKw}
+              machineRunHours={machineRunHours}
+              onChangeMachineRunHours={setMachineRunHours}
+              kwhPrice={kwhPrice}
+              onChangeKwhPrice={setKwhPrice}
+              fuelGasCost={fuelGasCost}
+              onChangeFuelGasCost={setFuelGasCost}
+              moldTotalCost={moldTotalCost}
+              onChangeMoldTotalCost={setMoldTotalCost}
+              moldExpectedUses={moldExpectedUses}
+              onChangeMoldExpectedUses={setMoldExpectedUses}
+              batchQuantity={batchQuantity}
+              onChangeBatchQuantity={setBatchQuantity}
+              goodPiecesCount={goodPiecesCount}
+              onChangeGoodPiecesCount={setGoodPiecesCount}
+              batchSetupCost={batchSetupCost}
+              onChangeBatchSetupCost={setBatchSetupCost}
+            />
 
             {/* Tool Depreciation Recovery Card (احتساب إهلاك الماكينات والعدد في التكلفة) */}
             <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-3">
@@ -4492,7 +4885,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              <span>{isSavingProduct ? 'جاري الحفظ...' : tr('catalog_export_from_calc')}</span>
+              <span>{isSavingProduct ? 'جاري الحفظ...' : 'حفظ في الأرشيف (كارت الصنف) ✓'}</span>
             </button>
           )}
 

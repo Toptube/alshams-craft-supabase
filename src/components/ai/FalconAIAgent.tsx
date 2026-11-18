@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from
 import { FalconMascotAvatar, ArtisanAvatar, falconSearchIconImg } from '../brand/BrandAssets';
 import { UserProfile, CraftCategory, AIVisionAnalysis, ChatMessage } from '../../types';
 import { authedFetch } from '../../lib/apiClient';
+import { getMainSectionForCraft } from '../../registry/craftsRegistry';
 import {
   Sparkles,
   Camera,
@@ -660,11 +661,12 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
       `- نطاق السوق: جملة ${minP} ${profile.currencySymbol || 'ج.م'} | قطاعي مقترح ${avgP} ${profile.currencySymbol || 'ج.م'}`;
 
     if (onExportStructuredToCalculator) {
+      const resolvedCraftId = (vData as any).craftType || 'macrame';
       onExportStructuredToCalculator({
         productName: pName,
         category: (vData.detectedCategory as CraftCategory) || currentCategory,
-        craftId: (vData as any).craftType || 'macrame',
-        mainSectionId: 'ropes_textiles',
+        craftId: resolvedCraftId,
+        mainSectionId: getMainSectionForCraft(resolvedCraftId),
         laborWage: wage,
         hours,
         minMarketPrice: minP,

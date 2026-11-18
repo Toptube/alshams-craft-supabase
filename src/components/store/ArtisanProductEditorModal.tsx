@@ -6,6 +6,7 @@ import {
 } from '../../types/artisanStoreBuilder';
 import { getCurrencyInfo, toEgpAmount } from '../../lib/currency';
 import { compressImageFile, MAX_ITEM_IMAGES } from '../../utils/imageCompressor';
+import { useUiLayoutConfig } from '../../types/uiLayoutConfig';
 import {
   X,
   ArrowRight,
@@ -29,7 +30,10 @@ interface ArtisanProductEditorModalProps {
   product: SavedProductRecord;
   storeCurrency: string;
   onClose: () => void;
-  onSave: (updated: SavedProductRecord) => Promise<void> | void;
+  onSave: (
+    updated: SavedProductRecord,
+    options?: { publishToMarket?: boolean; reSubmitForApproval?: boolean }
+  ) => Promise<void> | void;
 }
 
 export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps> = ({
@@ -38,6 +42,8 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
   onClose,
   onSave,
 }) => {
+  const uiLayout = useUiLayoutConfig();
+  const maxAllowedImages = Math.min(8, Math.max(1, Number(uiLayout.artisan?.maxProductImages || MAX_ITEM_IMAGES)));
   const activeCurrency = getCurrencyInfo(product.sourceCurrency || storeCurrency || 'EGP');
 
   const [productName, setProductName] = useState(product.productName || '');
@@ -60,7 +66,7 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
   );
   const [galleryUrls, setGalleryUrls] = useState<string[]>(
     Array.isArray(product.galleryUrls)
-      ? product.galleryUrls.filter(Boolean).slice(0, MAX_ITEM_IMAGES - 1)
+      ? product.galleryUrls.filter(Boolean).slice(0, Math.max(0, maxAllowedImages - 1))
       : []
   );
   const [imageUrlInput, setImageUrlInput] = useState('');
@@ -137,14 +143,14 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
     primaryImage && primaryImage !== '/alshams_falcon_emblem.png'
   );
   const totalImagesCount = (hasCustomPrimary ? 1 : 0) + galleryUrls.length;
-  const remainingImageSlots = Math.max(0, MAX_ITEM_IMAGES - totalImagesCount);
+  const remainingImageSlots = Math.max(0, maxAllowedImages - totalImagesCount);
 
   const handleUploadImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []);
     if (selectedFiles.length === 0) return;
 
     if (remainingImageSlots <= 0) {
-      setImgLimitNotice('الحد الأقصى المسموح به هو ٣ صور فقط لكل منتج لتخفيف مساحة قاعدة البيانات.');
+      setImgLimitNotice(`الحد الأقصى المسموح به هو ${maxAllowedImages} صور فقط لكل منتج حسب إعدادات الإدارة.`);
       e.target.value = '';
       return;
     }
@@ -164,13 +170,13 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
           setPrimaryImage(compressed);
         } else {
           setGalleryUrls((prev) =>
-            prev.length < MAX_ITEM_IMAGES - 1 ? [...prev, compressed] : prev
+            prev.length < maxAllowedImages - 1 ? [...prev, compressed] : prev
           );
         }
         slotsLeft -= 1;
       }
       if (selectedFiles.length > remainingImageSlots) {
-        setImgLimitNotice('تم إضافة الحد الأقصى المسموح به فقط (٣ صور كحد أقصى لكل منتج).');
+        setImgLimitNotice(`تم إضافة الحد الأقصى المسموح به فقط (${maxAllowedImages} صور كحد أقصى لكل منتج).`);
       }
     } catch {}
     setUploadingImg(false);
@@ -181,7 +187,7 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
     const clean = imageUrlInput.trim();
     if (!clean) return;
     if (remainingImageSlots <= 0) {
-      setImgLimitNotice('الحد الأقصى المسموح به هو ٣ صور فقط لكل منتج.');
+      setImgLimitNotice(`الحد الأقصى المسموح به هو ${maxAllowedImages} صور فقط لكل منتج.`);
       return;
     }
     setImgLimitNotice('');
@@ -189,7 +195,7 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
       setPrimaryImage(clean);
     } else {
       setGalleryUrls((prev) =>
-        prev.length < MAX_ITEM_IMAGES - 1 ? [...prev, clean] : prev
+        prev.length < maxAllowedImages - 1 ? [...prev, clean] : prev
       );
     }
     setImageUrlInput('');
@@ -221,8 +227,7 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
     }
   };
 
-  const handleSaveSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveWithMode = async (mode: 'store_only' | 'market_submit') => {
     if (!productName.trim()) return;
     setSaving(true);
     try {
@@ -235,6 +240,11 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
           egpPrice: toEgpAmount(Number(v.price) || storePrice, activeCurrency.code),
         }));
 
+      const wasInMarket = Boolean(product.inMarket);
+      const shouldSubmitToMarket = mode === 'market_submit';
+      // Any edit on an already-published or newly-submitted market product requires Super Admin re-approval
+      const needsReApproval = shouldSubmitToMarket || (wasInMarket && mode === 'store_only');
+
       const updated: SavedProductRecord = {
         ...product,
         productName: productName.trim(),
@@ -242,11 +252,19 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
         storePrice: Number(storePrice) || 0,
         retailPrice: Number(storePrice) || product.retailPrice || 0,
         sourceCurrency: activeCurrency.code,
+        isCatalogVisible: true,
         inStore: isVisibleInStore,
         isPublishedInStore: isVisibleInStore,
+        inMarket: shouldSubmitToMarket ? true : wasInMarket,
+        marketStatus: shouldSubmitToMarket
+          ? 'pending_approval'
+          : wasInMarket
+          ? 'pending_approval'
+          : product.marketStatus || 'none',
+        isMarketplaceApproved: needsReApproval ? false : Boolean(product.isMarketplaceApproved),
         isCustomOrderAvailable,
         imageUrl: primaryImage,
-        galleryUrls,
+        galleryUrls: galleryUrls.slice(0, Math.max(0, maxAllowedImages - 1)),
         availableColors: colors,
         sizeVariants: normalizedVariants,
         availableSizes:
@@ -256,11 +274,19 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
         productDiscount: discount,
         updatedAt: Date.now(),
       };
-      await onSave(updated);
+      await onSave(updated, {
+        publishToMarket: Boolean(updated.inMarket),
+        reSubmitForApproval: needsReApproval,
+      });
       onClose();
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await handleSaveWithMode(product.inMarket ? 'market_submit' : 'store_only');
   };
 
   const egpEquivalent = toEgpAmount(storePrice, activeCurrency.code);
@@ -292,7 +318,7 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
               تعديل بيانات وعرض المنتج: {product.productName}
             </h3>
             <p className="text-[11px] font-bold text-[#475569] dark:text-[#CBD5E1] truncate">
-              تحكم كامل بالسعر، المقاسات المتعددة، الخصم، الصور (حتى ٣ صور مضغوطة)، والظهور في متجرك وسوق الشمساوية
+              تحكم كامل بالسعر، المقاسات المتعددة، الخصم، الصور (حتى {maxAllowedImages} صور مضغوطة)، والظهور في متجرك وسوق الشمساوية
             </p>
           </div>
           <button
@@ -641,13 +667,13 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
             </div>
           </div>
 
-          {/* 5. Multi-Image Gallery Manager (Max 3 compressed images) */}
+          {/* 5. Multi-Image Gallery Manager */}
           <div className="p-4 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div>
                 <h4 className="font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5">
                   <ImageIcon className="w-4 h-4" />
-                  <span>صور المنتج والمعرض ({totalImagesCount} / {MAX_ITEM_IMAGES} صور بحد أقصى)</span>
+                  <span>صور المنتج والمعرض ({totalImagesCount} / {maxAllowedImages} صور بحد أقصى)</span>
                 </h4>
                 <p className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8] mt-0.5">
                   يتم ضغط الصور تلقائياً بصيغة ذكية لتقليل مساحة التخزين والحفاظ على سرعة التحميل
@@ -667,7 +693,7 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
                 </label>
               ) : (
                 <span className="px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border border-amber-300/60 text-[10px] font-black">
-                  اكتمل الحد الأقصى (٣ صور)
+                  اكتمل الحد الأقصى ({maxAllowedImages} صور)
                 </span>
               )}
             </div>
@@ -746,8 +772,8 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-3 bg-[#E9E2D4] dark:bg-[#132040] border-t border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-end gap-2">
+        {/* Footer — Explicit Split Save Actions (Store Only vs Export to Central Market) */}
+        <div className="px-5 py-3 bg-[#E9E2D4] dark:bg-[#132040] border-t border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
             onClick={onClose}
@@ -755,14 +781,34 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
           >
             إلغاء
           </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-black text-xs flex items-center gap-2 shadow-md cursor-pointer disabled:opacity-60"
-          >
-            <Save className="w-4 h-4" />
-            <span>{saving ? 'جاري الحفظ والمزامنة...' : 'حفظ تعديلات المنتج ✓'}</span>
-          </button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => handleSaveWithMode('store_only')}
+              className="px-4 py-2.5 rounded-xl bg-[#0C1427] hover:bg-[#1A2B54] text-amber-300 border border-[#22355E] font-black text-xs flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-60"
+            >
+              <Save className="w-4 h-4" />
+              <span>{saving ? 'جاري الحفظ...' : 'حفظ في المتجر فقط'}</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => handleSaveWithMode('market_submit')}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-black text-xs flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-60"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>
+                {saving
+                  ? 'جاري الإرسال...'
+                  : product.inMarket
+                  ? 'حفظ وإعادة الإرسال لسوق الشمساوية'
+                  : 'حفظ وتصدير لسوق الشمساوية'}
+              </span>
+            </button>
+          </div>
         </div>
       </form>
     </div>

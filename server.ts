@@ -31,6 +31,16 @@ import {
   getAgentSecretStatus,
 } from './server/googleSearchService.js';
 import { registerSupplierErpRoutes } from './server/supplierErpRoutes.js';
+import {
+  loadUnifiedMaterialsState,
+  buildMergedUnifiedSnapshot,
+  createUnifiedMasterItem,
+  createUnifiedSpecItem,
+  createUnifiedAliasItem,
+  createUnifiedBrandItem,
+  updateOrProposeUnifiedMaster,
+  resolveUnifiedMaterialNotification,
+} from './server/unifiedMaterialsService.js';
 
 dotenv.config();
 
@@ -4813,10 +4823,12 @@ app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
       (existingIndex >= 0 && persistent[existingIndex].status === 'approved') ||
       remoteExisting?.status === 'approved';
 
-    const initialStatus =
-      alreadyApprovedRemotely && product.status !== 'rejected'
-        ? 'approved'
-        : (product.status || 'pending_approval');
+    const forceReReview = Boolean(product.reSubmitForApproval || product.re_submit_for_approval);
+    const initialStatus = forceReReview
+      ? 'pending_approval'
+      : alreadyApprovedRemotely && product.status !== 'rejected'
+      ? 'approved'
+      : (product.status || 'pending_approval');
 
     const wid = product.workshop_id || product.workshopId || '';
     const nowIso = new Date().toISOString();
@@ -6787,7 +6799,8 @@ app.post('/api/suppliers/catalog', requireAuth, async (req: AuthenticatedRequest
         .filter((t: any) => t.minQty > 0 && t.unitPrice > 0)
         .sort((a: any, c: any) => a.minQty - c.minQty)
     : [];
-  const row = {
+  const wantInMarket = b.inMarket !== undefined ? Boolean(b.inMarket) : b.in_market !== undefined ? Boolean(b.in_market) : false;
+  const row: Record<string, any> = {
     id: crypto.randomUUID(),
     supplier_id: supplier.id,
     section_id: b.sectionId || b.section_id || 'ropes_textiles',
@@ -6795,7 +6808,7 @@ app.post('/api/suppliers/catalog', requireAuth, async (req: AuthenticatedRequest
     name: String(b.name || '').trim() || 'خامة بدون اسم',
     unit: String(b.unit || 'بكرة').trim(),
     description: String(b.description || ''),
-    images: Array.isArray(b.images) ? b.images.slice(0, 3) : [],
+    images: Array.isArray(b.images) ? b.images.slice(0, 8) : [],
     variants: Array.isArray(b.variants) ? b.variants : [],
     tier_pricing: normalizedTiers,
     stock_qty: Math.max(0, Number(b.stockQty ?? b.stock_qty ?? 0)),
@@ -6805,9 +6818,16 @@ app.post('/api/suppliers/catalog', requireAuth, async (req: AuthenticatedRequest
     discount_type: b.discountType || b.discount_type || 'none',
     discount_value: Math.max(0, Number(b.discountValue ?? b.discount_value ?? 0)),
     in_store: b.inStore !== undefined ? Boolean(b.inStore) : true,
-    in_market: b.inMarket !== undefined ? Boolean(b.inMarket) : true,
-    is_approved: true,
+    in_market: wantInMarket,
+    is_approved: false,
+    market_status: wantInMarket ? 'pending_approval' : 'none',
     source_currency: b.sourceCurrency || supplier.currency || 'EGP',
+    unified_code: String(b.unifiedCode ?? b.unified_code ?? '').trim(),
+    spec_code: String(b.specCode ?? b.spec_code ?? '').trim(),
+    brand_code: String(b.brandCode ?? b.brand_code ?? 'B000').trim() || 'B000',
+    sku_code: String(b.skuCode ?? b.sku_code ?? '').trim(),
+    unit_chain: String(b.unitChain ?? b.unit_chain ?? '').trim(),
+    bridge_values: b.bridgeValues ?? b.bridge_values ?? {},
     created_at: nowIso,
     updated_at: nowIso,
   };
@@ -6818,13 +6838,46 @@ app.post('/api/suppliers/catalog', requireAuth, async (req: AuthenticatedRequest
 
   try {
     const client = getDbClient(req);
-    await client.from('supplier_catalog_items').insert(row);
+    const { error } = await client.from('supplier_catalog_items').insert(row);
+    if (error) {
+      const {
+        market_status: _ms,
+        unified_code: _uc,
+        spec_code: _sc,
+        brand_code: _bc,
+        sku_code: _sku,
+        unit_chain: _uch,
+        bridge_values: _bv,
+        ...legacyRow
+      } = row;
+      await client.from('supplier_catalog_items').insert(legacyRow);
+    }
   } catch {}
 
-  // Broadcast concise pricing list notification when supplier publishes items for the first time or on explicit notify
+  if (wantInMarket) {
+    try {
+      const alertTitle = `📦 طلب اعتماد خامة مورد جديدة: ${row.name}`;
+      const alertContent = `أرسل المورد "${supplier.brand_name}" خامة "${row.name}" (قطاعي ${row.retail_price} ${supplier.currency_symbol || 'ج.م'}) وتنتظر مراجعتكم واعتمادها في سوق الموردين.`;
+      const alertRow = {
+        id: crypto.randomUUID(),
+        sender_id: null,
+        sender_name: supplier.brand_name,
+        recipient_type: 'super_admin_alert',
+        title: alertTitle,
+        content: alertContent,
+        created_at: nowIso,
+      };
+      const localAnn = loadPersistentAnnouncements();
+      localAnn.unshift(alertRow);
+      savePersistentAnnouncements(localAnn);
+      getDbClient(req).from('admin_announcements').insert(alertRow).then(() => {}, () => {});
+    } catch {}
+  }
+
+  // Broadcast concise pricing list notification ONLY when item is exported to market and approved or explicit notify
   try {
-    const supItems = all.filter((x: any) => x.supplier_id === supplier.id && x.in_market !== false);
-    if (supItems.length === 1 || b.notifyWorkshops === true) {
+    const supItems = all.filter((x: any) => x.supplier_id === supplier.id && x.in_market === true);
+    if (wantInMarket && (supItems.length === 1 || b.notifyWorkshops === true)) {
       const sampleLines = supItems
         .slice(0, 4)
         .map((it: any) => {
@@ -6874,7 +6927,28 @@ app.put('/api/suppliers/catalog/:id', requireAuth, async (req: AuthenticatedRequ
       ? prev.tier_pricing
       : [];
 
-  const updated = {
+  const nextInMarket =
+    b.inMarket !== undefined
+      ? Boolean(b.inMarket)
+      : b.in_market !== undefined
+      ? Boolean(b.in_market)
+      : Boolean(prev.in_market);
+  const reSubmitForApproval = Boolean(b.reSubmitForApproval || b.re_submit_for_approval);
+
+  // If moving into market for the first time, or editing a market item with reSubmitForApproval, reset approval for admin review
+  let nextIsApproved = Boolean(prev.is_approved);
+  let nextMarketStatus: 'none' | 'pending_approval' | 'approved' | 'rejected' =
+    prev.market_status || (prev.in_market ? (prev.is_approved ? 'approved' : 'pending_approval') : 'none');
+
+  if (!nextInMarket) {
+    nextIsApproved = false;
+    nextMarketStatus = 'none';
+  } else if (!prev.in_market || reSubmitForApproval) {
+    nextIsApproved = false;
+    nextMarketStatus = 'pending_approval';
+  }
+
+  const updated: Record<string, any> = {
     ...prev,
     id,
     supplier_id: supplier.id,
@@ -6883,7 +6957,7 @@ app.put('/api/suppliers/catalog/:id', requireAuth, async (req: AuthenticatedRequ
     name: String(b.name ?? prev.name ?? '').trim(),
     unit: String(b.unit ?? prev.unit ?? 'بكرة').trim(),
     description: String(b.description ?? prev.description ?? ''),
-    images: Array.isArray(b.images) ? b.images.slice(0, 3) : Array.isArray(prev.images) ? prev.images.slice(0, 3) : [],
+    images: Array.isArray(b.images) ? b.images.slice(0, 8) : Array.isArray(prev.images) ? prev.images.slice(0, 8) : [],
     variants: Array.isArray(b.variants) ? b.variants : prev.variants || [],
     tier_pricing: normalizedTiers,
     stock_qty: Math.max(0, Number(b.stockQty ?? b.stock_qty ?? prev.stock_qty ?? 0)),
@@ -6893,8 +6967,15 @@ app.put('/api/suppliers/catalog/:id', requireAuth, async (req: AuthenticatedRequ
     discount_type: b.discountType || prev.discount_type || 'none',
     discount_value: Math.max(0, Number(b.discountValue ?? prev.discount_value ?? 0)),
     in_store: b.inStore !== undefined ? Boolean(b.inStore) : prev.in_store !== false,
-    in_market: b.inMarket !== undefined ? Boolean(b.inMarket) : prev.in_market !== false,
-    is_approved: true,
+    in_market: nextInMarket,
+    is_approved: nextIsApproved,
+    market_status: nextMarketStatus,
+    unified_code: b.unifiedCode !== undefined ? String(b.unifiedCode || '') : prev.unified_code || '',
+    spec_code: b.specCode !== undefined ? String(b.specCode || '') : prev.spec_code || '',
+    brand_code: b.brandCode !== undefined ? String(b.brandCode || 'B000') : prev.brand_code || 'B000',
+    sku_code: b.skuCode !== undefined ? String(b.skuCode || '') : prev.sku_code || '',
+    unit_chain: b.unitChain !== undefined ? String(b.unitChain || '') : prev.unit_chain || '',
+    bridge_values: b.bridgeValues ?? prev.bridge_values ?? {},
     updated_at: nowIso,
   };
 
@@ -6904,8 +6985,44 @@ app.put('/api/suppliers/catalog/:id', requireAuth, async (req: AuthenticatedRequ
 
   try {
     const client = getDbClient(req);
-    await client.from('supplier_catalog_items').upsert(updated, { onConflict: 'id' });
+    const { error } = await client.from('supplier_catalog_items').upsert(updated, { onConflict: 'id' });
+    if (error) {
+      const {
+        market_status: _ms,
+        unified_code: _uc,
+        spec_code: _sc,
+        brand_code: _bc,
+        sku_code: _sku,
+        unit_chain: _uch,
+        bridge_values: _bv,
+        ...legacyUpdated
+      } = updated;
+      await client.from('supplier_catalog_items').upsert(legacyUpdated, { onConflict: 'id' });
+    }
   } catch {}
+
+  if (nextInMarket && nextMarketStatus === 'pending_approval') {
+    try {
+      const alertTitle = `📦 طلب مراجعة خامة مورد: ${updated.name}`;
+      const alertContent = `أرسل/عدّل المورد "${supplier.brand_name}" خامة "${updated.name}" (قطاعي ${updated.retail_price} ${supplier.currency_symbol || 'ج.م'}) وتنتظر اعتمادكم في سوق الموردين.`;
+      const localAnn = loadPersistentAnnouncements();
+      const existsIdx = localAnn.findIndex((a) => a.recipient_type === 'super_admin_alert' && a.title === alertTitle);
+      if (existsIdx < 0) {
+        const alertRow = {
+          id: crypto.randomUUID(),
+          sender_id: null,
+          sender_name: supplier.brand_name,
+          recipient_type: 'super_admin_alert',
+          title: alertTitle,
+          content: alertContent,
+          created_at: nowIso,
+        };
+        localAnn.unshift(alertRow);
+        savePersistentAnnouncements(localAnn);
+        getDbClient(req).from('admin_announcements').insert(alertRow).then(() => {}, () => {});
+      }
+    } catch {}
+  }
 
   return res.json({ success: true, item: updated });
 });
@@ -8441,7 +8558,12 @@ app.patch('/api/admin/suppliers-market/catalog/:id', requireAuth, async (req: Au
   const nowIso = new Date().toISOString();
   const updates: Record<string, any> = { updated_at: nowIso };
   if (b.inMarket !== undefined) updates.in_market = Boolean(b.inMarket);
-  if (b.isApproved !== undefined) updates.is_approved = Boolean(b.isApproved);
+  if (b.isApproved !== undefined) {
+    updates.is_approved = Boolean(b.isApproved);
+    updates.market_status = Boolean(b.isApproved) ? 'approved' : (b.marketStatus || 'pending_approval');
+  } else if (b.marketStatus !== undefined) {
+    updates.market_status = b.marketStatus;
+  }
   if (b.retailPrice !== undefined) updates.retail_price = Math.max(0, Number(b.retailPrice) || 0);
   if (b.wholesalePrice !== undefined) updates.wholesale_price = Math.max(0, Number(b.wholesalePrice) || 0);
 
@@ -8455,7 +8577,12 @@ app.patch('/api/admin/suppliers-market/catalog/:id', requireAuth, async (req: Au
   let cloudSynced = false;
   try {
     const client = getDbClient(req);
-    const { error } = await client.from('supplier_catalog_items').update(updates).eq('id', itemId);
+    let { error } = await client.from('supplier_catalog_items').update(updates).eq('id', itemId);
+    if (error && updates.market_status !== undefined) {
+      const { market_status: _ms, ...legacyUpdates } = updates;
+      const retry = await client.from('supplier_catalog_items').update(legacyUpdates).eq('id', itemId);
+      error = retry.error;
+    }
     if (!error) {
       cloudSynced = true;
     } else {
@@ -8752,7 +8879,13 @@ app.get('/api/suppliers-market', async (req: Request, res: Response) => {
     })
     .map((s: any) => {
       const items = allItems.filter(
-        (i: any) => i.supplier_id === s.id && i.in_market !== false && i.is_approved !== false
+        (i: any) =>
+          i.supplier_id === s.id &&
+          i.in_market === true &&
+          i.is_approved === true &&
+          i.market_status !== 'pending_approval' &&
+          i.market_status !== 'rejected' &&
+          i.market_status !== 'none'
       );
       const retailPrices = items.map((i: any) => Number(i.retail_price || 0)).filter((n) => n > 0);
       const wholesalePrices = items.map((i: any) => Number(i.wholesale_price || 0)).filter((n) => n > 0);
@@ -9278,6 +9411,196 @@ app.post('/api/b2b/orders/:id/receive', requireAuth, async (req: AuthenticatedRe
   }
 
   return res.json({ success: true, rpcSucceeded, order: syncedOrder });
+});
+
+// =============================================================
+// Unified Materials Registry & 4-Level Coding APIs
+// =============================================================
+app.get('/api/unified-materials', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    const superAdmin = isSuperAdmin(email);
+    const roleParam = req.query.role === 'supplier' ? 'supplier' : 'artisan';
+    const memberId = String(req.query.memberId || req.workshopId || req.user?.id || '').trim();
+    const state = loadUnifiedMaterialsState();
+    const snapshot = buildMergedUnifiedSnapshot(state, {
+      memberRole: roleParam,
+      memberId,
+      isSuperAdmin: superAdmin,
+    });
+    return res.json({ success: true, ...snapshot });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر تحميل منظومة الخامات الموحدة' });
+  }
+});
+
+app.post('/api/unified-materials/master', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    const superAdmin = isSuperAdmin(email);
+    const b = req.body || {};
+    if (!b.prefix || !b.canonicalName) {
+      return res.status(400).json({ error: 'القسم والاسم المعتمد للخامة مطلوبان' });
+    }
+    const actorRole: 'super_admin' | 'artisan' | 'supplier' = superAdmin
+      ? 'super_admin'
+      : b.actorRole === 'supplier'
+      ? 'supplier'
+      : 'artisan';
+    const actorId = String(b.actorId || req.workshopId || req.user?.id || email);
+    const actorName = String(b.actorName || req.user?.user_metadata?.brand_name || req.user?.user_metadata?.full_name || email);
+    const result = await createUnifiedMasterItem(supabaseAdminClient, {
+      prefix: String(b.prefix).toUpperCase() as any,
+      canonicalName: String(b.canonicalName),
+      unitChain: b.unitChain,
+      bridgeFields: b.bridgeFields,
+      specFields: b.specFields,
+      artistAliases: b.artistAliases,
+      supplierAliases: b.supplierAliases,
+      workshopTags: b.workshopTags,
+      safetyNote: b.safetyNote,
+      initialSpecLabel: b.initialSpecLabel,
+      initialSpecThicknessMm: b.initialSpecThicknessMm ? Number(b.initialSpecThicknessMm) : undefined,
+      initialSpecOrigin: b.initialSpecOrigin,
+      initialBridgeValues: b.initialBridgeValues,
+      actorRole,
+      actorId,
+      actorName,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'تعذر إضافة الخامة للمنظومة' });
+  }
+});
+
+app.post('/api/unified-materials/spec', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    const superAdmin = isSuperAdmin(email);
+    const b = req.body || {};
+    if (!b.masterCode || !b.label) {
+      return res.status(400).json({ error: 'كود الصنف الأم ووصف المواصفة مطلوبان' });
+    }
+    const actorRole: 'super_admin' | 'artisan' | 'supplier' = superAdmin
+      ? 'super_admin'
+      : b.actorRole === 'supplier'
+      ? 'supplier'
+      : 'artisan';
+    const actorId = String(b.actorId || req.workshopId || req.user?.id || email);
+    const actorName = String(b.actorName || email);
+    const result = await createUnifiedSpecItem(supabaseAdminClient, {
+      masterCode: String(b.masterCode),
+      label: String(b.label),
+      thicknessMm: b.thicknessMm !== undefined ? Number(b.thicknessMm) : undefined,
+      plies: b.plies !== undefined ? Number(b.plies) : undefined,
+      sizeLabel: b.sizeLabel,
+      color: b.color,
+      origin: b.origin,
+      bridgeValues: b.bridgeValues,
+      actorRole,
+      actorId,
+      actorName,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'تعذر إضافة المواصفة' });
+  }
+});
+
+app.post('/api/unified-materials/alias', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    const superAdmin = isSuperAdmin(email);
+    const b = req.body || {};
+    if (!b.targetCode || !b.aliasName) {
+      return res.status(400).json({ error: 'الكود المستهدف والاسم الدارج مطلوبان' });
+    }
+    const actorRole: 'super_admin' | 'artisan' | 'supplier' = superAdmin
+      ? 'super_admin'
+      : b.actorRole === 'supplier'
+      ? 'supplier'
+      : 'artisan';
+    const result = await createUnifiedAliasItem(supabaseAdminClient, {
+      targetCode: String(b.targetCode),
+      aliasName: String(b.aliasName),
+      aliasType: b.aliasType || (actorRole === 'supplier' ? 'supplier' : 'artisan'),
+      contextHint: b.contextHint,
+      isAmbiguous: Boolean(b.isAmbiguous),
+      actorRole,
+      actorId: String(b.actorId || req.workshopId || req.user?.id || email),
+      actorName: String(b.actorName || email),
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'تعذر إضافة الاسم الدارج' });
+  }
+});
+
+app.post('/api/unified-materials/brand', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    if (!isSuperAdmin(email)) {
+      return res.status(403).json({ error: 'إضافة الماركات الجديدة مخصصة للسوبر أدمن فقط' });
+    }
+    const b = req.body || {};
+    if (!b.brandName) return res.status(400).json({ error: 'اسم الماركة مطلوب' });
+    const brand = await createUnifiedBrandItem(supabaseAdminClient, {
+      brandName: String(b.brandName),
+      categoryHint: b.categoryHint,
+    });
+    return res.json({ success: true, brand });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'تعذر إضافة الماركة' });
+  }
+});
+
+app.patch('/api/unified-materials/:code', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    const superAdmin = isSuperAdmin(email);
+    const b = req.body || {};
+    const actorRole: 'super_admin' | 'artisan' | 'supplier' = superAdmin
+      ? 'super_admin'
+      : b.actorRole === 'supplier'
+      ? 'supplier'
+      : 'artisan';
+    const result = await updateOrProposeUnifiedMaster(supabaseAdminClient, req.params.code, {
+      action: b.action || 'update',
+      canonicalName: b.canonicalName,
+      unitChain: b.unitChain,
+      bridgeFields: b.bridgeFields,
+      artistAliases: b.artistAliases,
+      supplierAliases: b.supplierAliases,
+      workshopTags: b.workshopTags,
+      safetyNote: b.safetyNote,
+      reason: b.reason,
+      actorRole,
+      actorId: String(b.actorId || req.workshopId || req.user?.id || email),
+      actorName: String(b.actorName || email),
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'تعذر تحديث الخامة' });
+  }
+});
+
+app.post('/api/unified-materials/notifications/:id/resolve', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    if (!isSuperAdmin(email)) {
+      return res.status(403).json({ error: 'صلاحيات غير كافية' });
+    }
+    const decision = req.body?.decision || 'accept_global';
+    const notification = await resolveUnifiedMaterialNotification(
+      supabaseAdminClient,
+      req.params.id,
+      decision,
+      email
+    );
+    return res.json({ success: true, notification });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'تعذر معالجة الإشعار' });
+  }
 });
 
 // -------------------------------------------------------------

@@ -39,6 +39,10 @@ import {
   PackageCheck,
   Coins,
   MessageCircle,
+  CheckSquare,
+  Square,
+  Send,
+  Radio,
 } from 'lucide-react';
 import {
   addToCart,
@@ -61,6 +65,7 @@ import { SUPPORTED_CURRENCIES, getCurrencyInfo, toEgpAmount } from '../../lib/cu
 import {
   publishProductToMarketplace,
   fetchPublicStorefrontBySlug,
+  fetchWorkshopMarketplaceProducts,
 } from '../../db/marketplaceCloud';
 import { ArtisanProductEditorModal } from './ArtisanProductEditorModal';
 import { ArtisanStorefrontBuilderPanel } from './ArtisanStorefrontBuilderPanel';
@@ -116,6 +121,9 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   const [prodSearch, setProdSearch] = useState('');
   const [prodVisibilityFilter, setProdVisibilityFilter] = useState<'all' | 'visible' | 'hidden'>('all');
   const [editingProduct, setEditingProduct] = useState<SavedProductRecord | null>(null);
+  const [selectedMarketIds, setSelectedMarketIds] = useState<Set<string>>(new Set());
+  const [exportingToMarket, setExportingToMarket] = useState(false);
+  const [pendingAdminBanner, setPendingAdminBanner] = useState<string | null>(null);
 
   // Orders filtering & modals
   const [orderSearch, setOrderSearch] = useState('');
@@ -254,7 +262,27 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
         }
 
         if (isMounted) {
-          setProducts(prods || []);
+          let hydratedProds = prods || [];
+          // Sync latest Market approval status directly from cloud marketplace_products
+          try {
+            const remoteMkt = await fetchWorkshopMarketplaceProducts(tenantId);
+            if (Array.isArray(remoteMkt) && remoteMkt.length > 0) {
+              const mktMap = new Map(remoteMkt.map((r) => [r.id, r]));
+              hydratedProds = hydratedProds.map((lp) => {
+                const rp = mktMap.get(lp.id);
+                if (!rp) return lp;
+                const st = (rp.status === 'approved' || rp.status === 'rejected' ? rp.status : 'pending_approval') as 'approved' | 'rejected' | 'pending_approval';
+                return {
+                  ...lp,
+                  inMarket: true,
+                  marketStatus: st,
+                  isMarketplaceApproved: st === 'approved',
+                  rejectReason: rp.rejection_reason || rp.rejectionReason || lp.rejectReason,
+                };
+              });
+            }
+          } catch {}
+          setProducts(hydratedProds);
           setOrders(mergedOrders);
           setTreasuries(trs);
           if (trs.length > 0) setSelectedTreasuryId(trs[0].id);
@@ -321,15 +349,86 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
     await handleSaveStoreConfigCloud(nextCfg);
   };
 
-  const handleSaveEditedProduct = async (updated: SavedProductRecord) => {
+  const triggerPendingAdminBanner = () => {
+    playAlertSound();
+    setPendingAdminBanner('هذا المنتج في انتظار مراجعة الأدمن');
+    setTimeout(() => setPendingAdminBanner(null), 3000);
+  };
+
+  const handleSaveEditedProduct = async (
+    updated: SavedProductRecord,
+    options?: { publishToMarket?: boolean; reSubmitForApproval?: boolean }
+  ) => {
     await tenantStorage.mutateProduct(updated);
     setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     window.dispatchEvent(new CustomEvent('alshams_products_changed', { detail: { tenantId } }));
 
-    // Sync to central marketplace with EGP auto-conversion + variants + discount + visibility
-    await publishProductToMarketplace(updated, profile).catch(() => {});
-    playSuccessSound();
-    showNotice(`✓ تم تحديث "${updated.productName}" ومزامنته مع متجرك وسوق الشمساوية`);
+    if (options?.publishToMarket || updated.inMarket) {
+      const pubRes = await publishProductToMarketplace(updated, profile, {
+        reSubmitForApproval: Boolean(options?.reSubmitForApproval),
+      }).catch(() => null);
+      if (pubRes) {
+        const finalStatus = pubRes.status || (options?.reSubmitForApproval ? 'pending_approval' : updated.marketStatus || 'pending_approval');
+        const syncedRec: SavedProductRecord = {
+          ...updated,
+          inMarket: true,
+          marketStatus: finalStatus,
+          isMarketplaceApproved: finalStatus === 'approved',
+        };
+        await tenantStorage.mutateProduct(syncedRec);
+        setProducts((prev) => prev.map((p) => (p.id === updated.id ? syncedRec : p)));
+      }
+      playSuccessSound();
+      showNotice(
+        options?.reSubmitForApproval
+          ? `✓ تم حفظ تعديلات "${updated.productName}" وإرسالها لمراجعة الأدمن قبل الظهور في سوق الشمساوية`
+          : `✓ تم حفظ "${updated.productName}" وتصديره لسوق الشمساوية`
+      );
+    } else {
+      playSuccessSound();
+      showNotice(`✓ تم حفظ تعديلات "${updated.productName}" في متجرك بنجاح (بدون تصدير للسوق المركزي)`);
+    }
+  };
+
+  const handleBulkExportToMarket = async (targetProducts: SavedProductRecord[]) => {
+    if (targetProducts.length === 0) return;
+    setExportingToMarket(true);
+    try {
+      const updatedMap = new Map<string, SavedProductRecord>();
+      for (const p of targetProducts) {
+        const nextRec: SavedProductRecord = {
+          ...p,
+          isCatalogVisible: true,
+          inStore: true,
+          isPublishedInStore: true,
+          inMarket: true,
+          marketStatus: 'pending_approval',
+          isMarketplaceApproved: false,
+          updatedAt: Date.now(),
+        };
+        await tenantStorage.mutateProduct(nextRec);
+        const pubRes = await publishProductToMarketplace(nextRec, profile, {
+          reSubmitForApproval: true,
+        }).catch(() => null);
+        const resolvedStatus = pubRes?.status === 'approved' ? 'approved' : 'pending_approval';
+        const finalRec: SavedProductRecord = {
+          ...nextRec,
+          marketStatus: resolvedStatus,
+          isMarketplaceApproved: resolvedStatus === 'approved',
+        };
+        if (resolvedStatus !== 'pending_approval') {
+          await tenantStorage.mutateProduct(finalRec);
+        }
+        updatedMap.set(p.id, finalRec);
+      }
+      setProducts((prev) => prev.map((p) => updatedMap.get(p.id) || p));
+      setSelectedMarketIds(new Set());
+      window.dispatchEvent(new CustomEvent('alshams_products_changed', { detail: { tenantId } }));
+      playSuccessSound();
+      showNotice(`✓ تم إرسال (${targetProducts.length}) منتج لمراجعة الأدمن تمهيداً للعرض في سوق الشمساوية`);
+    } finally {
+      setExportingToMarket(false);
+    }
   };
 
   const handleToggleProductVisibility = async (p: SavedProductRecord) => {
@@ -344,7 +443,9 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
     };
     await tenantStorage.mutateProduct(updated);
     setProducts((prev) => prev.map((item) => (item.id === p.id ? updated : item)));
-    await publishProductToMarketplace(updated, profile).catch(() => {});
+    if (p.inMarket) {
+      await publishProductToMarketplace(updated, profile).catch(() => {});
+    }
     playSuccessSound();
     showNotice(
       nextVisible
@@ -723,10 +824,11 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
     }
   };
 
-  // Filtered products & orders
+  // Filtered products & orders (only products exported to Store OR legacy store items)
   const filteredProducts = useMemo(() => {
     const q = prodSearch.toLowerCase().trim();
     return products.filter((p) => {
+      if (!p.inStore && !p.inMarket) return false;
       const visible = p.inStore !== false && p.isPublishedInStore !== false;
       if (prodVisibilityFilter === 'visible' && !visible) return false;
       if (prodVisibilityFilter === 'hidden' && visible) return false;
@@ -1031,6 +1133,63 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
               </div>
             )}
 
+            {/* 3-Second Pending Admin Review Banner */}
+            {pendingAdminBanner && (
+              <div className="px-4 py-3 rounded-2xl bg-rose-600 text-white font-black text-xs sm:text-sm flex items-center justify-between gap-2 shadow-lg animate-fade-in">
+                <div className="flex items-center gap-2">
+                  <Radio className="w-4 h-4 animate-pulse shrink-0" />
+                  <span>{pendingAdminBanner}</span>
+                </div>
+                <span className="text-[10px] opacity-85">بانتظار اعتماد السوبر أدمن للعرض بسوق الشمساوية</span>
+              </div>
+            )}
+
+            {/* Multi-select & Bulk Export to Market Bar */}
+            {filteredProducts.length > 0 && (
+              <div className="p-3 rounded-2xl bg-[#E9E2D4]/70 dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedMarketIds.size === filteredProducts.length) {
+                      setSelectedMarketIds(new Set());
+                    } else {
+                      setSelectedMarketIds(new Set(filteredProducts.map((p) => p.id)));
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black cursor-pointer"
+                >
+                  {selectedMarketIds.size === filteredProducts.length && filteredProducts.length > 0 ? (
+                    <CheckSquare className="w-4 h-4 text-[#EA580C]" />
+                  ) : (
+                    <Square className="w-4 h-4 text-[#475569]" />
+                  )}
+                  <span>
+                    {selectedMarketIds.size === filteredProducts.length
+                      ? 'إلغاء تحديد الكل'
+                      : `تحديد الكل للتصدير لسوق الشمساوية (${filteredProducts.length})`}
+                  </span>
+                </button>
+
+                {selectedMarketIds.size > 0 && (
+                  <button
+                    type="button"
+                    disabled={exportingToMarket}
+                    onClick={() =>
+                      handleBulkExportToMarket(filteredProducts.filter((p) => selectedMarketIds.has(p.id)))
+                    }
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white text-xs font-black flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-55"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>
+                      {exportingToMarket
+                        ? 'جاري التصدير...'
+                        : `تصدير المحدد لسوق الشمساوية (${selectedMarketIds.size})`}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Products Grid */}
             {loading ? (
               <div className="p-10 text-center text-xs font-bold text-[#475569]">جاري تحميل منتجات الورشة...</div>
@@ -1038,10 +1197,10 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
               <div className="p-10 text-center rounded-3xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
                 <Store className="w-12 h-12 mx-auto text-[#EA580C]/70" />
                 <h4 className="text-sm font-black text-[#0C1427] dark:text-amber-200">
-                  لا توجد منتجات مطابقة في قائمة متجرك
+                  لا توجد منتجات في متجرك حالياً
                 </h4>
                 <p className="text-xs text-[#334155] dark:text-[#CBD5E1] max-w-md mx-auto">
-                  احفظ أي مشغولة من حاسبة التكاليف وستظهر هنا مع كامل صلاحيات تعديل السعر والمقاسات والعروض.
+                  صدّر منتجاتك المعتمدة من الكتالوج إلى متجرك لتظهر هنا وتتمكن من تعديلها أو تصديرها لسوق الشمساوية.
                 </p>
               </div>
             ) : (
@@ -1055,14 +1214,24 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                     false
                   );
                   const sizesCount = p.sizeVariants?.length || p.availableSizes?.length || 0;
+                  const isChecked = selectedMarketIds.has(p.id);
+                  const isApprovedInMarket = Boolean(
+                    p.inMarket && (p.marketStatus === 'approved' || p.isMarketplaceApproved)
+                  );
+                  const isPendingInMarket = Boolean(
+                    p.inMarket && !isApprovedInMarket && p.marketStatus !== 'rejected'
+                  );
+                  const isRejectedInMarket = Boolean(p.inMarket && p.marketStatus === 'rejected');
 
                   return (
                     <div
                       key={p.id}
                       className={`rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border p-3 flex flex-col justify-between transition shadow-sm ${
-                        isVisible
+                        isChecked
+                          ? 'border-[#EA580C] ring-2 ring-[#EA580C]/40'
+                          : isVisible
                           ? 'border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
-                          : 'border-dashed border-rose-400/60 opacity-80'
+                          : 'border-dashed border-rose-400/60 opacity-85'
                       }`}
                     >
                       <div>
@@ -1074,6 +1243,27 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                               <ShoppingBag className="w-8 h-8" />
                             </div>
                           )}
+
+                          {/* Select checkbox top-left */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedMarketIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(p.id)) next.delete(p.id);
+                                else next.add(p.id);
+                                return next;
+                              })
+                            }
+                            className="absolute top-2 left-2 w-7 h-7 rounded-lg bg-white/95 dark:bg-[#0C1427]/90 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-xs cursor-pointer"
+                            title="تحديد للتصدير لسوق الشمساوية"
+                          >
+                            {isChecked ? (
+                              <CheckSquare className="w-4 h-4 text-[#EA580C]" />
+                            ) : (
+                              <Square className="w-4 h-4 text-[#475569]" />
+                            )}
+                          </button>
 
                           {/* Single clean status tag */}
                           {pricing.badgeText ? (
@@ -1113,6 +1303,44 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                             </p>
                           )}
                         </div>
+
+                        {/* Marketplace Status Lamp Strip */}
+                        <div className="mb-2.5">
+                          {isApprovedInMarket ? (
+                            <div className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-400/60 flex items-center justify-between text-[11px] font-black text-emerald-800 dark:text-emerald-200">
+                              <span className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.9)]" />
+                                <span>معروض في سوق الشمساوية</span>
+                              </span>
+                              <span className="text-[10px]">معتمد ✓</span>
+                            </div>
+                          ) : isPendingInMarket ? (
+                            <button
+                              type="button"
+                              onClick={triggerPendingAdminBanner}
+                              className="w-full px-2.5 py-1.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 border border-rose-500 text-rose-700 dark:text-rose-300 flex items-center justify-between text-[11px] font-black cursor-pointer animate-pulse"
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shadow-[0_0_10px_rgba(225,29,72,0.95)]" />
+                                <span>قيد مراجعة الأدمن</span>
+                              </span>
+                              <span className="text-[10px] underline">اضغط للتفاصيل</span>
+                            </button>
+                          ) : isRejectedInMarket ? (
+                            <div className="px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-400 text-[10px] font-bold text-rose-800 dark:text-rose-200">
+                              مرفوض من السوق{p.rejectReason ? `: ${p.rejectReason}` : ' — عدّل وأعد الإرسال'}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleBulkExportToMarket([p])}
+                              className="w-full px-2.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] hover:border-[#EA580C] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center gap-1.5 text-[11px] font-black cursor-pointer transition"
+                            >
+                              <Send className="w-3 h-3 text-[#EA580C]" />
+                              <span>تصدير لسوق الشمساوية</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div className="pt-2 border-t border-[#D4CCBC] dark:border-[#22355E] space-y-1.5 text-xs">
@@ -1136,7 +1364,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                             }`}
                           >
                             {isVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                            <span>{isVisible ? 'ظاهر' : 'إظهار'}</span>
+                            <span>{isVisible ? 'ظاهر بمتجري' : 'إظهار بمتجري'}</span>
                           </button>
                         </div>
 
