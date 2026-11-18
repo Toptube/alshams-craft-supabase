@@ -260,6 +260,7 @@ export interface UiActionCatalogEntry {
 
 export const ARTISAN_ACTION_CATALOG: UiActionCatalogEntry[] = [
   { actionKey: 'open_executive_brief', defaultLabel: 'هلخصهالك 📋', defaultIcon: 'FileText', audience: 'artisan', description: 'شاشة هلخصهالك (المدير المالي والمخزني)' },
+  { actionKey: 'nav_unified_materials', defaultLabel: 'منظومة الخامات الموحدة (الذكية)', defaultIcon: 'Sparkles', audience: 'artisan', description: 'دليل الأكواد الموحدة والبحث والاستيراد وإضافة الأصناف الجديدة' },
   { actionKey: 'modal_new_material', defaultLabel: 'إضافة خامة جديدة', defaultIcon: 'PlusCircle', audience: 'artisan', description: 'نافذة إضافة خامة جديدة' },
   { actionKey: 'nav_materials', defaultLabel: 'أرصدة وبطاقات الخامات', defaultIcon: 'Layers', audience: 'artisan', description: 'صفحة الخامات والمخزون' },
   { actionKey: 'nav_calculator', defaultLabel: 'حاسبة تكاليف المنتج الشاملة', defaultIcon: 'Calculator', audience: 'artisan', description: 'حاسبة التكاليف والتسعير' },
@@ -307,6 +308,7 @@ export const SUPPLIER_ACTION_CATALOG: UiActionCatalogEntry[] = [
   { actionKey: 'sup_warehouse_erp', defaultLabel: 'المخازن وكارت الصنف والمصانع', defaultIcon: 'Warehouse', audience: 'supplier', description: 'جرد بدون صور والتحويلات والمصانع' },
   { actionKey: 'sup_hr_terminal', defaultLabel: 'شؤون العاملين وتثبيت الأجهزة (HR)', defaultIcon: 'MonitorSmartphone', audience: 'supplier', description: 'الموظفين والحضور وتثبيت الشاشات' },
   { actionKey: 'sup_catalog', defaultLabel: 'كتالوج الخامات والمخزون', defaultIcon: 'Boxes', audience: 'supplier', description: 'الكتالوج وشرائح الكميات' },
+  { actionKey: 'sup_unified_materials', defaultLabel: 'منظومة الخامات الموحدة', defaultIcon: 'Layers', audience: 'supplier', description: 'دليل الأكواد الموحدة وربط خامات الكتالوج' },
   { actionKey: 'sup_orders', defaultLabel: 'أوردراتي وطلبات التوريد', defaultIcon: 'Package', audience: 'supplier', description: 'طلبات الورش والأونلاين' },
   { actionKey: 'sup_storefront', defaultLabel: 'لوحة تحكم متجر المورد', defaultIcon: 'Store', audience: 'supplier', description: 'إعدادات المتجر والكوبونات وQR' },
   { actionKey: 'sup_customers', defaultLabel: 'عملائي (الورش والأفراد)', defaultIcon: 'Users', audience: 'supplier', description: 'دليل العملاء والمديونيات' },
@@ -410,6 +412,7 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
         colorPreset: 'amber',
         visible: true,
         items: [
+          { id: 'mat_unified', actionKey: 'nav_unified_materials', label: 'منظومة الخامات الموحدة (الذكية)', iconKey: 'Sparkles', visible: true },
           { id: 'mat_add', actionKey: 'modal_new_material', label: 'إضافة خامة جديدة', iconKey: 'PlusCircle', visible: true },
           { id: 'mat_list', actionKey: 'nav_materials', label: 'أرصدة وبطاقات الخامات', iconKey: 'Layers', visible: true },
           { id: 'mat_prices', actionKey: 'nav_materials', label: 'أسعار الشراء ووحدات القياس', iconKey: 'Tag', visible: true },
@@ -636,6 +639,7 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
           { id: 'calculator', label: 'حاسبة التكاليف والتسعير', iconKey: 'Calculator', visible: true },
           { id: 'work_orders', label: 'أوامر الشغل والتصنيع', iconKey: 'Hammer', visible: true },
           { id: 'materials', label: 'الخامات والمخزون', iconKey: 'Boxes', visible: true },
+          { id: 'unified_materials', label: 'منظومة الخامات الموحدة', iconKey: 'Layers', visible: true },
           { id: 'purchases', label: 'فواتير المشتريات', iconKey: 'Receipt', visible: true },
           { id: 'suppliers', label: 'مورديني', iconKey: 'Truck', visible: true },
           { id: 'suppliers_market', label: 'سوق موردين الشمساوية', iconKey: 'ShoppingBag', visible: true },
@@ -752,6 +756,16 @@ export const DEFAULT_SUPPLIER_UI_LAYOUT: RoleUiLayoutConfig = {
         items: [],
       },
       {
+        id: 'supplier_unified_materials',
+        label: 'منظومة الخامات الموحدة',
+        subtitle: 'استعراض الأكواد الرباعية، استيراد وربط الخامات، وإضافة أصناف جديدة',
+        iconKey: 'Layers',
+        colorPreset: 'orange_strong',
+        visible: true,
+        directActionKey: 'sup_unified_materials',
+        items: [],
+      },
+      {
         id: 'orders',
         label: 'أوردراتي وطلبات التوريد',
         subtitle: 'فلترة متجري / موردين الشمساوية / خارج المنظومة + تسجيل أوردر يدوي',
@@ -847,6 +861,7 @@ export const DEFAULT_SUPPLIER_UI_LAYOUT: RoleUiLayoutConfig = {
         visible: true,
         items: [
           { id: 'supplier_catalog', label: 'كتالوج الخامات والأسعار', iconKey: 'Boxes', visible: true },
+          { id: 'unified_materials', label: 'منظومة الخامات الموحدة', iconKey: 'Layers', visible: true },
           { id: 'supplier_orders', label: 'أوردراتي وطلبات التوريد', iconKey: 'Package', visible: true },
         ],
       },
@@ -904,11 +919,22 @@ function mergeRoleLayout(raw: Partial<RoleUiLayoutConfig> | undefined, fallback:
         }))
       : fallback.home.cards.map((c) => ({ ...c, items: c.items.map((i) => ({ ...i })) }));
 
-  // Forward-compat: inject any brand-new default cards not yet present in stored config (e.g. executive_brief)
+  // Forward-compat: inject brand-new default cards AND brand-new default items inside existing cards
   const existingCardIds = new Set(safeCards.map((c) => c.id));
   for (const defCard of fallback.home.cards) {
     if (!existingCardIds.has(defCard.id)) {
       safeCards.unshift({ ...defCard, items: defCard.items.map((i) => ({ ...i })) });
+    } else if (Array.isArray(defCard.items) && defCard.items.length > 0) {
+      const targetCard = safeCards.find((c) => c.id === defCard.id);
+      if (targetCard) {
+        const existingItemIds = new Set(targetCard.items.map((it) => it.id));
+        const missingItems = defCard.items
+          .filter((it) => !existingItemIds.has(it.id))
+          .map((it) => ({ ...it }));
+        if (missingItems.length > 0) {
+          targetCard.items = [...missingItems, ...targetCard.items];
+        }
+      }
     }
   }
 

@@ -52,6 +52,7 @@ interface SupplierHomeScreenProps {
   onNavigateToFamily?: () => void;
   onNavigateToPersonalProfile?: () => void;
   onNavigateToSuppliersMarket?: () => void;
+  onNavigateToUnifiedMaterials?: () => void;
   onPreviewPublicStore?: (slug: string) => void;
 }
 
@@ -70,6 +71,7 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   onNavigateToFamily,
   onNavigateToPersonalProfile,
   onNavigateToSuppliersMarket,
+  onNavigateToUnifiedMaterials,
   onPreviewPublicStore,
 }) => {
   const flags = useFeatureFlags();
@@ -190,6 +192,13 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
       case 'sup_market':
         onNavigateToSuppliersMarket?.();
         break;
+      case 'sup_unified_materials':
+        if (onNavigateToUnifiedMaterials) {
+          onNavigateToUnifiedMaterials();
+        } else {
+          window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'unified_materials' } }));
+        }
+        break;
       default:
         break;
     }
@@ -238,6 +247,9 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
       case 'sup_family':
       case 'family':
         return 'فنانين وموردين';
+      case 'sup_unified_materials':
+      case 'supplier_unified_materials':
+        return 'أكواد وأسماء موحدة';
       default:
         return card.items.length > 0 ? `${card.items.filter((i) => i.visible).length} أدوات` : 'قسم مخصص';
     }

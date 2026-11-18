@@ -558,6 +558,7 @@ export const App: React.FC = () => {
   const [historyStack, setHistoryStack] = useState<ActiveView[]>([]);
   const [adminInitialTab, setAdminInitialTab] = useState<ExecutiveTab>('home');
   const [adminNavNonce, setAdminNavNonce] = useState<number>(0);
+  const [openUnifiedPickerOnEnter, setOpenUnifiedPickerOnEnter] = useState<boolean>(false);
   const [catalogInitialTab, setCatalogInitialTab] = useState<'catalog' | 'store'>(() => {
     if (typeof window !== 'undefined' && /[?&]tab=store(?:&|$)/i.test(window.location.search || '')) {
       return 'store';
@@ -1604,63 +1605,6 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Listen to custom navigation events from Shamousa or other components
-  useEffect(() => {
-    const handleOpenView = (e: Event) => {
-      const customEvent = e as CustomEvent<{ view?: string; branchId?: string }>;
-      const view = customEvent.detail?.view;
-      if (customEvent.detail?.branchId) {
-        setErpSelectedBranchId(customEvent.detail.branchId);
-      }
-      if (view === 'marketplace') {
-        navigateTo('marketplace');
-        return;
-      }
-      if (view === 'store') {
-        if (profile?.accountRole === 'supplier') {
-          setIsSupplierStoreModalOpen(true);
-        } else {
-          handleOpenArtisanStore('products');
-        }
-        return;
-      }
-      if (view === 'my_orders') {
-        if (profile?.accountRole === 'supplier') {
-          navigateTo('supplier_orders');
-        } else {
-          handleOpenArtisanStore('orders');
-        }
-        return;
-      }
-      if (view && VIEW_TITLES[view as ActiveView]) {
-        navigateTo(view as ActiveView);
-      }
-    };
-
-    window.addEventListener('alshams_open_view', handleOpenView);
-    return () => window.removeEventListener('alshams_open_view', handleOpenView);
-  }, [activeView, profile?.accountRole]);
-
-  // Listen to quick purchase invoice requests from Shamousa or other widgets
-  useEffect(() => {
-    const handleQuickPurchase = (e: Event) => {
-      const customEvent = e as CustomEvent<{
-        materialId: string;
-        materialName?: string;
-        supplierId?: string;
-        unitCost?: number;
-        unitName?: string;
-        quantity?: number;
-      }>;
-      if (customEvent.detail) {
-        handleOpenPurchaseForMaterial(customEvent.detail);
-      }
-    };
-
-    window.addEventListener('alshams_quick_purchase', handleQuickPurchase);
-    return () => window.removeEventListener('alshams_quick_purchase', handleQuickPurchase);
-  }, [handleOpenPurchaseForMaterial]);
-
   // Navigation handlers with history tracking (يدعم الرجوع للصفحة السابقة)
   const syncFamilyUrl = (targetView: ActiveView) => {
     if (typeof window === 'undefined') return;
@@ -1695,6 +1639,21 @@ export const App: React.FC = () => {
     [navigateTo]
   );
 
+  const handleNavigateToUnifiedMaterials = useCallback(() => {
+    if (profile && isUserAdmin(profile) && !switchedWorkshopContext) {
+      setAdminInitialTab('unified_materials');
+      setAdminNavNonce((n) => n + 1);
+      navigateTo('admin');
+      return;
+    }
+    setOpenUnifiedPickerOnEnter(true);
+    if (profile?.accountRole === 'supplier') {
+      navigateTo('supplier_catalog');
+    } else {
+      navigateTo('materials');
+    }
+  }, [profile, switchedWorkshopContext, navigateTo]);
+
   const handleNavigateToWorkOrders = useCallback(
     (mode?: string) => {
       if (mode === 'create' || mode === 'issue' || mode === 'receive') {
@@ -1706,6 +1665,67 @@ export const App: React.FC = () => {
     },
     [navigateTo]
   );
+
+  // Listen to custom navigation events from Shamousa or other components
+  useEffect(() => {
+    const handleOpenView = (e: Event) => {
+      const customEvent = e as CustomEvent<{ view?: string; branchId?: string }>;
+      const view = customEvent.detail?.view;
+      if (customEvent.detail?.branchId) {
+        setErpSelectedBranchId(customEvent.detail.branchId);
+      }
+      if (view === 'marketplace') {
+        navigateTo('marketplace');
+        return;
+      }
+      if (view === 'store') {
+        if (profile?.accountRole === 'supplier') {
+          setIsSupplierStoreModalOpen(true);
+        } else {
+          handleOpenArtisanStore('products');
+        }
+        return;
+      }
+      if (view === 'my_orders') {
+        if (profile?.accountRole === 'supplier') {
+          navigateTo('supplier_orders');
+        } else {
+          handleOpenArtisanStore('orders');
+        }
+        return;
+      }
+      if (view === 'unified_materials' || view === 'nav_unified_materials' || view === 'sup_unified_materials') {
+        handleNavigateToUnifiedMaterials();
+        return;
+      }
+      if (view && VIEW_TITLES[view as ActiveView]) {
+        navigateTo(view as ActiveView);
+      }
+    };
+
+    window.addEventListener('alshams_open_view', handleOpenView);
+    return () => window.removeEventListener('alshams_open_view', handleOpenView);
+  }, [activeView, profile?.accountRole, handleNavigateToUnifiedMaterials, navigateTo]);
+
+  // Listen to quick purchase invoice requests from Shamousa or other widgets
+  useEffect(() => {
+    const handleQuickPurchase = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        materialId: string;
+        materialName?: string;
+        supplierId?: string;
+        unitCost?: number;
+        unitName?: string;
+        quantity?: number;
+      }>;
+      if (customEvent.detail) {
+        handleOpenPurchaseForMaterial(customEvent.detail);
+      }
+    };
+
+    window.addEventListener('alshams_quick_purchase', handleQuickPurchase);
+    return () => window.removeEventListener('alshams_quick_purchase', handleQuickPurchase);
+  }, [handleOpenPurchaseForMaterial]);
 
   const navigateBack = useCallback(() => {
     if (historyStack.length > 0) {
@@ -2586,6 +2606,7 @@ export const App: React.FC = () => {
                 onNavigateToFamily={() => navigateTo('family')}
                 onNavigateToPersonalProfile={() => navigateTo('personal_profile')}
                 onNavigateToSuppliersMarket={() => navigateTo('suppliers_market')}
+                onNavigateToUnifiedMaterials={handleNavigateToUnifiedMaterials}
                 onPreviewPublicStore={(slug) => {
                   window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
                   setActiveRoute({ type: 'supplier_store', slug });
@@ -2602,6 +2623,7 @@ export const App: React.FC = () => {
               onOpenPersonalProfile={() => navigateTo('personal_profile')}
               onNavigateToAIAgent={() => navigateTo('ai_agent')}
               onNavigateToMaterials={() => navigateTo('materials')}
+              onNavigateToUnifiedMaterials={handleNavigateToUnifiedMaterials}
               onNavigateToSuppliers={() => navigateTo('suppliers')}
               onNavigateToSuppliersMarket={() => navigateTo('suppliers_market')}
               onNavigateToSales={() => navigateTo('sales')}
@@ -2680,6 +2702,8 @@ export const App: React.FC = () => {
           <MaterialsView
             workshop={profile}
             initialOpenAddModal={false}
+            initialOpenUnifiedPicker={openUnifiedPickerOnEnter}
+            onResetOpenUnifiedPicker={() => setOpenUnifiedPickerOnEnter(false)}
             onOpenHelp={(sec: string) => {
               setUserGuideSection(sec);
               setIsUserGuideOpen(true);
@@ -2959,6 +2983,8 @@ export const App: React.FC = () => {
         {activeView === 'supplier_catalog' && (
           <SupplierCatalogView
             profile={profile}
+            initialOpenUnifiedPicker={openUnifiedPickerOnEnter}
+            onResetOpenUnifiedPicker={() => setOpenUnifiedPickerOnEnter(false)}
             onGoBack={navigateBack}
             onGoHome={goHome}
           />
@@ -3144,6 +3170,8 @@ export const App: React.FC = () => {
               handleOpenArtisanStore('products');
             } else if (v === 'my_orders') {
               handleOpenArtisanStore('orders');
+            } else if (v === 'unified_materials') {
+              handleNavigateToUnifiedMaterials();
             } else if (v === 'catalog') {
               handleNavigateToCatalog('catalog');
             } else {

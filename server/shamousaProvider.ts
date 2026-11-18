@@ -11,6 +11,11 @@ import {
   getCandidateGeminiModels,
   extractGroundingMetadata,
   shouldTriggerGoogleSearch,
+  performGoogleSearch,
+  getGroqApiKeys,
+  getFanarApiKey,
+  formatAiErrorReason,
+  cleanSecretValue,
   GroundedSource,
 } from './googleSearchService.js';
 
@@ -64,55 +69,88 @@ export function extractFirstName(rawName?: string): string {
   return first || cleaned;
 }
 
-function getGroqKeys(): { primary?: string; secondary?: string } {
-  const primary = (process.env.GROQ_API_KEY || '').trim();
-  const secondary = (
-    process.env.GROQ_API_KEY_SECONDARY ||
-    process.env.GROQ_API_KEY_BACKUP ||
-    process.env.GROQ_SECONDARY_API_KEY ||
-    process.env.GROQ_API_KEY_2 ||
-    process.env.GROQ_BACKUP_KEY ||
-    ''
-  ).trim();
-
-  return {
-    primary: primary || undefined,
-    secondary: secondary && secondary !== primary ? secondary : undefined,
-  };
+function compactMessagesForSmallContext(messages: any[], maxSystemChars = 3000): any[] {
+  return messages.map((m) => {
+    if (m?.role === 'system' && typeof m.content === 'string' && m.content.length > maxSystemChars) {
+      const groundTruthIdx = m.content.indexOf('بيانات الحساب الحية');
+      const toolsIdx = m.content.indexOf('لديكِ أدوات استعلام');
+      const head = m.content.slice(0, Math.min(1300, maxSystemChars - 200));
+      const tail =
+        groundTruthIdx >= 0
+          ? m.content.slice(groundTruthIdx, groundTruthIdx + 1400)
+          : toolsIdx >= 0
+          ? m.content.slice(Math.max(0, toolsIdx - 600))
+          : '';
+      return {
+        ...m,
+        content: `${head}\n...\n${tail}`.slice(0, maxSystemChars),
+      };
+    }
+    if (typeof m?.content === 'string' && m.content.length > 1800) {
+      return { ...m, content: m.content.slice(0, 1800) };
+    }
+    return m;
+  });
 }
 
 // الاتصال بـ Groq عبر fetch المدمج مع دعم النماذج المتاحة فعلياً للحساب
 async function callGroqChat(messages: any[], tools?: any[], customApiKey?: string) {
-  const apiKey = customApiKey || process.env.GROQ_API_KEY;
+  const apiKey = cleanSecretValue(customApiKey || process.env.GROQ_API_KEY);
   if (!apiKey) throw new Error('GROQ_API_KEY غير متوفر');
 
   const hasTools = Array.isArray(tools) && tools.length > 0;
 
-  // النماذج المتاحة فعلياً في Groq
-  // إذا كانت هناك أدوات مستدعاة: نجرّب النماذج الداعمة للأدوات أولاً، ثم نجرّب النماذج النصية بدون أدوات
-  const candidateModels = hasTools
-    ? ['qwen/qwen3.8-27b', 'openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'allam-2-7b']
-    : ['allam-2-7b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'];
+  const baseToolModels = [
+    'llama-3.3-70b-versatile',
+    'meta-llama/llama-4-scout-17b-16e-instruct',
+    'qwen/qwen3-32b',
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b',
+    'llama-3.1-8b-instant',
+    'allam-2-7b',
+  ];
+  const baseChatModels = [
+    'llama-3.3-70b-versatile',
+    'meta-llama/llama-4-scout-17b-16e-instruct',
+    'qwen/qwen3-32b',
+    'llama-3.1-8b-instant',
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b',
+    'allam-2-7b',
+  ];
 
-  const rawModel = (process.env.GROQ_MODEL || '').trim();
-  if (rawModel && !candidateModels.includes(rawModel) && !rawModel.includes('70b') && !rawModel.includes('3.3') && !rawModel.includes('llama')) {
-    candidateModels.unshift(rawModel);
+  const candidateModels = [...(hasTools ? baseToolModels : baseChatModels)];
+  const rawModel = cleanSecretValue(process.env.GROQ_MODEL);
+  if (
+    rawModel &&
+    !rawModel.toLowerCase().includes('whisper') &&
+    !rawModel.toLowerCase().includes('qwen3.8')
+  ) {
+    const idx = candidateModels.indexOf(rawModel);
+    if (idx > 0) candidateModels.splice(idx, 1);
+    if (idx !== 0) candidateModels.unshift(rawModel);
   }
 
   let lastErrText = '';
 
   for (const model of candidateModels) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
+    const timer = setTimeout(() => controller.abort(), 22000);
 
-    const isAllam = model.toLowerCase().includes('allam');
+    const lowerModel = model.toLowerCase();
+    const isAllam = lowerModel.includes('allam');
+    const isSmallCtx = isAllam;
     const sendTools = hasTools && !isAllam;
+
+    const preparedMessages = isSmallCtx
+      ? compactMessagesForSmallContext(messages, 2800)
+      : messages;
 
     const payload: any = {
       model,
-      messages,
+      messages: preparedMessages,
       temperature: 0.6,
-      max_tokens: 1200,
+      max_tokens: isAllam ? 900 : 1400,
     };
 
     if (sendTools && tools) {
@@ -140,27 +178,49 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
 
       if (!res.ok) {
         lastErrText = await res.text().catch(() => '');
-        // إذا كان الموديل غير متاح أو لا يدعم الأدوات، جرب الموديل التالي فوراً
-        if (
+        const lowerErr = lastErrText.toLowerCase();
+        const isRetriable =
           res.status === 404 ||
-          (res.status === 400 && (lastErrText.includes('tool calling') || lastErrText.includes('tools') || lastErrText.includes('not supported'))) ||
-          lastErrText.includes('model_not_found') ||
-          lastErrText.includes('does not exist')
-        ) {
-          console.warn(`[Groq] Model "${model}" notice (${res.status}), trying next candidate...`);
+          res.status === 429 ||
+          res.status === 413 ||
+          (res.status === 400 &&
+            (lowerErr.includes('tool') ||
+              lowerErr.includes('not supported') ||
+              lowerErr.includes('reduce the length') ||
+              lowerErr.includes('context_length') ||
+              lowerErr.includes('maximum context') ||
+              lowerErr.includes('failed to call a function'))) ||
+          lowerErr.includes('model_not_found') ||
+          lowerErr.includes('does not exist') ||
+          lowerErr.includes('decommissioned');
+
+        if (isRetriable) {
+          console.warn(`[Groq] Model "${model}" skipped (${res.status}), trying next candidate...`);
           continue;
         }
-        throw new Error(`Groq HTTP ${res.status} [${model}]: ${lastErrText.slice(0, 150)}`);
+        throw new Error(`Groq HTTP ${res.status} [${model}]: ${lastErrText.slice(0, 180)}`);
       }
 
       const data: any = await res.json();
-      return data?.choices?.[0]?.message;
+      const msg = data?.choices?.[0]?.message;
+      if (msg && (msg.content || (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0))) {
+        return msg;
+      }
+      lastErrText = `Empty reply from ${model}`;
     } catch (err: any) {
       if (err.name === 'AbortError') {
+        lastErrText = `Timeout on ${model}`;
         console.warn(`[Groq] Timeout for model ${model}, trying next candidate...`);
         continue;
       }
-      if (lastErrText.includes('does not exist') || lastErrText.includes('model_not_found') || lastErrText.includes('tool calling')) {
+      const errMsg = String(err?.message || '').toLowerCase();
+      if (
+        errMsg.includes('does not exist') ||
+        errMsg.includes('model_not_found') ||
+        errMsg.includes('tool') ||
+        errMsg.includes('429')
+      ) {
+        lastErrText = err?.message || lastErrText;
         continue;
       }
       throw err;
@@ -169,7 +229,43 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
     }
   }
 
-  throw new Error(`Groq: لم يتوفر أي نموذج صالح من النماذج المدعومة (${candidateModels.join(', ')}). الخطأ: ${lastErrText.slice(0, 150)}`);
+  throw new Error(
+    `Groq: تعذر تشغيل أي نموذج من (${candidateModels.join(', ')}): ${lastErrText.slice(0, 180)}`
+  );
+}
+
+async function callFanarChat(messages: any[], apiKey: string): Promise<string | null> {
+  const fanarModels = ['Fanar-C-1-8.7B', 'Fanar'];
+  const compactMsgs = compactMessagesForSmallContext(messages, 3500);
+  for (const model of fanarModels) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const res = await fetch('https://api.fanar.qa/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: compactMsgs,
+          temperature: 0.5,
+          max_tokens: 1000,
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) continue;
+      const data: any = await res.json();
+      const txt = String(data?.choices?.[0]?.message?.content || '').trim();
+      if (txt) return txt;
+    } catch {
+      continue;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
 }
 
 
@@ -718,17 +814,18 @@ export async function handleShamousaChat(
     { role: 'user', content: userMessage },
   ];
 
-  const { primary: groqPrimary, secondary: groqSecondary } = getGroqKeys();
+  const groqKeys = getGroqApiKeys();
+  const fanarKey = getFanarApiKey();
   let groqFailReason = '';
   let geminiFailReason = '';
 
-  async function tryGroqExecution(key: string): Promise<string | null> {
+  async function tryGroqExecution(key: string, msgsToSend: any[]): Promise<string | null> {
     let assistantMsg: any;
     try {
-      assistantMsg = await callGroqChat(promptMessages, workshopToolSchemas, key);
+      assistantMsg = await callGroqChat(msgsToSend, workshopToolSchemas, key);
     } catch (err: any) {
       console.warn('[Shamousa Groq] Calling with tools encountered issue, falling back to direct chat:', err?.message);
-      assistantMsg = await callGroqChat(promptMessages, undefined, key);
+      assistantMsg = await callGroqChat(msgsToSend, undefined, key);
     }
 
     if (assistantMsg?.tool_calls && Array.isArray(assistantMsg.tool_calls) && assistantMsg.tool_calls.length > 0) {
@@ -743,7 +840,7 @@ export async function handleShamousaChat(
       const toolResult = await runWorkshopTool(fnName, fnArgs, toolCtx);
 
       const secondTurnMessages = [
-        ...promptMessages,
+        ...msgsToSend,
         assistantMsg,
         {
           role: 'tool',
@@ -792,57 +889,101 @@ export async function handleShamousaChat(
     } catch (geminiErr: any) {
       geminiFailReason = geminiErr?.message || 'فشل الاتصال بـ Gemini';
       console.warn(
-        `[AI Service: Shamousa] Provider 1 (Gemini) failed: [${geminiFailReason}] -> Switching to Provider 2 (Groq Backup)...`
+        `[AI Service: Shamousa] Provider 1 (Gemini) failed: [${formatAiErrorReason(geminiFailReason)}] -> Switching to Provider 2 (Groq Backup)...`
       );
     }
   } else {
     geminiFailReason = 'مفتاح GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY غير مضبوط في Secrets';
-    console.log(`[AI Service: Shamousa] Provider 1 (Gemini) skipped: ${geminiFailReason} -> Switching to Provider 2 (Groq Backup)...`);
+    console.log(`[AI Service: Shamousa] Provider 1 (Gemini) skipped -> Switching to Provider 2 (Groq Backup)...`);
+  }
+
+  // Enrich fallback models with real web search results if search was requested or triggered
+  let fallbackSearchSources: GroundedSource[] = [];
+  let fallbackSearchUsed = false;
+  let fallbackMessages = promptMessages;
+
+  if (!hasImages && wantsGoogleSearch) {
+    try {
+      const liveSearch = await performGoogleSearch(userMessage, {
+        agent: 'shamousa',
+        systemHint:
+          'أنت باحث أسعار وموردين وخامات في السوق المصري لصالح منظومة الشمساوية. استخرج أحدث الأسعار والمصادر الحقيقية بإيجاز.',
+      });
+      if (liveSearch?.answer) {
+        fallbackSearchUsed = true;
+        fallbackSearchSources = liveSearch.sources || [];
+        fallbackMessages = [
+          ...promptMessages.slice(0, -1),
+          {
+            role: 'user',
+            content: `${userMessage}\n\n[نتائج البحث الحي من الويب لاستخدامها في إجابتك]:\n${liveSearch.answer.slice(0, 1800)}`,
+          },
+        ];
+      }
+    } catch (searchErr: any) {
+      console.warn('[AI Service: Shamousa] Fallback web search notice:', searchErr?.message);
+    }
   }
 
   // -------------------------------------------------------------
-  // Provider 2 (Backup): Groq API (Primary -> Secondary for fast text)
+  // Provider 2 (Backup): Groq API (Primary -> Secondary for fast text + tools)
   // -------------------------------------------------------------
-  const groqKeyToUse = !hasImages ? (groqPrimary || groqSecondary) : undefined;
-  if (groqKeyToUse) {
-    console.log('[AI Service: Shamousa] Attempting Provider 2 (Groq Backup)...');
-    try {
-      const reply = await tryGroqExecution(groqKeyToUse);
-      if (reply) {
-        console.log('[AI Service: Shamousa] Provider 2 (Groq Backup) succeeded.');
-        return { reply, handoffToFalcon: false, provider: 'groq', sources: [], searchUsed: false };
+  if (!hasImages && groqKeys.length > 0) {
+    for (let i = 0; i < groqKeys.length; i++) {
+      const key = groqKeys[i];
+      console.log(`[AI Service: Shamousa] Attempting Provider 2 (Groq Backup key #${i + 1})...`);
+      try {
+        const reply = await tryGroqExecution(key, fallbackMessages);
+        if (reply) {
+          console.log(`[AI Service: Shamousa] Provider 2 (Groq Backup key #${i + 1}) succeeded.`);
+          return {
+            reply,
+            handoffToFalcon: false,
+            provider: fallbackSearchUsed ? 'groq_web_search' : 'groq',
+            sources: fallbackSearchSources,
+            searchUsed: fallbackSearchUsed,
+          };
+        }
+        groqFailReason = 'رد فارغ من Groq';
+      } catch (groqErr: any) {
+        groqFailReason = groqErr?.message || 'Groq connection failed';
+        console.error(`[AI Service: Shamousa] Groq key #${i + 1} failed: [${groqFailReason}]`);
       }
-      groqFailReason = 'Empty response from Groq';
-    } catch (groqErr: any) {
-      groqFailReason = groqErr?.message || 'Groq connection failed';
-      console.error(`[AI Service: Shamousa] Provider 2 (Groq Backup) failed: [${groqFailReason}]`);
     }
   } else if (!hasImages) {
     groqFailReason = 'GROQ_API_KEY غير متوفر على الخادم';
   }
 
   // -------------------------------------------------------------
+  // Provider 3 (Emergency Backup): Fanar Arabic LLM
+  // -------------------------------------------------------------
+  if (!hasImages && fanarKey) {
+    console.log('[AI Service: Shamousa] Attempting Provider 3 (Fanar AI)...');
+    try {
+      const fanarReply = await callFanarChat(fallbackMessages, fanarKey);
+      if (fanarReply) {
+        console.log('[AI Service: Shamousa] Provider 3 (Fanar) succeeded.');
+        return {
+          reply: fanarReply,
+          handoffToFalcon: false,
+          provider: fallbackSearchUsed ? 'fanar_web_search' : 'fanar',
+          sources: fallbackSearchSources,
+          searchUsed: fallbackSearchUsed,
+        };
+      }
+    } catch (fanarErr: any) {
+      console.warn('[AI Service: Shamousa] Fanar failed:', fanarErr?.message);
+    }
+  }
+
+  // -------------------------------------------------------------
   // Strict: منع الردود الصامتة والوهمية (No Silent Mock Fallbacks)
   // -------------------------------------------------------------
-  const sanitizeReason = (reason: string) => {
-    if (!reason) return 'غير متاح حالياً';
-    if (reason.includes('404') || reason.includes('does not exist') || reason.includes('model_not_found')) {
-      return 'الموديل غير متاح مؤقتاً في المزود';
-    }
-    if (reason.includes('503') || reason.includes('high demand') || reason.includes('UNAVAILABLE')) {
-      return 'ضغط مؤقت على خدمة الذكاء الاصطناعي';
-    }
-    if (reason.includes('timeout') || reason.includes('مهلة') || reason.includes('aborted')) {
-      return 'تأخر استجابة الخادم بسبب بطء الاتصال';
-    }
-    return reason.replace(/\{.*?\}|https?:\/\/\S+/g, '').slice(0, 80).trim() || 'تعذر الاتصال بالخادم';
-  };
-
-  const cleanGemini = sanitizeReason(geminiFailReason);
-  const cleanGroq = sanitizeReason(groqFailReason);
+  const cleanGemini = formatAiErrorReason(geminiFailReason);
+  const cleanGroq = formatAiErrorReason(groqFailReason);
 
   throw new Error(
-    `تعذر اتصال الذكاء الاصطناعي: فشل المزود الأساسي (Gemini: ${cleanGemini}) وفشل المزود البديل (Groq: ${cleanGroq}). يرجى التحقق من اتصال الإنترنت ومفاتيح التشغيل في الإعدادات (Secrets).`
+    `تعذر اتصال الذكاء الاصطناعي: فشل المزود الأساسي (Gemini: ${cleanGemini}) وفشل المزود البديل (Groq: ${cleanGroq}). يرجى مراجعة مفاتيح التشغيل في الإعدادات (Secrets).`
   );
 }
 

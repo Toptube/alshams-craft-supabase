@@ -161,14 +161,15 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
           brandName: profile.brandName,
           artistName: profile.artistName,
           history: shamousaMessages.slice(-8).map((m) => ({
-            role: m.role === 'user' ? 'user' : 'model',
-            parts: [{ text: m.text }],
+            role: m.role === 'user' ? 'user' : 'assistant',
+            content: m.text,
           })),
         }),
       });
 
       if (!res.ok) {
-        throw new Error('فشل اتصال مع محرك الذكاء الاصطناعي');
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error || 'فشل الاتصال مع محرك الذكاء الاصطناعي');
       }
 
       const json = await res.json();

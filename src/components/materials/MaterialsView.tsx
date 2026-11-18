@@ -94,6 +94,8 @@ interface MaterialsViewProps {
   workshop: WorkshopProfile;
   initialOpenAddModal?: boolean;
   onResetOpenAddModal?: () => void;
+  initialOpenUnifiedPicker?: boolean;
+  onResetOpenUnifiedPicker?: () => void;
   onOpenHelp?: (sectionId: string) => void;
   onNavigateToPurchases?: (initialMaterial: {
     materialId: string;
@@ -109,6 +111,8 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
   workshop,
   initialOpenAddModal = false,
   onResetOpenAddModal,
+  initialOpenUnifiedPicker = false,
+  onResetOpenUnifiedPicker,
   onOpenHelp,
   onNavigateToPurchases,
 }) => {
@@ -196,7 +200,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
   const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(null);
 
   // Unified Materials System Integration
-  const [isUnifiedPickerOpen, setIsUnifiedPickerOpen] = useState(false);
+  const [isUnifiedPickerOpen, setIsUnifiedPickerOpen] = useState(initialOpenUnifiedPicker);
   const [localUnifiedMap, setLocalUnifiedMap] = useState<
     Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }>
   >({});
@@ -328,6 +332,13 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       if (onResetOpenAddModal) onResetOpenAddModal();
     }
   }, [initialOpenAddModal]);
+
+  useEffect(() => {
+    if (initialOpenUnifiedPicker) {
+      setIsUnifiedPickerOpen(true);
+      onResetOpenUnifiedPicker?.();
+    }
+  }, [initialOpenUnifiedPicker]);
 
   // Selected Unit Info
   const currentUnitRecord = useMemo(() => {

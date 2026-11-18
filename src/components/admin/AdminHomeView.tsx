@@ -131,6 +131,13 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       onClick: () => onNavigatePage('suppliers'),
     },
     {
+      id: 'unified_materials',
+      label: 'منظومة الخامات الموحدة',
+      icon: <Layers className="w-5 h-5 sm:w-6 sm:h-6 text-amber-800 dark:text-[#FBBF24]" />,
+      circleClass: 'bg-amber-100 dark:bg-amber-950/60 border-amber-300/60 dark:border-amber-700/60',
+      onClick: () => onNavigatePage('unified_materials'),
+    },
+    {
       id: 'marketplace',
       label: 'سوق الشمساوية',
       icon: <ShoppingBag className="w-5 h-5 sm:w-6 sm:h-6 text-[#C2410C] dark:text-[#FDBA74]" />,
@@ -219,13 +226,6 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       icon: <Palette className="w-5 h-5 sm:w-6 sm:h-6 text-[#C2410C] dark:text-[#FBBF24]" />,
       circleClass: 'bg-orange-100 dark:bg-orange-950/60 border-orange-300/60 dark:border-orange-700/60',
       onClick: () => onNavigatePage('ui_layout_studio'),
-    },
-    {
-      id: 'unified_materials',
-      label: 'منظومة الخامات الموحدة',
-      icon: <Layers className="w-5 h-5 sm:w-6 sm:h-6 text-amber-800 dark:text-[#FBBF24]" />,
-      circleClass: 'bg-amber-100 dark:bg-amber-950/60 border-amber-300/60 dark:border-amber-700/60',
-      onClick: () => onNavigatePage('unified_materials'),
     },
   ];
 

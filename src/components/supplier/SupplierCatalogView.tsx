@@ -45,12 +45,16 @@ interface SupplierCatalogViewProps {
   profile: UserProfile;
   onGoBack: () => void;
   onGoHome: () => void;
+  initialOpenUnifiedPicker?: boolean;
+  onResetOpenUnifiedPicker?: () => void;
 }
 
 export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   profile,
   onGoBack,
   onGoHome,
+  initialOpenUnifiedPicker = false,
+  onResetOpenUnifiedPicker,
 }) => {
   const uiLayout = useUiLayoutConfig();
   const maxAllowedImages = Math.min(8, Math.max(1, Number(uiLayout.supplier?.maxProductImages || MAX_ITEM_IMAGES)));
@@ -90,7 +94,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   const [brandCode, setBrandCode] = useState('');
   const [skuCode, setSkuCode] = useState('');
   const [unitChain, setUnitChain] = useState('');
-  const [isUnifiedPickerOpen, setIsUnifiedPickerOpen] = useState(false);
+  const [isUnifiedPickerOpen, setIsUnifiedPickerOpen] = useState(initialOpenUnifiedPicker);
 
   // Offer & New Stock Alert Modal
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
@@ -111,6 +115,13 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   useEffect(() => {
     loadItems();
   }, []);
+
+  useEffect(() => {
+    if (initialOpenUnifiedPicker) {
+      setIsUnifiedPickerOpen(true);
+      onResetOpenUnifiedPicker?.();
+    }
+  }, [initialOpenUnifiedPicker]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

@@ -111,6 +111,7 @@ export interface WorkshopHomeScreenProps {
   onOpenPersonalProfile?: () => void;
   onNavigateToAIAgent: () => void;
   onNavigateToMaterials: (openAdd?: boolean) => void;
+  onNavigateToUnifiedMaterials?: () => void;
   onNavigateToSuppliers: () => void;
   onNavigateToSuppliersMarket?: () => void;
   onNavigateToSales: (mode?: string) => void;
@@ -149,6 +150,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   onOpenPersonalProfile,
   onNavigateToAIAgent,
   onNavigateToMaterials,
+  onNavigateToUnifiedMaterials,
   onNavigateToSuppliers,
   onNavigateToSuppliersMarket,
   onNavigateToSales,
@@ -603,6 +605,13 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         return;
       case 'nav_materials':
         onNavigateToMaterials(false);
+        return;
+      case 'nav_unified_materials':
+        if (onNavigateToUnifiedMaterials) {
+          onNavigateToUnifiedMaterials();
+        } else {
+          window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'unified_materials' } }));
+        }
         return;
       case 'nav_calculator':
         onNavigateToCalculator();
