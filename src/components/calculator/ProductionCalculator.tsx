@@ -94,14 +94,13 @@ import {
 import { CostBreakdownDonutChart } from './CostBreakdownDonutChart';
 import { NumberInput } from '../ui/NumberInput';
 import {
-  ensureDefaultBasicYarns,
   isBasicMaterial,
   isExtraMaterial,
   stripParentheses,
   adaptMaterialToCordOption,
 } from '../../services/materialCalculatorAdapter';
 import {
-  ensureDefaultMaterialsInSupabase,
+  getMaterialsFromSupabase,
   getUnitsFromSupabase,
 } from '../../db/supabaseService';
 
@@ -907,13 +906,14 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
       if (!tenantId) return;
 
-      const [supMats, untsRes, allLocalMats, emps, assets] = await Promise.all([
-        ensureDefaultMaterialsInSupabase(tenantId),
+      const [supMatsRes, untsRes, allLocalMats, emps, assets] = await Promise.all([
+        getMaterialsFromSupabase(tenantId),
         getUnitsFromSupabase(tenantId),
-        ensureDefaultBasicYarns(tenantId),
+        tenantStorage.getRawMaterials(tenantId).catch(() => []),
         tenantStorage.getEmployees(tenantId).catch(() => []),
         tenantStorage.ensureDefaultFixedAssets(tenantId).catch(() => []),
       ]);
+      const supMats = supMatsRes.data || [];
       setWorkshopAssets(assets || []);
 
       const unitsMap = new Map<string, any>();
@@ -973,7 +973,10 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       // Check materials stock for smart inventory restock alert
       try {
         const rawStocks = typeof window !== 'undefined' ? localStorage.getItem('alshams_mat_stock_' + tenantId) : null;
-        const stockMap: Record<string, { currentStock: number; minAlertThreshold: number }> = rawStocks ? JSON.parse(rawStocks) : {};
+        const stockMap: Record<
+          string,
+          { currentStock: number; minAlertThreshold: number; warehouseTracked?: boolean }
+        > = rawStocks ? JSON.parse(rawStocks) : {};
 
         const lowList: Array<{
           id: string;
@@ -986,9 +989,12 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         }> = [];
 
         for (const sm of supMats) {
-          const cur = stockMap[sm.id]?.currentStock ?? 0;
-          const th = stockMap[sm.id]?.minAlertThreshold ?? 5;
-          if (cur <= th) {
+          const entry = stockMap[sm.id];
+          if (!entry) continue;
+          const isTracked = entry.warehouseTracked === true || (entry.currentStock ?? 0) > 0;
+          const cur = entry.currentStock ?? 0;
+          const th = entry.minAlertThreshold ?? 0;
+          if (isTracked && th > 0 && cur <= th) {
             const u = unitsMap.get(sm.unit_id);
             lowList.push({
               id: sm.id,

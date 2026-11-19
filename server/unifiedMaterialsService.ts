@@ -773,6 +773,9 @@ export async function createUnifiedMasterItem(
     specFields?: string[];
     artistAliases?: string[];
     supplierAliases?: string[];
+    defaultBrands?: string[];
+    availableThicknessesMm?: number[];
+    optionalSupplierName?: string;
     workshopTags?: string[];
     safetyNote?: string;
     initialSpecLabel?: string;
@@ -786,21 +789,60 @@ export async function createUnifiedMasterItem(
 ) {
   const state = loadUnifiedMaterialsState();
   const merged = await loadUnifiedMaterialsSnapshotFromSupabase(db, { isSuperAdmin: true });
+  const cleanName = input.canonicalName.trim();
+  const normKey = (s: string) =>
+    String(s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .replace(/\s+/g, ' ');
+
+  // Prevent duplicate master creation within the same category
+  const existingDuplicate = merged.masters.find(
+    (m) => m.status === 'active' && m.prefix === input.prefix && normKey(m.canonicalName) === normKey(cleanName)
+  );
+  if (existingDuplicate) {
+    return {
+      master: existingDuplicate,
+      spec: merged.specs.find((s) => s.masterCode === existingDuplicate.code) || null,
+      notification: null,
+      supabaseSynced: true,
+      alreadyExisted: true,
+    };
+  }
+
   const { code, seqNum } = generateNextMasterCode(input.prefix, merged.masters, merged.reservedMasterSeqs);
   const catDef = UNIFIED_CATEGORIES.find((c) => c.prefix === input.prefix);
   const nowIso = new Date().toISOString();
+
+  const cleanedThicknesses = Array.isArray(input.availableThicknessesMm)
+    ? Array.from(
+        new Set(
+          input.availableThicknessesMm
+            .map((n) => Number(n))
+            .filter((n) => Number.isFinite(n) && n > 0 && n <= 100)
+        )
+      ).sort((a, b) => a - b)
+    : [];
+
+  const cleanedBrands = Array.isArray(input.defaultBrands)
+    ? Array.from(new Set(input.defaultBrands.map((b) => String(b || '').trim()).filter(Boolean)))
+    : [];
 
   const master: UnifiedMaterialMaster = {
     code,
     prefix: input.prefix,
     seqNum,
-    canonicalName: input.canonicalName.trim(),
+    canonicalName: cleanName,
     unitChain: input.unitChain || catDef?.defaultUnitChain || 'ل1',
     bridgeFields: Array.isArray(input.bridgeFields) ? input.bridgeFields : [],
     specFields: Array.isArray(input.specFields) ? input.specFields : [],
     artistAliases: Array.isArray(input.artistAliases) ? input.artistAliases.filter(Boolean) : [],
     supplierAliases: Array.isArray(input.supplierAliases) ? input.supplierAliases.filter(Boolean) : [],
-    defaultBrands: [],
+    defaultBrands: cleanedBrands,
+    availableThicknessesMm: cleanedThicknesses.length > 0 ? cleanedThicknesses : undefined,
     workshopTags: Array.isArray(input.workshopTags) ? input.workshopTags.filter(Boolean) : [],
     safetyNote: input.safetyNote || '',
     status: 'active',
@@ -818,9 +860,55 @@ export async function createUnifiedMasterItem(
     seqNum
   );
 
+  // Auto-register any new brand names in unified_material_brands
+  const newCreatedBrands: UnifiedBrandRecord[] = [];
+  const allBrands = [...merged.brands];
+  for (const bName of cleanedBrands) {
+    const exists = allBrands.some((b) => normKey(b.brandName) === normKey(bName));
+    if (!exists) {
+      const brandCode = generateNextBrandCode(allBrands);
+      const brandRec: UnifiedBrandRecord = {
+        brandCode,
+        brandName: bName,
+        categoryHint: input.prefix,
+        status: 'active',
+      };
+      allBrands.push(brandRec);
+      state.customBrands.push(brandRec);
+      newCreatedBrands.push(brandRec);
+    }
+  }
+
+  // Create specs: either all thicknesses provided OR initialSpecLabel
   let createdSpec: UnifiedMaterialSpec | null = null;
-  if (input.initialSpecLabel?.trim()) {
-    const { specCode, specIndex } = generateNextSpecCode(code, merged.specs);
+  const createdSpecs: UnifiedMaterialSpec[] = [];
+  const runningSpecs = [...merged.specs];
+
+  if (cleanedThicknesses.length > 0) {
+    for (const th of cleanedThicknesses) {
+      const { specCode, specIndex } = generateNextSpecCode(code, runningSpecs);
+      const sp: UnifiedMaterialSpec = {
+        specCode,
+        masterCode: code,
+        specIndex,
+        label: `${cleanName} ${th} مم`,
+        thicknessMm: th,
+        origin: input.initialSpecOrigin?.trim() || undefined,
+        bridgeValues: input.initialBridgeValues || {},
+        status: 'active',
+        reviewStatus: input.actorRole === 'super_admin' ? 'approved' : 'new',
+        createdByRole: input.actorRole,
+        createdById: input.actorId,
+        createdByName: input.actorName,
+        createdAt: nowIso,
+      };
+      runningSpecs.push(sp);
+      state.customSpecs.unshift(sp);
+      createdSpecs.push(sp);
+    }
+    createdSpec = createdSpecs[0] || null;
+  } else if (input.initialSpecLabel?.trim()) {
+    const { specCode, specIndex } = generateNextSpecCode(code, runningSpecs);
     createdSpec = {
       specCode,
       masterCode: code,
@@ -837,10 +925,15 @@ export async function createUnifiedMasterItem(
       createdAt: nowIso,
     };
     state.customSpecs.unshift(createdSpec);
+    createdSpecs.push(createdSpec);
   }
 
   let notif: UnifiedMaterialNotification | null = null;
   if (input.actorRole !== 'super_admin') {
+    const extras: string[] = [];
+    if (cleanedThicknesses.length > 0) extras.push(`السماكات: ${cleanedThicknesses.join('، ')} مم`);
+    if (cleanedBrands.length > 0) extras.push(`الماركات: ${cleanedBrands.join('، ')}`);
+    if (input.optionalSupplierName?.trim()) extras.push(`المورد المقترح: ${input.optionalSupplierName.trim()}`);
     notif = {
       id: crypto.randomUUID(),
       eventType: 'new_master',
@@ -849,8 +942,16 @@ export async function createUnifiedMasterItem(
       actorRole: input.actorRole,
       actorId: input.actorId,
       actorName: input.actorName,
-      reason: `إضافة صنف خامة جديد من ${input.actorRole === 'supplier' ? 'مورد' : 'فنان'} ومزامنته فوراً`,
-      payload: { master, initialSpec: createdSpec },
+      reason: `إضافة صنف خامة جديد من ${input.actorRole === 'supplier' ? 'مورد' : 'فنان'} ومزامنته فوراً${
+        extras.length ? ` (${extras.join(' | ')})` : ''
+      }`,
+      payload: {
+        master,
+        initialSpec: createdSpec,
+        specs: createdSpecs,
+        brands: cleanedBrands,
+        optionalSupplierName: input.optionalSupplierName?.trim() || undefined,
+      },
       status: 'pending',
       createdAt: nowIso,
     };
@@ -859,10 +960,19 @@ export async function createUnifiedMasterItem(
 
   saveUnifiedMaterialsState(state);
   const supabaseSynced = await trySyncMasterToSupabase(db, master);
-  if (createdSpec) await trySyncSpecToSupabase(db, createdSpec);
+  for (const sp of createdSpecs) {
+    await trySyncSpecToSupabase(db, sp);
+  }
+  if (db && newCreatedBrands.length > 0) {
+    for (const br of newCreatedBrands) {
+      try {
+        await db.from('unified_material_brands').upsert(brandToRow(br), { onConflict: 'brand_code' });
+      } catch {}
+    }
+  }
   if (notif) await trySyncNotificationToSupabase(db, notif);
 
-  return { master, spec: createdSpec, notification: notif, supabaseSynced };
+  return { master, spec: createdSpec, specs: createdSpecs, notification: notif, supabaseSynced, alreadyExisted: false };
 }
 
 export async function createUnifiedSpecItem(

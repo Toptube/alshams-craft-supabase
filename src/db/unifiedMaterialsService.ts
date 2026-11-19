@@ -143,6 +143,9 @@ export async function createUnifiedMasterApi(payload: {
   specFields?: string[];
   artistAliases?: string[];
   supplierAliases?: string[];
+  defaultBrands?: string[];
+  availableThicknessesMm?: number[];
+  optionalSupplierName?: string;
   workshopTags?: string[];
   safetyNote?: string;
   initialSpecLabel?: string;
@@ -156,7 +159,9 @@ export async function createUnifiedMasterApi(payload: {
   success: boolean;
   master?: UnifiedMaterialMaster;
   spec?: UnifiedMaterialSpec | null;
+  specs?: UnifiedMaterialSpec[];
   notification?: UnifiedMaterialNotification | null;
+  alreadyExisted?: boolean;
   error?: string;
 }> {
   try {

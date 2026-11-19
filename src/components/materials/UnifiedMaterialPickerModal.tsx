@@ -6,10 +6,13 @@ import {
   Plus,
   AlertTriangle,
   Layers,
-  Tag,
   CheckSquare,
   Square,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  Lock,
 } from 'lucide-react';
 import {
   UnifiedCategoryPrefix,
@@ -30,6 +33,7 @@ import {
   createUnifiedBrandApi,
   getSeededFallbackSnapshot,
 } from '../../db/unifiedMaterialsService';
+import { normalizeMaterialKey } from '../../utils/materialsDeduplication';
 
 export interface UnifiedPickerSelectionItem {
   master: UnifiedMaterialMaster;
@@ -52,8 +56,10 @@ interface UnifiedMaterialPickerModalProps {
   actorName: string;
   /** Used in supplier mode when linking a single item, or artisan multi-import */
   onConfirmSelection: (selected: UnifiedPickerSelectionItem[]) => void | Promise<void>;
-  /** Optional already-linked codes in member's list */
+  /** Already-linked unified master codes in member's list (locked from duplicate adding) */
   alreadyLinkedCodes?: Set<string>;
+  /** Existing material names in member's list (used for smart duplicate detection) */
+  existingMaterialNames?: string[];
 }
 
 const DEFAULT_KIND_FOR_PREFIX: Record<UnifiedCategoryPrefix, 'primary' | 'extra'> = {
@@ -71,6 +77,12 @@ const DEFAULT_KIND_FOR_PREFIX: Record<UnifiedCategoryPrefix, 'primary' | 'extra'
   AX: 'extra',
 };
 
+type SelectionConfig = {
+  specCode: string;
+  brandCode: string;
+  kind: 'primary' | 'extra';
+};
+
 export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProps> = ({
   isOpen,
   onClose,
@@ -79,6 +91,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
   actorName,
   onConfirmSelection,
   alreadyLinkedCodes,
+  existingMaterialNames = [],
 }) => {
   const [snapshot, setSnapshot] = useState<UnifiedMaterialsSnapshot>(() => getSeededFallbackSnapshot());
   const [loading, setLoading] = useState(false);
@@ -86,17 +99,12 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
   const [prefixFilter, setPrefixFilter] = useState<UnifiedCategoryPrefix | 'all'>('all');
   const [workshopFilter, setWorkshopFilter] = useState<string>('all');
 
-  // Selected state keyed by masterCode
-  const [selectedMap, setSelectedMap] = useState<
-    Record<
-      string,
-      {
-        specCode: string;
-        brandCode: string;
-        kind: 'primary' | 'extra';
-      }
-    >
-  >({});
+  // Inspect-First state: clicking a card opens it WITHOUT auto-selecting it!
+  const [expandedCode, setExpandedCode] = useState<string | null>(null);
+  // Draft configuration while inspecting an opened card before clicking "اختيار"
+  const [draftMap, setDraftMap] = useState<Record<string, SelectionConfig>>({});
+  // Confirmed selected items (ONLY added when user explicitly clicks "اختيار" or "اختيار الكل")
+  const [selectedMap, setSelectedMap] = useState<Record<string, SelectionConfig>>({});
   const [submitting, setSubmitting] = useState(false);
 
   // Add New Unified Material inline panel
@@ -107,7 +115,8 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
   const [newSupplierAlias, setNewSupplierAlias] = useState('');
   const [newUnitChain, setNewUnitChain] = useState<UnitChainCode>('ل1');
   const [newSpecLabel, setNewSpecLabel] = useState('');
-  const [newThicknessMm, setNewThicknessMm] = useState('');
+  const [newThicknessesText, setNewThicknessesText] = useState('2, 3, 4, 5, 6');
+  const [newBrandsText, setNewBrandsText] = useState('');
   const [newOrigin, setNewOrigin] = useState('');
   const [creatingMaster, setCreatingMaster] = useState(false);
   const [formMsg, setFormMsg] = useState<{ text: string; isError?: boolean } | null>(null);
@@ -121,6 +130,15 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
   const [showAddBrand, setShowAddBrand] = useState(false);
   const [newBrandName, setNewBrandName] = useState('');
   const [savingBrand, setSavingBrand] = useState(false);
+
+  const [actionToast, setActionToast] = useState<string | null>(null);
+  const triggerToast = (msg: string) => setActionToast(msg);
+
+  useEffect(() => {
+    if (!actionToast) return;
+    const t = setTimeout(() => setActionToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [actionToast]);
 
   const loadSnapshot = async () => {
     setLoading(true);
@@ -136,10 +154,30 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
     if (!isOpen) return;
     loadSnapshot();
     setSelectedMap({});
+    setDraftMap({});
+    setExpandedCode(null);
     setFormMsg(null);
     setShowAddForm(false);
     setAddingSpecForCode(null);
   }, [isOpen, mode, actorId]);
+
+  // Normalized set of existing names for smart duplicate prevention
+  const normalizedExistingNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const nm of existingMaterialNames) {
+      const nk = normalizeMaterialKey(nm);
+      if (nk) s.add(nk);
+    }
+    return s;
+  }, [existingMaterialNames]);
+
+  const isAlreadyOwned = (master: UnifiedMaterialMaster): boolean => {
+    if (alreadyLinkedCodes?.has(master.code)) return true;
+    if (normalizedExistingNames.size === 0) return false;
+    const cn = normalizeMaterialKey(master.canonicalName);
+    if (cn && normalizedExistingNames.has(cn)) return true;
+    return false;
+  };
 
   const hiddenMasterCodes = useMemo(() => {
     const set = new Set<string>();
@@ -179,30 +217,88 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
     return searchResult.matches.slice(0, 80);
   }, [searchResult.matches]);
 
-  const [actionToast, setActionToast] = useState<string | null>(null);
-  const triggerToast = (msg: string) => {
-    setActionToast(msg);
-  };
+  const selectableVisibleMatches = useMemo(() => {
+    return visibleMatches.filter(({ master }) => !isAlreadyOwned(master));
+  }, [visibleMatches, alreadyLinkedCodes, normalizedExistingNames]);
 
-  useEffect(() => {
-    if (!actionToast) return;
-    const t = setTimeout(() => setActionToast(null), 2400);
-    return () => clearTimeout(t);
-  }, [actionToast]);
+  const alreadyOwnedVisibleCount = visibleMatches.length - selectableVisibleMatches.length;
 
   const selectedCount = Object.keys(selectedMap).length;
 
-  const allVisibleSelected = useMemo(() => {
-    if (visibleMatches.length === 0) return false;
-    return visibleMatches.every(({ master }) => Boolean(selectedMap[master.code]));
-  }, [visibleMatches, selectedMap]);
+  const allSelectableVisibleSelected = useMemo(() => {
+    if (selectableVisibleMatches.length === 0) return false;
+    return selectableVisibleMatches.every(({ master }) => Boolean(selectedMap[master.code]));
+  }, [selectableVisibleMatches, selectedMap]);
+
+  const getDefaultConfig = (master: UnifiedMaterialMaster): SelectionConfig => ({
+    specCode: '',
+    brandCode: mode === 'supplier' ? 'B000' : '',
+    kind: DEFAULT_KIND_FOR_PREFIX[master.prefix] || 'primary',
+  });
+
+  const getActiveConfig = (master: UnifiedMaterialMaster): SelectionConfig => {
+    return draftMap[master.code] || selectedMap[master.code] || getDefaultConfig(master);
+  };
+
+  // Step 1: Clicking a card ONLY opens/collapses it for inspection (never auto-selects!)
+  const handleToggleInspect = (master: UnifiedMaterialMaster) => {
+    setExpandedCode((prev) => {
+      if (prev === master.code) return null;
+      setDraftMap((dPrev) => ({
+        ...dPrev,
+        [master.code]: selectedMap[master.code] || dPrev[master.code] || getDefaultConfig(master),
+      }));
+      return master.code;
+    });
+  };
+
+  // Step 2: Explicit confirm button inside the opened card -> marks selected, shows toast, auto-collapses!
+  const handleConfirmSingleMaster = (master: UnifiedMaterialMaster) => {
+    if (isAlreadyOwned(master)) {
+      triggerToast(`«${master.canonicalName}» موجودة بالفعل في خاماتك ولا يمكن تكرارها`);
+      setExpandedCode(null);
+      return;
+    }
+    const cfg = getActiveConfig(master);
+    const displayName = customNamesByCode[master.code] || master.canonicalName;
+
+    setSelectedMap((prev) =>
+      mode === 'supplier'
+        ? { [master.code]: cfg }
+        : { ...prev, [master.code]: cfg }
+    );
+
+    // Auto-collapse after adding so user sees the green checkmark and continues browsing cleanly
+    setExpandedCode(null);
+
+    if (isBundleThicknessThread(master)) {
+      const thRange = formatThreadThicknessRangeLabel(getThreadThicknessOptions(master.code, master));
+      triggerToast(`✓ تمت إضافة «${displayName}» لقائمة الاختيار (تشمل كل السماكات: ${thRange})`);
+    } else {
+      triggerToast(`✓ تمت إضافة «${displayName}» لقائمة الاختيار`);
+    }
+  };
+
+  const handleUnselectMaster = (master: UnifiedMaterialMaster) => {
+    const displayName = customNamesByCode[master.code] || master.canonicalName;
+    setSelectedMap((prev) => {
+      const next = { ...prev };
+      delete next[master.code];
+      return next;
+    });
+    setExpandedCode(null);
+    triggerToast(`تم إلغاء اختيار «${displayName}»`);
+  };
 
   const handleToggleSelectAllVisible = () => {
-    if (visibleMatches.length === 0) return;
-    if (allVisibleSelected) {
+    if (selectableVisibleMatches.length === 0) {
+      triggerToast('جميع الأصناف المعروضة مضافة بالفعل في خاماتك ✓');
+      return;
+    }
+    if (allSelectableVisibleSelected) {
       setSelectedMap((prev) => {
         const next = { ...prev };
-        for (const { master } of visibleMatches) {
+        for (const { master } of selectableVisibleMatches) {
           delete next[master.code];
         }
         return next;
@@ -213,69 +309,25 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
 
     setSelectedMap((prev) => {
       const next = { ...prev };
-      for (const { master } of visibleMatches) {
+      for (const { master } of selectableVisibleMatches) {
         if (!next[master.code]) {
-          next[master.code] = {
-            specCode: '',
-            brandCode: mode === 'supplier' ? 'B000' : '',
-            kind: DEFAULT_KIND_FOR_PREFIX[master.prefix] || 'primary',
-          };
+          next[master.code] = draftMap[master.code] || getDefaultConfig(master);
         }
       }
       return next;
     });
-    triggerToast(`✓ تم تحديد الكل (${visibleMatches.length} خامة بكامل سماكاتها)`);
+    setExpandedCode(null);
+    triggerToast(
+      alreadyOwnedVisibleCount > 0
+        ? `✓ تم اختيار (${selectableVisibleMatches.length}) خامة جديدة فقط — وتجاهل (${alreadyOwnedVisibleCount}) موجودة بالفعل في خاماتك`
+        : `✓ تم اختيار الكل (${selectableVisibleMatches.length} خامة بكامل سماكاتها)`
+    );
   };
 
-  const toggleSelectMaster = (master: UnifiedMaterialMaster, _specs: UnifiedMaterialSpec[]) => {
-    const wasSelected = Boolean(selectedMap[master.code]);
-    const displayName = customNamesByCode[master.code] || master.canonicalName;
-    setSelectedMap((prev) => {
-      if (prev[master.code]) {
-        const next = { ...prev };
-        delete next[master.code];
-        return next;
-      }
-      // Always default to full material (all thicknesses/specs included) rather than locking into one thickness
-      const baseSelection = {
-        specCode: '',
-        brandCode: mode === 'supplier' ? 'B000' : '',
-        kind: DEFAULT_KIND_FOR_PREFIX[master.prefix] || 'primary',
-      };
-      if (mode === 'supplier') {
-        return { [master.code]: baseSelection };
-      }
-      return { ...prev, [master.code]: baseSelection };
-    });
-
-    if (wasSelected) {
-      triggerToast(`تم إلغاء اختيار «${displayName}»`);
-    } else if (isBundleThicknessThread(master)) {
-      const thRange = formatThreadThicknessRangeLabel(getThreadThicknessOptions(master.code, master));
-      triggerToast(`✓ تم اختيار «${displayName}» وتشمل تلقائياً كل السماكات (${thRange})`);
-    } else {
-      triggerToast(`✓ تم اختيار «${displayName}»`);
-    }
-  };
-
-  const updateSelectedSpec = (masterCode: string, specCode: string) => {
-    setSelectedMap((prev) => {
-      if (!prev[masterCode]) return prev;
-      return { ...prev, [masterCode]: { ...prev[masterCode], specCode } };
-    });
-  };
-
-  const updateSelectedBrand = (masterCode: string, brandCode: string) => {
-    setSelectedMap((prev) => {
-      if (!prev[masterCode]) return prev;
-      return { ...prev, [masterCode]: { ...prev[masterCode], brandCode } };
-    });
-  };
-
-  const updateSelectedKind = (masterCode: string, kind: 'primary' | 'extra') => {
-    setSelectedMap((prev) => {
-      if (!prev[masterCode]) return prev;
-      return { ...prev, [masterCode]: { ...prev[masterCode], kind } };
+  const updateDraft = (master: UnifiedMaterialMaster, patch: Partial<SelectionConfig>) => {
+    setDraftMap((prev) => {
+      const base = prev[master.code] || selectedMap[master.code] || getDefaultConfig(master);
+      return { ...prev, [master.code]: { ...base, ...patch } };
     });
   };
 
@@ -287,20 +339,39 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
     }
     setCreatingMaster(true);
     setFormMsg(null);
+
+    const parsedThicknesses =
+      newPrefix === 'TH'
+        ? Array.from(
+            new Set(
+              newThicknessesText
+                .split(/[،,\s/]+/)
+                .map((v) => Number(v.trim()))
+                .filter((n) => Number.isFinite(n) && n > 0 && n <= 100)
+            )
+          ).sort((a, b) => a - b)
+        : undefined;
+
+    const parsedBrands = newBrandsText
+      .split(/[،,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     const res = await createUnifiedMasterApi({
       prefix: newPrefix,
       canonicalName: newCanonicalName.trim(),
       unitChain: newUnitChain,
       artistAliases: newArtistAlias
-        .split('،')
+        .split(/[،,]/)
         .map((s) => s.trim())
         .filter(Boolean),
       supplierAliases: newSupplierAlias
-        .split('،')
+        .split(/[،,]/)
         .map((s) => s.trim())
         .filter(Boolean),
-      initialSpecLabel: newSpecLabel.trim() || undefined,
-      initialSpecThicknessMm: newThicknessMm ? Number(newThicknessMm) : undefined,
+      defaultBrands: parsedBrands,
+      availableThicknessesMm: parsedThicknesses,
+      initialSpecLabel: newPrefix !== 'TH' ? newSpecLabel.trim() || undefined : undefined,
       initialSpecOrigin: newOrigin.trim() || undefined,
       actorRole: mode,
       actorId,
@@ -315,9 +386,8 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
 
     await loadSnapshot();
     const createdMaster = res.master;
-    const createdSpecCode = res.spec?.specCode || '';
-    const selectionEntry = {
-      specCode: createdSpecCode,
+    const selectionEntry: SelectionConfig = {
+      specCode: '',
       brandCode: mode === 'supplier' ? 'B000' : '',
       kind: DEFAULT_KIND_FOR_PREFIX[createdMaster.prefix] || 'primary',
     };
@@ -326,24 +396,26 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
         ? { [createdMaster.code]: selectionEntry }
         : { ...prev, [createdMaster.code]: selectionEntry }
     );
-    setSearchQuery(createdMaster.code);
+    setSearchQuery(createdMaster.canonicalName);
     setNewCanonicalName('');
     setNewArtistAlias('');
     setNewSupplierAlias('');
     setNewSpecLabel('');
-    setNewThicknessMm('');
+    setNewBrandsText('');
     setNewOrigin('');
     setShowAddForm(false);
     setFormMsg({
-      text: `تم تسجيل الخامة الجديدة بكود (${createdMaster.code}) في المنظومة وإرسال إشعار فوري للإدارة ✅`,
+      text: res.alreadyExisted
+        ? `الخامة موجودة مسبقاً بكود (${createdMaster.code}) وتم تحديدها لك ✅`
+        : `تم تسجيل الخامة الجديدة برقم سيريال (${createdMaster.code}) وتحديدها وإرسال إشعار مراجعة للسوبر أدمن ✅`,
     });
   };
 
-  const handleAddInlineSpec = async (masterCode: string) => {
+  const handleAddInlineSpec = async (master: UnifiedMaterialMaster) => {
     if (!inlineSpecLabel.trim()) return;
     setSavingInlineSpec(true);
     const res = await createUnifiedSpecApi({
-      masterCode,
+      masterCode: master.code,
       label: inlineSpecLabel.trim(),
       actorRole: mode,
       actorId,
@@ -352,9 +424,10 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
     setSavingInlineSpec(false);
     if (res.success && res.spec) {
       await loadSnapshot();
-      updateSelectedSpec(masterCode, res.spec.specCode);
+      updateDraft(master, { specCode: res.spec.specCode });
       setAddingSpecForCode(null);
       setInlineSpecLabel('');
+      triggerToast('✓ تمت إضافة المقاس الجديد');
     }
   };
 
@@ -367,11 +440,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
       await loadSnapshot();
       setNewBrandName('');
       setShowAddBrand(false);
-      // Apply brand to currently selected master in supplier mode
-      const firstSelectedCode = Object.keys(selectedMap)[0];
-      if (firstSelectedCode) {
-        updateSelectedBrand(firstSelectedCode, res.brand.brandCode);
-      }
+      triggerToast(`✓ تمت إضافة الماركة «${res.brand.brandName}»`);
     }
   };
 
@@ -384,7 +453,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
       const result: UnifiedPickerSelectionItem[] = [];
       for (const [masterCode, cfg] of entries) {
         const master = snapshot.masters.find((m) => m.code === masterCode);
-        if (!master) continue;
+        if (!master || isAlreadyOwned(master)) continue;
         const isBundledThread = isBundleThicknessThread(master);
         const threadThicknesses = isBundledThread ? getThreadThicknessOptions(master.code, master) : undefined;
         const spec = !isBundledThread && cfg.specCode
@@ -416,7 +485,9 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
           allThicknessesIncluded: isBundledThread || !spec,
         });
       }
-      await onConfirmSelection(result);
+      if (result.length > 0) {
+        await onConfirmSelection(result);
+      }
       onClose();
     } finally {
       setSubmitting(false);
@@ -440,13 +511,11 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
             <div>
               <h2 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
                 {mode === 'supplier'
-                  ? 'ربط / استيراد من منظومة الخامات الموحدة (SKU + ماركة)'
-                  : 'استيراد خامات من المنظومة الموحدة إلى ورشتك'}
+                  ? 'ربط / استيراد من منظومة الخامات الموحدة'
+                  : 'استيراد خامات من المنظومة الموحدة إلى «خاماتي»'}
               </h2>
               <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
-                {mode === 'supplier'
-                  ? 'ابحث بالاسم الدارج أو اختصار القسم (TH, WD, BD...) واربط الصنف بكود موحد وماركة'
-                  : 'علّم على الخامات التي تستخدمها فقط وصنّفها (أساسية / إضافية) أو أضف خامة غير موجودة'}
+                اضغط على أي خامة لمعاينتها أولاً (أساسية / فرعية وسماكاتها) ثم اضغط «اختيار» لإضافتها — الخامات الموجودة لديك محمية من التكرار تلقائياً
               </p>
             </div>
           </div>
@@ -458,7 +527,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                 setShowAddForm((p) => !p);
                 setFormMsg(null);
               }}
-              className="px-3 py-2 rounded-xl bg-[#0C1427] dark:bg-[#1A2B54] text-[#FBBF24] border border-[#22355E] text-xs font-black inline-flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2 rounded-xl bg-[#0C1427] dark:bg-[#1A2B54] text-[#FBBF24] border border-[#22355E] text-xs font-black inline-flex items-center gap-1.5 cursor-pointer active:scale-95 transition"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>{showAddForm ? 'إغلاق نموذج الإضافة' : 'لم أجد الخامة؟ أضفها فوراً'}</span>
@@ -505,15 +574,13 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
               onSubmit={handleCreateNewMaster}
               className="p-4 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border-2 border-[#EA580C]/50 space-y-3 text-xs"
             >
-              <div className="flex items-center justify-between">
-                <h3 className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA]">
-                  إضافة خامة جديدة لقاعدة الخامات الموحدة (تأخذ كود أوتوماتيك وتُبلغ الإدارة فوراً)
-                </h3>
-              </div>
+              <h3 className="font-black text-sm text-[#0C1427] dark:text-[#F7F3EA]">
+                إضافة خامة جديدة لقاعدة الخامات الموحدة (تأخذ رقم سيريال أوتوماتيك وتُبلغ السوبر أدمن فوراً)
+              </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <div>
-                  <label className="block font-bold mb-1">القسم والاختصار *</label>
+                  <label className="block font-bold mb-1">القسم *</label>
                   <select
                     value={newPrefix}
                     onChange={(e) => {
@@ -526,7 +593,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                   >
                     {snapshot.categories.map((c) => (
                       <option key={c.prefix} value={c.prefix}>
-                        {c.prefix} — {c.nameAr}
+                        {c.nameAr.replace(' ★', '')}
                       </option>
                     ))}
                   </select>
@@ -552,22 +619,22 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                     type="text"
                     value={newArtistAlias}
                     onChange={(e) => setNewArtistAlias(e.target.value)}
-                    placeholder="افصل بفاصلة ، مثال: خيط حبل"
+                    placeholder="افصل بفاصلة ،"
                     className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold mb-1">المسمى التجاري لدى الموردين</label>
+                  <label className="block font-bold mb-1">أسماء الماركات (اختياري)</label>
                   <input
                     type="text"
-                    value={newSupplierAlias}
-                    onChange={(e) => setNewSupplierAlias(e.target.value)}
-                    placeholder="افصل بفاصلة ، مثال: خرز على تلاتة"
+                    value={newBrandsText}
+                    onChange={(e) => setNewBrandsText(e.target.value)}
+                    placeholder="افصل بفاصلة ، مثال: أليز، الشمس"
                     className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold mb-1">سلسلة الوحدات (ل1..ل8)</label>
+                  <label className="block font-bold mb-1">سلسلة الوحدات</label>
                   <select
                     value={newUnitChain}
                     onChange={(e) => setNewUnitChain(e.target.value as UnitChainCode)}
@@ -575,37 +642,39 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                   >
                     {snapshot.unitChains.map((u) => (
                       <option key={u.code} value={u.code}>
-                        {u.code} — {u.titleAr}
+                        {u.titleAr}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {newPrefix === 'TH' ? (
+                  <div>
+                    <label className="block font-bold mb-1">السماكات المتاحة بالمم</label>
+                    <input
+                      type="text"
+                      value={newThicknessesText}
+                      onChange={(e) => setNewThicknessesText(e.target.value)}
+                      placeholder="2, 3, 4, 5, 6"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-bold"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block font-bold mb-1">المقاس / المواصفة (اختياري)</label>
+                    <input
+                      type="text"
+                      value={newSpecLabel}
+                      onChange={(e) => setNewSpecLabel(e.target.value)}
+                      placeholder="مثال: مقاس 10 مم"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                    />
+                  </div>
+                )}
                 <div>
-                  <label className="block font-bold mb-1">أول مقاس/مواصفة (.01 اختياري)</label>
-                  <input
-                    type="text"
-                    value={newSpecLabel}
-                    onChange={(e) => setNewSpecLabel(e.target.value)}
-                    placeholder="مثال: 3 مم مجدول"
-                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold mb-1">السمك بالمم (اختياري)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={newThicknessMm}
-                    onChange={(e) => setNewThicknessMm(e.target.value)}
-                    placeholder="3"
-                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold mb-1">المنشأ / النوع (مثال: دمياطي، تركي)</label>
+                  <label className="block font-bold mb-1">المنشأ / النوع (اختياري)</label>
                   <input
                     type="text"
                     value={newOrigin}
@@ -629,7 +698,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                   disabled={creatingMaster}
                   className="px-5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-black cursor-pointer disabled:opacity-55"
                 >
-                  {creatingMaster ? 'جاري التوليد والمزامنة...' : 'حفظ وإعطاء كود موحد جديد ✅'}
+                  {creatingMaster ? 'جاري التوليد والمزامنة...' : 'حفظ وإعطاء سيريال موحد جديد ✅'}
                 </button>
               </div>
             </form>
@@ -637,7 +706,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
 
           {/* Interactive Selection Toast */}
           {actionToast && (
-            <div className="px-3.5 py-2 rounded-2xl bg-emerald-600 text-white text-xs font-black flex items-center justify-between gap-2 shadow-sm transition-all">
+            <div className="px-3.5 py-2.5 rounded-2xl bg-emerald-600 text-white text-xs font-black flex items-center justify-between gap-2 shadow-sm transition-all">
               <span className="inline-flex items-center gap-1.5">
                 <Check className="w-4 h-4 shrink-0" />
                 <span>{actionToast}</span>
@@ -676,7 +745,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
               </select>
             </div>
 
-            {/* 12 Clean Category Filter Buttons (No Cluttering Prefix Codes) */}
+            {/* 12 Clean Category Filter Buttons */}
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
@@ -716,28 +785,36 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
             )}
           </div>
 
-          {/* Action Bar: Select All ALWAYS First + Live Counter */}
+          {/* Action Bar: Smart Select All (skips already owned!) */}
           <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-2xl bg-[#EFE9DC]/80 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
             <div className="flex flex-wrap items-center gap-2">
               {mode === 'artisan' && visibleMatches.length > 0 && (
                 <button
                   type="button"
+                  disabled={selectableVisibleMatches.length === 0}
                   onClick={handleToggleSelectAllVisible}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-black inline-flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs ${
-                    allVisibleSelected
+                  className={`px-3.5 py-2 rounded-xl text-xs font-black inline-flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs disabled:opacity-60 disabled:cursor-not-allowed ${
+                    selectableVisibleMatches.length === 0
+                      ? 'bg-sky-600 text-white'
+                      : allSelectableVisibleSelected
                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                       : 'bg-[#0C1427] hover:bg-[#1A2B54] text-[#FBBF24]'
                   }`}
                 >
-                  {allVisibleSelected ? (
+                  {selectableVisibleMatches.length === 0 ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>كل المعروض موجود بالفعل في خاماتك ✓</span>
+                    </>
+                  ) : allSelectableVisibleSelected ? (
                     <>
                       <CheckSquare className="w-4 h-4" />
-                      <span>تم اختيار الكل ({visibleMatches.length}) ✓</span>
+                      <span>تم اختيار كل الجديد ({selectableVisibleMatches.length}) ✓</span>
                     </>
                   ) : (
                     <>
                       <Square className="w-4 h-4" />
-                      <span>اختيار الكل ({visibleMatches.length})</span>
+                      <span>اختيار كل الجديد ({selectableVisibleMatches.length})</span>
                     </>
                   )}
                 </button>
@@ -757,8 +834,12 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
               )}
 
               <span className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
-                المعروض: <strong className="font-mono">{visibleMatches.length}</strong> من{' '}
-                <strong className="font-mono">{searchResult.matches.length}</strong> صنف
+                المعروض: <strong className="font-mono">{visibleMatches.length}</strong> صنف
+                {alreadyOwnedVisibleCount > 0 && (
+                  <span className="text-sky-700 dark:text-sky-300 mr-1.5">
+                    ({alreadyOwnedVisibleCount} موجودة لديك محمية من التكرار)
+                  </span>
+                )}
               </span>
             </div>
 
@@ -814,33 +895,48 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
               {visibleMatches.map(({ master, specs }) => {
                 const isSelected = Boolean(selectedMap[master.code]);
-                const selCfg = selectedMap[master.code];
-                const isAlready = alreadyLinkedCodes?.has(master.code);
+                const isExpanded = expandedCode === master.code;
+                const alreadyOwned = isAlreadyOwned(master);
+                const activeCfg = getActiveConfig(master);
                 const chainDef = snapshot.unitChains.find((u) => u.code === master.unitChain);
                 const catDef = snapshot.categories.find((c) => c.prefix === master.prefix);
                 const isBundledThread = isBundleThicknessThread(master);
                 const threadThicknesses = isBundledThread ? getThreadThicknessOptions(master.code, master) : [];
+                const defaultKind = activeCfg.kind;
 
                 return (
                   <div
                     key={master.code}
                     className={`rounded-2xl p-3.5 border transition-all duration-150 space-y-2.5 ${
-                      isSelected
-                        ? 'bg-emerald-50/75 dark:bg-emerald-950/35 border-emerald-500 ring-1 ring-emerald-500/70 shadow-sm'
+                      alreadyOwned
+                        ? 'bg-sky-50/60 dark:bg-sky-950/25 border-sky-300/70 dark:border-sky-800/70 opacity-90'
+                        : isSelected
+                        ? 'bg-emerald-50/80 dark:bg-emerald-950/35 border-emerald-500 ring-1 ring-emerald-500/70 shadow-sm'
+                        : isExpanded
+                        ? 'bg-amber-50/70 dark:bg-[#18284D] border-[#EA580C] ring-1 ring-[#EA580C]/50 shadow-sm'
                         : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60'
                     }`}
                   >
+                    {/* Card Header: Clicking ONLY opens/closes details for inspection! */}
                     <div className="flex items-start justify-between gap-2.5">
                       <button
                         type="button"
-                        onClick={() => toggleSelectMaster(master, specs)}
+                        onClick={() => handleToggleInspect(master)}
                         className="flex items-start gap-2.5 text-right flex-1 min-w-0 cursor-pointer group"
                       >
                         <div className="mt-0.5 shrink-0">
-                          {isSelected ? (
-                            <CheckSquare className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                          {alreadyOwned ? (
+                            <div className="w-5 h-5 rounded-md bg-sky-600 text-white flex items-center justify-center">
+                              <Check className="w-3.5 h-3.5" />
+                            </div>
+                          ) : isSelected ? (
+                            <div className="w-5 h-5 rounded-md bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                              <Check className="w-3.5 h-3.5" />
+                            </div>
                           ) : (
-                            <Square className="w-5 h-5 text-[#475569] dark:text-[#94A3B8] group-hover:text-[#EA580C]" />
+                            <div className="w-5 h-5 rounded-md border-2 border-[#CBD5E1] dark:border-[#334155] group-hover:border-[#EA580C] flex items-center justify-center transition">
+                              <Eye className="w-3 h-3 text-[#64748B] group-hover:text-[#EA580C]" />
+                            </div>
                           )}
                         </div>
                         <div className="min-w-0 space-y-1">
@@ -852,179 +948,216 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                             <span className="text-[10px] font-bold text-[#C2410C] dark:text-amber-300">
                               {catDef?.nameAr.replace(' ★', '')}
                             </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                                defaultKind === 'extra'
+                                  ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                                  : 'bg-amber-500/15 text-amber-900 dark:text-amber-200'
+                              }`}
+                            >
+                              {defaultKind === 'extra' ? 'فرعية / إضافية' : 'أساسية'}
+                            </span>
                             {isBundledThread && threadThicknesses.length > 0 && (
                               <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-900 dark:text-amber-200 border border-amber-400/40 text-[10px] font-black">
                                 السماكات: {formatThreadThicknessRangeLabel(threadThicknesses)}
                               </span>
                             )}
-                            {master.reviewStatus === 'new' && (
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[10px] font-black">
-                                جديد
-                              </span>
-                            )}
-                            {isAlready && (
-                              <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 text-[10px] font-bold">
-                                مضافة لديك
-                              </span>
-                            )}
                           </div>
-
-                          {(master.artistAliases.length > 0 || master.supplierAliases.length > 0) && (
-                            <div className="text-[10px] text-[#475569] dark:text-[#94A3B8] truncate">
-                              المسميات: {[...master.artistAliases, ...master.supplierAliases].slice(0, 3).join(' · ')}
-                            </div>
-                          )}
-
-                          {chainDef && (
-                            <div className="text-[10px] text-[#334155] dark:text-[#CBD5E1] font-bold">
-                              الوحدة: {chainDef.defaultPrimaryUnit} ⇠ {chainDef.defaultSubUnit}
-                            </div>
-                          )}
                         </div>
                       </button>
 
-                      {/* Clear interactive status button on every card */}
-                      <button
-                        type="button"
-                        onClick={() => toggleSelectMaster(master, specs)}
-                        className={`px-3 py-1.5 rounded-xl text-[11px] font-black shrink-0 inline-flex items-center gap-1 transition active:scale-95 cursor-pointer ${
-                          isSelected
-                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
-                            : 'bg-[#EFE9DC] dark:bg-[#0D162E] hover:bg-[#EA580C] hover:text-white text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E]'
-                        }`}
-                      >
-                        {isSelected ? (
-                          <>
-                            <Check className="w-3.5 h-3.5" />
-                            <span>تم الاختيار</span>
-                          </>
-                        ) : (
-                          <>
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>اختيار</span>
-                          </>
-                        )}
-                      </button>
+                      {/* Header Status Pill / Inspect Trigger */}
+                      {alreadyOwned ? (
+                        <span className="px-2.5 py-1.5 rounded-xl bg-sky-600/15 text-sky-800 dark:text-sky-200 border border-sky-400/40 text-[10px] font-black shrink-0 inline-flex items-center gap-1">
+                          <Lock className="w-3 h-3" />
+                          <span>موجودة بخاماتي ✓</span>
+                        </span>
+                      ) : isSelected && !isExpanded ? (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleInspect(master)}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black shrink-0 inline-flex items-center gap-1 transition active:scale-95 cursor-pointer shadow-xs"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>تم الاختيار</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleInspect(master)}
+                          className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black shrink-0 inline-flex items-center gap-1 transition active:scale-95 cursor-pointer border ${
+                            isExpanded
+                              ? 'bg-[#0C1427] text-[#FBBF24] border-[#0C1427]'
+                              : 'bg-[#EFE9DC] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
+                          }`}
+                        >
+                          <span>{isExpanded ? 'إغلاق' : 'معاينة'}</span>
+                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
                     </div>
 
-                    {/* Expanded options when selected */}
-                    {isSelected && selCfg && (
-                      <div className="pt-2.5 border-t border-emerald-500/30 space-y-2 text-[11px]">
-                        {/* Threads automatically include ALL thicknesses (no repetitive per-thickness picking) */}
-                        {isBundledThread ? (
-                          <div className="p-2.5 rounded-xl bg-emerald-600/10 border border-emerald-500/30 text-emerald-900 dark:text-emerald-200 font-bold flex flex-wrap items-center justify-between gap-2">
-                            <span>
-                              ✓ تنزل الخامة كاملة بجميع سماكاتها ({threadThicknesses.map((t) => `${t} مم`).join(' · ')}) — ويُختار السمك داخل حاسبة التكاليف لحساب سحب الخيط فقط.
-                            </span>
+                    {/* Expanded Inspection Panel (ONLY open while inspecting, auto-closes when user clicks "اختيار"!) */}
+                    {isExpanded && (
+                      <div className="pt-2.5 border-t border-[#D4CCBC] dark:border-[#22355E] space-y-2.5 text-[11px] animate-in fade-in duration-150">
+                        {/* Concise summary of contents */}
+                        <div className="p-2.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC]/70 dark:border-[#22355E] space-y-1">
+                          {chainDef && (
+                            <div className="font-bold text-[#334155] dark:text-[#CBD5E1]">
+                              وحدة القياس: <span className="text-[#0C1427] dark:text-white">{chainDef.defaultPrimaryUnit} ⇠ {chainDef.defaultSubUnit}</span>
+                            </div>
+                          )}
+                          {(master.artistAliases.length > 0 || master.supplierAliases.length > 0) && (
+                            <div className="text-[#475569] dark:text-[#94A3B8]">
+                              المسميات الدارجة: {[...master.artistAliases, ...master.supplierAliases].slice(0, 4).join(' · ')}
+                            </div>
+                          )}
+                          {master.defaultBrands && master.defaultBrands.length > 0 && (
+                            <div className="text-[#475569] dark:text-[#94A3B8]">
+                              الماركات المسجلة: {master.defaultBrands.join(' · ')}
+                            </div>
+                          )}
+                        </div>
+
+                        {alreadyOwned ? (
+                          <div className="p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/40 text-sky-900 dark:text-sky-200 font-bold flex items-center justify-between gap-2">
+                            <span>✓ هذه الخامة موجودة بالفعل في قائمة «خاماتي» — لا يمكن إضافتها مرتين منعاً للتكرار.</span>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedCode(null)}
+                              className="px-2.5 py-1 rounded-lg bg-sky-600 text-white font-black shrink-0 cursor-pointer"
+                            >
+                              حسناً
+                            </button>
                           </div>
                         ) : (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <label className="font-bold shrink-0">المواصفة / المقاس:</label>
-                            <select
-                              value={selCfg.specCode}
-                              onChange={(e) => {
-                                updateSelectedSpec(master.code, e.target.value);
-                                triggerToast('✓ تم تحديث المواصفة المختارة');
-                              }}
-                              className="flex-1 min-w-[160px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-                            >
-                              <option value="">الكل / الخامة كاملة (الافتراضي)</option>
-                              {specs.map((sp) => (
-                                <option key={sp.specCode} value={sp.specCode}>
-                                  {sp.label}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAddingSpecForCode((p) => (p === master.code ? null : master.code));
-                                setInlineSpecLabel('');
-                              }}
-                              className="px-2 py-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-black text-[#C2410C] dark:text-[#FBBF24] cursor-pointer active:scale-95 transition"
-                            >
-                              + مقاس
-                            </button>
-                          </div>
-                        )}
+                          <>
+                            {/* Threads bundle all thicknesses */}
+                            {isBundledThread ? (
+                              <div className="p-2.5 rounded-xl bg-emerald-600/10 border border-emerald-500/30 text-emerald-900 dark:text-emerald-200 font-bold">
+                                ✓ تنزل الخامة كاملة بجميع سماكاتها ({threadThicknesses.map((t) => `${t} مم`).join(' · ')}) — ويُختار السمك داخل حاسبة التكاليف لحساب سحب الخيط فقط.
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <label className="font-bold shrink-0">المواصفة / المقاس:</label>
+                                <select
+                                  value={activeCfg.specCode}
+                                  onChange={(e) => updateDraft(master, { specCode: e.target.value })}
+                                  className="flex-1 min-w-[150px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                                >
+                                  <option value="">الكل / الخامة كاملة (الافتراضي)</option>
+                                  {specs.map((sp) => (
+                                    <option key={sp.specCode} value={sp.specCode}>
+                                      {sp.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAddingSpecForCode((p) => (p === master.code ? null : master.code));
+                                    setInlineSpecLabel('');
+                                  }}
+                                  className="px-2 py-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-black text-[#C2410C] dark:text-[#FBBF24] cursor-pointer"
+                                >
+                                  + مقاس
+                                </button>
+                              </div>
+                            )}
 
-                        {!isBundledThread && addingSpecForCode === master.code && (
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="text"
-                              value={inlineSpecLabel}
-                              onChange={(e) => setInlineSpecLabel(e.target.value)}
-                              placeholder="وصف المقاس الجديد"
-                              className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#EA580C] font-bold"
-                            />
-                            <button
-                              type="button"
-                              disabled={savingInlineSpec || !inlineSpecLabel.trim()}
-                              onClick={() => handleAddInlineSpec(master.code)}
-                              className="px-3 py-1.5 rounded-lg bg-[#EA580C] text-white font-black cursor-pointer active:scale-95 transition disabled:opacity-50"
-                            >
-                              {savingInlineSpec ? '...' : 'حفظ'}
-                            </button>
-                          </div>
-                        )}
+                            {!isBundledThread && addingSpecForCode === master.code && (
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={inlineSpecLabel}
+                                  onChange={(e) => setInlineSpecLabel(e.target.value)}
+                                  placeholder="وصف المقاس الجديد"
+                                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#EA580C] font-bold"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={savingInlineSpec || !inlineSpecLabel.trim()}
+                                  onClick={() => handleAddInlineSpec(master)}
+                                  className="px-3 py-1.5 rounded-lg bg-[#EA580C] text-white font-black cursor-pointer disabled:opacity-50"
+                                >
+                                  حفظ
+                                </button>
+                              </div>
+                            )}
 
-                        {mode === 'artisan' ? (
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-bold">تصنيفها في ورشتك:</span>
-                            <div className="flex items-center gap-1.5">
+                            {mode === 'artisan' ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-bold">نوعها في ورشتك:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateDraft(master, { kind: 'primary' })}
+                                  className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer transition ${
+                                    activeCfg.kind === 'primary'
+                                      ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                                      : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
+                                  }`}
+                                >
+                                  خامة أساسية
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => updateDraft(master, { kind: 'extra' })}
+                                  className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer transition ${
+                                    activeCfg.kind === 'extra'
+                                      ? 'bg-emerald-600 text-white border-emerald-600'
+                                      : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
+                                  }`}
+                                >
+                                  خامة فرعية / إضافية
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <label className="font-bold shrink-0">الماركة:</label>
+                                <select
+                                  value={activeCfg.brandCode}
+                                  onChange={(e) => updateDraft(master, { brandCode: e.target.value })}
+                                  className="flex-1 min-w-[140px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                                >
+                                  {snapshot.brands.map((b) => (
+                                    <option key={b.brandCode} value={b.brandCode}>
+                                      {b.brandName}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            {/* Explicit Action Buttons: Confirm Select -> Marks Checkmark & Auto-Closes! */}
+                            <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#D4CCBC]/60 dark:border-[#22355E]">
+                              {isSelected ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnselectMaster(master)}
+                                  className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 font-black cursor-pointer transition"
+                                >
+                                  إلغاء الاختيار
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedCode(null)}
+                                  className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold cursor-pointer"
+                                >
+                                  إغلاق بدون اختيار
+                                </button>
+                              )}
+
                               <button
                                 type="button"
-                                onClick={() => {
-                                  updateSelectedKind(master.code, 'primary');
-                                  triggerToast('✓ تم التصنيف كخامة أساسية');
-                                }}
-                                className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer transition active:scale-95 inline-flex items-center gap-1 ${
-                                  selCfg.kind === 'primary'
-                                    ? 'bg-amber-600 text-white border-transparent shadow-xs'
-                                    : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
-                                }`}
+                                onClick={() => handleConfirmSingleMaster(master)}
+                                className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black inline-flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer"
                               >
-                                {selCfg.kind === 'primary' && <Check className="w-3 h-3" />}
-                                <span>خامة أساسية</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  updateSelectedKind(master.code, 'extra');
-                                  triggerToast('✓ تم التصنيف كخامة فرعية / إضافية');
-                                }}
-                                className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer transition active:scale-95 inline-flex items-center gap-1 ${
-                                  selCfg.kind === 'extra'
-                                    ? 'bg-emerald-600 text-white border-transparent shadow-xs'
-                                    : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
-                                }`}
-                              >
-                                {selCfg.kind === 'extra' && <Check className="w-3 h-3" />}
-                                <span>خامة فرعية / إضافية</span>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>{isSelected ? 'تأكيد التعديل وإغلاق' : 'اختيار وإضافة لخاماتي'}</span>
                               </button>
                             </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <label className="font-bold shrink-0 inline-flex items-center gap-1">
-                              <Tag className="w-3 h-3 text-[#EA580C]" />
-                              <span>الماركة / المصنع:</span>
-                            </label>
-                            <select
-                              value={selCfg.brandCode}
-                              onChange={(e) => {
-                                updateSelectedBrand(master.code, e.target.value);
-                                triggerToast('✓ تم اختيار الماركة');
-                              }}
-                              className="flex-1 min-w-[160px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-                            >
-                              {snapshot.brands.map((b) => (
-                                <option key={b.brandCode} value={b.brandCode}>
-                                  {b.brandName}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
+                          </>
                         )}
                       </div>
                     )}
@@ -1036,16 +1169,17 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-[#D4CCBC] dark:border-[#22355E] bg-[#EFE9DC]/60 dark:bg-[#132040]/60 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs font-bold text-[#334155] dark:text-[#CBD5E1]">
-            المحدد حالياً:{' '}
-            <strong className="font-mono text-[#EA580C] dark:text-[#FBBF24]">{selectedCount}</strong> خامة
-          </span>
+        <div className="p-4 border-t border-[#D4CCBC] dark:border-[#22355E] bg-[#EFE9DC] dark:bg-[#0A1124] flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs font-bold text-[#334155] dark:text-[#CBD5E1]">
+            تم اختيار <strong className="font-mono text-[#EA580C] dark:text-[#FBBF24] text-sm">{selectedCount}</strong>{' '}
+            خامة جديدة للاستيراد — ستظهر بأكوادها الموحدة فور الحفظ في «خاماتي»
+          </div>
+
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold cursor-pointer"
             >
               إلغاء
             </button>
@@ -1053,15 +1187,15 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
               type="button"
               disabled={selectedCount === 0 || submitting}
               onClick={handleConfirm}
-              className="px-5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+              className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center gap-1.5 shadow-md transition active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
               <span>
                 {submitting
-                  ? 'جاري الاستيراد...'
+                  ? 'جاري الحفظ بدون تكرار...'
                   : mode === 'supplier'
-                  ? 'تأكيد ربط الصنف بالكود التجاري SKU'
-                  : `إضافة المحدد إلى خامات ورشتي (${selectedCount})`}
+                  ? 'تأكيد الربط بالمنظومة الموحدة'
+                  : `حفظ وإضافة (${selectedCount}) إلى خاماتي`}
               </span>
             </button>
           </div>

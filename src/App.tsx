@@ -197,8 +197,10 @@ const WhatsAppQuoteDrawer = lazy(() =>
     default: m.WhatsAppQuoteDrawer,
   }))
 );
-const NewMaterialModal = lazy(() =>
-  import('./components/modals/CreationModals').then((m) => ({ default: m.NewMaterialModal }))
+const UnifiedNewMaterialModal = lazy(() =>
+  import('./components/materials/UnifiedNewMaterialModal').then((m) => ({
+    default: m.UnifiedNewMaterialModal,
+  }))
 );
 const NewClientModal = lazy(() =>
   import('./components/modals/CreationModals').then((m) => ({ default: m.NewClientModal }))
@@ -402,7 +404,7 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   calculator: 'حاسبة تكاليف الإنتاج والتسعير',
   archive: 'أرشيف المنتجات والمشغولات',
   catalog: 'كتالوج الورشة والمنتجات',
-  materials: 'المخزن وإدارة الخامات',
+  materials: 'خاماتي والمخزن',
   purchases: 'المشتريات وفواتير الخامات',
   suppliers: 'مورديني',
   suppliers_market: 'سوق موردين الشمساوية للخامات',
@@ -3417,11 +3419,13 @@ export const App: React.FC = () => {
 
       {/* Quick Creation Modals */}
       {isNewMaterialOpen && (
-        <NewMaterialModal
+        <UnifiedNewMaterialModal
           isOpen={isNewMaterialOpen}
           onClose={() => setIsNewMaterialOpen(false)}
-          profile={profile}
-          onSuccess={() => {
+          workshopId={profile.workshopId || profile.tenantId || profile.id}
+          actorName={profile.brandName || profile.artistName || 'ورشة'}
+          currencySymbol={profile.currencySymbol || 'ج.م'}
+          onCreated={() => {
             loadSearchCacheAndNotifications();
             window.dispatchEvent(new CustomEvent('alshams_materials_changed'));
           }}

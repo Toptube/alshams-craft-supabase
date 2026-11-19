@@ -406,17 +406,16 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
       },
       {
         id: 'materials',
-        label: 'الخامات',
-        subtitle: 'بطاقات الخامات وحدود الطلب',
+        label: 'خاماتي',
+        subtitle: 'كل خاماتك بتقسيمتها ومنظومة الخامات',
         iconKey: 'Layers',
         colorPreset: 'amber',
         visible: true,
         items: [
+          { id: 'mat_list', actionKey: 'nav_materials', label: 'خاماتي (كل الخامات + إضافة جديد)', iconKey: 'Layers', visible: true },
           { id: 'mat_unified', actionKey: 'nav_unified_materials', label: 'منظومة الخامات الموحدة (الذكية)', iconKey: 'Sparkles', visible: true },
-          { id: 'mat_add', actionKey: 'modal_new_material', label: 'إضافة خامة جديدة', iconKey: 'PlusCircle', visible: true },
-          { id: 'mat_list', actionKey: 'nav_materials', label: 'أرصدة وبطاقات الخامات', iconKey: 'Layers', visible: true },
           { id: 'mat_prices', actionKey: 'nav_materials', label: 'أسعار الشراء ووحدات القياس', iconKey: 'Tag', visible: true },
-          { id: 'mat_alerts', actionKey: 'nav_materials', label: 'حدود إعادة الطلب والتنبيهات', iconKey: 'AlertTriangle', visible: true },
+          { id: 'mat_alerts', actionKey: 'nav_materials', label: 'المخزن والجرد والتنبيهات', iconKey: 'AlertTriangle', visible: true },
         ],
       },
       {

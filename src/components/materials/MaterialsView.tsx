@@ -5,7 +5,6 @@ import {
   SupabaseUnit,
   SupabaseSupplier,
   getMaterialsFromSupabase,
-  ensureDefaultMaterialsInSupabase,
   createMaterialInSupabase,
   updateMaterialInSupabase,
   deleteMaterialFromSupabase,
@@ -61,21 +60,34 @@ import {
   FolderPlus,
   Folder,
   RefreshCw,
+  Sparkles,
+  Check,
+  Warehouse,
 } from 'lucide-react';
 import { StockLevelProgressBar } from './StockLevelProgressBar';
 import {
   UnifiedMaterialPickerModal,
   UnifiedPickerSelectionItem,
 } from './UnifiedMaterialPickerModal';
+import { UnifiedNewMaterialModal } from './UnifiedNewMaterialModal';
+import { ProductLegacyMigrationModal } from './ProductLegacyMigrationModal';
 import {
   getThreadThicknessOptions,
   formatThreadThicknessRangeLabel,
+  SEEDED_UNIFIED_MASTERS,
 } from '../../registry/unifiedMaterialsRegistry';
 import {
   getLocalMaterialCodeMap,
   saveLocalMaterialCodeMapping,
   updateOrProposeUnifiedMasterApi,
 } from '../../db/unifiedMaterialsService';
+import {
+  analyzeMaterialsHealth,
+  matchMaterialToUnifiedMaster,
+  normalizeMaterialKey,
+  scanProductsForLegacyMaterials,
+  ProductLegacyIssue,
+} from '../../utils/materialsDeduplication';
 
 export interface MaterialCategoryGroup {
   id: string;
@@ -141,8 +153,18 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
   const [categorySearch, setCategorySearch] = useState('');
   const [selectedMaterialCategory, setSelectedMaterialCategory] = useState<string>('');
 
-  // Low Stock & Sorting State
-  const [stockData, setStockData] = useState<Record<string, { currentStock: number; minAlertThreshold: number }>>({});
+  // Separation between "خاماتي" (catalog) and "المخزن والجرد" (warehouse stock)
+  const [activeSectionTab, setActiveSectionTab] = useState<'my_materials' | 'warehouse'>('my_materials');
+  const [isUnifiedNewMaterialOpen, setIsUnifiedNewMaterialOpen] = useState(false);
+  const [isProductMigrationOpen, setIsProductMigrationOpen] = useState(false);
+  const [productLegacyIssues, setProductLegacyIssues] = useState<ProductLegacyIssue[]>([]);
+  const [cleaningDuplicates, setCleaningDuplicates] = useState(false);
+  const [localBrandsMap, setLocalBrandsMap] = useState<Record<string, string[]>>({});
+
+  // Low Stock & Sorting State (warehouseTracked prevents "الحق دي صفر" spam on catalog items)
+  const [stockData, setStockData] = useState<
+    Record<string, { currentStock: number; minAlertThreshold: number; warehouseTracked?: boolean }>
+  >({});
   const [sortBy, setSortBy] = useState<'default' | 'most_needed' | 'name' | 'price_desc' | 'price_asc'>('default');
   const [onlyLowStock, setOnlyLowStock] = useState(false);
   const [editingStockItem, setEditingStockItem] = useState<{
@@ -220,7 +242,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         ensureDefaultUnitsInSupabase(workshopId),
         getSuppliersFromSupabase(workshopId),
         tenantStorage.getSuppliers(workshopId).catch(() => []),
-        ensureDefaultMaterialsInSupabase(workshopId),
+        getMaterialsFromSupabase(workshopId),
       ]);
 
       const supMap = new Map<string, SupabaseSupplier>();
@@ -245,7 +267,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
 
       setUnits(unts);
       setSuppliers(mergedSuppliers);
-      const loadedMats = matsRes || [];
+      const loadedMats = matsRes.data || [];
       setMaterials(loadedMats);
 
       if (unts.length > 0 && !selectedUnitId) {
@@ -274,8 +296,8 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         setMaterialCategories(DEFAULT_MATERIAL_CATEGORIES);
       }
 
-      // Load stock and low-stock reorder thresholds
-      let stocks: Record<string, { currentStock: number; minAlertThreshold: number }> = {};
+      // Load stock and low-stock reorder thresholds (only genuinely tracked items trigger alerts)
+      let stocks: Record<string, { currentStock: number; minAlertThreshold: number; warehouseTracked?: boolean }> = {};
       try {
         const cached = localStorage.getItem('alshams_mat_stock_' + workshopId);
         if (cached) {
@@ -289,9 +311,11 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         const dexieItems = await tenantStorage.getRawMaterials(workshopId);
         for (const it of dexieItems) {
           if (!stocks[it.id]) {
+            const qty = Number(it.currentStock) || 0;
             stocks[it.id] = {
-              currentStock: Number(it.currentStock) || 0,
-              minAlertThreshold: Number(it.minAlertThreshold ?? it.reorderLevel) || 5,
+              currentStock: qty,
+              minAlertThreshold: qty > 0 ? Number(it.minAlertThreshold ?? it.reorderLevel) || 0 : 0,
+              warehouseTracked: qty > 0,
             };
           }
         }
@@ -299,18 +323,40 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         console.warn('Could not read dexie raw materials:', e);
       }
 
-      // Hydrate missing stock entries from Supabase materials row & initialize defaults
+      // Hydrate missing stock entries from Supabase materials row (default untracked so catalog items never spam zero-stock!)
       for (const m of loadedMats as any[]) {
         if (!stocks[m.id]) {
+          const qty = Number(m.current_stock ?? 0);
           stocks[m.id] = {
-            currentStock: Number(m.current_stock ?? 0),
-            minAlertThreshold: Number(m.min_limit ?? 5),
+            currentStock: qty,
+            minAlertThreshold: qty > 0 ? Number(m.min_limit ?? 0) : 0,
+            warehouseTracked: qty > 0,
           };
         }
       }
 
       setStockData(stocks);
-      setLocalUnifiedMap(getLocalMaterialCodeMap('artisan', workshopId));
+      const codeMap = getLocalMaterialCodeMap('artisan', workshopId);
+      setLocalUnifiedMap(codeMap);
+
+      try {
+        const storedBrands = localStorage.getItem('alshams_mat_brands_' + workshopId);
+        if (storedBrands) setLocalBrandsMap(JSON.parse(storedBrands));
+      } catch {}
+
+      // Scan saved products for any legacy material links so we can alert the artist to migrate them
+      try {
+        const savedProds = await tenantStorage.getProducts(workshopId);
+        const issues = scanProductsForLegacyMaterials(
+          savedProds || [],
+          loadedMats,
+          codeMap,
+          SEEDED_UNIFIED_MASTERS
+        );
+        setProductLegacyIssues(issues);
+      } catch {
+        setProductLegacyIssues([]);
+      }
     } catch (err: any) {
       console.error('Failed to load materials data from Supabase:', err);
       setNotice({ text: 'حدث خطأ أثناء تحميل بيانات الخامات.', isError: true });
@@ -367,21 +413,8 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
   }, [suppliers]);
 
   const handleOpenAddMaterial = () => {
-    setEditingMaterial(null);
-    setMaterialName('');
-    setMaterialKind('primary');
-    setSelectedSupplierId('');
-    setSelectedSupplierName('');
-    setSupplierSearch('');
-    setPurchasePrice(0);
-    setSelectedUnitId(units[0]?.id || '');
-    setMarketName('');
-    setMarketUnitFactor(1);
-    const defaultCat = materialCategories.find((c) => c.kind === 'primary')?.id || 'cat_threads';
-    setSelectedMaterialCategory(defaultCat);
-    setEditingUnifiedCode('');
-    setEditingSpecCode('');
-    setIsMaterialModalOpen(true);
+    // Open the exact Unified New Material Modal (auto serial, thicknesses, brands, optional supplier, Super Admin review)
+    setIsUnifiedNewMaterialOpen(true);
   };
 
   const handleOpenEditMaterial = (item: SupabaseMaterial) => {
@@ -583,7 +616,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     }
   };
 
-  // Bulk import selected items from Unified Materials System
+  // Bulk import selected items from Unified Materials System (STRICT ZERO-DUPLICATES + SMART LEGACY UPGRADE!)
   const handleBulkImportFromUnified = async (selected: UnifiedPickerSelectionItem[]) => {
     if (selected.length === 0) return;
     let currentUnits = units;
@@ -604,13 +637,61 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     };
 
     const nextCatMap = { ...materialCategoryMap };
+    const nextStocks = { ...stockData };
+    const currentCodeMap = getLocalMaterialCodeMap('artisan', workshopId);
+    const existingByCode = new Map<string, SupabaseMaterial>();
+    const existingByNorm = new Map<string, SupabaseMaterial>();
+
+    for (const m of materials) {
+      const mc = (currentCodeMap[m.id]?.masterCode || (m as any).unified_code || '').toUpperCase();
+      if (mc) existingByCode.set(mc, m);
+      const nk = normalizeMaterialKey(m.name);
+      if (nk && !existingByNorm.has(nk)) existingByNorm.set(nk, m);
+      const matched = matchMaterialToUnifiedMaster(m.name, SEEDED_UNIFIED_MASTERS);
+      if (matched && !existingByCode.has(matched.code)) {
+        existingByCode.set(matched.code, m);
+      }
+    }
+
     let importedCount = 0;
+    let upgradedCount = 0;
+    let skippedDuplicates = 0;
 
     for (const item of selected) {
       const displayName =
         item.spec && !item.allThicknessesIncluded
           ? `${item.master.canonicalName} — ${item.spec.label}`
           : item.master.canonicalName;
+
+      const normDisplay = normalizeMaterialKey(displayName);
+      const existingSameCode = existingByCode.get(item.master.code.toUpperCase());
+      const existingSameName = existingByNorm.get(normDisplay);
+      const existingMatch = existingSameCode || existingSameName;
+
+      if (existingMatch) {
+        const alreadyHasCode = Boolean(currentCodeMap[existingMatch.id]?.masterCode || (existingMatch as any).unified_code);
+        if (alreadyHasCode) {
+          // Strict zero-duplicate guard: NEVER add twice!
+          skippedDuplicates += 1;
+          continue;
+        }
+        // Smart upgrade: replace old legacy/manual material in place while preserving price & stock!
+        await updateMaterialInSupabase(existingMatch.id, workshopId, {
+          name: displayName,
+          kind: item.kind,
+          market_name: existingMatch.market_name || item.master.supplierAliases?.[0] || null,
+        });
+        saveLocalMaterialCodeMapping('artisan', workshopId, existingMatch.id, {
+          masterCode: item.master.code,
+          specCode: item.specCode,
+          unitChain: item.master.unitChain,
+        });
+        nextCatMap[existingMatch.id] =
+          prefixToGroupCat[item.master.prefix] || (item.kind === 'extra' ? 'cat_woods' : 'cat_threads');
+        upgradedCount += 1;
+        existingByCode.set(item.master.code.toUpperCase(), existingMatch);
+        continue;
+      }
 
       const matchingUnit =
         currentUnits.find((u) => u.name.includes(item.recommendedUnitName)) || currentUnits[0];
@@ -639,6 +720,13 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         });
         nextCatMap[savedId] =
           prefixToGroupCat[item.master.prefix] || (item.kind === 'extra' ? 'cat_woods' : 'cat_threads');
+        // Initialize untracked in warehouse so newly imported catalog items NEVER trigger zero-stock alarms!
+        nextStocks[savedId] = {
+          currentStock: 0,
+          minAlertThreshold: 0,
+          warehouseTracked: false,
+        };
+        existingByCode.set(item.master.code.toUpperCase(), { ...payload, id: savedId, workshop_id: workshopId } as any);
         try {
           await tenantStorage.saveRawMaterial(
             {
@@ -650,7 +738,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
               unit: (matchingUnit.name || 'كيلو') as any,
               unitId: matchingUnit.id,
               currentStock: 0,
-              minAlertThreshold: 5,
+              minAlertThreshold: 0,
               costPerUnit: 0,
               costPerGram: 0,
               isActive: true,
@@ -663,15 +751,125 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     }
 
     setMaterialCategoryMap(nextCatMap);
+    setStockData(nextStocks);
     try {
       localStorage.setItem('alshams_mat_cat_map_' + workshopId, JSON.stringify(nextCatMap));
+      localStorage.setItem('alshams_mat_stock_' + workshopId, JSON.stringify(nextStocks));
     } catch {}
 
     await loadData();
+    const parts: string[] = [];
+    if (importedCount > 0) parts.push(`تمت إضافة (${importedCount}) خامة جديدة لخاماتك`);
+    if (upgradedCount > 0) parts.push(`تمت ترقية (${upgradedCount}) خامة قديمة للمنظومة الموحدة تلقائياً`);
+    if (skippedDuplicates > 0) parts.push(`وتم منع تكرار (${skippedDuplicates}) خامة موجودة مسبقاً`);
     setNotice({
-      text: `تم استيراد (${importedCount}) خامة من المنظومة الموحدة إلى ورشتك وربطها بأكوادها الموحدة بنجاح ✅`,
+      text: (parts.join(' · ') || 'جميع الخامات المختارة موجودة بالفعل في خاماتك') + ' ✅',
       isError: false,
     });
+  };
+
+  // Smart Health Check: detect duplicates & legacy unlinked materials
+  const materialsHealth = useMemo(() => {
+    return analyzeMaterialsHealth(materials, localUnifiedMap, stockData, SEEDED_UNIFIED_MASTERS);
+  }, [materials, localUnifiedMap, stockData]);
+
+  // One-click Smart Cleanup: deduplicate repeated materials & upgrade legacy ones to Unified Materials System
+  const handleSmartCleanupDuplicatesAndLegacy = async () => {
+    if (!materialsHealth.hasIssues || cleaningDuplicates) return;
+    setCleaningDuplicates(true);
+    setNotice(null);
+    let removedCount = 0;
+    let upgradedCount = 0;
+
+    try {
+      const nextStocks = { ...stockData };
+      const nextCatMap = { ...materialCategoryMap };
+      const prefixToGroupCat: Record<string, string> = {
+        TH: 'cat_threads',
+        WD: 'cat_woods',
+        MT: 'cat_metals',
+        BD: 'cat_beads',
+        PK: 'cat_packaging',
+        LT: 'cat_fabrics',
+      };
+
+      // 1. Collapse every duplicate group into its single best canonical row
+      for (const grp of materialsHealth.duplicateGroups) {
+        const keep = grp.keep;
+        const targetName = grp.resolvedMaster?.canonicalName || keep.name;
+
+        // Preserve highest price & stock on the kept row
+        const needsUpdate =
+          keep.name !== targetName ||
+          (grp.mergedPrice > 0 && Number(keep.purchase_price) !== grp.mergedPrice);
+        if (needsUpdate) {
+          await updateMaterialInSupabase(keep.id, workshopId, {
+            name: targetName,
+            purchase_price: grp.mergedPrice > 0 ? grp.mergedPrice : keep.purchase_price,
+          });
+        }
+        if (grp.resolvedMaster) {
+          saveLocalMaterialCodeMapping('artisan', workshopId, keep.id, {
+            masterCode: grp.resolvedMaster.code,
+            unitChain: grp.resolvedMaster.unitChain,
+          });
+          nextCatMap[keep.id] =
+            prefixToGroupCat[grp.resolvedMaster.prefix] || nextCatMap[keep.id] || 'cat_threads';
+        }
+        if (grp.mergedStock > 0) {
+          nextStocks[keep.id] = {
+            currentStock: grp.mergedStock,
+            minAlertThreshold: nextStocks[keep.id]?.minAlertThreshold || 0,
+            warehouseTracked: true,
+          };
+        }
+
+        // Delete redundant duplicate rows from Supabase & Dexie
+        for (const dup of grp.duplicates) {
+          const delRes = await deleteMaterialFromSupabase(dup.id, workshopId);
+          if (!delRes.error) {
+            removedCount += 1;
+            delete nextStocks[dup.id];
+            delete nextCatMap[dup.id];
+            try {
+              await tenantStorage.deactivateRawMaterial(workshopId, dup.id, 'دمج تكرار تلقائي', 'system');
+            } catch {}
+          }
+        }
+      }
+
+      // 2. Upgrade remaining legacy unlinked materials to their matching Unified Master
+      for (const item of materialsHealth.legacyUnlinked) {
+        if (!item.suggestedMaster) continue;
+        await updateMaterialInSupabase(item.material.id, workshopId, {
+          name: item.suggestedMaster.canonicalName,
+        });
+        saveLocalMaterialCodeMapping('artisan', workshopId, item.material.id, {
+          masterCode: item.suggestedMaster.code,
+          unitChain: item.suggestedMaster.unitChain,
+        });
+        nextCatMap[item.material.id] =
+          prefixToGroupCat[item.suggestedMaster.prefix] || nextCatMap[item.material.id] || 'cat_threads';
+        upgradedCount += 1;
+      }
+
+      setStockData(nextStocks);
+      setMaterialCategoryMap(nextCatMap);
+      try {
+        localStorage.setItem('alshams_mat_stock_' + workshopId, JSON.stringify(nextStocks));
+        localStorage.setItem('alshams_mat_cat_map_' + workshopId, JSON.stringify(nextCatMap));
+      } catch {}
+
+      await loadData();
+      setNotice({
+        text: `تم التنظيف الذكي بنجاح: حُذفت (${removedCount}) خامة مكررة وتمت ترقية (${upgradedCount}) خامة قديمة للمنظومة الموحدة مع الحفاظ على أسعارك وأرصدتك ✅`,
+        isError: false,
+      });
+    } catch (err: any) {
+      setNotice({ text: err?.message || 'حدث خطأ أثناء تنظيف التكرارات', isError: true });
+    } finally {
+      setCleaningDuplicates(false);
+    }
   };
 
   // Category Management Handlers
@@ -906,6 +1104,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       [materialId]: {
         currentStock: validStock,
         minAlertThreshold: validThreshold,
+        warehouseTracked: validStock > 0 || validThreshold > 0,
       },
     };
     setStockData(updated);
@@ -1149,12 +1348,14 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     );
   }, [suppliers, supplierSearch]);
 
-  // Filtered Materials list & Low stock items
+  // Filtered Materials list & Low stock items (ONLY for materials actually tracked in the warehouse!)
   const lowStockMaterials = useMemo(() => {
     return materials.filter((m) => {
-      const stock = stockData[m.id]?.currentStock ?? 0;
-      const threshold = stockData[m.id]?.minAlertThreshold ?? 5;
-      return stock <= threshold;
+      const entry = stockData[m.id];
+      const isTracked = Boolean(entry?.warehouseTracked || (entry?.currentStock ?? 0) > 0);
+      const stock = entry?.currentStock ?? 0;
+      const threshold = entry?.minAlertThreshold ?? 0;
+      return isTracked && threshold > 0 && stock <= threshold;
     });
   }, [materials, stockData]);
 
@@ -1252,8 +1453,126 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
 
   return (
     <div className="space-y-5 text-right animate-in fade-in duration-200">
-      {/* شريط التنبيه البصري الفاخر لنواقص الخامات (MaterialsView Alert Banner) */}
-      {lowStockMaterials.length > 0 && (
+      {/* التبديل الواضح بين صفحة «خاماتي» (كتالوج الورشة بتقسيماتها) وصفحة «المخزن والجرد» */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSectionTab('my_materials');
+              setOnlyLowStock(false);
+            }}
+            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${
+              activeSectionTab === 'my_materials'
+                ? 'bg-[#EA580C] text-white shadow-sm'
+                : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>خاماتي ({materials.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSectionTab('warehouse')}
+            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${
+              activeSectionTab === 'warehouse'
+                ? 'bg-[#0C1427] dark:bg-amber-600 text-[#FBBF24] dark:text-white shadow-sm'
+                : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
+            }`}
+          >
+            <Warehouse className="w-4 h-4" />
+            <span>المخزن والجرد</span>
+            {lowStockCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-mono">
+                {lowStockCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* زر إضافة خامة جديدة في أول الصفحة فوق خالص (نفس نموذج المنظومة الموحدة بالسيريال والماركات والمورد الاختياري) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleOpenAddMaterial}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black inline-flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>إضافة خامة جديدة</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsUnifiedPickerOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-[#0C1427] hover:bg-[#1E293B] text-[#FBBF24] border border-amber-300/40 text-xs font-black inline-flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>استيراد من منظومة الخامات</span>
+          </button>
+        </div>
+      </div>
+
+      {/* تنبيه ذكي لتنظيف التكرارات وترقية الخامات القديمة للمنظومة الموحدة */}
+      {materialsHealth.hasIssues && (
+        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-400/70 text-amber-950 dark:text-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-start gap-2.5">
+            <Sparkles className="w-5 h-5 text-[#EA580C] shrink-0 mt-0.5" />
+            <div className="text-xs space-y-0.5">
+              <div className="font-black text-sm">
+                تنظيف وترقية ذكية لخاماتك للمنظومة الموحدة الجديدة
+              </div>
+              <p className="font-bold opacity-90">
+                {materialsHealth.totalDuplicateRows > 0 && (
+                  <span>تم اكتشاف ({materialsHealth.totalDuplicateRows}) صنف مكرر. </span>
+                )}
+                {materialsHealth.legacyUnlinked.length > 0 && (
+                  <span>يوجد ({materialsHealth.legacyUnlinked.length}) خامة من النظام القديم قابلة للترقية والربط بالأكواد الموحدة. </span>
+                )}
+                اضغط للتنظيف والدمج الفوري مع الحفاظ على أسعارك وأرصدتك.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={cleaningDuplicates}
+            onClick={handleSmartCleanupDuplicatesAndLegacy}
+            className="px-4 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer shrink-0 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${cleaningDuplicates ? 'animate-spin' : ''}`} />
+            <span>
+              {cleaningDuplicates ? 'جاري التنظيف والترقية...' : 'تنظيف التكرارات وترقية القديم الآن ✨'}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* إشعار تحديث خامات المنتجات القديمة للمنظومة الجديدة */}
+      {productLegacyIssues.length > 0 && (
+        <div className="p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border-2 border-sky-400/70 text-sky-950 dark:text-sky-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-0.5">
+              <div className="font-black text-sm">
+                إشعار هام: لديك ({productLegacyIssues.length}) منتج محفوظ بخامات من النظام القديم
+              </div>
+              <p className="font-bold opacity-90">
+                قم بتبديل خامات هذه المنتجات وربطها بخامات المنظومة الموحدة الجديدة وحفظها لتبقى حساباتك دقيقة دائماً.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsProductMigrationOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-black inline-flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer shrink-0"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>تبديل خامات المنتجات وحفظها ({productLegacyIssues.length})</span>
+          </button>
+        </div>
+      )}
+
+      {/* شريط التنبيه البصري لنواقص المخزون — يظهر فقط في تبويب «المخزن والجرد» وللخامات المفعّل تتبع رصيدها فقط! */}
+      {activeSectionTab === 'warehouse' && lowStockMaterials.length > 0 && (
         <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-red-950 via-[#1C0D0D] to-amber-950 border-2 border-red-500/70 shadow-2xl text-white space-y-3.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-red-500/30 pb-3">
             <div className="flex items-center gap-3">
@@ -1284,12 +1603,11 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
             </button>
           </div>
 
-          {/* قائمة كروت الخامات الناقصة مع أزرار الإجراء الفوري */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {lowStockMaterials.slice(0, 6).map((m) => {
               const unt = unitsMap.get(m.unit_id);
               const current = stockData[m.id]?.currentStock ?? 0;
-              const threshold = stockData[m.id]?.minAlertThreshold ?? 5;
+              const threshold = stockData[m.id]?.minAlertThreshold ?? 0;
               const unitName = unt?.name || 'وحدة';
 
               return (
@@ -1310,13 +1628,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                         <span className="text-amber-300 font-bold">
                           حد الأمان: {threshold}
                         </span>
-                        <span className="text-stone-400">•</span>
-                        <span className="text-emerald-300 font-bold">
-                          الموصى به: +{Math.max(1, Math.ceil((threshold * 2) - current))} {unitName}
-                        </span>
                       </div>
-
-                      {/* Visual Stock Progress Bar */}
                       <div className="pt-2">
                         <StockLevelProgressBar
                           currentStock={current}
@@ -1342,10 +1654,9 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                         })
                       }
                       className="flex-1 py-1.5 px-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition shadow-xs cursor-pointer active:scale-95 flex items-center justify-center gap-1"
-                      title="تحديث الرصيد الفعلي في المخزن"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>تحديث المخزون ➕</span>
+                      <span>تحديث المخزون</span>
                     </button>
 
                     {(() => {
@@ -1363,25 +1674,11 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                                 unitName,
                                 quantity: recommendedQty,
                               });
-                            } else {
-                              window.dispatchEvent(
-                                new CustomEvent('alshams_quick_purchase', {
-                                  detail: {
-                                    materialId: m.id,
-                                    materialName: m.name,
-                                    supplierId: m.supplier_id || undefined,
-                                    unitCost: Number(m.purchase_price || 0),
-                                    unitName,
-                                    quantity: recommendedQty,
-                                  },
-                                })
-                              );
                             }
                           }}
                           className="flex-1 py-1.5 px-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition shadow-xs cursor-pointer active:scale-95 flex items-center justify-center gap-1"
-                          title="فتح نموذج الشراء بالكمية الموصى بها لسد احتياج خطط التشغيل"
                         >
-                          <span>طلب توريد فوري 📦🛒</span>
+                          <span>طلب توريد 📦</span>
                         </button>
                       );
                     })()}
@@ -1390,14 +1687,6 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
               );
             })}
           </div>
-
-          {lowStockMaterials.length > 6 && (
-            <div className="text-center pt-1 border-t border-red-500/20">
-              <span className="text-[11px] text-amber-200/90 font-bold">
-                يوجد {lowStockMaterials.length - 6} خامات ناقصة أخرى.. انقر على زر "تصفية الجدول للنواقص فقط" لعرض كافة الخامات.
-              </span>
-            </div>
-          )}
         </div>
       )}
 
@@ -1421,7 +1710,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
           <button
             type="button"
             onClick={() => setNotice(null)}
-            className="text-stone-400 hover:text-stone-600 p-1"
+            className="text-stone-400 hover:text-stone-600 p-1 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1429,80 +1718,68 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       )}
 
       {/* Top Banner & Action Buttons */}
-      <div className="p-4 sm:p-6 rounded-3xl bg-gradient-to-r from-amber-600 via-amber-700 to-amber-900 text-white shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-600 via-amber-700 to-amber-900 text-white shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-amber-200 text-xs font-bold mb-2 border border-white/20">
-            <Layers className="w-3.5 h-3.5" />
-            <span>سجل الخامات ووحدات القياس</span>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-amber-200 text-xs font-bold mb-1.5 border border-white/20">
+            {activeSectionTab === 'warehouse' ? <Warehouse className="w-3.5 h-3.5" /> : <Layers className="w-3.5 h-3.5" />}
+            <span>{activeSectionTab === 'warehouse' ? 'المخزن الفعلي وجرد الأرصدة' : 'دليل خاماتي وتقسيماتها'}</span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black">
-            إدارة الخامات ووحدات القياس للورشة
+          <h1 className="text-lg sm:text-xl font-black">
+            {activeSectionTab === 'warehouse'
+              ? 'مخزن الخامات وحركات الجرد'
+              : 'خاماتي — كل خامات الورشة بتقسيمتها وأكوادها الموحدة'}
           </h1>
           <p className="text-xs text-amber-100/90 mt-1 max-w-xl">
-            سجل الخامات الأساسية والإضافية وربطها بالموردين ووحدات القياس وتنبيهات المخزون المنخفض مع طباعة الباركود والملصقات بدقة.
+            {activeSectionTab === 'warehouse'
+              ? 'متابعة الأرصدة الفعلية في المخزن، رأس المال المستثمر، وحدود إعادة الطلب للخامات المفعّلة بالمخزن فقط.'
+              : 'كل الخامات التي اخترتها بتقسيمتها وأسعارها وسماكاتها وأكوادها الموحدة — بدون إزعاج تنبيهات الصفر، ويمكنك إضافة خامة جديدة بسيريال موحد في أي وقت.'}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={() => setShowCapitalAnalytics((prev) => !prev)}
-            className={`px-3.5 py-2.5 rounded-2xl backdrop-blur-md border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95 ${
-              showCapitalAnalytics
-                ? 'bg-amber-400 text-amber-950 border-amber-300 font-black'
-                : 'bg-white/15 hover:bg-white/25 border-white/30 text-white'
-            }`}
-          >
-            <ChartPieIcon className="w-4 h-4 text-amber-300" />
-            <span>تحليل رأس المال 📊</span>
-            <span className="px-2 py-0.5 rounded-full bg-black/20 text-[10px] font-mono">
-              {capitalMetrics.totalCapital.toLocaleString()} {workshop.currencySymbol}
-            </span>
-          </button>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {activeSectionTab === 'warehouse' && (
+            <button
+              type="button"
+              onClick={() => setShowCapitalAnalytics((prev) => !prev)}
+              className={`px-3.5 py-2 rounded-2xl backdrop-blur-md border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95 ${
+                showCapitalAnalytics
+                  ? 'bg-amber-400 text-amber-950 border-amber-300 font-black'
+                  : 'bg-white/15 hover:bg-white/25 border-white/30 text-white'
+              }`}
+            >
+              <ChartPieIcon className="w-4 h-4 text-amber-300" />
+              <span>تحليل رأس المال</span>
+              <span className="px-2 py-0.5 rounded-full bg-black/20 text-[10px] font-mono">
+                {capitalMetrics.totalCapital.toLocaleString()} {workshop.currencySymbol}
+              </span>
+            </button>
+          )}
 
           <button
             type="button"
             onClick={() => setIsCategoryManagerOpen(true)}
-            className="px-3.5 py-2.5 rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md border border-white/30 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+            className="px-3.5 py-2 rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md border border-white/30 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
           >
             <Tag className="w-4 h-4 text-amber-300" />
-            <span>إدارة التصنيفات ({materialCategories.length})</span>
+            <span>التصنيفات ({materialCategories.length})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsUnitsManagerOpen(true)}
-            className="px-3.5 py-2.5 rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md border border-white/30 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+            className="px-3.5 py-2 rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md border border-white/30 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
           >
             <Scale className="w-4 h-4 text-amber-300" />
-            <span>إدارة وحدات القياس</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsUnifiedPickerOpen(true)}
-            className="px-4 py-2.5 rounded-2xl bg-[#0C1427] hover:bg-[#1E293B] text-[#FBBF24] border border-amber-300/40 text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md active:scale-95"
-          >
-            <Layers className="w-4 h-4" />
-            <span>استيراد من منظومة الخامات الموحدة</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleOpenAddMaterial}
-            className="px-4 py-2.5 rounded-2xl bg-white text-amber-900 hover:bg-amber-50 text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md active:scale-95"
-          >
-            <Plus className="w-4 h-4 text-amber-700" />
-            <span>إضافة خامة جديدة</span>
+            <span>وحدات القياس</span>
           </button>
         </div>
       </div>
 
-      {/* Stats Cards (4 Columns) */}
+      {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs text-right">
           <span className="text-[11px] font-bold text-stone-500 dark:text-stone-400 block mb-1">
-            إجمالي الخامات المسجلة
+            إجمالي خاماتي المسجلة
           </span>
           <div className="text-xl sm:text-2xl font-black text-amber-700 dark:text-amber-400">
             {materials.length} <span className="text-xs font-normal text-stone-400">خامة</span>
@@ -1520,74 +1797,52 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
 
         <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs text-right">
           <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 block mb-1">
-            الخامات الإضافية (إكسسوارات، خرز...)
+            الخامات الفرعية / الإضافية
           </span>
           <div className="text-xl sm:text-2xl font-black text-emerald-800 dark:text-emerald-300">
             {extraMaterialsCount} <span className="text-xs font-normal text-stone-400">خامة</span>
           </div>
         </div>
 
-        {/* Low Stock Alert Summary Card */}
-        <button
-          type="button"
-          onClick={() => {
-            setOnlyLowStock((prev) => !prev);
-            if (!onlyLowStock) setSortBy('most_needed');
-          }}
-          className={`p-4 rounded-2xl border text-right transition cursor-pointer flex flex-col justify-between ${
-            lowStockCount > 0
-              ? onlyLowStock
-                ? 'bg-rose-500 text-white border-rose-600 shadow-md ring-2 ring-rose-400'
-                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 border-rose-200 dark:border-rose-900/60 hover:bg-rose-100'
-              : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span
-              className={`text-[11px] font-bold ${
-                onlyLowStock
-                  ? 'text-rose-100'
-                  : lowStockCount > 0
-                  ? 'text-rose-700 dark:text-rose-400'
-                  : 'text-stone-500 dark:text-stone-400'
-              }`}
-            >
-              تنبيهات نواقص المخزون
-            </span>
-            <ShieldAlert
-              className={`w-4 h-4 ${
-                onlyLowStock ? 'text-white' : lowStockCount > 0 ? 'text-rose-600 animate-pulse' : 'text-stone-400'
-              }`}
-            />
-          </div>
-          <div className="mt-2 flex items-baseline justify-between">
-            <div
-              className={`text-xl sm:text-2xl font-black font-mono ${
-                onlyLowStock
-                  ? 'text-white'
-                  : lowStockCount > 0
-                  ? 'text-rose-600 dark:text-rose-400'
-                  : 'text-stone-700 dark:text-stone-300'
-              }`}
-            >
-              {lowStockCount}{' '}
-              <span className={`text-xs font-normal ${onlyLowStock ? 'text-rose-200' : 'text-stone-400'}`}>
-                صنف يحتاج طلب
+        {activeSectionTab === 'warehouse' ? (
+          <button
+            type="button"
+            onClick={() => {
+              setOnlyLowStock((prev) => !prev);
+              if (!onlyLowStock) setSortBy('most_needed');
+            }}
+            className={`p-4 rounded-2xl border text-right transition cursor-pointer flex flex-col justify-between ${
+              lowStockCount > 0
+                ? onlyLowStock
+                  ? 'bg-rose-500 text-white border-rose-600 shadow-md ring-2 ring-rose-400'
+                  : 'bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 border-rose-200 dark:border-rose-900/60 hover:bg-rose-100'
+                : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold">تنبيهات نواقص المخزن</span>
+              <ShieldAlert className={`w-4 h-4 ${lowStockCount > 0 ? 'text-rose-600' : 'text-stone-400'}`} />
+            </div>
+            <div className="mt-2 flex items-baseline justify-between">
+              <div className="text-xl sm:text-2xl font-black font-mono">
+                {lowStockCount} <span className="text-xs font-normal opacity-75">صنف</span>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
+                {onlyLowStock ? 'تصفية مفعلة' : 'فلترة النواقص'}
               </span>
             </div>
-            <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                onlyLowStock
-                  ? 'bg-white/20 text-white'
-                  : lowStockCount > 0
-                  ? 'bg-rose-100 dark:bg-rose-900/80 text-rose-800 dark:text-rose-200'
-                  : 'bg-stone-100 dark:bg-stone-800 text-stone-500'
-              }`}
-            >
-              {onlyLowStock ? 'تصفية مفعلة' : 'فلترة النواقص'}
+          </button>
+        ) : (
+          <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs text-right">
+            <span className="text-[11px] font-bold text-sky-700 dark:text-sky-400 block mb-1">
+              خامات لها رصيد فعلي بالمخزن
             </span>
+            <div className="text-xl sm:text-2xl font-black text-sky-800 dark:text-sky-300">
+              {materials.filter((m) => (stockData[m.id]?.currentStock ?? 0) > 0).length}{' '}
+              <span className="text-xs font-normal text-stone-400">من {materials.length}</span>
+            </div>
           </div>
-        </button>
+        )}
       </div>
 
       {/* ======================================================== */}
@@ -1862,21 +2117,23 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
             >
               خامات إضافية ({extraMaterialsCount})
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setOnlyLowStock((prev) => !prev);
-                if (!onlyLowStock) setSortBy('most_needed');
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                onlyLowStock
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 hover:bg-rose-100'
-              }`}
-            >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>النواقص فقط ({lowStockCount})</span>
-            </button>
+            {activeSectionTab === 'warehouse' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOnlyLowStock((prev) => !prev);
+                  if (!onlyLowStock) setSortBy('most_needed');
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                  onlyLowStock
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 hover:bg-rose-100'
+                }`}
+              >
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>النواقص فقط ({lowStockCount})</span>
+              </button>
+            )}
           </div>
 
           {/* Group Category Chips Filter */}
@@ -1972,8 +2229,10 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                   <th className="p-3.5">المورد</th>
                   <th className="p-3.5">سعر الشراء</th>
                   <th className="p-3.5">وحدة القياس</th>
-                  <th className="p-3.5">رصيد المخزن وحد الطلب</th>
-                  <th className="p-3.5">الاسم بالسوق</th>
+                  {activeSectionTab === 'warehouse' && (
+                    <th className="p-3.5">رصيد المخزن وحد الطلب</th>
+                  )}
+                  <th className="p-3.5">الاسم بالسوق / الماركات</th>
                   <th className="p-3.5 text-center">الإجراءات</th>
                 </tr>
               </thead>
@@ -1982,9 +2241,16 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                   const isExtra = m.kind === 'extra';
                   const sup = m.supplier_id ? suppliersMap.get(m.supplier_id) : null;
                   const unt = unitsMap.get(m.unit_id);
-                  const currentStock = stockData[m.id]?.currentStock ?? 0;
-                  const minAlertThreshold = stockData[m.id]?.minAlertThreshold ?? 5;
-                  const isLowStock = currentStock <= minAlertThreshold;
+                  const stockEntry = stockData[m.id];
+                  const isTracked = Boolean(stockEntry?.warehouseTracked || (stockEntry?.currentStock ?? 0) > 0);
+                  const currentStock = stockEntry?.currentStock ?? 0;
+                  const minAlertThreshold = stockEntry?.minAlertThreshold ?? 0;
+                  const isLowStock =
+                    activeSectionTab === 'warehouse' &&
+                    isTracked &&
+                    minAlertThreshold > 0 &&
+                    currentStock <= minAlertThreshold;
+                  const itemBrands = localBrandsMap[m.id] || [];
 
                   return (
                     <tr
@@ -2012,11 +2278,23 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                                 </span>
                               )}
                           </div>
+                          {itemBrands.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {itemBrands.map((b) => (
+                                <span
+                                  key={b}
+                                  className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 text-[10px] font-bold"
+                                >
+                                  ماركة: {b}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           {isLowStock && (
                             <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 border border-rose-300 dark:border-rose-800 shadow-xs animate-pulse">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 border border-rose-300 dark:border-rose-800 shadow-xs">
                                 <AlertTriangle className="w-3 h-3 text-rose-600" />
-                                <span>⚠️ يلزم الشراء ({currentStock} / {minAlertThreshold} {unt?.name || ''})</span>
+                                <span>يلزم الشراء ({currentStock} / {minAlertThreshold} {unt?.name || ''})</span>
                               </span>
                               {onNavigateToPurchases && (
                                 <button
@@ -2031,10 +2309,9 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                                     })
                                   }
                                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black shadow-xs transition active:scale-95 cursor-pointer whitespace-nowrap"
-                                  title="فتح فاتورة شراء وتوريد لهذه الخامة فورياً"
                                 >
                                   <PackagePlus className="w-3 h-3" />
-                                  <span>طلب شراء 🛒</span>
+                                  <span>طلب شراء</span>
                                 </button>
                               )}
                             </div>
@@ -2051,7 +2328,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                                 : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
                             }`}
                           >
-                            {isExtra ? 'خامة إضافية' : 'خامة أساسية'}
+                            {isExtra ? 'خامة فرعية / إضافية' : 'خامة أساسية'}
                           </span>
                           {(() => {
                             const catId = materialCategoryMap[m.id];
@@ -2068,7 +2345,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                       </td>
 
                       <td className="p-3.5 text-stone-600 dark:text-stone-400">
-                        {sup?.name || '— (شراء عام)'}
+                        {sup?.name || '— (اختياري)'}
                       </td>
 
                       <td className="p-3.5 font-mono font-bold text-stone-900 dark:text-stone-100">
@@ -2091,40 +2368,60 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Stock & Reorder Threshold Column */}
-                      <td className="p-3.5 min-w-[175px]">
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-bold text-stone-500">
-                              رصيد المخزن
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setEditingStockItem({
-                                  id: m.id,
-                                  name: m.name,
-                                  currentStock,
-                                  minAlertThreshold,
-                                  unitName: unt?.name || 'وحدة',
-                                })
-                              }
-                              className="p-1 rounded-lg text-stone-400 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
-                              title="تعديل رصيد المخزن وحد الطلب"
-                            >
-                              <SlidersHorizontal className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                      {/* Stock & Reorder Threshold Column (ONLY shown in Warehouse tab!) */}
+                      {activeSectionTab === 'warehouse' && (
+                        <td className="p-3.5 min-w-[175px]">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-bold text-stone-500">
+                                {isTracked ? 'رصيد المخزن' : 'لم يُضف رصيد بعد'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingStockItem({
+                                    id: m.id,
+                                    name: m.name,
+                                    currentStock,
+                                    minAlertThreshold,
+                                    unitName: unt?.name || 'وحدة',
+                                  })
+                                }
+                                className="p-1 rounded-lg text-stone-400 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+                                title="تعديل رصيد المخزن وحد الطلب"
+                              >
+                                <SlidersHorizontal className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
 
-                          <StockLevelProgressBar
-                            currentStock={currentStock}
-                            minThreshold={minAlertThreshold}
-                            unitName={unt?.name || 'وحدة'}
-                            showLabels={true}
-                            size="md"
-                          />
-                        </div>
-                      </td>
+                            {isTracked ? (
+                              <StockLevelProgressBar
+                                currentStock={currentStock}
+                                minThreshold={minAlertThreshold}
+                                unitName={unt?.name || 'وحدة'}
+                                showLabels={true}
+                                size="md"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingStockItem({
+                                    id: m.id,
+                                    name: m.name,
+                                    currentStock: 0,
+                                    minAlertThreshold: 0,
+                                    unitName: unt?.name || 'وحدة',
+                                  })
+                                }
+                                className="px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-[11px] font-bold text-stone-600 dark:text-stone-300 cursor-pointer transition"
+                              >
+                                + إدخال رصيد بالمخزن
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
 
                       <td className="p-3.5 text-stone-600 dark:text-stone-400">
                         {m.market_name ? (
@@ -3352,7 +3649,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         }
       `}</style>
 
-      {/* Unified Materials System Smart Picker Modal */}
+      {/* Unified Materials System Smart Picker Modal (Inspect-first, zero duplicates) */}
       <UnifiedMaterialPickerModal
         isOpen={isUnifiedPickerOpen}
         onClose={() => setIsUnifiedPickerOpen(false)}
@@ -3367,6 +3664,38 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
               .filter(Boolean)
           )
         }
+        existingMaterialNames={materials.map((m) => m.name)}
+      />
+
+      {/* Exact Unified New Material Modal (Auto Serial + Thicknesses + Brands + Optional Supplier + Super Admin Review) */}
+      <UnifiedNewMaterialModal
+        isOpen={isUnifiedNewMaterialOpen}
+        onClose={() => setIsUnifiedNewMaterialOpen(false)}
+        workshopId={workshopId}
+        actorName={workshop.brandName || workshop.artistName || 'ورشة'}
+        currencySymbol={workshop.currencySymbol}
+        suppliers={suppliers}
+        units={units}
+        onCreated={async (info) => {
+          await loadData();
+          setNotice({
+            text: info.alreadyExisted
+              ? `تم ربط الخامة الموجودة (${info.canonicalName} · ${info.masterCode}) بخاماتك بنجاح ✅`
+              : `تم حفظ «${info.canonicalName}» وإصدار رقم سيريال (${info.masterCode}) وإضافتها لخاماتك وإرسالها للسوبر أدمن للمراجعة ✅`,
+            isError: false,
+          });
+        }}
+      />
+
+      {/* Product Legacy Material Migration Modal */}
+      <ProductLegacyMigrationModal
+        isOpen={isProductMigrationOpen}
+        onClose={() => setIsProductMigrationOpen(false)}
+        workshopId={workshopId}
+        issues={productLegacyIssues}
+        materials={materials}
+        localUnifiedMap={localUnifiedMap}
+        onMigrated={loadData}
       />
     </div>
   );
