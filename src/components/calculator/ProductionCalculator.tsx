@@ -36,6 +36,10 @@ import {
   getMainSectionForCraft,
 } from '../../registry/craftsRegistry';
 import {
+  getThreadThicknessOptions,
+  formatThreadThicknessRangeLabel,
+} from '../../registry/unifiedMaterialsRegistry';
+import {
   getDefaultParamsForWorkshop,
   getWorkshopSpec,
 } from '../../utils/craftEquationsEngine';
@@ -1111,6 +1115,28 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     }
   }, [category]);
 
+  const selectedPrimaryMaterial = useMemo(
+    () => basicMaterials.find((m) => m.id === cordTypeId || m.materialName === cordTypeId) || null,
+    [basicMaterials, cordTypeId]
+  );
+
+  const availableCordThicknesses = useMemo(() => {
+    const label = selectedPrimaryMaterial?.materialName || cordTypeId || '';
+    const opts = getThreadThicknessOptions(label);
+    return opts.length > 0 ? opts : [2, 3, 4, 5, 6];
+  }, [selectedPrimaryMaterial, cordTypeId]);
+
+  useEffect(() => {
+    if (!availableCordThicknesses.includes(cordThicknessMm)) {
+      const preferred = availableCordThicknesses.includes(4)
+        ? 4
+        : availableCordThicknesses[0];
+      if (typeof preferred === 'number') {
+        setCordThicknessMm(preferred);
+      }
+    }
+  }, [availableCordThicknesses, cordThicknessMm]);
+
   // Handle Cord type selection and default price sync from chosen material
   const handleCordTypeChange = (id: string) => {
     setCordTypeId(id);
@@ -1121,15 +1147,23 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
           ? (selectedMat.costPerUnit || 0.18) * 1000
           : (selectedMat.costPerUnit || (selectedMat.costPerGram ? selectedMat.costPerGram * 1000 : 180));
       setPricePerKg(Math.round(price));
+      const allowed = getThreadThicknessOptions(selectedMat.materialName);
       const cordOpt = adaptMaterialToCordOption(selectedMat);
-      if (cordOpt.defaultThicknessMm) {
+      if (allowed.includes(cordThicknessMm)) {
+        // Keep current thickness if valid for this thread
+      } else if (cordOpt.defaultThicknessMm && allowed.includes(cordOpt.defaultThicknessMm)) {
         setCordThicknessMm(cordOpt.defaultThicknessMm);
+      } else if (allowed.length > 0) {
+        setCordThicknessMm(allowed.includes(4) ? 4 : allowed[0]);
       }
     } else {
       const selected = CORD_TYPES.find((c) => c.id === id);
       if (selected) {
         setPricePerKg(selected.defaultPricePerKg);
-        setCordThicknessMm(selected.defaultThicknessMm);
+        const allowed = getThreadThicknessOptions(selected.name);
+        setCordThicknessMm(
+          allowed.includes(selected.defaultThicknessMm) ? selected.defaultThicknessMm : allowed[0] || 4
+        );
       }
     }
   };
@@ -4289,27 +4323,36 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
               </div>
             </div>
 
-            {/* Thickness (Only shown for textile cord crafts) */}
+            {/* Thickness (Dynamically adapted to the selected thread type — changes consumption/draw, not per-kg price) */}
             {isCoreTextileGeometryCraft && (
               <div>
-                <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1.5">
-                  سمك الخيط (ملليمتر) *
-                </label>
-                <div className="flex items-center gap-2">
-                  {[3, 4, 5, 6].map((th) => (
-                    <button
-                      key={th}
-                      type="button"
-                      onClick={() => setCordThicknessMm(th)}
-                      className={`flex-1 py-2 rounded-xl text-xs font-bold font-mono transition ${
-                        cordThicknessMm === th
-                          ? 'bg-amber-600 text-white shadow-sm'
-                          : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
-                      }`}
-                    >
-                      {th} مم
-                    </button>
-                  ))}
+                <div className="flex flex-wrap items-center justify-between gap-1 mb-1.5">
+                  <label className="block text-xs font-bold text-stone-700 dark:text-stone-300">
+                    سمك الخيط (ملليمتر) *
+                  </label>
+                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                    سماكات هذه الخامة: {formatThreadThicknessRangeLabel(availableCordThicknesses)} (يؤثر على سحب الخيط فقط)
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {availableCordThicknesses.map((th) => {
+                    const active = cordThicknessMm === th;
+                    return (
+                      <button
+                        key={th}
+                        type="button"
+                        onClick={() => setCordThicknessMm(th)}
+                        className={`flex-1 min-w-[68px] py-2 px-2 rounded-xl text-xs font-black font-mono transition active:scale-95 cursor-pointer inline-flex items-center justify-center gap-1 ${
+                          active
+                            ? 'bg-amber-600 text-white shadow-sm ring-2 ring-amber-400/60'
+                            : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700 border border-stone-200 dark:border-stone-700'
+                        }`}
+                      >
+                        {active && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
+                        <span>{th} مم</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}

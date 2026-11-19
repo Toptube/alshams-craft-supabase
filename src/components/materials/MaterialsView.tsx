@@ -68,6 +68,10 @@ import {
   UnifiedPickerSelectionItem,
 } from './UnifiedMaterialPickerModal';
 import {
+  getThreadThicknessOptions,
+  formatThreadThicknessRangeLabel,
+} from '../../registry/unifiedMaterialsRegistry';
+import {
   getLocalMaterialCodeMap,
   saveLocalMaterialCodeMapping,
   updateOrProposeUnifiedMasterApi,
@@ -603,9 +607,10 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     let importedCount = 0;
 
     for (const item of selected) {
-      const displayName = item.spec
-        ? `${item.master.canonicalName} — ${item.spec.label}`
-        : item.master.canonicalName;
+      const displayName =
+        item.spec && !item.allThicknessesIncluded
+          ? `${item.master.canonicalName} — ${item.spec.label}`
+          : item.master.canonicalName;
 
       const matchingUnit =
         currentUnits.find((u) => u.name.includes(item.recommendedUnitName)) || currentUnits[0];
@@ -1994,11 +1999,18 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                         <div className="space-y-1">
                           <div className="font-extrabold text-stone-900 dark:text-stone-100 flex items-center gap-1.5 flex-wrap">
                             <span>{m.name}</span>
-                            {(localUnifiedMap[m.id]?.specCode || localUnifiedMap[m.id]?.masterCode) && (
+                            {(localUnifiedMap[m.id]?.specCode || localUnifiedMap[m.id]?.masterCode || (m as any).unified_code) && (
                               <span className="px-1.5 py-0.5 rounded bg-[#0C1427] dark:bg-[#1A2B54] text-[#FBBF24] font-mono tabular-nums text-[10px] font-black">
-                                {localUnifiedMap[m.id]?.specCode || localUnifiedMap[m.id]?.masterCode}
+                                {localUnifiedMap[m.id]?.specCode || localUnifiedMap[m.id]?.masterCode || (m as any).unified_code}
                               </span>
                             )}
+                            {!isExtra &&
+                              (String(localUnifiedMap[m.id]?.masterCode || (m as any).unified_code || '').startsWith('TH') ||
+                                /قطن|بوليستر|كردون|زجزاج|سلب|خيط|حبل/.test(m.name)) && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-200 border border-amber-400/40 text-[10px] font-bold">
+                                  السماكات: {formatThreadThicknessRangeLabel(getThreadThicknessOptions(localUnifiedMap[m.id]?.masterCode || m.name))}
+                                </span>
+                              )}
                           </div>
                           {isLowStock && (
                             <div className="flex flex-wrap items-center gap-1.5 pt-1">

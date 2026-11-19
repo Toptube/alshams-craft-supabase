@@ -19,6 +19,9 @@ import {
   UnifiedMaterialsSnapshot,
   formatCommercialSkuCode,
   searchUnifiedMaterials,
+  getThreadThicknessOptions,
+  isBundleThicknessThread,
+  formatThreadThicknessRangeLabel,
 } from '../../registry/unifiedMaterialsRegistry';
 import {
   fetchUnifiedMaterialsSnapshot,
@@ -37,6 +40,8 @@ export interface UnifiedPickerSelectionItem {
   skuCode?: string;
   kind: 'primary' | 'extra';
   recommendedUnitName: string;
+  availableThicknessesMm?: number[];
+  allThicknessesIncluded?: boolean;
 }
 
 interface UnifiedMaterialPickerModalProps {
@@ -174,18 +179,66 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
     return searchResult.matches.slice(0, 80);
   }, [searchResult.matches]);
 
+  const [actionToast, setActionToast] = useState<string | null>(null);
+  const triggerToast = (msg: string) => {
+    setActionToast(msg);
+  };
+
+  useEffect(() => {
+    if (!actionToast) return;
+    const t = setTimeout(() => setActionToast(null), 2400);
+    return () => clearTimeout(t);
+  }, [actionToast]);
+
   const selectedCount = Object.keys(selectedMap).length;
 
-  const toggleSelectMaster = (master: UnifiedMaterialMaster, specs: UnifiedMaterialSpec[]) => {
+  const allVisibleSelected = useMemo(() => {
+    if (visibleMatches.length === 0) return false;
+    return visibleMatches.every(({ master }) => Boolean(selectedMap[master.code]));
+  }, [visibleMatches, selectedMap]);
+
+  const handleToggleSelectAllVisible = () => {
+    if (visibleMatches.length === 0) return;
+    if (allVisibleSelected) {
+      setSelectedMap((prev) => {
+        const next = { ...prev };
+        for (const { master } of visibleMatches) {
+          delete next[master.code];
+        }
+        return next;
+      });
+      triggerToast('تم إلغاء تحديد الخامات المعروضة');
+      return;
+    }
+
+    setSelectedMap((prev) => {
+      const next = { ...prev };
+      for (const { master } of visibleMatches) {
+        if (!next[master.code]) {
+          next[master.code] = {
+            specCode: '',
+            brandCode: mode === 'supplier' ? 'B000' : '',
+            kind: DEFAULT_KIND_FOR_PREFIX[master.prefix] || 'primary',
+          };
+        }
+      }
+      return next;
+    });
+    triggerToast(`✓ تم تحديد الكل (${visibleMatches.length} خامة بكامل سماكاتها)`);
+  };
+
+  const toggleSelectMaster = (master: UnifiedMaterialMaster, _specs: UnifiedMaterialSpec[]) => {
+    const wasSelected = Boolean(selectedMap[master.code]);
+    const displayName = customNamesByCode[master.code] || master.canonicalName;
     setSelectedMap((prev) => {
       if (prev[master.code]) {
         const next = { ...prev };
         delete next[master.code];
         return next;
       }
-      const firstSpec = specs[0]?.specCode || '';
+      // Always default to full material (all thicknesses/specs included) rather than locking into one thickness
       const baseSelection = {
-        specCode: firstSpec,
+        specCode: '',
         brandCode: mode === 'supplier' ? 'B000' : '',
         kind: DEFAULT_KIND_FOR_PREFIX[master.prefix] || 'primary',
       };
@@ -194,6 +247,15 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
       }
       return { ...prev, [master.code]: baseSelection };
     });
+
+    if (wasSelected) {
+      triggerToast(`تم إلغاء اختيار «${displayName}»`);
+    } else if (isBundleThicknessThread(master)) {
+      const thRange = formatThreadThicknessRangeLabel(getThreadThicknessOptions(master.code, master));
+      triggerToast(`✓ تم اختيار «${displayName}» وتشمل تلقائياً كل السماكات (${thRange})`);
+    } else {
+      triggerToast(`✓ تم اختيار «${displayName}»`);
+    }
   };
 
   const updateSelectedSpec = (masterCode: string, specCode: string) => {
@@ -323,7 +385,9 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
       for (const [masterCode, cfg] of entries) {
         const master = snapshot.masters.find((m) => m.code === masterCode);
         if (!master) continue;
-        const spec = cfg.specCode
+        const isBundledThread = isBundleThicknessThread(master);
+        const threadThicknesses = isBundledThread ? getThreadThicknessOptions(master.code, master) : undefined;
+        const spec = !isBundledThread && cfg.specCode
           ? snapshot.specs.find((s) => s.specCode === cfg.specCode) || null
           : null;
         const chainDef = snapshot.unitChains.find((c) => c.code === master.unitChain);
@@ -348,6 +412,8 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
           skuCode,
           kind: cfg.kind,
           recommendedUnitName: chainDef?.defaultPrimaryUnit || 'كيلو',
+          availableThicknessesMm: threadThicknesses,
+          allThicknessesIncluded: isBundledThread || !spec,
         });
       }
       await onConfirmSelection(result);
@@ -569,6 +635,19 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
             </form>
           )}
 
+          {/* Interactive Selection Toast */}
+          {actionToast && (
+            <div className="px-3.5 py-2 rounded-2xl bg-emerald-600 text-white text-xs font-black flex items-center justify-between gap-2 shadow-sm transition-all">
+              <span className="inline-flex items-center gap-1.5">
+                <Check className="w-4 h-4 shrink-0" />
+                <span>{actionToast}</span>
+              </span>
+              <button type="button" onClick={() => setActionToast(null)} className="opacity-80 hover:opacity-100 cursor-pointer">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Smart Search & Filters */}
           <div className="space-y-2.5">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
@@ -578,7 +657,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="ابحث بالاسم أو الكود أو اختصار القسم (مثل: th أو wd أو TH0001 أو خرز أو سيران)..."
+                  placeholder="ابحث باسم الخامة الدارج أو التجاري (مثل: قطن مجدول، بوليستر مصري، كردون الزجزاج، سلب)..."
                   className="w-full pr-10 pl-3 py-2.5 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold outline-none focus:border-[#EA580C]"
                 />
               </div>
@@ -597,31 +676,32 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
               </select>
             </div>
 
-            {/* 12 Category Prefix Filter Buttons */}
+            {/* 12 Clean Category Filter Buttons (No Cluttering Prefix Codes) */}
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setPrefixFilter('all')}
-                className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black border cursor-pointer transition ${
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-black border cursor-pointer transition active:scale-95 inline-flex items-center gap-1 ${
                   prefixFilter === 'all'
-                    ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white border-transparent'
-                    : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
+                    ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white border-transparent shadow-xs'
+                    : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] hover:border-[#EA580C]/60'
                 }`}
               >
-                الكل ({snapshot.masters.filter((m) => m.status === 'active').length})
+                {prefixFilter === 'all' && <Check className="w-3 h-3" />}
+                <span>الكل ({snapshot.masters.filter((m) => m.status === 'active').length})</span>
               </button>
               {snapshot.categories.map((cat) => (
                 <button
                   key={cat.prefix}
                   type="button"
                   onClick={() => setPrefixFilter(cat.prefix)}
-                  className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border cursor-pointer transition inline-flex items-center gap-1 ${
+                  className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border cursor-pointer transition active:scale-95 inline-flex items-center gap-1 ${
                     prefixFilter === cat.prefix
-                      ? 'bg-[#EA580C] text-white border-transparent'
-                      : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
+                      ? 'bg-[#EA580C] text-white border-transparent shadow-xs'
+                      : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] hover:border-[#EA580C]/60'
                   }`}
                 >
-                  <span className="font-mono font-black">{cat.prefix}</span>
+                  {prefixFilter === cat.prefix && <Check className="w-3 h-3" />}
                   <span>{cat.nameAr.replace(' ★', '')}</span>
                 </button>
               ))}
@@ -636,19 +716,59 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
             )}
           </div>
 
-          {/* Search Matches List */}
-          <div className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] flex items-center justify-between">
-            <span>
-              النتائج المطابقة: <strong className="font-mono">{searchResult.matches.length}</strong> صنف
-              {searchResult.matches.length > 80 ? ' (يُعرض أول 80 نتيجة — خصّص البحث للوصول الأسرع)' : ''}
-            </span>
+          {/* Action Bar: Select All ALWAYS First + Live Counter */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-2xl bg-[#EFE9DC]/80 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+            <div className="flex flex-wrap items-center gap-2">
+              {mode === 'artisan' && visibleMatches.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleToggleSelectAllVisible}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-black inline-flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs ${
+                    allVisibleSelected
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      : 'bg-[#0C1427] hover:bg-[#1A2B54] text-[#FBBF24]'
+                  }`}
+                >
+                  {allVisibleSelected ? (
+                    <>
+                      <CheckSquare className="w-4 h-4" />
+                      <span>تم اختيار الكل ({visibleMatches.length}) ✓</span>
+                    </>
+                  ) : (
+                    <>
+                      <Square className="w-4 h-4" />
+                      <span>اختيار الكل ({visibleMatches.length})</span>
+                    </>
+                  )}
+                </button>
+              )}
+
+              {selectedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedMap({});
+                    triggerToast('تم إلغاء جميع الاختيارات');
+                  }}
+                  className="px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 text-rose-600 dark:text-rose-400 text-[11px] font-black transition active:scale-95 cursor-pointer"
+                >
+                  مسح التحديد ({selectedCount})
+                </button>
+              )}
+
+              <span className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
+                المعروض: <strong className="font-mono">{visibleMatches.length}</strong> من{' '}
+                <strong className="font-mono">{searchResult.matches.length}</strong> صنف
+              </span>
+            </div>
+
             {mode === 'supplier' && (
               <button
                 type="button"
                 onClick={() => setShowAddBrand((p) => !p)}
-                className="text-[#EA580C] hover:underline font-black cursor-pointer"
+                className="text-[#EA580C] hover:underline text-xs font-black cursor-pointer"
               >
-                {showAddBrand ? 'إخفاء إضافة ماركة' : '+ إضافة ماركة غير مدرجة (B054+)'}
+                {showAddBrand ? 'إخفاء إضافة ماركة' : '+ إضافة ماركة غير مدرجة'}
               </button>
             )}
           </div>
@@ -698,37 +818,45 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                 const isAlready = alreadyLinkedCodes?.has(master.code);
                 const chainDef = snapshot.unitChains.find((u) => u.code === master.unitChain);
                 const catDef = snapshot.categories.find((c) => c.prefix === master.prefix);
+                const isBundledThread = isBundleThicknessThread(master);
+                const threadThicknesses = isBundledThread ? getThreadThicknessOptions(master.code, master) : [];
 
                 return (
                   <div
                     key={master.code}
-                    className={`rounded-2xl p-3.5 border transition space-y-2.5 ${
+                    className={`rounded-2xl p-3.5 border transition-all duration-150 space-y-2.5 ${
                       isSelected
-                        ? 'bg-orange-50/70 dark:bg-[#1A2B54] border-[#EA580C] ring-1 ring-[#EA580C]'
-                        : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E]'
+                        ? 'bg-emerald-50/75 dark:bg-emerald-950/35 border-emerald-500 ring-1 ring-emerald-500/70 shadow-sm'
+                        : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-2.5">
                       <button
                         type="button"
                         onClick={() => toggleSelectMaster(master, specs)}
-                        className="flex items-start gap-2.5 text-right flex-1 min-w-0 cursor-pointer"
+                        className="flex items-start gap-2.5 text-right flex-1 min-w-0 cursor-pointer group"
                       >
                         <div className="mt-0.5 shrink-0">
                           {isSelected ? (
-                            <CheckSquare className="w-5 h-5 text-[#EA580C]" />
+                            <CheckSquare className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                           ) : (
-                            <Square className="w-5 h-5 text-[#475569] dark:text-[#94A3B8]" />
+                            <Square className="w-5 h-5 text-[#475569] dark:text-[#94A3B8] group-hover:text-[#EA580C]" />
                           )}
                         </div>
                         <div className="min-w-0 space-y-1">
+                          <div className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                            {customNamesByCode[master.code] || master.canonicalName}
+                          </div>
+
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="px-2 py-0.5 rounded-md bg-[#0C1427] dark:bg-[#0D162E] text-[#FBBF24] font-mono tabular-nums text-[11px] font-black">
-                              {master.code}
-                            </span>
                             <span className="text-[10px] font-bold text-[#C2410C] dark:text-amber-300">
                               {catDef?.nameAr.replace(' ★', '')}
                             </span>
+                            {isBundledThread && threadThicknesses.length > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-900 dark:text-amber-200 border border-amber-400/40 text-[10px] font-black">
+                                السماكات: {formatThreadThicknessRangeLabel(threadThicknesses)}
+                              </span>
+                            )}
                             {master.reviewStatus === 'new' && (
                               <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[10px] font-black">
                                 جديد
@@ -736,70 +864,104 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                             )}
                             {isAlready && (
                               <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 text-[10px] font-bold">
-                                مضاف سابقاً لديك
+                                مضافة لديك
                               </span>
                             )}
                           </div>
-                          <div className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                            {customNamesByCode[master.code] || master.canonicalName}
-                          </div>
+
                           {(master.artistAliases.length > 0 || master.supplierAliases.length > 0) && (
                             <div className="text-[10px] text-[#475569] dark:text-[#94A3B8] truncate">
-                              أسماء السوق: {[...master.artistAliases, ...master.supplierAliases].slice(0, 4).join(' · ')}
+                              المسميات: {[...master.artistAliases, ...master.supplierAliases].slice(0, 3).join(' · ')}
                             </div>
                           )}
-                          <div className="flex flex-wrap items-center gap-2 text-[10px] text-[#334155] dark:text-[#CBD5E1]">
-                            <span className="font-mono font-bold">سلسلة الوحدات: {master.unitChain}</span>
-                            {chainDef && <span>({chainDef.defaultPrimaryUnit} ⇠ {chainDef.defaultSubUnit})</span>}
-                          </div>
+
+                          {chainDef && (
+                            <div className="text-[10px] text-[#334155] dark:text-[#CBD5E1] font-bold">
+                              الوحدة: {chainDef.defaultPrimaryUnit} ⇠ {chainDef.defaultSubUnit}
+                            </div>
+                          )}
                         </div>
+                      </button>
+
+                      {/* Clear interactive status button on every card */}
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectMaster(master, specs)}
+                        className={`px-3 py-1.5 rounded-xl text-[11px] font-black shrink-0 inline-flex items-center gap-1 transition active:scale-95 cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                            : 'bg-[#EFE9DC] dark:bg-[#0D162E] hover:bg-[#EA580C] hover:text-white text-[#0C1427] dark:text-[#F7F3EA] border border-[#D4CCBC] dark:border-[#22355E]'
+                        }`}
+                      >
+                        {isSelected ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>تم الاختيار</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>اختيار</span>
+                          </>
+                        )}
                       </button>
                     </div>
 
                     {/* Expanded options when selected */}
                     {isSelected && selCfg && (
-                      <div className="pt-2.5 border-t border-[#D4CCBC]/70 dark:border-[#22355E] space-y-2 text-[11px]">
-                        {/* Spec selector */}
-                        <div className="flex flex-wrap items-center gap-2">
-                          <label className="font-bold shrink-0">المواصفة / المقاس:</label>
-                          <select
-                            value={selCfg.specCode}
-                            onChange={(e) => updateSelectedSpec(master.code, e.target.value)}
-                            className="flex-1 min-w-[160px] px-2.5 py-1.5 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-                          >
-                            <option value="">{master.code} (بدون مقاس محدد)</option>
-                            {specs.map((sp) => (
-                              <option key={sp.specCode} value={sp.specCode}>
-                                {sp.specCode} — {sp.label}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAddingSpecForCode((p) => (p === master.code ? null : master.code));
-                              setInlineSpecLabel('');
-                            }}
-                            className="px-2 py-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-black text-[#C2410C] dark:text-[#FBBF24] cursor-pointer"
-                          >
-                            + مقاس
-                          </button>
-                        </div>
+                      <div className="pt-2.5 border-t border-emerald-500/30 space-y-2 text-[11px]">
+                        {/* Threads automatically include ALL thicknesses (no repetitive per-thickness picking) */}
+                        {isBundledThread ? (
+                          <div className="p-2.5 rounded-xl bg-emerald-600/10 border border-emerald-500/30 text-emerald-900 dark:text-emerald-200 font-bold flex flex-wrap items-center justify-between gap-2">
+                            <span>
+                              ✓ تنزل الخامة كاملة بجميع سماكاتها ({threadThicknesses.map((t) => `${t} مم`).join(' · ')}) — ويُختار السمك داخل حاسبة التكاليف لحساب سحب الخيط فقط.
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="font-bold shrink-0">المواصفة / المقاس:</label>
+                            <select
+                              value={selCfg.specCode}
+                              onChange={(e) => {
+                                updateSelectedSpec(master.code, e.target.value);
+                                triggerToast('✓ تم تحديث المواصفة المختارة');
+                              }}
+                              className="flex-1 min-w-[160px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                            >
+                              <option value="">الكل / الخامة كاملة (الافتراضي)</option>
+                              {specs.map((sp) => (
+                                <option key={sp.specCode} value={sp.specCode}>
+                                  {sp.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddingSpecForCode((p) => (p === master.code ? null : master.code));
+                                setInlineSpecLabel('');
+                              }}
+                              className="px-2 py-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-black text-[#C2410C] dark:text-[#FBBF24] cursor-pointer active:scale-95 transition"
+                            >
+                              + مقاس
+                            </button>
+                          </div>
+                        )}
 
-                        {addingSpecForCode === master.code && (
+                        {!isBundledThread && addingSpecForCode === master.code && (
                           <div className="flex items-center gap-1.5">
                             <input
                               type="text"
                               value={inlineSpecLabel}
                               onChange={(e) => setInlineSpecLabel(e.target.value)}
-                              placeholder="وصف المقاس الجديد (مثال: 6 مم 3 فتلات)"
+                              placeholder="وصف المقاس الجديد"
                               className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#EA580C] font-bold"
                             />
                             <button
                               type="button"
                               disabled={savingInlineSpec || !inlineSpecLabel.trim()}
                               onClick={() => handleAddInlineSpec(master.code)}
-                              className="px-3 py-1.5 rounded-lg bg-[#EA580C] text-white font-black cursor-pointer disabled:opacity-50"
+                              className="px-3 py-1.5 rounded-lg bg-[#EA580C] text-white font-black cursor-pointer active:scale-95 transition disabled:opacity-50"
                             >
                               {savingInlineSpec ? '...' : 'حفظ'}
                             </button>
@@ -812,25 +974,33 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                             <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => updateSelectedKind(master.code, 'primary')}
-                                className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer ${
+                                onClick={() => {
+                                  updateSelectedKind(master.code, 'primary');
+                                  triggerToast('✓ تم التصنيف كخامة أساسية');
+                                }}
+                                className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer transition active:scale-95 inline-flex items-center gap-1 ${
                                   selCfg.kind === 'primary'
-                                    ? 'bg-amber-600 text-white border-transparent'
-                                    : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
+                                    ? 'bg-amber-600 text-white border-transparent shadow-xs'
+                                    : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
                                 }`}
                               >
-                                خامة أساسية
+                                {selCfg.kind === 'primary' && <Check className="w-3 h-3" />}
+                                <span>خامة أساسية</span>
                               </button>
                               <button
                                 type="button"
-                                onClick={() => updateSelectedKind(master.code, 'extra')}
-                                className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer ${
+                                onClick={() => {
+                                  updateSelectedKind(master.code, 'extra');
+                                  triggerToast('✓ تم التصنيف كخامة فرعية / إضافية');
+                                }}
+                                className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer transition active:scale-95 inline-flex items-center gap-1 ${
                                   selCfg.kind === 'extra'
-                                    ? 'bg-emerald-600 text-white border-transparent'
-                                    : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
+                                    ? 'bg-emerald-600 text-white border-transparent shadow-xs'
+                                    : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
                                 }`}
                               >
-                                خامة فرعية / إضافية
+                                {selCfg.kind === 'extra' && <Check className="w-3 h-3" />}
+                                <span>خامة فرعية / إضافية</span>
                               </button>
                             </div>
                           </div>
@@ -842,21 +1012,18 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                             </label>
                             <select
                               value={selCfg.brandCode}
-                              onChange={(e) => updateSelectedBrand(master.code, e.target.value)}
-                              className="flex-1 min-w-[160px] px-2.5 py-1.5 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                              onChange={(e) => {
+                                updateSelectedBrand(master.code, e.target.value);
+                                triggerToast('✓ تم اختيار الماركة');
+                              }}
+                              className="flex-1 min-w-[160px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
                             >
                               {snapshot.brands.map((b) => (
                                 <option key={b.brandCode} value={b.brandCode}>
-                                  {b.brandCode} — {b.brandName}
+                                  {b.brandName}
                                 </option>
                               ))}
                             </select>
-                            <span className="px-2 py-1 rounded-lg bg-[#0C1427] text-[#FBBF24] font-mono tabular-nums font-black">
-                              {formatCommercialSkuCode(
-                                selCfg.specCode || master.code,
-                                selCfg.brandCode || 'B000'
-                              )}
-                            </span>
                           </div>
                         )}
                       </div>

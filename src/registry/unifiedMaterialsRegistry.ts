@@ -117,6 +117,8 @@ export interface UnifiedMaterialMaster {
   safetyNote?: string;
   isAssetOnly?: boolean;
   isAddedForEquations?: boolean;
+  /** Standard thickness range in mm (for threads/cords where thickness changes consumption, not per-kg price) */
+  availableThicknessesMm?: number[];
   status: 'active' | 'archived' | 'reserved_deleted';
   reviewStatus: 'approved' | 'new' | 'edited';
   createdByRole: 'system' | 'super_admin' | 'artisan' | 'supplier';
@@ -421,6 +423,7 @@ interface MasterSeedInput {
   supplierAliases?: string[];
   defaultBrands?: string[];
   workshops?: string[];
+  availableThicknessesMm?: number[];
 }
 
 interface MasterBlockInput {
@@ -457,6 +460,7 @@ function expandBlocks(blocks: MasterBlockInput[]): UnifiedMaterialMaster[] {
         safetyNote: it.safetyNote,
         isAssetOnly: Boolean(it.assetOnly),
         isAddedForEquations: Boolean(it.added),
+        availableThicknessesMm: it.availableThicknessesMm,
         status: 'active',
         reviewStatus: 'approved',
         createdByRole: 'system',
@@ -479,12 +483,14 @@ const RAW_MASTER_BLOCKS: MasterBlockInput[] = [
       {
         code: 'TH0001',
         canonicalName: 'قطن مجدول',
-        artistAliases: ['خيط مكرمية', 'خيط خرز', 'خيط سلب', 'خيط مبروم', 'خيط قطن'],
-        supplierAliases: ['خيط قطن مجدول', 'خيط مكرمية', 'قطن مبروم', 'خرز على اتنين', 'خرز على تلاتة', 'مجدول دمياطي'],
+        availableThicknessesMm: [2, 3, 4, 5, 6],
+        artistAliases: ['خيط مكرمية', 'خيط خرز', 'خيط قطن مجدول', 'قطن مجدول 2-6 مم'],
+        supplierAliases: ['خيط قطن مجدول', 'خيط مكرمية', 'خرز على اتنين', 'خرز على تلاتة', 'مجدول دمياطي'],
       },
       {
         code: 'TH0002',
         canonicalName: 'حبل قطن',
+        availableThicknessesMm: [2, 3, 4, 5, 6],
         artistAliases: ['حبل مكرمية', 'حبل شنط', 'حبل ديكور', 'حبل مضفور'],
         supplierAliases: ['حبل قطن', 'حبل قطن مجدول', 'حبل قطن مضفور'],
         bridgeFields: ['وزن_متر', 'طول_لفة'],
@@ -492,11 +498,65 @@ const RAW_MASTER_BLOCKS: MasterBlockInput[] = [
       },
       {
         code: 'TH0003',
-        canonicalName: 'كردون',
-        artistAliases: ['كردون مبطن', 'كردون فاضي', 'كردون زجزاج', 'كردون مبطط', 'كردون أمريكي'],
-        supplierAliases: ['كردون مبطن', 'كردون مجوف', 'كردون مبروم', 'كردون زجزاج'],
+        canonicalName: 'كردون مبطن',
+        availableThicknessesMm: [2, 3, 4, 5, 6],
+        artistAliases: ['كردون مبطن', 'كردون قطن مبطن', 'كردون محشي', 'كردون أمريكي'],
+        supplierAliases: ['كردون مبطن', 'كردون محشو قطن', 'كردون محشو بوليستر'],
         bridgeFields: ['وزن_متر', 'طول_لفة'],
-        specFields: ['نوع الحشو (قطن/بوليستر/مجوف)', 'قطر أو عرض مم'],
+        specFields: ['نوع الحشو (قطن/بوليستر)', 'سمك مم (2 إلى 6 مم)'],
+      },
+      {
+        code: 'TH0051',
+        canonicalName: 'قطن مبروم',
+        added: true,
+        availableThicknessesMm: [2, 3, 4, 5, 6],
+        artistAliases: ['خيط قطن مبروم', 'خيط مبروم 3 فتلات', 'خيط مكرمية مبروم'],
+        supplierAliases: ['قطن مبروم', 'خيط مبروم مصري', 'قطن مبروم دمياطي'],
+      },
+      {
+        code: 'TH0052',
+        canonicalName: 'بوليستر مصري',
+        added: true,
+        availableThicknessesMm: [2, 3, 4, 5, 6],
+        artistAliases: ['خيط بوليستر مصري', 'بوليستر مكرمية', 'بوليستر شنط'],
+        supplierAliases: ['خيط بوليستر مصري', 'بوليستر مجدول مصري'],
+      },
+      {
+        code: 'TH0053',
+        canonicalName: 'كردون فاضي',
+        added: true,
+        availableThicknessesMm: [2, 3, 4, 5, 6],
+        artistAliases: ['كردون فاضي', 'كردون مجوف', 'كردون مبطط بدون حشو'],
+        supplierAliases: ['كردون مجوف', 'كردون فاضي', 'كردون بدون حشو'],
+        bridgeFields: ['وزن_متر', 'طول_لفة'],
+      },
+      {
+        code: 'TH0054',
+        canonicalName: 'قطن محلول',
+        added: true,
+        availableThicknessesMm: [2, 3, 4, 5, 6],
+        artistAliases: ['خيط قطن محلول', 'قطن فتلة واحدة', 'خيط شراشيب', 'خيط ممشط'],
+        supplierAliases: ['قطن محلول', 'قطن أحادي الفتلة', 'خيط مكرمية محلول'],
+      },
+      {
+        code: 'TH0055',
+        canonicalName: 'كردون الزجزاج',
+        added: true,
+        availableThicknessesMm: [4, 6],
+        artistAliases: ['كردون زجزاج', 'حبل زجزاج', 'كردون خياطة زجزاج'],
+        supplierAliases: ['كردون زجزاج 4 و 6 مم', 'حبل قطن زجزاج'],
+        bridgeFields: ['وزن_متر', 'طول_لفة'],
+        workshops: ['زجزاج وحبال', 'مكرمية'],
+      },
+      {
+        code: 'TH0056',
+        canonicalName: 'قطن مجدول أو مبروم سلب',
+        added: true,
+        availableThicknessesMm: [8, 10, 12],
+        artistAliases: ['خيط سلب', 'قطن سلب', 'حبل سلب سميك', 'قطن مجدول سلب', 'قطن مبروم سلب'],
+        supplierAliases: ['خيط سلب 8-12 مم', 'قطن سلب مبروم', 'حبل قطن سلب'],
+        bridgeFields: ['وزن_متر', 'طول_لفة'],
+        workshops: ['مكرمية', 'زجزاج وحبال'],
       },
     ],
   },
@@ -1320,84 +1380,46 @@ const RAW_MASTER_BLOCKS: MasterBlockInput[] = [
 
 export const SEEDED_UNIFIED_MASTERS: UnifiedMaterialMaster[] = expandBlocks(RAW_MASTER_BLOCKS);
 
+function buildThreadThicknessSpecs(
+  masterCode: string,
+  titlePrefix: string,
+  thicknesses: number[],
+  densityMultiplier = 1.0,
+  origin = 'مصري'
+): UnifiedMaterialSpec[] {
+  return thicknesses.map((mm, idx) => {
+    const weightPerMeterGrams = Number((Math.pow(mm, 2) * 0.38 * densityMultiplier).toFixed(1));
+    const rollLengthMeters = Math.max(8, Math.round(1000 / Math.max(1, weightPerMeterGrams)));
+    const specIndex = idx + 1;
+    const specCode = `${masterCode}.${String(specIndex).padStart(2, '0')}`;
+    return {
+      specCode,
+      masterCode,
+      specIndex,
+      label: `${titlePrefix} ${mm} مم`,
+      thicknessMm: mm,
+      origin,
+      bridgeValues: { weightPerMeterGrams, rollLengthMeters, packWeightGrams: 1000 },
+      status: 'active',
+      reviewStatus: 'approved',
+      createdByRole: 'system',
+    };
+  });
+}
+
 // ------------------------------------------------------------------------------
 // 5. Initial Reference Specs (Level 3: Master.01, Master.02..)
 // ------------------------------------------------------------------------------
 export const SEEDED_UNIFIED_SPECS: UnifiedMaterialSpec[] = [
-  {
-    specCode: 'TH0001.01',
-    masterCode: 'TH0001',
-    specIndex: 1,
-    label: 'قطن مجدول 2 مم (فتلتان)',
-    thicknessMm: 2,
-    plies: 2,
-    origin: 'مصري',
-    bridgeValues: { weightPerMeterGrams: 3.5, rollLengthMeters: 280, packWeightGrams: 1000 },
-    status: 'active',
-    reviewStatus: 'approved',
-    createdByRole: 'system',
-  },
-  {
-    specCode: 'TH0001.02',
-    masterCode: 'TH0001',
-    specIndex: 2,
-    label: 'قطن مجدول 3 مم (3 فتلات)',
-    thicknessMm: 3,
-    plies: 3,
-    origin: 'دمياطي',
-    bridgeValues: { weightPerMeterGrams: 6.2, rollLengthMeters: 160, packWeightGrams: 1000 },
-    status: 'active',
-    reviewStatus: 'approved',
-    createdByRole: 'system',
-  },
-  {
-    specCode: 'TH0001.03',
-    masterCode: 'TH0001',
-    specIndex: 3,
-    label: 'قطن مجدول 4 مم (3 فتلات)',
-    thicknessMm: 4,
-    plies: 3,
-    origin: 'دمياطي',
-    bridgeValues: { weightPerMeterGrams: 9.5, rollLengthMeters: 105, packWeightGrams: 1000 },
-    status: 'active',
-    reviewStatus: 'approved',
-    createdByRole: 'system',
-  },
-  {
-    specCode: 'TH0001.04',
-    masterCode: 'TH0001',
-    specIndex: 4,
-    label: 'قطن مجدول 5 مم (4 فتلات)',
-    thicknessMm: 5,
-    plies: 4,
-    origin: 'مصري',
-    bridgeValues: { weightPerMeterGrams: 13.5, rollLengthMeters: 74, packWeightGrams: 1000 },
-    status: 'active',
-    reviewStatus: 'approved',
-    createdByRole: 'system',
-  },
-  {
-    specCode: 'TH0003.01',
-    masterCode: 'TH0003',
-    specIndex: 1,
-    label: 'كردون مبطن 6 مم',
-    thicknessMm: 6,
-    bridgeValues: { weightPerMeterGrams: 12.0, rollLengthMeters: 83, packWeightGrams: 1000 },
-    status: 'active',
-    reviewStatus: 'approved',
-    createdByRole: 'system',
-  },
-  {
-    specCode: 'TH0003.02',
-    masterCode: 'TH0003',
-    specIndex: 2,
-    label: 'كردون زجزاج محشي 8 مم',
-    thicknessMm: 8,
-    bridgeValues: { weightPerMeterGrams: 18.0, rollLengthMeters: 55, packWeightGrams: 1000 },
-    status: 'active',
-    reviewStatus: 'approved',
-    createdByRole: 'system',
-  },
+  ...buildThreadThicknessSpecs('TH0001', 'قطن مجدول', [2, 3, 4, 5, 6], 1.0, 'دمياطي'),
+  ...buildThreadThicknessSpecs('TH0002', 'حبل قطن', [2, 3, 4, 5, 6], 1.15, 'مصري'),
+  ...buildThreadThicknessSpecs('TH0003', 'كردون مبطن', [2, 3, 4, 5, 6], 0.95, 'مصري'),
+  ...buildThreadThicknessSpecs('TH0051', 'قطن مبروم', [2, 3, 4, 5, 6], 1.08, 'دمياطي'),
+  ...buildThreadThicknessSpecs('TH0052', 'بوليستر مصري', [2, 3, 4, 5, 6], 0.92, 'مصري'),
+  ...buildThreadThicknessSpecs('TH0053', 'كردون فاضي', [2, 3, 4, 5, 6], 0.78, 'مصري'),
+  ...buildThreadThicknessSpecs('TH0054', 'قطن محلول', [2, 3, 4, 5, 6], 0.98, 'مصري'),
+  ...buildThreadThicknessSpecs('TH0055', 'كردون الزجزاج', [4, 6], 1.05, 'مصري'),
+  ...buildThreadThicknessSpecs('TH0056', 'قطن مجدول أو مبروم سلب', [8, 10, 12], 1.12, 'مصري'),
   {
     specCode: 'TH0008.01',
     masterCode: 'TH0008',
@@ -1699,3 +1721,102 @@ export function searchUnifiedMaterials(
     disambiguationMessage,
   };
 }
+
+// ------------------------------------------------------------------------------
+// 8. Thread / Cord Thickness Rules (Single Source of Truth for Materials & Calculator)
+//    - Cotton braided/twisted/combed, Egyptian polyester, filled & hollow cordons: 2..6 mm
+//    - Zigzag cordon: 4 & 6 mm
+//    - Salab braided/twisted cotton cord: 8, 10, 12 mm
+//    Note: Thickness changes yarn draw/consumption in the calculator, NOT price/kg.
+// ------------------------------------------------------------------------------
+const THREAD_CODE_THICKNESS_MAP: Record<string, number[]> = {
+  TH0001: [2, 3, 4, 5, 6], // قطن مجدول
+  TH0002: [2, 3, 4, 5, 6], // حبل قطن
+  TH0003: [2, 3, 4, 5, 6], // كردون مبطن
+  TH0051: [2, 3, 4, 5, 6], // قطن مبروم
+  TH0052: [2, 3, 4, 5, 6], // بوليستر مصري
+  TH0053: [2, 3, 4, 5, 6], // كردون فاضي
+  TH0054: [2, 3, 4, 5, 6], // قطن محلول
+  TH0055: [4, 6],          // كردون الزجزاج
+  TH0056: [8, 10, 12],     // قطن مجدول أو مبروم سلب
+};
+
+export function getThreadThicknessOptions(
+  nameOrCode?: string | null,
+  master?: UnifiedMaterialMaster | null
+): number[] {
+  if (master?.availableThicknessesMm && master.availableThicknessesMm.length > 0) {
+    return [...master.availableThicknessesMm];
+  }
+  const upperCode = String(master?.code || nameOrCode || '').trim().toUpperCase().split('.')[0];
+  if (THREAD_CODE_THICKNESS_MAP[upperCode]) {
+    return [...THREAD_CODE_THICKNESS_MAP[upperCode]];
+  }
+
+  const norm = normalizeArabicText(
+    [master?.canonicalName, ...(master?.artistAliases || []), ...(master?.supplierAliases || []), nameOrCode]
+      .filter(Boolean)
+      .join(' ')
+  );
+
+  // 1. خيط القطن المجدول أو المبروم السلب -> 8, 10, 12 مم
+  if (norm.includes('سلب') || norm.includes('salab')) {
+    return [8, 10, 12];
+  }
+
+  // 2. كردون الزجزاج -> 4, 6 مم
+  if (norm.includes('زجزاج') || norm.includes('zigzag')) {
+    return [4, 6];
+  }
+
+  // 3. القطن المجدول / المبروم / المحلول / البوليستر المصري / الكردون المبطن / الكردون الفاضي -> 2..6 مم
+  if (
+    norm.includes('مجدول') ||
+    norm.includes('مبروم') ||
+    norm.includes('محلول') ||
+    norm.includes('بوليستر') ||
+    norm.includes('كردون') ||
+    norm.includes('كوردون') ||
+    norm.includes('قيطان') ||
+    norm.includes('مكرمي') ||
+    norm.includes('حبل قطن') ||
+    norm.includes('قطن') ||
+    norm.includes('خيش') ||
+    norm.includes('جوت')
+  ) {
+    return [2, 3, 4, 5, 6];
+  }
+
+  return [2, 3, 4, 5, 6];
+}
+
+export function isBundleThicknessThread(master?: UnifiedMaterialMaster | null): boolean {
+  if (!master) return false;
+  if (master.availableThicknessesMm && master.availableThicknessesMm.length > 0) return true;
+  if (THREAD_CODE_THICKNESS_MAP[master.code.toUpperCase()]) return true;
+  if (master.prefix !== 'TH') return false;
+  const norm = normalizeArabicText(master.canonicalName);
+  return (
+    norm.includes('مجدول') ||
+    norm.includes('مبروم') ||
+    norm.includes('محلول') ||
+    norm.includes('بوليستر') ||
+    norm.includes('كردون') ||
+    norm.includes('سلب') ||
+    norm.includes('حبل')
+  );
+}
+
+export function formatThreadThicknessRangeLabel(thicknesses: number[]): string {
+  if (!thicknesses || thicknesses.length === 0) return '';
+  if (thicknesses.length === 2) return `${thicknesses[0]} و ${thicknesses[1]} مم`;
+  if (thicknesses.length >= 3) {
+    const isSequential = thicknesses.every((v, i) => i === 0 || v === thicknesses[i - 1] + 1);
+    if (isSequential) {
+      return `من ${thicknesses[0]} إلى ${thicknesses[thicknesses.length - 1]} مم`;
+    }
+    return `${thicknesses.join('، ')} مم`;
+  }
+  return `${thicknesses[0]} مم`;
+}
+

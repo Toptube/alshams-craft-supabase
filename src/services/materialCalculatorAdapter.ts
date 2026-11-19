@@ -1,6 +1,7 @@
 import { RawMaterialItem, CordTypeOption } from '../types';
 import { tenantStorage as localDexieStorage } from '../db/dexieDB';
 import { CORD_TYPES } from '../utils/macrameMath';
+import { getThreadThicknessOptions } from '../registry/unifiedMaterialsRegistry';
 
 /**
  * الخيوط الثمانية الأساسية لورش المكرمية والأعمال اليدوية
@@ -249,8 +250,14 @@ export function adaptMaterialToCordOption(
   });
 
   const densityFactor = matchedSpec?.densityFactor || matchedLegacy?.densityFactor || 1.0;
-  const defaultThicknessMm =
-    matchedSpec?.defaultThicknessMm || matchedLegacy?.defaultThicknessMm || 4;
+  const allowedThicknesses = getThreadThicknessOptions(cleanName);
+  const candidateDefault =
+    matchedSpec?.defaultThicknessMm || matchedLegacy?.defaultThicknessMm || allowedThicknesses[0] || 4;
+  const defaultThicknessMm = allowedThicknesses.includes(candidateDefault)
+    ? candidateDefault
+    : allowedThicknesses.includes(4)
+    ? 4
+    : allowedThicknesses[0] || 4;
 
   const price =
     material.unit === 'جرام'
