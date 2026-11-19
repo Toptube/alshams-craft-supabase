@@ -52,6 +52,7 @@ import {
   mapExecutiveTabToPage,
 } from './adminTypes';
 import { AdminHomeView } from './AdminHomeView';
+import { syncUnifiedMaterialsToSupabaseApi } from '../../db/unifiedMaterialsService';
 
 const AdminWorkshopsPage = lazy(() =>
   import('./AdminWorkshopsPage').then((m) => ({ default: m.AdminWorkshopsPage }))
@@ -288,6 +289,27 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const showSuccess = (msg: string) => {
     setSuccessNotice(msg);
     setTimeout(() => setSuccessNotice(''), 4500);
+  };
+
+  const [syncingMaterialsToDb, setSyncingMaterialsToDb] = useState(false);
+
+  const handleSyncUnifiedMaterialsToDb = async () => {
+    setSyncingMaterialsToDb(true);
+    try {
+      const res = await syncUnifiedMaterialsToSupabaseApi();
+      if (res.success && res.verifiedCounts) {
+        playSuccessSound();
+        showSuccess(
+          `تم الترحيل والمزامنة المباشرة مع قاعدة بيانات Supabase ✅ (خامات: ${res.verifiedCounts.masters} · ماركات: ${res.verifiedCounts.brands} · أقسام: ${res.verifiedCounts.categories} · مواصفات: ${res.verifiedCounts.specs} · مسميات: ${res.verifiedCounts.aliases})`
+        );
+      } else {
+        showError(res.error || 'تعذر المزامنة مع قاعدة بيانات Supabase');
+      }
+    } catch (err: any) {
+      showError(err?.message || 'حدث خطأ أثناء الترحيل لقاعدة البيانات');
+    } finally {
+      setSyncingMaterialsToDb(false);
+    }
   };
 
   const isValidUuid = (val?: string | null): boolean =>
@@ -2442,6 +2464,8 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
             setLandingCmsInitialTab('design_injector');
             handleNavigatePage('landing_cms');
           }}
+          syncingMaterialsToDb={syncingMaterialsToDb}
+          onSyncUnifiedMaterialsToDb={handleSyncUnifiedMaterialsToDb}
         />
       )}
 

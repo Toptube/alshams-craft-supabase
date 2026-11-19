@@ -7,7 +7,13 @@ const __gsFilename = fileURLToPath(import.meta.url);
 const __gsDirname = path.dirname(__gsFilename);
 const VAPID_KEYS_PATH = path.resolve(__gsDirname, '../data/vapid_keys.json');
 
-export type AIAgentRole = 'falcon' | 'shamousa' | 'search';
+export type AIAgentRole =
+  | 'falcon'
+  | 'falcon_chat'
+  | 'falcon_vision'
+  | 'falcon_image'
+  | 'shamousa'
+  | 'search';
 
 export interface GroundedSource {
   title: string;
@@ -30,6 +36,8 @@ export interface GoogleSearchResult {
 
 export const PRIMARY_GEMINI_MODEL = 'gemini-4-hydrogen';
 export const FALLBACK_GEMINI_MODEL = 'gemini-3.1-flash-lite';
+export const PRIMARY_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-lite-image';
+export const FALLBACK_GEMINI_IMAGE_MODEL = 'gemini-nano-banana-2.1';
 export const ACTIVE_GROQ_CHAT_MODELS = [
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
@@ -162,8 +170,39 @@ export function formatAiErrorReason(reason?: string): string {
  * without ever hardcoding or exposing keys to the browser.
  */
 export function resolveAgentGeminiKey(agent: AIAgentRole): string {
+  if (agent === 'falcon_chat') {
+    return (
+      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_CHAT) ||
+      cleanSecretValue(process.env.FALCON_CHAT_GEMINI_API_KEY) ||
+      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
+      cleanSecretValue(process.env.FALCON_GEMINI_API_KEY) ||
+      cleanSecretValue(process.env.GEMINI_API_KEY) ||
+      ''
+    );
+  }
+  if (agent === 'falcon_vision') {
+    return (
+      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_VISION) ||
+      cleanSecretValue(process.env.FALCON_VISION_GEMINI_API_KEY) ||
+      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
+      cleanSecretValue(process.env.FALCON_GEMINI_API_KEY) ||
+      cleanSecretValue(process.env.GEMINI_API_KEY) ||
+      ''
+    );
+  }
+  if (agent === 'falcon_image') {
+    return (
+      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_IMAGE) ||
+      cleanSecretValue(process.env.FALCON_IMAGE_GEMINI_API_KEY) ||
+      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
+      cleanSecretValue(process.env.FALCON_GEMINI_API_KEY) ||
+      cleanSecretValue(process.env.GEMINI_API_KEY) ||
+      ''
+    );
+  }
   if (agent === 'falcon') {
     return (
+      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_CHAT) ||
       cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
       cleanSecretValue(process.env.FALCON_GEMINI_API_KEY) ||
       cleanSecretValue(process.env.GEMINI_API_KEY) ||
@@ -179,6 +218,7 @@ export function resolveAgentGeminiKey(agent: AIAgentRole): string {
     );
   }
   return (
+    cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_CHAT) ||
     cleanSecretValue(process.env.GEMINI_API_KEY) ||
     cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
     cleanSecretValue(process.env.GEMINI_API_KEY_SHAMOUSA) ||
@@ -194,18 +234,26 @@ export function resolveGoogleSearchCredentials(): { apiKey: string; cx: string }
 }
 
 export function getAgentSecretStatus() {
-  const falconKey = resolveAgentGeminiKey('falcon');
+  const falconChatKey = resolveAgentGeminiKey('falcon_chat');
+  const falconVisionKey = resolveAgentGeminiKey('falcon_vision');
+  const falconImageKey = resolveAgentGeminiKey('falcon_image');
   const shamousaKey = resolveAgentGeminiKey('shamousa');
   const sharedKey = cleanSecretValue(process.env.GEMINI_API_KEY);
   const { apiKey: cseKey, cx } = resolveGoogleSearchCredentials();
   const groqKeys = getGroqApiKeys();
   const fanarKey = getFanarApiKey();
-  const geminiUsable = Boolean(sharedKey && !isGeminiKeyCircuitOpen(sharedKey));
+  const geminiUsable = Boolean(
+    (falconChatKey && !isGeminiKeyCircuitOpen(falconChatKey)) ||
+      (sharedKey && !isGeminiKeyCircuitOpen(sharedKey))
+  );
 
   return {
     geminiSharedConfigured: Boolean(sharedKey),
     geminiCircuitOpen: Boolean(sharedKey && isGeminiKeyCircuitOpen(sharedKey)),
-    falconGeminiReady: Boolean(falconKey && !isGeminiKeyCircuitOpen(falconKey)),
+    falconGeminiReady: Boolean(falconChatKey && !isGeminiKeyCircuitOpen(falconChatKey)),
+    falconChatGeminiReady: Boolean(falconChatKey && !isGeminiKeyCircuitOpen(falconChatKey)),
+    falconVisionGeminiReady: Boolean(falconVisionKey && !isGeminiKeyCircuitOpen(falconVisionKey)),
+    falconImageGeminiReady: Boolean(falconImageKey && !isGeminiKeyCircuitOpen(falconImageKey)),
     shamousaGeminiReady: Boolean(shamousaKey && !isGeminiKeyCircuitOpen(shamousaKey)),
     groqConfigured: groqKeys.length > 0,
     groqKeyCount: groqKeys.length,
@@ -220,9 +268,15 @@ export function getAgentSecretStatus() {
 export function createGeminiClientForAgent(agent: AIAgentRole): GoogleGenAI {
   const apiKey = resolveAgentGeminiKey(agent);
   if (!apiKey) {
-    throw new Error(
-      `مفتاح Gemini غير مضبوط في الإعدادات (${agent === 'falcon' ? 'GEMINI_API_KEY_FALCON / GEMINI_API_KEY' : agent === 'shamousa' ? 'GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY' : 'GEMINI_API_KEY'}).`
-    );
+    const labelMap: Record<AIAgentRole, string> = {
+      falcon: 'GEMINI_API_KEY_FALCON / GEMINI_API_KEY',
+      falcon_chat: 'GEMINI_API_KEY_FALCON_CHAT / GEMINI_API_KEY',
+      falcon_vision: 'GEMINI_API_KEY_FALCON_VISION / GEMINI_API_KEY',
+      falcon_image: 'GEMINI_API_KEY_FALCON_IMAGE / GEMINI_API_KEY',
+      shamousa: 'GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY',
+      search: 'GEMINI_API_KEY',
+    };
+    throw new Error(`مفتاح Gemini غير مضبوط في الإعدادات (${labelMap[agent] || 'GEMINI_API_KEY'}).`);
   }
 
   return new GoogleGenAI({
@@ -256,6 +310,21 @@ export function getCandidateGeminiModels(): string[] {
     FALLBACK_GEMINI_MODEL,
   ].filter(Boolean);
 
+  return Array.from(new Set(list));
+}
+
+export function getCandidateGeminiImageModels(): string[] {
+  const envImg = cleanSecretValue(process.env.GEMINI_IMAGE_MODEL);
+  const allowed = [
+    'gemini-3.1-flash-lite-image',
+    'gemini-nano-banana-2.1',
+    'gemini-3-pro-image',
+  ];
+  const list = [
+    envImg && allowed.includes(envImg) ? envImg : PRIMARY_GEMINI_IMAGE_MODEL,
+    PRIMARY_GEMINI_IMAGE_MODEL,
+    FALLBACK_GEMINI_IMAGE_MODEL,
+  ].filter(Boolean);
   return Array.from(new Set(list));
 }
 
@@ -890,6 +959,9 @@ export async function runFullApiHealthAudit(): Promise<{
 
   const [
     geminiMain,
+    geminiFalconChat,
+    geminiFalconVision,
+    geminiFalconImage,
     geminiFalcon,
     geminiShamousa,
     groqPrimary,
@@ -902,8 +974,29 @@ export async function runFullApiHealthAudit(): Promise<{
   ] = await Promise.all([
     probeGeminiSingleKey('gemini_main', 'Google Gemini (المشترك)', ['GEMINI_API_KEY'], process.env.GEMINI_API_KEY || '', false),
     probeGeminiSingleKey(
+      'gemini_falcon_chat',
+      'صقر — مفتاح المحادثة وبحث جوجل (اختياري)',
+      ['GEMINI_API_KEY_FALCON_CHAT', 'FALCON_CHAT_GEMINI_API_KEY'],
+      process.env.GEMINI_API_KEY_FALCON_CHAT || process.env.FALCON_CHAT_GEMINI_API_KEY || '',
+      true
+    ),
+    probeGeminiSingleKey(
+      'gemini_falcon_vision',
+      'صقر — مفتاح تحليل الصور والرؤية (اختياري)',
+      ['GEMINI_API_KEY_FALCON_VISION', 'FALCON_VISION_GEMINI_API_KEY'],
+      process.env.GEMINI_API_KEY_FALCON_VISION || process.env.FALCON_VISION_GEMINI_API_KEY || '',
+      true
+    ),
+    probeGeminiSingleKey(
+      'gemini_falcon_image',
+      'صقر — مفتاح استوديو إنشاء الصور (اختياري)',
+      ['GEMINI_API_KEY_FALCON_IMAGE', 'FALCON_IMAGE_GEMINI_API_KEY'],
+      process.env.GEMINI_API_KEY_FALCON_IMAGE || process.env.FALCON_IMAGE_GEMINI_API_KEY || '',
+      true
+    ),
+    probeGeminiSingleKey(
       'gemini_falcon',
-      'Google Gemini (مفتاح صقر — اختياري)',
+      'Google Gemini (مفتاح صقر العام — اختياري)',
       ['GEMINI_API_KEY_FALCON', 'FALCON_GEMINI_API_KEY'],
       process.env.GEMINI_API_KEY_FALCON || process.env.FALCON_GEMINI_API_KEY || '',
       true
@@ -1151,6 +1244,7 @@ export async function runFullApiHealthAudit(): Promise<{
       EFFECTIVE_GROQ_MODEL: ACTIVE_GROQ_CHAT_MODELS[0],
       EFFECTIVE_FANAR_MODEL: ACTIVE_FANAR_MODELS[0],
       EFFECTIVE_GEMINI_MODEL: PRIMARY_GEMINI_MODEL,
+      EFFECTIVE_GEMINI_IMAGE_MODEL: PRIMARY_GEMINI_IMAGE_MODEL,
       GROQ_MODEL_SECRET: groqModelEnv || '(الافتراضي: openai/gpt-oss-120b)',
       GEMINI_MODEL_SECRET: geminiModelEnv || `(الافتراضي: ${PRIMARY_GEMINI_MODEL})`,
       STALE_SECRETS_BYPASSED: staleSecretsIgnored.length > 0 ? staleSecretsIgnored.join(' | ') : 'لا يوجد',
@@ -1158,6 +1252,9 @@ export async function runFullApiHealthAudit(): Promise<{
     },
     entries: [
       geminiMain,
+      geminiFalconChat,
+      geminiFalconVision,
+      geminiFalconImage,
       geminiFalcon,
       geminiShamousa,
       groqPrimary,

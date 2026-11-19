@@ -285,27 +285,28 @@ async function callFanarFallback(
 
 
 export class GeminiAIProvider {
-  private getClient(): GoogleGenAI {
-    return createGeminiClientForAgent('falcon');
+  private getClient(role: 'falcon_chat' | 'falcon_vision' = 'falcon_chat'): GoogleGenAI {
+    return createGeminiClientForAgent(role);
   }
 
-  isAvailable(): boolean {
-    const key = resolveAgentGeminiKey('falcon');
+  isAvailable(role: 'falcon_chat' | 'falcon_vision' = 'falcon_chat'): boolean {
+    const key = resolveAgentGeminiKey(role);
     return Boolean(key && !isGeminiKeyCircuitOpen(key));
   }
 
   private async generate(
     req: { contents: any; config?: any },
-    opts: { label: string; timeoutMs: number }
+    opts: { label: string; timeoutMs: number; role?: 'falcon_chat' | 'falcon_vision' }
   ): Promise<any> {
-    const key = resolveAgentGeminiKey('falcon');
+    const role = opts.role || 'falcon_chat';
+    const key = resolveAgentGeminiKey(role);
     if (!key || isGeminiKeyCircuitOpen(key)) {
       const err: any = new Error('مفتاح Gemini غير صالح أو متجاوز مؤقتاً — يتم التحويل الفوري لـ Groq/Fanar');
       err.kind = 'bad_key';
       throw err;
     }
 
-    const ai = this.getClient();
+    const ai = this.getClient(role);
     const uniqueModels = getCandidateGeminiModels();
     let lastError: any = null;
 
@@ -353,9 +354,9 @@ export class GeminiAIProvider {
   }
 
   async analyzeCraftVision(input: AIVisionPromptInput): Promise<any> {
-    if (!this.isAvailable()) {
+    if (!this.isAvailable('falcon_vision')) {
       const err: any = new Error(
-        'تحليل الصور يتطلب تحديث مفتاح GEMINI_API_KEY في الإعدادات (Settings > Secrets). المحادثة النصية وحساب التكاليف والصوت والبحث الحي تعمل حالياً بكفاءة عبر Groq و Fanar.'
+        'تحليل الصور يتطلب تفعيل مفتاح GEMINI_API_KEY_FALCON_VISION أو GEMINI_API_KEY في الإعدادات (Settings > Secrets). المحادثة النصية وحساب التكاليف والصوت والبحث الحي تعمل حالياً بكفاءة.'
       );
       err.kind = 'bad_key';
       throw err;
@@ -419,7 +420,7 @@ export class GeminiAIProvider {
 
     const response = await this.generate(
       { contents: { parts } },
-      { label: 'vision-direct', timeoutMs: 20_000 }
+      { label: 'vision-direct', timeoutMs: 22_000, role: 'falcon_vision' }
     );
 
     const responseText = response.text || '';
@@ -624,11 +625,13 @@ export class GeminiAIProvider {
     let geminiFailReason = '';
     let groqFailReason = '';
 
+    const activeGeminiRole: 'falcon_chat' | 'falcon_vision' = hasImages ? 'falcon_vision' : 'falcon_chat';
+
     // -------------------------------------------------------------
     // Provider 1: Google Gemini + Google Search Grounding (المحرك الأساسي لصقر الشمساوية)
     // -------------------------------------------------------------
-    if (this.isAvailable()) {
-      console.log('[AI Service: Falcon] Attempting Provider 1 (Gemini + Google Search Grounding)...');
+    if (this.isAvailable(activeGeminiRole)) {
+      console.log(`[AI Service: Falcon] Attempting Provider 1 (Gemini [${activeGeminiRole}] + Google Search Grounding)...`);
       try {
         const contents: any[] = chatHistory.slice(-10).map((m) => ({
           role: m.sender === 'user' || m.role === 'user' ? 'user' : 'model',
@@ -676,7 +679,7 @@ export class GeminiAIProvider {
                   tools: [{ googleSearch: {} }],
                 },
               },
-              { label: 'falcon-google-search', timeoutMs: 18_000 }
+              { label: 'falcon-google-search', timeoutMs: 20_000, role: 'falcon_chat' }
             );
             searchUsed = true;
           } catch (searchErr: any) {
@@ -684,13 +687,17 @@ export class GeminiAIProvider {
             console.warn('[Falcon] Google Search grounding fallback notice:', searchErr?.message);
             response = await this.generate(
               { contents, config: { systemInstruction } },
-              { label: 'falcon-chat-direct', timeoutMs: 16_000 }
+              { label: 'falcon-chat-direct', timeoutMs: 16_000, role: 'falcon_chat' }
             );
           }
         } else {
           response = await this.generate(
             { contents, config: { systemInstruction } },
-            { label: hasImages ? 'falcon-vision' : 'falcon-chat', timeoutMs: hasImages ? 22_000 : 16_000 }
+            {
+              label: hasImages ? 'falcon-vision' : 'falcon-chat',
+              timeoutMs: hasImages ? 24_000 : 16_000,
+              role: activeGeminiRole,
+            }
           );
         }
 
@@ -722,7 +729,7 @@ export class GeminiAIProvider {
     // If images were attached and Gemini Vision is unavailable, return a helpful Arabic guidance message instead of a 502 error
     if (hasImages) {
       return {
-        reply: `يا ${firstName} 🦅، قراءة الصور وتحليلها البصري حالياً في انتظار تحديث مفتاح GEMINI_API_KEY في الإعدادات (Settings > Secrets).\n\nلكنني شغال معاك فوراً وبأقصى سرعة في حساب التكاليف والتسعير والمعادلات الهندسية والبحث الحي!\nاكتب لي بس نوع القطعة وأبعادها وخامتها (مثلاً: ستارة مكرمية عرض 80 سم × طول 120 سم بخيط 4 مم) وهحسبلك كل التفاصيل في ثواني.`,
+        reply: `يا ${firstName} 🦅، تحليل الصور يحتاج حالياً لتفعيل مفتاح GEMINI_API_KEY_FALCON_VISION أو GEMINI_API_KEY في الإعدادات (Settings > Secrets).\n\nلكنني شغال معاك فوراً وبأقصى سرعة في حساب التكاليف والتسعير والمعادلات الهندسية والبحث الحي!\nاكتب لي بس نوع القطعة وأبعادها وخامتها (مثلاً: ستارة مكرمية عرض 80 سم × طول 120 سم بخيط 4 مم) وهحسبلك كل التفاصيل في ثواني.`,
         sources: [],
         searchUsed: false,
       };

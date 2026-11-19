@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   X,
   RefreshCw,
+  CloudUpload,
 } from 'lucide-react';
 import {
   UnifiedCategoryPrefix,
@@ -33,6 +34,7 @@ import {
   createUnifiedBrandApi,
   updateOrProposeUnifiedMasterApi,
   resolveUnifiedMaterialNotificationApi,
+  syncUnifiedMaterialsToSupabaseApi,
   getSeededFallbackSnapshot,
 } from '../../db/unifiedMaterialsService';
 
@@ -98,11 +100,36 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
   } | null>(null);
   const [archiveReason, setArchiveReason] = useState('');
 
+  const [syncingSupabase, setSyncingSupabase] = useState(false);
+  const [storageSource, setStorageSource] = useState<'supabase' | 'local_fallback'>('supabase');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+
   const reloadData = async () => {
     setLoading(true);
-    const data = await fetchUnifiedMaterialsSnapshot({ role: 'super_admin' });
+    const data = (await fetchUnifiedMaterialsSnapshot({ role: 'super_admin' })) as UnifiedMaterialsSnapshot & {
+      storageSource?: 'supabase' | 'local_fallback';
+    };
     setSnapshot(data);
+    if (data.storageSource) setStorageSource(data.storageSource);
     setLoading(false);
+  };
+
+  const handleSyncToSupabase = async () => {
+    setSyncingSupabase(true);
+    const res = await syncUnifiedMaterialsToSupabaseApi();
+    setSyncingSupabase(false);
+    if (res.success && res.verifiedCounts) {
+      setStorageSource('supabase');
+      setLastSyncedAt(new Date().toLocaleTimeString('ar-EG'));
+      onNotifySuccess(
+        `تم الترحيل والمزامنة المباشرة مع قاعدة بيانات Supabase بنجاح ✅ (خامات: ${res.verifiedCounts.masters} · ماركات: ${res.verifiedCounts.brands} · أقسام: ${res.verifiedCounts.categories} · مواصفات: ${res.verifiedCounts.specs} · مسميات: ${res.verifiedCounts.aliases}).`
+      );
+      await reloadData();
+    } else {
+      onNotifyError(
+        res.error || 'تعذر المزامنة مع قاعدة بيانات Supabase — يرجى التحقق من الاتصال.'
+      );
+    }
   };
 
   useEffect(() => {
@@ -217,7 +244,7 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
         onNotifyError(res.error || 'تعذر تحديث الخامة');
         return;
       }
-      onNotifySuccess(`تم تحديث الصنف [${editingMaster.code}] عالمياً في منظومة الخامات.`);
+      onNotifySuccess(`تم تحديث الصنف [${editingMaster.code}] وترحيله تلقائياً داخل قاعدة بيانات Supabase ✅`);
     } else {
       const res = await createUnifiedMasterApi({
         prefix: formPrefix,
@@ -392,7 +419,16 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleSyncToSupabase}
+            disabled={syncingSupabase}
+            className="px-3 py-2 rounded-xl border border-emerald-600/40 bg-emerald-600/10 hover:bg-emerald-600 hover:text-white text-emerald-800 dark:text-emerald-300 text-xs font-black inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 transition disabled:opacity-60"
+          >
+            <CloudUpload className={`w-3.5 h-3.5 ${syncingSupabase ? 'animate-bounce' : ''}`} />
+            <span>{syncingSupabase ? 'جاري الترحيل لـ Supabase...' : 'مزامنة وترحيل لـ Supabase'}</span>
+          </button>
           <button
             type="button"
             onClick={reloadData}
@@ -411,6 +447,45 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
           </button>
         </div>
       </header>
+
+      {/* شريط حالة الترحيل والحفظ المباشر مع قاعدة بيانات Supabase */}
+      <section
+        className={`rounded-2xl border px-4 py-3 flex flex-wrap items-center justify-between gap-3 ${
+          storageSource === 'supabase'
+            ? 'bg-emerald-500/8 dark:bg-emerald-950/30 border-emerald-500/35'
+            : 'bg-amber-500/10 dark:bg-amber-950/30 border-amber-500/40'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <CheckCircle2
+            className={`w-5 h-5 shrink-0 ${
+              storageSource === 'supabase'
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-amber-600 dark:text-amber-400'
+            }`}
+          />
+          <div className="min-w-0">
+            <div className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+              {storageSource === 'supabase'
+                ? 'متصل ومربوط مباشرة بقاعدة بيانات Supabase (الحفظ والترحيل تلقائي وفوري)'
+                : 'وضع الاحتياطي المحلي — اضغط زر الترحيل لإتمام المزامنة مع قاعدة البيانات'}
+            </div>
+            <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
+              أي خامة أو مواصفة أو ماركة أو اعتماد تضيفه أو تعدله هنا يُحفَظ مباشرة داخل جداول Supabase دون الحاجة لفتح قاعدة البيانات يدوياً
+              {lastSyncedAt ? ` · آخر مزامنة: ${lastSyncedAt}` : ''}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleSyncToSupabase}
+          disabled={syncingSupabase}
+          className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer shrink-0 transition disabled:opacity-60"
+        >
+          <CloudUpload className={`w-3.5 h-3.5 ${syncingSupabase ? 'animate-bounce' : ''}`} />
+          <span>{syncingSupabase ? 'جاري الترحيل...' : 'ترحيل ومزامنة فورية مع قاعدة البيانات'}</span>
+        </button>
+      </section>
 
       {/* Metrics Summary Strip (Tabular Numerals) */}
       <section className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">

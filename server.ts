@@ -18,6 +18,10 @@ import {
   clearWorkshopSession,
   transcribeAudioWithGemini,
 } from './server/aiProvider.js';
+import {
+  generateFalconStudioImage,
+  type FalconStudioMode,
+} from './server/falconStudioService.js';
 import * as shamousaModule from './server/shamousaProvider.js';
 import crypto from 'crypto';
 import {
@@ -36,6 +40,8 @@ import { registerSupplierErpRoutes } from './server/supplierErpRoutes.js';
 import {
   loadUnifiedMaterialsState,
   buildMergedUnifiedSnapshot,
+  loadUnifiedMaterialsSnapshotFromSupabase,
+  syncAllUnifiedMaterialsToSupabase,
   createUnifiedMasterItem,
   createUnifiedSpecItem,
   createUnifiedAliasItem,
@@ -4765,6 +4771,76 @@ app.post('/api/analyze-vision', requireAuth, handleFalconVision);
 app.post('/api/ai/analyze-image', requireAuth, handleFalconVision);
 
 // -------------------------------------------------------------
+// استوديو صور المنتجات الذكي لصقر الشمساوية (للمتجر / في ورشتي / في منزل)
+// -------------------------------------------------------------
+const handleFalconStudio = async (req: AuthenticatedRequest, res: Response) => {
+  const wid = req.workshopId || '';
+  const email = req.userEmail || req.user?.email || '';
+  const superAdmin = isSuperAdmin(email);
+
+  if (!canUse(falconUsage, wid, FALCON_DAILY_LIMIT, email)) {
+    res.status(429).json({
+      error: `وصلت للحد اليومي لاستخدامات صقر (${FALCON_DAILY_LIMIT}). يتجدد الرصيد غداً بإذن الله.`,
+      remaining: 0,
+    });
+    return;
+  }
+
+  const { mode, imageBase64, mimeType, userPrompt, workshopContext } = req.body || {};
+  const normalizedMode: FalconStudioMode =
+    mode === 'workshop' ? 'workshop' : mode === 'home' ? 'home' : 'store';
+
+  if (!imageBase64 && !String(userPrompt || '').trim()) {
+    res.status(400).json({
+      error: 'يرجى إرفاق صورة المنتج أو كتابة وصف للمنتج المطلوب تجهيز صورته.',
+    });
+    return;
+  }
+
+  try {
+    let verifiedSupplier: any = null;
+    if (workshopContext?.accountRole === 'supplier' || !superAdmin) {
+      verifiedSupplier = await resolveActiveSupplierForReq(req).catch(() => null);
+    }
+    const resolvedRole: 'artisan' | 'supplier' =
+      verifiedSupplier || workshopContext?.accountRole === 'supplier' ? 'supplier' : 'artisan';
+
+    const result = await generateFalconStudioImage({
+      mode: normalizedMode,
+      imageBase64: typeof imageBase64 === 'string' && imageBase64.trim() ? imageBase64 : undefined,
+      mimeType: typeof mimeType === 'string' ? mimeType : 'image/jpeg',
+      userPrompt: typeof userPrompt === 'string' ? userPrompt : '',
+      workshopContext: {
+        selectedCrafts: Array.isArray(workshopContext?.selectedCrafts)
+          ? workshopContext.selectedCrafts
+          : ['macrame'],
+        category: workshopContext?.category || '',
+        brandName: verifiedSupplier?.brand_name || verifiedSupplier?.brandName || workshopContext?.brandName || '',
+        artistName: verifiedSupplier?.owner_name || workshopContext?.artistName || '',
+        accountRole: resolvedRole,
+        country: workshopContext?.country || 'جمهورية مصر العربية',
+      },
+    });
+
+    const remaining = recordUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email);
+    res.json({
+      ...result,
+      remaining,
+    });
+  } catch (err: any) {
+    console.error('[Falcon Studio Error]:', err?.message || err);
+    const status = Number(err?.status) || 502;
+    res.status(status).json({
+      error: err?.message || 'تعذر توليد صورة الاستوديو حالياً، حاول مرة أخرى.',
+      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
+    });
+  }
+};
+
+app.post('/api/ai/falcon-studio', requireAuth, handleFalconStudio);
+app.post('/api/falcon/studio-image', requireAuth, handleFalconStudio);
+
+// -------------------------------------------------------------
 // تفريغ المقاطع الصوتية بالذكاء الاصطناعي (Audio Speech-to-Text)
 // -------------------------------------------------------------
 const handleAudioTranscription = async (req: AuthenticatedRequest, res: Response) => {
@@ -4887,10 +4963,16 @@ app.get('/api/admin/db-diagnostics', requireAuth, async (req: AuthenticatedReque
   ];
 
   const optionalLocalBackedTables = [
+    'unified_material_categories',
+    'unified_material_brands',
     'unified_materials_master',
     'unified_material_specs',
     'unified_material_aliases',
-    'unified_material_brands',
+    'unified_material_notifications',
+    'member_material_customizations',
+    'trainer_embedded_posts',
+    'trainer_lesson_alerts',
+    'group_buying_campaigns',
   ];
 
   const hasServiceRoleEnv = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY);
@@ -4966,16 +5048,18 @@ app.get('/api/admin/db-diagnostics', requireAuth, async (req: AuthenticatedReque
         }
         return {
           table: t,
-          ok: true,
-          storage: 'local_json_catalog',
-          note: 'يعمل عبر كتالوج الخامات الموحدة المدمج بالخادم (395+ خامة)',
+          ok: false,
+          storage: 'pending_sql_migration',
+          count: 0,
+          note: 'الجدول لم يُنشأ بعد في Supabase — شغّل ملف SQL المرفق 20261119_01_unified_materials_and_growth_academy_supabase.sql ثم أعد المزامنة',
         };
       } catch {
         return {
           table: t,
-          ok: true,
-          storage: 'local_json_catalog',
-          note: 'يعمل عبر كتالوج الخامات الموحدة المدمج بالخادم (395+ خامة)',
+          ok: false,
+          storage: 'pending_sql_migration',
+          count: 0,
+          note: 'تعذر التحقق من الجدول في Supabase — شغّل ملف SQL المرفق',
         };
       }
     })
@@ -8884,6 +8968,22 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
           createdAt: nowIso,
         };
         store.trainerAlerts = [alertObj, ...(store.trainerAlerts || [])].slice(0, 60);
+        try {
+          await supabaseAdminClient.from('trainer_lesson_alerts').upsert(
+            {
+              id: alertObj.id,
+              trainer_member_id: alertObj.trainerMemberId,
+              trainer_name: alertObj.trainerName,
+              trainer_brand: alertObj.brandName,
+              post_id: alertObj.postId,
+              family_post_id: alertObj.familyPostId || '',
+              title: alertObj.title,
+              platform: alertObj.platform,
+              created_at: alertObj.createdAt,
+            },
+            { onConflict: 'id' }
+          );
+        } catch {}
         const allWs = loadPersistentWorkshops();
         notifiedCount = Math.max(1, allWs.length);
       }
@@ -8914,7 +9014,32 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
     };
     writeArtisanGrowthStore(store);
 
-    // مزامنة الميتاداتا داخل Supabase member_profiles لضمان الحفظ السحابي
+    // مزامنة المنشور في جدول trainer_embedded_posts و member_profiles في Supabase
+    try {
+      await supabaseAdminClient.from('trainer_embedded_posts').upsert(
+        {
+          id: newTrainerPost.id,
+          member_id: memberId,
+          member_role: 'artisan',
+          author_name: newTrainerPost.authorName,
+          author_brand: newTrainerPost.brandName,
+          platform: newTrainerPost.platform,
+          title: newTrainerPost.title,
+          description: newTrainerPost.description || '',
+          source_url: newTrainerPost.url,
+          embed_url: newTrainerPost.url,
+          visibility_audiences: Object.entries(newTrainerPost.audience || {})
+            .filter(([, v]) => Boolean(v))
+            .map(([k]) => k),
+          family_post_id: newTrainerPost.familyPostId || '',
+          approved: true,
+          created_at: nowIso,
+          updated_at: nowIso,
+        },
+        { onConflict: 'id' }
+      );
+    } catch {}
+
     try {
       const mpVis: any = {
         ...normalizeMemberVisibility(currentFull?.visibility),
@@ -8953,6 +9078,10 @@ app.delete('/api/member-profile/trainer-posts/:postId', requireAuth, async (req:
     };
     store.trainerAlerts = (store.trainerAlerts || []).filter((a: any) => a.postId !== postId);
     writeArtisanGrowthStore(store);
+    try {
+      await supabaseAdminClient.from('trainer_embedded_posts').delete().eq('id', postId);
+      await supabaseAdminClient.from('trainer_lesson_alerts').delete().eq('post_id', postId);
+    } catch {}
     return res.json({ success: true, trainerPosts: nextPosts });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'تعذر حذف المنشور' });
@@ -8961,8 +9090,29 @@ app.delete('/api/member-profile/trainer-posts/:postId', requireAuth, async (req:
 
 app.get('/api/trainer-posts/alerts', requireAuth, async (_req: AuthenticatedRequest, res: Response) => {
   try {
+    const { data, error } = await supabaseAdminClient
+      .from('trainer_lesson_alerts')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const mapped = data.map((r: any) => ({
+        id: r.id,
+        postId: r.post_id,
+        familyPostId: r.family_post_id || undefined,
+        trainerMemberId: r.trainer_member_id,
+        trainerName: r.trainer_name,
+        brandName: r.trainer_brand || '',
+        title: r.title,
+        platform: r.platform,
+        createdAt: r.created_at,
+      }));
+      return res.json({ success: true, storage: 'supabase', alerts: mapped });
+    }
+  } catch {}
+  try {
     const store = readArtisanGrowthStore();
-    return res.json({ success: true, alerts: (store.trainerAlerts || []).slice(0, 30) });
+    return res.json({ success: true, storage: 'local', alerts: (store.trainerAlerts || []).slice(0, 30) });
   } catch {
     return res.json({ success: true, alerts: [] });
   }
@@ -9088,7 +9238,21 @@ app.delete('/api/admin/trainer-posts/:memberId/:postId', requireAuth, async (req
 });
 
 app.get('/api/growth/config', async (_req: Request, res: Response) => {
-  return res.json({ success: true, config: getEffectiveGrowthConfig() });
+  try {
+    const { data } = await supabaseAdminClient
+      .from('platform_settings')
+      .select('growth_hub_config')
+      .limit(1)
+      .maybeSingle();
+    if (data?.growth_hub_config && typeof data.growth_hub_config === 'object' && Object.keys(data.growth_hub_config).length > 0) {
+      return res.json({
+        success: true,
+        storage: 'supabase',
+        config: { ...getEffectiveGrowthConfig(), ...data.growth_hub_config },
+      });
+    }
+  } catch {}
+  return res.json({ success: true, storage: 'local', config: getEffectiveGrowthConfig() });
 });
 
 app.put('/api/admin/growth-config', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
@@ -9104,6 +9268,19 @@ app.put('/api/admin/growth-config', requireAuth, async (req: AuthenticatedReques
       updatedAt: new Date().toISOString(),
     };
     writeArtisanGrowthStore(store);
+    try {
+      const { data: existingRow } = await supabaseAdminClient
+        .from('platform_settings')
+        .select('id')
+        .limit(1)
+        .maybeSingle();
+      if (existingRow?.id) {
+        await supabaseAdminClient
+          .from('platform_settings')
+          .update({ growth_hub_config: store.growthConfig })
+          .eq('id', existingRow.id);
+      }
+    } catch {}
     return res.json({ success: true, config: store.growthConfig });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'تعذر حفظ إعدادات النمو' });
@@ -9112,6 +9289,31 @@ app.put('/api/admin/growth-config', requireAuth, async (req: AuthenticatedReques
 
 // ==================== مجمع الشراء التعاوني للخامات (Group Buying) ====================
 app.get('/api/growth/group-buying', requireAuth, async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { data, error } = await supabaseAdminClient
+      .from('group_buying_campaigns')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const mapped = data.map((r: any) => ({
+        id: r.id,
+        materialCode: r.material_code,
+        materialName: r.material_name,
+        governorate: r.governorate,
+        targetQty: Number(r.target_qty || 0),
+        currentQty: Number(r.current_qty || 0),
+        unit: r.unit,
+        retailPrice: Number(r.retail_price || 0),
+        groupPrice: Number(r.group_price || 0),
+        creatorBrand: r.creator_brand,
+        participants: Array.isArray(r.participants) ? r.participants : [],
+        createdAt: r.created_at,
+      }));
+      return res.json({ success: true, storage: 'supabase', campaigns: mapped });
+    }
+  } catch {}
+
   const store = readArtisanGrowthStore();
   if (!store.groupBuying || store.groupBuying.length === 0) {
     store.groupBuying = [
@@ -9152,6 +9354,25 @@ app.get('/api/growth/group-buying', requireAuth, async (_req: AuthenticatedReque
       },
     ];
     writeArtisanGrowthStore(store);
+    try {
+      await supabaseAdminClient.from('group_buying_campaigns').upsert(
+        store.groupBuying.map((c: any) => ({
+          id: c.id,
+          material_code: c.materialCode,
+          material_name: c.materialName,
+          governorate: c.governorate,
+          target_qty: c.targetQty,
+          current_qty: c.currentQty,
+          unit: c.unit,
+          retail_price: c.retailPrice,
+          group_price: c.groupPrice,
+          creator_brand: c.creatorBrand,
+          participants: c.participants,
+          created_at: c.createdAt,
+        })),
+        { onConflict: 'id' }
+      );
+    } catch {}
   }
   return res.json({ success: true, campaigns: store.groupBuying });
 });
@@ -9184,6 +9405,25 @@ app.post('/api/growth/group-buying', requireAuth, async (req: AuthenticatedReque
     };
     store.groupBuying = [campaign, ...(store.groupBuying || [])].slice(0, 40);
     writeArtisanGrowthStore(store);
+    try {
+      await supabaseAdminClient.from('group_buying_campaigns').upsert(
+        {
+          id: campaign.id,
+          material_code: campaign.materialCode,
+          material_name: campaign.materialName,
+          governorate: campaign.governorate,
+          target_qty: campaign.targetQty,
+          current_qty: campaign.currentQty,
+          unit: campaign.unit,
+          retail_price: campaign.retailPrice,
+          group_price: campaign.groupPrice,
+          creator_brand: campaign.creatorBrand,
+          participants: campaign.participants,
+          created_at: campaign.createdAt,
+        },
+        { onConflict: 'id' }
+      );
+    } catch {}
     return res.json({ success: true, campaign, campaigns: store.groupBuying });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'تعذر إنشاء حملة الشراء التعاوني' });
@@ -9203,6 +9443,16 @@ app.post('/api/growth/group-buying/:id/join', requireAuth, async (req: Authentic
     item.participants = [...(item.participants || []), { name: brand, qty }];
     store.groupBuying[idx] = item;
     writeArtisanGrowthStore(store);
+    try {
+      await supabaseAdminClient
+        .from('group_buying_campaigns')
+        .update({
+          current_qty: item.currentQty,
+          participants: item.participants,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+    } catch {}
     return res.json({ success: true, campaign: item, campaigns: store.groupBuying });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'تعذر الانضمام للحملة' });
@@ -10419,8 +10669,7 @@ app.get('/api/unified-materials', requireAuth, async (req: AuthenticatedRequest,
     const superAdmin = isSuperAdmin(email);
     const roleParam = req.query.role === 'supplier' ? 'supplier' : 'artisan';
     const memberId = String(req.query.memberId || req.workshopId || req.user?.id || '').trim();
-    const state = loadUnifiedMaterialsState();
-    const snapshot = buildMergedUnifiedSnapshot(state, {
+    const snapshot = await loadUnifiedMaterialsSnapshotFromSupabase(supabaseAdminClient, {
       memberRole: roleParam,
       memberId,
       isSuperAdmin: superAdmin,
@@ -10428,6 +10677,19 @@ app.get('/api/unified-materials', requireAuth, async (req: AuthenticatedRequest,
     return res.json({ success: true, ...snapshot });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'تعذر تحميل منظومة الخامات الموحدة' });
+  }
+});
+
+app.post('/api/admin/unified-materials/sync-supabase', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    if (!req.isSuperAdmin && !isSuperAdmin(email)) {
+      return res.status(403).json({ error: 'صلاحية الترحيل والمزامنة مع Supabase مخصصة للسوبر أدمن فقط' });
+    }
+    const report = await syncAllUnifiedMaterialsToSupabase(supabaseAdminClient, { force: true });
+    return res.status(report.ok ? 200 : 400).json({ success: report.ok, ...report });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'تعذر مزامنة الخامات الموحدة مع Supabase' });
   }
 });
 
@@ -10745,6 +11007,20 @@ async function startServer() {
     console.log(`👥 مجتمع عيلة الشمساوية (WebSocket /ws/family): متصل ونشط ✅`);
     console.log(`🌐 خادم الويب يستمع على المنفذ: http://${HOST}:${PORT}`);
     console.log('================================================================');
+    // Auto-seed Unified Materials to Supabase if tables exist and need initial population
+    syncAllUnifiedMaterialsToSupabase(supabaseAdminClient)
+      .then((rep) => {
+        if (rep.ok) {
+          console.log(
+            `🏷️  منظومة الخامات الموحدة في Supabase: متزامنة ✅ (masters=${rep.verifiedCounts.masters}, brands=${rep.verifiedCounts.brands}, specs=${rep.verifiedCounts.specs}, aliases=${rep.verifiedCounts.aliases})`
+          );
+        } else if (rep.tablesMissing.length > 0) {
+          console.log(
+            `⏳ منظومة الخامات الموحدة تعمل محلياً مؤقتاً بانتظار تشغيل SQL في Supabase (${rep.tablesMissing.length} جدول)`
+          );
+        }
+      })
+      .catch(() => {});
   });
 }
 

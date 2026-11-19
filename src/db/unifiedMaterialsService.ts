@@ -78,7 +78,7 @@ export async function fetchUnifiedMaterialsSnapshot(options?: {
     if (res.ok) {
       const json = await res.json();
       if (json?.success && Array.isArray(json.masters)) {
-        const snapshot: UnifiedMaterialsSnapshot = {
+        const snapshot: UnifiedMaterialsSnapshot & { storageSource?: 'supabase' | 'local_fallback' } = {
           categories: json.categories || UNIFIED_CATEGORIES,
           unitChains: json.unitChains || UNIT_CHAINS,
           fixedConversions: json.fixedConversions || FIXED_UNIT_CONVERSIONS,
@@ -89,6 +89,7 @@ export async function fetchUnifiedMaterialsSnapshot(options?: {
           notifications: Array.isArray(json.notifications) ? json.notifications : [],
           memberCustomizations: Array.isArray(json.memberCustomizations) ? json.memberCustomizations : [],
           reservedMasterSeqs: json.reservedMasterSeqs || {},
+          storageSource: json.storageSource === 'supabase' ? 'supabase' : 'local_fallback',
         };
         try {
           localStorage.setItem(CACHE_KEY, JSON.stringify(snapshot));
@@ -98,6 +99,40 @@ export async function fetchUnifiedMaterialsSnapshot(options?: {
     }
   } catch {}
   return readCachedUnifiedSnapshot();
+}
+
+export async function syncUnifiedMaterialsToSupabaseApi(): Promise<{
+  success: boolean;
+  tablesReady?: boolean;
+  tablesMissing?: string[];
+  verifiedCounts?: {
+    categories: number;
+    brands: number;
+    masters: number;
+    specs: number;
+    aliases: number;
+    notifications: number;
+    memberCustomizations: number;
+  };
+  error?: string;
+}> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/admin/unified-materials/sync-supabase', {
+      method: 'POST',
+      headers,
+    });
+    const json = await res.json().catch(() => ({}));
+    return {
+      success: Boolean(res.ok && json?.success),
+      tablesReady: json?.tablesReady,
+      tablesMissing: json?.tablesMissing,
+      verifiedCounts: json?.verifiedCounts,
+      error: json?.error,
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال بالسيرفر' };
+  }
 }
 
 export async function createUnifiedMasterApi(payload: {

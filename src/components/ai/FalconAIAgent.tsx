@@ -3,6 +3,7 @@ import { FalconMascotAvatar, ArtisanAvatar, falconSearchIconImg } from '../brand
 import { UserProfile, CraftCategory, AIVisionAnalysis, ChatMessage } from '../../types';
 import { authedFetch } from '../../lib/apiClient';
 import { getMainSectionForCraft } from '../../registry/craftsRegistry';
+import { applyWorkshopBrandFooter } from '../../utils/studioImageFooter';
 import {
   Sparkles,
   Camera,
@@ -30,6 +31,12 @@ import {
   Zap,
   Calculator,
   Globe,
+  Aperture,
+  Download,
+  Store,
+  Hammer,
+  Home,
+  Tag,
 } from 'lucide-react';
 
 export interface StructuredCalculatorExport {
@@ -159,7 +166,14 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [savedSessions, setSavedSessions] = useState<Array<{ id: string; title: string; timestamp: number; messages: ChatMessage[] }>>([]);
 
+  // Saqr Photo Studio popover & state
+  const [isStudioMenuOpen, setIsStudioMenuOpen] = useState(false);
+  const [pendingStudioMode, setPendingStudioMode] = useState<'store' | 'workshop' | 'home' | null>(null);
+  const [isGeneratingStudio, setIsGeneratingStudio] = useState(false);
+  const [studioLoadingLabel, setStudioLoadingLabel] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const studioMenuRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -201,7 +215,25 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
 
   useLayoutEffect(() => {
     scrollToBottom(true);
-  }, [messages, isSending, isAnalyzingImage, scrollToBottom]);
+  }, [messages, isSending, isAnalyzingImage, isGeneratingStudio, scrollToBottom]);
+
+  useEffect(() => {
+    if (!isStudioMenuOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (studioMenuRef.current && !studioMenuRef.current.contains(e.target as Node)) {
+        setIsStudioMenuOpen(false);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsStudioMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [isStudioMenuOpen]);
 
   useEffect(() => {
     try {
@@ -495,6 +527,178 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     });
   };
 
+  const STUDIO_MODE_LABELS: Record<'store' | 'workshop' | 'home', string> = {
+    store: 'للمتجر',
+    workshop: 'في ورشتي',
+    home: 'في منزل',
+  };
+
+  const getWorkshopBranding = () => {
+    const workshopName = String(
+      (profile as any).workshopName || profile.brandName || (isSupplierAccount ? 'متجر المورد' : 'ورشتي')
+    ).trim();
+    const artistFullName = String(
+      (profile as any).fullName || (profile as any).name || profile.artistName || ''
+    ).trim();
+    const logoUrl = String(
+      (profile as any).brandLogo || (profile as any).logoUrl || (profile as any).avatarUrl || ''
+    ).trim();
+    return { workshopName, artistName: artistFullName, logoUrl, isSupplier: isSupplierAccount };
+  };
+
+  const runFalconStudioGeneration = async (
+    mode: 'store' | 'workshop' | 'home',
+    overrideAttachment?: { base64: string; mimeType: string; name: string } | null,
+    overrideText?: string
+  ) => {
+    const activeAtt = overrideAttachment !== undefined ? overrideAttachment : pendingAttachment;
+    const lastImageInChat = !activeAtt
+      ? [...messages].reverse().find((m) => m.metadata?.previewImage || m.metadata?.studioRawImage)?.metadata
+      : null;
+    const sourceBase64 = activeAtt?.base64 || lastImageInChat?.previewImage || lastImageInChat?.studioRawImage || '';
+    const sourceMime = activeAtt?.mimeType || 'image/jpeg';
+    const noteText = (overrideText !== undefined ? overrideText : inputPrompt).trim();
+
+    if (!sourceBase64 && !noteText) {
+      setPendingStudioMode(mode);
+      setIsStudioMenuOpen(false);
+      showFeedback(`📸 اختر صورة المنتج لتجهيزها (${STUDIO_MODE_LABELS[mode]}) أو اكتب وصف المنتج`);
+      fileInputRef.current?.click();
+      return;
+    }
+
+    setIsStudioMenuOpen(false);
+    setPendingStudioMode(null);
+    setPendingAttachment(null);
+    setInputPrompt('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+
+    const modeTitle = STUDIO_MODE_LABELS[mode];
+    const userMsg: ChatMessage = {
+      id: 'user_studio_' + Date.now(),
+      sender: 'user',
+      text: noteText
+        ? `🎨 استوديو صقر — إنشاء صورة (${modeTitle}): ${noteText}`
+        : `🎨 استوديو صقر — تجهيز صورة المنتج (${modeTitle})`,
+      timestamp: Date.now(),
+      metadata: activeAtt ? { previewImage: activeAtt.base64 } : undefined,
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setIsGeneratingStudio(true);
+    setStudioLoadingLabel(
+      mode === 'store'
+        ? 'جاري فصل المنتج وتجهيز خلفية بيضاء بظل استوديو عالمي...'
+        : mode === 'workshop'
+        ? 'جاري وضع المنتج داخل ورشتك الحرفية الطبيعية وإضافة التذييل...'
+        : 'جاري تنسيق المنتج داخل منزل مصري بوهيمي أنيق وإضافة التذييل...'
+    );
+
+    try {
+      const branding = getWorkshopBranding();
+      const res = await falconFetch(
+        '/api/ai/falcon-studio',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode,
+            imageBase64: sourceBase64 || undefined,
+            mimeType: sourceMime,
+            userPrompt: noteText || undefined,
+            workshopContext: {
+              selectedCrafts: profile.selectedCrafts || ['macrame'],
+              category: currentCategory,
+              brandName: branding.workshopName,
+              artistName: branding.artistName,
+              accountRole: isSupplierAccount ? 'supplier' : 'artisan',
+              country: profile.country || 'جمهورية مصر العربية',
+            },
+          }),
+        },
+        65000
+      );
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(getArabicAiError(res.status, errData.error));
+      }
+
+      const data = await res.json();
+      if (typeof data.remaining === 'number') {
+        setDailyRemaining(data.remaining);
+      }
+
+      const rawImage: string = data.imageDataUrl;
+      const shouldAutoFooter = Boolean(data.applyBrandFooter ?? (mode === 'workshop' || mode === 'home'));
+      const brandedImage = await applyWorkshopBrandFooter(rawImage, branding);
+      const displayImage = shouldAutoFooter ? brandedImage : rawImage;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: 'falcon_studio_' + Date.now(),
+          sender: 'falcon',
+          text: data.captionAr || `✨ تم تجهيز الصورة (${modeTitle}) بنجاح.`,
+          timestamp: Date.now(),
+          metadata: {
+            studioImage: displayImage,
+            studioRawImage: rawImage,
+            studioBrandedImage: brandedImage,
+            studioMode: mode,
+            studioFooterEnabled: shouldAutoFooter,
+          },
+        },
+      ]);
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: 'err_studio_' + Date.now(),
+          sender: 'falcon',
+          text: `⚠️ ${err?.message || 'تعذر إنشاء صورة الاستوديو حالياً.'}`,
+          timestamp: Date.now(),
+        },
+      ]);
+    } finally {
+      setIsGeneratingStudio(false);
+      setStudioLoadingLabel('');
+    }
+  };
+
+  const handleToggleStudioFooter = (msgId: string) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== msgId || !m.metadata?.studioRawImage || !m.metadata?.studioBrandedImage) return m;
+        const nextEnabled = !m.metadata.studioFooterEnabled;
+        return {
+          ...m,
+          metadata: {
+            ...m.metadata,
+            studioFooterEnabled: nextEnabled,
+            studioImage: nextEnabled ? m.metadata.studioBrandedImage : m.metadata.studioRawImage,
+          },
+        };
+      })
+    );
+  };
+
+  const handleDownloadStudioImage = (dataUrl: string, mode?: string) => {
+    try {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `alshams-studio-${mode || 'product'}-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showFeedback('✓ تم تحميل صورة الاستوديو بأعلى دقة');
+    } catch {
+      showFeedback('تعذر تنزيل الصورة، يمكنك حفظها بالضغط المطول عليها.');
+    }
+  };
+
   const handleImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -503,9 +707,16 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
       const { base64, mimeType } = await compressImageForAI(file);
       if (!base64) throw new Error('فشل معالجة الصورة المرفوعة.');
 
-      setPendingAttachment({ base64, mimeType, name: file.name });
-      showFeedback('📸 تم إرفاق الصورة. يمكنك كتابة استفسارك ثم الضغط على إرسال.');
-      setTimeout(() => textareaRef.current?.focus(), 100);
+      const newAtt = { base64, mimeType, name: file.name };
+      if (pendingStudioMode) {
+        const queuedMode = pendingStudioMode;
+        setPendingStudioMode(null);
+        await runFalconStudioGeneration(queuedMode, newAtt);
+      } else {
+        setPendingAttachment(newAtt);
+        showFeedback('📸 تم إرفاق الصورة. يمكنك إرسالها للتحليل أو اختيار الاستوديو لتجهيزها.');
+        setTimeout(() => textareaRef.current?.focus(), 100);
+      }
     } catch (err: any) {
       showFeedback('تعذر قراءة الصورة: ' + (err.message || ''));
     } finally {
@@ -519,6 +730,13 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     }
     const textToSend = (customText || inputPrompt).trim();
     const att = pendingAttachment;
+
+    if (!chip && pendingStudioMode && (textToSend || att)) {
+      const queuedMode = pendingStudioMode;
+      await runFalconStudioGeneration(queuedMode, att, textToSend);
+      return;
+    }
+
     if (!textToSend && !chip && !att) return;
 
     // تفريغ الحقول فورا
@@ -946,7 +1164,40 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
               >
                 {msg.metadata?.previewImage && (
                   <div className="mb-2 max-w-[200px] rounded-xl overflow-hidden border border-white/20">
-                    <img src={msg.metadata.previewImage} alt="صورة الموديل" className="w-full h-auto object-cover" />
+                    <img src={msg.metadata.previewImage} alt="صورة الموديل" referrerPolicy="no-referrer" className="w-full h-auto object-cover" />
+                  </div>
+                )}
+
+                {msg.metadata?.studioImage && (
+                  <div className="mb-2.5 space-y-2">
+                    <div className="rounded-xl overflow-hidden border border-amber-400/40 bg-white shadow-sm max-w-[340px]">
+                      <img
+                        src={msg.metadata.studioImage}
+                        alt="صورة استوديو صقر"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-auto object-contain"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadStudioImage(msg.metadata.studioImage, msg.metadata.studioMode)}
+                        className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>تحميل الصورة</span>
+                      </button>
+                      {msg.metadata.studioRawImage && msg.metadata.studioBrandedImage && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStudioFooter(msg.id)}
+                          className="px-2.5 py-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 border border-stone-300/80 dark:border-stone-600 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Tag className="w-3 h-3" />
+                          <span>{msg.metadata.studioFooterEnabled ? 'إخفاء التذييل' : 'إضافة تذييل الورشة'}</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -1059,6 +1310,13 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           </div>
         )}
 
+        {isGeneratingStudio && (
+          <div className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-900 dark:text-amber-200 text-xs font-bold w-fit">
+            <Aperture className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-spin shrink-0" />
+            <span>{studioLoadingLabel || 'استوديو صقر يجهز صورتك الآن...'}</span>
+          </div>
+        )}
+
         <div ref={messagesEndRef} className="h-1" />
       </div>
 
@@ -1135,24 +1393,100 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         </div>
       )}
 
+      {/* شريط وضع الاستوديو المختار (عند اختيار النمط قبل إرفاق صورة) */}
+      {pendingStudioMode && (
+        <div className="px-3 py-1.5 bg-amber-500/15 dark:bg-amber-950/50 border-t border-amber-400/50 flex items-center justify-between gap-2 text-xs flex-shrink-0">
+          <div className="flex items-center gap-2 font-bold text-amber-900 dark:text-amber-200">
+            <Aperture className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            <span>
+              وضع الاستوديو: <strong>{STUDIO_MODE_LABELS[pendingStudioMode]}</strong> — أرفق صورة المنتج أو اكتب وصفه واضغط إرسال
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPendingStudioMode(null)}
+            className="p-1 rounded-lg hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 cursor-pointer"
+            title="إلغاء وضع الاستوديو"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* شريط الإدخال العصري المتمدد تلقائياً */}
-      <div className="p-2.5 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 flex items-end gap-2 flex-shrink-0">
+      <div className="p-2 sm:p-2.5 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 flex items-end gap-1.5 sm:gap-2 flex-shrink-0">
         {/* زر إرفاق الصور والملفات 📎 */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          title="إرفاق صورة مشغولة لفحصها هندسياً واستخراج الخامات"
-          className="p-2.5 rounded-2xl text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer shrink-0"
+          title="إرفاق صورة مشغولة لفحصها أو تجهيزها في الاستوديو"
+          className="p-2 rounded-2xl text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer shrink-0"
         >
           <Paperclip className="w-5 h-5" />
         </button>
+
+        {/* أيقونة الاستوديو المدمجة (إنشاء صورة: للمتجر / في ورشتي / في منزل) */}
+        <div ref={studioMenuRef} className="relative shrink-0">
+          <button
+            type="button"
+            disabled={isGeneratingStudio}
+            onClick={() => setIsStudioMenuOpen((v) => !v)}
+            title="استوديو صقر لإنشاء وتجهيز صور المنتجات"
+            aria-expanded={isStudioMenuOpen}
+            className={`p-2 rounded-2xl transition cursor-pointer flex items-center justify-center ${
+              isStudioMenuOpen || pendingStudioMode
+                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-1 ring-amber-400/70'
+                : 'text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800'
+            } disabled:opacity-40`}
+          >
+            <Aperture className={`w-5 h-5 ${isGeneratingStudio ? 'animate-spin text-amber-500' : ''}`} />
+          </button>
+
+          {isStudioMenuOpen && (
+            <div className="absolute bottom-full right-0 mb-2 w-40 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 shadow-2xl overflow-hidden z-50 text-right">
+              {/* كلمة تعريفية غير قابلة للضغط */}
+              <div className="px-3 py-2 text-[11px] font-black text-stone-400 dark:text-stone-500 bg-stone-50 dark:bg-stone-950/70 border-b border-stone-200/80 dark:border-stone-800 cursor-default select-none">
+                إنشاء صورة
+              </div>
+
+              <div className="p-1 space-y-0.5">
+                <button
+                  type="button"
+                  onClick={() => runFalconStudioGeneration('store')}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-bold transition cursor-pointer"
+                >
+                  <Store className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>للمتجر</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => runFalconStudioGeneration('workshop')}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-bold transition cursor-pointer"
+                >
+                  <Hammer className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>في ورشتي</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => runFalconStudioGeneration('home')}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-bold transition cursor-pointer"
+                >
+                  <Home className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>في منزل</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* زر التسجيل الصوتي المباشر 🎙️ */}
         <button
           type="button"
           onClick={toggleVoiceRecording}
           title={isRecordingVoice ? 'إيقاف التسجيل الصوتي وتفريغه' : 'تسجيل استفسار بصوتك'}
-          className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 ${
+          className={`p-2 rounded-2xl transition cursor-pointer shrink-0 ${
             isRecordingVoice
               ? 'bg-red-500 text-white shadow-md animate-pulse ring-2 ring-red-300'
               : isTranscribingVoice
@@ -1163,24 +1497,49 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           {isRecordingVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
 
-        {/* زر بحث جوجل الحي بأيقونة صقر */}
+        {/* زر بحث جوجل الحي بأيقونة صقر — إضاءة خلفية خضراء واضحة عند التشغيل وتختفي عند الإطفاء */}
         <button
           type="button"
-          onClick={() => setUseGoogleSearch((v) => !v)}
-          title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل لهذه المحادثة' : 'تفعيل بحث جوجل الحي للأسعار والموردين'}
+          onClick={() => {
+            setUseGoogleSearch((prev) => {
+              const next = !prev;
+              showFeedback(
+                next
+                  ? '🟢 تم تشغيل بحث جوجل الحي لصقر — سيعتمد على نتائج الويب المباشرة'
+                  : 'تم إيقاف بحث جوجل الحي'
+              );
+              return next;
+            });
+          }}
+          title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل — اضغط للإيقاف' : 'تفعيل بحث جوجل الحي للأسعار والموردين'}
           aria-pressed={useGoogleSearch}
-          className={`p-1.5 rounded-2xl transition-all cursor-pointer shrink-0 flex items-center justify-center ${
+          className={`relative p-1.5 rounded-2xl transition-all duration-200 cursor-pointer shrink-0 flex items-center justify-center ${
             useGoogleSearch
-              ? 'bg-emerald-500 text-white shadow-[0_0_14px_rgba(16,185,129,0.7)] ring-2 ring-emerald-400/70'
-              : 'bg-transparent hover:bg-stone-100 dark:hover:bg-stone-800'
+              ? 'bg-emerald-500/95 ring-2 ring-emerald-300 shadow-[0_0_20px_3px_rgba(16,185,129,0.85)]'
+              : 'bg-transparent hover:bg-stone-100 dark:hover:bg-stone-800 shadow-none ring-0'
           }`}
         >
+          {useGoogleSearch && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 rounded-2xl bg-emerald-400/70 blur-md -z-0 animate-pulse pointer-events-none"
+            />
+          )}
           <img
             src={falconSearchIconImg}
-            alt="بحث صقر"
+            alt="بحث جوجل بصقر"
+            referrerPolicy="no-referrer"
             draggable={false}
-            className="w-7 h-7 object-contain select-none pointer-events-none"
+            className={`relative z-10 w-7 h-7 object-contain select-none pointer-events-none transition-transform duration-200 ${
+              useGoogleSearch ? 'scale-105 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]' : ''
+            }`}
           />
+          {useGoogleSearch && (
+            <span
+              aria-hidden="true"
+              className="absolute -top-0.5 -right-0.5 z-20 w-2.5 h-2.5 rounded-full bg-emerald-300 border-2 border-white dark:border-stone-900 shadow-sm pointer-events-none"
+            />
+          )}
         </button>
 
         {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}
@@ -1202,7 +1561,13 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
               }
             }}
             rows={1}
-            placeholder="اكتب استفسارك لصقر... (Enter لسطر جديد، واضغط الإرسال للإرسال)"
+            placeholder={
+              pendingStudioMode
+                ? `صف المنتج أو أرفق صورته (${STUDIO_MODE_LABELS[pendingStudioMode]})...`
+                : useGoogleSearch
+                ? 'ابحث في جوجل مع صقر عن الأسعار أو الموردين...'
+                : 'اكتب استفسارك لصقر... (Enter لسطر جديد)'
+            }
             className="w-full resize-none max-h-36 overflow-y-auto px-3.5 py-2.5 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 leading-relaxed placeholder:text-stone-400"
           />
         </div>
@@ -1210,7 +1575,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         {/* زر الإرسال مع سهم متجه للأعلى ⬆️ */}
         <button
           type="button"
-          disabled={isSending || (!inputPrompt.trim() && !pendingAttachment)}
+          disabled={isSending || isGeneratingStudio || (!inputPrompt.trim() && !pendingAttachment)}
           onClick={() => handleSendMessage()}
           title="إرسال الاستفسار (أو اضغط Ctrl+Enter)"
           className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md active:scale-95 cursor-pointer shrink-0"

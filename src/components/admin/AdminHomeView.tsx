@@ -30,6 +30,7 @@ import {
   Code2,
   GraduationCap,
   Rocket,
+  CloudUpload,
 } from 'lucide-react';
 import {
   AdminPageId,
@@ -60,6 +61,8 @@ interface AdminHomeViewProps {
     field: 'hideStorefront' | 'hideFromMarket'
   ) => void;
   onOpenLandingDesignInjector?: () => void;
+  onSyncUnifiedMaterialsToDb?: () => void;
+  syncingMaterialsToDb?: boolean;
 }
 
 export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
@@ -79,6 +82,8 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
   onOpenAudit,
   onToggleWorkshopVisibility,
   onOpenLandingDesignInjector,
+  onSyncUnifiedMaterialsToDb,
+  syncingMaterialsToDb = false,
 }) => {
   const [quickSearch, setQuickSearch] = useState('');
   const [showManageMenu, setShowManageMenu] = useState(false);
@@ -287,6 +292,43 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
                   >
                     <Code2 className="w-3 h-3 shrink-0" />
                     <span className="truncate">حقن تصميم جديد</span>
+                  </button>
+                </div>
+              );
+            }
+
+            if (card.id === 'unified_materials' && onSyncUnifiedMaterialsToDb) {
+              return (
+                <div
+                  key={card.id}
+                  className="relative rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#FBBF24] p-2.5 sm:p-4 flex flex-col items-center justify-between gap-2 text-center transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md min-h-[104px] sm:min-h-[126px] group"
+                >
+                  <button
+                    type="button"
+                    onClick={card.onClick}
+                    className="w-full flex flex-col items-center justify-center gap-1.5 sm:gap-2 cursor-pointer focus:outline-none"
+                  >
+                    <div
+                      className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full border flex items-center justify-center transition-transform group-hover:scale-105 ${card.circleClass}`}
+                    >
+                      {card.icon}
+                    </div>
+                    <span className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] leading-tight">
+                      {card.label}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={syncingMaterialsToDb}
+                    onClick={onSyncUnifiedMaterialsToDb}
+                    title="ترحيل ومزامنة جميع جداول الخامات الموحدة مباشرة مع قاعدة بيانات Supabase بضغطة زر"
+                    className="w-full py-1.5 px-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shadow-xs transition cursor-pointer disabled:opacity-60"
+                  >
+                    <CloudUpload className={`w-3 h-3 shrink-0 ${syncingMaterialsToDb ? 'animate-bounce' : ''}`} />
+                    <span className="truncate">
+                      {syncingMaterialsToDb ? 'جاري الترحيل...' : 'ترحيل لقاعدة البيانات'}
+                    </span>
                   </button>
                 </div>
               );
