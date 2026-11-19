@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ArtisanAvatar } from '../brand/BrandAssets';
 import { UserProfile, isUserAdmin, ThemeMode } from '../../types';
 import {
@@ -163,20 +163,53 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
     return dynamicGroups;
   }, [isAdmin, isSupplier, flags, sidebarLayout, onNavigateToCatalog, onOpenArtisanStore, onSelectView]);
 
-  // Determine initial open group from activeView (default: ERP open if home)
-  const initialOpenKey = useMemo<SectionKey>(() => {
-    const matched = navGroups.find((g) => g.items.some((item) => item.id === activeView));
-    return matched ? matched.key : 'erp';
-  }, [activeView, navGroups]);
-
+  // جميع القوائم المنسدلة تبدأ مغلقة عند فتح القائمة الجانبية ليظهر كل تبويب بوضوح
   const [openGroups, setOpenGroups] = useState<Record<SectionKey, boolean>>({
-    erp: initialOpenKey === 'erp',
-    crm: initialOpenKey === 'crm',
-    fca: initialOpenKey === 'fca',
-    hr: initialOpenKey === 'hr',
+    erp: false,
+    crm: false,
+    fca: false,
+    hr: false,
   });
 
-  if (!isOpen) return null;
+  // إبقاء القائمة مركّبة مؤقتاً أثناء حركة الإغلاق السلسة لنفس الجهة التي فُتحت منها
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      // إعادة إغلاق كافة القوائم المنسدلة تلقائياً في كل مرة تُفتح فيها القائمة الجانبية
+      setOpenGroups({
+        erp: false,
+        crm: false,
+        fca: false,
+        hr: false,
+      });
+      setShouldRender(true);
+      const raf = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setIsVisible(true));
+      });
+      return () => cancelAnimationFrame(raf);
+    } else {
+      setIsVisible(false);
+      const timer = setTimeout(() => setShouldRender(false), 240);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!shouldRender) return null;
+
+  const isLtr =
+    typeof document !== 'undefined' &&
+    (document.documentElement.dir === 'ltr' || getComputedStyle(document.body).direction === 'ltr');
 
   const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64;
 
@@ -198,15 +231,26 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-start bg-[#060B18]/75 backdrop-blur-xs animate-in fade-in duration-150"
-      dir="rtl"
+      className={`fixed inset-0 z-50 flex justify-end transition-opacity duration-200 ${
+        isVisible ? 'bg-[#060B18]/70 backdrop-blur-xs opacity-100' : 'bg-[#060B18]/0 opacity-0 pointer-events-none'
+      }`}
+      dir={isLtr ? 'ltr' : 'rtl'}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <aside
         aria-label="القائمة الجانبية للورشة"
-        className="w-full max-w-xs sm:max-w-sm h-full flex flex-col text-right shadow-2xl border-l bg-[#F2ECE1] text-[#0C1427] border-[#D4CCBC] dark:bg-[#060B18] dark:text-[#F7F3EA] dark:border-[#22355E] animate-in slide-in-from-right duration-200 relative"
+        onClick={(e) => e.stopPropagation()}
+        className={`w-full max-w-xs sm:max-w-sm h-full flex flex-col text-right shadow-2xl ${
+          isLtr ? 'border-l' : 'border-r'
+        } bg-[#F2ECE1] text-[#0C1427] border-[#D4CCBC] dark:bg-[#060B18] dark:text-[#F7F3EA] dark:border-[#22355E] relative transform transition-transform duration-200 ease-out ${
+          isVisible
+            ? 'translate-x-0'
+            : isLtr
+            ? 'translate-x-full'
+            : '-translate-x-full'
+        }`}
       >
         {/* الهيدر: لوجو متجر الفنان + الاسم + أيقونة الترس المباشرة للإعدادات + إغلاق */}
         <div className="p-4 border-b border-[#D4CCBC] dark:border-[#22355E] bg-[#E9E2D4] dark:bg-[#0D162E] flex items-center justify-between gap-2.5">

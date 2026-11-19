@@ -921,10 +921,25 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         if (!tenantId) return;
 
         const rawMaterials = (await tenantStorage.getRawMaterials(tenantId).catch(() => [])) as any[];
+        let stockMap: Record<
+          string,
+          { currentStock?: number; minAlertThreshold?: number; warehouseTracked?: boolean }
+        > = {};
+        try {
+          const cached = localStorage.getItem('alshams_mat_stock_' + tenantId);
+          if (cached) stockMap = JSON.parse(cached);
+        } catch {}
+
         const depleting = rawMaterials.filter((m: any) => {
-          const stock = Number(m.currentStock ?? m.quantity ?? 0);
-          const minThreshold = Number(m.minAlertThreshold ?? m.min_quantity ?? m.minimumStock ?? 2);
-          return stock <= minThreshold && m.isActive !== false;
+          if (m.isActive === false) return false;
+          const entry = stockMap[m.id];
+          const isTracked = Boolean(entry?.warehouseTracked === true || m.warehouseTracked === true);
+          if (!isTracked) return false;
+          const stock = entry ? Number(entry.currentStock ?? 0) : Number(m.currentStock ?? m.quantity ?? 0);
+          const minThreshold = entry
+            ? Number(entry.minAlertThreshold ?? 0)
+            : Number(m.minAlertThreshold ?? m.min_quantity ?? m.minimumStock ?? 0);
+          return minThreshold > 0 && stock <= minThreshold;
         });
 
         if (depleting.length > 0) {

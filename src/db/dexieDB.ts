@@ -1419,11 +1419,57 @@ export const tenantStorage = {
       const existingTitles = new Set(existingNotifs.map((n) => n.title));
       const dismissedMap = this.getDismissedNotificationSignatures(tenantId);
 
-      // 1. Automatic Stock Depletion Alerts (تنبيهات تلقائية عند الوصول لحد الطلب الأدنى بالمخزن)
+      // 1. Automatic Stock Depletion Alerts (فقط للخامات المفعّل لها رصيد مخزني فعلي في «المخزن والجرد» — وليس خامات كتالوج «خاماتي»)
       const materials = await this.getRawMaterials(tenantId);
+      const activeMatMap = new Map(materials.map((m) => [m.id, m]));
+      let localStockMap: Record<
+        string,
+        { currentStock?: number; minAlertThreshold?: number; warehouseTracked?: boolean }
+      > = {};
+      try {
+        if (typeof window !== 'undefined') {
+          const rawStock = localStorage.getItem('alshams_mat_stock_' + tenantId);
+          if (rawStock) localStockMap = JSON.parse(rawStock);
+        }
+      } catch {}
+
+      let notificationsMutated = false;
+
+      // Clean up any stale/false stock_depletion notifications for deleted or untracked catalog materials
+      for (const notif of existingNotifs) {
+        if (notif.type !== 'stock_depletion') continue;
+        const relId = notif.relatedItemId || notif.id.replace(/^notif_stock_/, '');
+        const mat = activeMatMap.get(relId);
+        const stEntry = localStockMap[relId];
+        const isTracked = Boolean(
+          stEntry?.warehouseTracked === true || (mat as any)?.warehouseTracked === true
+        );
+        const th = stEntry
+          ? Number(stEntry.minAlertThreshold) || 0
+          : Number(mat?.minAlertThreshold ?? mat?.reorderLevel ?? 0);
+        const cur = stEntry ? Number(stEntry.currentStock) || 0 : Number(mat?.currentStock) || 0;
+
+        if (!mat || mat.isActive === false || !isTracked || th <= 0 || cur > th) {
+          await db.notifications.delete(notif.id);
+          notificationsMutated = true;
+        }
+      }
+
       for (const mat of materials) {
-        const threshold = Number(mat.minAlertThreshold ?? mat.reorderLevel ?? 5);
-        const currentStock = Number(mat.currentStock) || 0;
+        if (mat.isActive === false) continue;
+        const stEntry = localStockMap[mat.id];
+        const isWarehouseTracked = Boolean(
+          stEntry?.warehouseTracked === true || (mat as any)?.warehouseTracked === true
+        );
+        // لا تنبيهات لخامات كتالوج «خاماتي» التي لم يدخل لها رصيد مخزني فعلي بعد
+        if (!isWarehouseTracked) continue;
+
+        const threshold = stEntry
+          ? Number(stEntry.minAlertThreshold) || 0
+          : Number(mat.minAlertThreshold ?? mat.reorderLevel ?? 0);
+        if (threshold <= 0) continue;
+
+        const currentStock = stEntry ? Number(stEntry.currentStock) || 0 : Number(mat.currentStock) || 0;
         const isDepleted = currentStock <= threshold;
         const alertId = 'notif_stock_' + mat.id;
         const existingStockAlert = existingNotifs.find(
@@ -1454,8 +1500,8 @@ export const tenantStorage = {
               relatedItemId: mat.id,
               createdAt: now,
             });
+            notificationsMutated = true;
           } else {
-            // If the stock level changed or depleted further, reactivate unread status to alert the artisan in the bell
             const contentChanged = existingStockAlert.message !== message;
             await db.notifications.put({
               ...existingStockAlert,
@@ -1464,13 +1510,16 @@ export const tenantStorage = {
               isRead: contentChanged ? false : existingStockAlert.isRead,
               createdAt: contentChanged ? now : existingStockAlert.createdAt,
             });
+            if (contentChanged) notificationsMutated = true;
           }
-        } else {
-          // If stock has been replenished safely above the reorder point, auto-dismiss old depletion alert
-          if (existingStockAlert) {
-            await db.notifications.delete(existingStockAlert.id);
-          }
+        } else if (existingStockAlert) {
+          await db.notifications.delete(existingStockAlert.id);
+          notificationsMutated = true;
         }
+      }
+
+      if (notificationsMutated) {
+        this.broadcastNotificationsUpdated();
       }
 
       // 2. Upcoming Deliveries & 2-Day Reminders

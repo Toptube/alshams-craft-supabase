@@ -18,11 +18,13 @@ export function normalizeMaterialKey(raw?: string | null): string {
     .replace(/ة/g, 'ه')
     .replace(/ى/g, 'ي')
     .replace(/[ًٌٍَُِّْـ]/g, '')
-    // strip thickness numbers like "3 مم" / "4mm" / "4 مللي"
-    .replace(/\b\d+(?:\.\d+)?\s*(?:مم|مللي|ملي|mm)\b/gi, '')
-    // strip parenthetical notes
+    // strip parenthetical notes like "(2 - 6 مم)" or "(كل السماكات)"
     .replace(/\([^)]*\)/g, ' ')
-    // strip common leading noise word "خيط " or "خيوط "
+    // strip thickness ranges like "من 2 الي 6 مم" / "4 و 6 مم" / "8، 10، 12 مم"
+    .replace(/(?:من\s+)?\d+(?:\.\d+)?(?:\s*(?:الي|الى|و|،|,|-|—)\s*\d+(?:\.\d+)?)*\s*(?:مم|مللي|ملي|mm)/gi, ' ')
+    // strip phrases like "كل السماكات" / "جميع السماكات"
+    .replace(/(?:كل|جميع)\s+السماكات/g, ' ')
+    // strip common leading noise words "خيط " / "خيوط " / "حبل " / "حبال "
     .replace(/^(?:خيط|خيوط)\s+/g, '')
     .replace(/[\/\-—_،,.:]+/g, ' ')
     .replace(/\s+/g, ' ')

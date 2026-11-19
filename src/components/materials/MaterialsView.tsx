@@ -75,8 +75,10 @@ import {
   getThreadThicknessOptions,
   formatThreadThicknessRangeLabel,
   SEEDED_UNIFIED_MASTERS,
+  UnifiedMaterialMaster,
 } from '../../registry/unifiedMaterialsRegistry';
 import {
+  fetchUnifiedMaterialsSnapshot,
   getLocalMaterialCodeMap,
   saveLocalMaterialCodeMapping,
   updateOrProposeUnifiedMasterApi,
@@ -227,6 +229,8 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
 
   // Unified Materials System Integration
   const [isUnifiedPickerOpen, setIsUnifiedPickerOpen] = useState(initialOpenUnifiedPicker);
+  const [liveUnifiedMasters, setLiveUnifiedMasters] = useState<UnifiedMaterialMaster[]>(SEEDED_UNIFIED_MASTERS);
+  const autoCleanedRef = useRef<string>('');
   const [localUnifiedMap, setLocalUnifiedMap] = useState<
     Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }>
   >({});
@@ -238,12 +242,18 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     if (!workshopId) return;
     setLoading(true);
     try {
-      const [unts, supsRes, dexieSups, matsRes] = await Promise.all([
+      const [unts, supsRes, dexieSups, matsRes, unifiedSnap] = await Promise.all([
         ensureDefaultUnitsInSupabase(workshopId),
         getSuppliersFromSupabase(workshopId),
         tenantStorage.getSuppliers(workshopId).catch(() => []),
         getMaterialsFromSupabase(workshopId),
+        fetchUnifiedMaterialsSnapshot().catch(() => null),
       ]);
+      const resolvedMasters =
+        unifiedSnap && Array.isArray(unifiedSnap.masters) && unifiedSnap.masters.length > 0
+          ? unifiedSnap.masters
+          : SEEDED_UNIFIED_MASTERS;
+      setLiveUnifiedMasters(resolvedMasters);
 
       const supMap = new Map<string, SupabaseSupplier>();
       for (const ds of dexieSups || []) {
@@ -351,12 +361,15 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
           savedProds || [],
           loadedMats,
           codeMap,
-          SEEDED_UNIFIED_MASTERS
+          resolvedMasters
         );
         setProductLegacyIssues(issues);
       } catch {
         setProductLegacyIssues([]);
       }
+
+      // Clean up any stale untracked stock notifications right away
+      tenantStorage.generateProactiveNotifications(workshopId).catch(() => {});
     } catch (err: any) {
       console.error('Failed to load materials data from Supabase:', err);
       setNotice({ text: 'حدث خطأ أثناء تحميل بيانات الخامات.', isError: true });
@@ -768,12 +781,22 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     });
   };
 
-  // Smart Health Check: detect duplicates & legacy unlinked materials
+  // Smart Health Check: detect duplicates & legacy unlinked materials against live unified masters
   const materialsHealth = useMemo(() => {
-    return analyzeMaterialsHealth(materials, localUnifiedMap, stockData, SEEDED_UNIFIED_MASTERS);
-  }, [materials, localUnifiedMap, stockData]);
+    return analyzeMaterialsHealth(materials, localUnifiedMap, stockData, liveUnifiedMasters);
+  }, [materials, localUnifiedMap, stockData, liveUnifiedMasters]);
 
-  // One-click Smart Cleanup: deduplicate repeated materials & upgrade legacy ones to Unified Materials System
+  // Automatic silent cleanup on first load whenever duplicates or legacy unlinked items exist
+  useEffect(() => {
+    if (loading || cleaningDuplicates || !workshopId) return;
+    if (!materialsHealth.hasIssues) return;
+    const runKey = `${workshopId}:${materials.length}:${materialsHealth.totalDuplicateRows}:${materialsHealth.legacyUnlinked.length}`;
+    if (autoCleanedRef.current === runKey) return;
+    autoCleanedRef.current = runKey;
+    handleSmartCleanupDuplicatesAndLegacy();
+  }, [loading, cleaningDuplicates, workshopId, materials.length, materialsHealth.hasIssues, materialsHealth.totalDuplicateRows, materialsHealth.legacyUnlinked.length]);
+
+  // One-click & Automatic Smart Cleanup: deduplicate repeated materials & upgrade legacy ones to Unified Materials System
   const handleSmartCleanupDuplicatesAndLegacy = async () => {
     if (!materialsHealth.hasIssues || cleaningDuplicates) return;
     setCleaningDuplicates(true);
@@ -861,10 +884,13 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       } catch {}
 
       await loadData();
-      setNotice({
-        text: `تم التنظيف الذكي بنجاح: حُذفت (${removedCount}) خامة مكررة وتمت ترقية (${upgradedCount}) خامة قديمة للمنظومة الموحدة مع الحفاظ على أسعارك وأرصدتك ✅`,
-        isError: false,
-      });
+      await tenantStorage.generateProactiveNotifications(workshopId).catch(() => {});
+      if (removedCount > 0 || upgradedCount > 0) {
+        setNotice({
+          text: `تم التنظيف الذكي بنجاح: حُذفت (${removedCount}) خامة مكررة وتمت ترقية (${upgradedCount}) خامة قديمة للمنظومة الموحدة مع الحفاظ على أسعارك وأرصدتك ✅`,
+          isError: false,
+        });
+      }
     } catch (err: any) {
       setNotice({ text: err?.message || 'حدث خطأ أثناء تنظيف التكرارات', isError: true });
     } finally {

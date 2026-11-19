@@ -2066,6 +2066,33 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // حماية الشاشة من الإغلاق المفاجئ عند السحب الأفقي بالخطأ (يمين/شمال على الموبايل أو التاتش باد)
+  useEffect(() => {
+    if (!profile || activeRoute.type !== 'app' || typeof window === 'undefined') return;
+    try {
+      if (!window.history.state?.alshamsSwipeGuard) {
+        window.history.pushState({ alshamsSwipeGuard: true }, '', window.location.href);
+      }
+    } catch {}
+
+    const handleSwipeBackGuard = () => {
+      const parsed = parseAppRoute();
+      if (parsed.type !== 'app') return;
+      // منع خروج المتصفح أو إغلاق البرنامج كله بسبب سحبة عرضية بالخطأ
+      try {
+        window.history.pushState({ alshamsSwipeGuard: true }, '', window.location.href);
+      } catch {}
+      setIsSidebarOpen((wasOpen) => {
+        if (wasOpen) return false;
+        setActiveView((curr) => (curr !== 'home' ? 'home' : curr));
+        return false;
+      });
+    };
+
+    window.addEventListener('popstate', handleSwipeBackGuard);
+    return () => window.removeEventListener('popstate', handleSwipeBackGuard);
+  }, [Boolean(profile), activeRoute.type]);
+
   // Render Suppliers Market if requested via direct link or hash
   if (activeRoute.type === 'suppliers_market') {
     return (
@@ -3149,10 +3176,9 @@ export const App: React.FC = () => {
 
       <Suspense fallback={null}>
       {/* Sidebar Drawer Navigation */}
-      {isSidebarOpen && (
-        <SidebarDrawer
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
+      <SidebarDrawer
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
           profile={profile}
           activeView={activeView}
           onNavigateToCatalog={handleNavigateToCatalog}
@@ -3235,7 +3261,6 @@ export const App: React.FC = () => {
           onTogglePerformanceMode={handleTogglePerformanceMode}
           onLogout={handleLogout}
         />
-      )}
 
       {/* Global Search Modal */}
       {isSearchOpen && (

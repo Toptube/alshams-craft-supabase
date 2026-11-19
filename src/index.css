@@ -33,6 +33,9 @@
     overflow-x: clip;
     max-width: 100%;
     width: 100%;
+    overscroll-behavior-x: none;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y pinch-zoom;
   }
 
   body {
