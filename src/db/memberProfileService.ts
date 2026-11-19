@@ -1,12 +1,21 @@
 import { authedFetch } from '../lib/apiClient';
 import {
   AudienceRole,
+  AudienceRule,
   MAX_SHOWCASE_POSTS,
   MemberPersonalProfile,
   ProfileVisibilityMatrix,
   ShowcasePostItem,
   normalizeVisibilityMatrix,
 } from '../types/memberProfile';
+import {
+  ArtisanSkillLevel,
+  GrowthHubConfig,
+  SocialEmbedPlatform,
+  TrainerEmbeddedPost,
+  TrainerLessonAlert,
+  saveStoredGrowthHubConfig,
+} from '../types/artisanGrowth';
 import { UserProfile } from '../types';
 
 export function resolveAudienceRoleFromUser(profile?: UserProfile | null): AudienceRole {
@@ -40,6 +49,7 @@ export async function fetchMemberPersonalProfile(
           showcasePosts: Array.isArray(json.profile.showcasePosts)
             ? json.profile.showcasePosts.slice(0, MAX_SHOWCASE_POSTS)
             : [],
+          trainerPosts: Array.isArray(json.profile.trainerPosts) ? json.profile.trainerPosts : [],
           craftsLabels: Array.isArray(json.profile.craftsLabels) ? json.profile.craftsLabels : [],
         },
         isOwner: Boolean(json.isOwner),
@@ -59,6 +69,8 @@ export async function saveMemberPersonalProfile(payload: {
   phone?: string;
   governorate?: string;
   visibility?: ProfileVisibilityMatrix;
+  skillLevel?: ArtisanSkillLevel;
+  assessmentScore?: number;
 }): Promise<{
   success: boolean;
   profile?: MemberPersonalProfile;
@@ -80,6 +92,7 @@ export async function saveMemberPersonalProfile(payload: {
           showcasePosts: Array.isArray(json.profile.showcasePosts)
             ? json.profile.showcasePosts
             : [],
+          trainerPosts: Array.isArray(json.profile.trainerPosts) ? json.profile.trainerPosts : [],
         },
       };
     }
@@ -164,5 +177,108 @@ export async function deleteMemberShowcasePost(postId: string): Promise<{
     return { success: false, error: json?.error || 'تعذر حذف المنشور' };
   } catch (err: any) {
     return { success: false, error: err?.message || 'خطأ اتصال أثناء الحذف' };
+  }
+}
+
+export async function addTrainerEmbeddedPost(payload: {
+  title: string;
+  description: string;
+  url: string;
+  platform: SocialEmbedPlatform;
+  audience: AudienceRule;
+  publishToFamily?: boolean;
+}): Promise<{
+  success: boolean;
+  post?: TrainerEmbeddedPost;
+  trainerPosts?: TrainerEmbeddedPost[];
+  familyPostId?: string | null;
+  notifiedCount?: number;
+  error?: string;
+}> {
+  try {
+    const res = await authedFetch('/api/member-profile/trainer-posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) {
+      return {
+        success: true,
+        post: json.post,
+        trainerPosts: Array.isArray(json.trainerPosts) ? json.trainerPosts : [],
+        familyPostId: json.familyPostId || null,
+        notifiedCount: json.notifiedCount || 0,
+      };
+    }
+    return { success: false, error: json?.error || 'تعذر نشر الدرس المدمج' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال أثناء النشر' };
+  }
+}
+
+export async function deleteTrainerEmbeddedPost(postId: string): Promise<{
+  success: boolean;
+  trainerPosts?: TrainerEmbeddedPost[];
+  error?: string;
+}> {
+  try {
+    const res = await authedFetch(`/api/member-profile/trainer-posts/${encodeURIComponent(postId)}`, {
+      method: 'DELETE',
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) {
+      return {
+        success: true,
+        trainerPosts: Array.isArray(json.trainerPosts) ? json.trainerPosts : [],
+      };
+    }
+    return { success: false, error: json?.error || 'تعذر حذف منشور المدرب' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال أثناء الحذف' };
+  }
+}
+
+export async function fetchTrainerLessonAlerts(): Promise<TrainerLessonAlert[]> {
+  try {
+    const res = await authedFetch('/api/trainer-posts/alerts');
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && Array.isArray(json?.alerts)) {
+      return json.alerts;
+    }
+  } catch {}
+  return [];
+}
+
+export async function syncGrowthHubConfigFromCloud(): Promise<GrowthHubConfig> {
+  try {
+    const res = await fetch('/api/growth/config');
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.config) {
+      return saveStoredGrowthHubConfig(json.config);
+    }
+  } catch {}
+  return saveStoredGrowthHubConfig({});
+}
+
+export async function saveGrowthHubConfigToCloud(config: Partial<GrowthHubConfig>): Promise<{
+  success: boolean;
+  config?: GrowthHubConfig;
+  error?: string;
+}> {
+  try {
+    const res = await authedFetch('/api/admin/growth-config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success && json?.config) {
+      const saved = saveStoredGrowthHubConfig(json.config);
+      return { success: true, config: saved };
+    }
+    return { success: false, error: json?.error || 'تعذر حفظ إعدادات مركز النمو' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال أثناء الحفظ' };
   }
 }

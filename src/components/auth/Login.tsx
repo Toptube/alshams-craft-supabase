@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Lock, Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, LogIn, AlertCircle, Award, ChevronDown, ChevronUp } from 'lucide-react';
 import { AlShamsFalconEmblem } from '../brand/BrandAssets';
+import { ArtisanSkillLevel, ARTISAN_SKILL_LEVELS } from '../../types/artisanGrowth';
+import { ArtisanSkillAssessment } from './ArtisanSkillAssessment';
 
 interface LoginProps {
   email: string;
@@ -15,6 +17,8 @@ interface LoginProps {
   googleLoading?: boolean;
   onFacebookLogin?: () => void;
   facebookLoading?: boolean;
+  skillLevel?: ArtisanSkillLevel;
+  onSkillLevelChange?: (level: ArtisanSkillLevel, score?: number) => void;
 }
 
 export const Login: React.FC<LoginProps> = ({
@@ -30,9 +34,12 @@ export const Login: React.FC<LoginProps> = ({
   googleLoading = false,
   onFacebookLogin,
   facebookLoading = false,
+  skillLevel = 'intermediate',
+  onSkillLevelChange,
 }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [showLevelQuiz, setShowLevelQuiz] = useState(false);
 
   // Restore remembered state
   useEffect(() => {
@@ -236,6 +243,40 @@ export const Login: React.FC<LoginProps> = ({
           )}
         </button>
       </form>
+
+      {/* Optional Quick Artisan Skill Assessment at Login */}
+      {onSkillLevelChange && (
+        <div className="pt-2 border-t border-[#D4CCBC]/70 dark:border-[#22355E]">
+          <button
+            type="button"
+            onClick={() => setShowLevelQuiz((prev) => !prev)}
+            className="w-full py-2.5 px-3 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-between gap-2 transition cursor-pointer"
+          >
+            <span className="flex items-center gap-2">
+              <Award className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
+              <span>اختبار تحديد مستوى الفنان / الترقية لخبير ومدرب</span>
+            </span>
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#C2410C] dark:text-[#FBBF24]">
+              <span>{ARTISAN_SKILL_LEVELS[skillLevel]?.shortLabel}</span>
+              {showLevelQuiz ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </span>
+          </button>
+
+          {showLevelQuiz && (
+            <div className="mt-2.5">
+              <ArtisanSkillAssessment
+                value={skillLevel}
+                onChange={onSkillLevelChange}
+                compact
+                defaultOpenQuiz
+              />
+              <p className="mt-1.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 text-center">
+                سيتم حفظ مستواك وتفعيل صلاحياته تلقائياً فور تسجيل الدخول.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

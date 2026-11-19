@@ -1,3 +1,5 @@
+import { ArtisanSkillLevel, TrainerEmbeddedPost } from './artisanGrowth';
+
 export type AudienceRole = 'artisans' | 'suppliers' | 'customers';
 export type MemberAccountRole = 'artisan' | 'supplier' | 'superadmin';
 
@@ -48,6 +50,12 @@ export interface MemberPersonalProfile {
   ratingStars?: number;
   showcasePosts: ShowcasePostItem[];
   visibility: ProfileVisibilityMatrix;
+  // نظام مستوى الفنان ومنشورات الخبير والمدرب المدمجة
+  skillLevel?: ArtisanSkillLevel;
+  assessmentScore?: number;
+  trainerVerified?: boolean;
+  trainerPostLimit?: number;
+  trainerPosts?: TrainerEmbeddedPost[];
   updatedAt?: string;
 }
 
@@ -95,6 +103,9 @@ export function applyVisibilityForAudience(
 ): MemberPersonalProfile {
   if (audience === 'owner') return profile;
   const v = normalizeVisibilityMatrix(profile.visibility);
+  const filteredTrainerPosts = Array.isArray(profile.trainerPosts)
+    ? profile.trainerPosts.filter((tp) => !tp.audience || tp.audience[audience] !== false)
+    : [];
   return {
     ...profile,
     personalAvatar: v.personalAvatar[audience] ? profile.personalAvatar : null,
@@ -103,6 +114,7 @@ export function applyVisibilityForAudience(
     phone: v.contact[audience] ? profile.phone : '',
     email: v.contact[audience] ? profile.email : '',
     showcasePosts: v.showcase[audience] ? profile.showcasePosts : [],
+    trainerPosts: filteredTrainerPosts,
     storeSlug: v.storeLink[audience] ? profile.storeSlug : '',
     country: v.location[audience] ? profile.country : '',
     governorate: v.location[audience] ? profile.governorate : '',

@@ -20,7 +20,9 @@ export type AdminPageId =
   | 'landing_cms'
   | 'feature_visibility'
   | 'ui_layout_studio'
-  | 'unified_materials';
+  | 'unified_materials'
+  | 'experts_trainers'
+  | 'growth_hub';
 
 export type ExecutiveTab =
   | 'materials'
@@ -68,6 +70,8 @@ export function mapExecutiveTabToPage(tab?: ExecutiveTab): { page: AdminPageId; 
     case 'feature_visibility':
     case 'ui_layout_studio':
     case 'unified_materials':
+    case 'experts_trainers':
+    case 'growth_hub':
       return { page: tab };
     case 'messaging':
       return { page: 'notif_messages' };

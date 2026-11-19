@@ -71,8 +71,15 @@ import {
   PackageCheck,
   BellRing,
   User,
+  Rocket,
+  Calendar,
+  Gift,
+  QrCode,
 } from 'lucide-react';
 import { checkUpcomingRecurringExpenses } from '../../services/recurringExpensesService';
+import { WorkshopGrowthToolsModal } from '../growth/WorkshopGrowthToolsModal';
+import { GrowthHubConfig, getStoredGrowthHubConfig } from '../../types/artisanGrowth';
+import { syncGrowthHubConfigFromCloud } from '../../db/memberProfileService';
 
 const WorkshopDarkAnalyticsChart = lazy(() =>
   import('./WorkshopChartsPanel').then((m) => ({ default: m.WorkshopDarkAnalyticsChart }))
@@ -195,9 +202,27 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const [isFavoritesModalOpen, setIsFavoritesModalOpen] = useState<boolean>(false);
   const [isAgendaModalOpen, setIsAgendaModalOpen] = useState<boolean>(false);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState<boolean>(false);
+  const [growthModalOpen, setGrowthModalOpen] = useState<boolean>(false);
+  const [growthInitialTab, setGrowthInitialTab] = useState<
+    'calendar' | 'corporate' | 'passport' | 'group_buy' | 'social_ai'
+  >('calendar');
+  const [growthConfig, setGrowthConfig] = useState<GrowthHubConfig>(() => getStoredGrowthHubConfig());
+
+  useEffect(() => {
+    syncGrowthHubConfigFromCloud()
+      .then((cfg) => setGrowthConfig(cfg))
+      .catch(() => {});
+  }, []);
+
+  const hasAnyArtisanGrowthTool =
+    growthConfig.productionCalendarEnabled ||
+    growthConfig.corporateGiftingEnabled ||
+    growthConfig.productPassportQrEnabled ||
+    growthConfig.groupBuyingEnabled ||
+    growthConfig.aiSocialCopyEnabled;
 
   const isModalActive = Boolean(
-    isAnyModalOpen || isAnalyticsModalOpen || isFavoritesModalOpen || isAgendaModalOpen
+    isAnyModalOpen || isAnalyticsModalOpen || isFavoritesModalOpen || isAgendaModalOpen || growthModalOpen
   );
 
   useEffect(() => {
@@ -1293,6 +1318,114 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           </Suspense>
         </div>
 
+        {/* جناح أدوات النمو والتطوير الذكية للورش (متحكم فيه من السوبر أدمن) */}
+        {hasAnyArtisanGrowthTool && (
+          <section
+            dir="rtl"
+            className="rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#EA580C]/35 dark:border-[#FBBF24]/30 p-4 sm:p-5 space-y-3.5 shadow-sm"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-[#EA580C] text-white flex items-center justify-center shadow-xs shrink-0">
+                  <Rocket className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                    جناح أدوات النمو والتطوير الذكية للورشة
+                  </h3>
+                  <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
+                    أدوات تشغيلية وتسويقية مباشرة لمضاعفة مبيعات ورشتك وتنظيم وقت الإنتاج
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  playButtonClickSound();
+                  setGrowthInitialTab('calendar');
+                  setGrowthModalOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black transition cursor-pointer"
+              >
+                فتح الجناح بالكامل
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+              {growthConfig.productionCalendarEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    setGrowthInitialTab('calendar');
+                    setGrowthModalOpen(true);
+                  }}
+                  className="p-3 rounded-2xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-right transition cursor-pointer flex items-center gap-2"
+                >
+                  <Calendar className="w-4 h-4 text-[#EA580C] shrink-0" />
+                  <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">تقويم الإنتاج</span>
+                </button>
+              )}
+              {growthConfig.corporateGiftingEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    setGrowthInitialTab('corporate');
+                    setGrowthModalOpen(true);
+                  }}
+                  className="p-3 rounded-2xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-right transition cursor-pointer flex items-center gap-2"
+                >
+                  <Gift className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">هدايا الشركات</span>
+                </button>
+              )}
+              {growthConfig.productPassportQrEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    setGrowthInitialTab('passport');
+                    setGrowthModalOpen(true);
+                  }}
+                  className="p-3 rounded-2xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-right transition cursor-pointer flex items-center gap-2"
+                >
+                  <QrCode className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">جواز سفر QR</span>
+                </button>
+              )}
+              {growthConfig.groupBuyingEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    setGrowthInitialTab('group_buy');
+                    setGrowthModalOpen(true);
+                  }}
+                  className="p-3 rounded-2xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-right transition cursor-pointer flex items-center gap-2"
+                >
+                  <Users2 className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">الشراء التعاوني</span>
+                </button>
+              )}
+              {growthConfig.aiSocialCopyEnabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    setGrowthInitialTab('social_ai');
+                    setGrowthModalOpen(true);
+                  }}
+                  className="p-3 rounded-2xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-right transition cursor-pointer flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                  <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">مولد الريلز</span>
+                </button>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Inline Comparative Visual Charts */}
         <Suspense fallback={<div className="h-44" />}>
           <WorkshopComparativeCharts
@@ -1784,6 +1917,16 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* نافذة جناح أدوات النمو الذكية للفنانين */}
+      <WorkshopGrowthToolsModal
+        isOpen={growthModalOpen}
+        onClose={() => setGrowthModalOpen(false)}
+        profile={profile}
+        productsList={productsList}
+        workOrdersList={workOrdersList}
+        initialTab={growthInitialTab}
+      />
     </div>
   );
 };

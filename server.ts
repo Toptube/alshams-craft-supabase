@@ -8219,6 +8219,9 @@ function applyServerVisibilityFilter(
 ) {
   if (viewerRole === 'owner') return profileObj;
   const v = normalizeMemberVisibility(profileObj.visibility);
+  const visibleTrainerPosts = Array.isArray(profileObj.trainerPosts)
+    ? profileObj.trainerPosts.filter((tp: any) => !tp?.audience || tp.audience[viewerRole] !== false)
+    : [];
   return {
     ...profileObj,
     personalAvatar: v.personalAvatar[viewerRole] ? profileObj.personalAvatar : null,
@@ -8227,9 +8230,95 @@ function applyServerVisibilityFilter(
     phone: v.contact[viewerRole] ? profileObj.phone : '',
     email: v.contact[viewerRole] ? profileObj.email : '',
     showcasePosts: v.showcase[viewerRole] ? profileObj.showcasePosts : [],
+    trainerPosts: visibleTrainerPosts,
     storeSlug: v.storeLink[viewerRole] ? profileObj.storeSlug : '',
     country: v.location[viewerRole] ? profileObj.country : '',
     governorate: v.location[viewerRole] ? profileObj.governorate : '',
+  };
+}
+
+const ARTISAN_GROWTH_STORE_FILE = path.join(process.cwd(), 'data', 'artisan_growth_store.json');
+
+interface ArtisanGrowthStoreShape {
+  growthConfig: Record<string, any>;
+  memberMeta: Record<string, {
+    skillLevel?: string;
+    assessmentScore?: number;
+    trainerVerified?: boolean;
+    trainerPostLimit?: number;
+    trainerPosts?: any[];
+    updatedAt?: string;
+  }>;
+  trainerAlerts: any[];
+  groupBuying: any[];
+}
+
+function readArtisanGrowthStore(): ArtisanGrowthStoreShape {
+  try {
+    if (fs.existsSync(ARTISAN_GROWTH_STORE_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(ARTISAN_GROWTH_STORE_FILE, 'utf-8'));
+      return {
+        growthConfig: parsed?.growthConfig || {},
+        memberMeta: parsed?.memberMeta || {},
+        trainerAlerts: Array.isArray(parsed?.trainerAlerts) ? parsed.trainerAlerts : [],
+        groupBuying: Array.isArray(parsed?.groupBuying) ? parsed.groupBuying : [],
+      };
+    }
+  } catch {}
+  return { growthConfig: {}, memberMeta: {}, trainerAlerts: [], groupBuying: [] };
+}
+
+function writeArtisanGrowthStore(next: ArtisanGrowthStoreShape): void {
+  try {
+    writeJsonData(ARTISAN_GROWTH_STORE_FILE, next);
+  } catch {}
+}
+
+function getEffectiveGrowthConfig(): Record<string, any> {
+  const store = readArtisanGrowthStore();
+  return {
+    trainerAssessmentEnabled: true,
+    trainerDefaultPostLimit: 15,
+    trainerAutoNotifyArtisans: true,
+    trainerRequireApproval: false,
+    productionCalendarEnabled: true,
+    corporateGiftingEnabled: true,
+    productPassportQrEnabled: true,
+    groupBuyingEnabled: true,
+    aiSocialCopyEnabled: true,
+    supplierCreditLimitEnabled: true,
+    supplierSmartRestockEnabled: true,
+    supplierMobileStocktakeEnabled: true,
+    supplierFlashBundlesEnabled: true,
+    landingQuizEnabled: true,
+    ambassadorsProgramEnabled: true,
+    paymentGatewayProvider: 'manual',
+    shippingCarrierProvider: 'manual',
+    eInvoiceMode: 'off',
+    ...(store.growthConfig || {}),
+  };
+}
+
+function getMemberArtisanMeta(memberId: string, mpVisibilityRaw?: any) {
+  const store = readArtisanGrowthStore();
+  const fromStore = store.memberMeta[memberId] || {};
+  const fromVis = (mpVisibilityRaw && typeof mpVisibilityRaw === 'object' && mpVisibilityRaw.__artisanMeta) || {};
+  const cfg = getEffectiveGrowthConfig();
+  return {
+    skillLevel: fromStore.skillLevel || fromVis.skillLevel || 'intermediate',
+    assessmentScore: fromStore.assessmentScore ?? fromVis.assessmentScore ?? undefined,
+    trainerVerified: Boolean(fromStore.trainerVerified ?? fromVis.trainerVerified ?? false),
+    trainerPostLimit:
+      typeof fromStore.trainerPostLimit === 'number'
+        ? fromStore.trainerPostLimit
+        : typeof fromVis.trainerPostLimit === 'number'
+          ? fromVis.trainerPostLimit
+          : Number(cfg.trainerDefaultPostLimit ?? 15),
+    trainerPosts: Array.isArray(fromStore.trainerPosts)
+      ? fromStore.trainerPosts
+      : Array.isArray(fromVis.trainerPosts)
+        ? fromVis.trainerPosts
+        : [],
   };
 }
 
@@ -8249,9 +8338,11 @@ async function buildResolvedMemberProfileForViewer(
 
   if (!canonical && !mp) return null;
 
+  const resolvedId = canonical?.memberId || mp.memberId;
+  const artisanMeta = getMemberArtisanMeta(resolvedId, mp?.visibility);
   const unifiedPhoto = mp?.personalAvatar || canonical?.brandLogo || mp?.brandLogo || null;
   const base = {
-    memberId: canonical?.memberId || mp.memberId,
+    memberId: resolvedId,
     ownerUid: canonical?.ownerUid || mp?.ownerUid || '',
     email: canonical?.email || mp?.email || '',
     accountRole: canonical?.accountRole || mp?.accountRole || 'artisan',
@@ -8274,6 +8365,11 @@ async function buildResolvedMemberProfileForViewer(
         ? mp.showcasePosts.slice(0, MAX_SHOWCASE_POSTS)
         : (canonical?.legacyShowcase || []).slice(0, MAX_SHOWCASE_POSTS),
     visibility: normalizeMemberVisibility(mp?.visibility),
+    skillLevel: artisanMeta.skillLevel,
+    assessmentScore: artisanMeta.assessmentScore,
+    trainerVerified: artisanMeta.trainerVerified,
+    trainerPostLimit: artisanMeta.trainerPostLimit,
+    trainerPosts: artisanMeta.trainerPosts,
     updatedAt: mp?.updatedAt || new Date().toISOString(),
   };
 
@@ -8375,6 +8471,31 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
         ? (body.personalAvatar || null)
         : (existingMp?.personalAvatar || existingCanon?.brandLogo || existingMp?.brandLogo || null);
 
+    const existingArtisanMeta = getMemberArtisanMeta(memberId, existingMp?.visibility);
+    const validLevels = new Set(['beginner', 'intermediate', 'pro', 'expert_trainer']);
+    const nextSkillLevel =
+      typeof body.skillLevel === 'string' && validLevels.has(body.skillLevel)
+        ? body.skillLevel
+        : existingArtisanMeta.skillLevel;
+    const nextAssessmentScore =
+      typeof body.assessmentScore === 'number'
+        ? body.assessmentScore
+        : existingArtisanMeta.assessmentScore;
+
+    const growthStore = readArtisanGrowthStore();
+    growthStore.memberMeta[memberId] = {
+      ...existingArtisanMeta,
+      skillLevel: nextSkillLevel,
+      assessmentScore: nextAssessmentScore,
+      updatedAt: nowIso,
+    };
+    writeArtisanGrowthStore(growthStore);
+
+    const visibilityWithMeta: any = {
+      ...nextVisibility,
+      __artisanMeta: growthStore.memberMeta[memberId],
+    };
+
     const record = {
       member_id: memberId,
       owner_uid: existingCanon?.ownerUid || existingMp?.ownerUid || req.user?.id || '',
@@ -8405,7 +8526,7 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
       showcase_posts: Array.isArray(existingMp?.showcasePosts)
         ? existingMp.showcasePosts.slice(0, MAX_SHOWCASE_POSTS)
         : (existingCanon?.legacyShowcase || []).slice(0, MAX_SHOWCASE_POSTS),
-      profile_visibility: nextVisibility,
+      profile_visibility: visibilityWithMeta,
       updated_at: nowIso,
     };
 
@@ -8625,6 +8746,519 @@ app.delete('/api/member-profile/showcase/:postId', requireAuth, async (req: Auth
     return res.json({ success: true, showcasePosts: nextPosts });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'تعذر حذف المنشور' });
+  }
+});
+
+// ==================== نظام الخبراء والمدربين: المنشورات المدمجة + النشر في طبلية العيلة + إشعار جميع الفنانين ====================
+app.post('/api/member-profile/trainer-posts', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const memberId = await resolveOwnerMemberKeyForReq(req);
+    if (!memberId) return res.status(400).json({ error: 'تعذر تحديد الحساب المطلوب' });
+
+    const currentFull = await buildResolvedMemberProfileForViewer(memberId, 'owner', true);
+    const email = (currentFull?.email || req.userEmail || '').toLowerCase();
+    const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
+    const cfg = getEffectiveGrowthConfig();
+
+    const isTrainer =
+      superAdmin ||
+      currentFull?.skillLevel === 'expert_trainer' ||
+      Boolean(currentFull?.trainerVerified);
+
+    if (!isTrainer) {
+      return res.status(403).json({
+        error: 'هذه الميزة مفتوحة للخبراء والمدربين المعتمدين. يمكنك تحديد مستواك كـ «خبير ومعلم / مدرب» من ملفك الشخصي أولاً.',
+      });
+    }
+
+    const title = String(req.body?.title || '').trim().slice(0, 140);
+    const description = String(req.body?.description || '').trim().slice(0, 1000);
+    const url = String(req.body?.url || '').trim().slice(0, 600);
+    const platform = String(req.body?.platform || 'youtube').trim();
+    const rawAudience = req.body?.audience || {};
+    const audience = {
+      artisans: rawAudience.artisans !== false,
+      suppliers: rawAudience.suppliers !== false,
+      customers: rawAudience.customers !== false,
+    };
+    const publishToFamily = req.body?.publishToFamily !== false;
+
+    if (!title) return res.status(400).json({ error: 'يرجى كتابة عنوان الشرح أو المنشور' });
+    if (!url || !/^https?:\/\//i.test(url)) {
+      return res.status(400).json({ error: 'يرجى لصق رابط صحيح يبدأ بـ https:// لمنصة التواصل' });
+    }
+
+    const store = readArtisanGrowthStore();
+    const meta = getMemberArtisanMeta(memberId, currentFull?.visibility);
+    const postLimit = Number(meta.trainerPostLimit ?? cfg.trainerDefaultPostLimit ?? 15);
+    const currentPosts = Array.isArray(meta.trainerPosts) ? meta.trainerPosts : [];
+
+    if (!superAdmin && postLimit > 0 && currentPosts.length >= postLimit) {
+      return res.status(400).json({
+        error: `وصلت للحد الأقصى لمنشورات المدرب (${postLimit} منشوراً). يمكنك حذف منشور قديم أو التواصل مع الإدارة لرفع الحد.`,
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const postId = `tr_${crypto.randomUUID().slice(0, 12)}`;
+    let familyPostId: string | null = null;
+    let notifiedCount = 0;
+
+    // 1. النشر التلقائي باسم الخبير/المدرب في منتدى طبلية عيلة الشمساوية مع تضمين الفيديو/المنشور داخلياً
+    if (publishToFamily) {
+      const client = getDbClient(req);
+      const author = await resolveFamilyAuthorContext(req, client);
+      const embedTag = JSON.stringify({
+        title,
+        url,
+        platform,
+        trainerBadge: true,
+        postId,
+      });
+      const visibleBody = [
+        `🎓 درس وشرح جديد من الخبير/المدرب: ${currentFull?.displayName || author.authorName}`,
+        `📌 ${title}`,
+        description || '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const encodedContent = `${visibleBody}\n[[SHAMS_EMBED:${embedTag}]]`;
+
+      familyPostId = crypto.randomUUID();
+      const postRecord: any = {
+        id: familyPostId,
+        workshop_id: author.workshopId || memberId,
+        author_email: author.email || email,
+        author_name: currentFull?.displayName || author.authorName || 'خبير ومدرب',
+        brand_name: currentFull?.brandName || author.brandName || '',
+        avatar_url: currentFull?.personalAvatar || author.avatarUrl || null,
+        medal: currentFull?.medal || author.medal || null,
+        rating_stars: currentFull?.ratingStars || author.ratingStars || 5,
+        is_super_admin: superAdmin,
+        author_role: currentFull?.accountRole || author.authorRole || 'artisan',
+        post_type: 'text',
+        poll_options: [],
+        content: encodedContent,
+        created_at: nowIso,
+      };
+
+      const posts = loadPersistentFamilyPosts();
+      posts.unshift(postRecord);
+      savePersistentFamilyPosts(posts);
+
+      try {
+        const { error } = await supabaseAdminClient.from('family_posts').insert(postRecord);
+        if (error && String(error.message || '').toLowerCase().includes('column')) {
+          const { post_type: _pt, poll_options: _po, author_role: _ar, ...baseRec } = postRecord;
+          await supabaseAdminClient.from('family_posts').insert(baseRec);
+        }
+      } catch {}
+
+      try {
+        const restrictions = await loadAllFamilyRestrictions(client);
+        const dirMap = await getWorkshopDirectoryMap(client);
+        const enriched = {
+          ...enrichFamilyRecord(postRecord, dirMap),
+          postType: 'text',
+          pollOptions: [],
+          totalVotes: 0,
+          reactions: { like: 0, dislike: 0, love: 0, clap: 0, rose: 0 },
+          myReaction: null,
+          comments: [],
+        };
+        broadcastFamilyEvent('post:created', enriched, restrictions);
+      } catch {}
+
+      // 2. إرسال إشعار فوري لجميع الفنانين بالمنشور الجديد المهم
+      if (cfg.trainerAutoNotifyArtisans !== false) {
+        const alertObj = {
+          id: `tr_alert_${crypto.randomUUID().slice(0, 10)}`,
+          postId,
+          familyPostId,
+          trainerMemberId: memberId,
+          trainerName: currentFull?.displayName || author.authorName || 'خبير ومدرب',
+          brandName: currentFull?.brandName || author.brandName || '',
+          trainerAvatar: currentFull?.personalAvatar || author.avatarUrl || null,
+          title,
+          platform,
+          createdAt: nowIso,
+        };
+        store.trainerAlerts = [alertObj, ...(store.trainerAlerts || [])].slice(0, 60);
+        const allWs = loadPersistentWorkshops();
+        notifiedCount = Math.max(1, allWs.length);
+      }
+    }
+
+    const newTrainerPost = {
+      id: postId,
+      memberId,
+      authorName: currentFull?.displayName || 'خبير ومدرب',
+      brandName: currentFull?.brandName || '',
+      authorAvatar: currentFull?.personalAvatar || null,
+      title,
+      description,
+      url,
+      platform,
+      audience,
+      familyPostId,
+      notifyArtisans: publishToFamily && cfg.trainerAutoNotifyArtisans !== false,
+      createdAt: nowIso,
+    };
+
+    const nextTrainerPosts = [newTrainerPost, ...currentPosts];
+    store.memberMeta[memberId] = {
+      ...meta,
+      skillLevel: meta.skillLevel === 'expert_trainer' ? 'expert_trainer' : (superAdmin ? 'expert_trainer' : meta.skillLevel),
+      trainerPosts: nextTrainerPosts,
+      updatedAt: nowIso,
+    };
+    writeArtisanGrowthStore(store);
+
+    // مزامنة الميتاداتا داخل Supabase member_profiles لضمان الحفظ السحابي
+    try {
+      const mpVis: any = {
+        ...normalizeMemberVisibility(currentFull?.visibility),
+        __artisanMeta: store.memberMeta[memberId],
+      };
+      await supabaseAdminClient
+        .from('member_profiles')
+        .update({ profile_visibility: mpVis, updated_at: nowIso })
+        .eq('member_id', memberId);
+    } catch {}
+
+    return res.json({
+      success: true,
+      post: newTrainerPost,
+      trainerPosts: nextTrainerPosts,
+      familyPostId,
+      notifiedCount,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر نشر الدرس المدمج' });
+  }
+});
+
+app.delete('/api/member-profile/trainer-posts/:postId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const memberId = await resolveOwnerMemberKeyForReq(req);
+    if (!memberId) return res.status(400).json({ error: 'تعذر تحديد الحساب المطلوب' });
+    const postId = String(req.params.postId || '').trim();
+    const store = readArtisanGrowthStore();
+    const current = store.memberMeta[memberId];
+    const nextPosts = (current?.trainerPosts || []).filter((p: any) => p.id !== postId);
+    store.memberMeta[memberId] = {
+      ...(current || {}),
+      trainerPosts: nextPosts,
+      updatedAt: new Date().toISOString(),
+    };
+    store.trainerAlerts = (store.trainerAlerts || []).filter((a: any) => a.postId !== postId);
+    writeArtisanGrowthStore(store);
+    return res.json({ success: true, trainerPosts: nextPosts });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر حذف المنشور' });
+  }
+});
+
+app.get('/api/trainer-posts/alerts', requireAuth, async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const store = readArtisanGrowthStore();
+    return res.json({ success: true, alerts: (store.trainerAlerts || []).slice(0, 30) });
+  } catch {
+    return res.json({ success: true, alerts: [] });
+  }
+});
+
+// ==================== لوحة تحكم السوبر أدمن: الخبراء والمدربين + مركز النمو والتطوير ====================
+app.get('/api/admin/trainers-overview', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = (req.userEmail || req.user?.email || '').toLowerCase();
+    if (!req.isSuperAdmin && !isSuperAdmin(email)) {
+      return res.status(403).json({ error: 'هذه الشاشة مخصصة للسوبر أدمن فقط' });
+    }
+    const store = readArtisanGrowthStore();
+    const cfg = getEffectiveGrowthConfig();
+    const client = getDbClient(req);
+    const dirMap = await getWorkshopDirectoryMap(client);
+    const members: any[] = [];
+    const seenIds = new Set<string>();
+
+    for (const [wid, ws] of dirMap.entries()) {
+      if (!wid || seenIds.has(wid)) continue;
+      seenIds.add(wid);
+      const meta = getMemberArtisanMeta(wid);
+      members.push({
+        memberId: wid,
+        displayName: (ws as any).artistName || (ws as any).artist_name || 'فنان',
+        brandName: (ws as any).brandName || (ws as any).brand_name || '',
+        email: (ws as any).email || '',
+        phone: (ws as any).phoneNumber || (ws as any).phone || '',
+        skillLevel: meta.skillLevel,
+        assessmentScore: meta.assessmentScore,
+        trainerVerified: meta.trainerVerified,
+        trainerPostLimit: meta.trainerPostLimit,
+        trainerPostsCount: (meta.trainerPosts || []).length,
+        trainerPosts: meta.trainerPosts || [],
+      });
+    }
+
+    // إضافة أي أعضاء في المتجر غير موجودين بالخريطة (مثل super_admin)
+    for (const [mid, m] of Object.entries(store.memberMeta || {})) {
+      if (seenIds.has(mid)) continue;
+      members.push({
+        memberId: mid,
+        displayName: mid === 'super_admin' ? 'كبير العيلة (السوبر أدمن)' : mid,
+        brandName: mid === 'super_admin' ? 'منظومة الشمساوية' : '',
+        email: '',
+        phone: '',
+        skillLevel: m.skillLevel || 'intermediate',
+        assessmentScore: m.assessmentScore,
+        trainerVerified: Boolean(m.trainerVerified),
+        trainerPostLimit: m.trainerPostLimit ?? Number(cfg.trainerDefaultPostLimit ?? 15),
+        trainerPostsCount: (m.trainerPosts || []).length,
+        trainerPosts: m.trainerPosts || [],
+      });
+    }
+
+    const allTrainerPosts = members
+      .flatMap((m) => (m.trainerPosts || []).map((p: any) => ({ ...p, memberId: m.memberId })))
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    return res.json({
+      success: true,
+      members,
+      allTrainerPosts,
+      recentAlerts: (store.trainerAlerts || []).slice(0, 20),
+      growthConfig: cfg,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر تحميل بيانات الخبراء والمدربين' });
+  }
+});
+
+app.put('/api/admin/trainers/:memberId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = (req.userEmail || req.user?.email || '').toLowerCase();
+    if (!req.isSuperAdmin && !isSuperAdmin(email)) {
+      return res.status(403).json({ error: 'هذه الصلاحية مخصصة للسوبر أدمن فقط' });
+    }
+    const memberId = decodeURIComponent(req.params.memberId || '').trim();
+    const store = readArtisanGrowthStore();
+    const existing = getMemberArtisanMeta(memberId);
+    const body = req.body || {};
+
+    store.memberMeta[memberId] = {
+      ...existing,
+      skillLevel: typeof body.skillLevel === 'string' ? body.skillLevel : existing.skillLevel,
+      trainerVerified:
+        typeof body.trainerVerified === 'boolean' ? body.trainerVerified : existing.trainerVerified,
+      trainerPostLimit:
+        typeof body.trainerPostLimit === 'number'
+          ? Math.max(0, Math.min(500, body.trainerPostLimit))
+          : existing.trainerPostLimit,
+      updatedAt: new Date().toISOString(),
+    };
+    writeArtisanGrowthStore(store);
+
+    return res.json({ success: true, memberMeta: store.memberMeta[memberId] });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر تحديث صلاحيات الفنان' });
+  }
+});
+
+app.delete('/api/admin/trainer-posts/:memberId/:postId', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = (req.userEmail || req.user?.email || '').toLowerCase();
+    if (!req.isSuperAdmin && !isSuperAdmin(email)) {
+      return res.status(403).json({ error: 'هذه الصلاحية مخصصة للسوبر أدمن فقط' });
+    }
+    const memberId = decodeURIComponent(req.params.memberId || '').trim();
+    const postId = String(req.params.postId || '').trim();
+    const store = readArtisanGrowthStore();
+    if (store.memberMeta[memberId]) {
+      store.memberMeta[memberId].trainerPosts = (store.memberMeta[memberId].trainerPosts || []).filter(
+        (p: any) => p.id !== postId
+      );
+    }
+    store.trainerAlerts = (store.trainerAlerts || []).filter((a: any) => a.postId !== postId);
+    writeArtisanGrowthStore(store);
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر حذف المنشور' });
+  }
+});
+
+app.get('/api/growth/config', async (_req: Request, res: Response) => {
+  return res.json({ success: true, config: getEffectiveGrowthConfig() });
+});
+
+app.put('/api/admin/growth-config', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = (req.userEmail || req.user?.email || '').toLowerCase();
+    if (!req.isSuperAdmin && !isSuperAdmin(email)) {
+      return res.status(403).json({ error: 'هذه الصلاحية مخصصة للسوبر أدمن فقط' });
+    }
+    const store = readArtisanGrowthStore();
+    store.growthConfig = {
+      ...getEffectiveGrowthConfig(),
+      ...(req.body || {}),
+      updatedAt: new Date().toISOString(),
+    };
+    writeArtisanGrowthStore(store);
+    return res.json({ success: true, config: store.growthConfig });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر حفظ إعدادات النمو' });
+  }
+});
+
+// ==================== مجمع الشراء التعاوني للخامات (Group Buying) ====================
+app.get('/api/growth/group-buying', requireAuth, async (_req: AuthenticatedRequest, res: Response) => {
+  const store = readArtisanGrowthStore();
+  if (!store.groupBuying || store.groupBuying.length === 0) {
+    store.groupBuying = [
+      {
+        id: 'gb_seed_1',
+        materialCode: 'TH0001.01',
+        materialName: 'خيط مكرمية قطن محلول 3 مم (بيج / أوف وايت)',
+        governorate: 'القاهرة والجيزة',
+        targetQty: 100,
+        currentQty: 62,
+        unit: 'بكرة',
+        retailPrice: 85,
+        groupPrice: 64,
+        creatorBrand: 'ورشة نغم المكرمية',
+        participants: [
+          { name: 'ورشة نغم المكرمية', qty: 30 },
+          { name: 'غرزة وسنارة', qty: 20 },
+          { name: 'أتيليه شمس', qty: 12 },
+        ],
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'gb_seed_2',
+        materialCode: 'RS0001.01',
+        materialName: 'ريزن إيبوكسي شفاف 1:2 عالي النقاء (عبوة 1 كجم)',
+        governorate: 'الإسكندرية والبحيرة',
+        targetQty: 50,
+        currentQty: 31,
+        unit: 'كجم',
+        retailPrice: 440,
+        groupPrice: 365,
+        creatorBrand: 'موجة للريزن والبحر',
+        participants: [
+          { name: 'موجة للريزن والبحر', qty: 18 },
+          { name: 'فن الكريستال', qty: 13 },
+        ],
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    writeArtisanGrowthStore(store);
+  }
+  return res.json({ success: true, campaigns: store.groupBuying });
+});
+
+app.post('/api/growth/group-buying', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const b = req.body || {};
+    const materialName = String(b.materialName || '').trim();
+    const governorate = String(b.governorate || 'القاهرة').trim();
+    const targetQty = Math.max(5, Number(b.targetQty) || 50);
+    const myQty = Math.max(1, Number(b.myQty) || 10);
+    const retailPrice = Math.max(1, Number(b.retailPrice) || 100);
+    const groupPrice = Math.max(1, Number(b.groupPrice) || Math.round(retailPrice * 0.78));
+    if (!materialName) return res.status(400).json({ error: 'يرجى كتابة اسم الخامة' });
+
+    const store = readArtisanGrowthStore();
+    const campaign = {
+      id: `gb_${crypto.randomUUID().slice(0, 10)}`,
+      materialCode: String(b.materialCode || 'CUSTOM').trim(),
+      materialName,
+      governorate,
+      targetQty,
+      currentQty: myQty,
+      unit: String(b.unit || 'وحدة').trim(),
+      retailPrice,
+      groupPrice,
+      creatorBrand: String(b.creatorBrand || 'ورشة في الشمساوية').trim(),
+      participants: [{ name: String(b.creatorBrand || 'ورشتك').trim(), qty: myQty }],
+      createdAt: new Date().toISOString(),
+    };
+    store.groupBuying = [campaign, ...(store.groupBuying || [])].slice(0, 40);
+    writeArtisanGrowthStore(store);
+    return res.json({ success: true, campaign, campaigns: store.groupBuying });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر إنشاء حملة الشراء التعاوني' });
+  }
+});
+
+app.post('/api/growth/group-buying/:id/join', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const qty = Math.max(1, Number(req.body?.qty) || 5);
+    const brand = String(req.body?.brandName || 'ورشة مشاركة').trim();
+    const store = readArtisanGrowthStore();
+    const idx = (store.groupBuying || []).findIndex((c: any) => c.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'حملة الشراء التعاوني غير موجودة' });
+    const item = store.groupBuying[idx];
+    item.currentQty = Number(item.currentQty || 0) + qty;
+    item.participants = [...(item.participants || []), { name: brand, qty }];
+    store.groupBuying[idx] = item;
+    writeArtisanGrowthStore(store);
+    return res.json({ success: true, campaign: item, campaigns: store.groupBuying });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر الانضمام للحملة' });
+  }
+});
+
+// ==================== مولد محتوى السوشيال ميديا وسكريبت الريلز من كارت الصنف ====================
+app.post('/api/growth/ai-social-copy', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const b = req.body || {};
+    const productName = String(b.productName || 'قطعة هاند ميد مميزة').trim();
+    const craft = String(b.craft || 'حرفة يدوية').trim();
+    const materials = String(b.materials || 'خامات طبيعية مختارة بعناية').trim();
+    const price = String(b.price || '').trim();
+    const brandName = String(b.brandName || 'ورشتنا').trim();
+
+    const fallbackResult = {
+      instagramCaption: `✨ قطعة معمولة باليد وبكل حب من ${brandName}!\n\n🧵 ${productName} (${craft})\n🌿 الخامات: ${materials}\n${price ? `💰 السعر: ${price}\n` : ''}📦 تغليف أنيق جاهز للإهداء وشحن لكل المحافظات.\n\n📩 ابعتلنا رسالة الآن للحجز أو طلب مقاسك ولونك الخاص!\n\n#هاند_ميد #شغل_يدوي #منظومة_الشمساوية #دعم_الحرفيين`,
+      reelsScript: `🎬 سكريبت ريلز (30 ثانية) لـ ${productName}:\n• ثانية 0-3 (الهوك): لقطة قريبة لحركة الإيد وهي بتشطّب آخر تفصيلة + نص على الشاشة: «شوف التفاصيل دي بتتعمل بإيد مصرية إزاي!»\n• ثانية 4-12 (الخامات): اعرض ${materials} وقول: «اختارنا أجود خامة عشان القطعة تعيش معاك سنين».\n• ثانية 13-22 (الكشف النهائي): لقطة إضاءة دافئة لـ ${productName} في مكانه الطبيعي.\n• ثانية 23-30 (الدعوة للطلب): «اطلبها دلوقتي من متجر ${brandName} ${price ? `بسعر ${price}` : ''} — الرابط في البايو!»`,
+      whatsappPitch: `أهلاً بحضرتك 🌟 دي تفاصيل «${productName}» من ${brandName}: شغل يدوي متقن بخامات (${materials})${price ? ` — السعر ${price}` : ''}. نقدر ننفذها بألوانك ومقاسك المفضل، تحب نأكد الحجز؟`,
+    };
+
+    const groqKey = process.env.GROQ_API_KEY;
+    if (groqKey) {
+      try {
+        const prompt = `أنت خبير تسويق رقمي للحرف اليدوية المصرية والعربية. اكتب 3 نصوص بيعية احترافية بالعامية المصرية الراقية بصيغة JSON فقط بدون شرح خارجي، بالمفاتيح التالية: instagramCaption, reelsScript, whatsappPitch.
+بيانات المنتج: الاسم="${productName}"، الحرفة="${craft}"، الخامات="${materials}"، السعر="${price || 'حسب المقاس'}"، اسم البراند="${brandName}".`;
+        const gRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            response_format: { type: 'json_object' },
+          }),
+        });
+        if (gRes.ok) {
+          const gj: any = await gRes.json();
+          const txt = gj?.choices?.[0]?.message?.content;
+          if (txt) {
+            const parsed = JSON.parse(txt);
+            if (parsed?.instagramCaption && parsed?.reelsScript) {
+              return res.json({ success: true, copy: { ...fallbackResult, ...parsed }, source: 'ai' });
+            }
+          }
+        }
+      } catch {}
+    }
+
+    return res.json({ success: true, copy: fallbackResult, source: 'template' });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'تعذر توليد المحتوى التسويقي' });
   }
 });
 

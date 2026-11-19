@@ -34,6 +34,9 @@ export const LANDING_TEMPLATE_TOKENS: LandingTokenInfo[] = [
   { token: '{{sections.craftStore.description}}', label: 'وصف المتجر والسوق', category: 'sections' },
   { token: '{{sections.suppliersPromo.titleLine1}}', label: 'عنوان بوابة الموردين B2B', category: 'sections' },
   { token: '{{sections.suppliersPromo.description}}', label: 'وصف بوابة الموردين', category: 'sections' },
+  { token: '{{sections.familyProfile.titleLine1}}', label: 'عنوان مجتمع العيلة وأكاديمية الخبراء', category: 'sections' },
+  { token: '{{sections.familyProfile.description}}', label: 'وصف أكاديمية الخبراء والشروحات المدمجة', category: 'sections' },
+  { token: '{{growth.academyBadge}}', label: 'شارة أكاديمية الخبراء وأدوات النمو', category: 'sections' },
   { token: '{{sections.finalCta.title}}', label: 'عنوان البانر الختامي', category: 'sections' },
   { token: '{{sections.footer.copyrightText}}', label: 'حقوق النشر بالتذييل', category: 'sections' },
   // Auto-rendered HTML Lists
@@ -190,6 +193,7 @@ export function buildAutoHydratedMap(cms: LandingCmsConfig, isDarkMode: boolean)
     'lists.reviews': reviewsHtml,
     'lists.whatsNew': whatsNewHtml,
     'lists.faq': faqHtml,
+    'growth.academyBadge': 'أكاديمية الخبراء والمدربين · شروحات مدمجة بالمنصة · 9 أدوات نمو ذكية',
   };
 }
 

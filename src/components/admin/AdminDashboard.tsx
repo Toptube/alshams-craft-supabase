@@ -104,6 +104,12 @@ const AdminCustomersPage = lazy(() =>
 const AdminUnifiedMaterialsPage = lazy(() =>
   import('./AdminUnifiedMaterialsPage').then((m) => ({ default: m.AdminUnifiedMaterialsPage }))
 );
+const AdminExpertsTrainersPage = lazy(() =>
+  import('./AdminExpertsTrainersPage').then((m) => ({ default: m.AdminExpertsTrainersPage }))
+);
+const AdminGrowthHubPage = lazy(() =>
+  import('./AdminGrowthHubPage').then((m) => ({ default: m.AdminGrowthHubPage }))
+);
 
 const AdminSubViewFallback: React.FC = () => (
   <div className="min-h-[50vh] flex flex-col items-center justify-center p-6 space-y-3" dir="rtl">
@@ -2780,6 +2786,29 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         <AdminUnifiedMaterialsPage
           userEmail={profile.email}
           onBack={() => handleNavigatePage('home')}
+          onNotifySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+          onNotifyError={showError}
+        />
+      )}
+
+      {currentPage === 'experts_trainers' && (
+        <AdminExpertsTrainersPage
+          onBack={() => handleNavigatePage('home')}
+          onNotifySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+          onNotifyError={showError}
+        />
+      )}
+
+      {currentPage === 'growth_hub' && (
+        <AdminGrowthHubPage
+          onBack={() => handleNavigatePage('home')}
+          onOpenExpertsPage={() => handleNavigatePage('experts_trainers')}
           onNotifySuccess={(msg) => {
             playSuccessSound();
             showSuccess(msg);

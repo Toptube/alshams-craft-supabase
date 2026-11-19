@@ -53,7 +53,20 @@ import {
   Award,
   Camera,
   SlidersHorizontal,
+  GraduationCap,
+  PlayCircle,
+  BellRing,
+  Share2,
+  Rocket,
 } from 'lucide-react';
+import { ArtisanSkillAssessment } from '../auth/ArtisanSkillAssessment';
+import {
+  ARTISAN_SKILL_LEVELS,
+  ArtisanSkillLevel,
+  GrowthHubConfig,
+  getStoredGrowthHubConfig,
+} from '../../types/artisanGrowth';
+import { syncGrowthHubConfigFromCloud } from '../../db/memberProfileService';
 
 interface LandingPageProps {
   onOpenLogin: () => void;
@@ -149,6 +162,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [feedbackContact, setFeedbackContact] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
+  const [landingSkillLevel, setLandingSkillLevel] = useState<ArtisanSkillLevel>('intermediate');
+  const [landingSkillScore, setLandingSkillScore] = useState<number | undefined>(undefined);
+  const [growthConfig, setGrowthConfig] = useState<GrowthHubConfig>(() => getStoredGrowthHubConfig());
 
   useEffect(() => {
     if (previewCmsOverride) return;
@@ -156,9 +172,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     syncPlatformSettingsFromCloud()
       .then(() => setLiveCms(getStoredLandingCmsConfig()))
       .catch(() => {});
+    syncGrowthHubConfigFromCloud()
+      .then((cfg) => setGrowthConfig(cfg))
+      .catch(() => {});
     window.addEventListener('alshams_landing_cms_updated', syncCms);
     return () => window.removeEventListener('alshams_landing_cms_updated', syncCms);
   }, [previewCmsOverride]);
+
+  const handleStartWithSkillLevel = () => {
+    try {
+      localStorage.setItem('alshams_pending_skill_level', landingSkillLevel);
+      if (typeof landingSkillScore === 'number') {
+        localStorage.setItem('alshams_pending_skill_score', String(landingSkillScore));
+      }
+    } catch {}
+    onOpenRegister();
+  };
 
   useEffect(() => {
     if (isPreview) return;
@@ -1345,6 +1374,126 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
           </section>
         )}
+
+        {/* ==================== 8.5. أكاديمية الخبراء والمدربين + اختبار تحديد مستوى الفنان ==================== */}
+        <section
+          id="trainers-academy"
+          className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]"
+        >
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* العمود الأيمن: الترويج لأكاديمية الخبراء والشروحات المدمجة وأدوات النمو */}
+              <div className="lg:col-span-6 space-y-5">
+                <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
+                  06.5 · أكاديمية الخبراء والمدربين + جناح أدوات النمو الذكية
+                </p>
+                <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
+                  تعلّم ودرّب داخل المنصة..{' '}
+                  <span className={accent.primaryText}>بدون خروج للمتصفح وبإشعار فوري للجميع</span>
+                </h2>
+                <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
+                  لو أنت خبير أو مدرب حِرفي، افتح صلاحية نشر دروسك وشروحاتك (يوتيوب، فيسبوك، إنستجرام، تيك توك، فيميو) لتُعرض داخل شاشة سينمائية مدمجة جوة الشمساوية وتنزل باسمك في طبلية العيلة مع إشعار فوري لكل الفنانين.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                  <div className={`rounded-2xl border p-4 space-y-1.5 ${surfaceCardClass}`}>
+                    <PlayCircle className={`w-5 h-5 ${accent.primaryText}`} />
+                    <h3 className="text-sm font-black">مشغل مدمج 100% داخل المنصة</h3>
+                    <p className={`text-xs leading-relaxed ${mutedTextClass}`}>
+                      الفيديوهات والشروحات تعمل بوضع سينمائي وملء الشاشة داخل التطبيق دون مغادرته أو عرض روابط خارجية مشتتة.
+                    </p>
+                  </div>
+
+                  <div className={`rounded-2xl border p-4 space-y-1.5 ${surfaceCardClass}`}>
+                    <BellRing className={`w-5 h-5 ${accent.primaryText}`} />
+                    <h3 className="text-sm font-black">نشر تلقائي + إشعار لكل الفنانين</h3>
+                    <p className={`text-xs leading-relaxed ${mutedTextClass}`}>
+                      ينزل الدرس باسم المدرب في منتدى «طبلية العيلة» ويصل تنبيه فوري للجميع للدخول والمشاهدة والتعليق والتفاعل.
+                    </p>
+                  </div>
+
+                  <div className={`rounded-2xl border p-4 space-y-1.5 ${surfaceCardClass}`}>
+                    <Share2 className={`w-5 h-5 ${accent.primaryText}`} />
+                    <h3 className="text-sm font-black">مشاركة مباشرة لكل منشور</h3>
+                    <p className={`text-xs leading-relaxed ${mutedTextClass}`}>
+                      زرار مشاركة فوري على كل أعمال الفنانين والموردين وشروحات المدربين لانتشار أكبر على واتساب والسوشيال ميديا.
+                    </p>
+                  </div>
+
+                  <div className={`rounded-2xl border p-4 space-y-1.5 ${surfaceCardClass}`}>
+                    <Rocket className={`w-5 h-5 ${accent.primaryText}`} />
+                    <h3 className="text-sm font-black">9 أدوات نمو للورش والموردين</h3>
+                    <p className={`text-xs leading-relaxed ${mutedTextClass}`}>
+                      تقويم الإنتاج، حاسبة هدايا الشركات، جواز سفر QR، الشراء التعاوني، مولد الريلز، سقف الائتمان، وجرد الباركود.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* العمود الأيسر: اختبار تحديد المستوى التفاعلي كأداة جذب للتسجيل */}
+              <div className="lg:col-span-6">
+                {growthConfig.landingQuizEnabled !== false ? (
+                  <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 shadow-sm ${surfaceCardClass}`}>
+                    <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
+                      <div>
+                        <span className={`text-xs font-extrabold ${accent.primaryText}`}>
+                          اختبار تفاعلي في 30 ثانية
+                        </span>
+                        <h3 className="text-base sm:text-lg font-black mt-0.5">
+                          اكتشف مستواك الحرفي وافتح صلاحياتك قبل التسجيل
+                        </h3>
+                      </div>
+                      <GraduationCap className={`w-7 h-7 shrink-0 ${accent.primaryText}`} />
+                    </div>
+
+                    <ArtisanSkillAssessment
+                      value={landingSkillLevel}
+                      onChange={(lvl, score) => {
+                        setLandingSkillLevel(lvl);
+                        setLandingSkillScore(score);
+                      }}
+                      compact
+                      defaultOpenQuiz
+                    />
+
+                    <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                      <div className="text-xs font-bold">
+                        المستوى المختار:{' '}
+                        <span className={`font-black ${accent.primaryText}`}>
+                          {ARTISAN_SKILL_LEVELS[landingSkillLevel].title}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleStartWithSkillLevel}
+                        className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-black inline-flex items-center justify-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
+                      >
+                        <span>سجّل الآن بهذا المستوى وافتح صلاحياتك</span>
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`rounded-3xl border p-6 sm:p-8 space-y-4 ${surfaceCardClass}`}>
+                    <GraduationCap className={`w-9 h-9 ${accent.primaryText}`} />
+                    <h3 className="text-xl font-black">انضم كفنان حرفي أو خبير ومدرب معتمد</h3>
+                    <p className={`text-sm leading-relaxed ${mutedTextClass}`}>
+                      حدّد مستواك الحرفي أثناء التسجيل أو من صفحتك الشخصية لتفتح مزايا الخبراء والمدربين، وتنشر دروسك المدمجة مباشرة لعيلة الشمساوية.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onOpenRegister}
+                      className={`px-6 py-3 rounded-xl text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
+                    >
+                      <span>ابدأ التسجيل الآن مجاناً</span>
+                      <ArrowLeft className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
 
         {/* ==================== 9. القسم 07: شهادات الورش والموردين ==================== */}
         {cms.sections.reviews.visible && (

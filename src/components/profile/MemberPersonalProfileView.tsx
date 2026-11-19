@@ -1,25 +1,32 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
+  Bell,
   Camera,
+  Check,
   Edit3,
   Eye,
   EyeOff,
+  GraduationCap,
   Home,
   Image as ImageIcon,
+  Link2,
   Lock,
   Phone,
   Plus,
   Save,
+  Share2,
   Sparkles,
   Store,
   Trash2,
   User,
+  Video,
   X,
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import {
   AudienceRole,
+  AudienceRule,
   MAX_SHOWCASE_POSTS,
   MemberPersonalProfile,
   ProfileVisibilityMatrix,
@@ -30,17 +37,28 @@ import {
 } from '../../types/memberProfile';
 import {
   addMemberShowcasePost,
+  addTrainerEmbeddedPost,
   deleteMemberShowcasePost,
+  deleteTrainerEmbeddedPost,
   fetchMemberPersonalProfile,
   resolveAudienceRoleFromUser,
   saveMemberPersonalProfile,
   updateMemberShowcasePost,
 } from '../../db/memberProfileService';
+import {
+  ARTISAN_SKILL_LEVELS,
+  ArtisanSkillLevel,
+  SOCIAL_PLATFORM_META,
+  SocialEmbedPlatform,
+  detectSocialPlatform,
+} from '../../types/artisanGrowth';
 import { compressImageFile } from '../../utils/imageCompressor';
 import { playButtonClickSound, playErrorSound, playSuccessSound } from '../../lib/sounds';
 import { ArtisanAvatar } from '../brand/BrandAssets';
 import { archiveReplacedImage } from '../../services/imageRollbackService';
 import { ImageRollbackBar } from '../common/ImageRollbackBar';
+import { ArtisanSkillAssessment } from '../auth/ArtisanSkillAssessment';
+import { EmbeddedSocialMediaCard } from '../common/EmbeddedSocialMediaCard';
 
 interface MemberPersonalProfileViewProps {
   targetMemberId: string;
@@ -95,6 +113,8 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const [storyDraft, setStoryDraft] = useState('');
   const [phoneDraft, setPhoneDraft] = useState('');
   const [govDraft, setGovDraft] = useState('');
+  const [skillLevelDraft, setSkillLevelDraft] = useState<ArtisanSkillLevel>('intermediate');
+  const [assessmentScoreDraft, setAssessmentScoreDraft] = useState<number | undefined>(undefined);
   const [visibilityDraft, setVisibilityDraft] = useState<ProfileVisibilityMatrix>(() =>
     normalizeVisibilityMatrix(null)
   );
@@ -107,10 +127,27 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const [newPostCaption, setNewPostCaption] = useState('');
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+  const [sharedShowcaseId, setSharedShowcaseId] = useState<string | null>(null);
 
   const [editingPost, setEditingPost] = useState<ShowcasePostItem | null>(null);
   const [editPostImg, setEditPostImg] = useState('');
   const [editPostCaption, setEditPostCaption] = useState('');
+
+  // Expert / Trainer Embedded Social Media Post Composer
+  const [trainerComposerOpen, setTrainerComposerOpen] = useState(false);
+  const [trainerTitle, setTrainerTitle] = useState('');
+  const [trainerDesc, setTrainerDesc] = useState('');
+  const [trainerUrl, setTrainerUrl] = useState('');
+  const [trainerPlatform, setTrainerPlatform] = useState<SocialEmbedPlatform>('youtube');
+  const [trainerAudience, setTrainerAudience] = useState<AudienceRule>({
+    artisans: true,
+    suppliers: true,
+    customers: true,
+  });
+  const [trainerPublishToFamily, setTrainerPublishToFamily] = useState(true);
+  const [trainerBusy, setTrainerBusy] = useState(false);
+  const [trainerError, setTrainerError] = useState<string | null>(null);
+  const [trainerSuccess, setTrainerSuccess] = useState<string | null>(null);
 
   // Lightbox Modal
   const [lightboxPost, setLightboxPost] = useState<ShowcasePostItem | null>(null);
@@ -135,6 +172,8 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
         setStoryDraft(p.storyText || '');
         setPhoneDraft(p.phone || '');
         setGovDraft(p.governorate || '');
+        setSkillLevelDraft(p.skillLevel || 'intermediate');
+        setAssessmentScoreDraft(p.assessmentScore);
         setVisibilityDraft(normalizeVisibilityMatrix(p.visibility));
       }
       setLoading(false);
@@ -219,6 +258,8 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       phone: phoneDraft.trim(),
       governorate: govDraft.trim(),
       visibility: visibilityDraft,
+      skillLevel: rawProfile?.accountRole !== 'supplier' ? skillLevelDraft : undefined,
+      assessmentScore: rawProfile?.accountRole !== 'supplier' ? assessmentScoreDraft : undefined,
     });
     setSavingProfile(false);
     if (res.success && res.profile) {
@@ -359,9 +400,114 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
     }));
   };
 
+  const handleDirectShareShowcasePost = async (post: ShowcasePostItem) => {
+    playButtonClickSound();
+    const profileUrl = effectiveProfile?.storeSlug
+      ? `${window.location.origin}/?store=${encodeURIComponent(effectiveProfile.storeSlug)}`
+      : window.location.href;
+    const shareText = [
+      `✨ منشور مميز من ${effectiveProfile?.displayName || 'مبدع في الشمساوية'}${
+        effectiveProfile?.brandName ? ` (${effectiveProfile.brandName})` : ''
+      }`,
+      post.caption ? post.caption : '',
+      `شاهد معرض الأعمال والمتجر على منظومة الشمساوية: ${profileUrl}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: effectiveProfile?.brandName || effectiveProfile?.displayName || 'عمل من منظومة الشمساوية',
+          text: shareText,
+          url: profileUrl,
+        });
+        playSuccessSound();
+        setSharedShowcaseId(post.id);
+        setTimeout(() => setSharedShowcaseId(null), 2200);
+        return;
+      }
+    } catch {}
+
+    try {
+      await navigator.clipboard.writeText(shareText);
+      playSuccessSound();
+      setSharedShowcaseId(post.id);
+      setTimeout(() => setSharedShowcaseId(null), 2200);
+    } catch {
+      setSharedShowcaseId(post.id);
+      setTimeout(() => setSharedShowcaseId(null), 1800);
+    }
+  };
+
+  const handlePublishTrainerPost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!trainerTitle.trim()) {
+      setTrainerError('يرجى كتابة عنوان الشرح أو المنشور.');
+      return;
+    }
+    if (!trainerUrl.trim() || !/^https?:\/\//i.test(trainerUrl.trim())) {
+      setTrainerError('يرجى لصق رابط صحيح يبدأ بـ https:// (يوتيوب، فيسبوك، إنستجرام، تيك توك...).');
+      return;
+    }
+    if (!trainerAudience.artisans && !trainerAudience.suppliers && !trainerAudience.customers) {
+      setTrainerError('اختر فئة واحدة على الأقل لمشاهدة المنشور.');
+      return;
+    }
+
+    setTrainerBusy(true);
+    setTrainerError(null);
+    setTrainerSuccess(null);
+
+    const res = await addTrainerEmbeddedPost({
+      title: trainerTitle.trim(),
+      description: trainerDesc.trim(),
+      url: trainerUrl.trim(),
+      platform: trainerPlatform,
+      audience: trainerAudience,
+      publishToFamily: trainerPublishToFamily,
+    });
+
+    setTrainerBusy(false);
+    if (res.success && res.trainerPosts) {
+      playSuccessSound();
+      setRawProfile((prev) => (prev ? { ...prev, trainerPosts: res.trainerPosts } : prev));
+      setTrainerTitle('');
+      setTrainerDesc('');
+      setTrainerUrl('');
+      setTrainerComposerOpen(false);
+      setTrainerSuccess(
+        (res.notifiedCount || 0) > 0
+          ? 'تم نشر الشرح المدمج على صفحتك ونشره باسمك في منتدى العيلة (طبلية الشمساوية) مع إرسال إشعار فوري لجميع الفنانين!'
+          : 'تم نشر الشرح المدمج بنجاح في صفحتك الشخصية.'
+      );
+      setTimeout(() => setTrainerSuccess(null), 5000);
+    } else {
+      playErrorSound();
+      setTrainerError(res.error || 'تعذر نشر الشرح المدمج.');
+    }
+  };
+
+  const handleDeleteTrainerPost = async (postId: string) => {
+    setTrainerBusy(true);
+    const res = await deleteTrainerEmbeddedPost(postId);
+    setTrainerBusy(false);
+    if (res.success && res.trainerPosts) {
+      playButtonClickSound();
+      setRawProfile((prev) => (prev ? { ...prev, trainerPosts: res.trainerPosts } : prev));
+    }
+  };
+
   const isEditMode = isOwner && previewAs === 'owner';
   const postsCount = rawProfile?.showcasePosts?.length || 0;
   const atLimit = postsCount >= MAX_SHOWCASE_POSTS;
+  const isExpertTrainer =
+    rawProfile?.skillLevel === 'expert_trainer' ||
+    Boolean(rawProfile?.trainerVerified) ||
+    rawProfile?.accountRole === 'superadmin';
+  const trainerPostLimit = rawProfile?.trainerPostLimit || 15;
+  const trainerPostsList = effectiveProfile?.trainerPosts || [];
+  const rawTrainerCount = rawProfile?.trainerPosts?.length || 0;
 
   const contentNode = (
     <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5 text-right" dir="rtl">
@@ -501,12 +647,22 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                 </div>
 
                 <div className="min-w-0 space-y-1.5">
-                  <div className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
-                    {effectiveProfile.accountRole === 'superadmin'
-                      ? 'إدارة المنظومة · كبير العيلة'
-                      : effectiveProfile.accountRole === 'supplier'
-                      ? 'مورد خامات معتمد'
-                      : 'فنان ومبدع يدوي'}
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
+                    <span>
+                      {effectiveProfile.accountRole === 'superadmin'
+                        ? 'إدارة المنظومة · كبير العيلة'
+                        : effectiveProfile.accountRole === 'supplier'
+                        ? 'مورد خامات معتمد'
+                        : effectiveProfile.skillLevel === 'expert_trainer' || effectiveProfile.trainerVerified
+                        ? 'خبير ومعلم ومدرب معتمد'
+                        : ARTISAN_SKILL_LEVELS[effectiveProfile.skillLevel || 'intermediate']?.title || 'فنان ومبدع يدوي'}
+                    </span>
+                    {(effectiveProfile.skillLevel === 'expert_trainer' || effectiveProfile.trainerVerified) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#EA580C] text-white text-[10px] font-black">
+                        <GraduationCap className="w-3 h-3" />
+                        <span>أكاديمية المدربين</span>
+                      </span>
+                    )}
                     {effectiveProfile.governorate || effectiveProfile.country
                       ? ` · ${[effectiveProfile.governorate, effectiveProfile.country].filter(Boolean).join('، ')}`
                       : ''}
@@ -651,6 +807,18 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs sm:text-sm leading-relaxed"
                   />
                 </div>
+
+                {/* Artisan Skill Level Assessment (Non-suppliers) */}
+                {rawProfile.accountRole !== 'supplier' && (
+                  <ArtisanSkillAssessment
+                    value={skillLevelDraft}
+                    onChange={(lvl, score) => {
+                      setSkillLevelDraft(lvl);
+                      if (typeof score === 'number') setAssessmentScoreDraft(score);
+                    }}
+                    compact
+                  />
+                )}
 
                 {/* Granular Visibility Matrix */}
                 <div className="rounded-2xl bg-[#EFE9DC]/75 dark:bg-[#060B18]/70 border border-[#D4CCBC] dark:border-[#22355E] p-3.5 sm:p-4 space-y-3">
@@ -938,31 +1106,56 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                           })}
                         </span>
 
-                        {isEditMode && (
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingPost(post);
-                                setEditPostImg(post.imageUrl);
-                                setEditPostCaption(post.caption || '');
-                              }}
-                              title="تعديل"
-                              className="p-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] hover:bg-[#EA580C] hover:text-white cursor-pointer transition"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={postBusy}
-                              onClick={() => handleDeleteShowcase(post.id)}
-                              title="حذف نهائي من قاعدة البيانات"
-                              className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer transition"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleDirectShareShowcasePost(post)}
+                            title="مشاركة المنشور مباشرة"
+                            className={`px-2 py-1.5 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer transition ${
+                              sharedShowcaseId === post.id
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#EA580C] hover:text-white'
+                            }`}
+                          >
+                            {sharedShowcaseId === post.id ? (
+                              <>
+                                <Check className="w-3 h-3" />
+                                <span>تم النسخ</span>
+                              </>
+                            ) : (
+                              <>
+                                <Share2 className="w-3 h-3" />
+                                <span>مشاركة</span>
+                              </>
+                            )}
+                          </button>
+
+                          {isEditMode && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingPost(post);
+                                  setEditPostImg(post.imageUrl);
+                                  setEditPostCaption(post.caption || '');
+                                }}
+                                title="تعديل"
+                                className="p-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] hover:bg-[#EA580C] hover:text-white cursor-pointer transition"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={postBusy}
+                                onClick={() => handleDeleteShowcase(post.id)}
+                                title="حذف نهائي من قاعدة البيانات"
+                                className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white cursor-pointer transition"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </article>
@@ -970,6 +1163,299 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               </div>
             )}
           </section>
+
+          {/* Expert / Trainer Embedded Social Media Lessons Section (Beyond 6 Photos) */}
+          {(isExpertTrainer || trainerPostsList.length > 0 || (isEditMode && rawProfile.accountRole !== 'supplier')) && (
+            <section className="rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#EA580C]/35 dark:border-[#FBBF24]/30 p-5 sm:p-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <h3 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
+                    <GraduationCap className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
+                    <span>مكتبة شروحات ودروس الخبير والمدرب (عرض داخلي مباشر)</span>
+                  </h3>
+                  <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                    فيديوهات ومنشورات تعليمية مدمجة من يوتيوب وفيسبوك وإنستجرام وتيك توك تُشغّل داخل المنظومة مباشرة دون مغادرتها.
+                  </p>
+                </div>
+
+                {isExpertTrainer && (
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-mono tabular-nums text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
+                      {rawTrainerCount} / {trainerPostLimit} شرح
+                    </span>
+                    {isEditMode && (
+                      <button
+                        type="button"
+                        disabled={rawTrainerCount >= trainerPostLimit}
+                        onClick={() => {
+                          playButtonClickSound();
+                          setTrainerComposerOpen((p) => !p);
+                          setTrainerError(null);
+                        }}
+                        className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] disabled:opacity-50 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
+                      >
+                        <Video className="w-4 h-4" />
+                        <span>{trainerComposerOpen ? 'إغلاق مربع الشرح' : 'إضافة رابط شرح مدمج'}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {!isExpertTrainer && isEditMode && rawProfile.accountRole !== 'supplier' && (
+                <div className="rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                      هل أنت خبير أو مدرب حرفة؟ افتح منشورات الشرح المدمجة الآن!
+                    </div>
+                    <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                      اختر مستوى «خبير ومعلم / مدرب» من بطاقة تحديد المستوى بالأعلى واضغط «حفظ بياناتي» لفتح النشر المباشر للروابط المدمجة مع إرسال إشعارات تلقائية لجميع الفنانين في طبلية العيلة.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSkillLevelDraft('expert_trainer');
+                      playButtonClickSound();
+                      window.scrollTo({ top: 320, behavior: 'smooth' });
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-[#0C1427] dark:bg-[#EA580C] text-white text-xs font-black cursor-pointer"
+                  >
+                    اختيار مستوى «خبير ومدرب»
+                  </button>
+                </div>
+              )}
+
+              {trainerSuccess && (
+                <div className="rounded-xl p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-400/60 text-emerald-800 dark:text-emerald-200 text-xs font-black flex items-center gap-2">
+                  <Bell className="w-4 h-4 shrink-0" />
+                  <span>{trainerSuccess}</span>
+                </div>
+              )}
+
+              {/* Embedded Trainer Post Dialog Composer (Inside Post Box - Link Only, No Photos) */}
+              {isEditMode && isExpertTrainer && trainerComposerOpen && (
+                <form
+                  onSubmit={handlePublishTrainerPost}
+                  className="p-4 sm:p-5 rounded-2xl bg-[#EFE9DC]/90 dark:bg-[#060B18] border-2 border-dashed border-[#EA580C] space-y-4"
+                >
+                  <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-2.5">
+                    <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-[#C2410C] dark:text-[#FBBF24]">
+                      <Link2 className="w-4 h-4" />
+                      <span>مربع إضافة شرح / بوست مدمج (بدون رفع صور — رابط مباشر يُشغّل داخل المنظومة)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTrainerComposerOpen(false)}
+                      className="p-1 rounded-lg hover:bg-black/10 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-black mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
+                        عنوان الشرح أو الدرس <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={140}
+                        value={trainerTitle}
+                        onChange={(e) => setTrainerTitle(e.target.value)}
+                        placeholder="مثال: سر تسعير جدارية المكرمية الكبيرة بدون خسارة"
+                        className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-black mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
+                        رابط الفيديو أو المنشور (يُكتشف تلقائياً) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="url"
+                        required
+                        dir="ltr"
+                        value={trainerUrl}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTrainerUrl(val);
+                          if (val.trim().length > 8) {
+                            setTrainerPlatform(detectSocialPlatform(val));
+                          }
+                        }}
+                        placeholder="https://www.youtube.com/watch?v=... أو رابط فيسبوك/إنستجرام/تيك توك"
+                        className="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-mono text-left"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Platform Selector Buttons */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                      اختر المنصة التابع لها الرابط:
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(Object.keys(SOCIAL_PLATFORM_META) as SocialEmbedPlatform[]).map((plat) => {
+                        const meta = SOCIAL_PLATFORM_META[plat];
+                        const selected = trainerPlatform === plat;
+                        return (
+                          <button
+                            key={plat}
+                            type="button"
+                            onClick={() => setTrainerPlatform(plat)}
+                            className={`px-3 py-1.5 rounded-xl text-[11px] font-black border transition cursor-pointer ${
+                              selected
+                                ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white border-[#0C1427] dark:border-[#EA580C]'
+                                : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] hover:border-[#EA580C]'
+                            }`}
+                          >
+                            {meta.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-black mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
+                      ملخص الشرح أو الملاحظات المرفقة مع الفيديو
+                    </label>
+                    <textarea
+                      rows={2}
+                      maxLength={900}
+                      value={trainerDesc}
+                      onChange={(e) => setTrainerDesc(e.target.value)}
+                      placeholder="اكتب أهم النقاط التي سيتعلمها الفنانون من هذا الشرح..."
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs leading-relaxed"
+                    />
+                  </div>
+
+                  {/* Who Can See This Post? */}
+                  <div className="rounded-xl bg-white/80 dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                        هذا المنشور يظهر لمين؟
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTrainerAudience({ artisans: true, suppliers: true, customers: true })
+                        }
+                        className="text-[11px] font-black text-[#EA580C] hover:underline cursor-pointer"
+                      >
+                        تحديد الجميع
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {AUDIENCE_LABELS.map((aud) => {
+                        const active = trainerAudience[aud.key];
+                        return (
+                          <button
+                            key={aud.key}
+                            type="button"
+                            onClick={() =>
+                              setTrainerAudience((prev) => ({ ...prev, [aud.key]: !prev[aud.key] }))
+                            }
+                            className={`min-h-[34px] px-3 py-1.5 rounded-xl text-xs font-black border flex items-center gap-1.5 cursor-pointer transition ${
+                              active
+                                ? 'bg-emerald-600 text-white border-emerald-500'
+                                : 'bg-[#EFE9DC] dark:bg-[#132040] text-[#64748B] dark:text-[#94A3B8] border-[#D4CCBC] dark:border-[#22355E]'
+                            }`}
+                          >
+                            {active ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                            <span>{aud.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Auto-Publish to Family Forum + Notify All Artisans */}
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-400/50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={trainerPublishToFamily}
+                      onChange={(e) => setTrainerPublishToFamily(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 accent-[#EA580C] cursor-pointer shrink-0"
+                    />
+                    <span className="text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] leading-relaxed">
+                      نشر الشرح تلقائياً باسمي في <strong className="text-[#C2410C] dark:text-[#FBBF24]">منتدى العيلة (طبلية الشمساوية)</strong> مع إرسال إشعار فوري لجميع الفنانين للدخول والمشاهدة والتعليق والتفاعل داخل المنظومة.
+                    </span>
+                  </label>
+
+                  {/* Live Embedded In-App Preview */}
+                  {trainerUrl.trim().startsWith('http') && (
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-black text-[#475569] dark:text-[#94A3B8]">
+                        معاينة فورية للمشغل الداخلي قبل النشر:
+                      </span>
+                      <EmbeddedSocialMediaCard
+                        title={trainerTitle || 'معاينة الشرح'}
+                        description={trainerDesc}
+                        url={trainerUrl.trim()}
+                        platform={trainerPlatform}
+                        authorName={rawProfile.displayName}
+                        brandName={rawProfile.brandName}
+                        audience={trainerAudience}
+                        compact
+                      />
+                    </div>
+                  )}
+
+                  {trainerError && (
+                    <p className="text-xs font-bold text-rose-600 dark:text-rose-400">{trainerError}</p>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTrainerComposerOpen(false)}
+                      className="px-4 py-2 rounded-xl text-xs font-bold border border-[#D4CCBC] dark:border-[#22355E] cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={trainerBusy}
+                      className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>{trainerBusy ? 'جاري النشر وإرسال الإشعارات...' : 'نشر الشرح المدمج الآن'}</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Embedded Trainer Posts Grid */}
+              {trainerPostsList.length === 0 ? (
+                isExpertTrainer && (
+                  <div className="py-8 text-center text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
+                    {isEditMode
+                      ? 'اضغط على «إضافة رابط شرح مدمج» لنشر أول درس فيديو أو بوست تعليمي يُشغّل داخل المنظومة مباشرة.'
+                      : 'لا توجد شروحات مدمجة متاحة لهذه الفئة حالياً.'}
+                  </div>
+                )
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {trainerPostsList.map((tp) => (
+                    <EmbeddedSocialMediaCard
+                      key={tp.id}
+                      title={tp.title}
+                      description={tp.description}
+                      url={tp.url}
+                      platform={tp.platform}
+                      authorName={effectiveProfile.displayName}
+                      brandName={effectiveProfile.brandName}
+                      audience={isEditMode ? tp.audience : undefined}
+                      onDelete={isEditMode ? () => handleDeleteTrainerPost(tp.id) : undefined}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           {/* Bottom Owner Audience Preview Switcher Bar */}
           {isOwner && (

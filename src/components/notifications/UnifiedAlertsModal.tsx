@@ -4,6 +4,8 @@ import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
 import { fetchSupplierOfferAlerts } from '../../db/supplierService';
 import { SupplierOfferAlert } from '../../types/supplier';
+import { fetchTrainerLessonAlerts } from '../../db/memberProfileService';
+import { TrainerLessonAlert, SOCIAL_PLATFORM_META } from '../../types/artisanGrowth';
 import {
   playNotificationChimeSound,
   playUrgentNotificationSound,
@@ -33,6 +35,7 @@ import {
   ShieldCheck,
   Store,
   Megaphone,
+  GraduationCap,
 } from 'lucide-react';
 
 export interface UnifiedAlertsModalProps {
@@ -95,6 +98,7 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
   const [submittingReply, setSubmittingReply] = useState(false);
   const [actionNotice, setActionNotice] = useState('');
   const [supplierOfferAlerts, setSupplierOfferAlerts] = useState<SupplierOfferAlert[]>([]);
+  const [trainerLessonAlerts, setTrainerLessonAlerts] = useState<TrainerLessonAlert[]>([]);
   const markedReadIdsRef = useRef<Set<string>>(new Set());
   const markedAdminInboxReadRef = useRef<boolean>(false);
 
@@ -187,6 +191,9 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
     if (!isSupplierAccount) {
       fetchSupplierOfferAlerts()
         .then((list) => setSupplierOfferAlerts((list || []).slice(0, 3)))
+        .catch(() => {});
+      fetchTrainerLessonAlerts()
+        .then((list) => setTrainerLessonAlerts((list || []).slice(0, 5)))
         .catch(() => {});
     }
 
@@ -762,6 +769,66 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Expert / Trainer New Lesson Broadcast Alerts */}
+            {!isSupplierAccount && trainerLessonAlerts.length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-gradient-to-l from-[#FFF7ED] via-[#FEF3C7]/60 to-[#FFF7ED] dark:from-[#132040] dark:to-[#172554] border-2 border-[#EA580C]/50 dark:border-[#FBBF24]/45 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
+                    <GraduationCap className="w-4 h-4 shrink-0" />
+                    <span>منشورات وشروحات جديدة من خبراء ومدربي العيلة ({trainerLessonAlerts.length})</span>
+                  </div>
+                  {onNavigateToView && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playButtonClickSound();
+                        onNavigateToView('family');
+                        onClose();
+                      }}
+                      className="text-[11px] font-black text-[#0C1427] dark:text-[#F7F3EA] hover:text-[#EA580C] dark:hover:text-[#FBBF24] cursor-pointer"
+                    >
+                      فتح طبلية العيلة ←
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  {trainerLessonAlerts.map((alert) => {
+                    const platLabel = SOCIAL_PLATFORM_META[alert.platform]?.label || 'شرح مدمج';
+                    return (
+                      <button
+                        key={alert.id}
+                        type="button"
+                        onClick={() => {
+                          playButtonClickSound();
+                          try {
+                            if (alert.familyPostId) {
+                              sessionStorage.setItem('alshams_focus_family_post', alert.familyPostId);
+                            }
+                          } catch {}
+                          onNavigateToView?.('family');
+                          onClose();
+                        }}
+                        className="w-full text-right p-3 rounded-xl bg-white/90 dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] transition flex items-start justify-between gap-3 cursor-pointer"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <p className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] leading-snug">
+                            نشر الخبير/المدرب <span className="text-[#C2410C] dark:text-[#FBBF24]">{alert.trainerName}</span> منشوراً جديداً مهماً: «{alert.title}»
+                          </p>
+                          <p className="text-[11px] font-bold text-[#475569] dark:text-[#CBD5E1]">
+                            اضغط للمشاهدة مباشرة داخل منتدى العيلة والتعليق والتفاعل · {platLabel}
+                          </p>
+                        </div>
+                        <span className="px-2 py-1 rounded-lg bg-[#EA580C] text-white text-[10px] font-black shrink-0">
+                          شاهد الآن
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {!isSupplierAccount && supplierOfferAlerts.length > 0 && (
               <div className="p-3.5 rounded-2xl bg-[#FFF7ED] dark:bg-[#132040] border border-[#EA580C]/45 dark:border-[#FBBF24]/40 space-y-2.5">

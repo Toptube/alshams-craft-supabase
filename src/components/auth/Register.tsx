@@ -26,6 +26,8 @@ import {
 import { useFeatureFlags } from '../../types/featureFlags';
 import { COUNTRIES_CONFIG } from '../../utils/macrameMath';
 import { TermsModal } from './TermsModal';
+import { ArtisanSkillLevel } from '../../types/artisanGrowth';
+import { ArtisanSkillAssessment } from './ArtisanSkillAssessment';
 
 interface RegisterProps {
   accountRole: 'artisan' | 'supplier';
@@ -54,6 +56,8 @@ interface RegisterProps {
   setSupplySections: React.Dispatch<React.SetStateAction<MainSectionId[]>>;
   suppliedMaterials: string[];
   setSuppliedMaterials: React.Dispatch<React.SetStateAction<string[]>>;
+  skillLevel?: ArtisanSkillLevel;
+  onSkillLevelChange?: (level: ArtisanSkillLevel, score?: number) => void;
   loading: boolean;
   errorMsg: string;
   onSubmit: (e: React.FormEvent) => void;
@@ -102,6 +106,8 @@ export const Register: React.FC<RegisterProps> = ({
   setSupplySections,
   suppliedMaterials,
   setSuppliedMaterials,
+  skillLevel = 'intermediate',
+  onSkillLevelChange,
   loading,
   errorMsg,
   onSubmit,
@@ -668,6 +674,15 @@ export const Register: React.FC<RegisterProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* Artisan Skill Level & Quick Assessment */}
+        {!isSupplier && onSkillLevelChange && (
+          <ArtisanSkillAssessment
+            value={skillLevel}
+            onChange={onSkillLevelChange}
+            compact
+          />
         )}
 
         {/* Email */}

@@ -28,6 +28,8 @@ import {
   Palette,
   Layers,
   Code2,
+  GraduationCap,
+  Rocket,
 } from 'lucide-react';
 import {
   AdminPageId,
@@ -229,6 +231,20 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       icon: <Palette className="w-5 h-5 sm:w-6 sm:h-6 text-[#C2410C] dark:text-[#FBBF24]" />,
       circleClass: 'bg-orange-100 dark:bg-orange-950/60 border-orange-300/60 dark:border-orange-700/60',
       onClick: () => onNavigatePage('ui_layout_studio'),
+    },
+    {
+      id: 'experts_trainers',
+      label: 'الخبراء والمدربين والشروحات',
+      icon: <GraduationCap className="w-5 h-5 sm:w-6 sm:h-6 text-[#C2410C] dark:text-[#FBBF24]" />,
+      circleClass: 'bg-amber-100 dark:bg-amber-950/60 border-amber-300/60 dark:border-amber-700/60',
+      onClick: () => onNavigatePage('experts_trainers'),
+    },
+    {
+      id: 'growth_hub',
+      label: 'مركز التطوير والنمو والابتكار',
+      icon: <Rocket className="w-5 h-5 sm:w-6 sm:h-6 text-violet-700 dark:text-violet-300" />,
+      circleClass: 'bg-violet-100 dark:bg-violet-950/60 border-violet-300/60 dark:border-violet-700/60',
+      onClick: () => onNavigatePage('growth_hub'),
     },
   ];
 

@@ -32,10 +32,14 @@ import {
   Copy,
   ExternalLink,
   QrCode,
+  Rocket,
   ShoppingBag,
   TrendingUp,
   Truck,
 } from 'lucide-react';
+import { SupplierGrowthToolsPanel } from '../growth/SupplierGrowthToolsPanel';
+import { GrowthHubConfig, getStoredGrowthHubConfig } from '../../types/artisanGrowth';
+import { syncGrowthHubConfigFromCloud } from '../../db/memberProfileService';
 
 interface SupplierHomeScreenProps {
   profile: UserProfile;
@@ -86,6 +90,20 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeSubCard, setActiveSubCard] = useState<UiHomeCardConfig | null>(null);
+  const [supplierGrowthOpen, setSupplierGrowthOpen] = useState(false);
+  const [growthConfig, setGrowthConfig] = useState<GrowthHubConfig>(() => getStoredGrowthHubConfig());
+
+  useEffect(() => {
+    syncGrowthHubConfigFromCloud()
+      .then((cfg) => setGrowthConfig(cfg))
+      .catch(() => {});
+  }, []);
+
+  const hasAnySupplierGrowthTool =
+    growthConfig.supplierCreditLimitEnabled ||
+    growthConfig.supplierMobileStocktakeEnabled ||
+    growthConfig.supplierFlashBundlesEnabled ||
+    growthConfig.supplierSmartRestockEnabled;
 
   const currencySymbol = profile.currencySymbol || 'ج.م';
   const slug = profile.storeSlug || profile.store_slug || profile.id;
@@ -644,6 +662,33 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
         </div>
       </section>
 
+      {/* أدوات نمو الموردين الذكية (متحكم فيها من السوبر أدمن) */}
+      {hasAnySupplierGrowthTool && (
+        <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border-2 border-[#EA580C]/35 dark:border-[#FBBF24]/30 p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-[#EA580C] text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Rocket className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                أدوات نمو وتوسّع الموردين (B2B Growth Suite)
+              </h3>
+              <p className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
+                سقف الائتمان للورش · جرد الباركود بالموبايل · تصفية البواقي السريعة · رادار الطلب الذكي
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSupplierGrowthOpen(true)}
+            className="min-h-[42px] px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer transition shadow-sm"
+          >
+            <Rocket className="w-4 h-4" />
+            <span>فتح أدوات نمو الموردين</span>
+          </button>
+        </section>
+      )}
+
       {/* Bottom Orange Marketplace Footer for Suppliers */}
       {(onNavigateToSuppliersMarket || onPreviewPublicStore) && (
         <footer className="pt-2">
@@ -676,6 +721,16 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
           </div>
         </footer>
       )}
+
+      {/* نافذة أدوات نمو الموردين */}
+      <SupplierGrowthToolsPanel
+        isOpen={supplierGrowthOpen}
+        onClose={() => setSupplierGrowthOpen(false)}
+        profile={profile}
+        catalog={catalog}
+        customers={customers}
+        orders={orders}
+      />
     </div>
   );
 };

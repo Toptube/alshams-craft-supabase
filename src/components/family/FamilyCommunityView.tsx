@@ -27,6 +27,8 @@ import { authedFetch } from '../../lib/apiClient';
 import { supabase } from '../../lib/supabase';
 import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
 import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
+import { extractEmbeddedMediaFromContent } from '../../types/artisanGrowth';
+import { EmbeddedSocialMediaCard } from '../common/EmbeddedSocialMediaCard';
 
 export type FamilyReactionType = 'like' | 'dislike' | 'love' | 'clap' | 'rose';
 
@@ -435,6 +437,26 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
       }, 60);
     }
   }, [isChatOpen]);
+
+  const [focusedPostId, setFocusedPostId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (posts.length === 0) return;
+    try {
+      const targetId = sessionStorage.getItem('alshams_focus_family_post');
+      if (!targetId) return;
+      const found = posts.find((p) => p.id === targetId);
+      if (found) {
+        sessionStorage.removeItem('alshams_focus_family_post');
+        setFocusedPostId(found.id);
+        setTimeout(() => {
+          const el = document.getElementById(`family-post-${found.id}`);
+          el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 120);
+        setTimeout(() => setFocusedPostId(null), 6500);
+      }
+    } catch {}
+  }, [posts]);
 
   // Draggable Floating Chat Position (x, y from viewport top-left)
   const [chatPos, setChatPos] = useState<{ x: number; y: number }>(() => {
@@ -1392,11 +1414,17 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
               0
             );
 
+            const parsedBody = extractEmbeddedMediaFromContent(post.content);
+            const isHighlighted = focusedPostId === post.id;
+
             return (
               <article
                 key={post.id}
-                className={`rounded-2xl border p-4 sm:p-5 shadow-xs transition-colors ${
-                  post.isSuperAdmin
+                id={`family-post-${post.id}`}
+                className={`rounded-2xl border p-4 sm:p-5 shadow-xs transition-all ${
+                  isHighlighted
+                    ? 'bg-[#FFF7ED] dark:bg-[#172554] border-[#EA580C] ring-2 ring-[#EA580C]/50 shadow-lg'
+                    : post.isSuperAdmin
                     ? 'bg-[#FDFBF5] dark:bg-[#101C3A] border-[#EA580C]/50 dark:border-[#FBBF24]/50'
                     : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
                 }`}
@@ -1471,10 +1499,25 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                   </div>
                 </div>
 
-                {/* Text-only Post Body */}
-                <p className="mt-3 text-sm sm:text-[15px] font-medium text-[#0C1427] dark:text-[#F7F3EA] whitespace-pre-wrap leading-relaxed">
-                  {post.content}
-                </p>
+                {/* Post Body + Optional Native Embedded Trainer Social Media Card */}
+                {parsedBody.cleanText && (
+                  <p className="mt-3 text-sm sm:text-[15px] font-medium text-[#0C1427] dark:text-[#F7F3EA] whitespace-pre-wrap leading-relaxed">
+                    {parsedBody.cleanText}
+                  </p>
+                )}
+
+                {parsedBody.embed && (
+                  <div className="mt-3.5">
+                    <EmbeddedSocialMediaCard
+                      title={parsedBody.embed.title}
+                      url={parsedBody.embed.url}
+                      platform={parsedBody.embed.platform}
+                      authorName={post.authorName}
+                      brandName={post.brandName}
+                      isTrainerBadge={parsedBody.embed.trainerBadge !== false}
+                    />
+                  </div>
+                )}
 
                 {/* Interactive Poll Options (when postType === 'poll') */}
                 {isPoll && (

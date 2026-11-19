@@ -16,6 +16,8 @@ import {
 } from '../../db/supplierService';
 import { Login } from './Login';
 import { Register } from './Register';
+import { ArtisanSkillLevel } from '../../types/artisanGrowth';
+import { saveMemberPersonalProfile } from '../../db/memberProfileService';
 import {
   Mail,
   CheckCircle2,
@@ -64,6 +66,32 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
   const [pricingModes, setPricingModes] = useState<SupplierPricingMode[]>(['both']);
   const [supplySections, setSupplySections] = useState<MainSectionId[]>(['ropes_textiles']);
   const [suppliedMaterials, setSuppliedMaterials] = useState<string[]>([]);
+  const [skillLevel, setSkillLevel] = useState<ArtisanSkillLevel>(() => {
+    try {
+      const saved = localStorage.getItem('alshams_pending_skill_level') as ArtisanSkillLevel | null;
+      if (saved && ['beginner', 'intermediate', 'pro', 'expert_trainer'].includes(saved)) {
+        return saved;
+      }
+    } catch {}
+    return 'intermediate';
+  });
+  const [assessmentScore, setAssessmentScore] = useState<number | undefined>(() => {
+    try {
+      const raw = localStorage.getItem('alshams_pending_skill_score');
+      if (raw !== null) {
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    } catch {}
+    return undefined;
+  });
+  const [hasPendingLoginQuiz, setHasPendingLoginQuiz] = useState<boolean>(() => {
+    try {
+      return Boolean(localStorage.getItem('alshams_pending_skill_level'));
+    } catch {
+      return false;
+    }
+  });
 
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -169,6 +197,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
               account_role: effectiveRole,
               brand_name: brandName.trim(),
               artist_name: artistName.trim(),
+              skill_level: effectiveRole === 'artisan' ? skillLevel : undefined,
             },
           },
         });
@@ -231,6 +260,14 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
           }
 
           if (workshop) {
+            saveMemberPersonalProfile({
+              skillLevel,
+              assessmentScore,
+            }).catch(() => {});
+            try {
+              localStorage.removeItem('alshams_pending_skill_level');
+              localStorage.removeItem('alshams_pending_skill_score');
+            } catch {}
             onAuthenticated(workshop);
           }
           return;
@@ -239,6 +276,13 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
         if (effectiveRole === 'supplier') {
           try {
             localStorage.setItem(PENDING_SUPPLIER_REG_KEY, JSON.stringify(supplierPayload));
+          } catch {}
+        } else {
+          try {
+            localStorage.setItem('alshams_pending_skill_level', skillLevel);
+            if (typeof assessmentScore === 'number') {
+              localStorage.setItem('alshams_pending_skill_score', String(assessmentScore));
+            }
           } catch {}
         }
 
@@ -332,6 +376,16 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             setErrorMsg('تم تعليق حساب الورشة مؤقتاً، يرجى مراجعة إدارة عيلة الشمساوية');
             setLoading(false);
             return;
+          }
+          if (hasPendingLoginQuiz) {
+            saveMemberPersonalProfile({
+              skillLevel,
+              assessmentScore,
+            }).catch(() => {});
+            try {
+              localStorage.removeItem('alshams_pending_skill_level');
+              localStorage.removeItem('alshams_pending_skill_score');
+            } catch {}
           }
           onAuthenticated(workshop);
           return;
@@ -602,7 +656,7 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
 
       <div
         className={`w-full ${
-          mode === 'signup' && effectiveRole === 'supplier' ? 'max-w-lg' : 'max-w-md'
+          mode === 'signup' ? 'max-w-xl' : 'max-w-md'
         } bg-[#F7F3EA] dark:bg-[#0D162E] rounded-3xl shadow-2xl border border-[#D4CCBC] dark:border-[#22355E] p-6 sm:p-8 space-y-5 text-right relative overflow-hidden`}
       >
         <div className="absolute -top-16 -right-16 w-40 h-40 bg-gradient-to-br from-[#EA580C]/20 to-[#F59E0B]/10 rounded-full blur-2xl pointer-events-none" />
@@ -665,6 +719,18 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             googleLoading={googleLoading}
             onFacebookLogin={handleFacebookSignIn}
             facebookLoading={facebookLoading}
+            skillLevel={skillLevel}
+            onSkillLevelChange={(lvl, score) => {
+              setSkillLevel(lvl);
+              if (typeof score === 'number') setAssessmentScore(score);
+              setHasPendingLoginQuiz(true);
+              try {
+                localStorage.setItem('alshams_pending_skill_level', lvl);
+                if (typeof score === 'number') {
+                  localStorage.setItem('alshams_pending_skill_score', String(score));
+                }
+              } catch {}
+            }}
             onForgotPassword={() => {
               setForgotEmail(email);
               setForgotNotice(null);
@@ -699,6 +765,11 @@ export const AuthGateway: React.FC<AuthGatewayProps> = ({
             setSupplySections={setSupplySections}
             suppliedMaterials={suppliedMaterials}
             setSuppliedMaterials={setSuppliedMaterials}
+            skillLevel={skillLevel}
+            onSkillLevelChange={(lvl, score) => {
+              setSkillLevel(lvl);
+              if (typeof score === 'number') setAssessmentScore(score);
+            }}
             loading={loading}
             errorMsg={errorMsg}
             onSubmit={handleEmailAuth}
