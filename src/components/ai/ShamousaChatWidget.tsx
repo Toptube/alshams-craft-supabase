@@ -38,6 +38,7 @@ import { dispatchArtisanNotification } from '../../lib/pushNotifications';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { fetchSupplierErpOverview } from '../../db/supplierErpService';
 import { buildArtisanExecutiveBrief, buildSupplierExecutiveBrief } from '../../services/executiveBriefService';
+import { resolveShamousaLocalChatbot, ShamousaChatbotOption } from '../../services/shamousaLocalChatbot';
 
 export interface ShamousaActionLink {
   label: string;
@@ -97,6 +98,8 @@ export interface ShamousaMessage {
   contactAction?: ShamousaContactAction;
   actionChips?: SmartActionChip[];
   disambiguationChoices?: DisambiguationChoice[];
+  chatbotOptions?: ShamousaChatbotOption[];
+  isLocalChatbot?: boolean;
   attachmentPreview?: string;
   sources?: Array<{ title: string; url: string }>;
   searchUsed?: boolean;
@@ -1329,7 +1332,47 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     }
   };
 
-  const send = async (text: string) => {
+  const handleChatbotOptionClick = async (opt: ShamousaChatbotOption, messageIdx: number) => {
+    if (isLoading) return;
+    playButtonClickSound();
+    if (opt.triggerFalcon) {
+      setIsOpen(false);
+      onOpenFalcon();
+      return;
+    }
+    if (opt.action === 'open_agenda') {
+      setActiveTab('tasks_agenda');
+      return;
+    }
+    if (opt.action === 'new_appointment') {
+      setActiveTab('tasks_agenda');
+      setIsNewApptFormOpen(true);
+      return;
+    }
+    if (opt.view) {
+      openScreen(opt.view);
+      return;
+    }
+    if (opt.intentKey) {
+      await handleDisambiguationChoiceClick({
+        id: opt.id,
+        label: opt.label,
+        intentKey: opt.intentKey as DisambiguationIntentKey,
+      });
+      return;
+    }
+    if (opt.triggerAI) {
+      const prevUserMsg = [...messages.slice(0, messageIdx)].reverse().find((m) => m.role === 'user');
+      const queryForAI = prevUserMsg?.content || 'ساعديني في آخر استفسار';
+      await send(queryForAI, { forceAI: true });
+      return;
+    }
+    if (opt.queryText) {
+      await send(opt.queryText);
+    }
+  };
+
+  const send = async (text: string, sendOptions?: { forceAI?: boolean }) => {
     if (isRecordingVoice) {
       stopVoiceRecording();
     }
@@ -1345,10 +1388,13 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       inputRef.current.style.height = 'auto';
     }
 
-    // 0. فحص هل السؤال ملتبس/عام أو طلب مباشر لفرع من "هلخصهالك" (بدون صور مرفقة)
-    const preIntent = !currentAttachment
-      ? detectSummaryOrAmbiguousIntent(message, isSupplierAccount)
-      : null;
+    const shouldUseLocalFirst = !currentAttachment && !useGoogleSearch && !sendOptions?.forceAI;
+
+    // 0. فحص هل السؤال ملتبس/عام أو طلب مباشر لفرع من "هلخصهالك" (بدون صور مرفقة أو طلب AI صريح)
+    const preIntent =
+      !currentAttachment && !sendOptions?.forceAI
+        ? detectSummaryOrAmbiguousIntent(message, isSupplierAccount)
+        : null;
 
     const userMsg: ShamousaMessage = {
       id: `u_${Date.now()}`,
@@ -1369,14 +1415,47 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           {
             id: `a_${Date.now()}`,
             role: 'assistant',
+            isLocalChatbot: true,
             ...directReply,
           },
         ]);
         return;
       } catch (err) {
-        console.warn('Disambiguation/Brief direct resolution fallback to AI:', err);
+        console.warn('Disambiguation/Brief direct resolution fallback:', err);
       } finally {
         setIsLoading(false);
+      }
+    }
+
+    // 1. محرك الشات بوت المحلي أولاً (يعمل فوراً بدون نت أو ذكاء اصطناعي)
+    if (shouldUseLocalFirst) {
+      try {
+        const localRes = resolveShamousaLocalChatbot(message, {
+          firstName,
+          isSupplier: isSupplierAccount,
+        });
+        if (localRes.handled && localRes.reply) {
+          const replyChips = detectKeywordActionChips(message, isSupplierAccount).filter(
+            (c) => !localRes.actionLink || c.view !== localRes.actionLink.view
+          );
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: localRes.reply,
+              actionLink: localRes.actionLink,
+              actionChips: replyChips.length > 0 ? replyChips : undefined,
+              chatbotOptions: localRes.options,
+              handoffToFalcon: localRes.handoffToFalcon,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+      } catch (localErr) {
+        console.warn('Local chatbot engine notice:', localErr);
       }
     }
 
@@ -1595,7 +1674,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 <div className="flex items-center gap-1.5">
                   <p className="font-extrabold text-sm leading-tight">شموسة</p>
                   <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full font-medium">
-                    مديرة أعمال الورشة
+                    شات بوت • مديرة الأعمال
                   </span>
                 </div>
                 <p className="text-[11px] text-amber-50/90 flex items-center gap-1 truncate">
@@ -1676,9 +1755,35 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 ref={listRef}
                 className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5 bg-stone-50 dark:bg-stone-950"
               >
-                <Bubble role="assistant">{renderText(welcomeMessage)}</Bubble>
+                <Bubble role="assistant">
+                  {renderText(welcomeMessage)}
+                  <div className="flex flex-wrap gap-1.5 pt-2.5 mt-2 border-t border-stone-200/70 dark:border-stone-700/60">
+                    {(isSupplierAccount
+                      ? [
+                          { id: 'w_sb', label: 'هلخصهالك للموردين 💰', intentKey: 'sup_full_brief' },
+                          { id: 'w_sum', label: 'الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
+                          { id: 'w_scat', label: 'كتالوجي وأسعاري 📦', view: 'supplier_catalog' },
+                        ]
+                      : [
+                          { id: 'w_ab', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
+                          { id: 'w_um', label: 'الخامات الموحدة (TH/BD) 🏷️', queryText: 'منظومة الخامات الموحدة' },
+                          { id: 'w_cr', label: 'الورش ومعادلات التسعير 🧮', queryText: 'معادلات الورش والتسعير' },
+                          { id: 'w_fl', label: 'الأرشيف والكتالوج 🛍️', queryText: 'دورة المنتج والأرشيف' },
+                        ]
+                    ).map((wOpt) => (
+                      <button
+                        key={wOpt.id}
+                        type="button"
+                        onClick={() => handleChatbotOptionClick(wOpt, 0)}
+                        className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-amber-100/90 hover:bg-[#EA580C] text-[#0C1427] hover:text-white dark:bg-[#1A2B54] dark:text-[#FBBF24] dark:hover:bg-[#EA580C] border border-amber-400/70 dark:border-[#EA580C]/50 transition cursor-pointer"
+                      >
+                        {wOpt.label}
+                      </button>
+                    ))}
+                  </div>
+                </Bubble>
 
-                {messages.map((m) => (
+                {messages.map((m, mIdx) => (
                   <div key={m.id} className="space-y-1.5">
                     <Bubble role={m.role}>
                       {m.attachmentPreview && (
@@ -1712,6 +1817,26 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                         </div>
                       )}
                     </Bubble>
+
+                    {/* اختيارات الشات بوت التفاعلية المحلية (نظام أقرب كلمة وسؤال وجواب) */}
+                    {m.chatbotOptions && m.chatbotOptions.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
+                        {m.chatbotOptions.map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => handleChatbotOptionClick(opt, mIdx)}
+                            className={`inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1.5 rounded-xl border transition shadow-xs cursor-pointer active:scale-95 ${
+                              opt.triggerAI
+                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-950 dark:bg-stone-800 dark:text-amber-300 border-amber-400/70'
+                                : 'bg-[#0C1427] hover:bg-[#EA580C] text-[#FBBF24] hover:text-white dark:bg-[#1A2B54] dark:hover:bg-[#EA580C] border-[#EA580C]/60'
+                            }`}
+                          >
+                            <span>{opt.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     {/* أزرار التوضيح التفاعلية عند وجود استفسار غائم أو متشعب */}
                     {m.disambiguationChoices && m.disambiguationChoices.length > 0 && (

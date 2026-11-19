@@ -26,6 +26,11 @@ import {
 import { playSuccessSound, playAlertSound, playErrorSound } from '../../lib/sounds';
 import { authedFetch } from '../../lib/apiClient';
 import { supabase } from '../../lib/supabase';
+import {
+  resolveShamousaLocalChatbot,
+  saveLocalShamousaRule,
+  ShamousaChatbotOption,
+} from '../../services/shamousaLocalChatbot';
 
 interface UnifiedAICommandCenterProps {
   profile: UserProfile;
@@ -56,18 +61,25 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
       time: string;
       sources?: Array<{ title: string; url: string }>;
       searchUsed?: boolean;
+      chatbotOptions?: ShamousaChatbotOption[];
     }>
   >([
     {
       role: 'model',
-      text: 'أهلاً يا حسام 🌞، أنا مديرة أعمالك. اخبارك ايه! واخبار شغلنا ايه ! يارب يكون كل حاجه تمام ... تحب نبدأ إزاي النهارده؟! جاهزة لاستقبال أي توجيهات برمجية، فحص الورش، أو تحليل بيانات المنظومة.',
+      text: 'أهلاً يا حسام 🌞، أنا شات بوت شموسة ومديرة أعمالك (أشتغل محلياً فوراً + متصل بالمساعد عند اللزوم). تقدر تبدأ برمجة أو تستفسر عن الورش، المعادلات، والخامات الموحدة من الأزرار أو الكتابة مباشرة:',
       time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+      chatbotOptions: [
+        { id: 'cmd_mat', label: '📦 الخامات الموحدة', queryText: 'منظومة الخامات الموحدة' },
+        { id: 'cmd_craft', label: '🧮 الورش والمعادلات', queryText: 'الورش ومعادلات التسعير' },
+        { id: 'cmd_flow', label: '🗂️ الأرشيف والكتالوج', queryText: 'الارشييف والكتالوج' },
+      ],
     },
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [useGoogleSearch, setUseGoogleSearch] = useState(false);
   const [inTrainingMode, setInTrainingMode] = useState(false);
+  const [pendingTrainingBuffer, setPendingTrainingBuffer] = useState<string[]>([]);
   const [activeMemories, setActiveMemories] = useState<any[]>([]);
   const [loadingMemories, setLoadingMemories] = useState(false);
 
@@ -123,7 +135,7 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
     }
   }, [activeAIAgent]);
 
-  const handleSendShamousa = async (textToSend?: string) => {
+  const handleSendShamousa = async (textToSend?: string, opts?: { forceAI?: boolean }) => {
     const msg = (textToSend || inputMessage).trim();
     if (!msg || sending) return;
 
@@ -133,17 +145,63 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
     if (!textToSend) setInputMessage('');
     setSending(true);
 
-    // Quick local echo if keyword matches Super Admin protocol
+    const isTrainingCommand = ['هبرمجك', 'فهمت؟!', 'احفظ', 'هنكمل', 'كده تمام'].includes(msg);
+
+    // Quick local tracking of Super Admin training protocol
     if (msg === 'هبرمجك') {
       setInTrainingMode(true);
+      setPendingTrainingBuffer([]);
       playAlertSound();
     } else if (msg === 'فهمت؟!') {
       playSuccessSound();
     } else if (msg === 'احفظ') {
+      if (pendingTrainingBuffer.length > 0) {
+        const joinedRule = pendingTrainingBuffer.join('\n').trim();
+        const keywords = Array.from(
+          new Set(
+            joinedRule
+              .split(/\s+/)
+              .map((w) => w.replace(/[^\u0600-\u06FFa-zA-Z0-9]/g, ''))
+              .filter((w) => w.length >= 3)
+              .slice(0, 6)
+          )
+        );
+        saveLocalShamousaRule({
+          title: 'قاعدة السوبر أدمن',
+          keywords,
+          answer: `📌 **قاعدة السوبر أدمن المحفوظة:**\n${joinedRule}`,
+        });
+        setPendingTrainingBuffer([]);
+      }
       playSuccessSound();
     } else if (msg === 'كده تمام') {
       setInTrainingMode(false);
+      setPendingTrainingBuffer([]);
       playSuccessSound();
+    } else if (inTrainingMode && msg !== 'هنكمل') {
+      setPendingTrainingBuffer((prev) => [...prev, msg]);
+    }
+
+    // 1. In normal consultation mode (not training mode, not live web search, not forceAI), use local chatbot first!
+    if (!inTrainingMode && !isTrainingCommand && !useGoogleSearch && !opts?.forceAI) {
+      const localRes = resolveShamousaLocalChatbot(msg, {
+        firstName: (profile.artistName || 'حسام').split(/\s+/)[0],
+        isSupplier: false,
+      });
+      if (localRes.handled && localRes.reply) {
+        setShamousaMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            text: localRes.reply,
+            time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+            chatbotOptions: localRes.options,
+          },
+        ]);
+        playSuccessSound();
+        setSending(false);
+        return;
+      }
     }
 
     try {
@@ -190,15 +248,51 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
         loadMemories();
       }
     } catch (err: any) {
-      playErrorSound();
-      setShamousaMessages((prev) => [
-        ...prev,
-        {
-          role: 'model',
-          text: 'عذراً يا هندسة، واجهت مشكلة في معالجة الطلب: ' + (err.message || 'خطأ في الشبكة'),
-          time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
-        },
-      ]);
+      // Fallback safely to local chatbot if AI providers fail during consultation or offline training
+      if (inTrainingMode && msg === 'احفظ') {
+        setShamousaMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            text: '💾 تم حفظ القاعدة محلياً داخل ذاكرة شات بوت شموسة وتعمل الآن بدون إنترنت أو ذكاء اصطناعي خارجي.',
+            time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+        playSuccessSound();
+      } else if (inTrainingMode) {
+        setShamousaMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            text:
+              msg === 'هبرمجك'
+                ? '🔴 وضع البرمجة المحلي نشط الآن يا هندسة! ابعتلي القواعد اللي عاوز تضيفها ولما تخلص قول "احفظ" ثم "كده تمام".'
+                : msg === 'فهمت؟!'
+                ? '✅ أيوه تمام، استلمت القاعدة وجاهزة للحفظ في الذاكرة المحلية بمجرد ما تقول "احفظ".'
+                : msg === 'كده تمام'
+                ? '🟢 تم الخروج من وضع التدريب وتفعيل وضع الشات بوت المحلي.'
+                : '📥 استلمت التوجيه في مسودة التدريب المحلية. تقدر تضيف توجيهات تانية أو تقول "احفظ".',
+            time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+        playSuccessSound();
+      } else {
+        const localFallback = resolveShamousaLocalChatbot(msg, {
+          firstName: (profile.artistName || 'حسام').split(/\s+/)[0],
+          isSupplier: false,
+        });
+        playAlertSound();
+        setShamousaMessages((prev) => [
+          ...prev,
+          {
+            role: 'model',
+            text:
+              `${localFallback.reply}\n\n_(ملاحظة: تعذر اتصال المساعد الخارجي حالياً — ${err.message || 'بدون شبكة'})_`,
+            time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+            chatbotOptions: localFallback.options,
+          },
+        ]);
+      }
     } finally {
       setSending(false);
     }
@@ -442,6 +536,29 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
                             ))}
                           </div>
                         )}
+                      </div>
+                    )}
+                    {m.chatbotOptions && m.chatbotOptions.length > 0 && (
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        {m.chatbotOptions.map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              if (opt.triggerFalcon) {
+                                setActiveAIAgent('falcon');
+                              } else if (opt.triggerAI) {
+                                const lastU = [...shamousaMessages.slice(0, idx)].reverse().find((x) => x.role === 'user');
+                                handleSendShamousa(lastU?.text || 'لخصيلي وضع المنظومة الآن', { forceAI: true });
+                              } else if (opt.queryText) {
+                                handleSendShamousa(opt.queryText);
+                              }
+                            }}
+                            className="px-2.5 py-1 rounded-xl bg-amber-500/15 hover:bg-amber-600 hover:text-white text-amber-900 dark:text-amber-300 border border-amber-400/50 text-[11px] font-bold transition cursor-pointer"
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
                       </div>
                     )}
                     <span className="text-[9px] opacity-70 block mt-1 text-left font-mono" dir="ltr">

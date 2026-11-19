@@ -15,6 +15,8 @@ import {
   getFanarApiKey,
   formatAiErrorReason,
   cleanSecretValue,
+  isGeminiKeyCircuitOpen,
+  tripGeminiKeyCircuit,
   GroundedSource,
 } from './googleSearchService.js';
 
@@ -85,8 +87,8 @@ export function classifyGeminiError(err: any, aborted = false): GeminiErrorKind 
 
 export function falconErrorResponse(err: any): { status: number; error: string } {
   const msg = String(err?.message || '').trim();
-  if (msg.startsWith('تعذر اتصال مستشار الورشة')) {
-    return { status: 502, error: msg };
+  if (msg.startsWith('تعذر اتصال مستشار الورشة') || msg.startsWith('تحليل الصور يتطلب')) {
+    return { status: err?.kind === 'bad_key' ? 503 : 502, error: msg };
   }
   switch (err?.kind as GeminiErrorKind | undefined) {
     case 'timeout':
@@ -124,20 +126,19 @@ async function callGroqFallback(
   if (!apiKey) throw new Error('مفتاح GROQ_API_KEY غير متوفر');
 
   const candidateModels = [
-    'llama-3.3-70b-versatile',
-    'meta-llama/llama-4-scout-17b-16e-instruct',
-    'qwen/qwen3-32b',
-    'llama-3.1-8b-instant',
     'openai/gpt-oss-120b',
     'openai/gpt-oss-20b',
     'allam-2-7b',
+    'qwen/qwen3.8-27b',
   ];
 
   const rawModel = cleanSecretValue(process.env.GROQ_MODEL);
   if (
     rawModel &&
     !rawModel.toLowerCase().includes('whisper') &&
-    !rawModel.toLowerCase().includes('qwen3.8')
+    !rawModel.toLowerCase().includes('llama-3') &&
+    !rawModel.toLowerCase().includes('llama-4') &&
+    !rawModel.toLowerCase().includes('qwen3-32b')
   ) {
     const idx = candidateModels.indexOf(rawModel);
     if (idx > 0) candidateModels.splice(idx, 1);
@@ -208,7 +209,8 @@ async function callGroqFallback(
       }
 
       const data: any = await res.json();
-      const txt = data?.choices?.[0]?.message?.content?.trim();
+      const rawTxt = String(data?.choices?.[0]?.message?.content || '').trim();
+      const txt = rawTxt.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
       if (txt) return txt;
       lastErrText = `Empty reply from ${model}`;
     } catch (err: any) {
@@ -250,7 +252,7 @@ async function callFanarFallback(
   }
   messages.push({ role: 'user', content: userMessage });
 
-  for (const model of ['Fanar-C-1-8.7B', 'Fanar']) {
+  for (const model of ['Fanar']) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
     try {
@@ -288,13 +290,21 @@ export class GeminiAIProvider {
   }
 
   isAvailable(): boolean {
-    return Boolean(resolveAgentGeminiKey('falcon'));
+    const key = resolveAgentGeminiKey('falcon');
+    return Boolean(key && !isGeminiKeyCircuitOpen(key));
   }
 
   private async generate(
     req: { contents: any; config?: any },
     opts: { label: string; timeoutMs: number }
   ): Promise<any> {
+    const key = resolveAgentGeminiKey('falcon');
+    if (!key || isGeminiKeyCircuitOpen(key)) {
+      const err: any = new Error('مفتاح Gemini غير صالح أو متجاوز مؤقتاً — يتم التحويل الفوري لـ Groq/Fanar');
+      err.kind = 'bad_key';
+      throw err;
+    }
+
     const ai = this.getClient();
     const uniqueModels = getCandidateGeminiModels();
     let lastError: any = null;
@@ -323,6 +333,9 @@ export class GeminiAIProvider {
         } catch (err: any) {
           clearTimeout(timeoutId);
           lastError = err;
+          if (tripGeminiKeyCircuit(key, err)) {
+            throw Object.assign(err instanceof Error ? err : new Error(String(err)), { kind: 'bad_key' as GeminiErrorKind });
+          }
           const msg = String(err?.message || err || '');
           const isTransient503 = msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE');
           console.log(`[Falcon Gemini] Notice on ${model} (attempt ${attempt}): ${isTransient503 ? 'temporary demand spike (503)' : 'trying fallback'}`);
@@ -340,7 +353,13 @@ export class GeminiAIProvider {
   }
 
   async analyzeCraftVision(input: AIVisionPromptInput): Promise<any> {
-    if (!this.isAvailable()) throw new Error('مفتاح Gemini الخاص بصقر غير مضبوط على الخادم');
+    if (!this.isAvailable()) {
+      const err: any = new Error(
+        'تحليل الصور يتطلب تحديث مفتاح GEMINI_API_KEY في الإعدادات (Settings > Secrets). المحادثة النصية وحساب التكاليف والصوت والبحث الحي تعمل حالياً بكفاءة عبر Groq و Fanar.'
+      );
+      err.kind = 'bad_key';
+      throw err;
+    }
 
     const { imageBase64, mimeType = 'image/jpeg', artistNotes = '', workshopContext = {} } = input;
     const activeCrafts = Array.isArray(workshopContext.activeCrafts) ? workshopContext.activeCrafts : ['macrame'];
@@ -661,6 +680,7 @@ export class GeminiAIProvider {
             );
             searchUsed = true;
           } catch (searchErr: any) {
+            if (searchErr?.kind === 'bad_key') throw searchErr;
             console.warn('[Falcon] Google Search grounding fallback notice:', searchErr?.message);
             response = await this.generate(
               { contents, config: { systemInstruction } },
@@ -697,6 +717,15 @@ export class GeminiAIProvider {
     } else {
       geminiFailReason = 'مفتاح GEMINI_API_KEY_FALCON / GEMINI_API_KEY غير مضبوط في Secrets';
       console.log(`[AI Service: Falcon] Provider 1 (Gemini) skipped -> Switching to Provider 2 (Groq Backup)...`);
+    }
+
+    // If images were attached and Gemini Vision is unavailable, return a helpful Arabic guidance message instead of a 502 error
+    if (hasImages) {
+      return {
+        reply: `يا ${firstName} 🦅، قراءة الصور وتحليلها البصري حالياً في انتظار تحديث مفتاح GEMINI_API_KEY في الإعدادات (Settings > Secrets).\n\nلكنني شغال معاك فوراً وبأقصى سرعة في حساب التكاليف والتسعير والمعادلات الهندسية والبحث الحي!\nاكتب لي بس نوع القطعة وأبعادها وخامتها (مثلاً: ستارة مكرمية عرض 80 سم × طول 120 سم بخيط 4 مم) وهحسبلك كل التفاصيل في ثواني.`,
+        sources: [],
+        searchUsed: false,
+      };
     }
 
     // Live web search enrichment when falling back to Groq/Fanar
@@ -859,7 +888,7 @@ export async function transcribeAudioWithGemini(audioBase64: string, mimeType = 
   let lastErr: any = null;
 
   const geminiKey = resolveAgentGeminiKey('falcon');
-  if (geminiKey) {
+  if (geminiKey && !isGeminiKeyCircuitOpen(geminiKey)) {
     try {
       const ai = createGeminiClientForAgent('falcon');
       const models = getCandidateGeminiModels();
@@ -889,10 +918,12 @@ export async function transcribeAudioWithGemini(audioBase64: string, mimeType = 
           if (txt) return txt;
         } catch (err: any) {
           lastErr = err;
+          if (tripGeminiKeyCircuit(geminiKey, err)) break;
         }
       }
     } catch (initErr: any) {
       lastErr = initErr;
+      tripGeminiKeyCircuit(geminiKey, initErr);
     }
   }
 

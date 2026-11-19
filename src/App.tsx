@@ -876,17 +876,28 @@ export const App: React.FC = () => {
     };
   }, [profile?.tenantId, profile?.workshopId, profile?.id, loadSearchCacheAndNotifications]);
 
-  // آلية المزامنة الدورية الهادئة في الخلفية ومزامنة الكتالوج والمتجر تلقائياً
+  // آلية المزامنة الدورية الهادئة في الخلفية ومزامنة الكتالوج والمتجر والترطيب السحابي الفوري تلقائياً
   useEffect(() => {
     if (!profile) return;
     const tid = profile.tenantId || profile.workshopId || profile.id;
+    if (
+      tid &&
+      tid !== 'workshop_demo' &&
+      tid !== '00000000-0000-0000-0000-000000000000' &&
+      profile.accountRole !== 'supplier'
+    ) {
+      hydrateWorkshopIntoDexie(tid, {
+        asSuperAdmin: isUserAdmin(profile) && !switchedWorkshopContext,
+        userEmail: profile.email,
+      }).catch(() => {});
+    }
     const cleanupQuiet = startQuietBackgroundSync(profile);
     const cleanupProducts = tid ? startProductSync(tid) : () => {};
     return () => {
       cleanupQuiet();
       cleanupProducts();
     };
-  }, [profile?.tenantId, profile?.workshopId, profile?.id]);
+  }, [profile?.tenantId, profile?.workshopId, profile?.id, profile?.accountRole, switchedWorkshopContext]);
 
   // Check Supabase session on boot, handle password recovery & Google OAuth onboarding
   useEffect(() => {

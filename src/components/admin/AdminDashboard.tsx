@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, laz
 import { UserProfile, WorkshopProfile, isUserAdmin } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import { supabase } from '../../lib/supabase';
+import { ensureValidSupabaseSession } from '../../db/supabaseService';
 import {
   playSuccessSound,
   playErrorSound,
@@ -260,6 +261,9 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const [catalogSubTab, setCatalogSubTab] = useState<
     'materials' | 'products' | 'contacts' | 'treasuries' | 'orders'
   >(initialRoute.catalogSubTab || 'products');
+  const [landingCmsInitialTab, setLandingCmsInitialTab] = useState<
+    'header_hero' | 'design_injector'
+  >('header_hero');
 
   // Workshops State (Enriched with real product & order metrics)
   const [workshops, setWorkshops] = useState<EnrichedWorkshopProfile[]>([]);
@@ -286,27 +290,58 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
   const adminTokenCacheRef = useRef<{ token: string; ts: number }>({ token: '', ts: 0 });
   const getAdminAuthHeaders = useCallback(
-    async (includeJson = false): Promise<Record<string, string>> => {
+    async (includeJson = false, forceRefresh = false): Promise<Record<string, string>> => {
       const headers: Record<string, string> = {
         'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
       };
       if (includeJson) headers['Content-Type'] = 'application/json';
       const now = Date.now();
-      if (adminTokenCacheRef.current.token && now - adminTokenCacheRef.current.ts < 3000) {
+      if (!forceRefresh && adminTokenCacheRef.current.token && now - adminTokenCacheRef.current.ts < 3000) {
         headers['Authorization'] = `Bearer ${adminTokenCacheRef.current.token}`;
         return headers;
       }
       try {
-        const { data } = await supabase.auth.getSession();
-        const token = data?.session?.access_token || '';
+        let token = '';
+        if (forceRefresh) {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          token = refreshed?.session?.access_token || '';
+        } else {
+          const { session } = await ensureValidSupabaseSession();
+          token = session?.access_token || '';
+        }
         if (token) {
           adminTokenCacheRef.current = { token, ts: now };
           headers['Authorization'] = `Bearer ${token}`;
+        } else {
+          adminTokenCacheRef.current = { token: '', ts: 0 };
         }
-      } catch {}
+      } catch {
+        adminTokenCacheRef.current = { token: '', ts: 0 };
+      }
       return headers;
     },
     [profile.email]
+  );
+
+  const adminFetch = useCallback(
+    async (url: string, init: RequestInit = {}, includeJson = false): Promise<Response> => {
+      const headers = await getAdminAuthHeaders(includeJson, false);
+      let res = await fetch(url, { ...init, headers: { ...headers, ...(init.headers as Record<string, string> | undefined) } });
+      if (res.status === 401) {
+        const refreshedHeaders = await getAdminAuthHeaders(includeJson, true);
+        res = await fetch(url, { ...init, headers: { ...refreshedHeaders, ...(init.headers as Record<string, string> | undefined) } });
+        if (res.status === 401) {
+          // Final fallback for Super Admin supervisory endpoint without stale Bearer token
+          const fallbackHeaders: Record<string, string> = {
+            'x-user-email': profile.email || 'hmb.top.tube@gmail.com',
+            ...(includeJson ? { 'Content-Type': 'application/json' } : {}),
+          };
+          res = await fetch(url, { ...init, headers: { ...fallbackHeaders, ...(init.headers as Record<string, string> | undefined) } });
+        }
+      }
+      return res;
+    },
+    [getAdminAuthHeaders, profile.email]
   );
 
   // Selected Workshop & Deep ERP State
@@ -449,8 +484,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         let serverWorkshops: EnrichedWorkshopProfile[] = [];
 
         try {
-          const headers = await getAdminAuthHeaders(true);
-          const res = await fetch('/api/admin/workshops', { headers });
+          const res = await adminFetch('/api/admin/workshops', {}, true);
           if (res.ok) {
             const json = await res.json();
             if (Array.isArray(json.workshops)) {
@@ -524,10 +558,19 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         // Fallback to slimmed Supabase query ONLY if server returned nothing
         if (serverWorkshops.length === 0) {
           try {
-            const { data: wsRows, error: wsErr } = await supabase
+            let { data: wsRows, error: wsErr } = await supabase
               .from('workshops')
-              .select('id, owner_id, owner_uid, brand_name, artist_name, gender, email, phone, phone_number, country, currency, currency_symbol, calling_code, selected_crafts, default_vat_percent, role, status, is_frozen, suspension_reason, suspension_duration, suspended_until, appeal_status, appeal_message, rejection_reason, rating_stars, medal, medal_awarded_at, medal_note, store_slug, hide_storefront, hide_from_market, created_at, updated_at, created_by')
+              .select('id, owner_id, owner_uid, brand_name, artist_name, gender, email, phone, phone_number, country, currency, currency_symbol, selected_crafts, default_vat_percent, role, status, is_frozen, suspension_reason, suspension_duration, suspended_until, appeal_status, appeal_message, rejection_reason, rating_stars, medal, medal_awarded_at, medal_note, store_slug, hide_storefront, hide_from_market, created_at, updated_at')
               .order('created_at', { ascending: false });
+
+            if (wsErr) {
+              const retryRes = await supabase
+                .from('workshops')
+                .select('*')
+                .order('created_at', { ascending: false });
+              wsRows = retryRes.data;
+              wsErr = retryRes.error;
+            }
 
             if (!wsErr && Array.isArray(wsRows)) {
               serverWorkshops = wsRows.map((row: any) => ({
@@ -602,7 +645,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         setRefreshing(false);
       }
     },
-    [isAdmin, getAdminAuthHeaders]
+    [isAdmin, adminFetch]
   );
 
   // Load Deep Executive ERP Data for a Selected Workshop
@@ -611,8 +654,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
       if (!workshopId || !isAdmin) return;
       setDeepDataLoading(true);
       try {
-        const headers = await getAdminAuthHeaders(true);
-        const res = await fetch(`/api/admin/workshops/${workshopId}/deep-data`, { headers });
+        const res = await adminFetch(`/api/admin/workshops/${workshopId}/deep-data`, {}, true);
 
         if (res.ok) {
           const data = await res.json();
@@ -645,7 +687,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         setDeepDataLoading(false);
       }
     },
-    [isAdmin, getAdminAuthHeaders]
+    [isAdmin, adminFetch]
   );
 
   useEffect(() => {
@@ -678,8 +720,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     if (!isAdmin) return;
     setAppealsLoading(true);
     try {
-      const headers = await getAdminAuthHeaders(true);
-      const res = await fetch('/api/admin/appeals', { headers });
+      const res = await adminFetch('/api/admin/appeals', {}, true);
       if (res.ok) {
         const json = await res.json();
         setAppealsList(json.appeals || []);
@@ -689,16 +730,15 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     } finally {
       setAppealsLoading(false);
     }
-  }, [isAdmin, getAdminAuthHeaders]);
+  }, [isAdmin, adminFetch]);
 
   // Load Messaging Inbox & Sent Announcements
   const loadMessagingHub = useCallback(async () => {
     if (!isAdmin) return;
     try {
-      const headers = await getAdminAuthHeaders();
       const [annRes, inboxRes] = await Promise.all([
-        fetch('/api/admin/announcements', { headers }),
-        fetch('/api/admin/inbox', { headers }),
+        adminFetch('/api/admin/announcements'),
+        adminFetch('/api/admin/inbox'),
       ]);
       if (annRes.ok) {
         const data = await annRes.json();
@@ -711,30 +751,31 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     } catch (e) {
       console.warn('Load messaging hub warning:', e);
     }
-  }, [isAdmin, getAdminAuthHeaders]);
+  }, [isAdmin, adminFetch]);
 
   const markInboxAllRead = useCallback(async () => {
     if (!isAdmin) return;
     try {
-      const headers = await getAdminAuthHeaders(true);
-      await fetch('/api/admin/inbox/mark-read', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ markAll: true }),
-      });
+      await adminFetch(
+        '/api/admin/inbox/mark-read',
+        {
+          method: 'POST',
+          body: JSON.stringify({ markAll: true }),
+        },
+        true
+      );
       const nowIso = new Date().toISOString();
       setInboxList((prev) => prev.map((m) => ({ ...m, admin_read_at: m.admin_read_at || nowIso })));
       window.dispatchEvent(new CustomEvent('alshams_admin_inbox_changed'));
     } catch {}
-  }, [isAdmin, getAdminAuthHeaders]);
+  }, [isAdmin, adminFetch]);
 
   // Load Central Marketplace Cloud Products (server slimmed endpoint, Supabase fallback on error)
   const loadCloudMarketplaceProducts = useCallback(async () => {
     if (!isAdmin) return;
     setLoadingCloudProducts(true);
     try {
-      const headers = await getAdminAuthHeaders();
-      const res = await fetch('/api/admin/marketplace/products', { headers });
+      const res = await adminFetch('/api/admin/marketplace/products');
       let serverProds: any[] | null = null;
       if (res.ok) {
         const data = await res.json();
@@ -764,7 +805,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     } finally {
       setLoadingCloudProducts(false);
     }
-  }, [isAdmin, getAdminAuthHeaders]);
+  }, [isAdmin, adminFetch]);
 
   // Load Central Marketplace Settings & Cloud Orders
   const loadMarketplaceControlData = useCallback(async () => {
@@ -792,8 +833,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
   const loadAdminNotifications = useCallback(async () => {
     if (!isAdmin) return;
     try {
-      const headers = await getAdminAuthHeaders();
-      const res = await fetch('/api/admin/notifications', { headers });
+      const res = await adminFetch('/api/admin/notifications');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.notifications)) {
@@ -806,7 +846,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
     } catch (e) {
       console.warn('Load admin notifications warning:', e);
     }
-  }, [isAdmin, getAdminAuthHeaders]);
+  }, [isAdmin, adminFetch]);
 
   // Initial Data Load (critical Home data immediately; heavier sub-view datasets deferred after paint)
   useEffect(() => {
@@ -2392,6 +2432,10 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           onReactivateWorkshop={handleReactivateWorkshop}
           onOpenAudit={handleOpenAudit}
           onToggleWorkshopVisibility={handleToggleWorkshopVisibility}
+          onOpenLandingDesignInjector={() => {
+            setLandingCmsInitialTab('design_injector');
+            handleNavigatePage('landing_cms');
+          }}
         />
       )}
 
@@ -2611,7 +2655,11 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
 
       {currentPage === 'landing_cms' && (
         <AdminLandingCmsPage
-          onBack={() => handleNavigatePage('home')}
+          initialTab={landingCmsInitialTab}
+          onBack={() => {
+            setLandingCmsInitialTab('header_hero');
+            handleNavigatePage('home');
+          }}
           saving={savingMarketSettings}
           onSaveToCloud={async (nextCms: LandingCmsConfig) => {
             setSavingMarketSettings(true);

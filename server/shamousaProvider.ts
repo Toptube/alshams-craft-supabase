@@ -16,6 +16,8 @@ import {
   getFanarApiKey,
   formatAiErrorReason,
   cleanSecretValue,
+  isGeminiKeyCircuitOpen,
+  tripGeminiKeyCircuit,
   GroundedSource,
 } from './googleSearchService.js';
 
@@ -101,22 +103,16 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
   const hasTools = Array.isArray(tools) && tools.length > 0;
 
   const baseToolModels = [
-    'llama-3.3-70b-versatile',
-    'meta-llama/llama-4-scout-17b-16e-instruct',
-    'qwen/qwen3-32b',
     'openai/gpt-oss-120b',
     'openai/gpt-oss-20b',
-    'llama-3.1-8b-instant',
+    'qwen/qwen3.8-27b',
     'allam-2-7b',
   ];
   const baseChatModels = [
-    'llama-3.3-70b-versatile',
-    'meta-llama/llama-4-scout-17b-16e-instruct',
-    'qwen/qwen3-32b',
-    'llama-3.1-8b-instant',
     'openai/gpt-oss-120b',
     'openai/gpt-oss-20b',
     'allam-2-7b',
+    'qwen/qwen3.8-27b',
   ];
 
   const candidateModels = [...(hasTools ? baseToolModels : baseChatModels)];
@@ -124,7 +120,9 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
   if (
     rawModel &&
     !rawModel.toLowerCase().includes('whisper') &&
-    !rawModel.toLowerCase().includes('qwen3.8')
+    !rawModel.toLowerCase().includes('llama-3') &&
+    !rawModel.toLowerCase().includes('llama-4') &&
+    !rawModel.toLowerCase().includes('qwen3-32b')
   ) {
     const idx = candidateModels.indexOf(rawModel);
     if (idx > 0) candidateModels.splice(idx, 1);
@@ -203,6 +201,9 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
 
       const data: any = await res.json();
       const msg = data?.choices?.[0]?.message;
+      if (msg && typeof msg.content === 'string') {
+        msg.content = msg.content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      }
       if (msg && (msg.content || (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0))) {
         return msg;
       }
@@ -235,7 +236,7 @@ async function callGroqChat(messages: any[], tools?: any[], customApiKey?: strin
 }
 
 async function callFanarChat(messages: any[], apiKey: string): Promise<string | null> {
-  const fanarModels = ['Fanar-C-1-8.7B', 'Fanar'];
+  const fanarModels = ['Fanar'];
   const compactMsgs = compactMessagesForSmallContext(messages, 3500);
   for (const model of fanarModels) {
     const controller = new AbortController();
@@ -325,6 +326,10 @@ async function callGeminiChatForShamousa(
   searchUsed: boolean;
   searchEntryPoint?: string;
 }> {
+  const shamousaKey = resolveAgentGeminiKey('shamousa');
+  if (!shamousaKey || isGeminiKeyCircuitOpen(shamousaKey)) {
+    throw new Error('مفتاح Gemini متجاوز مؤقتاً — التحويل الفوري لـ Groq');
+  }
   const ai = createGeminiClientForAgent('shamousa');
   const modelsToTry = getCandidateGeminiModels();
   const baseContents: any[] = [];
@@ -460,6 +465,9 @@ async function callGeminiChatForShamousa(
       } catch (err: any) {
         clearTimeout(timeoutId);
         lastGeminiError = err;
+        if (tripGeminiKeyCircuit(shamousaKey, err)) {
+          throw err;
+        }
         const errMsg = String(err?.message || err || '');
         const isTransient503 = errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand');
         const isQuota429 = errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED');
@@ -864,7 +872,7 @@ export async function handleShamousaChat(
   // -------------------------------------------------------------
   // Provider 1 (Primary): Google Gemini + Workshop Tools + Google Search Grounding
   // -------------------------------------------------------------
-  if (shamousaGeminiKey) {
+  if (shamousaGeminiKey && !isGeminiKeyCircuitOpen(shamousaGeminiKey)) {
     console.log('[AI Service: Shamousa] Attempting Provider 1 (Gemini + Tools + Google Search)...');
     try {
       const geminiResult = await callGeminiChatForShamousa(systemInstruction, promptMessages, toolCtx, {
@@ -893,8 +901,21 @@ export async function handleShamousaChat(
       );
     }
   } else {
-    geminiFailReason = 'مفتاح GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY غير مضبوط في Secrets';
-    console.log(`[AI Service: Shamousa] Provider 1 (Gemini) skipped -> Switching to Provider 2 (Groq Backup)...`);
+    geminiFailReason = shamousaGeminiKey
+      ? 'مفتاح Gemini متجاوز مؤقتاً (غير صالح في Secrets)'
+      : 'مفتاح GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY غير مضبوط في Secrets';
+    console.log(`[AI Service: Shamousa] Provider 1 (Gemini) bypassed cleanly -> Routing directly to live Groq...`);
+  }
+
+  if (hasImages) {
+    const firstName = extractFirstName(ctx.artistName) || 'صديقي';
+    return {
+      reply: `يا ${firstName} ☀️، تحليل الصور يحتاج حالياً لتحديث مفتاح GEMINI_API_KEY في الإعدادات (Settings > Secrets).\n\nلكنني متاحة فوراً لخدمتك في كل حسابات الورشة والخزينة والمخزون والخامات الموحدة والبحث الحي! اكتب لي سؤالك أو تفاصيل الصنف وهرد عليك فوراً.`,
+      handoffToFalcon: false,
+      provider: 'system_notice',
+      sources: [],
+      searchUsed: false,
+    };
   }
 
   // Enrich fallback models with real web search results if search was requested or triggered

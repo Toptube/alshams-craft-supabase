@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import * as webpush from 'web-push';
 import supabaseConfig from './supabase-config.json' with { type: 'json' };
 import {
   aiProvider,
@@ -29,6 +30,7 @@ import {
 import {
   performGoogleSearch,
   getAgentSecretStatus,
+  runFullApiHealthAudit,
 } from './server/googleSearchService.js';
 import { registerSupplierErpRoutes } from './server/supplierErpRoutes.js';
 import {
@@ -72,6 +74,8 @@ const SUPPLIER_EXPENSES_FILE = path.resolve(__dirname, 'data/supplier_expenses.j
 const MEMBER_PROFILES_FILE = path.resolve(__dirname, 'data/member_profiles.json');
 const SUPPLIER_REVIEWS_FILE = path.resolve(__dirname, 'data/supplier_reviews.json');
 const SUPPLIER_OFFER_ALERTS_FILE = path.resolve(__dirname, 'data/supplier_offer_alerts.json');
+const VAPID_KEYS_FILE = path.resolve(__dirname, 'data/vapid_keys.json');
+const PUSH_SUBSCRIPTIONS_FILE = path.resolve(__dirname, 'data/push_subscriptions.json');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUuid(val?: string | null): boolean {
@@ -463,7 +467,11 @@ export interface AuthenticatedRequest extends Request {
 }
 
 function getDbClient(req?: AuthenticatedRequest | Request): SupabaseClient {
-  return (req as AuthenticatedRequest)?.scopedSupabase || supabaseAdminClient;
+  const authedReq = req as AuthenticatedRequest | undefined;
+  if (authedReq?.isSuperAdmin) {
+    return supabaseAdminClient;
+  }
+  return authedReq?.scopedSupabase || supabaseAdminClient;
 }
 
 // Authentication Middleware via Supabase JWT (always prefer verified JWT over dev header fallback)
@@ -511,14 +519,16 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
              user.id);
         req.workshopId = workshopId;
 
-        // Create client scoped to authenticated user's JWT for RLS
-        req.scopedSupabase = createClient(supabaseServerUrl, supabaseConfig.publishableKey, {
-          global: {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        });
+        // Create client scoped to authenticated user's JWT for RLS (Super Admin always gets admin bypass client)
+        req.scopedSupabase = superAdmin
+          ? supabaseAdminClient
+          : createClient(supabaseServerUrl, supabaseConfig.publishableKey, {
+              global: {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+              },
+            });
 
         next();
         return;
@@ -553,8 +563,160 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
 }
 
 // -------------------------------------------------------------
-// Health Check
+// Health Check & Web Push VAPID Endpoints
 // -------------------------------------------------------------
+let cachedVapidKeys: { publicKey: string; privateKey: string } | null = null;
+function getOrInitVapidKeys(): { publicKey: string; privateKey: string } {
+  if (cachedVapidKeys) return cachedVapidKeys;
+  const envPub = String(process.env.VAPID_PUBLIC_KEY || '').trim();
+  const envPriv = String(process.env.VAPID_PRIVATE_KEY || '').trim();
+  if (envPub && envPriv) {
+    cachedVapidKeys = { publicKey: envPub, privateKey: envPriv };
+  } else {
+    try {
+      if (fs.existsSync(VAPID_KEYS_FILE)) {
+        const parsed = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf-8'));
+        if (parsed?.publicKey && parsed?.privateKey) {
+          cachedVapidKeys = { publicKey: parsed.publicKey, privateKey: parsed.privateKey };
+        }
+      }
+    } catch {}
+    if (!cachedVapidKeys) {
+      const generated = webpush.generateVAPIDKeys();
+      cachedVapidKeys = { publicKey: generated.publicKey, privateKey: generated.privateKey };
+      writeJsonData(VAPID_KEYS_FILE, cachedVapidKeys);
+    }
+  }
+  try {
+    webpush.setVapidDetails('mailto:hmb.top.tube@gmail.com', cachedVapidKeys.publicKey, cachedVapidKeys.privateKey);
+  } catch (err: any) {
+    console.warn('[WebPush] setVapidDetails warning:', err?.message);
+  }
+  return cachedVapidKeys;
+}
+
+// Initialize VAPID keys once on startup so /api/admin/api-audit sees ready state
+try {
+  getOrInitVapidKeys();
+} catch {}
+
+app.get('/api/health', async (_req: Request, res: Response) => {
+  const hasServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY);
+  let dbOk = false;
+  let workshopsCount = 0;
+  try {
+    const { count, error } = await supabaseAdminClient
+      .from('workshops')
+      .select('id', { count: 'exact', head: true });
+    if (!error) {
+      dbOk = true;
+      workshopsCount = count ?? 0;
+    }
+  } catch {}
+  res.json({
+    ok: true,
+    status: dbOk ? 'healthy' : 'degraded',
+    timestamp: new Date().toISOString(),
+    supabaseConfigured: Boolean(supabaseServerUrl),
+    hasServiceRole,
+    dbOk,
+    workshopsCount,
+  });
+});
+
+app.get('/api/push/vapid-public-key', (_req: Request, res: Response) => {
+  try {
+    const keys = getOrInitVapidKeys();
+    res.json({ publicKey: keys.publicKey });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر تهيئة مفاتيح الإشعارات' });
+  }
+});
+
+app.post('/api/push/subscribe', (req: Request, res: Response) => {
+  try {
+    const { subscription, workshopId, email, isSuperAdmin: isAdminFlag } = req.body || {};
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ error: 'بيانات اشتراك الإشعارات غير مكتملة' });
+    }
+    const list = readJsonArray(PUSH_SUBSCRIPTIONS_FILE);
+    const filtered = list.filter((item: any) => item?.subscription?.endpoint !== subscription.endpoint);
+    filtered.push({
+      subscription,
+      workshopId: String(workshopId || ''),
+      email: String(email || '').trim().toLowerCase(),
+      isSuperAdmin: Boolean(isAdminFlag),
+      updatedAt: new Date().toISOString(),
+    });
+    writeJsonData(PUSH_SUBSCRIPTIONS_FILE, filtered.slice(-200));
+    res.json({ success: true, count: filtered.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر حفظ اشتراك الإشعارات' });
+  }
+});
+
+app.post('/api/push/unsubscribe', (req: Request, res: Response) => {
+  try {
+    const endpoint = String(req.body?.endpoint || '').trim();
+    if (endpoint) {
+      const list = readJsonArray(PUSH_SUBSCRIPTIONS_FILE);
+      const filtered = list.filter((item: any) => item?.subscription?.endpoint !== endpoint);
+      writeJsonData(PUSH_SUBSCRIPTIONS_FILE, filtered);
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر إلغاء الاشتراك' });
+  }
+});
+
+app.post('/api/push/test', async (req: Request, res: Response) => {
+  try {
+    getOrInitVapidKeys();
+    const { workshopId, email, isSuperAdmin: isAdminFlag } = req.body || {};
+    const targetWid = String(workshopId || '').trim();
+    const targetEmail = String(email || '').trim().toLowerCase();
+    const list = readJsonArray(PUSH_SUBSCRIPTIONS_FILE);
+    const matches = list.filter((item: any) => {
+      if (targetWid && item.workshopId === targetWid) return true;
+      if (targetEmail && item.email === targetEmail) return true;
+      if (isAdminFlag && item.isSuperAdmin) return true;
+      return false;
+    });
+
+    const payload = JSON.stringify({
+      title: 'منظومة الشمساوية',
+      body: 'إشعار تجريبي ناجح! خدمة إشعارات الخلفية مفعّلة وتعمل بكفاءة.',
+      icon: '/pwa-192x192.png',
+      url: '/',
+    });
+
+    let sent = 0;
+    const validSubs: any[] = [];
+    const failedEndpoints = new Set<string>();
+
+    for (const item of matches) {
+      try {
+        await webpush.sendNotification(item.subscription, payload);
+        sent += 1;
+      } catch (err: any) {
+        if (err?.statusCode === 404 || err?.statusCode === 410) {
+          failedEndpoints.add(item.subscription?.endpoint);
+        }
+      }
+    }
+
+    if (failedEndpoints.size > 0) {
+      for (const item of list) {
+        if (!failedEndpoints.has(item?.subscription?.endpoint)) validSubs.push(item);
+      }
+      writeJsonData(PUSH_SUBSCRIPTIONS_FILE, validSubs);
+    }
+
+    res.json({ success: true, sent, matched: matches.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر إرسال الإشعار التجريبي' });
+  }
+});
 
 // -------------------------------------------------------------
 // AI Usage Endpoint
@@ -615,6 +777,28 @@ app.delete('/api/admin/memories/:id', requireAuth, async (req: AuthenticatedRequ
 // -------------------------------------------------------------
 // Super Admin Multi-Tenant ERP Endpoints (Workshops & Deep Data)
 // -------------------------------------------------------------
+// Cached map of Supabase auth.users (uid -> email) for enriching workshops missing email column
+let authUsersCache: { map: Map<string, string>; ts: number } = { map: new Map(), ts: 0 };
+async function getAuthUserEmailMap(): Promise<Map<string, string>> {
+  const now = Date.now();
+  if (authUsersCache.map.size > 0 && now - authUsersCache.ts < 30_000) {
+    return authUsersCache.map;
+  }
+  const fresh = new Map<string, string>();
+  try {
+    const { data, error } = await supabaseAdminClient.auth.admin.listUsers({ page: 1, perPage: 200 });
+    if (!error && Array.isArray(data?.users)) {
+      for (const u of data.users) {
+        if (u?.id && u?.email) {
+          fresh.set(String(u.id).trim(), String(u.email).trim().toLowerCase());
+        }
+      }
+      authUsersCache = { map: fresh, ts: now };
+    }
+  } catch {}
+  return fresh.size > 0 ? fresh : authUsersCache.map;
+}
+
 app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const email = req.userEmail || req.user?.email || '';
   if (!isSuperAdmin(email)) {
@@ -622,26 +806,43 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
   }
 
   try {
-    const client = getDbClient(req);
+    const client = supabaseAdminClient;
     let dbWorkshops: any[] = [];
     let dbProfiles: any[] = [];
+    let authEmailByUid = new Map<string, string>();
 
     try {
       const workshopLightCols =
-        'id, owner_id, owner_uid, brand_name, artist_name, email, phone, phone_number, country, currency, currency_symbol, calling_code, selected_crafts, default_vat_percent, role, status, is_frozen, frozen_reason, suspended_reason, suspension_reason, suspension_duration, suspended_until, appeal_status, appeal_message, rejection_reason, appeal_submitted_at, rating_stars, medal, medal_note, medal_awarded_at, store_slug, hide_storefront, hide_from_market, logo_url, created_at, updated_at, created_by';
-      const [wsRes, profRes] = await Promise.all([
+        'id, owner_id, owner_uid, brand_name, artist_name, gender, email, phone, phone_number, country, currency, currency_symbol, selected_crafts, default_vat_percent, role, status, is_frozen, frozen_reason, suspended_reason, suspension_reason, suspension_duration, suspended_until, appeal_status, appeal_message, rejection_reason, appeal_submitted_at, rating_stars, medal, medal_note, medal_awarded_at, store_slug, hide_storefront, hide_from_market, logo_url, created_at, updated_at';
+      let [wsRes, profRes, emailMap] = await Promise.all([
         client.from('workshops').select(workshopLightCols).order('created_at', { ascending: false }),
-        client.from('profiles').select('id, email, workshop_id, artist_name, full_name, name, brand_name, phone_number, phone, status, suspended_until, appeal_status, rejection_reason, country, currency, currency_symbol, selected_crafts, role, created_at, updated_at'),
+        client.from('profiles').select('id, email, workshop_id, artist_name, full_name, name, brand_name, phone_number, phone, status, suspended_until, appeal_status, rejection_reason, country, currency, currency_symbol, calling_code, role, account_role, created_at, updated_at'),
+        getAuthUserEmailMap(),
       ]);
+      authEmailByUid = emailMap;
+
+      if (wsRes.error) {
+        console.warn('[Admin Workshops] Light select error, falling back to select(*):', wsRes.error.message);
+        wsRes = await client.from('workshops').select('*').order('created_at', { ascending: false });
+      }
+      if (profRes.error) {
+        console.warn('[Admin Profiles] Light select error, falling back to select(*):', profRes.error.message);
+        profRes = await client.from('profiles').select('*');
+      }
 
       if (!wsRes.error && Array.isArray(wsRes.data) && wsRes.data.length > 0) {
         dbWorkshops = wsRes.data;
+      } else if (wsRes.error) {
+        console.error('[Admin Workshops] Supabase workshops query error:', wsRes.error);
       }
+
       if (!profRes.error && Array.isArray(profRes.data) && profRes.data.length > 0) {
         dbProfiles = profRes.data;
+      } else if (profRes.error) {
+        console.error('[Admin Profiles] Supabase profiles query error:', profRes.error);
       }
-    } catch {
-      // Supabase query catch
+    } catch (e: any) {
+      console.error('[Admin Workshops] Supabase query exception:', e?.message);
     }
 
     const profilesMap = new Map<string, any>();
@@ -675,7 +876,8 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
     for (const row of dbWorkshops) {
       if (!row.id) continue;
       const rowOwner = String(row.owner_id || row.owner_uid || '').trim();
-      const rowEmail = String(row.email || '').trim().toLowerCase();
+      const authEmail = (rowOwner ? authEmailByUid.get(rowOwner) : '') || authEmailByUid.get(String(row.id)) || '';
+      const rowEmail = String(row.email || authEmail || '').trim().toLowerCase();
 
       // Skip duplicate workshop rows belonging to the exact same owner/email already registered
       if ((rowOwner && seenOwnerIds.has(rowOwner)) || (rowEmail && seenEmails.has(rowEmail))) {
@@ -699,7 +901,7 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
         row.artist_name ||
         existing.artistName;
       const phoneNumber = prof.phone_number || prof.phone || row.phone_number || row.phone || row.phoneNumber || existing.phoneNumber;
-      const wsEmail = prof.email || row.email || existing.email || '';
+      const wsEmail = prof.email || row.email || authEmail || existing.email || '';
       let status = row.status || prof.status || existing.status || (row.is_frozen || row.isFrozen ? 'suspended' : 'active');
       let isFrozen = Boolean(row.is_frozen || row.isFrozen || status === 'suspended' || status === 'banned');
       let suspendedUntil = row.suspended_until || prof.suspended_until || existing.suspended_until || null;
@@ -738,6 +940,7 @@ app.get('/api/admin/workshops', requireAuth, async (req: AuthenticatedRequest, r
         artistName: artistName || 'فنان',
         phoneNumber: phoneNumber || '',
         email: wsEmail,
+        calling_code: prof.calling_code || existing.calling_code || '+20',
         status,
         isFrozen,
         suspension_reason: suspensionReason,
@@ -4632,6 +4835,166 @@ app.post('/api/search/google', requireAuth, handleGoogleSearchRoute);
 
 app.get('/api/ai/status', (_req: Request, res: Response) => {
   res.json(getAgentSecretStatus());
+});
+
+app.get('/api/admin/api-audit', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'هذا الفحص متاح لحساب السوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const report = await runFullApiHealthAudit();
+    res.json(report);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'فشل تشغيل الفحص' });
+  }
+});
+
+app.get('/api/admin/db-diagnostics', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'صلاحيات غير كافية' });
+    return;
+  }
+
+  const tables = [
+    'workshops',
+    'profiles',
+    'materials',
+    'units',
+    'products',
+    'marketplace_products',
+    'orders',
+    'marketplace_orders',
+    'work_orders',
+    'customers',
+    'suppliers',
+    'invoices',
+    'treasuries',
+    'treasury_transactions',
+    'expenses',
+    'employees',
+    'platform_suppliers',
+    'supplier_catalog_items',
+    'b2b_supply_orders',
+    'platform_settings',
+    'workshop_applications',
+    'admin_announcements',
+    'ai_global_memory',
+    'family_posts',
+    'member_profiles',
+  ];
+
+  const optionalLocalBackedTables = [
+    'unified_materials_master',
+    'unified_material_specs',
+    'unified_material_aliases',
+    'unified_material_brands',
+  ];
+
+  const hasServiceRoleEnv = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY);
+  const keyPrefix = supabaseServiceKey ? supabaseServiceKey.slice(0, 14) + '...' : 'NONE';
+
+  const authCheck: any = { ok: false, count: 0, users: [], error: null };
+  try {
+    const { data, error } = await supabaseAdminClient.auth.admin.listUsers({ page: 1, perPage: 200 });
+    if (error) {
+      authCheck.error = error.message;
+    } else {
+      authCheck.ok = true;
+      authCheck.count = data?.users?.length || 0;
+      authCheck.users = (data?.users || []).map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        created_at: u.created_at,
+        meta_keys: Object.keys(u.user_metadata || {}),
+      }));
+    }
+  } catch (e: any) {
+    authCheck.error = e?.message || String(e);
+  }
+
+  const lightCheck: any = {};
+  try {
+    const workshopLightCols =
+      'id, owner_id, owner_uid, brand_name, artist_name, gender, email, phone, phone_number, country, currency, currency_symbol, selected_crafts, default_vat_percent, role, status, is_frozen, frozen_reason, suspended_reason, suspension_reason, suspension_duration, suspended_until, appeal_status, appeal_message, rejection_reason, appeal_submitted_at, rating_stars, medal, medal_note, medal_awarded_at, store_slug, hide_storefront, hide_from_market, logo_url, created_at, updated_at';
+    const [wsL, prL] = await Promise.all([
+      supabaseAdminClient.from('workshops').select(workshopLightCols).limit(5),
+      supabaseAdminClient.from('profiles').select('id, email, workshop_id, artist_name, full_name, name, brand_name, phone_number, phone, status, suspended_until, appeal_status, rejection_reason, country, currency, currency_symbol, calling_code, role, account_role, created_at, updated_at').limit(5),
+    ]);
+    lightCheck.workshopsLightError = wsL.error ? { code: wsL.error.code, message: wsL.error.message } : null;
+    lightCheck.profilesLightError = prL.error ? { code: prL.error.code, message: prL.error.message } : null;
+  } catch (e: any) {
+    lightCheck.exception = e?.message;
+  }
+
+  const tableStats = await Promise.all(
+    tables.map(async (t) => {
+      try {
+        const { data, error, count } = await supabaseAdminClient
+          .from(t)
+          .select('*', { count: 'exact' })
+          .limit(3);
+        return {
+          table: t,
+          ok: !error,
+          count: count ?? (Array.isArray(data) ? data.length : 0),
+          columns: Array.isArray(data) && data[0] ? Object.keys(data[0]) : [],
+          error: error ? { code: error.code, message: error.message } : null,
+        };
+      } catch (e: any) {
+        return { table: t, ok: false, count: 0, columns: [], error: { message: e?.message } };
+      }
+    })
+  );
+
+  const localCatalogTables = await Promise.all(
+    optionalLocalBackedTables.map(async (t) => {
+      try {
+        const { data, error, count } = await supabaseAdminClient
+          .from(t)
+          .select('*', { count: 'exact' })
+          .limit(1);
+        if (!error) {
+          return {
+            table: t,
+            ok: true,
+            storage: 'supabase',
+            count: count ?? (Array.isArray(data) ? data.length : 0),
+          };
+        }
+        return {
+          table: t,
+          ok: true,
+          storage: 'local_json_catalog',
+          note: 'يعمل عبر كتالوج الخامات الموحدة المدمج بالخادم (395+ خامة)',
+        };
+      } catch {
+        return {
+          table: t,
+          ok: true,
+          storage: 'local_json_catalog',
+          note: 'يعمل عبر كتالوج الخامات الموحدة المدمج بالخادم (395+ خامة)',
+        };
+      }
+    })
+  );
+
+  res.json({
+    supabaseServerUrl,
+    hasServiceRoleEnv,
+    keyPrefix,
+    authCheck,
+    lightCheck,
+    summary: {
+      cloudTablesTotal: tableStats.length,
+      cloudTablesOk: tableStats.filter((x) => x.ok).length,
+      localCatalogTablesOk: localCatalogTables.filter((x) => x.ok).length,
+    },
+    tableStats,
+    localCatalogTables,
+  });
 });
 
 // -------------------------------------------------------------

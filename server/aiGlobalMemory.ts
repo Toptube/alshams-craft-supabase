@@ -9,8 +9,16 @@ const __dirname = path.dirname(__filename);
 const DATA_DIR = path.resolve(__dirname, '../data');
 const BACKUP_FILE = path.resolve(DATA_DIR, 'ai_global_memory.json');
 
-// Initialize Supabase admin/anon client
-const supabase = createClient(supabaseConfig.url, supabaseConfig.publishableKey);
+// Initialize Supabase service/anon client
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || supabaseConfig.url;
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  supabaseConfig.publishableKey;
+const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
 
 export interface GlobalMemoryRecord {
   id: string;
@@ -304,39 +312,78 @@ ${rawContent}
 - إبراز كافة المعادلات الرياضية بدقة (رموز وأرقام).
 - جاهزة للاعتماد في الذاكرة الدائمة للذكاء الاصطناعي لكافة الورش.`;
 
-  // 1. Groq attempt
-  if (process.env.GROQ_API_KEY) {
+  const {
+    getGroqApiKeys,
+    getFanarApiKey,
+    resolveAgentGeminiKey,
+    createGeminiClientForAgent,
+    PRIMARY_GEMINI_MODEL,
+    ACTIVE_GROQ_CHAT_MODELS,
+    isGeminiKeyCircuitOpen,
+    tripGeminiKeyCircuit,
+  } = await import('./googleSearchService.js');
+
+  // 1. Groq attempt across all configured working keys
+  for (const groqKey of getGroqApiKeys()) {
+    for (const model of ACTIVE_GROQ_CHAT_MODELS) {
+      try {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.3,
+            max_tokens: 1500,
+          }),
+        });
+        if (res.ok) {
+          const data: any = await res.json();
+          const content = String(data?.choices?.[0]?.message?.content || '')
+            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+            .trim();
+          if (content) return content;
+        }
+      } catch (e) {
+        console.warn(`[AI Global Memory] Groq summarizer (${model}) warning:`, e);
+      }
+    }
+  }
+
+  // 2. Fanar Arabic AI fallback
+  const fanarKey = getFanarApiKey();
+  if (fanarKey) {
     try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      const res = await fetch('https://api.fanar.qa/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          Authorization: `Bearer ${fanarKey}`,
         },
         body: JSON.stringify({
-          model:
-            process.env.GROQ_MODEL && !process.env.GROQ_MODEL.includes('70b') && !process.env.GROQ_MODEL.includes('3.3') && !process.env.GROQ_MODEL.includes('instant')
-              ? process.env.GROQ_MODEL
-              : 'allam-2-7b',
+          model: 'Fanar',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
-          max_tokens: 1500,
+          max_tokens: 1200,
         }),
       });
       if (res.ok) {
         const data: any = await res.json();
-        const content = data?.choices?.[0]?.message?.content?.trim();
-        if (content) return content;
+        const txt = String(data?.choices?.[0]?.message?.content || '').trim();
+        if (txt) return txt;
       }
     } catch (e) {
-      console.warn('[AI Global Memory] Groq summarizer warning:', e);
+      console.warn('[AI Global Memory] Fanar summarizer warning:', e);
     }
   }
 
-  // 2. Gemini fallback (with per-agent Secrets & gemini-4-hydrogen)
-  try {
-    const { resolveAgentGeminiKey, createGeminiClientForAgent, PRIMARY_GEMINI_MODEL } = await import('./googleSearchService.js');
-    if (resolveAgentGeminiKey('shamousa')) {
+  // 3. Gemini fallback (with circuit breaker protection)
+  const geminiKey = resolveAgentGeminiKey('shamousa');
+  if (geminiKey && !isGeminiKeyCircuitOpen(geminiKey)) {
+    try {
       const ai = createGeminiClientForAgent('shamousa');
       const resp = await ai.models.generateContent({
         model: PRIMARY_GEMINI_MODEL,
@@ -344,9 +391,10 @@ ${rawContent}
       });
       const txt = resp?.text?.trim();
       if (txt) return txt;
+    } catch (e) {
+      tripGeminiKeyCircuit(geminiKey, e);
+      console.warn('[AI Global Memory] Gemini summarizer warning:', e);
     }
-  } catch (e) {
-    console.warn('[AI Global Memory] Gemini summarizer warning:', e);
   }
 
   // Fallback direct structuring

@@ -436,6 +436,25 @@ export async function performQuietSync(profile: UserProfile): Promise<void> {
     ]);
     await pullProductsFromCloud(workshopId).catch(() => {});
 
+    // 1.5 مطابقة منتجات المتجر السحابية مع الأرشيف المحلي
+    try {
+      const mktRows = await fetchWorkshopMarketplaceProducts(workshopId);
+      if (Array.isArray(mktRows) && mktRows.length > 0) {
+        for (const mr of mktRows) {
+          try {
+            const localRec = mapCloudCatalogRowToLocal(
+              { ...mr, marketplace_status: (mr as any).status, in_store: true },
+              workshopId
+            );
+            await tenantStorage.applyRemoteProduct(localRec);
+          } catch {}
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('alshams_products_changed', { detail: { tenantId: workshopId, workshopId } }));
+        }
+      }
+    } catch {}
+
     // 2. مطابقة وتحديث أرصدة وأسعار الخامات من Supabase (إضافة الناقص وتحديث الموجود)
     try {
       const { data: remoteMaterials, error: matErr } = await getMaterialsFromSupabase(workshopId);
@@ -470,6 +489,9 @@ export async function performQuietSync(profile: UserProfile): Promise<void> {
             } as any,
             { skipCloudQueue: true }
           );
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('alshams_materials_changed', { detail: { tenantId: workshopId } }));
         }
       }
     } catch {
@@ -522,6 +544,9 @@ export async function performQuietSync(profile: UserProfile): Promise<void> {
             createdAt: localOrder?.createdAt || Date.parse(ro.created_at || '') || Date.now(),
             updatedAt: Date.now(),
           } as any);
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('alshams_orders_changed', { detail: { tenantId: workshopId } }));
         }
       }
     } catch {

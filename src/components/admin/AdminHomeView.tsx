@@ -27,6 +27,7 @@ import {
   Truck,
   Palette,
   Layers,
+  Code2,
 } from 'lucide-react';
 import {
   AdminPageId,
@@ -56,6 +57,7 @@ interface AdminHomeViewProps {
     workshop: EnrichedWorkshopProfile,
     field: 'hideStorefront' | 'hideFromMarket'
   ) => void;
+  onOpenLandingDesignInjector?: () => void;
 }
 
 export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
@@ -74,6 +76,7 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
   onReactivateWorkshop,
   onOpenAudit,
   onToggleWorkshopVisibility,
+  onOpenLandingDesignInjector,
 }) => {
   const [quickSearch, setQuickSearch] = useState('');
   const [showManageMenu, setShowManageMenu] = useState(false);
@@ -238,34 +241,70 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       {/* شبكة أزرار التحكم السريع (3 أعمدة × 9 كروت بدون أي تكرار أو ديباجة) */}
       <section aria-label="لوحة التحكم السريع">
         <div className="grid grid-cols-3 gap-2.5 sm:gap-4">
-          {cards.map((card) => (
-            <button
-              key={card.id}
-              type="button"
-              onClick={card.onClick}
-              className="relative rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#FBBF24] p-3 sm:p-5 flex flex-col items-center justify-center gap-2 sm:gap-3 text-center transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] cursor-pointer min-h-[104px] sm:min-h-[126px] group"
-            >
-              {typeof card.badgeCount === 'number' && card.badgeCount > 0 && (
-                <span
-                  className={`absolute top-2 left-2 min-w-[20px] h-5 px-1.5 rounded-full font-mono tabular-nums text-[10px] sm:text-xs font-black flex items-center justify-center shadow-xs ${
-                    card.badgeAccent || 'bg-[#EA580C] text-white'
-                  }`}
+          {cards.map((card) => {
+            if (card.id === 'landing_cms' && onOpenLandingDesignInjector) {
+              return (
+                <div
+                  key={card.id}
+                  className="relative rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#FBBF24] p-2.5 sm:p-4 flex flex-col items-center justify-between gap-2 text-center transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md min-h-[104px] sm:min-h-[126px] group"
                 >
-                  {card.badgeCount}
-                </span>
-              )}
+                  <button
+                    type="button"
+                    onClick={card.onClick}
+                    className="w-full flex flex-col items-center justify-center gap-1.5 sm:gap-2 cursor-pointer focus:outline-none"
+                  >
+                    <div
+                      className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full border flex items-center justify-center transition-transform group-hover:scale-105 ${card.circleClass}`}
+                    >
+                      {card.icon}
+                    </div>
+                    <span className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] leading-tight">
+                      {card.label}
+                    </span>
+                  </button>
 
-              <div
-                className={`w-11 h-11 sm:w-13 sm:h-13 rounded-full border flex items-center justify-center transition-transform group-hover:scale-105 ${card.circleClass}`}
+                  <button
+                    type="button"
+                    onClick={onOpenLandingDesignInjector}
+                    title="حقن تصميم أو قالب جديد لصفحة الهبوط مع استيراد تلقائي للبيانات ومعاينة قبل النشر"
+                    className="w-full py-1.5 px-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-[10px] sm:text-[11px] font-black flex items-center justify-center gap-1 shadow-xs transition cursor-pointer"
+                  >
+                    <Code2 className="w-3 h-3 shrink-0" />
+                    <span className="truncate">حقن تصميم جديد</span>
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={card.id}
+                type="button"
+                onClick={card.onClick}
+                className="relative rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#FBBF24] p-3 sm:p-5 flex flex-col items-center justify-center gap-2 sm:gap-3 text-center transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] cursor-pointer min-h-[104px] sm:min-h-[126px] group"
               >
-                {card.icon}
-              </div>
+                {typeof card.badgeCount === 'number' && card.badgeCount > 0 && (
+                  <span
+                    className={`absolute top-2 left-2 min-w-[20px] h-5 px-1.5 rounded-full font-mono tabular-nums text-[10px] sm:text-xs font-black flex items-center justify-center shadow-xs ${
+                      card.badgeAccent || 'bg-[#EA580C] text-white'
+                    }`}
+                  >
+                    {card.badgeCount}
+                  </span>
+                )}
 
-              <span className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] leading-tight">
-                {card.label}
-              </span>
-            </button>
-          ))}
+                <div
+                  className={`w-11 h-11 sm:w-13 sm:h-13 rounded-full border flex items-center justify-center transition-transform group-hover:scale-105 ${card.circleClass}`}
+                >
+                  {card.icon}
+                </div>
+
+                <span className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] leading-tight">
+                  {card.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </section>
 

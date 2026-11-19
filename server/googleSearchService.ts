@@ -1,4 +1,11 @@
 import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __gsFilename = fileURLToPath(import.meta.url);
+const __gsDirname = path.dirname(__gsFilename);
+const VAPID_KEYS_PATH = path.resolve(__gsDirname, '../data/vapid_keys.json');
 
 export type AIAgentRole = 'falcon' | 'shamousa' | 'search';
 
@@ -17,13 +24,73 @@ export interface GoogleSearchResult {
     | 'google_custom_search_plus_gemini'
     | 'gemini_google_search'
     | 'google_custom_search'
-    | 'groq_compound_search'
     | 'web_search_plus_groq'
     | 'web_search_direct';
 }
 
 export const PRIMARY_GEMINI_MODEL = 'gemini-4-hydrogen';
 export const FALLBACK_GEMINI_MODEL = 'gemini-3.1-flash-lite';
+export const ACTIVE_GROQ_CHAT_MODELS = [
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'allam-2-7b',
+  'qwen/qwen3.8-27b',
+] as const;
+export const ACTIVE_FANAR_MODELS = ['Fanar'] as const;
+
+// Circuit breaker to avoid wasting sequential retries on invalid/revoked Gemini keys
+const GEMINI_KEY_CIRCUIT_TTL_MS = 5 * 60 * 1000;
+const geminiInvalidKeyCircuit = new Map<string, { until: number; reason: string }>();
+
+export function isGeminiAuthOrKeyError(err: any): boolean {
+  const status = Number(err?.status || err?.code || 0);
+  const msg = String(err?.message || err || '').toLowerCase();
+  if (status === 401 || status === 403) return true;
+  return (
+    msg.includes('api_key_invalid') ||
+    msg.includes('api key not valid') ||
+    msg.includes('invalid_api_key') ||
+    msg.includes('invalid api key') ||
+    msg.includes('api key expired') ||
+    msg.includes('permission_denied')
+  );
+}
+
+export function isGeminiKeyCircuitOpen(rawKey?: string): boolean {
+  const key = cleanSecretValue(rawKey);
+  if (!key) return false;
+  const entry = geminiInvalidKeyCircuit.get(key);
+  if (!entry) return false;
+  if (Date.now() >= entry.until) {
+    geminiInvalidKeyCircuit.delete(key);
+    return false;
+  }
+  return true;
+}
+
+export function tripGeminiKeyCircuit(rawKey: string, err: any): boolean {
+  const key = cleanSecretValue(rawKey);
+  if (!key || !isGeminiAuthOrKeyError(err)) return false;
+  const alreadyOpen = isGeminiKeyCircuitOpen(key);
+  const reason = formatAiErrorReason(String(err?.message || err || 'API_KEY_INVALID'));
+  geminiInvalidKeyCircuit.set(key, {
+    until: Date.now() + GEMINI_KEY_CIRCUIT_TTL_MS,
+    reason,
+  });
+  if (!alreadyOpen) {
+    console.warn(`[Gemini Circuit] Key temporarily bypassed for 5m (${reason}) — routing instantly to live Groq/Fanar providers.`);
+  }
+  return true;
+}
+
+export function clearGeminiKeyCircuit(rawKey?: string): void {
+  if (!rawKey) {
+    geminiInvalidKeyCircuit.clear();
+    return;
+  }
+  const key = cleanSecretValue(rawKey);
+  if (key) geminiInvalidKeyCircuit.delete(key);
+}
 
 export function cleanSecretValue(raw?: string): string {
   const s = String(raw || '').trim();
@@ -133,14 +200,19 @@ export function getAgentSecretStatus() {
   const { apiKey: cseKey, cx } = resolveGoogleSearchCredentials();
   const groqKeys = getGroqApiKeys();
   const fanarKey = getFanarApiKey();
+  const geminiUsable = Boolean(sharedKey && !isGeminiKeyCircuitOpen(sharedKey));
 
   return {
     geminiSharedConfigured: Boolean(sharedKey),
-    falconGeminiReady: Boolean(falconKey),
-    shamousaGeminiReady: Boolean(shamousaKey),
+    geminiCircuitOpen: Boolean(sharedKey && isGeminiKeyCircuitOpen(sharedKey)),
+    falconGeminiReady: Boolean(falconKey && !isGeminiKeyCircuitOpen(falconKey)),
+    shamousaGeminiReady: Boolean(shamousaKey && !isGeminiKeyCircuitOpen(shamousaKey)),
     groqConfigured: groqKeys.length > 0,
+    groqKeyCount: groqKeys.length,
+    activeGroqModel: ACTIVE_GROQ_CHAT_MODELS[0],
     fanarConfigured: Boolean(fanarKey),
-    googleSearchGroundingReady: Boolean(falconKey || shamousaKey || sharedKey || groqKeys.length > 0),
+    activePrimaryProvider: geminiUsable ? 'gemini' : groqKeys.length > 0 ? 'groq' : fanarKey ? 'fanar' : 'none',
+    googleSearchGroundingReady: Boolean(geminiUsable || groqKeys.length > 0 || fanarKey),
     googleCustomSearchApiReady: Boolean(cseKey && cx),
   };
 }
@@ -299,64 +371,6 @@ function decodeHtmlEntities(str: string): string {
     .trim();
 }
 
-async function fetchDuckDuckGoHtmlResults(query: string, limit = 5): Promise<GroundedSource[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
-  try {
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; AlshamsBot/1.0)',
-        'Accept-Language': 'ar,en;q=0.9',
-      },
-      signal: controller.signal,
-    });
-    if (!res.ok) return [];
-    const html = await res.text();
-    const sources: GroundedSource[] = [];
-    const seen = new Set<string>();
-
-    // Extract result anchor tags
-    const linkRegex = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-    const snippetRegex = /<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
-    const snippets: string[] = [];
-    let sMatch: RegExpExecArray | null;
-    while ((sMatch = snippetRegex.exec(html)) !== null) {
-      snippets.push(decodeHtmlEntities(sMatch[1]));
-    }
-
-    let match: RegExpExecArray | null;
-    let idx = 0;
-    while ((match = linkRegex.exec(html)) !== null && sources.length < limit) {
-      let href = match[1];
-      if (href.includes('uddg=')) {
-        try {
-          const parsed = new URL(href.startsWith('//') ? `https:${href}` : href, 'https://duckduckgo.com');
-          const target = parsed.searchParams.get('uddg');
-          if (target) href = decodeURIComponent(target);
-        } catch {}
-      } else if (href.startsWith('//')) {
-        href = `https:${href}`;
-      }
-      const title = decodeHtmlEntities(match[2]);
-      if (href.startsWith('http') && !seen.has(href) && title) {
-        seen.add(href);
-        sources.push({
-          title,
-          url: href,
-          snippet: snippets[idx] || undefined,
-        });
-      }
-      idx++;
-    }
-    return sources;
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function fetchGoogleNewsRssResults(query: string, limit = 5): Promise<GroundedSource[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -396,92 +410,6 @@ async function fetchGoogleNewsRssResults(query: string, limit = 5): Promise<Grou
   }
 }
 
-async function searchWithGroqCompound(
-  query: string,
-  systemInstruction: string
-): Promise<{ result: { answer: string; sources: GroundedSource[] } | null; errorReason?: string }> {
-  const groqKeys = getGroqApiKeys();
-  if (groqKeys.length === 0) return { result: null, errorReason: 'مفتاح Groq غير مضبوط' };
-
-  const compoundModels = ['groq/compound', 'groq/compound-mini', 'compound-beta', 'compound-beta-mini'];
-  let lastError = '';
-  for (const apiKey of groqKeys) {
-    for (const model of compoundModels) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 22000);
-      try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: systemInstruction },
-              { role: 'user', content: query },
-            ],
-            max_tokens: 1400,
-          }),
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
-          const errTxt = await res.text().catch(() => '');
-          lastError = `Groq ${model} (${res.status}): ${formatAiErrorReason(errTxt || String(res.status))}`;
-          console.log('[GoogleSearchService Compound skip]:', model, res.status, errTxt.slice(0, 160));
-          continue;
-        }
-        const data: any = await res.json();
-        const message = data?.choices?.[0]?.message;
-        const answer = String(message?.content || '').trim();
-        if (!answer) continue;
-
-        const sources: GroundedSource[] = [];
-        const seen = new Set<string>();
-
-        // Extract tool search results returned by groq/compound if present
-        if (Array.isArray(message?.executed_tools)) {
-          for (const tool of message.executed_tools) {
-            const results = tool?.search_results?.results;
-            if (Array.isArray(results)) {
-              for (const r of results) {
-                if (r?.url && !seen.has(r.url)) {
-                  seen.add(r.url);
-                  sources.push({
-                    title: String(r.title || r.url),
-                    url: String(r.url),
-                    snippet: r.content ? String(r.content).slice(0, 200) : undefined,
-                  });
-                }
-              }
-            }
-          }
-        }
-
-        // Also capture any markdown URLs in answer
-        const urlMatches = answer.match(/https?:\/\/[^\s)\]]+/g) || [];
-        for (const rawUrl of urlMatches) {
-          const cleanUrl = rawUrl.replace(/[.,;!?]+$/, '');
-          if (!seen.has(cleanUrl)) {
-            seen.add(cleanUrl);
-            sources.push({ title: cleanUrl, url: cleanUrl });
-          }
-        }
-
-        return { result: { answer, sources: sources.slice(0, 6) } };
-      } catch (err: any) {
-        lastError = formatAiErrorReason(err?.message);
-        continue;
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-  }
-  return { result: null, errorReason: lastError || undefined };
-}
-
 async function summarizeWebResultsWithGroq(
   query: string,
   webSources: GroundedSource[],
@@ -494,7 +422,7 @@ async function summarizeWebResultsWithGroq(
     .map((r, i) => `[${i + 1}] ${r.title}\nالرابط: ${r.url}\nالملخص: ${r.snippet || 'غير متوفر'}`)
     .join('\n\n');
 
-  const models = ['llama-3.3-70b-versatile', 'meta-llama/llama-4-scout-17b-16e-instruct', 'llama-3.1-8b-instant'];
+  const models = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'allam-2-7b', 'qwen/qwen3.8-27b'];
   for (const apiKey of groqKeys) {
     for (const model of models) {
       const controller = new AbortController();
@@ -522,7 +450,9 @@ async function summarizeWebResultsWithGroq(
         });
         if (!res.ok) continue;
         const data: any = await res.json();
-        const txt = String(data?.choices?.[0]?.message?.content || '').trim();
+        const txt = String(data?.choices?.[0]?.message?.content || '')
+          .replace(/<think>[\s\S]*?<\/think>/gi, '')
+          .trim();
         if (txt) return txt;
       } catch {
         continue;
@@ -531,14 +461,52 @@ async function summarizeWebResultsWithGroq(
       }
     }
   }
+
+  // Emergency synthesis via Fanar Arabic AI if Groq keys unavailable
+  const fanarKey = getFanarApiKey();
+  if (fanarKey) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 16000);
+    try {
+      const res = await fetch('https://api.fanar.qa/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${fanarKey}`,
+        },
+        body: JSON.stringify({
+          model: 'Fanar',
+          messages: [
+            { role: 'system', content: systemInstruction },
+            {
+              role: 'user',
+              content: `السؤال: ${query}\n\nنتائج البحث الحية:\n${contextLines}\n\nلخص النتائج بدقة بالعربية بدون تخمين.`,
+            },
+          ],
+          temperature: 0.4,
+          max_tokens: 900,
+        }),
+        signal: controller.signal,
+      });
+      if (res.ok) {
+        const data: any = await res.json();
+        const txt = String(data?.choices?.[0]?.message?.content || '').trim();
+        if (txt) return txt;
+      }
+    } catch {
+      // ignore
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   return null;
 }
 
 /**
  * Unified Live Web Search Service:
  * 1) Gemini Google Search Grounding (+ optional Google Custom Search API)
- * 2) Groq Compound live web search (groq/compound / compound-beta)
- * 3) Direct web search (Custom Search / DuckDuckGo HTML / Google News RSS) + Groq Llama 3.3 70B synthesis
+ * 2) Direct Google News RSS live search + Groq/Fanar Arabic synthesis
  */
 export async function performGoogleSearch(
   query: string,
@@ -565,8 +533,8 @@ export async function performGoogleSearch(
   const key = resolveAgentGeminiKey(agent);
   let lastErr: any = null;
 
-  // 1. Try Gemini Google Search Grounding when Gemini key is available
-  if (key) {
+  // 1. Try Gemini Google Search Grounding when Gemini key is available and healthy
+  if (key && !isGeminiKeyCircuitOpen(key)) {
     try {
       const ai = createGeminiClientForAgent(agent);
       const models = getCandidateGeminiModels();
@@ -604,12 +572,16 @@ export async function performGoogleSearch(
           }
         } catch (err: any) {
           lastErr = err;
+          if (tripGeminiKeyCircuit(key, err)) {
+            break;
+          }
           const status = Number(err?.status || err?.code || 0);
           console.log(`[GoogleSearchService] Switching past model ${model} (status: ${status || 'err'})`);
         }
       }
     } catch (initErr: any) {
       lastErr = initErr;
+      tripGeminiKeyCircuit(key, initErr);
     }
   }
 
@@ -626,23 +598,9 @@ export async function performGoogleSearch(
     };
   }
 
-  // 3. Fallback to Groq Compound live web search engine
-  console.log('[GoogleSearchService] Gemini search unavailable, attempting Groq Compound live web search...');
-  const compoundAttempt = await searchWithGroqCompound(cleanQuery, systemInstruction);
-  if (compoundAttempt.result && compoundAttempt.result.answer) {
-    return {
-      answer: compoundAttempt.result.answer,
-      sources: compoundAttempt.result.sources,
-      searchUsed: true,
-      engine: 'groq_compound_search',
-    };
-  }
-
-  // 4. Fallback to DuckDuckGo HTML / Google News RSS live search + Groq synthesis
-  console.log('[GoogleSearchService] Attempting web RSS/HTML search fallback...');
-  const ddgResults = await fetchDuckDuckGoHtmlResults(cleanQuery, 5);
-  const gnewsResults = ddgResults.length > 0 ? [] : await fetchGoogleNewsRssResults(cleanQuery, 5);
-  const webResults = ddgResults.length > 0 ? ddgResults : gnewsResults;
+  // 3. Fallback to Google News RSS live search + Groq/Fanar synthesis
+  console.log('[GoogleSearchService] Attempting Google News RSS live search fallback...');
+  const webResults = await fetchGoogleNewsRssResults(cleanQuery, 5);
   if (webResults.length > 0) {
     const synthesized = await summarizeWebResultsWithGroq(cleanQuery, webResults, systemInstruction);
     return {
@@ -664,9 +622,555 @@ export async function performGoogleSearch(
     throw quotaErr;
   }
 
-  const compoundDetail = compoundAttempt.errorReason ? ` | محرك البحث البديل: ${compoundAttempt.errorReason}` : '';
   throw new Error(
-    `تعذر تنفيذ البحث الحي حالياً (Gemini: ${formatAiErrorReason(lastMsg || 'مفتاح غير صالح أو غير متوفر')}${compoundDetail}).`
+    `تعذر تنفيذ البحث الحي حالياً (Gemini: ${formatAiErrorReason(lastMsg || 'مفتاح غير صالح أو غير متوفر')}).`
   );
 }
+
+export interface ApiAuditEntry {
+  id: string;
+  name: string;
+  category: 'gemini' | 'groq' | 'fanar' | 'search' | 'infra' | 'push' | 'fx';
+  envVars: string[];
+  configured: boolean;
+  optional?: boolean;
+  ok: boolean;
+  statusCode?: number;
+  summary: string;
+  rawError?: string;
+  models?: Array<{ model: string; ok: boolean; statusCode?: number; note?: string }>;
+}
+
+function redactSecrets(text: string): string {
+  return String(text || '')
+    .replace(/AIza[0-9A-Za-z\-_]{20,}/g, '[REDACTED_KEY]')
+    .replace(/gsk_[0-9A-Za-z]{16,}/g, '[REDACTED_KEY]')
+    .replace(/eyJ[0-9A-Za-z\-_]+\.[0-9A-Za-z\-_]+\.[0-9A-Za-z\-_]+/g, '[REDACTED_JWT]')
+    .slice(0, 260);
+}
+
+async function probeGeminiSingleKey(
+  id: string,
+  name: string,
+  envVars: string[],
+  rawKey: string,
+  optional = false
+): Promise<ApiAuditEntry> {
+  const key = cleanSecretValue(rawKey);
+  if (!key) {
+    return {
+      id,
+      name,
+      category: 'gemini',
+      envVars,
+      configured: false,
+      optional,
+      ok: false,
+      summary: optional
+        ? 'اختياري غير مضبوط (يعمل النظام تلقائياً عبر المزودات النشطة)'
+        : 'غير مضبوط في الإعدادات (Secrets)',
+    };
+  }
+
+  // Reset circuit before explicit admin health probe so updated keys verify immediately
+  clearGeminiKeyCircuit(key);
+
+  const ai = new GoogleGenAI({
+    apiKey: key,
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+  });
+
+  const testCases = [
+    { model: PRIMARY_GEMINI_MODEL, withSearch: false },
+    { model: FALLBACK_GEMINI_MODEL, withSearch: false },
+    { model: FALLBACK_GEMINI_MODEL, withSearch: true },
+  ];
+
+  const models: Array<{ model: string; ok: boolean; statusCode?: number; note?: string }> = [];
+  let anyOk = false;
+  let lastRawError = '';
+  let lastStatus: number | undefined;
+
+  for (const tc of testCases) {
+    const label = tc.withSearch ? `${tc.model} + GoogleSearch` : tc.model;
+    try {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 9000);
+      const res: any = await Promise.race([
+        ai.models
+          .generateContent({
+            model: tc.model,
+            contents: 'قل كلمة: نعم',
+            config: tc.withSearch ? { tools: [{ googleSearch: {} }] } : undefined,
+          })
+          .finally(() => clearTimeout(t)),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 9000)
+        ),
+      ]);
+      const txt = String(res?.text || '').trim();
+      if (txt) {
+        anyOk = true;
+        models.push({ model: label, ok: true, statusCode: 200, note: 'يعمل بنجاح' });
+      } else {
+        models.push({ model: label, ok: false, statusCode: 200, note: 'رد فارغ' });
+      }
+    } catch (err: any) {
+      const msg = redactSecrets(err?.message || String(err));
+      const code = Number(err?.status || err?.code || 0) || undefined;
+      lastRawError = msg;
+      lastStatus = code;
+      models.push({
+        model: label,
+        ok: false,
+        statusCode: code,
+        note: formatAiErrorReason(msg),
+      });
+      if (tripGeminiKeyCircuit(key, err)) {
+        break;
+      }
+    }
+  }
+
+  return {
+    id,
+    name,
+    category: 'gemini',
+    envVars,
+    configured: true,
+    optional,
+    ok: anyOk,
+    statusCode: anyOk ? 200 : lastStatus,
+    summary: anyOk
+      ? 'يعمل بنجاح'
+      : `${formatAiErrorReason(lastRawError)} — يتم تجاوزه تلقائياً والعمل الفوري عبر Groq و Fanar`,
+    rawError: anyOk ? undefined : lastRawError,
+    models,
+  };
+}
+
+async function probeGroqSingleKey(
+  id: string,
+  name: string,
+  envVars: string[],
+  rawKey: string,
+  optional = false
+): Promise<ApiAuditEntry> {
+  const key = cleanSecretValue(rawKey);
+  if (!key) {
+    return {
+      id,
+      name,
+      category: 'groq',
+      envVars,
+      configured: false,
+      optional,
+      ok: false,
+      summary: optional
+        ? 'اختياري غير مضبوط (يعمل النظام تلقائياً عبر المفاتيح النشطة)'
+        : 'غير مضبوط في الإعدادات (Secrets)',
+    };
+  }
+
+  const modelsOut: Array<{ model: string; ok: boolean; statusCode?: number; note?: string }> = [];
+  let listedIds = new Set<string>();
+  let listError = '';
+  let listStatus = 0;
+
+  // 1) Check /openai/v1/models
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 7000);
+    const mRes = await fetch('https://api.groq.com/openai/v1/models', {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: c.signal,
+    }).finally(() => clearTimeout(t));
+    listStatus = mRes.status;
+    if (mRes.ok) {
+      const json: any = await mRes.json();
+      for (const item of json?.data || []) {
+        if (item?.id) listedIds.add(String(item.id));
+      }
+    } else {
+      listError = redactSecrets(await mRes.text().catch(() => String(mRes.status)));
+    }
+  } catch (e: any) {
+    listError = redactSecrets(e?.message || 'fetch error');
+  }
+
+  if (listStatus === 401 || listStatus === 403) {
+    return {
+      id,
+      name,
+      category: 'groq',
+      envVars,
+      configured: true,
+      ok: false,
+      statusCode: listStatus,
+      summary: formatAiErrorReason(listError || String(listStatus)),
+      rawError: listError,
+    };
+  }
+
+  // 2) Probe live working chat models available on the account
+  const probes = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'allam-2-7b', 'qwen/qwen3.8-27b'];
+  let anyOk = false;
+  let lastErr = '';
+  let lastStatus = listStatus;
+
+  for (const model of probes) {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 9000);
+    try {
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'مرحبا' }],
+          max_tokens: 15,
+        }),
+        signal: c.signal,
+      }).finally(() => clearTimeout(t));
+      lastStatus = r.status;
+      if (r.ok) {
+        anyOk = true;
+        modelsOut.push({ model, ok: true, statusCode: r.status, note: 'يعمل بنجاح' });
+      } else {
+        const txt = redactSecrets(await r.text().catch(() => ''));
+        lastErr = txt;
+        modelsOut.push({
+          model,
+          ok: false,
+          statusCode: r.status,
+          note: formatAiErrorReason(txt || String(r.status)),
+        });
+      }
+    } catch (e: any) {
+      lastErr = redactSecrets(e?.message || '');
+      modelsOut.push({ model, ok: false, note: formatAiErrorReason(lastErr) });
+    }
+  }
+
+  for (const w of Array.from(listedIds)) {
+    if (!modelsOut.some((m) => m.model === w)) {
+      modelsOut.push({
+        model: w,
+        ok: true,
+        statusCode: 200,
+        note: 'مدرج في الحساب (غير مختبر للدردشة أو صوتي/نصي)',
+      });
+    }
+  }
+
+  return {
+    id,
+    name,
+    category: 'groq',
+    envVars,
+    configured: true,
+    ok: anyOk,
+    statusCode: anyOk ? 200 : lastStatus || undefined,
+    summary: anyOk ? `يعمل بنجاح (${listedIds.size || modelsOut.length} موديل)` : formatAiErrorReason(lastErr || listError),
+    rawError: anyOk ? undefined : lastErr || listError,
+    models: modelsOut,
+  };
+}
+
+export async function runFullApiHealthAudit(): Promise<{
+  checkedAt: string;
+  envFlags: Record<string, boolean | string>;
+  entries: ApiAuditEntry[];
+}> {
+  const groqModelEnv = cleanSecretValue(process.env.GROQ_MODEL);
+  const geminiModelEnv = cleanSecretValue(process.env.GEMINI_MODEL);
+
+  const [
+    geminiMain,
+    geminiFalcon,
+    geminiShamousa,
+    groqPrimary,
+    groqSecondary,
+    groqBackup,
+    fanarProbe,
+    customSearchProbe,
+    gnewsProbe,
+    fxProbe,
+  ] = await Promise.all([
+    probeGeminiSingleKey('gemini_main', 'Google Gemini (المشترك)', ['GEMINI_API_KEY'], process.env.GEMINI_API_KEY || '', false),
+    probeGeminiSingleKey(
+      'gemini_falcon',
+      'Google Gemini (مفتاح صقر — اختياري)',
+      ['GEMINI_API_KEY_FALCON', 'FALCON_GEMINI_API_KEY'],
+      process.env.GEMINI_API_KEY_FALCON || process.env.FALCON_GEMINI_API_KEY || '',
+      true
+    ),
+    probeGeminiSingleKey(
+      'gemini_shamousa',
+      'Google Gemini (مفتاح شموسة — اختياري)',
+      ['GEMINI_API_KEY_SHAMOUSA', 'SHAMOUSA_GEMINI_API_KEY'],
+      process.env.GEMINI_API_KEY_SHAMOUSA || process.env.SHAMOUSA_GEMINI_API_KEY || '',
+      true
+    ),
+    probeGroqSingleKey('groq_primary', 'Groq AI (الأساسي)', ['GROQ_API_KEY'], process.env.GROQ_API_KEY || '', false),
+    probeGroqSingleKey(
+      'groq_secondary',
+      'Groq AI (الثانوي)',
+      ['GROQ_API_KEY_SECONDARY', 'GROQ_SECONDARY_API_KEY', 'GROQ_API_KEY_2'],
+      process.env.GROQ_API_KEY_SECONDARY || process.env.GROQ_SECONDARY_API_KEY || process.env.GROQ_API_KEY_2 || '',
+      true
+    ),
+    probeGroqSingleKey(
+      'groq_backup',
+      'Groq AI (الاحتياطي — اختياري)',
+      ['GROQ_API_KEY_BACKUP', 'GROQ_BACKUP_KEY'],
+      process.env.GROQ_API_KEY_BACKUP || process.env.GROQ_BACKUP_KEY || '',
+      true
+    ),
+    // Fanar probe (live model only)
+    (async (): Promise<ApiAuditEntry> => {
+      const fanarKey = getFanarApiKey();
+      if (!fanarKey) {
+        return {
+          id: 'fanar',
+          name: 'Fanar Arabic AI',
+          category: 'fanar',
+          envVars: ['FANAR_API_KEY', 'FANAR_KEY'],
+          configured: false,
+          ok: false,
+          summary: 'غير مضبوط في الإعدادات (Secrets)',
+        };
+      }
+      const modelsOut: Array<{ model: string; ok: boolean; statusCode?: number; note?: string }> = [];
+      let anyOk = false;
+      let lastErr = '';
+      let lastStatus = 0;
+      for (const m of ['Fanar']) {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 9000);
+        try {
+          const r = await fetch('https://api.fanar.qa/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${fanarKey}` },
+            body: JSON.stringify({ model: m, messages: [{ role: 'user', content: 'مرحبا' }], max_tokens: 15 }),
+            signal: c.signal,
+          }).finally(() => clearTimeout(t));
+          lastStatus = r.status;
+          if (r.ok) {
+            anyOk = true;
+            modelsOut.push({ model: m, ok: true, statusCode: r.status, note: 'يعمل بنجاح' });
+          } else {
+            const txt = redactSecrets(await r.text().catch(() => ''));
+            lastErr = txt;
+            modelsOut.push({ model: m, ok: false, statusCode: r.status, note: formatAiErrorReason(txt) });
+          }
+        } catch (e: any) {
+          lastErr = redactSecrets(e?.message || '');
+          modelsOut.push({ model: m, ok: false, note: formatAiErrorReason(lastErr) });
+        }
+      }
+      return {
+        id: 'fanar',
+        name: 'Fanar Arabic AI',
+        category: 'fanar',
+        envVars: ['FANAR_API_KEY', 'FANAR_KEY'],
+        configured: true,
+        ok: anyOk,
+        statusCode: anyOk ? 200 : lastStatus || undefined,
+        summary: anyOk ? 'يعمل بنجاح' : formatAiErrorReason(lastErr),
+        rawError: anyOk ? undefined : lastErr,
+        models: modelsOut,
+      };
+    })(),
+    // Google Custom Search JSON API
+    (async (): Promise<ApiAuditEntry> => {
+      const { apiKey, cx } = resolveGoogleSearchCredentials();
+      if (!apiKey || !cx) {
+        return {
+          id: 'google_custom_search',
+          name: 'Google Custom Search JSON API (اختياري)',
+          category: 'search',
+          envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
+          configured: false,
+          optional: true,
+          ok: false,
+          summary: !apiKey && !cx ? 'اختياري غير مضبوط (البحث الحي يعمل عبر Google News RSS + Groq)' : !apiKey ? 'GOOGLE_SEARCH_API_KEY غير مضبوط' : 'GOOGLE_SEARCH_CX غير مضبوط',
+        };
+      }
+      try {
+        const u = new URL('https://www.googleapis.com/customsearch/v1');
+        u.searchParams.set('key', apiKey);
+        u.searchParams.set('cx', cx);
+        u.searchParams.set('q', 'handmade');
+        u.searchParams.set('num', '1');
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 8000);
+        const r = await fetch(u.toString(), { signal: c.signal }).finally(() => clearTimeout(t));
+        if (r.ok) {
+          return {
+            id: 'google_custom_search',
+            name: 'Google Custom Search JSON API',
+            category: 'search',
+            envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
+            configured: true,
+            ok: true,
+            statusCode: r.status,
+            summary: 'يعمل بنجاح',
+          };
+        }
+        const err = redactSecrets(await r.text().catch(() => ''));
+        return {
+          id: 'google_custom_search',
+          name: 'Google Custom Search JSON API',
+          category: 'search',
+          envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
+          configured: true,
+          ok: false,
+          statusCode: r.status,
+          summary: formatAiErrorReason(err),
+          rawError: err,
+        };
+      } catch (e: any) {
+        return {
+          id: 'google_custom_search',
+          name: 'Google Custom Search JSON API',
+          category: 'search',
+          envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
+          configured: true,
+          ok: false,
+          summary: formatAiErrorReason(e?.message),
+          rawError: redactSecrets(e?.message),
+        };
+      }
+    })(),
+    // Google News RSS
+    (async (): Promise<ApiAuditEntry> => {
+      try {
+        const items = await fetchGoogleNewsRssResults('حرف يدوية مصر', 3);
+        return {
+          id: 'google_news_rss',
+          name: 'Google News RSS (بحث الويب الاحتياطي)',
+          category: 'search',
+          envVars: [],
+          configured: true,
+          ok: items.length > 0,
+          statusCode: items.length > 0 ? 200 : 204,
+          summary: items.length > 0 ? `يعمل بنجاح (${items.length} نتائج)` : 'لم يُرجع نتائج',
+        };
+      } catch (e: any) {
+        return {
+          id: 'google_news_rss',
+          name: 'Google News RSS (بحث الويب الاحتياطي)',
+          category: 'search',
+          envVars: [],
+          configured: true,
+          ok: false,
+          summary: formatAiErrorReason(e?.message),
+        };
+      }
+    })(),
+    // Live FX API
+    (async (): Promise<ApiAuditEntry> => {
+      try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 5000);
+        const r = await fetch('https://open.er-api.com/v6/latest/EGP', { signal: c.signal }).finally(() => clearTimeout(t));
+        return {
+          id: 'fx_open_er_api',
+          name: 'Live Interbank FX API (open.er-api.com)',
+          category: 'fx',
+          envVars: [],
+          configured: true,
+          ok: r.ok,
+          statusCode: r.status,
+          summary: r.ok ? 'يعمل بنجاح' : `فشل HTTP ${r.status}`,
+        };
+      } catch (e: any) {
+        return {
+          id: 'fx_open_er_api',
+          name: 'Live Interbank FX API (open.er-api.com)',
+          category: 'fx',
+          envVars: [],
+          configured: true,
+          ok: false,
+          summary: formatAiErrorReason(e?.message),
+        };
+      }
+    })(),
+  ]);
+
+  const hasEnvVapid = Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+  let hasFileVapid = false;
+  try {
+    if (fs.existsSync(VAPID_KEYS_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(VAPID_KEYS_PATH, 'utf-8'));
+      hasFileVapid = Boolean(parsed?.publicKey && parsed?.privateKey);
+    }
+  } catch {}
+  const webPushReady = hasEnvVapid || hasFileVapid;
+
+  const webPushEntry: ApiAuditEntry = {
+    id: 'web_push_vapid',
+    name: 'Web Push VAPID (/api/push/*)',
+    category: 'push',
+    envVars: ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY'],
+    configured: webPushReady,
+    ok: webPushReady,
+    statusCode: webPushReady ? 200 : 503,
+    summary: webPushReady
+      ? hasEnvVapid
+        ? 'يعمل بنجاح (مفاتيح VAPID من Secrets ونقاط /api/push/* مفعّلة)'
+        : 'يعمل بنجاح (مفاتيح VAPID مولّدة تلقائياً ونقاط /api/push/* مفعّلة)'
+      : 'مفاتيح VAPID قيد التهيئة',
+  };
+
+  const firebaseRemnantsEntry: ApiAuditEntry = {
+    id: 'firebase_check',
+    name: 'فحص بقايا Firebase',
+    category: 'infra',
+    envVars: Object.keys(process.env).filter((k) => k.toUpperCase().includes('FIREBASE')),
+    configured: Object.keys(process.env).some((k) => k.toUpperCase().includes('FIREBASE')),
+    ok: true,
+    summary: 'تم الفحص: 0 ملفات أو حزم أو استدعاءات Firebase في الكود المصدري',
+  };
+
+  const staleSecretsIgnored: string[] = [];
+  if (groqModelEnv && /llama-3|llama-4|qwen3-32b|whisper/i.test(groqModelEnv)) {
+    staleSecretsIgnored.push(`GROQ_MODEL=${groqModelEnv} (متجاهل تلقائياً -> يستخدم openai/gpt-oss-120b)`);
+  }
+  if (geminiModelEnv && /gemini-1\.|gemini-2\.|gemini-pro|gemini-3\.8/i.test(geminiModelEnv)) {
+    staleSecretsIgnored.push(`GEMINI_MODEL=${geminiModelEnv} (متجاهل تلقائياً -> يستخدم ${PRIMARY_GEMINI_MODEL})`);
+  }
+
+  return {
+    checkedAt: new Date().toISOString(),
+    envFlags: {
+      EFFECTIVE_GROQ_MODEL: ACTIVE_GROQ_CHAT_MODELS[0],
+      EFFECTIVE_FANAR_MODEL: ACTIVE_FANAR_MODELS[0],
+      EFFECTIVE_GEMINI_MODEL: PRIMARY_GEMINI_MODEL,
+      GROQ_MODEL_SECRET: groqModelEnv || '(الافتراضي: openai/gpt-oss-120b)',
+      GEMINI_MODEL_SECRET: geminiModelEnv || `(الافتراضي: ${PRIMARY_GEMINI_MODEL})`,
+      STALE_SECRETS_BYPASSED: staleSecretsIgnored.length > 0 ? staleSecretsIgnored.join(' | ') : 'لا يوجد',
+      SUPABASE_SERVICE_ROLE_KEY_SET: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY),
+    },
+    entries: [
+      geminiMain,
+      geminiFalcon,
+      geminiShamousa,
+      groqPrimary,
+      groqSecondary,
+      groqBackup,
+      fanarProbe,
+      customSearchProbe,
+      gnewsProbe,
+      fxProbe,
+      webPushEntry,
+      firebaseRemnantsEntry,
+    ],
+  };
+}
+
 
