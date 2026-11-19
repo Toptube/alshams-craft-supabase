@@ -66,6 +66,7 @@ export async function saveMemberPersonalProfile(payload: {
   bioHeadline?: string;
   storyText?: string;
   familyNickname?: string;
+  gender?: 'male' | 'female';
   phone?: string;
   governorate?: string;
   visibility?: ProfileVisibilityMatrix;

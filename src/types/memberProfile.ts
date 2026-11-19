@@ -37,6 +37,7 @@ export interface MemberPersonalProfile {
   displayName: string;
   brandName: string;
   familyNickname?: string;
+  gender?: 'male' | 'female';
   personalAvatar?: string | null;
   brandLogo?: string | null;
   bioHeadline?: string;

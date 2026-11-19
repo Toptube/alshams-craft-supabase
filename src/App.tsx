@@ -1553,6 +1553,10 @@ export const App: React.FC = () => {
         governorate?: string;
         storyText?: string;
         bioHeadline?: string;
+        gender?: 'male' | 'female';
+        familyNickname?: string;
+        skillLevel?: UserProfile['skillLevel'];
+        assessmentScore?: number;
       }>).detail;
       if (!detail) return;
 
@@ -1578,10 +1582,17 @@ export const App: React.FC = () => {
           ...(detail.brandName ? { brandName: detail.brandName } : {}),
           ...(detail.phoneNumber !== undefined ? { phoneNumber: detail.phoneNumber } : {}),
           ...(detail.governorate !== undefined ? { governorate: detail.governorate } : {}),
+          ...(detail.gender === 'male' || detail.gender === 'female' ? { gender: detail.gender } : {}),
+          ...(detail.familyNickname ? { familyNickname: detail.familyNickname } : {}),
+          ...(detail.skillLevel ? { skillLevel: detail.skillLevel } : {}),
+          ...(typeof detail.assessmentScore === 'number'
+            ? { assessmentScore: detail.assessmentScore }
+            : {}),
           ...(nextStoreConfig ? { storeConfig: nextStoreConfig } : {}),
         };
         try {
           localStorage.setItem('alshams_profile', JSON.stringify(next));
+          tenantStorage.saveProfile(next).catch(() => {});
         } catch {}
 
         if (prev.accountRole !== 'supplier' && (detail.storyText !== undefined || detail.bioHeadline !== undefined)) {

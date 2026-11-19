@@ -4,7 +4,12 @@ import { COUNTRIES_CONFIG, getGenderArtistTitle } from '../../utils/macrameMath'
 import { tenantStorage } from '../../db/dexieDB';
 import { updateWorkshopProfileInSupabase } from '../../db/supabaseService';
 import { updateSupplierProfileInBackend } from '../../db/supplierService';
-import { saveMemberPersonalProfile } from '../../db/memberProfileService';
+import {
+  fetchMemberPersonalProfile,
+  saveMemberPersonalProfile,
+} from '../../db/memberProfileService';
+import { ArtisanSkillAssessment } from '../auth/ArtisanSkillAssessment';
+import type { ArtisanSkillLevel } from '../../types/artisanGrowth';
 import {
   SUPPLIER_SUPPLY_SECTIONS,
   SupplierBusinessType,
@@ -164,6 +169,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     profile.familyNickname || getDefaultFamilyNickname(profile.artistName, profile.gender)
   );
   const [gender, setGender] = useState<Gender>(profile.gender || 'female');
+  const [skillLevel, setSkillLevel] = useState<ArtisanSkillLevel>(
+    profile.skillLevel || 'intermediate'
+  );
+  const [assessmentScore, setAssessmentScore] = useState<number | undefined>(
+    profile.assessmentScore
+  );
   const [countryName, setCountryName] = useState(profile.country || 'جمهورية مصر العربية');
   const [phoneNumber, setPhoneNumber] = useState(profile.phoneNumber || '');
   const [address, setAddress] = useState(
@@ -257,6 +268,26 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       profile.familyNickname || getDefaultFamilyNickname(profile.artistName, profile.gender)
     );
     setGender(profile.gender || 'female');
+    setSkillLevel(profile.skillLevel || 'intermediate');
+    setAssessmentScore(profile.assessmentScore);
+    if (!isSupplier) {
+      const lookupKey = profile.workshopId || profile.id || profile.email || '';
+      if (lookupKey) {
+        fetchMemberPersonalProfile(lookupKey, 'owner')
+          .then((res) => {
+            if (res.success && res.profile) {
+              if (res.profile.skillLevel) setSkillLevel(res.profile.skillLevel);
+              if (typeof res.profile.assessmentScore === 'number') {
+                setAssessmentScore(res.profile.assessmentScore);
+              }
+              if (res.profile.gender === 'male' || res.profile.gender === 'female') {
+                setGender(res.profile.gender);
+              }
+            }
+          })
+          .catch(() => {});
+      }
+    }
     const matchedCountry = COUNTRIES_CONFIG.find(
       (c) => c.name === profile.country || c.code === profile.country || c.name.includes(profile.country || '')
     );
@@ -608,6 +639,12 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         }
 
         const syncedPhoto = logoUrl || res.userProfile.logoUrl || '';
+        saveMemberPersonalProfile({
+          personalAvatar: logoUrl || null,
+          phone: phoneNumber.trim(),
+          governorate: address.trim(),
+          gender,
+        }).catch(() => {});
         window.dispatchEvent(
           new CustomEvent('alshams_profile_synced', {
             detail: {
@@ -615,6 +652,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               brandName: res.userProfile.brandName,
               phoneNumber: res.userProfile.phoneNumber,
               governorate: res.userProfile.governorate,
+              gender,
             },
           })
         );
@@ -637,6 +675,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         dailySalesReminderTime,
         workshopClosingHour,
         address: address.trim(),
+        skillLevel,
+        ...(typeof assessmentScore === 'number' ? { assessmentScore } : {}),
         socials: {
           facebook: activeSocials.facebook ? socialUrls.facebook.trim() : undefined,
           instagram: activeSocials.instagram ? socialUrls.instagram.trim() : undefined,
@@ -648,13 +688,15 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       };
 
       const safeSelectedCrafts = selectedCrafts.length > 0 ? selectedCrafts : ['macrame'];
+      const resolvedFamilyName =
+        familyNickname.trim() || getDefaultFamilyNickname(artistName.trim(), gender);
 
       // Only update allowed fields on workshops table
       const { updated, error } = await updateWorkshopProfileInSupabase(workshopId, {
         brandName: brandName.trim(),
         artistName: artistName.trim(),
         gender,
-        familyName: familyNickname.trim() || getDefaultFamilyNickname(artistName.trim(), gender),
+        familyName: resolvedFamilyName,
         country: currentCountryConfig.name,
         currency: currentCountryConfig.currency,
         phone: phoneNumber.trim(),
@@ -673,6 +715,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       }
 
       if (updated) {
+        updated.gender = gender;
+        updated.familyNickname = resolvedFamilyName;
+        updated.skillLevel = skillLevel;
+        updated.assessmentScore = assessmentScore;
         updated.enableDailySalesReminder = enableDailySalesReminder;
         updated.dailySalesReminderMode = dailySalesReminderMode;
         updated.dailySalesReminderTime = dailySalesReminderTime;
@@ -683,11 +729,15 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         updated.store_slug = storeSlug.trim() || undefined;
         await tenantStorage.saveProfile(updated);
         await tenantStorage.generateProactiveNotifications(updated.id || workshopId, updated);
-        // Unify Brand Logo <-> Personal Profile Avatar immediately
-        saveMemberPersonalProfile({
+        // Unify Brand Logo, Gender & Skill Level <-> Personal Profile immediately
+        await saveMemberPersonalProfile({
           personalAvatar: logoUrl || null,
           phone: phoneNumber.trim(),
           governorate: address.trim(),
+          familyNickname: resolvedFamilyName,
+          gender,
+          skillLevel,
+          assessmentScore,
         }).catch(() => {});
         window.dispatchEvent(
           new CustomEvent('alshams_profile_synced', {
@@ -696,6 +746,10 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               brandName: updated.brandName,
               phoneNumber: updated.phoneNumber,
               governorate: address.trim(),
+              gender,
+              familyNickname: resolvedFamilyName,
+              skillLevel,
+              assessmentScore,
             },
           })
         );
@@ -1120,6 +1174,67 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 focus:placeholder-transparent"
                 />
               </div>
+
+              {/* النوع / صفة المخاطبة (فنان / فنانة) */}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold mb-1.5 text-stone-700 dark:text-stone-300 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>{isSupplier ? 'النوع / صفة المخاطبة (مورد / موردة)' : 'النوع / صفة المخاطبة (فنان / فنانة)'}</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prevDefault = getDefaultFamilyNickname(artistName, gender);
+                      setGender('female');
+                      if (!familyNickname.trim() || familyNickname.trim() === prevDefault) {
+                        setFamilyNickname(getDefaultFamilyNickname(artistName, 'female'));
+                      }
+                      playTapSound();
+                    }}
+                    className={`py-2.5 px-3 text-center text-xs font-black rounded-xl border-2 transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      gender === 'female'
+                        ? 'bg-amber-50 dark:bg-amber-950/50 border-amber-500 text-amber-900 dark:text-amber-200 shadow-xs'
+                        : 'bg-stone-50 dark:bg-stone-800/70 border-stone-200 dark:border-stone-700 text-stone-500 dark:text-stone-400 hover:border-amber-400'
+                    }`}
+                  >
+                    {gender === 'female' && <CheckCircle2 className="w-4 h-4 text-amber-600 dark:text-amber-400" />}
+                    <span>{isSupplier ? 'موردة (أستاذة)' : 'فنانة (مبدعة)'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prevDefault = getDefaultFamilyNickname(artistName, gender);
+                      setGender('male');
+                      if (!familyNickname.trim() || familyNickname.trim() === prevDefault) {
+                        setFamilyNickname(getDefaultFamilyNickname(artistName, 'male'));
+                      }
+                      playTapSound();
+                    }}
+                    className={`py-2.5 px-3 text-center text-xs font-black rounded-xl border-2 transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      gender === 'male'
+                        ? 'bg-amber-50 dark:bg-amber-950/50 border-amber-500 text-amber-900 dark:text-amber-200 shadow-xs'
+                        : 'bg-stone-50 dark:bg-stone-800/70 border-stone-200 dark:border-stone-700 text-stone-500 dark:text-stone-400 hover:border-amber-400'
+                    }`}
+                  >
+                    {gender === 'male' && <CheckCircle2 className="w-4 h-4 text-amber-600 dark:text-amber-400" />}
+                    <span>{isSupplier ? 'مورد (أستاذ)' : 'فنان (مبدع)'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {!isSupplier && (
+                <div className="sm:col-span-2">
+                  <ArtisanSkillAssessment
+                    value={skillLevel}
+                    onChange={(lvl, score) => {
+                      setSkillLevel(lvl);
+                      if (typeof score === 'number') setAssessmentScore(score);
+                    }}
+                    compact
+                  />
+                </div>
+              )}
 
               {!isSupplier && (
                 <div className="sm:col-span-2">

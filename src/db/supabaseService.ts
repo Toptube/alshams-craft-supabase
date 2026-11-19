@@ -445,6 +445,9 @@ export function mapWorkshopRowToUserProfile(rawRow: any, userEmail?: string): Us
     dailySalesReminderMode: row.settings?.dailySalesReminderMode ?? 'closing_offset',
     dailySalesReminderTime: row.settings?.dailySalesReminderTime ?? '20:00',
     workshopClosingHour: row.settings?.workshopClosingHour ?? '21:00',
+    skillLevel: row.settings?.skillLevel || undefined,
+    assessmentScore:
+      typeof row.settings?.assessmentScore === 'number' ? row.settings.assessmentScore : undefined,
   };
 }
 

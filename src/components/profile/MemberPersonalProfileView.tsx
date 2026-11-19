@@ -4,6 +4,7 @@ import {
   Bell,
   Camera,
   Check,
+  CheckCircle2,
   Edit3,
   Eye,
   EyeOff,
@@ -113,6 +114,9 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const [storyDraft, setStoryDraft] = useState('');
   const [phoneDraft, setPhoneDraft] = useState('');
   const [govDraft, setGovDraft] = useState('');
+  const [genderDraft, setGenderDraft] = useState<'male' | 'female'>(
+    currentUserProfile?.gender === 'male' ? 'male' : 'female'
+  );
   const [skillLevelDraft, setSkillLevelDraft] = useState<ArtisanSkillLevel>('intermediate');
   const [assessmentScoreDraft, setAssessmentScoreDraft] = useState<number | undefined>(undefined);
   const [visibilityDraft, setVisibilityDraft] = useState<ProfileVisibilityMatrix>(() =>
@@ -172,6 +176,11 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
         setStoryDraft(p.storyText || '');
         setPhoneDraft(p.phone || '');
         setGovDraft(p.governorate || '');
+        setGenderDraft(
+          p.gender === 'male' || p.gender === 'female'
+            ? p.gender
+            : (currentUserProfile?.gender === 'male' ? 'male' : 'female')
+        );
         setSkillLevelDraft(p.skillLevel || 'intermediate');
         setAssessmentScoreDraft(p.assessmentScore);
         setVisibilityDraft(normalizeVisibilityMatrix(p.visibility));
@@ -257,6 +266,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       storyText: storyDraft.trim(),
       phone: phoneDraft.trim(),
       governorate: govDraft.trim(),
+      gender: genderDraft,
       visibility: visibilityDraft,
       skillLevel: rawProfile?.accountRole !== 'supplier' ? skillLevelDraft : undefined,
       assessmentScore: rawProfile?.accountRole !== 'supplier' ? assessmentScoreDraft : undefined,
@@ -279,6 +289,11 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               logoBase64: res.profile.personalAvatar || '',
               phoneNumber: res.profile.phone || parsedLocal.phoneNumber,
               governorate: res.profile.governorate ?? parsedLocal.governorate,
+              gender: res.profile.gender || genderDraft,
+              ...(res.profile.skillLevel ? { skillLevel: res.profile.skillLevel } : {}),
+              ...(typeof res.profile.assessmentScore === 'number'
+                ? { assessmentScore: res.profile.assessmentScore }
+                : {}),
             })
           );
         }
@@ -292,6 +307,9 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
             governorate: res.profile.governorate,
             storyText: res.profile.storyText,
             bioHeadline: res.profile.bioHeadline,
+            gender: res.profile.gender || genderDraft,
+            skillLevel: res.profile.skillLevel,
+            assessmentScore: res.profile.assessmentScore,
           },
         })
       );
@@ -806,6 +824,41 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     placeholder="اكتب حكايتك مع حرفتك أو خبرتك في توفير الخامات، جودتك، وما يميز أعمالك..."
                     className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs sm:text-sm leading-relaxed"
                   />
+                </div>
+
+                {/* النوع / صفة المخاطبة (فنان / فنانة) */}
+                <div>
+                  <label className="block text-xs font-bold mb-1.5">
+                    {rawProfile.accountRole === 'supplier'
+                      ? 'النوع / صفة المخاطبة (مورد / موردة)'
+                      : 'النوع / صفة المخاطبة (فنان / فنانة)'}
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setGenderDraft('female')}
+                      className={`py-2 px-3 rounded-xl border-2 text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        genderDraft === 'female'
+                          ? 'bg-[#EA580C]/12 dark:bg-[#FBBF24]/15 border-[#EA580C] dark:border-[#FBBF24] text-[#0C1427] dark:text-[#F7F3EA]'
+                          : 'bg-white dark:bg-[#060B18] border-[#D4CCBC] dark:border-[#22355E] text-[#64748B] dark:text-[#94A3B8]'
+                      }`}
+                    >
+                      {genderDraft === 'female' && <CheckCircle2 className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24]" />}
+                      <span>{rawProfile.accountRole === 'supplier' ? 'موردة (أستاذة)' : 'فنانة (مبدعة)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGenderDraft('male')}
+                      className={`py-2 px-3 rounded-xl border-2 text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        genderDraft === 'male'
+                          ? 'bg-[#EA580C]/12 dark:bg-[#FBBF24]/15 border-[#EA580C] dark:border-[#FBBF24] text-[#0C1427] dark:text-[#F7F3EA]'
+                          : 'bg-white dark:bg-[#060B18] border-[#D4CCBC] dark:border-[#22355E] text-[#64748B] dark:text-[#94A3B8]'
+                      }`}
+                    >
+                      {genderDraft === 'male' && <CheckCircle2 className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24]" />}
+                      <span>{rawProfile.accountRole === 'supplier' ? 'مورد (أستاذ)' : 'فنان (مبدع)'}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Artisan Skill Level Assessment (Non-suppliers) */}

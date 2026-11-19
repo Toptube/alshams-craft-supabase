@@ -8161,6 +8161,7 @@ async function resolveCanonicalMemberRecord(lookupIdOrEmail: string): Promise<{
   displayName: string;
   brandName: string;
   familyNickname: string;
+  gender: 'male' | 'female';
   brandLogo: string | null;
   phone: string;
   country: string;
@@ -8185,6 +8186,7 @@ async function resolveCanonicalMemberRecord(lookupIdOrEmail: string): Promise<{
       displayName: 'كبير العيلة — مؤسس ومدير منظومة الشمساوية',
       brandName: 'منظومة الشمساوية الحرفية',
       familyNickname: 'كبير العيلة',
+      gender: 'male',
       brandLogo: '/brand_icon_light.png',
       phone: '',
       country: 'مصر',
@@ -8226,6 +8228,7 @@ async function resolveCanonicalMemberRecord(lookupIdOrEmail: string): Promise<{
       displayName: String(sup.owner_name || sup.ownerName || 'مورد معتمد'),
       brandName: String(sup.brand_name || sup.brandName || 'متجر مورد خامات'),
       familyNickname: String(sup.owner_name || sup.ownerName || ''),
+      gender: sup.gender === 'female' ? 'female' : 'male',
       brandLogo: sup.logo_url || sup.logoUrl || '/alshams_falcon_emblem.png',
       phone: String(sup.phone || ''),
       country: String(sup.country || 'مصر'),
@@ -8279,6 +8282,7 @@ async function resolveCanonicalMemberRecord(lookupIdOrEmail: string): Promise<{
       displayName: String(ws.artist_name || ws.artistName || 'فنان الشمساوية'),
       brandName: String(ws.brand_name || ws.brandName || 'ورشة الشمساوية'),
       familyNickname: String(ws.family_name || ws.familyNickname || ''),
+      gender: ws.gender === 'male' ? 'male' : 'female',
       brandLogo: ws.logo_url || ws.logoUrl || ws.logo_data || ws.logoBase64 || null,
       phone: String(ws.phone_number || ws.phoneNumber || ws.phone || ''),
       country: String(ws.country || 'مصر'),
@@ -8433,6 +8437,10 @@ async function buildResolvedMemberProfileForViewer(
     displayName: mp?.displayName || canonical?.displayName || 'عضو الشمساوية',
     brandName: mp?.brandName || canonical?.brandName || '',
     familyNickname: mp?.familyNickname || canonical?.familyNickname || '',
+    gender:
+      (artisanMeta as any)?.gender === 'male' || (artisanMeta as any)?.gender === 'female'
+        ? ((artisanMeta as any).gender as 'male' | 'female')
+        : canonical?.gender || 'female',
     personalAvatar: unifiedPhoto,
     brandLogo: unifiedPhoto,
     bioHeadline: mp?.bioHeadline || '',
@@ -8566,13 +8574,21 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
         ? body.assessmentScore
         : existingArtisanMeta.assessmentScore;
 
+    const nextGender: 'male' | 'female' | undefined =
+      body.gender === 'male' || body.gender === 'female'
+        ? body.gender
+        : ((existingArtisanMeta as any)?.gender === 'male' || (existingArtisanMeta as any)?.gender === 'female'
+          ? (existingArtisanMeta as any).gender
+          : undefined);
+
     const growthStore = readArtisanGrowthStore();
     growthStore.memberMeta[memberId] = {
       ...existingArtisanMeta,
       skillLevel: nextSkillLevel,
       assessmentScore: nextAssessmentScore,
+      ...(nextGender ? { gender: nextGender } : {}),
       updatedAt: nowIso,
-    };
+    } as any;
     writeArtisanGrowthStore(growthStore);
 
     const visibilityWithMeta: any = {
@@ -8635,6 +8651,7 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
           ...(body.personalAvatar !== undefined ? { logo_url: nextSupLogo } : {}),
           ...(body.phone !== undefined ? { phone: record.phone } : {}),
           ...(body.governorate !== undefined ? { governorate: record.governorate } : {}),
+          ...(body.gender === 'male' || body.gender === 'female' ? { gender: body.gender } : {}),
           store_config: nextStoreConfig,
           updated_at: nowIso,
         };
@@ -8645,6 +8662,7 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
         if (body.personalAvatar !== undefined) supPatch.logo_url = nextSupLogo;
         if (body.phone !== undefined) supPatch.phone = record.phone;
         if (body.governorate !== undefined) supPatch.governorate = record.governorate;
+        if (body.gender === 'male' || body.gender === 'female') supPatch.gender = body.gender;
         await supabaseAdminClient.from('platform_suppliers').update(supPatch).eq('id', memberId);
       } catch {}
     } else if (record.account_role === 'artisan') {
@@ -8653,7 +8671,7 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
         configs[memberId] = { ...(configs[memberId] || {}), artistStory: record.story_text, updatedAt: nowIso };
         savePersistentStoreConfigs(configs);
       }
-      // Sync unified photo / contact back to workshops (local + Supabase)
+      // Sync unified photo / contact / gender back to workshops (local + Supabase)
       try {
         const wsList = loadPersistentWorkshops();
         const wsIdx = wsList.findIndex((w: any) => w.id === memberId || w.workshopId === memberId);
@@ -8662,6 +8680,7 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
             ...wsList[wsIdx],
             ...(body.personalAvatar !== undefined ? { logo_data: unifiedAvatar || '', logoUrl: unifiedAvatar || '' } : {}),
             ...(body.phone !== undefined ? { phone: record.phone, phone_number: record.phone } : {}),
+            ...(body.gender === 'male' || body.gender === 'female' ? { gender: body.gender } : {}),
             updated_at: nowIso,
           };
           savePersistentWorkshops(wsList);
@@ -8669,6 +8688,7 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
         const wsPatch: any = {};
         if (body.personalAvatar !== undefined) wsPatch.logo_data = unifiedAvatar || '';
         if (body.phone !== undefined) wsPatch.phone = record.phone;
+        if (body.gender === 'male' || body.gender === 'female') wsPatch.gender = body.gender;
         if (Object.keys(wsPatch).length > 0) {
           await supabaseAdminClient.from('workshops').update(wsPatch).eq('id', memberId);
         }

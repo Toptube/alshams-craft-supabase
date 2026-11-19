@@ -1,5 +1,6 @@
 export type Gender = 'male' | 'female';
 
+import type { ArtisanSkillLevel } from './artisanGrowth';
 export type CraftCategory =
   | 'رانر'
   | 'ستائر'
@@ -84,6 +85,8 @@ export interface WorkshopProfile {
   };
   familyNickname?: string;
   welcomeShown?: boolean;
+  skillLevel?: ArtisanSkillLevel;
+  assessmentScore?: number;
   role?: 'admin' | 'superadmin' | 'artisan' | 'manager' | string;
   enableDailySalesReminder?: boolean; // تفعيل تنبيه مراجعة مبيعات اليوم قبل الإغلاق (افتراضي: true)
   dailySalesReminderMode?: 'closing_offset' | 'fixed_time'; // قبل الإغلاق بساعة أو وقت محدد
