@@ -56,7 +56,11 @@ export function readCachedUnifiedSnapshot(): UnifiedMaterialsSnapshot {
     const raw = localStorage.getItem(CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.masters) && parsed.masters.length > 0) {
+      if (
+        parsed &&
+        Array.isArray(parsed.masters) &&
+        parsed.masters.length >= SEEDED_UNIFIED_MASTERS.length
+      ) {
         return parsed;
       }
     }
@@ -328,4 +332,49 @@ export function saveLocalMaterialCodeMapping(
     current[localMaterialId] = mapping;
     localStorage.setItem(getMemberMaterialCodeMapKey(role, memberId), JSON.stringify(current));
   } catch {}
+}
+
+export function removeLocalMaterialCodeMapping(
+  role: 'artisan' | 'supplier',
+  memberId: string,
+  localMaterialId: string
+): Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }> {
+  try {
+    const current = getLocalMaterialCodeMap(role, memberId);
+    if (localMaterialId in current) {
+      delete current[localMaterialId];
+      localStorage.setItem(getMemberMaterialCodeMapKey(role, memberId), JSON.stringify(current));
+    }
+    return current;
+  } catch {
+    return {};
+  }
+}
+
+export function pruneLocalMaterialCodeMap(
+  role: 'artisan' | 'supplier',
+  memberId: string,
+  activeMaterialIds: Set<string>
+): Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }> {
+  try {
+    const current = getLocalMaterialCodeMap(role, memberId);
+    let changed = false;
+    const pruned: Record<
+      string,
+      { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }
+    > = {};
+    for (const [id, val] of Object.entries(current)) {
+      if (activeMaterialIds.has(id)) {
+        pruned[id] = val;
+      } else {
+        changed = true;
+      }
+    }
+    if (changed) {
+      localStorage.setItem(getMemberMaterialCodeMapKey(role, memberId), JSON.stringify(pruned));
+    }
+    return pruned;
+  } catch {
+    return {};
+  }
 }

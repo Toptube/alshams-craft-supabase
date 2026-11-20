@@ -18,21 +18,24 @@ export function normalizeMaterialKey(raw?: string | null): string {
     .replace(/ة/g, 'ه')
     .replace(/ى/g, 'ي')
     .replace(/[ًٌٍَُِّْـ]/g, '')
-    // strip parenthetical notes like "(2 - 6 مم)" or "(كل السماكات)"
-    .replace(/\([^)]*\)/g, ' ')
+    // strip ONLY thickness/size parenthetical notes like "(2 - 6 مم)" or "(كل السماكات)"
+    // while preserving semantic qualifiers like "(ألواح)", "(بوليستر)", "(نايلون)", "(خيط صيد)"
+    .replace(/\([^)]*(?:مم|مللي|ملي|mm|سماك)[^)]*\)/gi, ' ')
     // strip thickness ranges like "من 2 الي 6 مم" / "4 و 6 مم" / "8، 10، 12 مم"
     .replace(/(?:من\s+)?\d+(?:\.\d+)?(?:\s*(?:الي|الى|و|،|,|-|—)\s*\d+(?:\.\d+)?)*\s*(?:مم|مللي|ملي|mm)/gi, ' ')
     // strip phrases like "كل السماكات" / "جميع السماكات"
     .replace(/(?:كل|جميع)\s+السماكات/g, ' ')
-    // strip common leading noise words "خيط " / "خيوط " / "حبل " / "حبال "
-    .replace(/^(?:خيط|خيوط)\s+/g, '')
-    .replace(/[\/\-—_،,.:]+/g, ' ')
+    // strip common leading noise words "خيط " / "خيوط " ONLY when followed by specific cord names
+    .replace(/^(?:خيط|خيوط)\s+(?=(?:قطن|بوليستر|كردون|كوردون|سلب|مكرمي))/g, '')
+    .replace(/[()\/\-—_،,.:]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 /**
  * Match a legacy/manual material name (or code) to an official UnifiedMaterialMaster.
+ * Uses strict exact canonical match + UNIQUE-only aliases + safe legacy CORD_TYPES fallback
+ * so distinct materials NEVER falsely collapse into each other.
  */
 export function matchMaterialToUnifiedMaster(
   materialName: string,
@@ -41,25 +44,34 @@ export function matchMaterialToUnifiedMaster(
   const norm = normalizeMaterialKey(materialName);
   if (!norm) return null;
 
-  // 1. Exact canonical name match
-  for (const m of masters) {
-    if (m.status !== 'active') continue;
-    if (normalizeMaterialKey(m.canonicalName) === norm) {
-      return m;
-    }
+  const activeMasters = masters.filter((m) => m.status === 'active');
+
+  // 1. Exact canonical name match (highest precision, zero false collisions)
+  const exactMatches = activeMasters.filter((m) => normalizeMaterialKey(m.canonicalName) === norm);
+  if (exactMatches.length === 1) {
+    return exactMatches[0];
+  }
+  if (exactMatches.length > 1) {
+    // Ambiguous across categories (e.g. MT0027 vs AX0023); return first only if unambiguous in caller
+    return exactMatches[0];
   }
 
-  // 2. Exact alias match
-  for (const m of masters) {
-    if (m.status !== 'active') continue;
+  // 2. Exact alias match — ONLY if the alias uniquely maps to a SINGLE active master!
+  // (Prevents shared category aliases like "قماش قطن", "صوف", "شريط ساتان" from colliding 5-18 distinct items)
+  const aliasHits: UnifiedMaterialMaster[] = [];
+  for (const m of activeMasters) {
     const aliases = [...(m.artistAliases || []), ...(m.supplierAliases || [])];
     if (aliases.some((a) => normalizeMaterialKey(a) === norm)) {
-      return m;
+      aliasHits.push(m);
     }
   }
+  if (aliasHits.length === 1) {
+    return aliasHits[0];
+  }
 
-  // 3. Smart domain rules for legacy default CORD_TYPES & common Arabic thread names
-  const findByCode = (code: string) => masters.find((m) => m.code === code) || null;
+  // 3. Smart domain rules ONLY for legacy default CORD_TYPES & common Arabic cord names
+  // (Never hijacks distinct fabrics like "قماش خيش" or "جوت" because Step 1 already handled them!)
+  const findByCode = (code: string) => activeMasters.find((m) => m.code === code) || null;
   if (norm.includes('سلب')) return findByCode('TH0056');
   if (norm.includes('زجزاج') || norm.includes('zigzag')) return findByCode('TH0055');
   if (norm.includes('بوليستر مصري') || (norm.includes('بوليستر') && norm.includes('مصري'))) return findByCode('TH0052');
@@ -68,19 +80,9 @@ export function matchMaterialToUnifiedMaster(
   if (norm.includes('قطن محلول') || norm.includes('مكرميه محلول')) return findByCode('TH0054');
   if (norm.includes('قطن مبروم') || norm.includes('قطن مضفور') || norm.includes('3 فتله')) return findByCode('TH0051');
   if (norm.includes('قطن مجدول') || norm.includes('مكرميه قطن') || norm.includes('قيطان مجدول')) return findByCode('TH0001');
-  if (norm.includes('حبل قطن')) return findByCode('TH0002');
-  if (norm.includes('خيش') || norm.includes('جوت')) {
-    return masters.find((m) => m.prefix === 'TH' && normalizeMaterialKey(m.canonicalName).includes('خيش')) || null;
-  }
-
-  // 4. Strong containment match when canonical name is >= 5 chars
-  for (const m of masters) {
-    if (m.status !== 'active') continue;
-    const cn = normalizeMaterialKey(m.canonicalName);
-    if (cn.length >= 5 && (norm === cn || norm.includes(cn) || cn.includes(norm))) {
-      return m;
-    }
-  }
+  if (norm === 'حبل قطن' || norm === 'حبال قطن') return findByCode('TH0002');
+  if (norm === 'خيش' || norm === 'حبل خيش' || norm === 'خيط خيش') return findByCode('TH0006');
+  if (norm === 'جوت' || norm === 'حبل جوت' || norm === 'خيط جوت') return findByCode('TH0004');
 
   return null;
 }

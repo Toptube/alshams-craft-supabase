@@ -1143,6 +1143,12 @@ export async function updateOrProposeUnifiedMaster(
   if (!existing) throw new Error('الصنف المطلوب غير موجود');
   const nowIso = new Date().toISOString();
 
+  // Removing a material from an artist's/supplier's personal list ("خاماتي") MUST NEVER
+  // remove, archive, or hide the item from the Unified Materials System for anyone.
+  if (input.action === 'remove_local') {
+    return { scope: 'member_only', master: existing, supabaseSynced: true };
+  }
+
   // Super Admin direct global control
   if (input.actorRole === 'super_admin') {
     const patch: Partial<UnifiedMaterialMaster> = {
@@ -1194,8 +1200,8 @@ export async function updateOrProposeUnifiedMaster(
 
   const nextCustom: MemberMaterialCustomization = {
     ...prevCustom,
-    ...(input.action === 'remove_local' || input.action === 'archive' || input.action === 'delete_unused'
-      ? { isHidden: true, hideReason: input.reason || 'إزالة من قائمة العضو فقط' }
+    ...(input.action === 'archive' || input.action === 'delete_unused'
+      ? { isHidden: false, hideReason: '' }
       : { customName: input.canonicalName?.trim() || prevCustom.customName }),
     updatedAt: nowIso,
   };
