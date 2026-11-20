@@ -11,6 +11,7 @@ import {
   extractGroundingMetadata,
   shouldTriggerGoogleSearch,
   performGoogleSearch,
+  fetchFreeWebSearchResults,
   getGroqApiKeys,
   getFanarApiKey,
   formatAiErrorReason,
@@ -319,53 +320,70 @@ export class GeminiAIProvider {
     opts: { label: string; timeoutMs: number; role?: 'falcon_chat' | 'falcon_vision' }
   ): Promise<any> {
     const role = opts.role || 'falcon_chat';
-    const key = resolveAgentGeminiKey(role);
-    if (!key || isGeminiKeyCircuitOpen(key)) {
+    const primaryKey = resolveAgentGeminiKey(role);
+    const altRole: 'falcon_chat' | 'falcon_vision' = role === 'falcon_vision' ? 'falcon_chat' : 'falcon_vision';
+    const altKey = resolveAgentGeminiKey(altRole);
+    const rolesToTry: Array<{ role: 'falcon_chat' | 'falcon_vision'; key: string }> = [];
+    if (primaryKey && !isGeminiKeyCircuitOpen(primaryKey)) {
+      rolesToTry.push({ role, key: primaryKey });
+    }
+    if (altKey && altKey !== primaryKey && !isGeminiKeyCircuitOpen(altKey)) {
+      rolesToTry.push({ role: altRole, key: altKey });
+    }
+    if (rolesToTry.length === 0) {
       const err: any = new Error('مفتاح Gemini غير صالح أو متجاوز مؤقتاً — يتم التحويل الفوري لـ Groq/Fanar');
       err.kind = 'bad_key';
       throw err;
     }
 
-    const ai = this.getClient(role);
     const uniqueModels = getCandidateGeminiModels();
     let lastError: any = null;
 
-    for (const model of uniqueModels) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        let timeoutId: any;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            const timeoutErr: any = new Error(`انتهت مهلة استجابة Gemini (${opts.label})`);
-            timeoutErr.kind = 'timeout';
-            reject(timeoutErr);
-          }, opts.timeoutMs || 25000);
-        });
+    for (const target of rolesToTry) {
+      const ai = this.getClient(target.role);
+      for (let mIdx = 0; mIdx < uniqueModels.length; mIdx++) {
+        const model = uniqueModels[mIdx];
+        const isLastModel = mIdx === uniqueModels.length - 1;
+        const maxAttempts = isLastModel && rolesToTry.length === 1 ? 2 : 1;
+        const perAttemptTimeout = isLastModel ? (opts.timeoutMs || 18000) : Math.min(opts.timeoutMs || 12000, 11000);
 
-        try {
-          const response = await Promise.race([
-            ai.models.generateContent({
-              model,
-              contents: req.contents,
-              config: req.config || {},
-            }).finally(() => clearTimeout(timeoutId)),
-            timeoutPromise,
-          ]);
-          return response;
-        } catch (err: any) {
-          clearTimeout(timeoutId);
-          lastError = err;
-          if (tripGeminiKeyCircuit(key, err)) {
-            throw Object.assign(err instanceof Error ? err : new Error(String(err)), { kind: 'bad_key' as GeminiErrorKind });
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          let timeoutId: any;
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              const timeoutErr: any = new Error(`انتهت مهلة استجابة Gemini (${opts.label})`);
+              timeoutErr.kind = 'timeout';
+              reject(timeoutErr);
+            }, perAttemptTimeout);
+          });
+
+          try {
+            const response = await Promise.race([
+              ai.models.generateContent({
+                model,
+                contents: req.contents,
+                config: req.config || {},
+              }).finally(() => clearTimeout(timeoutId)),
+              timeoutPromise,
+            ]);
+            return response;
+          } catch (err: any) {
+            clearTimeout(timeoutId);
+            lastError = err;
+            if (tripGeminiKeyCircuit(target.key, err)) {
+              break;
+            }
+            const msg = String(err?.message || err || '');
+            const isTransient503 = msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE');
+            console.log(`[Falcon Gemini] Notice on ${model} (${target.role}, attempt ${attempt}): ${isTransient503 ? 'temporary demand spike (503)' : 'trying fallback'}`);
+            if (isTransient503 && attempt < maxAttempts) {
+              await new Promise((r) => setTimeout(r, 500));
+              continue;
+            }
+            break;
           }
-          const msg = String(err?.message || err || '');
-          const isTransient503 = msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE');
-          console.log(`[Falcon Gemini] Notice on ${model} (attempt ${attempt}): ${isTransient503 ? 'temporary demand spike (503)' : 'trying fallback'}`);
-          if (isTransient503 && attempt === 1) {
-            await new Promise((r) => setTimeout(r, 600));
-            continue;
-          }
-          break;
         }
+        if (isGeminiKeyCircuitOpen(target.key)) break;
       }
     }
 
@@ -378,7 +396,7 @@ export class GeminiAIProvider {
     if (!this.isAvailable('falcon_vision')) {
       const err: any = new Error(
         isAdmin
-          ? 'تحليل الصور يتطلب تفعيل مفتاح GEMINI_API_KEY المجاني في الإعدادات (Settings > Secrets). المحادثة النصية وحساب التكاليف والصوت والبحث الحي تعمل حالياً بكفاءة.'
+          ? 'تحليل الصور يستخدم مفاتيحك المجانية (GEMINI_API_KEY_FALCON_VISION / GEMINI_API_KEY_FALCON_CHAT) في Settings > Secrets. المحادثة النصية وحساب التكاليف والصوت والبحث الحي تعمل حالياً بكفاءة.'
           : 'قراءة الصور واخدة استراحة صغيرة دلوقتي بسبب ضغط الشغل.. بس ولا يهمك! اوصفلي مقاسات القطعة وخامتها بالكلام أو بالصوت وأنا أحسبهالك فوراً بالمليمتر 🦅'
       );
       err.kind = 'bad_key';
@@ -691,6 +709,7 @@ export class GeminiAIProvider {
 
         let response: any = null;
         let searchUsed = false;
+        let extraWebSources: GroundedSource[] = [];
 
         if (needsSearch) {
           try {
@@ -702,15 +721,34 @@ export class GeminiAIProvider {
                   tools: [{ googleSearch: {} }],
                 },
               },
-              { label: 'falcon-google-search', timeoutMs: 20_000, role: 'falcon_chat' }
+              { label: 'falcon-google-search', timeoutMs: 11_000, role: 'falcon_chat' }
             );
             searchUsed = true;
           } catch (searchErr: any) {
             if (searchErr?.kind === 'bad_key') throw searchErr;
             console.warn('[Falcon] Google Search grounding fallback notice:', searchErr?.message);
+            // Fetch live free web search results so Saqr still answers with real, cited market sources
+            extraWebSources = await fetchFreeWebSearchResults(userPromptText, 5).catch(() => []);
+            const enrichedContents = [...contents];
+            if (extraWebSources.length > 0 && enrichedContents.length > 0) {
+              const webContext = extraWebSources
+                .map((s, idx) => `[${idx + 1}] ${s.title}\nالرابط: ${s.url}\nالملخص: ${s.snippet || 'غير متوفر'}`)
+                .join('\n\n');
+              const lastTurn = enrichedContents[enrichedContents.length - 1];
+              enrichedContents[enrichedContents.length - 1] = {
+                ...lastTurn,
+                parts: [
+                  ...(lastTurn.parts || []),
+                  {
+                    text: `\n\n[نتائج البحث الحي من الويب الآن — اعتمد عليها واذكر الأسعار والمصادر الحقيقية منها]:\n${webContext}`,
+                  },
+                ],
+              };
+              searchUsed = true;
+            }
             response = await this.generate(
-              { contents, config: { systemInstruction } },
-              { label: 'falcon-chat-direct', timeoutMs: 16_000, role: 'falcon_chat' }
+              { contents: enrichedContents, config: { systemInstruction } },
+              { label: 'falcon-chat-web-grounded', timeoutMs: 14_000, role: 'falcon_chat' }
             );
           }
         } else {
@@ -718,13 +756,17 @@ export class GeminiAIProvider {
             { contents, config: { systemInstruction } },
             {
               label: hasImages ? 'falcon-vision' : 'falcon-chat',
-              timeoutMs: hasImages ? 24_000 : 16_000,
+              timeoutMs: hasImages ? 20_000 : 14_000,
               role: activeGeminiRole,
             }
           );
         }
 
-        const { sources: searchSources, searchEntryPoint } = extractGroundingMetadata(response);
+        const { sources: groundingSources, searchEntryPoint } = extractGroundingMetadata(response);
+        let searchSources: GroundedSource[] = [...groundingSources, ...extraWebSources];
+        if (needsSearch && searchSources.length === 0) {
+          searchSources = await fetchFreeWebSearchResults(userPromptText, 5).catch(() => []);
+        }
         const reply = response?.text?.trim();
         if (reply) {
           console.log('[AI Service: Falcon] Provider 1 (Gemini) succeeded.', searchUsed ? `Sources: ${searchSources.length}` : '');
@@ -745,7 +787,7 @@ export class GeminiAIProvider {
         );
       }
     } else {
-      geminiFailReason = 'مفتاح GEMINI_API_KEY_FALCON / GEMINI_API_KEY غير مضبوط في Secrets';
+      geminiFailReason = 'مفاتيح Gemini المجانية (GEMINI_API_KEY_FALCON_CHAT / VISION) غير متاحة مؤقتاً';
       console.log(`[AI Service: Falcon] Provider 1 (Gemini) skipped -> Switching to Provider 2 (Groq Backup)...`);
     }
 
@@ -753,7 +795,7 @@ export class GeminiAIProvider {
     if (hasImages) {
       return {
         reply: superAdmin
-          ? `يا ${firstName} 🦅 (تنبيه السوبر أدمن): تحليل الصور يحتاج حالياً لتفعيل مفتاح GEMINI_API_KEY المجاني في الإعدادات (Settings > Secrets).\n\nالمحادثة النصية وحساب التكاليف والتسجيل الصوتي والبحث الحي شغالين حالياً بكفاءة.`
+          ? `يا ${firstName} 🦅 (تنبيه السوبر أدمن): تحليل الصور يعمل عبر مفتاحيك المجانيين (GEMINI_API_KEY_FALCON_VISION / GEMINI_API_KEY_FALCON_CHAT) في Settings > Secrets.\n\nالمحادثة النصية وحساب التكاليف والتسجيل الصوتي والبحث الحي شغالين حالياً بكفاءة.`
           : `حقك عليا يا ${firstName} 🦅، فحص الصور فيه ضغط بسيط على الخط دلوقتي فمش قادر أقرأ الصورة لحظياً..\n\nبس ولا يهمك! اوصفلي القطعة بالكلام أو بالصوت (مثلاً: ستارة مكرمية عرض 80 سم × طول 120 سم بخيط 4 مم) وهحسبلك التكلفة والسعر العادل في ثواني!`,
         sources: [],
         searchUsed: false,

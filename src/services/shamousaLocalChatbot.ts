@@ -1691,6 +1691,51 @@ function matchUnifiedMaterialLocally(normQuery: string, tokens: string[], firstN
     'اوفي',
     'اوف',
     'وايت',
+    'انت',
+    'انتي',
+    'انتا',
+    'شغاله',
+    'شغالة',
+    'شغال',
+    'تشتغل',
+    'تشتغلي',
+    'ازاي',
+    'ازاى',
+    'كيف',
+    'طريقه',
+    'طريقة',
+    'بتشتغل',
+    'بتشتغلي',
+    'بتعملي',
+    'بتعمل',
+    'ايه',
+    'إيه',
+    'مين',
+    'ليه',
+    'امتي',
+    'امتى',
+    'متي',
+    'فين',
+    'السلام',
+    'سلام',
+    'عليكم',
+    'ورحمه',
+    'الله',
+    'وبركاته',
+    'اهلا',
+    'مرحبا',
+    'صباح',
+    'مساء',
+    'الخير',
+    'الفل',
+    'النور',
+    'ازيك',
+    'ازيكم',
+    'اخبارك',
+    'هاي',
+    'الو',
+    'hello',
+    'hi',
   ]);
 
   const meaningfulTokens = tokens.filter((t) => !stopWords.has(t) && !/^\d+(\.\d+)?$/.test(t));
@@ -1705,12 +1750,15 @@ function matchUnifiedMaterialLocally(normQuery: string, tokens: string[], firstN
 
     let score = 0;
     for (const qt of meaningfulTokens) {
-      if (searchPool.includes(qt)) {
+      const exactOrPrefix = poolTokens.some(
+        (pt) => pt === qt || (qt.length >= 4 && (pt.startsWith(qt) || qt.startsWith(pt)))
+      );
+      if (exactOrPrefix) {
         score += qt.length >= 4 ? 4.5 : 3.2;
       } else {
         for (const pt of poolTokens) {
           const fm = fuzzyTokenMatches(qt, pt);
-          if (fm >= 0.8) {
+          if (fm >= 0.82) {
             score += 2.6;
             break;
           }

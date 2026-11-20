@@ -583,9 +583,44 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
 // -------------------------------------------------------------
 // Health Check & Web Push VAPID Endpoints
 // -------------------------------------------------------------
-let cachedVapidKeys: { publicKey: string; privateKey: string } | null = null;
+let cachedVapidKeys: { publicKey: string; privateKey: string; source: 'secrets' | 'secrets_swapped' | 'local_file' | 'generated' } | null = null;
 function cleanEnvVapid(val?: string): string {
   return String(val || '').trim().replace(/^["']+|["']+$/g, '').trim();
+}
+function resolveVapidEnvPair(): { pub: string; priv: string; matchedPubName: string; matchedPrivName: string } {
+  const exactPubNames = ['VAPID_PUBLIC_KEY', 'VITE_VAPID_PUBLIC_KEY', 'WEB_PUSH_PUBLIC_KEY'];
+  const exactPrivNames = ['VAPID_PRIVATE_KEY', 'VAPID_SECRET_KEY', 'VAPID_PRIVATE', 'VITE_VAPID_PRIVATE_KEY', 'WEB_PUSH_PRIVATE_KEY'];
+
+  let pub = '';
+  let matchedPubName = '';
+  for (const name of exactPubNames) {
+    const v = cleanEnvVapid(process.env[name]);
+    if (v) { pub = v; matchedPubName = name; break; }
+  }
+
+  let priv = '';
+  let matchedPrivName = '';
+  for (const name of exactPrivNames) {
+    const v = cleanEnvVapid(process.env[name]);
+    if (v) { priv = v; matchedPrivName = name; break; }
+  }
+
+  // Fallback: handle accidental leading/trailing spaces or lowercase/typo in env var name
+  if (!pub || !priv) {
+    for (const [rawKey, rawVal] of Object.entries(process.env)) {
+      const normKey = rawKey.trim().toUpperCase();
+      const v = cleanEnvVapid(rawVal);
+      if (!v) continue;
+      if (!pub && /VAPID.*PUB|PUB.*VAPID/.test(normKey)) {
+        pub = v;
+        matchedPubName = rawKey;
+      } else if (!priv && /VAPID.*(PRIV|SEC)|(PRIV|SEC).*VAPID/.test(normKey)) {
+        priv = v;
+        matchedPrivName = rawKey;
+      }
+    }
+  }
+  return { pub, priv, matchedPubName, matchedPrivName };
 }
 function tryApplyVapidPair(publicKey: string, privateKey: string): boolean {
   if (!publicKey || !privateKey) return false;
@@ -598,17 +633,16 @@ function tryApplyVapidPair(publicKey: string, privateKey: string): boolean {
 }
 function getOrInitVapidKeys(): { publicKey: string; privateKey: string } {
   if (cachedVapidKeys) return cachedVapidKeys;
-  const envPub = cleanEnvVapid(process.env.VAPID_PUBLIC_KEY);
-  const envPriv = cleanEnvVapid(process.env.VAPID_PRIVATE_KEY || process.env.VAPID_SECRET_KEY);
+  const { pub: envPub, priv: envPriv } = resolveVapidEnvPair();
 
   if (envPub && envPriv) {
     if (tryApplyVapidPair(envPub, envPriv)) {
-      cachedVapidKeys = { publicKey: envPub, privateKey: envPriv };
+      cachedVapidKeys = { publicKey: envPub, privateKey: envPriv, source: 'secrets' };
       return cachedVapidKeys;
     }
     if (tryApplyVapidPair(envPriv, envPub)) {
       console.warn('[WebPush] Detected swapped VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in Secrets; auto-corrected in runtime.');
-      cachedVapidKeys = { publicKey: envPriv, privateKey: envPub };
+      cachedVapidKeys = { publicKey: envPriv, privateKey: envPub, source: 'secrets_swapped' };
       return cachedVapidKeys;
     }
     console.warn(
@@ -620,15 +654,15 @@ function getOrInitVapidKeys(): { publicKey: string; privateKey: string } {
     if (fs.existsSync(VAPID_KEYS_FILE)) {
       const parsed = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf-8'));
       if (parsed?.publicKey && parsed?.privateKey && tryApplyVapidPair(parsed.publicKey, parsed.privateKey)) {
-        cachedVapidKeys = { publicKey: parsed.publicKey, privateKey: parsed.privateKey };
+        cachedVapidKeys = { publicKey: parsed.publicKey, privateKey: parsed.privateKey, source: 'local_file' };
         return cachedVapidKeys;
       }
     }
   } catch {}
 
   const generated = webpush.generateVAPIDKeys();
-  cachedVapidKeys = { publicKey: generated.publicKey, privateKey: generated.privateKey };
-  writeJsonData(VAPID_KEYS_FILE, cachedVapidKeys);
+  cachedVapidKeys = { publicKey: generated.publicKey, privateKey: generated.privateKey, source: 'generated' };
+  writeJsonData(VAPID_KEYS_FILE, { publicKey: generated.publicKey, privateKey: generated.privateKey });
   tryApplyVapidPair(cachedVapidKeys.publicKey, cachedVapidKeys.privateKey);
   return cachedVapidKeys;
 }

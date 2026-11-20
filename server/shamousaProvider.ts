@@ -12,6 +12,7 @@ import {
   extractGroundingMetadata,
   shouldTriggerGoogleSearch,
   performGoogleSearch,
+  fetchFreeWebSearchResults,
   getGroqApiKeys,
   getFanarApiKey,
   formatAiErrorReason,
@@ -373,13 +374,27 @@ async function callGeminiChatForShamousa(
   const functionDeclarations = buildShamousaGeminiFunctionDeclarations();
   const enableSearch = !hasImages && Boolean(options.useSearch);
 
+  const lastUserText = String(nonSystemMessages[nonSystemMessages.length - 1]?.content || '').trim();
   let lastGeminiError: any = null;
+  let cachedFallbackWebSources: GroundedSource[] | null = null;
 
-  for (const modelName of modelsToTry) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+  const getFallbackWebSources = async () => {
+    if (cachedFallbackWebSources === null) {
+      cachedFallbackWebSources = await fetchFreeWebSearchResults(lastUserText, 5).catch(() => []);
+    }
+    return cachedFallbackWebSources;
+  };
+
+  for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
+    const modelName = modelsToTry[mIdx];
+    const isLastModel = mIdx === modelsToTry.length - 1;
+    const maxAttempts = isLastModel ? 2 : 1;
+    const perAttemptTimeout = isLastModel ? 16000 : 10000;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       let timeoutId: any;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(`انتهت مهلة استجابة Gemini (${modelName})`)), 25000);
+        timeoutId = setTimeout(() => reject(new Error(`انتهت مهلة استجابة Gemini (${modelName})`)), perAttemptTimeout);
       });
 
       try {
@@ -455,10 +470,14 @@ async function callGeminiChatForShamousa(
         const { sources, searchEntryPoint } = extractGroundingMetadata(response);
         const reply = response?.text?.trim();
         if (reply) {
+          let finalSources = sources.slice(0, 6);
+          if (enableSearch && finalSources.length === 0) {
+            finalSources = (await getFallbackWebSources()).slice(0, 6);
+          }
           return {
             reply,
-            sources: sources.slice(0, 6),
-            searchUsed: enableSearch || sources.length > 0,
+            sources: finalSources,
+            searchUsed: enableSearch || finalSources.length > 0,
             searchEntryPoint,
           };
         }
@@ -478,12 +497,29 @@ async function callGeminiChatForShamousa(
           }`
         );
 
-        // If hybrid search+tools failed with 400 or 429, fall back to Gemini with Workshop Tools only (no googleSearch)
+        // If hybrid search+tools failed with 400 or 429, ground with free live web search + Gemini tools!
         if (enableSearch && !isTransient503) {
           try {
+            const liveWebSources = await getFallbackWebSources();
+            const enrichedContents = [...baseContents];
+            if (liveWebSources.length > 0 && enrichedContents.length > 0) {
+              const webContext = liveWebSources
+                .map((s, idx) => `[${idx + 1}] ${s.title}\nالرابط: ${s.url}\nالملخص: ${s.snippet || 'غير متوفر'}`)
+                .join('\n\n');
+              const lastTurn = enrichedContents[enrichedContents.length - 1];
+              enrichedContents[enrichedContents.length - 1] = {
+                ...lastTurn,
+                parts: [
+                  ...(lastTurn.parts || []),
+                  {
+                    text: `\n\n[نتائج البحث الحي من الويب الآن — اعتمدي عليها واذكري الأسعار والمصادر الحقيقية منها]:\n${webContext}`,
+                  },
+                ],
+              };
+            }
             const toolsOnlyRes = await ai.models.generateContent({
               model: modelName,
-              contents: baseContents,
+              contents: enrichedContents,
               config: {
                 systemInstruction,
                 tools: [{ functionDeclarations }],
@@ -493,36 +529,19 @@ async function callGeminiChatForShamousa(
             if (txt) {
               return {
                 reply: txt,
-                sources: [],
-                searchUsed: false,
+                sources: liveWebSources.slice(0, 6),
+                searchUsed: liveWebSources.length > 0,
               };
             }
           } catch {}
         }
 
-        if (isTransient503 && attempt === 1) {
-          await new Promise((r) => setTimeout(r, 600));
+        if (isTransient503 && attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 500));
           continue;
         }
         break;
       }
-    }
-  }
-
-  // Final Gemini pass without tools before switching to Groq backup
-  if (enableSearch) {
-    for (const modelName of modelsToTry) {
-      try {
-        const directRes = await ai.models.generateContent({
-          model: modelName,
-          contents: baseContents,
-          config: { systemInstruction },
-        });
-        const txt = directRes?.text?.trim();
-        if (txt) {
-          return { reply: txt, sources: [], searchUsed: false };
-        }
-      } catch {}
     }
   }
 
@@ -906,13 +925,14 @@ export async function handleShamousaChat(
 
   const hasImages = Array.isArray(images) && images.length > 0;
   const wantsGoogleSearch = shouldTriggerGoogleSearch(userMessage, Boolean(ctx.useSearch));
-  const shamousaGeminiKey = resolveAgentGeminiKey('shamousa');
 
   // -------------------------------------------------------------
   // Provider 1 (Primary): Google Gemini + Workshop Tools + Google Search Grounding
   // -------------------------------------------------------------
-  if (shamousaGeminiKey && !isGeminiKeyCircuitOpen(shamousaGeminiKey)) {
-    console.log('[AI Service: Shamousa] Attempting Provider 1 (Gemini + Tools + Google Search)...');
+  let shamousaGeminiKey = resolveAgentGeminiKey('shamousa');
+  for (let keyAttempt = 0; keyAttempt < 2; keyAttempt++) {
+    if (!shamousaGeminiKey || isGeminiKeyCircuitOpen(shamousaGeminiKey)) break;
+    console.log(`[AI Service: Shamousa] Attempting Provider 1 (Gemini key #${keyAttempt + 1} + Tools + Google Search)...`);
     try {
       const geminiResult = await callGeminiChatForShamousa(systemInstruction, promptMessages, toolCtx, {
         images,
@@ -933,16 +953,25 @@ export async function handleShamousaChat(
         };
       }
       geminiFailReason = 'رد فارغ من Gemini';
+      break;
     } catch (geminiErr: any) {
       geminiFailReason = geminiErr?.message || 'فشل الاتصال بـ Gemini';
+      const nextKey = resolveAgentGeminiKey('shamousa');
+      if (nextKey && nextKey !== shamousaGeminiKey && !isGeminiKeyCircuitOpen(nextKey)) {
+        console.warn('[AI Service: Shamousa] Switching to next healthy Gemini key immediately...');
+        shamousaGeminiKey = nextKey;
+        continue;
+      }
       console.warn(
         `[AI Service: Shamousa] Provider 1 (Gemini) failed: [${formatAiErrorReason(geminiFailReason)}] -> Switching to Provider 2 (Groq Backup)...`
       );
+      break;
     }
-  } else {
+  }
+  if (!geminiFailReason) {
     geminiFailReason = shamousaGeminiKey
-      ? 'مفتاح Gemini متجاوز مؤقتاً (غير صالح في Secrets)'
-      : 'مفتاح GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY غير مضبوط في Secrets';
+      ? 'مفتاح Gemini المجاني متجاوز مؤقتاً'
+      : 'مفتاح Gemini المجاني (GEMINI_API_KEY_FALCON_CHAT) غير مضبوط في Secrets';
     console.log(`[AI Service: Shamousa] Provider 1 (Gemini) bypassed cleanly -> Routing directly to live Groq...`);
   }
 
@@ -950,7 +979,7 @@ export async function handleShamousaChat(
     const firstName = extractFirstName(ctx.artistName) || 'صديقي';
     return {
       reply: superAdmin
-        ? `يا ${firstName} ☀️ (تنبيه السوبر أدمن): تحليل الصور يحتاج حالياً لتفعيل مفتاح GEMINI_API_KEY المجاني في الإعدادات (Settings > Secrets). المحادثة النصية والأدوات والبحث الحي تعمل حالياً.`
+        ? `يا ${firstName} ☀️ (تنبيه السوبر أدمن): تحليل الصور يعمل عبر مفتاحيك المجانيين (GEMINI_API_KEY_FALCON_VISION / GEMINI_API_KEY_FALCON_CHAT) في Settings > Secrets. المحادثة النصية والأدوات والبحث الحي تعمل حالياً.`
         : `حقك عليا يا ${firstName} ☀️، قراءة الصور فيها ضغط بسيط على الخط دلوقتي..\nبس ولا يهمك! اكتبلي اسم الخامة أو تفاصيل الفاتورة في سطرين وأنا أظبطلك كل حاجة في ثواني!`,
       handoffToFalcon: false,
       provider: 'system_notice',

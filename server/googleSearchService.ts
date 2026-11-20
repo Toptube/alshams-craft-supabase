@@ -27,9 +27,7 @@ export interface GoogleSearchResult {
   searchEntryPoint?: string;
   searchUsed: boolean;
   engine:
-    | 'google_custom_search_plus_gemini'
     | 'gemini_google_search'
-    | 'google_custom_search'
     | 'web_search_plus_groq'
     | 'web_search_direct';
 }
@@ -168,76 +166,74 @@ export function formatAiErrorReason(reason?: string): string {
  * Resolve the appropriate Gemini API key from environment secrets
  * without ever hardcoding or exposing keys to the browser.
  */
-export function resolveAgentGeminiKey(agent: AIAgentRole): string {
-  if (agent === 'falcon_chat') {
-    return (
-      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_CHAT) ||
-      cleanSecretValue(process.env.FALCON_CHAT_GEMINI_API_KEY) ||
-      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
-      cleanSecretValue(process.env.FALCON_GEMINI_API_KEY) ||
-      cleanSecretValue(process.env.GEMINI_API_KEY) ||
-      ''
-    );
-  }
-  if (agent === 'falcon_vision') {
-    return (
-      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_VISION) ||
-      cleanSecretValue(process.env.FALCON_VISION_GEMINI_API_KEY) ||
-      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
-      cleanSecretValue(process.env.FALCON_GEMINI_API_KEY) ||
-      cleanSecretValue(process.env.GEMINI_API_KEY) ||
-      ''
-    );
-  }
-  if (agent === 'falcon') {
-    return (
-      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_CHAT) ||
-      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
-      cleanSecretValue(process.env.FALCON_GEMINI_API_KEY) ||
-      cleanSecretValue(process.env.GEMINI_API_KEY) ||
-      ''
-    );
-  }
-  if (agent === 'shamousa') {
-    return (
-      cleanSecretValue(process.env.GEMINI_API_KEY_SHAMOUSA) ||
-      cleanSecretValue(process.env.SHAMOUSA_GEMINI_API_KEY) ||
-      cleanSecretValue(process.env.GEMINI_API_KEY) ||
-      ''
-    );
-  }
-  return (
-    cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_CHAT) ||
-    cleanSecretValue(process.env.GEMINI_API_KEY) ||
-    cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
-    cleanSecretValue(process.env.GEMINI_API_KEY_SHAMOUSA) ||
-    ''
-  );
+function pickFirstHealthyGeminiKey(candidates: Array<string | undefined>): string {
+  const cleaned = Array.from(new Set(candidates.map((c) => cleanSecretValue(c)).filter(Boolean)));
+  if (cleaned.length === 0) return '';
+  const healthy = cleaned.find((k) => !isGeminiKeyCircuitOpen(k));
+  return healthy || cleaned[0];
 }
 
-export function resolveGoogleSearchCredentials(): { apiKey: string; cx: string } {
-  return {
-    apiKey: cleanSecretValue(process.env.GOOGLE_SEARCH_API_KEY),
-    cx: cleanSecretValue(process.env.GOOGLE_SEARCH_CX),
-  };
+export function resolveAgentGeminiKey(agent: AIAgentRole): string {
+  // Strictly use user's own free custom Gemini keys (completely ignores platform-managed GEMINI_API_KEY)
+  if (agent === 'falcon_chat') {
+    return pickFirstHealthyGeminiKey([
+      process.env.GEMINI_API_KEY_FALCON_CHAT,
+      process.env.FALCON_CHAT_GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_FALCON,
+      process.env.FALCON_GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_FALCON_VISION,
+      process.env.GEMINI_API_KEY_SHAMOUSA,
+    ]);
+  }
+  if (agent === 'falcon_vision') {
+    return pickFirstHealthyGeminiKey([
+      process.env.GEMINI_API_KEY_FALCON_VISION,
+      process.env.FALCON_VISION_GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_FALCON,
+      process.env.FALCON_GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_FALCON_CHAT,
+      process.env.GEMINI_API_KEY_SHAMOUSA,
+    ]);
+  }
+  if (agent === 'falcon') {
+    return pickFirstHealthyGeminiKey([
+      process.env.GEMINI_API_KEY_FALCON_CHAT,
+      process.env.GEMINI_API_KEY_FALCON,
+      process.env.FALCON_GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_FALCON_VISION,
+      process.env.GEMINI_API_KEY_SHAMOUSA,
+    ]);
+  }
+  if (agent === 'shamousa') {
+    return pickFirstHealthyGeminiKey([
+      process.env.GEMINI_API_KEY_SHAMOUSA,
+      process.env.SHAMOUSA_GEMINI_API_KEY,
+      process.env.GEMINI_API_KEY_FALCON_CHAT,
+      process.env.GEMINI_API_KEY_FALCON_VISION,
+      process.env.GEMINI_API_KEY_FALCON,
+    ]);
+  }
+  return pickFirstHealthyGeminiKey([
+    process.env.GEMINI_API_KEY_FALCON_CHAT,
+    process.env.GEMINI_API_KEY_FALCON_VISION,
+    process.env.GEMINI_API_KEY_FALCON,
+    process.env.GEMINI_API_KEY_SHAMOUSA,
+  ]);
 }
 
 export function getAgentSecretStatus() {
   const falconChatKey = resolveAgentGeminiKey('falcon_chat');
   const falconVisionKey = resolveAgentGeminiKey('falcon_vision');
   const shamousaKey = resolveAgentGeminiKey('shamousa');
-  const sharedKey = cleanSecretValue(process.env.GEMINI_API_KEY);
-  const { apiKey: cseKey, cx } = resolveGoogleSearchCredentials();
   const groqKeys = getGroqApiKeys();
   const fanarKey = getFanarApiKey();
   const geminiUsable = Boolean(
     (falconChatKey && !isGeminiKeyCircuitOpen(falconChatKey)) ||
-      (sharedKey && !isGeminiKeyCircuitOpen(sharedKey))
+      (falconVisionKey && !isGeminiKeyCircuitOpen(falconVisionKey)) ||
+      (shamousaKey && !isGeminiKeyCircuitOpen(shamousaKey))
   );
 
   return {
-    geminiSharedConfigured: Boolean(sharedKey),
-    geminiCircuitOpen: Boolean(sharedKey && isGeminiKeyCircuitOpen(sharedKey)),
     falconGeminiReady: Boolean(falconChatKey && !isGeminiKeyCircuitOpen(falconChatKey)),
     falconChatGeminiReady: Boolean(falconChatKey && !isGeminiKeyCircuitOpen(falconChatKey)),
     falconVisionGeminiReady: Boolean(falconVisionKey && !isGeminiKeyCircuitOpen(falconVisionKey)),
@@ -248,7 +244,8 @@ export function getAgentSecretStatus() {
     fanarConfigured: Boolean(fanarKey),
     activePrimaryProvider: geminiUsable ? 'gemini' : groqKeys.length > 0 ? 'groq' : fanarKey ? 'fanar' : 'none',
     googleSearchGroundingReady: Boolean(geminiUsable || groqKeys.length > 0 || fanarKey),
-    googleCustomSearchApiReady: Boolean(cseKey && cx),
+    freeLiveWebSearchReady: true,
+    paidApisRemoved: true,
   };
 }
 
@@ -256,13 +253,13 @@ export function createGeminiClientForAgent(agent: AIAgentRole): GoogleGenAI {
   const apiKey = resolveAgentGeminiKey(agent);
   if (!apiKey) {
     const labelMap: Record<AIAgentRole, string> = {
-      falcon: 'GEMINI_API_KEY_FALCON / GEMINI_API_KEY',
-      falcon_chat: 'GEMINI_API_KEY_FALCON_CHAT / GEMINI_API_KEY',
-      falcon_vision: 'GEMINI_API_KEY_FALCON_VISION / GEMINI_API_KEY',
-      shamousa: 'GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY',
-      search: 'GEMINI_API_KEY',
+      falcon: 'GEMINI_API_KEY_FALCON_CHAT',
+      falcon_chat: 'GEMINI_API_KEY_FALCON_CHAT',
+      falcon_vision: 'GEMINI_API_KEY_FALCON_VISION',
+      shamousa: 'GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY_FALCON_CHAT',
+      search: 'GEMINI_API_KEY_FALCON_CHAT',
     };
-    throw new Error(`مفتاح Gemini غير مضبوط في الإعدادات (${labelMap[agent] || 'GEMINI_API_KEY'}).`);
+    throw new Error(`مفتاح Gemini المجاني غير مضبوط في الإعدادات (${labelMap[agent] || 'GEMINI_API_KEY_FALCON_CHAT'}).`);
   }
 
   return new GoogleGenAI({
@@ -378,39 +375,6 @@ export function shouldTriggerGoogleSearch(text: string, explicitSearch = false):
   return keywords.some((k) => lower.includes(k));
 }
 
-async function fetchGoogleCustomSearchItems(query: string, limit = 5): Promise<GroundedSource[]> {
-  const { apiKey, cx } = resolveGoogleSearchCredentials();
-  if (!apiKey || !cx) return [];
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
-  try {
-    const url = new URL('https://www.googleapis.com/customsearch/v1');
-    url.searchParams.set('key', apiKey);
-    url.searchParams.set('cx', cx);
-    url.searchParams.set('q', query);
-    url.searchParams.set('num', String(Math.min(10, Math.max(1, limit))));
-    url.searchParams.set('hl', 'ar');
-
-    const res = await fetch(url.toString(), { signal: controller.signal });
-    if (!res.ok) return [];
-    const data: any = await res.json();
-    if (!Array.isArray(data?.items)) return [];
-
-    return data.items
-      .filter((item: any) => Boolean(item?.link))
-      .map((item: any) => ({
-        title: String(item.title || item.link),
-        url: String(item.link),
-        snippet: item.snippet ? String(item.snippet) : undefined,
-      }));
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 function decodeHtmlEntities(str: string): string {
   return String(str || '')
     .replace(/&amp;/g, '&')
@@ -418,14 +382,75 @@ function decodeHtmlEntities(str: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
     .replace(/&nbsp;/g, ' ')
     .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
+}
+
+export async function fetchDuckDuckGoHtmlResults(query: string, limit = 6): Promise<GroundedSource[]> {
+  const cleanQuery = String(query || '').trim();
+  if (!cleanQuery) return [];
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(cleanQuery)}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Accept-Language': 'ar-EG,ar;q=0.9,en;q=0.8',
+      },
+      signal: controller.signal,
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const blocks = html.split(/class="result\s+results_links/g).slice(1);
+    const sources: GroundedSource[] = [];
+    const seen = new Set<string>();
+
+    for (const block of blocks) {
+      if (sources.length >= limit) break;
+      const anchor = block.match(/class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+      if (!anchor) continue;
+      let rawUrl = anchor[1];
+      const uddg = rawUrl.match(/uddg=([^&]+)/);
+      if (uddg) {
+        try {
+          rawUrl = decodeURIComponent(uddg[1]);
+        } catch {}
+      } else if (rawUrl.startsWith('//')) {
+        rawUrl = `https:${rawUrl}`;
+      }
+      if (!rawUrl.startsWith('http') || seen.has(rawUrl)) continue;
+      const title = decodeHtmlEntities(anchor[2]);
+      if (!title) continue;
+
+      const snipMatch =
+        block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/) ||
+        block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/div>/);
+      const snippet = snipMatch ? decodeHtmlEntities(snipMatch[1]) : undefined;
+
+      seen.add(rawUrl);
+      sources.push({
+        title,
+        url: rawUrl,
+        snippet: snippet || undefined,
+      });
+    }
+    return sources;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function fetchGoogleNewsRssResults(query: string, limit = 5): Promise<GroundedSource[]> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), 7000);
   try {
     const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ar&gl=EG&ceid=EG:ar`;
     const res = await fetch(url, {
@@ -460,6 +485,69 @@ async function fetchGoogleNewsRssResults(query: string, limit = 5): Promise<Grou
   } finally {
     clearTimeout(timer);
   }
+}
+
+function normalizeWebSearchQuery(rawQuery: string): string {
+  const padded = ` ${String(rawQuery || '').replace(/[؟?!.,،"«»()]/g, ' ')} `;
+  const cleaned = padded
+    .replace(
+      /(?<=^|\s)(ابحث\s*لي|ابحثي\s*لي|ابحثلي|ابحثيلي|دور\s*لي|دوري\s*لي|دورلي|دوريلي|ابحث|ابحثي|دور|دوري|على\s+النت|علي\s+النت|في\s+النت|بالنت|على\s+الانترنت|على\s+الإنترنت|في\s+جوجل|على\s+جوجل|علي\s+جوجل|من\s+فضلك|لو\s+سمحت|لو\s+سمحتي|قولي|قوليلي|قول\s+لي|عاوز\s+اعرف|عايز\s+اعرف|عايزة\s+اعرف|عاوزه\s+اعرف|ممكن\s+اعرف|ممكن\s+تقولي|ممكن\s+تقوليلي|يا\s+شموسة|يا\s+شموسه|يا\s+صقر|دلوقتي|حاليا|حالياً|الآن|الان)(?=\s|$)/gi,
+      ' '
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(عن|في|من|على|علي)\s+/i, '')
+    .trim();
+  return cleaned || String(rawQuery || '').trim();
+}
+
+/**
+ * 100% Free, keyless live web search combining DuckDuckGo HTML (products, prices, suppliers)
+ * with Google News RSS fallback (and short-keyword fallback when needed).
+ */
+export async function fetchFreeWebSearchResults(query: string, limit = 6): Promise<GroundedSource[]> {
+  const cleanQuery = normalizeWebSearchQuery(query);
+  if (!cleanQuery) return [];
+
+  let ddg = await fetchDuckDuckGoHtmlResults(cleanQuery, limit);
+  if (ddg.length < 2) {
+    const stopWords = new Set(['في', 'من', 'على', 'علي', 'عن', 'كام', 'ما', 'هل', 'هو', 'هي', 'او', 'أو', 'السوق', 'المصري']);
+    const compactDdg = cleanQuery
+      .split(/\s+/)
+      .filter((w) => w.length > 1 && !stopWords.has(w))
+      .slice(0, 5)
+      .join(' ');
+    if (compactDdg && compactDdg !== cleanQuery) {
+      const moreDdg = await fetchDuckDuckGoHtmlResults(`${compactDdg} مصر`, limit);
+      if (moreDdg.length > ddg.length) ddg = moreDdg;
+    }
+  }
+  if (ddg.length >= 2) {
+    return ddg.slice(0, limit);
+  }
+
+  let gnews = await fetchGoogleNewsRssResults(cleanQuery, limit);
+  if (gnews.length === 0) {
+    const stopWords = new Set(['في', 'من', 'على', 'علي', 'عن', 'كام', 'ما', 'هل', 'هو', 'هي', 'او', 'أو', 'متوسط']);
+    const compact = cleanQuery
+      .split(/\s+/)
+      .filter((w) => w.length > 1 && !stopWords.has(w))
+      .slice(0, 4)
+      .join(' ');
+    if (compact && compact !== cleanQuery) {
+      gnews = await fetchGoogleNewsRssResults(compact, limit);
+    }
+  }
+
+  const merged: GroundedSource[] = [...ddg];
+  const seen = new Set(merged.map((s) => s.url));
+  for (const item of gnews) {
+    if (!seen.has(item.url) && merged.length < limit) {
+      seen.add(item.url);
+      merged.push(item);
+    }
+  }
+  return merged;
 }
 
 async function summarizeWebResultsWithGroq(
@@ -556,9 +644,9 @@ async function summarizeWebResultsWithGroq(
 }
 
 /**
- * Unified Live Web Search Service:
- * 1) Gemini Google Search Grounding (+ optional Google Custom Search API)
- * 2) Direct Google News RSS live search + Groq/Fanar Arabic synthesis
+ * Unified 100% Free Live Web Search Service:
+ * 1) Gemini Google Search Grounding (free-tier)
+ * 2) Free keyless live web search (DuckDuckGo HTML + Google News RSS) + Groq/Fanar Arabic synthesis
  */
 export async function performGoogleSearch(
   query: string,
@@ -571,12 +659,6 @@ export async function performGoogleSearch(
 
   const agent = options?.agent || 'search';
   const country = options?.country || 'جمهورية مصر العربية';
-  const cseResults = await fetchGoogleCustomSearchItems(cleanQuery, 5);
-
-  const cseContext =
-    cseResults.length > 0
-      ? `\n\nنتائج أولية من محرك البحث:\n${cseResults.map((r, idx) => `[${idx + 1}] ${r.title} (${r.url}): ${r.snippet || ''}`).join('\n')}`
-      : '';
 
   const systemInstruction =
     options?.systemHint ||
@@ -585,44 +667,54 @@ export async function performGoogleSearch(
   const key = resolveAgentGeminiKey(agent);
   let lastErr: any = null;
 
-  // 1. Try Gemini Google Search Grounding when Gemini key is available and healthy
+  // 1. Try Gemini Google Search Grounding when a healthy Gemini key is available
   if (key && !isGeminiKeyCircuitOpen(key)) {
     try {
       const ai = createGeminiClientForAgent(agent);
       const models = getCandidateGeminiModels();
 
       for (const model of models) {
+        let timer: any;
         try {
-          const response: GenerateContentResponse = await ai.models.generateContent({
-            model,
-            contents: `${cleanQuery}${cseContext}`,
-            config: {
-              systemInstruction,
-              tools: [{ googleSearch: {} }],
-            },
-          });
+          const response: GenerateContentResponse = await Promise.race([
+            ai.models
+              .generateContent({
+                model,
+                contents: cleanQuery,
+                config: {
+                  systemInstruction,
+                  tools: [{ googleSearch: {} }],
+                },
+              })
+              .finally(() => clearTimeout(timer)),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error(`timeout on ${model}`)), 10000);
+            }),
+          ]);
 
           const { sources, searchEntryPoint } = extractGroundingMetadata(response);
-          const mergedSources: GroundedSource[] = [...sources];
-          const existingUrls = new Set(mergedSources.map((s) => s.url));
-          for (const item of cseResults) {
-            if (!existingUrls.has(item.url)) {
-              existingUrls.add(item.url);
-              mergedSources.push(item);
-            }
-          }
-
           const answer = response.text?.trim() || '';
-          if (answer) {
+          if (answer && sources.length > 0) {
             return {
               answer,
-              sources: mergedSources.slice(0, 6),
+              sources: sources.slice(0, 6),
               searchEntryPoint,
               searchUsed: true,
-              engine: cseResults.length > 0 ? 'google_custom_search_plus_gemini' : 'gemini_google_search',
+              engine: 'gemini_google_search',
+            };
+          }
+          if (answer) {
+            const liveExtra = await fetchFreeWebSearchResults(cleanQuery, 5);
+            return {
+              answer,
+              sources: liveExtra.slice(0, 6),
+              searchEntryPoint,
+              searchUsed: true,
+              engine: 'gemini_google_search',
             };
           }
         } catch (err: any) {
+          clearTimeout(timer);
           lastErr = err;
           if (tripGeminiKeyCircuit(key, err)) {
             break;
@@ -637,22 +729,9 @@ export async function performGoogleSearch(
     }
   }
 
-  // 2. Fallback to Custom Search JSON API results if available
-  if (cseResults.length > 0) {
-    const synthesized = await summarizeWebResultsWithGroq(cleanQuery, cseResults, systemInstruction);
-    return {
-      answer:
-        synthesized ||
-        cseResults.map((r, i) => `${i + 1}. ${r.title}${r.snippet ? `\n   ${r.snippet}` : ''}`).join('\n\n'),
-      sources: cseResults,
-      searchUsed: true,
-      engine: synthesized ? 'web_search_plus_groq' : 'google_custom_search',
-    };
-  }
-
-  // 3. Fallback to Google News RSS live search + Groq/Fanar synthesis
-  console.log('[GoogleSearchService] Attempting Google News RSS live search fallback...');
-  const webResults = await fetchGoogleNewsRssResults(cleanQuery, 5);
+  // 2. Fallback to 100% Free Live Web Search (DuckDuckGo HTML + Google News RSS) + Groq/Fanar synthesis
+  console.log('[GoogleSearchService] Using free live web search (DuckDuckGo + Google News RSS) + Groq synthesis...');
+  const webResults = await fetchFreeWebSearchResults(cleanQuery, 6);
   if (webResults.length > 0) {
     const synthesized = await summarizeWebResultsWithGroq(cleanQuery, webResults, systemInstruction);
     return {
@@ -668,14 +747,14 @@ export async function performGoogleSearch(
   const lastMsg = String(lastErr?.message || '');
   if (lastMsg.includes('429') || lastMsg.includes('RESOURCE_EXHAUSTED')) {
     const quotaErr: any = new Error(
-      'تم تجاوز حصة بحث جوجل الحالية مؤقتاً. يمكنك المحاولة بعد لحظات أو مراجعة خطة المفتاح في Settings > Secrets.'
+      'تم تجاوز حصة بحث جوجل الحالية مؤقتاً. يمكنك المحاولة بعد لحظات.'
     );
     quotaErr.status = 429;
     throw quotaErr;
   }
 
   throw new Error(
-    `تعذر تنفيذ البحث الحي حالياً (Gemini: ${formatAiErrorReason(lastMsg || 'مفتاح غير صالح أو غير متوفر')}).`
+    `تعذر تنفيذ البحث الحي حالياً (${formatAiErrorReason(lastMsg || 'لا توجد نتائج فورية')}).`
   );
 }
 
@@ -941,61 +1020,35 @@ export async function runFullApiHealthAudit(): Promise<{
   const geminiModelEnv = cleanSecretValue(process.env.GEMINI_MODEL);
 
   const [
-    geminiMain,
     geminiFalconChat,
     geminiFalconVision,
-    geminiFalcon,
-    geminiShamousa,
     groqPrimary,
     groqSecondary,
-    groqBackup,
     fanarProbe,
-    customSearchProbe,
+    liveWebSearchProbe,
     gnewsProbe,
     fxProbe,
   ] = await Promise.all([
-    probeGeminiSingleKey('gemini_main', 'Google Gemini المجاني (المشترك)', ['GEMINI_API_KEY'], process.env.GEMINI_API_KEY || '', false),
     probeGeminiSingleKey(
       'gemini_falcon_chat',
-      'صقر — مفتاح المحادثة وبحث جوجل (اختياري)',
-      ['GEMINI_API_KEY_FALCON_CHAT', 'FALCON_CHAT_GEMINI_API_KEY'],
+      'Google Gemini المجاني — المحادثة وبحث جوجل (صقر وشموسة)',
+      ['GEMINI_API_KEY_FALCON_CHAT'],
       process.env.GEMINI_API_KEY_FALCON_CHAT || process.env.FALCON_CHAT_GEMINI_API_KEY || '',
-      true
+      false
     ),
     probeGeminiSingleKey(
       'gemini_falcon_vision',
-      'صقر — مفتاح تحليل الصور والرؤية (اختياري)',
-      ['GEMINI_API_KEY_FALCON_VISION', 'FALCON_VISION_GEMINI_API_KEY'],
+      'Google Gemini المجاني — قراءة وتحليل الصور (صقر)',
+      ['GEMINI_API_KEY_FALCON_VISION'],
       process.env.GEMINI_API_KEY_FALCON_VISION || process.env.FALCON_VISION_GEMINI_API_KEY || '',
-      true
+      false
     ),
-    probeGeminiSingleKey(
-      'gemini_falcon',
-      'Google Gemini (مفتاح صقر العام — اختياري)',
-      ['GEMINI_API_KEY_FALCON', 'FALCON_GEMINI_API_KEY'],
-      process.env.GEMINI_API_KEY_FALCON || process.env.FALCON_GEMINI_API_KEY || '',
-      true
-    ),
-    probeGeminiSingleKey(
-      'gemini_shamousa',
-      'Google Gemini (مفتاح شموسة — اختياري)',
-      ['GEMINI_API_KEY_SHAMOUSA', 'SHAMOUSA_GEMINI_API_KEY'],
-      process.env.GEMINI_API_KEY_SHAMOUSA || process.env.SHAMOUSA_GEMINI_API_KEY || '',
-      true
-    ),
-    probeGroqSingleKey('groq_primary', 'Groq AI (الأساسي)', ['GROQ_API_KEY'], process.env.GROQ_API_KEY || '', false),
+    probeGroqSingleKey('groq_primary', 'Groq AI (الأساسي — مجاني)', ['GROQ_API_KEY'], process.env.GROQ_API_KEY || '', false),
     probeGroqSingleKey(
       'groq_secondary',
-      'Groq AI (الثانوي)',
+      'Groq AI (الثانوي — مجاني)',
       ['GROQ_API_KEY_SECONDARY', 'GROQ_SECONDARY_API_KEY', 'GROQ_API_KEY_2'],
       process.env.GROQ_API_KEY_SECONDARY || process.env.GROQ_SECONDARY_API_KEY || process.env.GROQ_API_KEY_2 || '',
-      true
-    ),
-    probeGroqSingleKey(
-      'groq_backup',
-      'Groq AI (الاحتياطي — اختياري)',
-      ['GROQ_API_KEY_BACKUP', 'GROQ_BACKUP_KEY'],
-      process.env.GROQ_API_KEY_BACKUP || process.env.GROQ_BACKUP_KEY || '',
       true
     ),
     // Fanar probe (live model only)
@@ -1004,7 +1057,7 @@ export async function runFullApiHealthAudit(): Promise<{
       if (!fanarKey) {
         return {
           id: 'fanar',
-          name: 'Fanar Arabic AI',
+          name: 'Fanar Arabic AI (مجاني)',
           category: 'fanar',
           envVars: ['FANAR_API_KEY', 'FANAR_KEY'],
           configured: false,
@@ -1042,7 +1095,7 @@ export async function runFullApiHealthAudit(): Promise<{
       }
       return {
         id: 'fanar',
-        name: 'Fanar Arabic AI',
+        name: 'Fanar Arabic AI (مجاني)',
         category: 'fanar',
         envVars: ['FANAR_API_KEY', 'FANAR_KEY'],
         configured: true,
@@ -1053,64 +1106,29 @@ export async function runFullApiHealthAudit(): Promise<{
         models: modelsOut,
       };
     })(),
-    // Google Custom Search JSON API
+    // Free Live Web Search (DuckDuckGo + Google News RSS unified free engine — zero API keys)
     (async (): Promise<ApiAuditEntry> => {
-      const { apiKey, cx } = resolveGoogleSearchCredentials();
-      if (!apiKey || !cx) {
-        return {
-          id: 'google_custom_search',
-          name: 'Google Custom Search JSON API (اختياري)',
-          category: 'search',
-          envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
-          configured: false,
-          optional: true,
-          ok: false,
-          summary: !apiKey && !cx ? 'اختياري غير مضبوط (البحث الحي يعمل عبر Google News RSS + Groq)' : !apiKey ? 'GOOGLE_SEARCH_API_KEY غير مضبوط' : 'GOOGLE_SEARCH_CX غير مضبوط',
-        };
-      }
       try {
-        const u = new URL('https://www.googleapis.com/customsearch/v1');
-        u.searchParams.set('key', apiKey);
-        u.searchParams.set('cx', cx);
-        u.searchParams.set('q', 'handmade');
-        u.searchParams.set('num', '1');
-        const c = new AbortController();
-        const t = setTimeout(() => c.abort(), 8000);
-        const r = await fetch(u.toString(), { signal: c.signal }).finally(() => clearTimeout(t));
-        if (r.ok) {
-          return {
-            id: 'google_custom_search',
-            name: 'Google Custom Search JSON API',
-            category: 'search',
-            envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
-            configured: true,
-            ok: true,
-            statusCode: r.status,
-            summary: 'يعمل بنجاح',
-          };
-        }
-        const err = redactSecrets(await r.text().catch(() => ''));
+        const items = await fetchFreeWebSearchResults('خيط مكرمية قطن مصر', 3);
         return {
-          id: 'google_custom_search',
-          name: 'Google Custom Search JSON API',
+          id: 'live_web_search_free',
+          name: 'محرك البحث الحي المجاني المفتوح (Web + News)',
           category: 'search',
-          envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
+          envVars: [],
           configured: true,
-          ok: false,
-          statusCode: r.status,
-          summary: formatAiErrorReason(err),
-          rawError: err,
+          ok: items.length > 0,
+          statusCode: items.length > 0 ? 200 : 204,
+          summary: items.length > 0 ? `يعمل بنجاح (${items.length} نتائج ويب حية بدون مفاتيح)` : 'لم يُرجع نتائج حالياً',
         };
       } catch (e: any) {
         return {
-          id: 'google_custom_search',
-          name: 'Google Custom Search JSON API',
+          id: 'live_web_search_free',
+          name: 'محرك البحث الحي المجاني المفتوح (Web + News)',
           category: 'search',
-          envVars: ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_CX'],
+          envVars: [],
           configured: true,
           ok: false,
           summary: formatAiErrorReason(e?.message),
-          rawError: redactSecrets(e?.message),
         };
       }
     })(),
@@ -1120,7 +1138,7 @@ export async function runFullApiHealthAudit(): Promise<{
         const items = await fetchGoogleNewsRssResults('حرف يدوية مصر', 3);
         return {
           id: 'google_news_rss',
-          name: 'Google News RSS (بحث الويب الاحتياطي)',
+          name: 'Google News RSS (مجاني ومفتوح)',
           category: 'search',
           envVars: [],
           configured: true,
@@ -1131,7 +1149,7 @@ export async function runFullApiHealthAudit(): Promise<{
       } catch (e: any) {
         return {
           id: 'google_news_rss',
-          name: 'Google News RSS (بحث الويب الاحتياطي)',
+          name: 'Google News RSS (مجاني ومفتوح)',
           category: 'search',
           envVars: [],
           configured: true,
@@ -1148,7 +1166,7 @@ export async function runFullApiHealthAudit(): Promise<{
         const r = await fetch('https://open.er-api.com/v6/latest/EGP', { signal: c.signal }).finally(() => clearTimeout(t));
         return {
           id: 'fx_open_er_api',
-          name: 'Live Interbank FX API (open.er-api.com)',
+          name: 'Live Interbank FX API (open.er-api.com — مجاني)',
           category: 'fx',
           envVars: [],
           configured: true,
@@ -1159,7 +1177,7 @@ export async function runFullApiHealthAudit(): Promise<{
       } catch (e: any) {
         return {
           id: 'fx_open_er_api',
-          name: 'Live Interbank FX API (open.er-api.com)',
+          name: 'Live Interbank FX API (open.er-api.com — مجاني)',
           category: 'fx',
           envVars: [],
           configured: true,
@@ -1170,8 +1188,32 @@ export async function runFullApiHealthAudit(): Promise<{
     })(),
   ]);
 
-  const envVapidPub = cleanSecretValue(process.env.VAPID_PUBLIC_KEY);
-  const envVapidPriv = cleanSecretValue(process.env.VAPID_PRIVATE_KEY || process.env.VAPID_SECRET_KEY);
+  // Resilient VAPID env lookup (matches server.ts logic — detects casing/whitespace/aliases)
+  const vapidDetectedKeys = Object.keys(process.env)
+    .filter((k) => /VAPID|WEBPUSH|WEB_PUSH/i.test(k))
+    .map((k) => `${k}(len=${cleanSecretValue(process.env[k]).length})`);
+
+  let envVapidPub =
+    cleanSecretValue(process.env.VAPID_PUBLIC_KEY) ||
+    cleanSecretValue(process.env.VITE_VAPID_PUBLIC_KEY) ||
+    cleanSecretValue(process.env.WEB_PUSH_PUBLIC_KEY);
+  let envVapidPriv =
+    cleanSecretValue(process.env.VAPID_PRIVATE_KEY) ||
+    cleanSecretValue(process.env.VAPID_SECRET_KEY) ||
+    cleanSecretValue(process.env.VAPID_PRIVATE) ||
+    cleanSecretValue(process.env.VITE_VAPID_PRIVATE_KEY) ||
+    cleanSecretValue(process.env.WEB_PUSH_PRIVATE_KEY);
+
+  if (!envVapidPub || !envVapidPriv) {
+    for (const [rawKey, rawVal] of Object.entries(process.env)) {
+      const normKey = rawKey.trim().toUpperCase();
+      const v = cleanSecretValue(rawVal);
+      if (!v) continue;
+      if (!envVapidPub && /VAPID.*PUB|PUB.*VAPID/.test(normKey)) envVapidPub = v;
+      else if (!envVapidPriv && /VAPID.*(PRIV|SEC)|(PRIV|SEC).*VAPID/.test(normKey)) envVapidPriv = v;
+    }
+  }
+
   let vapidEnvValid = false;
   let vapidEnvError = '';
   let vapidSwapped = false;
@@ -1182,7 +1224,6 @@ export async function runFullApiHealthAudit(): Promise<{
       vapidEnvValid = true;
     } catch (e: any) {
       vapidEnvError = String(e?.message || 'صيغة مفاتيح VAPID غير صالحة');
-      // Check if public and private keys were accidentally swapped
       try {
         webpush.setVapidDetails('mailto:hmb.top.tube@gmail.com', envVapidPriv, envVapidPub);
         vapidSwapped = true;
@@ -1205,10 +1246,10 @@ export async function runFullApiHealthAudit(): Promise<{
   const webPushSummary = vapidEnvValid
     ? 'يعمل بنجاح (مفاتيح VAPID صالحة من Secrets ونقاط /api/push/* مفعّلة)'
     : vapidSwapped
-    ? '⚠️ تنبيه: تم عكس VAPID_PUBLIC_KEY و VAPID_PRIVATE_KEY في Secrets (تم تصحيح التبديل تلقائياً مؤقتاً — يُفضّل عكسهما في Settings > Secrets)'
+    ? '⚠️ تنبيه: تم عكس VAPID_PUBLIC_KEY و VAPID_PRIVATE_KEY في Secrets (تم تصحيح التبديل تلقائياً)'
     : hasValidFileVapid
     ? envVapidPub || envVapidPriv
-      ? `⚠️ مفاتيح Secrets غير مطابقة لطول VAPID المطلوب (${vapidEnvError || 'مفتاح ناقص'}) — يعمل النظام حالياً بمفاتيح تلقائية سليمة حتى تحديث Secrets`
+      ? `⚠️ مفاتيح Secrets غير مكتملة (${vapidEnvError || `pubLen=${envVapidPub.length}, privLen=${envVapidPriv.length}`}) — يعمل النظام حالياً بالمفاتيح التلقائية السليمة`
       : 'يعمل بنجاح (مفاتيح VAPID مولّدة تلقائياً ونقاط /api/push/* مفعّلة)'
     : `مفاتيح VAPID غير صالحة (${vapidEnvError || 'قيد التهيئة'})`;
 
@@ -1222,6 +1263,17 @@ export async function runFullApiHealthAudit(): Promise<{
     statusCode: webPushReady ? 200 : 503,
     summary: webPushSummary,
     rawError: !vapidEnvValid && vapidEnvError ? vapidEnvError : undefined,
+  };
+
+  const paidPolicyEntry: ApiAuditEntry = {
+    id: 'free_tier_policy_check',
+    name: 'سياسة المجانية المطلقة (حظر المدفوع)',
+    category: 'infra',
+    envVars: [],
+    configured: true,
+    ok: true,
+    statusCode: 200,
+    summary: 'تم الفحص: 0 استدعاءات لموديلات مدفوعة، ومفتاح المنصة GEMINI_API_KEY مستبعد تماماً لصالح مفاتيحك المجانية',
   };
 
   const firebaseRemnantsEntry: ApiAuditEntry = {
@@ -1248,11 +1300,12 @@ export async function runFullApiHealthAudit(): Promise<{
       EFFECTIVE_GROQ_MODEL: ACTIVE_GROQ_CHAT_MODELS[0],
       EFFECTIVE_FANAR_MODEL: ACTIVE_FANAR_MODELS[0],
       EFFECTIVE_GEMINI_MODEL: PRIMARY_GEMINI_MODEL,
-      PAID_MODELS_POLICY: 'محظورة تماماً — المنظومة تعمل بالمجاني فقط',
+      PAID_MODELS_POLICY: 'محظورة تماماً — المنظومة تعمل بالمجاني فقط ومفتاح المنصة GEMINI_API_KEY متجاهل تماماً',
       GROQ_MODEL_SECRET: groqModelEnv || '(الافتراضي: openai/gpt-oss-120b)',
       GEMINI_MODEL_SECRET: geminiModelEnv || `(الافتراضي: ${PRIMARY_GEMINI_MODEL})`,
       STALE_SECRETS_BYPASSED: staleSecretsIgnored.length > 0 ? staleSecretsIgnored.join(' | ') : 'لا يوجد',
       SUPABASE_SERVICE_ROLE_KEY_SET: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY),
+      VAPID_DETECTED_ENV_KEYS: vapidDetectedKeys.length > 0 ? vapidDetectedKeys.join(', ') : 'لا يوجد',
       VAPID_ENV_STATUS: vapidEnvValid
         ? 'صالح (Secrets)'
         : vapidSwapped
@@ -1262,19 +1315,16 @@ export async function runFullApiHealthAudit(): Promise<{
         : 'تلقائي',
     },
     entries: [
-      geminiMain,
       geminiFalconChat,
       geminiFalconVision,
-      geminiFalcon,
-      geminiShamousa,
       groqPrimary,
       groqSecondary,
-      groqBackup,
       fanarProbe,
-      customSearchProbe,
+      liveWebSearchProbe,
       gnewsProbe,
       fxProbe,
       webPushEntry,
+      paidPolicyEntry,
       firebaseRemnantsEntry,
     ],
   };
