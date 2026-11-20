@@ -1,4 +1,5 @@
 import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
+import * as webpush from 'web-push';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -11,7 +12,6 @@ export type AIAgentRole =
   | 'falcon'
   | 'falcon_chat'
   | 'falcon_vision'
-  | 'falcon_image'
   | 'shamousa'
   | 'search';
 
@@ -34,10 +34,9 @@ export interface GoogleSearchResult {
     | 'web_search_direct';
 }
 
+// Free-tier models ONLY (all paid-only models strictly excluded)
 export const PRIMARY_GEMINI_MODEL = 'gemini-4-hydrogen';
 export const FALLBACK_GEMINI_MODEL = 'gemini-3.1-flash-lite';
-export const PRIMARY_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-lite-image';
-export const FALLBACK_GEMINI_IMAGE_MODEL = 'gemini-nano-banana-2.1';
 export const ACTIVE_GROQ_CHAT_MODELS = [
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
@@ -190,16 +189,6 @@ export function resolveAgentGeminiKey(agent: AIAgentRole): string {
       ''
     );
   }
-  if (agent === 'falcon_image') {
-    return (
-      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_IMAGE) ||
-      cleanSecretValue(process.env.FALCON_IMAGE_GEMINI_API_KEY) ||
-      cleanSecretValue(process.env.GEMINI_API_KEY_FALCON) ||
-      cleanSecretValue(process.env.FALCON_GEMINI_API_KEY) ||
-      cleanSecretValue(process.env.GEMINI_API_KEY) ||
-      ''
-    );
-  }
   if (agent === 'falcon') {
     return (
       cleanSecretValue(process.env.GEMINI_API_KEY_FALCON_CHAT) ||
@@ -236,7 +225,6 @@ export function resolveGoogleSearchCredentials(): { apiKey: string; cx: string }
 export function getAgentSecretStatus() {
   const falconChatKey = resolveAgentGeminiKey('falcon_chat');
   const falconVisionKey = resolveAgentGeminiKey('falcon_vision');
-  const falconImageKey = resolveAgentGeminiKey('falcon_image');
   const shamousaKey = resolveAgentGeminiKey('shamousa');
   const sharedKey = cleanSecretValue(process.env.GEMINI_API_KEY);
   const { apiKey: cseKey, cx } = resolveGoogleSearchCredentials();
@@ -253,7 +241,6 @@ export function getAgentSecretStatus() {
     falconGeminiReady: Boolean(falconChatKey && !isGeminiKeyCircuitOpen(falconChatKey)),
     falconChatGeminiReady: Boolean(falconChatKey && !isGeminiKeyCircuitOpen(falconChatKey)),
     falconVisionGeminiReady: Boolean(falconVisionKey && !isGeminiKeyCircuitOpen(falconVisionKey)),
-    falconImageGeminiReady: Boolean(falconImageKey && !isGeminiKeyCircuitOpen(falconImageKey)),
     shamousaGeminiReady: Boolean(shamousaKey && !isGeminiKeyCircuitOpen(shamousaKey)),
     groqConfigured: groqKeys.length > 0,
     groqKeyCount: groqKeys.length,
@@ -272,7 +259,6 @@ export function createGeminiClientForAgent(agent: AIAgentRole): GoogleGenAI {
       falcon: 'GEMINI_API_KEY_FALCON / GEMINI_API_KEY',
       falcon_chat: 'GEMINI_API_KEY_FALCON_CHAT / GEMINI_API_KEY',
       falcon_vision: 'GEMINI_API_KEY_FALCON_VISION / GEMINI_API_KEY',
-      falcon_image: 'GEMINI_API_KEY_FALCON_IMAGE / GEMINI_API_KEY',
       shamousa: 'GEMINI_API_KEY_SHAMOUSA / GEMINI_API_KEY',
       search: 'GEMINI_API_KEY',
     };
@@ -292,12 +278,24 @@ export function createGeminiClientForAgent(agent: AIAgentRole): GoogleGenAI {
 export function getCandidateGeminiModels(): string[] {
   const envPrimary = cleanSecretValue(process.env.GEMINI_MODEL);
   const envFallback = cleanSecretValue(process.env.GEMINI_FALLBACK_MODEL);
+  // Strictly block deprecated AND paid-only models so only free-tier text models are ever called
   const blocked = [
     'gemini-1.',
     'gemini-2.',
     'gemini-pro',
     'gemini-flash-latest',
     'gemini-3.8',
+    'gemini-4-carbon',
+    'gemini-4-neon',
+    'gemini-4-argon',
+    'gemini-3-pro-image',
+    'gemini-nano-banana',
+    '-image',
+    'gemini-omni',
+    'genie-4',
+    'lyria',
+    'imagen',
+    'veo',
   ];
 
   const isAllowed = (m: string) =>
@@ -310,21 +308,6 @@ export function getCandidateGeminiModels(): string[] {
     FALLBACK_GEMINI_MODEL,
   ].filter(Boolean);
 
-  return Array.from(new Set(list));
-}
-
-export function getCandidateGeminiImageModels(): string[] {
-  const envImg = cleanSecretValue(process.env.GEMINI_IMAGE_MODEL);
-  const allowed = [
-    'gemini-3.1-flash-lite-image',
-    'gemini-nano-banana-2.1',
-    'gemini-3-pro-image',
-  ];
-  const list = [
-    envImg && allowed.includes(envImg) ? envImg : PRIMARY_GEMINI_IMAGE_MODEL,
-    PRIMARY_GEMINI_IMAGE_MODEL,
-    FALLBACK_GEMINI_IMAGE_MODEL,
-  ].filter(Boolean);
   return Array.from(new Set(list));
 }
 
@@ -961,7 +944,6 @@ export async function runFullApiHealthAudit(): Promise<{
     geminiMain,
     geminiFalconChat,
     geminiFalconVision,
-    geminiFalconImage,
     geminiFalcon,
     geminiShamousa,
     groqPrimary,
@@ -972,7 +954,7 @@ export async function runFullApiHealthAudit(): Promise<{
     gnewsProbe,
     fxProbe,
   ] = await Promise.all([
-    probeGeminiSingleKey('gemini_main', 'Google Gemini (المشترك)', ['GEMINI_API_KEY'], process.env.GEMINI_API_KEY || '', false),
+    probeGeminiSingleKey('gemini_main', 'Google Gemini المجاني (المشترك)', ['GEMINI_API_KEY'], process.env.GEMINI_API_KEY || '', false),
     probeGeminiSingleKey(
       'gemini_falcon_chat',
       'صقر — مفتاح المحادثة وبحث جوجل (اختياري)',
@@ -985,13 +967,6 @@ export async function runFullApiHealthAudit(): Promise<{
       'صقر — مفتاح تحليل الصور والرؤية (اختياري)',
       ['GEMINI_API_KEY_FALCON_VISION', 'FALCON_VISION_GEMINI_API_KEY'],
       process.env.GEMINI_API_KEY_FALCON_VISION || process.env.FALCON_VISION_GEMINI_API_KEY || '',
-      true
-    ),
-    probeGeminiSingleKey(
-      'gemini_falcon_image',
-      'صقر — مفتاح استوديو إنشاء الصور (اختياري)',
-      ['GEMINI_API_KEY_FALCON_IMAGE', 'FALCON_IMAGE_GEMINI_API_KEY'],
-      process.env.GEMINI_API_KEY_FALCON_IMAGE || process.env.FALCON_IMAGE_GEMINI_API_KEY || '',
       true
     ),
     probeGeminiSingleKey(
@@ -1195,29 +1170,58 @@ export async function runFullApiHealthAudit(): Promise<{
     })(),
   ]);
 
-  const hasEnvVapid = Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
-  let hasFileVapid = false;
+  const envVapidPub = cleanSecretValue(process.env.VAPID_PUBLIC_KEY);
+  const envVapidPriv = cleanSecretValue(process.env.VAPID_PRIVATE_KEY || process.env.VAPID_SECRET_KEY);
+  let vapidEnvValid = false;
+  let vapidEnvError = '';
+  let vapidSwapped = false;
+
+  if (envVapidPub && envVapidPriv) {
+    try {
+      webpush.setVapidDetails('mailto:hmb.top.tube@gmail.com', envVapidPub, envVapidPriv);
+      vapidEnvValid = true;
+    } catch (e: any) {
+      vapidEnvError = String(e?.message || 'صيغة مفاتيح VAPID غير صالحة');
+      // Check if public and private keys were accidentally swapped
+      try {
+        webpush.setVapidDetails('mailto:hmb.top.tube@gmail.com', envVapidPriv, envVapidPub);
+        vapidSwapped = true;
+      } catch {}
+    }
+  }
+
+  let hasValidFileVapid = false;
   try {
     if (fs.existsSync(VAPID_KEYS_PATH)) {
       const parsed = JSON.parse(fs.readFileSync(VAPID_KEYS_PATH, 'utf-8'));
-      hasFileVapid = Boolean(parsed?.publicKey && parsed?.privateKey);
+      if (parsed?.publicKey && parsed?.privateKey) {
+        webpush.setVapidDetails('mailto:hmb.top.tube@gmail.com', parsed.publicKey, parsed.privateKey);
+        hasValidFileVapid = true;
+      }
     }
   } catch {}
-  const webPushReady = hasEnvVapid || hasFileVapid;
+
+  const webPushReady = vapidEnvValid || vapidSwapped || hasValidFileVapid;
+  const webPushSummary = vapidEnvValid
+    ? 'يعمل بنجاح (مفاتيح VAPID صالحة من Secrets ونقاط /api/push/* مفعّلة)'
+    : vapidSwapped
+    ? '⚠️ تنبيه: تم عكس VAPID_PUBLIC_KEY و VAPID_PRIVATE_KEY في Secrets (تم تصحيح التبديل تلقائياً مؤقتاً — يُفضّل عكسهما في Settings > Secrets)'
+    : hasValidFileVapid
+    ? envVapidPub || envVapidPriv
+      ? `⚠️ مفاتيح Secrets غير مطابقة لطول VAPID المطلوب (${vapidEnvError || 'مفتاح ناقص'}) — يعمل النظام حالياً بمفاتيح تلقائية سليمة حتى تحديث Secrets`
+      : 'يعمل بنجاح (مفاتيح VAPID مولّدة تلقائياً ونقاط /api/push/* مفعّلة)'
+    : `مفاتيح VAPID غير صالحة (${vapidEnvError || 'قيد التهيئة'})`;
 
   const webPushEntry: ApiAuditEntry = {
     id: 'web_push_vapid',
     name: 'Web Push VAPID (/api/push/*)',
     category: 'push',
     envVars: ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY'],
-    configured: webPushReady,
+    configured: Boolean(envVapidPub || envVapidPriv || hasValidFileVapid),
     ok: webPushReady,
     statusCode: webPushReady ? 200 : 503,
-    summary: webPushReady
-      ? hasEnvVapid
-        ? 'يعمل بنجاح (مفاتيح VAPID من Secrets ونقاط /api/push/* مفعّلة)'
-        : 'يعمل بنجاح (مفاتيح VAPID مولّدة تلقائياً ونقاط /api/push/* مفعّلة)'
-      : 'مفاتيح VAPID قيد التهيئة',
+    summary: webPushSummary,
+    rawError: !vapidEnvValid && vapidEnvError ? vapidEnvError : undefined,
   };
 
   const firebaseRemnantsEntry: ApiAuditEntry = {
@@ -1234,8 +1238,8 @@ export async function runFullApiHealthAudit(): Promise<{
   if (groqModelEnv && /llama-3|llama-4|qwen3-32b|whisper/i.test(groqModelEnv)) {
     staleSecretsIgnored.push(`GROQ_MODEL=${groqModelEnv} (متجاهل تلقائياً -> يستخدم openai/gpt-oss-120b)`);
   }
-  if (geminiModelEnv && /gemini-1\.|gemini-2\.|gemini-pro|gemini-3\.8/i.test(geminiModelEnv)) {
-    staleSecretsIgnored.push(`GEMINI_MODEL=${geminiModelEnv} (متجاهل تلقائياً -> يستخدم ${PRIMARY_GEMINI_MODEL})`);
+  if (geminiModelEnv && /gemini-1\.|gemini-2\.|gemini-pro|gemini-3\.8|carbon|neon|argon|image|omni|genie|lyria/i.test(geminiModelEnv)) {
+    staleSecretsIgnored.push(`GEMINI_MODEL=${geminiModelEnv} (متجاهل تلقائياً -> يستخدم ${PRIMARY_GEMINI_MODEL} المجاني)`);
   }
 
   return {
@@ -1244,17 +1248,23 @@ export async function runFullApiHealthAudit(): Promise<{
       EFFECTIVE_GROQ_MODEL: ACTIVE_GROQ_CHAT_MODELS[0],
       EFFECTIVE_FANAR_MODEL: ACTIVE_FANAR_MODELS[0],
       EFFECTIVE_GEMINI_MODEL: PRIMARY_GEMINI_MODEL,
-      EFFECTIVE_GEMINI_IMAGE_MODEL: PRIMARY_GEMINI_IMAGE_MODEL,
+      PAID_MODELS_POLICY: 'محظورة تماماً — المنظومة تعمل بالمجاني فقط',
       GROQ_MODEL_SECRET: groqModelEnv || '(الافتراضي: openai/gpt-oss-120b)',
       GEMINI_MODEL_SECRET: geminiModelEnv || `(الافتراضي: ${PRIMARY_GEMINI_MODEL})`,
       STALE_SECRETS_BYPASSED: staleSecretsIgnored.length > 0 ? staleSecretsIgnored.join(' | ') : 'لا يوجد',
       SUPABASE_SERVICE_ROLE_KEY_SET: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY),
+      VAPID_ENV_STATUS: vapidEnvValid
+        ? 'صالح (Secrets)'
+        : vapidSwapped
+        ? 'مقلوب (تم تصحيحه تلقائياً)'
+        : envVapidPub || envVapidPriv
+        ? `غير مطابق (pubLen=${envVapidPub.length}, privLen=${envVapidPriv.length})`
+        : 'تلقائي',
     },
     entries: [
       geminiMain,
       geminiFalconChat,
       geminiFalconVision,
-      geminiFalconImage,
       geminiFalcon,
       geminiShamousa,
       groqPrimary,

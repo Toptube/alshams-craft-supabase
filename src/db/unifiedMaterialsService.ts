@@ -266,6 +266,8 @@ export async function updateOrProposeUnifiedMasterApi(
     supplierAliases?: string[];
     workshopTags?: string[];
     safetyNote?: string;
+    marketBasePrice?: number;
+    brandPrices?: Record<string, number>;
     reason?: string;
     actorRole: 'super_admin' | 'artisan' | 'supplier';
     actorId: string;
@@ -284,6 +286,58 @@ export async function updateOrProposeUnifiedMasterApi(
     return { success: false, error: json?.error || 'تعذر تحديث الخامة' };
   } catch (err: any) {
     return { success: false, error: err?.message || 'خطأ اتصال' };
+  }
+}
+
+export async function contributeUnifiedMasterApi(
+  code: string,
+  payload: {
+    newAliases?: string[];
+    newThicknessesMm?: number[];
+    newSpecLabels?: string[];
+    newBrands?: string[];
+    newUnitEquations?: Array<{
+      formulaAr: string;
+      topUnit: string;
+      baseUnitAr: string;
+      totalInBaseUnit: number;
+    }>;
+    /** Member's own personal base price observation (never overwrites global baseline directly) */
+    personalBasePrice?: number;
+    /** Member's own personal brand price observations (never overwrite global brand prices directly) */
+    personalBrandPrices?: Record<string, number>;
+    /** Advisory note sent ONLY to Super Admin (never stored inside material DB fields) */
+    suggestionNote?: string;
+    actorRole: 'super_admin' | 'artisan' | 'supplier';
+    actorId: string;
+    actorName: string;
+  }
+): Promise<{
+  success: boolean;
+  master?: UnifiedMaterialMaster;
+  addedAliases?: string[];
+  addedThicknessesMm?: number[];
+  addedSpecs?: UnifiedMaterialSpec[];
+  addedBrands?: UnifiedBrandRecord[];
+  addedUnitEquations?: string[];
+  submittedBasePrice?: number;
+  submittedBrandPrices?: Record<string, number>;
+  notification?: UnifiedMaterialNotification | null;
+  supabaseSynced?: boolean;
+  error?: string;
+}> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(`/api/unified-materials/${encodeURIComponent(code)}/contribute`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) return json;
+    return { success: false, error: json?.error || 'تعذر حفظ التعديلات في منظومة الخامات' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال بالسيرفر' };
   }
 }
 
@@ -306,14 +360,51 @@ export async function resolveUnifiedMaterialNotificationApi(
   }
 }
 
+export async function recalculateUnifiedMarketPricesApi(minObservations = 2): Promise<{
+  success: boolean;
+  updatedMastersCount?: number;
+  updatedBrandsCount?: number;
+  totalObservationsScanned?: number;
+  ranAt?: string;
+  error?: string;
+}> {
+  try {
+    const headers = await getAuthHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch('/api/admin/unified-materials/recalculate-prices', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ minObservations }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json?.success) return json;
+    return { success: false, error: json?.error || 'تعذر تحديث متوسطات السوق تلقائياً' };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'خطأ اتصال بالسيرفر' };
+  }
+}
+
 export function getMemberMaterialCodeMapKey(role: 'artisan' | 'supplier', memberId: string): string {
   return `alshams_member_unified_map_${role}_${memberId}`;
+}
+
+export interface LocalMaterialCodeMapping {
+  masterCode: string;
+  specCode?: string;
+  brandCode?: string;
+  skuCode?: string;
+  unitChain?: string;
+  selectedThicknessesMm?: number[];
+  selectedAliases?: string[];
+  selectedBrands?: string[];
+  selectedUnitEquation?: string;
+  personalBasePrice?: number;
+  personalBrandPrices?: Record<string, number>;
 }
 
 export function getLocalMaterialCodeMap(
   role: 'artisan' | 'supplier',
   memberId: string
-): Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }> {
+): Record<string, LocalMaterialCodeMapping> {
   try {
     const raw = localStorage.getItem(getMemberMaterialCodeMapKey(role, memberId));
     if (raw) return JSON.parse(raw) || {};
@@ -325,7 +416,7 @@ export function saveLocalMaterialCodeMapping(
   role: 'artisan' | 'supplier',
   memberId: string,
   localMaterialId: string,
-  mapping: { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }
+  mapping: LocalMaterialCodeMapping
 ): void {
   try {
     const current = getLocalMaterialCodeMap(role, memberId);
@@ -334,47 +425,48 @@ export function saveLocalMaterialCodeMapping(
   } catch {}
 }
 
+/**
+ * Remove a deleted workshop material ID from localStorage code map so it is NEVER
+ * falsely locked as "already owned" in the Unified Materials Picker!
+ */
 export function removeLocalMaterialCodeMapping(
   role: 'artisan' | 'supplier',
   memberId: string,
   localMaterialId: string
-): Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }> {
+): void {
   try {
     const current = getLocalMaterialCodeMap(role, memberId);
-    if (localMaterialId in current) {
+    if (current[localMaterialId]) {
       delete current[localMaterialId];
       localStorage.setItem(getMemberMaterialCodeMapKey(role, memberId), JSON.stringify(current));
     }
-    return current;
-  } catch {
-    return {};
-  }
+  } catch {}
 }
 
+/**
+ * Prune any stale material IDs from localStorage code map that no longer exist
+ * in the workshop's live materials list.
+ */
 export function pruneLocalMaterialCodeMap(
   role: 'artisan' | 'supplier',
   memberId: string,
   activeMaterialIds: Set<string>
-): Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }> {
-  try {
-    const current = getLocalMaterialCodeMap(role, memberId);
-    let changed = false;
-    const pruned: Record<
-      string,
-      { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }
-    > = {};
-    for (const [id, val] of Object.entries(current)) {
-      if (activeMaterialIds.has(id)) {
-        pruned[id] = val;
-      } else {
-        changed = true;
-      }
+): Record<string, LocalMaterialCodeMapping> {
+  const current = getLocalMaterialCodeMap(role, memberId);
+  let changed = false;
+  const cleaned: Record<string, LocalMaterialCodeMapping> = {};
+  for (const [id, val] of Object.entries(current)) {
+    if (activeMaterialIds.has(id)) {
+      cleaned[id] = val;
+    } else {
+      changed = true;
     }
-    if (changed) {
-      localStorage.setItem(getMemberMaterialCodeMapKey(role, memberId), JSON.stringify(pruned));
-    }
-    return pruned;
-  } catch {
-    return {};
   }
+  if (changed) {
+    try {
+      localStorage.setItem(getMemberMaterialCodeMapKey(role, memberId), JSON.stringify(cleaned));
+    } catch {}
+  }
+  return cleaned;
 }
+

@@ -20,6 +20,7 @@ import {
 } from './server/aiProvider.js';
 import {
   generateFalconStudioImage,
+  FALCON_STUDIO_UNDER_CONSTRUCTION_MESSAGE,
   type FalconStudioMode,
 } from './server/falconStudioService.js';
 import * as shamousaModule from './server/shamousaProvider.js';
@@ -30,6 +31,7 @@ import {
   getActiveGlobalMemories,
   getAllGlobalMemories,
   deleteGlobalMemoryRecord,
+  saveGlobalMemoryRecord,
 } from './server/aiGlobalMemory.js';
 import {
   performGoogleSearch,
@@ -47,7 +49,9 @@ import {
   createUnifiedAliasItem,
   createUnifiedBrandItem,
   updateOrProposeUnifiedMaster,
+  contributeToUnifiedMaster,
   resolveUnifiedMaterialNotification,
+  recalculatePeriodicMarketAverages,
 } from './server/unifiedMaterialsService.js';
 
 dotenv.config();
@@ -82,6 +86,8 @@ const SUPPLIER_REVIEWS_FILE = path.resolve(__dirname, 'data/supplier_reviews.jso
 const SUPPLIER_OFFER_ALERTS_FILE = path.resolve(__dirname, 'data/supplier_offer_alerts.json');
 const VAPID_KEYS_FILE = path.resolve(__dirname, 'data/vapid_keys.json');
 const PUSH_SUBSCRIPTIONS_FILE = path.resolve(__dirname, 'data/push_subscriptions.json');
+const SHAMOUSA_UNANSWERED_FILE = path.resolve(__dirname, 'data/shamousa_unanswered.json');
+const SHAMOUSA_CUSTOM_RULES_FILE = path.resolve(__dirname, 'data/shamousa_custom_rules.json');
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isValidUuid(val?: string | null): boolean {
@@ -340,6 +346,9 @@ const supabaseServerUrl =
   process.env.SUPABASE_URL ||
   supabaseConfig.url;
 
+const hasSupabaseServiceRole = Boolean(
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
+);
 const supabaseServiceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_KEY ||
@@ -474,7 +483,7 @@ export interface AuthenticatedRequest extends Request {
 
 function getDbClient(req?: AuthenticatedRequest | Request): SupabaseClient {
   const authedReq = req as AuthenticatedRequest | undefined;
-  if (authedReq?.isSuperAdmin) {
+  if (authedReq?.isSuperAdmin && hasSupabaseServiceRole) {
     return supabaseAdminClient;
   }
   return authedReq?.scopedSupabase || supabaseAdminClient;
@@ -525,16 +534,19 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
              user.id);
         req.workshopId = workshopId;
 
-        // Create client scoped to authenticated user's JWT for RLS (Super Admin always gets admin bypass client)
-        req.scopedSupabase = superAdmin
-          ? supabaseAdminClient
-          : createClient(supabaseServerUrl, supabaseConfig.publishableKey, {
-              global: {
-                headers: {
-                  Authorization: `Bearer ${token}`,
+        // Create client scoped to authenticated user's JWT for RLS.
+        // Only use supabaseAdminClient bypass if a real SUPABASE_SERVICE_ROLE_KEY is configured;
+        // otherwise keep the authenticated Bearer token so Supabase RLS recognizes role='authenticated'.
+        req.scopedSupabase =
+          superAdmin && hasSupabaseServiceRole
+            ? supabaseAdminClient
+            : createClient(supabaseServerUrl, supabaseConfig.publishableKey, {
+                global: {
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                  },
                 },
-              },
-            });
+              });
 
         next();
         return;
@@ -572,32 +584,52 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
 // Health Check & Web Push VAPID Endpoints
 // -------------------------------------------------------------
 let cachedVapidKeys: { publicKey: string; privateKey: string } | null = null;
+function cleanEnvVapid(val?: string): string {
+  return String(val || '').trim().replace(/^["']+|["']+$/g, '').trim();
+}
+function tryApplyVapidPair(publicKey: string, privateKey: string): boolean {
+  if (!publicKey || !privateKey) return false;
+  try {
+    webpush.setVapidDetails('mailto:hmb.top.tube@gmail.com', publicKey, privateKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function getOrInitVapidKeys(): { publicKey: string; privateKey: string } {
   if (cachedVapidKeys) return cachedVapidKeys;
-  const envPub = String(process.env.VAPID_PUBLIC_KEY || '').trim();
-  const envPriv = String(process.env.VAPID_PRIVATE_KEY || '').trim();
+  const envPub = cleanEnvVapid(process.env.VAPID_PUBLIC_KEY);
+  const envPriv = cleanEnvVapid(process.env.VAPID_PRIVATE_KEY || process.env.VAPID_SECRET_KEY);
+
   if (envPub && envPriv) {
-    cachedVapidKeys = { publicKey: envPub, privateKey: envPriv };
-  } else {
-    try {
-      if (fs.existsSync(VAPID_KEYS_FILE)) {
-        const parsed = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf-8'));
-        if (parsed?.publicKey && parsed?.privateKey) {
-          cachedVapidKeys = { publicKey: parsed.publicKey, privateKey: parsed.privateKey };
-        }
-      }
-    } catch {}
-    if (!cachedVapidKeys) {
-      const generated = webpush.generateVAPIDKeys();
-      cachedVapidKeys = { publicKey: generated.publicKey, privateKey: generated.privateKey };
-      writeJsonData(VAPID_KEYS_FILE, cachedVapidKeys);
+    if (tryApplyVapidPair(envPub, envPriv)) {
+      cachedVapidKeys = { publicKey: envPub, privateKey: envPriv };
+      return cachedVapidKeys;
     }
+    if (tryApplyVapidPair(envPriv, envPub)) {
+      console.warn('[WebPush] Detected swapped VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in Secrets; auto-corrected in runtime.');
+      cachedVapidKeys = { publicKey: envPriv, privateKey: envPub };
+      return cachedVapidKeys;
+    }
+    console.warn(
+      `[WebPush] Env VAPID keys failed validation (publicLen=${envPub.length}, privateLen=${envPriv.length}). Falling back to local valid keypair.`
+    );
   }
+
   try {
-    webpush.setVapidDetails('mailto:hmb.top.tube@gmail.com', cachedVapidKeys.publicKey, cachedVapidKeys.privateKey);
-  } catch (err: any) {
-    console.warn('[WebPush] setVapidDetails warning:', err?.message);
-  }
+    if (fs.existsSync(VAPID_KEYS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf-8'));
+      if (parsed?.publicKey && parsed?.privateKey && tryApplyVapidPair(parsed.publicKey, parsed.privateKey)) {
+        cachedVapidKeys = { publicKey: parsed.publicKey, privateKey: parsed.privateKey };
+        return cachedVapidKeys;
+      }
+    }
+  } catch {}
+
+  const generated = webpush.generateVAPIDKeys();
+  cachedVapidKeys = { publicKey: generated.publicKey, privateKey: generated.privateKey };
+  writeJsonData(VAPID_KEYS_FILE, cachedVapidKeys);
+  tryApplyVapidPair(cachedVapidKeys.publicKey, cachedVapidKeys.privateKey);
   return cachedVapidKeys;
 }
 
@@ -4568,7 +4600,7 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
         treasuryBalance: clientTreasury,
         workshopId: wid,
         supplierId: verifiedSupplierId,
-        db: supabaseAdminClient,
+        db: getDbClient(req),
         clientContext: clientWorkshopState,
         userEmail: email,
         isSuperAdmin: superAdmin,
@@ -4592,8 +4624,10 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
     });
   } catch (err: any) {
     console.error('[Shamousa Chat Error]:', err);
+    const diplomaticError =
+      'معلش يا فنان، في زحمة شغل بسيطة على خط البحث الحي دلوقتي.. جرّب تاني بعد لحظة، أو اكتبلي سؤالك عن ورشتك وخاماتك وأنا هرد عليك فوراً ☀️';
     res.status(500).json({
-      error: err?.message || 'تعذر معالجة طلب شموسة حالياً، يرجى المحاولة لاحقاً.',
+      error: superAdmin ? (err?.message || diplomaticError) : diplomaticError,
       remaining: getRemainingUsage(shamousaUsage, wid, SHAMOUSA_DAILY_LIMIT, email),
     });
   }
@@ -4601,6 +4635,151 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
 
 app.post('/api/shamousa/chat', requireAuth, handleShamousaChatRoute);
 app.post('/api/ai/shamousa/chat', requireAuth, handleShamousaChatRoute);
+
+// -------------------------------------------------------------
+// سجل الأسئلة التي لم تجب عليها شموسة + قاموس السوبر أدمن الديناميكي
+// -------------------------------------------------------------
+function normalizeUnansweredKey(q: string): string {
+  return String(q || '')
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+app.post('/api/shamousa/unanswered', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const question = String(req.body?.question || '').trim().slice(0, 400);
+    const accountRole = req.body?.accountRole === 'supplier' ? 'supplier' : 'artisan';
+    if (!question || question.length < 2) {
+      res.status(400).json({ error: 'نص السؤال مطلوب' });
+      return;
+    }
+
+    const normKey = normalizeUnansweredKey(question);
+    const list = readJsonArray(SHAMOUSA_UNANSWERED_FILE);
+    const existing = list.find((item: any) => item.normKey === normKey && item.status !== 'resolved');
+    const nowIso = new Date().toISOString();
+
+    if (existing) {
+      existing.count = (Number(existing.count) || 1) + 1;
+      existing.lastAskedAt = nowIso;
+    } else {
+      list.unshift({
+        id: `unans_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        question,
+        normKey,
+        accountRole,
+        count: 1,
+        status: 'pending',
+        createdAt: nowIso,
+        lastAskedAt: nowIso,
+      });
+    }
+
+    writeJsonData(SHAMOUSA_UNANSWERED_FILE, list.slice(0, 300));
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.warn('[Shamousa Unanswered Log Warning]:', err?.message);
+    res.json({ ok: false });
+  }
+});
+
+app.get('/api/shamousa/custom-rules', requireAuth, (_req: AuthenticatedRequest, res: Response) => {
+  const rules = readJsonArray(SHAMOUSA_CUSTOM_RULES_FILE);
+  res.json({ rules });
+});
+
+app.get('/api/admin/shamousa/unanswered', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'هذه الشاشة مخصصة للسوبر أدمن فقط' });
+    return;
+  }
+  const questions = readJsonArray(SHAMOUSA_UNANSWERED_FILE);
+  const rules = readJsonArray(SHAMOUSA_CUSTOM_RULES_FILE);
+  res.json({ questions, rules });
+});
+
+app.post('/api/admin/shamousa/unanswered/:id/resolve', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'هذه الشاشة مخصصة للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const id = String(req.params.id || '').trim();
+    const title = String(req.body?.title || '').trim() || 'قاعدة من قاموس السوبر أدمن';
+    const answer = String(req.body?.answer || '').trim();
+    const rawKeywords = req.body?.keywords;
+    const keywords: string[] = Array.isArray(rawKeywords)
+      ? rawKeywords.map((k: any) => String(k || '').trim()).filter(Boolean)
+      : String(rawKeywords || '')
+          .split(/[،,\n]+/)
+          .map((k) => k.trim())
+          .filter(Boolean);
+
+    if (!answer) {
+      res.status(400).json({ error: 'يرجى كتابة إجابة شموسة المعتمدة قبل الحفظ' });
+      return;
+    }
+
+    const list = readJsonArray(SHAMOUSA_UNANSWERED_FILE);
+    const target = list.find((item: any) => String(item.id) === id);
+    const finalKeywords =
+      keywords.length > 0
+        ? keywords
+        : target?.question
+        ? [target.question]
+        : [title];
+
+    const rules = readJsonArray(SHAMOUSA_CUSTOM_RULES_FILE);
+    const newRule = {
+      id: `srule_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      title,
+      keywords: finalKeywords,
+      answer,
+      sourceQuestionId: id,
+      createdAt: Date.now(),
+    };
+    rules.unshift(newRule);
+    writeJsonData(SHAMOUSA_CUSTOM_RULES_FILE, rules.slice(0, 400));
+
+    if (target) {
+      target.status = 'resolved';
+      target.resolvedAt = new Date().toISOString();
+      target.resolvedRuleId = newRule.id;
+      target.resolvedAnswer = answer;
+      writeJsonData(SHAMOUSA_UNANSWERED_FILE, list);
+    }
+
+    await saveGlobalMemoryRecord({
+      agent_type: 'shamousa',
+      title: `قاموس شموسة — ${title}`,
+      rules: `عند السؤال عن (${finalKeywords.join(' / ')}): ${answer}`,
+      scopedClient: req.scopedSupabase,
+    }).catch(() => {});
+
+    res.json({ ok: true, rule: newRule, question: target || null });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'تعذر حفظ القاعدة في القاموس' });
+  }
+});
+
+app.delete('/api/admin/shamousa/unanswered/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'هذه الشاشة مخصصة للسوبر أدمن فقط' });
+    return;
+  }
+  const id = String(req.params.id || '').trim();
+  const list = readJsonArray(SHAMOUSA_UNANSWERED_FILE).filter((item: any) => String(item.id) !== id);
+  writeJsonData(SHAMOUSA_UNANSWERED_FILE, list);
+  res.json({ ok: true });
+});
 
 // -------------------------------------------------------------
 // Falcon AI Agent Endpoints (General Crafts, Vision, Pricing)
@@ -4706,7 +4885,10 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
     });
   } catch (err: any) {
     console.error('[Falcon Chat Error]:', err);
-    const { status, error } = falconErrorResponse(err);
+    const { status, error } = falconErrorResponse(err, {
+      isSuperAdmin: superAdmin,
+      firstName: workshopContext?.artistName || '',
+    });
     res.status(status).json({
       error,
       remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
@@ -4741,6 +4923,7 @@ const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
       imageBase64,
       mimeType,
       artistNotes,
+      isSuperAdmin: superAdmin,
       workshopContext: {
         activeCrafts: activeCrafts || workshopContext?.activeCrafts || ['macrame'],
         country: workshopContext?.country || 'مصر',
@@ -4759,7 +4942,10 @@ const handleFalconVision = async (req: AuthenticatedRequest, res: Response) => {
     });
   } catch (err: any) {
     console.error('[Falcon Vision Error]:', err);
-    const { status, error } = falconErrorResponse(err);
+    const { status, error } = falconErrorResponse(err, {
+      isSuperAdmin: superAdmin,
+      firstName: workshopContext?.artistName || '',
+    });
     res.status(status).json({
       error,
       remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
@@ -4771,70 +4957,21 @@ app.post('/api/analyze-vision', requireAuth, handleFalconVision);
 app.post('/api/ai/analyze-image', requireAuth, handleFalconVision);
 
 // -------------------------------------------------------------
-// استوديو صور المنتجات الذكي لصقر الشمساوية (للمتجر / في ورشتي / في منزل)
+// استوديو صور المنتجات لصقر الشمساوية — تحت الإنشاء (مجاني 100% بدون أي API مدفوع)
 // -------------------------------------------------------------
 const handleFalconStudio = async (req: AuthenticatedRequest, res: Response) => {
   const wid = req.workshopId || '';
   const email = req.userEmail || req.user?.email || '';
-  const superAdmin = isSuperAdmin(email);
-
-  if (!canUse(falconUsage, wid, FALCON_DAILY_LIMIT, email)) {
-    res.status(429).json({
-      error: `وصلت للحد اليومي لاستخدامات صقر (${FALCON_DAILY_LIMIT}). يتجدد الرصيد غداً بإذن الله.`,
-      remaining: 0,
-    });
-    return;
-  }
-
-  const { mode, imageBase64, mimeType, userPrompt, workshopContext } = req.body || {};
+  const { mode } = req.body || {};
   const normalizedMode: FalconStudioMode =
     mode === 'workshop' ? 'workshop' : mode === 'home' ? 'home' : 'store';
 
-  if (!imageBase64 && !String(userPrompt || '').trim()) {
-    res.status(400).json({
-      error: 'يرجى إرفاق صورة المنتج أو كتابة وصف للمنتج المطلوب تجهيز صورته.',
-    });
-    return;
-  }
-
-  try {
-    let verifiedSupplier: any = null;
-    if (workshopContext?.accountRole === 'supplier' || !superAdmin) {
-      verifiedSupplier = await resolveActiveSupplierForReq(req).catch(() => null);
-    }
-    const resolvedRole: 'artisan' | 'supplier' =
-      verifiedSupplier || workshopContext?.accountRole === 'supplier' ? 'supplier' : 'artisan';
-
-    const result = await generateFalconStudioImage({
-      mode: normalizedMode,
-      imageBase64: typeof imageBase64 === 'string' && imageBase64.trim() ? imageBase64 : undefined,
-      mimeType: typeof mimeType === 'string' ? mimeType : 'image/jpeg',
-      userPrompt: typeof userPrompt === 'string' ? userPrompt : '',
-      workshopContext: {
-        selectedCrafts: Array.isArray(workshopContext?.selectedCrafts)
-          ? workshopContext.selectedCrafts
-          : ['macrame'],
-        category: workshopContext?.category || '',
-        brandName: verifiedSupplier?.brand_name || verifiedSupplier?.brandName || workshopContext?.brandName || '',
-        artistName: verifiedSupplier?.owner_name || workshopContext?.artistName || '',
-        accountRole: resolvedRole,
-        country: workshopContext?.country || 'جمهورية مصر العربية',
-      },
-    });
-
-    const remaining = recordUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email);
-    res.json({
-      ...result,
-      remaining,
-    });
-  } catch (err: any) {
-    console.error('[Falcon Studio Error]:', err?.message || err);
-    const status = Number(err?.status) || 502;
-    res.status(status).json({
-      error: err?.message || 'تعذر توليد صورة الاستوديو حالياً، حاول مرة أخرى.',
-      remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
-    });
-  }
+  const result = await generateFalconStudioImage({ mode: normalizedMode });
+  res.json({
+    ...result,
+    message: result.message || FALCON_STUDIO_UNDER_CONSTRUCTION_MESSAGE,
+    remaining: getRemainingUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email),
+  });
 };
 
 app.post('/api/ai/falcon-studio', requireAuth, handleFalconStudio);
@@ -4844,6 +4981,8 @@ app.post('/api/falcon/studio-image', requireAuth, handleFalconStudio);
 // تفريغ المقاطع الصوتية بالذكاء الاصطناعي (Audio Speech-to-Text)
 // -------------------------------------------------------------
 const handleAudioTranscription = async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  const superAdmin = isSuperAdmin(email);
   try {
     const { audioBase64, mimeType } = req.body || {};
     if (!audioBase64) {
@@ -4854,7 +4993,8 @@ const handleAudioTranscription = async (req: AuthenticatedRequest, res: Response
     res.json({ text: transcribedText });
   } catch (err: any) {
     console.error('[Audio Transcription Error]:', err);
-    res.status(500).json({ error: err?.message || 'تعذر تفريغ المقطع الصوتي' });
+    const diplomaticMsg = 'معلش الصوت ما وصلش بوضوح المرة دي، جرّب تسجل تاني أو اكتب رسالتك مباشرة.';
+    res.status(500).json({ error: superAdmin ? (err?.message || diplomaticMsg) : diplomaticMsg });
   }
 };
 
@@ -4887,6 +5027,8 @@ app.delete('/api/ai/session', requireAuth, (req: AuthenticatedRequest, res: Resp
 // Live Google Search Grounding & AI Secrets Readiness Status
 // -------------------------------------------------------------
 const handleGoogleSearchRoute = async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  const superAdmin = isSuperAdmin(email);
   try {
     const { query, agent, country } = req.body || {};
     if (!query || typeof query !== 'string' || !query.trim()) {
@@ -4902,7 +5044,8 @@ const handleGoogleSearchRoute = async (req: AuthenticatedRequest, res: Response)
   } catch (err: any) {
     const statusCode = Number(err?.status) === 429 ? 429 : 502;
     console.log('[Google Search Route Notice]:', statusCode, err?.message?.slice(0, 120));
-    res.status(statusCode).json({ error: err?.message || 'تعذر تنفيذ بحث جوجل حالياً' });
+    const diplomaticMsg = 'في ضغط مؤقت على البحث المباشر دلوقتي، جرّب تاني بعد ثواني وهيجيبلك النتائج فوراً.';
+    res.status(statusCode).json({ error: superAdmin ? (err?.message || diplomaticMsg) : diplomaticMsg });
   }
 };
 
@@ -10689,7 +10832,7 @@ app.get('/api/unified-materials', requireAuth, async (req: AuthenticatedRequest,
     const superAdmin = isSuperAdmin(email);
     const roleParam = req.query.role === 'supplier' ? 'supplier' : 'artisan';
     const memberId = String(req.query.memberId || req.workshopId || req.user?.id || '').trim();
-    const snapshot = await loadUnifiedMaterialsSnapshotFromSupabase(supabaseAdminClient, {
+    const snapshot = await loadUnifiedMaterialsSnapshotFromSupabase(getDbClient(req), {
       memberRole: roleParam,
       memberId,
       isSuperAdmin: superAdmin,
@@ -10706,7 +10849,7 @@ app.post('/api/admin/unified-materials/sync-supabase', requireAuth, async (req: 
     if (!req.isSuperAdmin && !isSuperAdmin(email)) {
       return res.status(403).json({ error: 'صلاحية الترحيل والمزامنة مع Supabase مخصصة للسوبر أدمن فقط' });
     }
-    const report = await syncAllUnifiedMaterialsToSupabase(supabaseAdminClient, { force: true });
+    const report = await syncAllUnifiedMaterialsToSupabase(getDbClient(req), { force: true });
     return res.status(report.ok ? 200 : 400).json({ success: report.ok, ...report });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'تعذر مزامنة الخامات الموحدة مع Supabase' });
@@ -10728,7 +10871,7 @@ app.post('/api/unified-materials/master', requireAuth, async (req: Authenticated
       : 'artisan';
     const actorId = String(b.actorId || req.workshopId || req.user?.id || email);
     const actorName = String(b.actorName || req.user?.user_metadata?.brand_name || req.user?.user_metadata?.full_name || email);
-    const result = await createUnifiedMasterItem(supabaseAdminClient, {
+    const result = await createUnifiedMasterItem(getDbClient(req), {
       prefix: String(b.prefix).toUpperCase() as any,
       canonicalName: String(b.canonicalName),
       unitChain: b.unitChain,
@@ -10770,7 +10913,7 @@ app.post('/api/unified-materials/spec', requireAuth, async (req: AuthenticatedRe
       : 'artisan';
     const actorId = String(b.actorId || req.workshopId || req.user?.id || email);
     const actorName = String(b.actorName || email);
-    const result = await createUnifiedSpecItem(supabaseAdminClient, {
+    const result = await createUnifiedSpecItem(getDbClient(req), {
       masterCode: String(b.masterCode),
       label: String(b.label),
       thicknessMm: b.thicknessMm !== undefined ? Number(b.thicknessMm) : undefined,
@@ -10802,7 +10945,7 @@ app.post('/api/unified-materials/alias', requireAuth, async (req: AuthenticatedR
       : b.actorRole === 'supplier'
       ? 'supplier'
       : 'artisan';
-    const result = await createUnifiedAliasItem(supabaseAdminClient, {
+    const result = await createUnifiedAliasItem(getDbClient(req), {
       targetCode: String(b.targetCode),
       aliasName: String(b.aliasName),
       aliasType: b.aliasType || (actorRole === 'supplier' ? 'supplier' : 'artisan'),
@@ -10826,7 +10969,7 @@ app.post('/api/unified-materials/brand', requireAuth, async (req: AuthenticatedR
     }
     const b = req.body || {};
     if (!b.brandName) return res.status(400).json({ error: 'اسم الماركة مطلوب' });
-    const brand = await createUnifiedBrandItem(supabaseAdminClient, {
+    const brand = await createUnifiedBrandItem(getDbClient(req), {
       brandName: String(b.brandName),
       categoryHint: b.categoryHint,
     });
@@ -10846,7 +10989,7 @@ app.patch('/api/unified-materials/:code', requireAuth, async (req: Authenticated
       : b.actorRole === 'supplier'
       ? 'supplier'
       : 'artisan';
-    const result = await updateOrProposeUnifiedMaster(supabaseAdminClient, req.params.code, {
+    const result = await updateOrProposeUnifiedMaster(getDbClient(req), req.params.code, {
       action: b.action || 'update',
       canonicalName: b.canonicalName,
       unitChain: b.unitChain,
@@ -10855,6 +10998,8 @@ app.patch('/api/unified-materials/:code', requireAuth, async (req: Authenticated
       supplierAliases: b.supplierAliases,
       workshopTags: b.workshopTags,
       safetyNote: b.safetyNote,
+      marketBasePrice: b.marketBasePrice !== undefined ? Number(b.marketBasePrice) : undefined,
+      brandPrices: b.brandPrices && typeof b.brandPrices === 'object' ? b.brandPrices : undefined,
       reason: b.reason,
       actorRole,
       actorId: String(b.actorId || req.workshopId || req.user?.id || email),
@@ -10866,6 +11011,50 @@ app.patch('/api/unified-materials/:code', requireAuth, async (req: Authenticated
   }
 });
 
+app.post('/api/unified-materials/:code/contribute', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    const superAdmin = isSuperAdmin(email);
+    const b = req.body || {};
+    const actorRole: 'super_admin' | 'artisan' | 'supplier' = superAdmin
+      ? 'super_admin'
+      : b.actorRole === 'supplier'
+      ? 'supplier'
+      : 'artisan';
+    const result = await contributeToUnifiedMaster(getDbClient(req), req.params.code, {
+      newAliases: Array.isArray(b.newAliases) ? b.newAliases : [],
+      newThicknessesMm: Array.isArray(b.newThicknessesMm) ? b.newThicknessesMm : [],
+      newSpecLabels: Array.isArray(b.newSpecLabels) ? b.newSpecLabels : [],
+      newBrands: Array.isArray(b.newBrands) ? b.newBrands : [],
+      newUnitEquations: Array.isArray(b.newUnitEquations) ? b.newUnitEquations : [],
+      personalBasePrice: b.personalBasePrice !== undefined ? Number(b.personalBasePrice) : undefined,
+      personalBrandPrices:
+        b.personalBrandPrices && typeof b.personalBrandPrices === 'object' ? b.personalBrandPrices : undefined,
+      suggestionNote: typeof b.suggestionNote === 'string' ? b.suggestionNote : '',
+      actorRole,
+      actorId: String(b.actorId || req.workshopId || req.user?.id || email),
+      actorName: String(b.actorName || req.user?.user_metadata?.brand_name || req.user?.user_metadata?.full_name || email),
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || 'تعذر حفظ التعديلات على الخامة' });
+  }
+});
+
+app.post('/api/admin/unified-materials/recalculate-prices', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    if (!req.isSuperAdmin && !isSuperAdmin(email)) {
+      return res.status(403).json({ error: 'صلاحية تحديث متوسطات أسعار السوق مخصصة للسوبر أدمن فقط' });
+    }
+    const minObservations = req.body?.minObservations ? Number(req.body.minObservations) : 2;
+    const report = await recalculatePeriodicMarketAverages(getDbClient(req), { minObservations });
+    return res.json({ success: true, ...report });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'تعذر تحديث متوسطات السوق' });
+  }
+});
+
 app.post('/api/unified-materials/notifications/:id/resolve', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const email = req.userEmail || req.user?.email || '';
@@ -10874,7 +11063,7 @@ app.post('/api/unified-materials/notifications/:id/resolve', requireAuth, async 
     }
     const decision = req.body?.decision || 'accept_global';
     const notification = await resolveUnifiedMaterialNotification(
-      supabaseAdminClient,
+      getDbClient(req),
       req.params.id,
       decision,
       email
@@ -10884,6 +11073,11 @@ app.post('/api/unified-materials/notifications/:id/resolve', requireAuth, async 
     return res.status(400).json({ error: err?.message || 'تعذر معالجة الإشعار' });
   }
 });
+
+// Background periodic market-price average recalculator (every 6 hours, non-blocking)
+setInterval(() => {
+  recalculatePeriodicMarketAverages(supabaseAdminClient).catch(() => {});
+}, 6 * 60 * 60 * 1000).unref();
 
 // -------------------------------------------------------------
 // Start Server (Vite in Dev with SPA catch-all, Static in Prod)

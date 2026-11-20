@@ -9,10 +9,6 @@ import {
   CheckSquare,
   Square,
   RefreshCw,
-  ChevronDown,
-  ChevronUp,
-  Eye,
-  Lock,
 } from 'lucide-react';
 import {
   UnifiedCategoryPrefix,
@@ -29,11 +25,15 @@ import {
 import {
   fetchUnifiedMaterialsSnapshot,
   createUnifiedMasterApi,
-  createUnifiedSpecApi,
   createUnifiedBrandApi,
   getSeededFallbackSnapshot,
+  LocalMaterialCodeMapping,
 } from '../../db/unifiedMaterialsService';
 import { normalizeMaterialKey } from '../../utils/materialsDeduplication';
+import {
+  UnifiedMaterialAccordionCard,
+  MaterialCardSelectionConfig,
+} from './UnifiedMaterialAccordionCard';
 
 export interface UnifiedPickerSelectionItem {
   master: UnifiedMaterialMaster;
@@ -45,6 +45,12 @@ export interface UnifiedPickerSelectionItem {
   kind: 'primary' | 'extra';
   recommendedUnitName: string;
   availableThicknessesMm?: number[];
+  selectedThicknessesMm?: number[];
+  selectedAliases?: string[];
+  selectedBrands?: string[];
+  selectedUnitEquation?: string;
+  personalBasePrice?: number;
+  personalBrandPrices?: Record<string, number>;
   allThicknessesIncluded?: boolean;
 }
 
@@ -56,10 +62,14 @@ interface UnifiedMaterialPickerModalProps {
   actorName: string;
   /** Used in supplier mode when linking a single item, or artisan multi-import */
   onConfirmSelection: (selected: UnifiedPickerSelectionItem[]) => void | Promise<void>;
-  /** Already-linked unified master codes in member's list (locked from duplicate adding) */
+  /** Already-linked unified master codes in member's list (derived ONLY from live existing materials) */
   alreadyLinkedCodes?: Set<string>;
   /** Existing material names in member's list (used for smart duplicate detection) */
   existingMaterialNames?: string[];
+  /** Existing saved member preferences per masterCode (allows returning to customize owned materials anytime) */
+  existingPreferencesByCode?: Record<string, LocalMaterialCodeMapping>;
+  /** Callback when member updates preferences on an already-owned material */
+  onUpdateExistingPreferences?: (masterCode: string, cfg: MaterialCardSelectionConfig) => void;
 }
 
 const DEFAULT_KIND_FOR_PREFIX: Record<UnifiedCategoryPrefix, 'primary' | 'extra'> = {
@@ -77,11 +87,7 @@ const DEFAULT_KIND_FOR_PREFIX: Record<UnifiedCategoryPrefix, 'primary' | 'extra'
   AX: 'extra',
 };
 
-type SelectionConfig = {
-  specCode: string;
-  brandCode: string;
-  kind: 'primary' | 'extra';
-};
+type SelectionConfig = MaterialCardSelectionConfig;
 
 export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProps> = ({
   isOpen,
@@ -92,6 +98,8 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
   onConfirmSelection,
   alreadyLinkedCodes,
   existingMaterialNames = [],
+  existingPreferencesByCode = {},
+  onUpdateExistingPreferences,
 }) => {
   const [snapshot, setSnapshot] = useState<UnifiedMaterialsSnapshot>(() => getSeededFallbackSnapshot());
   const [loading, setLoading] = useState(false);
@@ -99,11 +107,9 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
   const [prefixFilter, setPrefixFilter] = useState<UnifiedCategoryPrefix | 'all'>('all');
   const [workshopFilter, setWorkshopFilter] = useState<string>('all');
 
-  // Inspect-First state: clicking a card opens it WITHOUT auto-selecting it!
+  // In-place accordion card expansion (clicking checkmark NEVER closes card!)
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
-  // Draft configuration while inspecting an opened card before clicking "اختيار"
   const [draftMap, setDraftMap] = useState<Record<string, SelectionConfig>>({});
-  // Confirmed selected items (ONLY added when user explicitly clicks "اختيار" or "اختيار الكل")
   const [selectedMap, setSelectedMap] = useState<Record<string, SelectionConfig>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -120,11 +126,6 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
   const [newOrigin, setNewOrigin] = useState('');
   const [creatingMaster, setCreatingMaster] = useState(false);
   const [formMsg, setFormMsg] = useState<{ text: string; isError?: boolean } | null>(null);
-
-  // Inline add spec to an existing item
-  const [addingSpecForCode, setAddingSpecForCode] = useState<string | null>(null);
-  const [inlineSpecLabel, setInlineSpecLabel] = useState('');
-  const [savingInlineSpec, setSavingInlineSpec] = useState(false);
 
   // Inline add brand (for supplier SKU builder)
   const [showAddBrand, setShowAddBrand] = useState(false);
@@ -158,7 +159,6 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
     setExpandedCode(null);
     setFormMsg(null);
     setShowAddForm(false);
-    setAddingSpecForCode(null);
   }, [isOpen, mode, actorId]);
 
   // Normalized set of existing names for smart duplicate prevention
@@ -179,14 +179,8 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
     return false;
   };
 
-  const hiddenMasterCodes = useMemo(() => {
-    const set = new Set<string>();
-    for (const c of snapshot.memberCustomizations || []) {
-      if (c.isHidden && c.memberId === actorId) set.add(c.masterCode);
-    }
-    return set;
-  }, [snapshot.memberCustomizations, actorId]);
-
+  // CRITICAL: Never hide global unified materials for any artist/supplier!
+  // Deleting from "خاماتي" only removes from the artist's private list, NEVER from the Unified Materials System.
   const customNamesByCode = useMemo(() => {
     const rec: Record<string, string> = {};
     for (const c of snapshot.memberCustomizations || []) {
@@ -194,6 +188,50 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
     }
     return rec;
   }, [snapshot.memberCustomizations, actorId]);
+
+  // Member's own saved personal price observations (isolated from global baseline)
+  const memberPricingByCode = useMemo(() => {
+    const rec: Record<string, { personalBasePrice?: number; personalBrandPrices?: Record<string, number> }> = {};
+    for (const [code, pref] of Object.entries(existingPreferencesByCode || {})) {
+      if (pref?.personalBasePrice || pref?.personalBrandPrices) {
+        rec[code] = {
+          personalBasePrice: pref.personalBasePrice,
+          personalBrandPrices: pref.personalBrandPrices,
+        };
+      }
+    }
+    for (const c of snapshot.memberCustomizations || []) {
+      if (c.memberId === actorId && c.specCode === '__PRICE_OBS__' && c.bridgeOverrides) {
+        const ov = c.bridgeOverrides as Record<string, any>;
+        rec[c.masterCode] = {
+          personalBasePrice:
+            Number(ov.personalBasePrice) > 0
+              ? Number(ov.personalBasePrice)
+              : rec[c.masterCode]?.personalBasePrice,
+          personalBrandPrices: {
+            ...(rec[c.masterCode]?.personalBrandPrices || {}),
+            ...(ov.personalBrandPrices && typeof ov.personalBrandPrices === 'object'
+              ? ov.personalBrandPrices
+              : {}),
+          },
+        };
+      }
+    }
+    return rec;
+  }, [snapshot.memberCustomizations, actorId, existingPreferencesByCode]);
+
+  // Exact active count per category prefix (so TH shows 56, CL shows 58, etc.)
+  const activeCountByPrefix = useMemo(() => {
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const m of snapshot.masters) {
+      if (m.status !== 'active') continue;
+      counts[m.prefix] = (counts[m.prefix] || 0) + 1;
+      total += 1;
+    }
+    counts.all = total;
+    return counts;
+  }, [snapshot.masters]);
 
   const workshopOptions = useMemo(() => {
     const s = new Set<string>();
@@ -208,13 +246,13 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
       prefixFilter,
       workshopFilter,
       includeArchived: false,
-      hiddenMasterCodes,
       customNamesByCode,
     });
-  }, [searchQuery, snapshot, prefixFilter, workshopFilter, hiddenMasterCodes, customNamesByCode]);
+  }, [searchQuery, snapshot, prefixFilter, workshopFilter, customNamesByCode]);
 
+  // Show ALL matching items without artificial 80-item truncation
   const visibleMatches = useMemo(() => {
-    return searchResult.matches.slice(0, 80);
+    return searchResult.matches;
   }, [searchResult.matches]);
 
   const selectableVisibleMatches = useMemo(() => {
@@ -230,32 +268,70 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
     return selectableVisibleMatches.every(({ master }) => Boolean(selectedMap[master.code]));
   }, [selectableVisibleMatches, selectedMap]);
 
-  const getDefaultConfig = (master: UnifiedMaterialMaster): SelectionConfig => ({
-    specCode: '',
-    brandCode: mode === 'supplier' ? 'B000' : '',
-    kind: DEFAULT_KIND_FOR_PREFIX[master.prefix] || 'primary',
-  });
+  const getDefaultConfig = (master: UnifiedMaterialMaster): SelectionConfig => {
+    const saved = existingPreferencesByCode?.[master.code];
+    const savedPrices = memberPricingByCode[master.code];
+    const defaultThicknesses = isBundleThicknessThread(master)
+      ? getThreadThicknessOptions(master.code, master)
+      : [];
+    return {
+      specCode: saved?.specCode || '',
+      brandCode: saved?.brandCode || (mode === 'supplier' ? 'B000' : ''),
+      kind: DEFAULT_KIND_FOR_PREFIX[master.prefix] || 'primary',
+      selectedThicknessesMm:
+        saved?.selectedThicknessesMm && saved.selectedThicknessesMm.length > 0
+          ? saved.selectedThicknessesMm
+          : defaultThicknesses,
+      selectedAliases: saved?.selectedAliases || [],
+      selectedBrands: saved?.selectedBrands || [],
+      selectedUnitEquation: saved?.selectedUnitEquation,
+      personalBasePrice: saved?.personalBasePrice ?? savedPrices?.personalBasePrice,
+      personalBrandPrices: saved?.personalBrandPrices ?? savedPrices?.personalBrandPrices,
+    };
+  };
 
   const getActiveConfig = (master: UnifiedMaterialMaster): SelectionConfig => {
     return draftMap[master.code] || selectedMap[master.code] || getDefaultConfig(master);
   };
 
-  // Step 1: Clicking a card ONLY opens/collapses it for inspection (never auto-selects!)
+  // Independent Checkbox Toggle: marks/unmarks WITHOUT closing the card!
+  const handleToggleCheckbox = (master: UnifiedMaterialMaster) => {
+    if (isAlreadyOwned(master)) {
+      triggerToast(`«${master.canonicalName}» موجودة بالفعل في خاماتك — يمكنك فتحها لتخصيصها أو إضافة مواصفات`);
+      return;
+    }
+    const displayName = customNamesByCode[master.code] || master.canonicalName;
+    if (selectedMap[master.code]) {
+      setSelectedMap((prev) => {
+        const next = { ...prev };
+        delete next[master.code];
+        return next;
+      });
+      triggerToast(`تم إلغاء تحديد «${displayName}»`);
+    } else {
+      const cfg = getActiveConfig(master);
+      setSelectedMap((prev) =>
+        mode === 'supplier' ? { [master.code]: cfg } : { ...prev, [master.code]: cfg }
+      );
+      triggerToast(`✓ تم تحديد «${displayName}» — يمكنك فتح تفاصيلها لتخصيص السماكات والمسميات قبل الحفظ`);
+    }
+  };
+
+  // Clicking title or "فتح التفاصيل" expands/collapses in-place (works for BOTH new and already-owned items!)
   const handleToggleInspect = (master: UnifiedMaterialMaster) => {
     setExpandedCode((prev) => {
       if (prev === master.code) return null;
       setDraftMap((dPrev) => ({
         ...dPrev,
-        [master.code]: selectedMap[master.code] || dPrev[master.code] || getDefaultConfig(master),
+        [master.code]: dPrev[master.code] || selectedMap[master.code] || getDefaultConfig(master),
       }));
       return master.code;
     });
   };
 
-  // Step 2: Explicit confirm button inside the opened card -> marks selected, shows toast, auto-collapses!
+  // Explicit Save Button inside the expanded card -> saves selections & collapses card cleanly
   const handleConfirmSingleMaster = (master: UnifiedMaterialMaster) => {
     if (isAlreadyOwned(master)) {
-      triggerToast(`«${master.canonicalName}» موجودة بالفعل في خاماتك ولا يمكن تكرارها`);
       setExpandedCode(null);
       return;
     }
@@ -268,26 +344,14 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
         : { ...prev, [master.code]: cfg }
     );
 
-    // Auto-collapse after adding so user sees the green checkmark and continues browsing cleanly
     setExpandedCode(null);
 
-    if (isBundleThicknessThread(master)) {
-      const thRange = formatThreadThicknessRangeLabel(getThreadThicknessOptions(master.code, master));
-      triggerToast(`✓ تمت إضافة «${displayName}» لقائمة الاختيار (تشمل كل السماكات: ${thRange})`);
+    if (cfg.selectedThicknessesMm && cfg.selectedThicknessesMm.length > 0) {
+      const thRange = formatThreadThicknessRangeLabel(cfg.selectedThicknessesMm);
+      triggerToast(`✓ تم حفظ اختيارات «${displayName}» (${thRange})`);
     } else {
-      triggerToast(`✓ تمت إضافة «${displayName}» لقائمة الاختيار`);
+      triggerToast(`✓ تم حفظ واختيار «${displayName}» لقائمة خاماتك`);
     }
-  };
-
-  const handleUnselectMaster = (master: UnifiedMaterialMaster) => {
-    const displayName = customNamesByCode[master.code] || master.canonicalName;
-    setSelectedMap((prev) => {
-      const next = { ...prev };
-      delete next[master.code];
-      return next;
-    });
-    setExpandedCode(null);
-    triggerToast(`تم إلغاء اختيار «${displayName}»`);
   };
 
   const handleToggleSelectAllVisible = () => {
@@ -390,6 +454,9 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
       specCode: '',
       brandCode: mode === 'supplier' ? 'B000' : '',
       kind: DEFAULT_KIND_FOR_PREFIX[createdMaster.prefix] || 'primary',
+      selectedThicknessesMm: parsedThicknesses || [],
+      selectedAliases: [],
+      selectedBrands: parsedBrands,
     };
     setSelectedMap((prev) =>
       mode === 'supplier'
@@ -409,26 +476,6 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
         ? `الخامة موجودة مسبقاً بكود (${createdMaster.code}) وتم تحديدها لك ✅`
         : `تم تسجيل الخامة الجديدة برقم سيريال (${createdMaster.code}) وتحديدها وإرسال إشعار مراجعة للسوبر أدمن ✅`,
     });
-  };
-
-  const handleAddInlineSpec = async (master: UnifiedMaterialMaster) => {
-    if (!inlineSpecLabel.trim()) return;
-    setSavingInlineSpec(true);
-    const res = await createUnifiedSpecApi({
-      masterCode: master.code,
-      label: inlineSpecLabel.trim(),
-      actorRole: mode,
-      actorId,
-      actorName,
-    });
-    setSavingInlineSpec(false);
-    if (res.success && res.spec) {
-      await loadSnapshot();
-      updateDraft(master, { specCode: res.spec.specCode });
-      setAddingSpecForCode(null);
-      setInlineSpecLabel('');
-      triggerToast('✓ تمت إضافة المقاس الجديد');
-    }
   };
 
   const handleCreateInlineBrand = async () => {
@@ -482,6 +529,15 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
           kind: cfg.kind,
           recommendedUnitName: chainDef?.defaultPrimaryUnit || 'كيلو',
           availableThicknessesMm: threadThicknesses,
+          selectedThicknessesMm:
+            cfg.selectedThicknessesMm && cfg.selectedThicknessesMm.length > 0
+              ? cfg.selectedThicknessesMm
+              : threadThicknesses,
+          selectedAliases: cfg.selectedAliases || [],
+          selectedBrands: cfg.selectedBrands || [],
+          selectedUnitEquation: cfg.selectedUnitEquation,
+          personalBasePrice: cfg.personalBasePrice,
+          personalBrandPrices: cfg.personalBrandPrices,
           allThicknessesIncluded: isBundledThread || !spec,
         });
       }
@@ -745,7 +801,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
               </select>
             </div>
 
-            {/* 12 Clean Category Filter Buttons */}
+            {/* 12 Clean Category Filter Buttons with EXACT Active Item Counts */}
             <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
@@ -757,7 +813,7 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                 }`}
               >
                 {prefixFilter === 'all' && <Check className="w-3 h-3" />}
-                <span>الكل ({snapshot.masters.filter((m) => m.status === 'active').length})</span>
+                <span>الكل ({activeCountByPrefix.all || 0})</span>
               </button>
               {snapshot.categories.map((cat) => (
                 <button
@@ -771,7 +827,9 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
                   }`}
                 >
                   {prefixFilter === cat.prefix && <Check className="w-3 h-3" />}
-                  <span>{cat.nameAr.replace(' ★', '')}</span>
+                  <span>
+                    {cat.nameAr.replace(' ★', '')} ({activeCountByPrefix[cat.prefix] || 0})
+                  </span>
                 </button>
               ))}
             </div>
@@ -893,275 +951,52 @@ export const UnifiedMaterialPickerModal: React.FC<UnifiedMaterialPickerModalProp
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {visibleMatches.map(({ master, specs }) => {
+              {visibleMatches.map(({ master, specs, aliases }) => {
                 const isSelected = Boolean(selectedMap[master.code]);
                 const isExpanded = expandedCode === master.code;
                 const alreadyOwned = isAlreadyOwned(master);
                 const activeCfg = getActiveConfig(master);
                 const chainDef = snapshot.unitChains.find((u) => u.code === master.unitChain);
                 const catDef = snapshot.categories.find((c) => c.prefix === master.prefix);
-                const isBundledThread = isBundleThicknessThread(master);
-                const threadThicknesses = isBundledThread ? getThreadThicknessOptions(master.code, master) : [];
-                const defaultKind = activeCfg.kind;
 
                 return (
-                  <div
+                  <UnifiedMaterialAccordionCard
                     key={master.code}
-                    className={`rounded-2xl p-3.5 border transition-all duration-150 space-y-2.5 ${
-                      alreadyOwned
-                        ? 'bg-sky-50/60 dark:bg-sky-950/25 border-sky-300/70 dark:border-sky-800/70 opacity-90'
-                        : isSelected
-                        ? 'bg-emerald-50/80 dark:bg-emerald-950/35 border-emerald-500 ring-1 ring-emerald-500/70 shadow-sm'
-                        : isExpanded
-                        ? 'bg-amber-50/70 dark:bg-[#18284D] border-[#EA580C] ring-1 ring-[#EA580C]/50 shadow-sm'
-                        : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60'
-                    }`}
-                  >
-                    {/* Card Header: Clicking ONLY opens/closes details for inspection! */}
-                    <div className="flex items-start justify-between gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleInspect(master)}
-                        className="flex items-start gap-2.5 text-right flex-1 min-w-0 cursor-pointer group"
-                      >
-                        <div className="mt-0.5 shrink-0">
-                          {alreadyOwned ? (
-                            <div className="w-5 h-5 rounded-md bg-sky-600 text-white flex items-center justify-center">
-                              <Check className="w-3.5 h-3.5" />
-                            </div>
-                          ) : isSelected ? (
-                            <div className="w-5 h-5 rounded-md bg-emerald-600 text-white flex items-center justify-center shadow-xs">
-                              <Check className="w-3.5 h-3.5" />
-                            </div>
-                          ) : (
-                            <div className="w-5 h-5 rounded-md border-2 border-[#CBD5E1] dark:border-[#334155] group-hover:border-[#EA580C] flex items-center justify-center transition">
-                              <Eye className="w-3 h-3 text-[#64748B] group-hover:text-[#EA580C]" />
-                            </div>
-                          )}
-                        </div>
-                        <div className="min-w-0 space-y-1">
-                          <div className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                            {customNamesByCode[master.code] || master.canonicalName}
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-[10px] font-bold text-[#C2410C] dark:text-amber-300">
-                              {catDef?.nameAr.replace(' ★', '')}
-                            </span>
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
-                                defaultKind === 'extra'
-                                  ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
-                                  : 'bg-amber-500/15 text-amber-900 dark:text-amber-200'
-                              }`}
-                            >
-                              {defaultKind === 'extra' ? 'فرعية / إضافية' : 'أساسية'}
-                            </span>
-                            {isBundledThread && threadThicknesses.length > 0 && (
-                              <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-900 dark:text-amber-200 border border-amber-400/40 text-[10px] font-black">
-                                السماكات: {formatThreadThicknessRangeLabel(threadThicknesses)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-
-                      {/* Header Status Pill / Inspect Trigger */}
-                      {alreadyOwned ? (
-                        <span className="px-2.5 py-1.5 rounded-xl bg-sky-600/15 text-sky-800 dark:text-sky-200 border border-sky-400/40 text-[10px] font-black shrink-0 inline-flex items-center gap-1">
-                          <Lock className="w-3 h-3" />
-                          <span>موجودة بخاماتي ✓</span>
-                        </span>
-                      ) : isSelected && !isExpanded ? (
-                        <button
-                          type="button"
-                          onClick={() => handleToggleInspect(master)}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black shrink-0 inline-flex items-center gap-1 transition active:scale-95 cursor-pointer shadow-xs"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>تم الاختيار</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleToggleInspect(master)}
-                          className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black shrink-0 inline-flex items-center gap-1 transition active:scale-95 cursor-pointer border ${
-                            isExpanded
-                              ? 'bg-[#0C1427] text-[#FBBF24] border-[#0C1427]'
-                              : 'bg-[#EFE9DC] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
-                          }`}
-                        >
-                          <span>{isExpanded ? 'إغلاق' : 'معاينة'}</span>
-                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Expanded Inspection Panel (ONLY open while inspecting, auto-closes when user clicks "اختيار"!) */}
-                    {isExpanded && (
-                      <div className="pt-2.5 border-t border-[#D4CCBC] dark:border-[#22355E] space-y-2.5 text-[11px] animate-in fade-in duration-150">
-                        {/* Concise summary of contents */}
-                        <div className="p-2.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC]/70 dark:border-[#22355E] space-y-1">
-                          {chainDef && (
-                            <div className="font-bold text-[#334155] dark:text-[#CBD5E1]">
-                              وحدة القياس: <span className="text-[#0C1427] dark:text-white">{chainDef.defaultPrimaryUnit} ⇠ {chainDef.defaultSubUnit}</span>
-                            </div>
-                          )}
-                          {(master.artistAliases.length > 0 || master.supplierAliases.length > 0) && (
-                            <div className="text-[#475569] dark:text-[#94A3B8]">
-                              المسميات الدارجة: {[...master.artistAliases, ...master.supplierAliases].slice(0, 4).join(' · ')}
-                            </div>
-                          )}
-                          {master.defaultBrands && master.defaultBrands.length > 0 && (
-                            <div className="text-[#475569] dark:text-[#94A3B8]">
-                              الماركات المسجلة: {master.defaultBrands.join(' · ')}
-                            </div>
-                          )}
-                        </div>
-
-                        {alreadyOwned ? (
-                          <div className="p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/40 text-sky-900 dark:text-sky-200 font-bold flex items-center justify-between gap-2">
-                            <span>✓ هذه الخامة موجودة بالفعل في قائمة «خاماتي» — لا يمكن إضافتها مرتين منعاً للتكرار.</span>
-                            <button
-                              type="button"
-                              onClick={() => setExpandedCode(null)}
-                              className="px-2.5 py-1 rounded-lg bg-sky-600 text-white font-black shrink-0 cursor-pointer"
-                            >
-                              حسناً
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            {/* Threads bundle all thicknesses */}
-                            {isBundledThread ? (
-                              <div className="p-2.5 rounded-xl bg-emerald-600/10 border border-emerald-500/30 text-emerald-900 dark:text-emerald-200 font-bold">
-                                ✓ تنزل الخامة كاملة بجميع سماكاتها ({threadThicknesses.map((t) => `${t} مم`).join(' · ')}) — ويُختار السمك داخل حاسبة التكاليف لحساب سحب الخيط فقط.
-                              </div>
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <label className="font-bold shrink-0">المواصفة / المقاس:</label>
-                                <select
-                                  value={activeCfg.specCode}
-                                  onChange={(e) => updateDraft(master, { specCode: e.target.value })}
-                                  className="flex-1 min-w-[150px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-                                >
-                                  <option value="">الكل / الخامة كاملة (الافتراضي)</option>
-                                  {specs.map((sp) => (
-                                    <option key={sp.specCode} value={sp.specCode}>
-                                      {sp.label}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setAddingSpecForCode((p) => (p === master.code ? null : master.code));
-                                    setInlineSpecLabel('');
-                                  }}
-                                  className="px-2 py-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-black text-[#C2410C] dark:text-[#FBBF24] cursor-pointer"
-                                >
-                                  + مقاس
-                                </button>
-                              </div>
-                            )}
-
-                            {!isBundledThread && addingSpecForCode === master.code && (
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="text"
-                                  value={inlineSpecLabel}
-                                  onChange={(e) => setInlineSpecLabel(e.target.value)}
-                                  placeholder="وصف المقاس الجديد"
-                                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#EA580C] font-bold"
-                                />
-                                <button
-                                  type="button"
-                                  disabled={savingInlineSpec || !inlineSpecLabel.trim()}
-                                  onClick={() => handleAddInlineSpec(master)}
-                                  className="px-3 py-1.5 rounded-lg bg-[#EA580C] text-white font-black cursor-pointer disabled:opacity-50"
-                                >
-                                  حفظ
-                                </button>
-                              </div>
-                            )}
-
-                            {mode === 'artisan' ? (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-bold">نوعها في ورشتك:</span>
-                                <button
-                                  type="button"
-                                  onClick={() => updateDraft(master, { kind: 'primary' })}
-                                  className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer transition ${
-                                    activeCfg.kind === 'primary'
-                                      ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                                      : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
-                                  }`}
-                                >
-                                  خامة أساسية
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => updateDraft(master, { kind: 'extra' })}
-                                  className={`px-2.5 py-1 rounded-lg font-black border cursor-pointer transition ${
-                                    activeCfg.kind === 'extra'
-                                      ? 'bg-emerald-600 text-white border-emerald-600'
-                                      : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
-                                  }`}
-                                >
-                                  خامة فرعية / إضافية
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <label className="font-bold shrink-0">الماركة:</label>
-                                <select
-                                  value={activeCfg.brandCode}
-                                  onChange={(e) => updateDraft(master, { brandCode: e.target.value })}
-                                  className="flex-1 min-w-[140px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-                                >
-                                  {snapshot.brands.map((b) => (
-                                    <option key={b.brandCode} value={b.brandCode}>
-                                      {b.brandName}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-
-                            {/* Explicit Action Buttons: Confirm Select -> Marks Checkmark & Auto-Closes! */}
-                            <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#D4CCBC]/60 dark:border-[#22355E]">
-                              {isSelected ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleUnselectMaster(master)}
-                                  className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 font-black cursor-pointer transition"
-                                >
-                                  إلغاء الاختيار
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setExpandedCode(null)}
-                                  className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold cursor-pointer"
-                                >
-                                  إغلاق بدون اختيار
-                                </button>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={() => handleConfirmSingleMaster(master)}
-                                className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black inline-flex items-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                                <span>{isSelected ? 'تأكيد التعديل وإغلاق' : 'اختيار وإضافة لخاماتي'}</span>
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                    master={master}
+                    specs={specs}
+                    aliases={aliases}
+                    allBrands={snapshot.brands}
+                    chainDef={chainDef}
+                    categoryLabel={catDef?.nameAr.replace(' ★', '') || master.prefix}
+                    customDisplayName={customNamesByCode[master.code]}
+                    savedMemberPricing={memberPricingByCode[master.code]}
+                    mode={mode}
+                    actorId={actorId}
+                    actorName={actorName}
+                    alreadyOwned={alreadyOwned}
+                    isSelected={isSelected}
+                    isExpanded={isExpanded}
+                    activeCfg={activeCfg}
+                    onToggleCheckbox={() => handleToggleCheckbox(master)}
+                    onToggleExpand={() => handleToggleInspect(master)}
+                    onUpdateDraft={(patch) => {
+                      updateDraft(master, patch);
+                      // Keep selectedMap synced if already checked so user never loses customizations
+                      if (selectedMap[master.code]) {
+                        setSelectedMap((prev) => ({
+                          ...prev,
+                          [master.code]: { ...prev[master.code], ...patch },
+                        }));
+                      }
+                    }}
+                    onSaveCardSelection={() => handleConfirmSingleMaster(master)}
+                    onSaveExistingOwnedPreferences={(cfg) => {
+                      onUpdateExistingPreferences?.(master.code, cfg);
+                      setExpandedCode(null);
+                    }}
+                    onContributionSaved={loadSnapshot}
+                    onToast={triggerToast}
+                  />
                 );
               })}
             </div>

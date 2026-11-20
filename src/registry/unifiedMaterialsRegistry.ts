@@ -119,6 +119,16 @@ export interface UnifiedMaterialMaster {
   isAddedForEquations?: boolean;
   /** Standard thickness range in mm (for threads/cords where thickness changes consumption, not per-kg price) */
   availableThicknessesMm?: number[];
+  /** General market baseline price (EGP per primary unit), updated ONLY by Super Admin or periodic market averaging */
+  marketBasePrice?: number;
+  /** Brand-specific market prices (Brand Name -> EGP per primary unit) */
+  brandPrices?: Record<string, number>;
+  /** How the current global market price was determined */
+  priceSource?: 'seeded_market' | 'super_admin' | 'auto_average';
+  /** Timestamp of last global price update */
+  priceLastUpdatedAt?: string;
+  /** Number of independent artisan/supplier observations contributing to periodic average */
+  priceObservationsCount?: number;
   status: 'active' | 'archived' | 'reserved_deleted';
   reviewStatus: 'approved' | 'new' | 'edited';
   createdByRole: 'system' | 'super_admin' | 'artisan' | 'supplier';
@@ -188,7 +198,7 @@ export interface MemberMaterialCustomization {
   customName?: string;
   isHidden?: boolean;
   hideReason?: string;
-  bridgeOverrides?: UnifiedBridgeValues;
+  bridgeOverrides?: UnifiedBridgeValues & Record<string, any>;
   updatedAt?: string;
 }
 

@@ -39,7 +39,14 @@ import {
   UnifiedMaterialPickerModal,
   UnifiedPickerSelectionItem,
 } from '../materials/UnifiedMaterialPickerModal';
-import { updateOrProposeUnifiedMasterApi } from '../../db/unifiedMaterialsService';
+import {
+  updateOrProposeUnifiedMasterApi,
+  contributeUnifiedMasterApi,
+} from '../../db/unifiedMaterialsService';
+import {
+  getDefaultMarketBasePrice,
+  resolveEffectiveBrandPrice,
+} from '../../utils/unifiedMarketPricing';
 
 interface SupplierCatalogViewProps {
   profile: UserProfile;
@@ -283,6 +290,21 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
       }).catch(() => {});
     }
 
+    // Record supplier's selling price as an isolated price observation (feeds Super Admin review & periodic market average, NEVER overwrites global price directly)
+    const savedRetail = Number(retailPrice || 0);
+    if (
+      unifiedCode.trim() &&
+      savedRetail > 0 &&
+      (!prevEditing || Number(prevEditing.retailPrice || 0) !== savedRetail)
+    ) {
+      contributeUnifiedMasterApi(unifiedCode.trim(), {
+        personalBasePrice: savedRetail,
+        actorRole: 'supplier',
+        actorId: profile.id,
+        actorName: profile.brandName || profile.artistName || 'مورد',
+      }).catch(() => {});
+    }
+
     await loadItems();
     setIsModalOpen(false);
     setAlertToast(
@@ -341,19 +363,9 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   };
 
   const handleDelete = async (id: string) => {
-    const targetItem = items.find((x) => x.id === id);
     const ok = await deleteSupplierCatalogItem(id);
     if (ok) {
       setItems((prev) => prev.filter((x) => x.id !== id));
-      if (targetItem?.unifiedCode) {
-        updateOrProposeUnifiedMasterApi(targetItem.unifiedCode, {
-          action: 'remove_local',
-          actorRole: 'supplier',
-          actorId: profile.id,
-          actorName: profile.brandName || profile.artistName || 'مورد',
-          reason: `أزال المورد الصنف (${targetItem.name}) من كتالوجه الخاص فقط`,
-        }).catch(() => {});
-      }
     }
   };
 
@@ -390,9 +402,34 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     if (SUPPLIER_DEFAULT_UNITS.includes(pick.recommendedUnitName)) {
       setUnit(pick.recommendedUnitName);
     }
+    const effectiveStartPrice =
+      Number(pick.personalBasePrice) > 0
+        ? Number(pick.personalBasePrice)
+        : pick.brandName && pick.brandCode !== 'B000'
+        ? resolveEffectiveBrandPrice(
+            pick.master,
+            pick.brandName,
+            pick.personalBrandPrices,
+            pick.personalBasePrice
+          ).price
+        : pick.selectedBrands && pick.selectedBrands.length > 0
+        ? resolveEffectiveBrandPrice(
+            pick.master,
+            pick.selectedBrands[0],
+            pick.personalBrandPrices,
+            pick.personalBasePrice
+          ).price
+        : Number(pick.master.marketBasePrice) > 0
+        ? Number(pick.master.marketBasePrice)
+        : getDefaultMarketBasePrice(pick.master);
+
+    if (effectiveStartPrice > 0 && retailPrice <= 0) {
+      setRetailPrice(effectiveStartPrice);
+    }
     if (!isModalOpen) {
       setEditingId(undefined);
       setName(composedName);
+      if (effectiveStartPrice > 0) setRetailPrice(effectiveStartPrice);
       setIsModalOpen(true);
     }
   };

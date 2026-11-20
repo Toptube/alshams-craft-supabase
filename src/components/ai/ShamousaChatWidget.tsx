@@ -38,7 +38,13 @@ import { dispatchArtisanNotification } from '../../lib/pushNotifications';
 import { getTreasuryBalancesFromSupabase } from '../../db/supabaseService';
 import { fetchSupplierErpOverview } from '../../db/supplierErpService';
 import { buildArtisanExecutiveBrief, buildSupplierExecutiveBrief } from '../../services/executiveBriefService';
-import { resolveShamousaLocalChatbot, ShamousaChatbotOption } from '../../services/shamousaLocalChatbot';
+import {
+  resolveShamousaLocalChatbot,
+  isCrossTenantOrSecretPrivacyQuery,
+  setServerShamousaRules,
+  ShamousaChatbotOption,
+  ShamousaConversationState,
+} from '../../services/shamousaLocalChatbot';
 
 export interface ShamousaActionLink {
   label: string;
@@ -221,6 +227,9 @@ export function detectSummaryOrAmbiguousIntent(
 ): DisambiguationIntentKey | null {
   const clean = text.trim().toLowerCase();
   if (!clean) return null;
+
+  // حماية الخصوصية أولاً: أي سؤال عن بيانات ورشة أو مورد آخر يُحال مباشرة لحارس الخصوصية
+  if (isCrossTenantOrSecretPrivacyQuery(text)) return null;
 
   // استبعاد الأسئلة عن الصور أو الألوان أو بحث السوق أو المساعدة العامة الطويلة جداً غير المرتبطة بالملخص
   if (/صقر|منافسين|دراسة سوق|تعديل صوره|تعديل صورة/i.test(clean)) return null;
@@ -493,12 +502,17 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     ? 'بوابة الموردين'
     : 'الورشة الحرفية';
 
+  const isSuperAdminAccount =
+    /hmb\.top\.tu[bp]e/i.test(String(profile.email || '').trim());
+
   const welcomeMessage = isSupplierAccount
-    ? `أهلاً بيك يا ${firstName}! ☀️ منور بوابة الموردين..\nطمني حابب تراجع خزائن الفروع والكاشير (POS) ولا المخازن ومستحقات المصانع والعملاء؟`
-    : `أهلاً بيك يا ${firstName}! ☀️ منورة ورشتنا..\nطمني حابب تتابع أوردراتك ولا تراجع الخزينة والمخزن؟`;
+    ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين.\nأنا **شموسة**، مديرة أعمالك الذكية — جاهزة أتابع معاك الفروع والكاشير والمخازن فوراً. ولو حابب تفتحلي البحث المباشر على الإنترنت عشان أدوّرلك في السوق أكتر، اضغط بس على **صورتي اللي جنب خانة الكتابة عشان تنوّر أخضر 🟢**.`
+    : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية.\nأنا **شموسة**، مديرة أعمالك الذكية — هجاوبك فوراً في التسعير، الخامات الموحدة، الخزينة، والمخزن. ولو حابب تفتحلي البحث المباشر على الإنترنت عشان أدوّرلك في السوق أكتر، اضغط بس على **صورتي اللي جنب خانة الكتابة عشان تنوّر أخضر 🟢**.`;
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'tasks_agenda'>('chat');
+  const conversationStateRef = useRef<ShamousaConversationState>({});
+  const customRulesLoadedRef = useRef(false);
 
   // الاستماع لحدث فتح شموسة من أي مكان في المنظومة
   useEffect(() => {
@@ -508,6 +522,20 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     window.addEventListener('alshams_open_shamousa', handleOpen);
     return () => window.removeEventListener('alshams_open_shamousa', handleOpen);
   }, []);
+
+  // مزامنة قواعد القاموس المضافة من السوبر أدمن تلقائياً عند فتح شموسة
+  useEffect(() => {
+    if (!isOpen || customRulesLoadedRef.current) return;
+    customRulesLoadedRef.current = true;
+    authedFetch('/api/shamousa/custom-rules')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.rules)) {
+          setServerShamousaRules(data.rules);
+        }
+      })
+      .catch(() => {});
+  }, [isOpen]);
   
   // Chat messages
   const [messages, setMessages] = useState<ShamousaMessage[]>(() => {
@@ -1377,6 +1405,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       return;
     }
     if (opt.triggerAI) {
+      setUseGoogleSearch(true);
       const prevUserMsg = [...messages.slice(0, messageIdx)].reverse().find((m) => m.role === 'user');
       const queryForAI = prevUserMsg?.content || 'ساعديني في آخر استفسار';
       await send(queryForAI, { forceAI: true });
@@ -1442,13 +1471,28 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       }
     }
 
-    // 1. محرك الشات بوت المحلي أولاً (يعمل فوراً بدون نت أو ذكاء اصطناعي)
+    // 1. محرك شموسة الذكي المحلي أولاً مع تتبع سياق المحادثة الكامل (يعمل فوراً بدون انتظار)
     if (shouldUseLocalFirst) {
       try {
         const localRes = resolveShamousaLocalChatbot(message, {
           firstName,
           isSupplier: isSupplierAccount,
+          state: conversationStateRef.current,
+          history,
         });
+        if (localRes.nextState) {
+          conversationStateRef.current = localRes.nextState;
+        }
+        if (localRes.isUnanswered && message.trim().length >= 2) {
+          authedFetch('/api/shamousa/unanswered', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: message.trim(),
+              accountRole: isSupplierAccount ? 'supplier' : 'artisan',
+            }),
+          }).catch(() => {});
+        }
         if (localRes.handled && localRes.reply) {
           const replyChips = detectKeywordActionChips(message, isSupplierAccount).filter(
             (c) => !localRes.actionLink || c.view !== localRes.actionLink.view
@@ -1470,7 +1514,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           return;
         }
       } catch (localErr) {
-        console.warn('Local chatbot engine notice:', localErr);
+        console.warn('Local engine notice:', localErr);
       }
     }
 
@@ -1620,12 +1664,14 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         },
       ]);
     } catch (err: any) {
+      const diplomaticFallback =
+        `معلش يا **${firstName}**، في زحمة بسيطة على خط البحث الحي دلوقتي.. جرّب تاني بعد لحظة، أو اكتبلي سؤالك عن ورشتك وخاماتك وأنا هرد عليك فوراً ☀️`;
       setMessages((prev) => [
         ...prev,
         {
           id: `e_${Date.now()}`,
           role: 'assistant',
-          content: `⚠️ ${err?.message || 'حصل خطأ، حاولي تاني.'}`,
+          content: isSuperAdminAccount ? `⚠️ ${err?.message || diplomaticFallback}` : diplomaticFallback,
         },
       ]);
     } finally {
@@ -1689,7 +1735,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 <div className="flex items-center gap-1.5">
                   <p className="font-extrabold text-sm leading-tight">شموسة</p>
                   <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full font-medium">
-                    شات بوت • مديرة الأعمال
+                    مديرة أعمالك الذكية ☀️
                   </span>
                 </div>
                 <p className="text-[11px] text-amber-50/90 flex items-center gap-1 truncate">
@@ -1703,7 +1749,10 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               {messages.length > 0 && activeTab === 'chat' && (
                 <button
                   type="button"
-                  onClick={() => setMessages([])}
+                  onClick={() => {
+                    setMessages([]);
+                    conversationStateRef.current = {};
+                  }}
                   aria-label="مسح المحادثة"
                   title="مسح المحادثة"
                   className="p-1.5 rounded-full hover:bg-white/20 text-white/90 transition cursor-pointer"
@@ -2080,7 +2129,11 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                       }}
                       rows={1}
                       maxLength={1000}
-                      placeholder="اسألي شموسة عن الخزنة، النواقص، الأوردرات... (Enter لسطر جديد)"
+                      placeholder={
+                        useGoogleSearch
+                          ? 'البحث المباشر شغّال 🟢 اسأل شموسة عن أي أسعار أو موردين في السوق...'
+                          : 'اسأل شموسة عن التسعير، الخامات، الخزنة، أو النواقص... (Enter لسطر جديد)'
+                      }
                       className="w-full resize-none max-h-36 overflow-y-auto px-3.5 py-2.5 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 leading-relaxed"
                     />
                   </div>

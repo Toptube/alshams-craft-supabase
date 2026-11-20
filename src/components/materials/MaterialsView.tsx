@@ -78,10 +78,17 @@ import {
   UnifiedMaterialMaster,
 } from '../../registry/unifiedMaterialsRegistry';
 import {
+  getDefaultMarketBasePrice,
+  resolveEffectiveBrandPrice,
+} from '../../utils/unifiedMarketPricing';
+import {
   fetchUnifiedMaterialsSnapshot,
   getLocalMaterialCodeMap,
   saveLocalMaterialCodeMapping,
+  removeLocalMaterialCodeMapping,
+  pruneLocalMaterialCodeMap,
   updateOrProposeUnifiedMasterApi,
+  LocalMaterialCodeMapping,
 } from '../../db/unifiedMaterialsService';
 import {
   analyzeMaterialsHealth,
@@ -155,8 +162,8 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
   const [categorySearch, setCategorySearch] = useState('');
   const [selectedMaterialCategory, setSelectedMaterialCategory] = useState<string>('');
 
-  // Separation between "خاماتي" (catalog) and "المخزن والجرد" (warehouse stock)
-  const [activeSectionTab, setActiveSectionTab] = useState<'my_materials' | 'warehouse'>('my_materials');
+  // Dedicated "خاماتي" catalog view (standalone "المخزن والجرد" has its own button on the main card)
+  const [activeSectionTab] = useState<'my_materials' | 'warehouse'>('my_materials');
   const [isUnifiedNewMaterialOpen, setIsUnifiedNewMaterialOpen] = useState(false);
   const [isProductMigrationOpen, setIsProductMigrationOpen] = useState(false);
   const [productLegacyIssues, setProductLegacyIssues] = useState<ProductLegacyIssue[]>([]);
@@ -230,10 +237,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
   // Unified Materials System Integration
   const [isUnifiedPickerOpen, setIsUnifiedPickerOpen] = useState(initialOpenUnifiedPicker);
   const [liveUnifiedMasters, setLiveUnifiedMasters] = useState<UnifiedMaterialMaster[]>(SEEDED_UNIFIED_MASTERS);
-  const autoCleanedRef = useRef<string>('');
-  const [localUnifiedMap, setLocalUnifiedMap] = useState<
-    Record<string, { masterCode: string; specCode?: string; brandCode?: string; skuCode?: string; unitChain?: string }>
-  >({});
+  const [localUnifiedMap, setLocalUnifiedMap] = useState<Record<string, LocalMaterialCodeMapping>>({});
   const [editingUnifiedCode, setEditingUnifiedCode] = useState('');
   const [editingSpecCode, setEditingSpecCode] = useState('');
 
@@ -346,7 +350,8 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       }
 
       setStockData(stocks);
-      const codeMap = getLocalMaterialCodeMap('artisan', workshopId);
+      const activeIds = new Set(loadedMats.map((m) => m.id));
+      const codeMap = pruneLocalMaterialCodeMap('artisan', workshopId, activeIds);
       setLocalUnifiedMap(codeMap);
 
       try {
@@ -596,30 +601,44 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     }
   };
 
-  // Delete Material (Scoped strictly to this workshop + notifies Super Admin if linked to Unified Code)
+  // Delete Material (Scoped STRICTLY to this workshop's private "خاماتي" list — NEVER touches Unified Materials System!)
   const handleDeleteMaterial = async (materialId: string) => {
     try {
-      const targetMat = materials.find((m) => m.id === materialId);
-      const linked = localUnifiedMap[materialId] || {
-        masterCode: (targetMat as any)?.unified_code || '',
-        specCode: (targetMat as any)?.spec_code || '',
-      };
-
       const res = await deleteMaterialFromSupabase(materialId, workshopId);
       if (res.error) {
         setNotice({ text: res.error.arabicMessage, isError: true });
       } else {
         setMaterials((prev) => prev.filter((m) => m.id !== materialId));
-        if (linked?.masterCode) {
-          updateOrProposeUnifiedMasterApi(linked.masterCode, {
-            action: 'remove_local',
-            actorRole: 'artisan',
-            actorId: workshopId,
-            actorName: workshop.brandName || workshop.artistName || 'فنان',
-            reason: `أزال الفنان الخامة (${targetMat?.name || linked.masterCode}) من قائمة ورشته الخاصة فقط`,
-          }).catch(() => {});
-        }
-        setNotice({ text: 'تم حذف الخامة من قائمة ورشتك بنجاح (لا تتأثر المنظومة الموحدة للجميع).', isError: false });
+        // Clean local unified mapping, stock & category metadata so item is immediately re-selectable in Unified Catalog!
+        removeLocalMaterialCodeMapping('artisan', workshopId, materialId);
+        setLocalUnifiedMap((prev) => {
+          const next = { ...prev };
+          delete next[materialId];
+          return next;
+        });
+        setStockData((prev) => {
+          const next = { ...prev };
+          delete next[materialId];
+          try {
+            localStorage.setItem('alshams_mat_stock_' + workshopId, JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        setMaterialCategoryMap((prev) => {
+          const next = { ...prev };
+          delete next[materialId];
+          try {
+            localStorage.setItem('alshams_mat_cat_map_' + workshopId, JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        try {
+          await tenantStorage.deactivateRawMaterial(workshopId, materialId, 'إزالة من خاماتي الخاصة بالورشة', 'artisan');
+        } catch {}
+        setNotice({
+          text: 'تمت إزالة الخامة من قائمة «خاماتي» الخاصة بورشتك فقط — وتظل متاحة في منظومة الخامات الموحدة للجميع ويمكنك إعادة إضافتها في أي وقت.',
+          isError: false,
+        });
       }
       setDeletingMaterialId(null);
     } catch (err: any) {
@@ -681,6 +700,21 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       const existingSameName = existingByNorm.get(normDisplay);
       const existingMatch = existingSameCode || existingSameName;
 
+      // Determine effective starting purchase price: personal price -> first selected brand price -> market average
+      const effectiveInitialPrice =
+        Number(item.personalBasePrice) > 0
+          ? Number(item.personalBasePrice)
+          : item.selectedBrands && item.selectedBrands.length > 0
+          ? resolveEffectiveBrandPrice(
+              item.master,
+              item.selectedBrands[0],
+              item.personalBrandPrices,
+              item.personalBasePrice
+            ).price
+          : Number(item.master.marketBasePrice) > 0
+          ? Number(item.master.marketBasePrice)
+          : getDefaultMarketBasePrice(item.master);
+
       if (existingMatch) {
         const alreadyHasCode = Boolean(currentCodeMap[existingMatch.id]?.masterCode || (existingMatch as any).unified_code);
         if (alreadyHasCode) {
@@ -688,16 +722,25 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
           skippedDuplicates += 1;
           continue;
         }
-        // Smart upgrade: replace old legacy/manual material in place while preserving price & stock!
+        // Smart upgrade: replace old legacy/manual material in place while preserving existing price & stock!
         await updateMaterialInSupabase(existingMatch.id, workshopId, {
           name: displayName,
           kind: item.kind,
+          ...(Number(existingMatch.purchase_price) <= 0 && effectiveInitialPrice > 0
+            ? { purchase_price: effectiveInitialPrice }
+            : {}),
           market_name: existingMatch.market_name || item.master.supplierAliases?.[0] || null,
         });
         saveLocalMaterialCodeMapping('artisan', workshopId, existingMatch.id, {
           masterCode: item.master.code,
           specCode: item.specCode,
           unitChain: item.master.unitChain,
+          selectedThicknessesMm: item.selectedThicknessesMm,
+          selectedAliases: item.selectedAliases,
+          selectedBrands: item.selectedBrands,
+          selectedUnitEquation: item.selectedUnitEquation,
+          personalBasePrice: item.personalBasePrice,
+          personalBrandPrices: item.personalBrandPrices,
         });
         nextCatMap[existingMatch.id] =
           prefixToGroupCat[item.master.prefix] || (item.kind === 'extra' ? 'cat_woods' : 'cat_threads');
@@ -717,7 +760,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         kind: item.kind,
         supplier_id: null,
         unit_id: matchingUnit.id,
-        purchase_price: 0,
+        purchase_price: effectiveInitialPrice,
         market_name: item.master.supplierAliases?.[0] || null,
         market_unit_factor: 1,
       };
@@ -730,6 +773,12 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
           masterCode: item.master.code,
           specCode: item.specCode,
           unitChain: item.master.unitChain,
+          selectedThicknessesMm: item.selectedThicknessesMm,
+          selectedAliases: item.selectedAliases,
+          selectedBrands: item.selectedBrands,
+          selectedUnitEquation: item.selectedUnitEquation,
+          personalBasePrice: item.personalBasePrice,
+          personalBrandPrices: item.personalBrandPrices,
         });
         nextCatMap[savedId] =
           prefixToGroupCat[item.master.prefix] || (item.kind === 'extra' ? 'cat_woods' : 'cat_threads');
@@ -781,22 +830,12 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
     });
   };
 
-  // Smart Health Check: detect duplicates & legacy unlinked materials against live unified masters
+  // Smart Health Check: detect genuine duplicates & legacy unlinked materials (explicit user-triggered cleanup only)
   const materialsHealth = useMemo(() => {
     return analyzeMaterialsHealth(materials, localUnifiedMap, stockData, liveUnifiedMasters);
   }, [materials, localUnifiedMap, stockData, liveUnifiedMasters]);
 
-  // Automatic silent cleanup on first load whenever duplicates or legacy unlinked items exist
-  useEffect(() => {
-    if (loading || cleaningDuplicates || !workshopId) return;
-    if (!materialsHealth.hasIssues) return;
-    const runKey = `${workshopId}:${materials.length}:${materialsHealth.totalDuplicateRows}:${materialsHealth.legacyUnlinked.length}`;
-    if (autoCleanedRef.current === runKey) return;
-    autoCleanedRef.current = runKey;
-    handleSmartCleanupDuplicatesAndLegacy();
-  }, [loading, cleaningDuplicates, workshopId, materials.length, materialsHealth.hasIssues, materialsHealth.totalDuplicateRows, materialsHealth.legacyUnlinked.length]);
-
-  // One-click & Automatic Smart Cleanup: deduplicate repeated materials & upgrade legacy ones to Unified Materials System
+  // One-click Smart Cleanup: deduplicate genuine repeated materials & upgrade legacy ones to Unified Materials System
   const handleSmartCleanupDuplicatesAndLegacy = async () => {
     if (!materialsHealth.hasIssues || cleaningDuplicates) return;
     setCleaningDuplicates(true);
@@ -847,11 +886,12 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
           };
         }
 
-        // Delete redundant duplicate rows from Supabase & Dexie
+        // Delete redundant duplicate rows from Supabase, Dexie, and local code map
         for (const dup of grp.duplicates) {
           const delRes = await deleteMaterialFromSupabase(dup.id, workshopId);
           if (!delRes.error) {
             removedCount += 1;
+            removeLocalMaterialCodeMapping('artisan', workshopId, dup.id);
             delete nextStocks[dup.id];
             delete nextCatMap[dup.id];
             try {
@@ -1479,45 +1519,14 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
 
   return (
     <div className="space-y-5 text-right animate-in fade-in duration-200">
-      {/* التبديل الواضح بين صفحة «خاماتي» (كتالوج الورشة بتقسيماتها) وصفحة «المخزن والجرد» */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs">
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveSectionTab('my_materials');
-              setOnlyLowStock(false);
-            }}
-            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${
-              activeSectionTab === 'my_materials'
-                ? 'bg-[#EA580C] text-white shadow-sm'
-                : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>خاماتي ({materials.length})</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveSectionTab('warehouse')}
-            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${
-              activeSectionTab === 'warehouse'
-                ? 'bg-[#0C1427] dark:bg-amber-600 text-[#FBBF24] dark:text-white shadow-sm'
-                : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-200'
-            }`}
-          >
-            <Warehouse className="w-4 h-4" />
-            <span>المخزن والجرد</span>
-            {lowStockCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-mono">
-                {lowStockCount}
-              </span>
-            )}
-          </button>
+      {/* شريط إجراءات صفحة «خاماتي» (بدون تكرار زر المخزن والجرد الموجود كزر مستقل بالبطاقة الرئيسية) */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs">
+        <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#EA580C]/10 border border-[#EA580C]/30 text-[#C2410C] dark:text-[#FBBF24] text-xs sm:text-sm font-black">
+          <Layers className="w-4 h-4" />
+          <span>خاماتي ({materials.length})</span>
         </div>
 
-        {/* زر إضافة خامة جديدة في أول الصفحة فوق خالص (نفس نموذج المنظومة الموحدة بالسيريال والماركات والمورد الاختياري) */}
+        {/* زر إضافة خامة جديدة + استيراد من منظومة الخامات */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -3168,10 +3177,10 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
               <Trash2 className="w-6 h-6" />
             </div>
             <h3 className="text-base font-extrabold text-stone-900 dark:text-stone-100">
-              تأكيد حذف الخامة؟
+              تأكيد إزالة الخامة من «خاماتي»؟
             </h3>
             <p className="text-xs text-stone-500 leading-relaxed">
-              هل أنت متأكد من حذف هذه الخامة نهائياً من قاعدة البيانات؟ لا يمكن التراجع عن هذه الخطوة.
+              سيتم حذف هذه الخامة من قائمة «خاماتي» الخاصة بورشتك فقط. <strong className="text-emerald-700 dark:text-emerald-400">لن تُحذف أبداً من منظومة الخامات الموحدة</strong>، وتظل متاحة لباقي الفنانين والموردين ويمكنك إعادة إضافتها لاحقاً في أي وقت.
             </p>
             <div className="flex items-center justify-center gap-2 pt-2">
               <button
@@ -3186,7 +3195,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
                 onClick={() => handleDeleteMaterial(deletingMaterialId)}
                 className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer"
               >
-                نعم، احذف الخامة
+                نعم، أزلها من خاماتي فقط
               </button>
             </div>
           </div>
@@ -3675,7 +3684,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         }
       `}</style>
 
-      {/* Unified Materials System Smart Picker Modal (Inspect-first, zero duplicates) */}
+      {/* Unified Materials System Smart Picker Modal (Interactive Accordion, Live DB Contributions, Zero Duplicates) */}
       <UnifiedMaterialPickerModal
         isOpen={isUnifiedPickerOpen}
         onClose={() => setIsUnifiedPickerOpen(false)}
@@ -3685,12 +3694,57 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
         onConfirmSelection={handleBulkImportFromUnified}
         alreadyLinkedCodes={
           new Set(
-            Object.values(localUnifiedMap)
-              .map((v) => v.masterCode)
+            materials
+              .map((m) => localUnifiedMap[m.id]?.masterCode || (m as any).unified_code || '')
               .filter(Boolean)
           )
         }
         existingMaterialNames={materials.map((m) => m.name)}
+        existingPreferencesByCode={materials.reduce<Record<string, LocalMaterialCodeMapping>>((acc, m) => {
+          const entry = localUnifiedMap[m.id];
+          if (entry?.masterCode) acc[entry.masterCode] = entry;
+          return acc;
+        }, {})}
+        onUpdateExistingPreferences={(masterCode, cfg) => {
+          const target = materials.find(
+            (m) => (localUnifiedMap[m.id]?.masterCode || (m as any).unified_code) === masterCode
+          );
+          if (!target) return;
+          const prevEntry = localUnifiedMap[target.id] || { masterCode };
+          const updated: LocalMaterialCodeMapping = {
+            ...prevEntry,
+            masterCode,
+            specCode: cfg.specCode || prevEntry.specCode,
+            brandCode: cfg.brandCode || prevEntry.brandCode,
+            selectedThicknessesMm: cfg.selectedThicknessesMm,
+            selectedAliases: cfg.selectedAliases,
+            selectedBrands: cfg.selectedBrands,
+            selectedUnitEquation: cfg.selectedUnitEquation,
+            personalBasePrice: cfg.personalBasePrice ?? prevEntry.personalBasePrice,
+            personalBrandPrices: cfg.personalBrandPrices ?? prevEntry.personalBrandPrices,
+          };
+          saveLocalMaterialCodeMapping('artisan', workshopId, target.id, updated);
+          setLocalUnifiedMap((prev) => ({ ...prev, [target.id]: updated }));
+
+          const supabasePatch: Record<string, any> = {};
+          if (cfg.kind && cfg.kind !== target.kind) {
+            supabasePatch.kind = cfg.kind;
+          }
+          const updatedPrice =
+            Number(cfg.personalBasePrice) > 0
+              ? Number(cfg.personalBasePrice)
+              : cfg.selectedBrands?.[0] && Number(cfg.personalBrandPrices?.[cfg.selectedBrands[0]]) > 0
+              ? Number(cfg.personalBrandPrices?.[cfg.selectedBrands[0]])
+              : undefined;
+          if (updatedPrice && updatedPrice !== Number(target.purchase_price)) {
+            supabasePatch.purchase_price = updatedPrice;
+          }
+          if (Object.keys(supabasePatch).length > 0) {
+            updateMaterialInSupabase(target.id, workshopId, supabasePatch)
+              .then(() => loadData())
+              .catch(() => {});
+          }
+        }}
       />
 
       {/* Exact Unified New Material Modal (Auto Serial + Thicknesses + Brands + Optional Supplier + Super Admin Review) */}

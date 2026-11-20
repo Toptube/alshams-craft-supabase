@@ -85,8 +85,28 @@ export function classifyGeminiError(err: any, aborted = false): GeminiErrorKind 
   return 'other';
 }
 
-export function falconErrorResponse(err: any): { status: number; error: string } {
+export function buildDiplomaticFalconBusyMessage(firstName?: string): string {
+  const name = String(firstName || '').trim();
+  const who = name ? `يا ${name}` : 'يا فنان';
+  return `حقك عليا ${who} 🦅، في زحمة وضغط شغل شوية على الخط عندي دلوقتي فالكلام اتأخر لحظة.. معلش ادّيني ثواني وجرّب تبعتلي تاني وهكون معاك بكامل تركيزي!`;
+}
+
+export function falconErrorResponse(
+  err: any,
+  opts?: { isSuperAdmin?: boolean; firstName?: string }
+): { status: number; error: string } {
+  const isAdmin = Boolean(opts?.isSuperAdmin);
   const msg = String(err?.message || '').trim();
+
+  // للعملاء والفنانين والموردين: رد دبلوماسي وودود دائماً بدون ذكر سيرفر أو API أو مفاتيح
+  if (!isAdmin) {
+    return {
+      status: 503,
+      error: buildDiplomaticFalconBusyMessage(opts?.firstName),
+    };
+  }
+
+  // للسوبر أدمن فقط: شفافية تقنية كاملة 100%
   if (msg.startsWith('تعذر اتصال مستشار الورشة') || msg.startsWith('تحليل الصور يتطلب')) {
     return { status: err?.kind === 'bad_key' ? 503 : 502, error: msg };
   }
@@ -94,11 +114,11 @@ export function falconErrorResponse(err: any): { status: number; error: string }
     case 'timeout':
       return { status: 504, error: 'استغرق صقر وقتاً أطول من المعتاد بسبب ضغط الشبكة، أعد المحاولة فوراً.' };
     case 'quota':
-      return { status: 503, error: 'تم التبديل للمزود الاحتياطي لانتهاء الحصة اللحظية، حاول مجدداً.' };
+      return { status: 503, error: 'تم بلوغ الحصة اللحظية للمزود المجاني — حاول مجدداً بعد لحظات.' };
     case 'unavailable':
       return { status: 503, error: 'الخدمة تواجه ضغطاً مؤقتاً، حاول مرة أخرى بعد لحظات.' };
     case 'bad_key':
-      return { status: 503, error: 'مفتاح التشغيل غير مضبوط أو غير صالح على الخادم (Secrets).' };
+      return { status: 503, error: 'مفتاح التشغيل المجاني غير مضبوط أو غير صالح على الخادم (Settings > Secrets).' };
     default:
       return { status: 502, error: msg || 'تعذر الرد، حاول مرة أخرى.' };
   }
@@ -354,9 +374,12 @@ export class GeminiAIProvider {
   }
 
   async analyzeCraftVision(input: AIVisionPromptInput): Promise<any> {
+    const isAdmin = Boolean(input.isSuperAdmin || input.workshopContext?.isSuperAdmin || isSuperAdmin(input.userEmail || ''));
     if (!this.isAvailable('falcon_vision')) {
       const err: any = new Error(
-        'تحليل الصور يتطلب تفعيل مفتاح GEMINI_API_KEY_FALCON_VISION أو GEMINI_API_KEY في الإعدادات (Settings > Secrets). المحادثة النصية وحساب التكاليف والصوت والبحث الحي تعمل حالياً بكفاءة.'
+        isAdmin
+          ? 'تحليل الصور يتطلب تفعيل مفتاح GEMINI_API_KEY المجاني في الإعدادات (Settings > Secrets). المحادثة النصية وحساب التكاليف والصوت والبحث الحي تعمل حالياً بكفاءة.'
+          : 'قراءة الصور واخدة استراحة صغيرة دلوقتي بسبب ضغط الشغل.. بس ولا يهمك! اوصفلي مقاسات القطعة وخامتها بالكلام أو بالصوت وأنا أحسبهالك فوراً بالمليمتر 🦅'
       );
       err.kind = 'bad_key';
       throw err;
@@ -726,10 +749,12 @@ export class GeminiAIProvider {
       console.log(`[AI Service: Falcon] Provider 1 (Gemini) skipped -> Switching to Provider 2 (Groq Backup)...`);
     }
 
-    // If images were attached and Gemini Vision is unavailable, return a helpful Arabic guidance message instead of a 502 error
+    // If images were attached and Gemini Vision is unavailable, return a helpful diplomatic message (technical detail ONLY for Super Admin)
     if (hasImages) {
       return {
-        reply: `يا ${firstName} 🦅، تحليل الصور يحتاج حالياً لتفعيل مفتاح GEMINI_API_KEY_FALCON_VISION أو GEMINI_API_KEY في الإعدادات (Settings > Secrets).\n\nلكنني شغال معاك فوراً وبأقصى سرعة في حساب التكاليف والتسعير والمعادلات الهندسية والبحث الحي!\nاكتب لي بس نوع القطعة وأبعادها وخامتها (مثلاً: ستارة مكرمية عرض 80 سم × طول 120 سم بخيط 4 مم) وهحسبلك كل التفاصيل في ثواني.`,
+        reply: superAdmin
+          ? `يا ${firstName} 🦅 (تنبيه السوبر أدمن): تحليل الصور يحتاج حالياً لتفعيل مفتاح GEMINI_API_KEY المجاني في الإعدادات (Settings > Secrets).\n\nالمحادثة النصية وحساب التكاليف والتسجيل الصوتي والبحث الحي شغالين حالياً بكفاءة.`
+          : `حقك عليا يا ${firstName} 🦅، فحص الصور فيه ضغط بسيط على الخط دلوقتي فمش قادر أقرأ الصورة لحظياً..\n\nبس ولا يهمك! اوصفلي القطعة بالكلام أو بالصوت (مثلاً: ستارة مكرمية عرض 80 سم × طول 120 سم بخيط 4 مم) وهحسبلك التكلفة والسعر العادل في ثواني!`,
         sources: [],
         searchUsed: false,
       };

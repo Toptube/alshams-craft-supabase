@@ -3,7 +3,6 @@ import { FalconMascotAvatar, ArtisanAvatar, falconSearchIconImg } from '../brand
 import { UserProfile, CraftCategory, AIVisionAnalysis, ChatMessage } from '../../types';
 import { authedFetch } from '../../lib/apiClient';
 import { getMainSectionForCraft } from '../../registry/craftsRegistry';
-import { applyWorkshopBrandFooter } from '../../utils/studioImageFooter';
 import {
   Sparkles,
   Camera,
@@ -102,12 +101,12 @@ export const createInitialFalconMessage = (userName?: string, isSupplier = false
 
 function getArabicAiError(status: number, serverMessage?: string): string {
   if (serverMessage && /[\u0600-\u06FF]/.test(serverMessage)) return serverMessage;
-  if (status === 401) return 'انتهت الجلسة، يرجى تسجيل الدخول مجدداً.';
-  if (status === 403) return 'الحساب غير مصرح له باستخدام هذه الميزة.';
-  if (status === 429) return 'انتهى الرصيد اليومي للاستشارات، يتجدد تلقائياً غداً.';
-  if (status === 504 || status === 408) return 'استغرق صقر وقتاً أطول من المعتاد. أعد المحاولة فوراً.';
-  if (status >= 500) return 'الخدمة تواجه ضغطاً مؤقتاً، أعد المحاولة بعد ثوانٍ.';
-  return 'تعذر إتمام الطلب، حاول مرة أخرى.';
+  if (status === 401) return 'معلش الجلسة انتهت، سجّل دخولك تاني وهنكمل معاك فوراً.';
+  if (status === 403) return 'الحساب غير مصرح له باستخدام هذه الميزة حالياً.';
+  if (status === 429) return 'وصلنا للحد اليومي للاستشارات، وهيتجدد تلقائياً بكرة بإذن الله.';
+  if (status === 504 || status === 408) return 'صقر مشغول شوية في مراجعة الحسابات.. جرّب تبعت سؤالك تاني بعد لحظة.';
+  if (status >= 500) return 'في ضغط مؤقت على الخط دلوقتي من كتر الشغل.. جرّب تاني بعد ثواني وهنرد عليك فوراً 🦅';
+  return 'معلش في حاجة ما مشتش صح المرة دي، جرّب تاني بعد لحظة.';
 }
 
 async function falconFetch(url: string, init: RequestInit, timeoutMs = 35000): Promise<Response> {
@@ -117,9 +116,9 @@ async function falconFetch(url: string, init: RequestInit, timeoutMs = 35000): P
     return await authedFetch(url, { ...init, signal: controller.signal });
   } catch (err: any) {
     if (err?.name === 'AbortError') {
-      throw new Error('استغرق صقر وقتاً أطول من المعتاد. أعد المحاولة فوراً.');
+      throw new Error('صقر مشغول شوية دلوقتي.. جرّب تبعت سؤالك تاني بعد لحظة.');
     }
-    throw new Error('تعذر الاتصال بالخادم، يرجى المحاولة بعد لحظات.');
+    throw new Error('في زحمة بسيطة على الاتصال دلوقتي، جرّب تاني بعد ثواني 🦅');
   } finally {
     clearTimeout(timer);
   }
@@ -548,124 +547,26 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
 
   const runFalconStudioGeneration = async (
     mode: 'store' | 'workshop' | 'home',
-    overrideAttachment?: { base64: string; mimeType: string; name: string } | null,
-    overrideText?: string
+    _overrideAttachment?: { base64: string; mimeType: string; name: string } | null,
+    _overrideText?: string
   ) => {
-    const activeAtt = overrideAttachment !== undefined ? overrideAttachment : pendingAttachment;
-    const lastImageInChat = !activeAtt
-      ? [...messages].reverse().find((m) => m.metadata?.previewImage || m.metadata?.studioRawImage)?.metadata
-      : null;
-    const sourceBase64 = activeAtt?.base64 || lastImageInChat?.previewImage || lastImageInChat?.studioRawImage || '';
-    const sourceMime = activeAtt?.mimeType || 'image/jpeg';
-    const noteText = (overrideText !== undefined ? overrideText : inputPrompt).trim();
-
-    if (!sourceBase64 && !noteText) {
-      setPendingStudioMode(mode);
-      setIsStudioMenuOpen(false);
-      showFeedback(`📸 اختر صورة المنتج لتجهيزها (${STUDIO_MODE_LABELS[mode]}) أو اكتب وصف المنتج`);
-      fileInputRef.current?.click();
-      return;
-    }
-
     setIsStudioMenuOpen(false);
     setPendingStudioMode(null);
-    setPendingAttachment(null);
-    setInputPrompt('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
-
     const modeTitle = STUDIO_MODE_LABELS[mode];
-    const userMsg: ChatMessage = {
-      id: 'user_studio_' + Date.now(),
-      sender: 'user',
-      text: noteText
-        ? `🎨 استوديو صقر — إنشاء صورة (${modeTitle}): ${noteText}`
-        : `🎨 استوديو صقر — تجهيز صورة المنتج (${modeTitle})`,
-      timestamp: Date.now(),
-      metadata: activeAtt ? { previewImage: activeAtt.base64 } : undefined,
-    };
+    showFeedback(`🚧 استوديو صقر (${modeTitle}) — تحت الإنشاء حالياً`);
 
-    setMessages((prev) => [...prev, userMsg]);
-    setIsGeneratingStudio(true);
-    setStudioLoadingLabel(
-      mode === 'store'
-        ? 'جاري فصل المنتج وتجهيز خلفية بيضاء بظل استوديو عالمي...'
-        : mode === 'workshop'
-        ? 'جاري وضع المنتج داخل ورشتك الحرفية الطبيعية وإضافة التذييل...'
-        : 'جاري تنسيق المنتج داخل منزل مصري بوهيمي أنيق وإضافة التذييل...'
-    );
-
-    try {
-      const branding = getWorkshopBranding();
-      const res = await falconFetch(
-        '/api/ai/falcon-studio',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mode,
-            imageBase64: sourceBase64 || undefined,
-            mimeType: sourceMime,
-            userPrompt: noteText || undefined,
-            workshopContext: {
-              selectedCrafts: profile.selectedCrafts || ['macrame'],
-              category: currentCategory,
-              brandName: branding.workshopName,
-              artistName: branding.artistName,
-              accountRole: isSupplierAccount ? 'supplier' : 'artisan',
-              country: profile.country || 'جمهورية مصر العربية',
-            },
-          }),
-        },
-        65000
-      );
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(getArabicAiError(res.status, errData.error));
-      }
-
-      const data = await res.json();
-      if (typeof data.remaining === 'number') {
-        setDailyRemaining(data.remaining);
-      }
-
-      const rawImage: string = data.imageDataUrl;
-      const shouldAutoFooter = Boolean(data.applyBrandFooter ?? (mode === 'workshop' || mode === 'home'));
-      const brandedImage = await applyWorkshopBrandFooter(rawImage, branding);
-      const displayImage = shouldAutoFooter ? brandedImage : rawImage;
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: 'falcon_studio_' + Date.now(),
-          sender: 'falcon',
-          text: data.captionAr || `✨ تم تجهيز الصورة (${modeTitle}) بنجاح.`,
-          timestamp: Date.now(),
-          metadata: {
-            studioImage: displayImage,
-            studioRawImage: rawImage,
-            studioBrandedImage: brandedImage,
-            studioMode: mode,
-            studioFooterEnabled: shouldAutoFooter,
-          },
-        },
-      ]);
-    } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: 'err_studio_' + Date.now(),
-          sender: 'falcon',
-          text: `⚠️ ${err?.message || 'تعذر إنشاء صورة الاستوديو حالياً.'}`,
-          timestamp: Date.now(),
-        },
-      ]);
-    } finally {
-      setIsGeneratingStudio(false);
-      setStudioLoadingLabel('');
-    }
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: 'falcon_studio_wip_' + Date.now(),
+        sender: 'falcon',
+        text:
+          `🚧 **استوديو صقر لتجهيز الصور (${modeTitle}) — تحت الإنشاء حالياً**\n\n` +
+          `بنجهّزلك الاستوديو بأعلى جودة عشان تطلع صور منتجاتك جاهزة للعرض بأفضل شكل.\n` +
+          `حالياً تقدر تكلم صقر بالكتابة أو بالصوت في التسعير، حساب الخامات والهالك، ودراسة السوق وهيساعدك فوراً 🦅`,
+        timestamp: Date.now(),
+      },
+    ]);
   };
 
   const handleToggleStudioFooter = (msgId: string) => {

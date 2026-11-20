@@ -7,7 +7,8 @@ import type { SavedProductRecord } from '../types';
 
 /**
  * Normalize Arabic/English material name for accurate duplicate & legacy matching.
- * Strips noise words like "خيط " and single-thickness suffixes like "4 مم", "3mm".
+ * IMPORTANT: Preserves meaningful parenthetical distinctions like "(ألواح)", "(بوليستر)", "(نايلون)"
+ * and ONLY strips thickness/size parentheticals like "(2 - 6 مم)" or "(كل السماكات)".
  */
 export function normalizeMaterialKey(raw?: string | null): string {
   if (!raw) return '';
@@ -19,23 +20,53 @@ export function normalizeMaterialKey(raw?: string | null): string {
     .replace(/ى/g, 'ي')
     .replace(/[ًٌٍَُِّْـ]/g, '')
     // strip ONLY thickness/size parenthetical notes like "(2 - 6 مم)" or "(كل السماكات)"
-    // while preserving semantic qualifiers like "(ألواح)", "(بوليستر)", "(نايلون)", "(خيط صيد)"
-    .replace(/\([^)]*(?:مم|مللي|ملي|mm|سماك)[^)]*\)/gi, ' ')
+    .replace(/\((?=[^)]*(?:مم|مللي|ملي|mm|سماك|سمك))[^)]*\)/gi, ' ')
     // strip thickness ranges like "من 2 الي 6 مم" / "4 و 6 مم" / "8، 10، 12 مم"
     .replace(/(?:من\s+)?\d+(?:\.\d+)?(?:\s*(?:الي|الى|و|،|,|-|—)\s*\d+(?:\.\d+)?)*\s*(?:مم|مللي|ملي|mm)/gi, ' ')
     // strip phrases like "كل السماكات" / "جميع السماكات"
     .replace(/(?:كل|جميع)\s+السماكات/g, ' ')
-    // strip common leading noise words "خيط " / "خيوط " ONLY when followed by specific cord names
-    .replace(/^(?:خيط|خيوط)\s+(?=(?:قطن|بوليستر|كردون|كوردون|سلب|مكرمي))/g, '')
-    .replace(/[()\/\-—_،,.:]+/g, ' ')
+    // strip common leading noise words "خيط " / "خيوط "
+    .replace(/^(?:خيط|خيوط)\s+/g, '')
+    .replace(/[\/\-—_،,.:()]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 /**
- * Match a legacy/manual material name (or code) to an official UnifiedMaterialMaster.
- * Uses strict exact canonical match + UNIQUE-only aliases + safe legacy CORD_TYPES fallback
- * so distinct materials NEVER falsely collapse into each other.
+ * Build a map of aliases that uniquely identify a SINGLE active master.
+ * Shared/generic aliases (e.g. "صوف", "قماش قطن", "شريط ساتان") that belong to
+ * multiple masters are excluded so distinct materials are NEVER falsely merged.
+ */
+function buildUniqueAliasIndex(masters: UnifiedMaterialMaster[]): Map<string, UnifiedMaterialMaster> {
+  const counts = new Map<string, number>();
+  const firstMaster = new Map<string, UnifiedMaterialMaster>();
+
+  for (const m of masters) {
+    if (m.status !== 'active') continue;
+    const seenForThisMaster = new Set<string>();
+    const aliases = [...(m.artistAliases || []), ...(m.supplierAliases || [])];
+    for (const a of aliases) {
+      const nk = normalizeMaterialKey(a);
+      if (!nk || seenForThisMaster.has(nk)) continue;
+      seenForThisMaster.add(nk);
+      counts.set(nk, (counts.get(nk) || 0) + 1);
+      if (!firstMaster.has(nk)) firstMaster.set(nk, m);
+    }
+  }
+
+  const unique = new Map<string, UnifiedMaterialMaster>();
+  for (const [nk, count] of counts.entries()) {
+    if (count === 1) {
+      const m = firstMaster.get(nk);
+      if (m) unique.set(nk, m);
+    }
+  }
+  return unique;
+}
+
+/**
+ * Match a legacy/manual material name to an official UnifiedMaterialMaster safely
+ * with ZERO false collisions across all 401+ unified materials.
  */
 export function matchMaterialToUnifiedMaster(
   materialName: string,
@@ -44,45 +75,40 @@ export function matchMaterialToUnifiedMaster(
   const norm = normalizeMaterialKey(materialName);
   if (!norm) return null;
 
-  const activeMasters = masters.filter((m) => m.status === 'active');
-
-  // 1. Exact canonical name match (highest precision, zero false collisions)
-  const exactMatches = activeMasters.filter((m) => normalizeMaterialKey(m.canonicalName) === norm);
+  // 1. Exact canonical name match (highest priority — prevents any rule hijacking)
+  const exactMatches = masters.filter(
+    (m) => m.status === 'active' && normalizeMaterialKey(m.canonicalName) === norm
+  );
   if (exactMatches.length === 1) {
     return exactMatches[0];
   }
   if (exactMatches.length > 1) {
-    // Ambiguous across categories (e.g. MT0027 vs AX0023); return first only if unambiguous in caller
-    return exactMatches[0];
+    // Disambiguate by exact raw Arabic name if two different prefixes share a canonical name
+    const rawClean = String(materialName || '').trim();
+    return exactMatches.find((m) => m.canonicalName.trim() === rawClean) || exactMatches[0];
   }
 
-  // 2. Exact alias match — ONLY if the alias uniquely maps to a SINGLE active master!
-  // (Prevents shared category aliases like "قماش قطن", "صوف", "شريط ساتان" from colliding 5-18 distinct items)
-  const aliasHits: UnifiedMaterialMaster[] = [];
-  for (const m of activeMasters) {
-    const aliases = [...(m.artistAliases || []), ...(m.supplierAliases || [])];
-    if (aliases.some((a) => normalizeMaterialKey(a) === norm)) {
-      aliasHits.push(m);
-    }
-  }
-  if (aliasHits.length === 1) {
-    return aliasHits[0];
-  }
+  // 2. Unique-only alias match (NEVER matches aliases shared across multiple masters)
+  const uniqueAliasMap = buildUniqueAliasIndex(masters);
+  const byUniqueAlias = uniqueAliasMap.get(norm);
+  if (byUniqueAlias) return byUniqueAlias;
 
-  // 3. Smart domain rules ONLY for legacy default CORD_TYPES & common Arabic cord names
-  // (Never hijacks distinct fabrics like "قماش خيش" or "جوت" because Step 1 already handled them!)
-  const findByCode = (code: string) => activeMasters.find((m) => m.code === code) || null;
+  // 3. Conservative domain rules ONLY for legacy default CORD_TYPES & unambiguous cord names
+  //    (never fires if the name is a fabric like "قماش خيش" or another distinct material)
+  const findByCode = (code: string) => masters.find((m) => m.status === 'active' && m.code === code) || null;
   if (norm.includes('سلب')) return findByCode('TH0056');
   if (norm.includes('زجزاج') || norm.includes('zigzag')) return findByCode('TH0055');
   if (norm.includes('بوليستر مصري') || (norm.includes('بوليستر') && norm.includes('مصري'))) return findByCode('TH0052');
-  if (norm.includes('كردون مبطن') || norm.includes('كوردون مبطن') || (norm.includes('قيطان') && norm.includes('فايبر'))) return findByCode('TH0003');
-  if (norm.includes('كردون فاضي') || norm.includes('كوردون فاضي') || norm.includes('كردون مجوف')) return findByCode('TH0053');
+  if (norm.includes('كردون مبطن') || norm.includes('كوردون مبطن') || (norm.includes('قيطان') && norm.includes('فايبر'))) {
+    return findByCode('TH0003');
+  }
+  if (norm.includes('كردون فاضي') || norm.includes('كوردون فاضي') || norm.includes('كردون مجوف')) {
+    return findByCode('TH0053');
+  }
   if (norm.includes('قطن محلول') || norm.includes('مكرميه محلول')) return findByCode('TH0054');
   if (norm.includes('قطن مبروم') || norm.includes('قطن مضفور') || norm.includes('3 فتله')) return findByCode('TH0051');
   if (norm.includes('قطن مجدول') || norm.includes('مكرميه قطن') || norm.includes('قيطان مجدول')) return findByCode('TH0001');
   if (norm === 'حبل قطن' || norm === 'حبال قطن') return findByCode('TH0002');
-  if (norm === 'خيش' || norm === 'حبل خيش' || norm === 'خيط خيش') return findByCode('TH0006');
-  if (norm === 'جوت' || norm === 'حبل جوت' || norm === 'خيط جوت') return findByCode('TH0004');
 
   return null;
 }
@@ -109,9 +135,8 @@ export interface MaterialsHealthReport {
 }
 
 /**
- * Analyze a workshop's materials to detect:
- * 1. Exact & fuzzy duplicates (e.g. importing 56 cords twice, or legacy manual item + unified item)
- * 2. Legacy materials not yet linked to the Unified Materials System
+ * Analyze a workshop's materials to detect ONLY 100% genuine duplicates
+ * (same exact masterCode OR exact normalized name) and legacy unlinked items.
  */
 export function analyzeMaterialsHealth(
   materials: SupabaseMaterial[],
@@ -134,10 +159,10 @@ export function analyzeMaterialsHealth(
       (mappedCode ? masters.find((x) => x.code === mappedCode) : null) ||
       matchMaterialToUnifiedMaster(m.name, masters);
 
-    const groupKey = matchedMaster
+    const groupKey = mappedCode
+      ? `MASTER:${mappedCode}`
+      : matchedMaster
       ? `MASTER:${matchedMaster.code}`
-      : mappedCode
-      ? `CODE:${mappedCode}`
       : `NAME:${normalizeMaterialKey(m.name) || m.id}`;
 
     const entry = buckets.get(groupKey) || { items: [], master: matchedMaster };
@@ -152,7 +177,6 @@ export function analyzeMaterialsHealth(
 
   for (const [groupKey, { items, master }] of buckets.entries()) {
     if (items.length > 1) {
-      // Score each item to pick the best single row to keep
       const scored = [...items].sort((a, b) => {
         const aLinked = Boolean(localUnifiedMap[a.id]?.masterCode || (a as any).unified_code) ? 100 : 0;
         const bLinked = Boolean(localUnifiedMap[b.id]?.masterCode || (b as any).unified_code) ? 100 : 0;
@@ -261,7 +285,6 @@ export function scanProductsForLegacyMaterials(
     const cordIsUnified =
       currentCordMat && Boolean(localUnifiedMap[currentCordMat.id]?.masterCode || (currentCordMat as any).unified_code);
 
-    // Flag if cord references legacy static id (cord_*) OR deleted material OR unlinked legacy material
     const looksLegacyCord =
       Boolean(cordId || cordName) &&
       (cordId.startsWith('cord_') || !currentCordMat || !cordIsUnified);

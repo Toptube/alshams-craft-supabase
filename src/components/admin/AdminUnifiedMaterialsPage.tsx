@@ -16,6 +16,8 @@ import {
   X,
   RefreshCw,
   CloudUpload,
+  Banknote,
+  TrendingUp,
 } from 'lucide-react';
 import {
   UnifiedCategoryPrefix,
@@ -35,8 +37,14 @@ import {
   updateOrProposeUnifiedMasterApi,
   resolveUnifiedMaterialNotificationApi,
   syncUnifiedMaterialsToSupabaseApi,
+  recalculateUnifiedMarketPricesApi,
   getSeededFallbackSnapshot,
 } from '../../db/unifiedMaterialsService';
+import {
+  getDefaultMarketBasePrice,
+  getDefaultBrandPrices,
+  getBrandsAveragePrice,
+} from '../../utils/unifiedMarketPricing';
 
 interface AdminUnifiedMaterialsPageProps {
   userEmail: string;
@@ -86,6 +94,10 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
   const [formSupplierAliasesText, setFormSupplierAliasesText] = useState('');
   const [formWorkshopsText, setFormWorkshopsText] = useState('');
   const [formSafetyNote, setFormSafetyNote] = useState('');
+  const [formMarketBasePrice, setFormMarketBasePrice] = useState('');
+  const [formBrandPrices, setFormBrandPrices] = useState<Record<string, string>>({});
+  const [formNewBrandName, setFormNewBrandName] = useState('');
+  const [formNewBrandPrice, setFormNewBrandPrice] = useState('');
   const [savingMaster, setSavingMaster] = useState(false);
 
   // Add Brand form
@@ -101,6 +113,7 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
   const [archiveReason, setArchiveReason] = useState('');
 
   const [syncingSupabase, setSyncingSupabase] = useState(false);
+  const [recalculatingPrices, setRecalculatingPrices] = useState(false);
   const [storageSource, setStorageSource] = useState<'supabase' | 'local_fallback'>('supabase');
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
@@ -129,6 +142,26 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
       onNotifyError(
         res.error || 'تعذر المزامنة مع قاعدة بيانات Supabase — يرجى التحقق من الاتصال.'
       );
+    }
+  };
+
+  const handleRecalculateMarketPrices = async () => {
+    setRecalculatingPrices(true);
+    const res = await recalculateUnifiedMarketPricesApi(2);
+    setRecalculatingPrices(false);
+    if (res.success) {
+      if ((res.updatedMastersCount || 0) > 0) {
+        onNotifySuccess(
+          `تم تحديث متوسطات السوق تلقائياً ✅ (أصناف محدثة: ${res.updatedMastersCount} · أسعار ماركات محدثة: ${res.updatedBrandsCount || 0} · إجمالي أرصاد مفحوصة: ${res.totalObservationsScanned || 0}).`
+        );
+      } else {
+        onNotifySuccess(
+          `تم فحص أرصاد الأسعار (${res.totalObservationsScanned || 0} رصد) — يتطلب التحديث التلقائي رصدين مستقلين على الأقل من عضوين مختلفين لنفس الصنف أو الماركة حتى لا يغيّر عضو واحد متوسط السوق.`
+        );
+      }
+      await reloadData();
+    } else {
+      onNotifyError(res.error || 'تعذر تحديث متوسطات السوق تلقائياً');
     }
   };
 
@@ -191,6 +224,10 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
     setFormSupplierAliasesText('');
     setFormWorkshopsText('');
     setFormSafetyNote('');
+    setFormMarketBasePrice('');
+    setFormBrandPrices({});
+    setFormNewBrandName('');
+    setFormNewBrandPrice('');
     setIsMasterModalOpen(true);
   };
 
@@ -204,6 +241,23 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
     setFormSupplierAliasesText((m.supplierAliases || []).join('، '));
     setFormWorkshopsText((m.workshopTags || []).join('، '));
     setFormSafetyNote(m.safetyNote || '');
+    const baseVal = Number(m.marketBasePrice) > 0 ? Number(m.marketBasePrice) : getDefaultMarketBasePrice(m);
+    setFormMarketBasePrice(String(baseVal));
+    const mergedBrandPrices = {
+      ...getDefaultBrandPrices(m, baseVal),
+      ...(m.brandPrices || {}),
+    };
+    const asStrings: Record<string, string> = {};
+    for (const br of m.defaultBrands || []) {
+      const clean = String(br || '').trim();
+      if (clean) asStrings[clean] = mergedBrandPrices[clean] ? String(mergedBrandPrices[clean]) : '';
+    }
+    for (const [br, pr] of Object.entries(mergedBrandPrices)) {
+      asStrings[br] = String(pr);
+    }
+    setFormBrandPrices(asStrings);
+    setFormNewBrandName('');
+    setFormNewBrandPrice('');
     setIsMasterModalOpen(true);
   };
 
@@ -226,6 +280,16 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
       .filter(Boolean);
 
     if (editingMaster) {
+      const parsedMarketBase = Number(formMarketBasePrice.replace(',', '.').trim());
+      const parsedBrandPrices: Record<string, number> = {};
+      for (const [br, rawPr] of Object.entries(formBrandPrices)) {
+        const cleanBr = br.trim();
+        const num = Number(String(rawPr || '').replace(',', '.').trim());
+        if (cleanBr && Number.isFinite(num) && num > 0) {
+          parsedBrandPrices[cleanBr] = num;
+        }
+      }
+
       const res = await updateOrProposeUnifiedMasterApi(editingMaster.code, {
         action: 'update',
         canonicalName: formName.trim(),
@@ -235,6 +299,8 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
         supplierAliases,
         workshopTags,
         safetyNote: formSafetyNote.trim(),
+        marketBasePrice: Number.isFinite(parsedMarketBase) && parsedMarketBase > 0 ? parsedMarketBase : undefined,
+        brandPrices: parsedBrandPrices,
         actorRole: 'super_admin',
         actorId: 'super_admin',
         actorName: userEmail,
@@ -244,7 +310,7 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
         onNotifyError(res.error || 'تعذر تحديث الخامة');
         return;
       }
-      onNotifySuccess(`تم تحديث الصنف [${editingMaster.code}] وترحيله تلقائياً داخل قاعدة بيانات Supabase ✅`);
+      onNotifySuccess(`تم تحديث الصنف والأسعار المرجعية [${editingMaster.code}] وترحيلها مباشرة لقاعدة بيانات Supabase ✅`);
     } else {
       const res = await createUnifiedMasterApi({
         prefix: formPrefix,
@@ -420,6 +486,16 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleRecalculateMarketPrices}
+            disabled={recalculatingPrices}
+            title="إعادة حساب متوسطات أسعار السوق وأسعار الماركات تلقائياً من أرصاد الأعضاء المشاركين (يتطلب رصدين مستقلين على الأقل)"
+            className="px-3 py-2 rounded-xl border border-amber-500/50 bg-amber-500/12 hover:bg-amber-600 hover:text-white text-amber-900 dark:text-amber-300 text-xs font-black inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 transition disabled:opacity-60"
+          >
+            <TrendingUp className={`w-3.5 h-3.5 ${recalculatingPrices ? 'animate-pulse' : ''}`} />
+            <span>{recalculatingPrices ? 'جاري احتساب المتوسطات...' : 'تحديث متوسطات السوق تلقائياً'}</span>
+          </button>
           <button
             type="button"
             onClick={handleSyncToSupabase}
@@ -675,6 +751,7 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
                     <tr>
                       <th className="py-2.5 px-3 font-black whitespace-nowrap">الكود</th>
                       <th className="py-2.5 px-3 font-black">الاسم المعتمد والأسماء الدارجة</th>
+                      <th className="py-2.5 px-3 font-black whitespace-nowrap">متوسط السوق والماركات</th>
                       <th className="py-2.5 px-3 font-black whitespace-nowrap">الوحدات والجسور</th>
                       <th className="py-2.5 px-3 font-black">الورش المرتبطة</th>
                       <th className="py-2.5 px-3 font-black whitespace-nowrap">الحالة</th>
@@ -728,6 +805,43 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
                                 تنبيه: {master.safetyNote}
                               </div>
                             )}
+                          </td>
+
+                          <td className="py-2.5 px-3 align-top whitespace-nowrap">
+                            {(() => {
+                              const basePr =
+                                Number(master.marketBasePrice) > 0
+                                  ? Number(master.marketBasePrice)
+                                  : getDefaultMarketBasePrice(master);
+                              const pricedBrandsCount = Object.keys(master.brandPrices || {}).length;
+                              const avgBrands = getBrandsAveragePrice(master);
+                              const srcBadge =
+                                master.priceSource === 'super_admin'
+                                  ? { text: 'اعتماد أدمن', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' }
+                                  : master.priceSource === 'auto_average'
+                                  ? {
+                                      text: `متوسط تلقائي (${master.priceObservationsCount || 2}+)`,
+                                      cls: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
+                                    }
+                                  : { text: 'مبدئي بالسوق', cls: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' };
+                              return (
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-mono tabular-nums font-black text-xs text-emerald-700 dark:text-emerald-300">
+                                      {basePr} ج.م
+                                    </span>
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${srcBadge.cls}`}>
+                                      {srcBadge.text}
+                                    </span>
+                                  </div>
+                                  {pricedBrandsCount > 0 && (
+                                    <div className="text-[10px] text-[#64748B] font-bold">
+                                      {pricedBrandsCount} ماركة · متوسط {avgBrands} ج.م
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
 
                           <td className="py-2.5 px-3 align-top whitespace-nowrap">
@@ -848,78 +962,194 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
       )}
 
       {/* ================================================================= */}
-      {/* TAB 2: MATERIALS NOTIFICATIONS & ARCHIVE AUDIT                    */}
+      {/* TAB 2: MATERIALS NOTIFICATIONS & CONTRIBUTIONS REVIEW             */}
       {/* ================================================================= */}
       {activeTab === 'notifications' && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] p-4 space-y-3">
-            <h2 className="text-sm font-black">
-              سجل إشعارات الإضافة والتعديل والإزالة من الفنانين والموردين ({snapshot.notifications.length})
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-black">
+                  سجل إضافات وتعديلات ومقترحات الفنانين والموردين ({snapshot.notifications.filter((n) => n.eventType !== 'member_local_remove').length})
+                </h2>
+                <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] mt-0.5">
+                  ممنوع حذف أي خامة إلا بواسطة السوبر أدمن — هذا السجل يعرض الإضافات الجديدة والتعديلات ومقترحات الفنانين والموردين فقط.
+                </p>
+              </div>
+            </div>
 
-            {snapshot.notifications.length === 0 ? (
+            {snapshot.notifications.filter((n) => n.eventType !== 'member_local_remove').length === 0 ? (
               <div className="py-8 text-center text-xs font-bold text-[#64748B]">
-                لا توجد إشعارات خامات حالياً. أي خامة يضيفها فنان أو مورد أو يقترح تعديلها/إزالتها ستظهر هنا فوراً.
+                لا توجد إشعارات أو مقترحات حالياً. أي خامة جديدة أو سماكات أو مسميات أو ماركات أو معادلات قياس يضيفها فنان أو مورد ستظهر هنا بالتفصيل مع رسالته المقترحة.
               </div>
             ) : (
               <div className="divide-y divide-[#EFE9DC] dark:divide-[#1E2E52]">
-                {snapshot.notifications.map((n) => (
-                  <div key={n.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-black">
-                        <span className="font-mono text-[#EA580C] dark:text-[#FBBF24]">{n.targetCode}</span>
-                        <span>·</span>
-                        <span>{n.targetName}</span>
-                        <span>·</span>
-                        <span className="text-[#475569] dark:text-[#94A3B8] font-bold">
-                          {n.eventType === 'new_master'
-                            ? 'إضافة صنف جديد'
-                            : n.eventType === 'new_spec'
-                            ? 'إضافة مواصفة جديدة'
-                            : n.eventType === 'new_alias'
-                            ? 'إضافة اسم دارج'
-                            : n.eventType === 'member_local_remove'
-                            ? 'إزالة من قائمة عضو (لسبب)'
-                            : 'اقتراح تعديل من عضو'}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-[#475569] dark:text-[#CBD5E1]">
-                        بواسطة: <strong>{n.actorName}</strong> ({n.actorRole === 'supplier' ? 'مورد' : 'فنان'})
-                        {n.reason ? ` — السبب/التفاصيل: ${n.reason}` : ''}
-                      </div>
-                    </div>
+                {snapshot.notifications
+                  .filter((n) => n.eventType !== 'member_local_remove')
+                  .map((n) => {
+                    const p = (n.payload || {}) as Record<string, any>;
+                    const isContribution = p.kind === 'direct_contribution';
+                    const addedAliases: string[] = Array.isArray(p.addedAliases) ? p.addedAliases : [];
+                    const addedThicknesses: number[] = Array.isArray(p.addedThicknessesMm) ? p.addedThicknessesMm : [];
+                    const addedSpecs: string[] = Array.isArray(p.addedSpecLabels) ? p.addedSpecLabels : [];
+                    const addedBrands: string[] = Array.isArray(p.addedBrands) ? p.addedBrands : [];
+                    const addedUnitEquations: string[] = Array.isArray(p.addedUnitEquations) ? p.addedUnitEquations : [];
+                    const submittedBasePrice = Number(p.submittedBasePrice) > 0 ? Number(p.submittedBasePrice) : null;
+                    const submittedBrandPrices: Record<string, number> =
+                      p.submittedBrandPrices && typeof p.submittedBrandPrices === 'object'
+                        ? p.submittedBrandPrices
+                        : {};
+                    const submittedBrandEntries = Object.entries(submittedBrandPrices).filter(([, v]) => Number(v) > 0);
+                    const hasSubmittedPrices = submittedBasePrice !== null || submittedBrandEntries.length > 0;
+                    const suggestionNote = typeof p.suggestionNote === 'string' ? p.suggestionNote.trim() : '';
+                    const targetMaster = snapshot.masters.find((m) => m.code === n.targetCode);
 
-                    {n.status === 'pending' ? (
-                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleResolveNotification(n.id, 'accept_global')}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-black cursor-pointer whitespace-nowrap"
-                        >
-                          اعتماد في المنظومة ككل
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleResolveNotification(n.id, 'keep_local')}
-                          className="px-3 py-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] text-[11px] font-bold border border-[#D4CCBC] dark:border-[#22355E] cursor-pointer whitespace-nowrap"
-                        >
-                          إبقاء للعضو فقط
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleResolveNotification(n.id, 'archive')}
-                          className="px-3 py-1.5 rounded-lg border border-amber-400 text-amber-700 dark:text-amber-300 text-[11px] font-bold cursor-pointer whitespace-nowrap"
-                        >
-                          أرشفة
-                        </button>
+                    const statusLabelAr: Record<string, string> = {
+                      accepted_global: 'تم الاعتماد النهائي في المنظومة ✓',
+                      kept_local: 'تمت المراجعة بدون تغيير',
+                      archived: 'تمت الأرشفة من قِبل السوبر أدمن',
+                      dismissed: 'تمت المراجعة وإغلاق الإشعار ✓',
+                    };
+
+                    return (
+                      <div key={n.id} className="py-3.5 space-y-2.5">
+                        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+                          <div className="space-y-1.5 flex-1">
+                            <div className="flex flex-wrap items-center gap-2 text-xs font-black">
+                              <span className="font-mono px-2 py-0.5 rounded-md bg-amber-500/15 text-[#C2410C] dark:text-[#FBBF24]">
+                                {n.targetCode}
+                              </span>
+                              <span className="text-[#0C1427] dark:text-[#F7F3EA]">{n.targetName}</span>
+                              <span className="px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-800 dark:text-sky-200 text-[10px] font-black">
+                                {hasSubmittedPrices && !addedAliases.length && !addedThicknesses.length && !addedBrands.length
+                                  ? 'رصد وتحديث سعر عضو (للمراجعة)'
+                                  : isContribution
+                                  ? 'إضافة/تحديث مباشر على الصنف'
+                                  : n.eventType === 'new_master'
+                                  ? 'إضافة صنف خامة جديد'
+                                  : n.eventType === 'new_spec'
+                                  ? 'إضافة مقاس / مواصفة جديدة'
+                                  : n.eventType === 'new_alias'
+                                  ? 'إضافة مسمى دارج جديد'
+                                  : 'مقترح تعديل على الصنف'}
+                              </span>
+                            </div>
+
+                            <div className="text-[11px] text-[#475569] dark:text-[#CBD5E1]">
+                              بواسطة: <strong className="text-[#0C1427] dark:text-white">{n.actorName}</strong> (
+                              {n.actorRole === 'supplier' ? 'مورد' : n.actorRole === 'super_admin' ? 'سوبر أدمن' : 'فنان'})
+                              {n.createdAt && (
+                                <span className="mr-2 text-[#64748B]">
+                                  · {new Date(n.createdAt).toLocaleString('ar-EG')}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Structured summary of exact DB additions & price observations */}
+                            {isContribution ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1 text-[11px]">
+                                {addedAliases.length > 0 && (
+                                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 font-bold text-emerald-900 dark:text-emerald-200">
+                                    مسميات أُضيفت للقاعدة: {addedAliases.join(' · ')}
+                                  </div>
+                                )}
+                                {addedThicknesses.length > 0 && (
+                                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 font-bold text-emerald-900 dark:text-emerald-200">
+                                    سماكات أُضيفت للقاعدة: {addedThicknesses.map((t) => `${t} مم`).join(' · ')}
+                                  </div>
+                                )}
+                                {addedSpecs.length > 0 && (
+                                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 font-bold text-emerald-900 dark:text-emerald-200">
+                                    مواصفات أُضيفت للقاعدة: {addedSpecs.join(' · ')}
+                                  </div>
+                                )}
+                                {addedBrands.length > 0 && (
+                                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 font-bold text-emerald-900 dark:text-emerald-200">
+                                    ماركات أُضيفت للقاعدة: {addedBrands.join(' · ')}
+                                  </div>
+                                )}
+                                {addedUnitEquations.length > 0 && (
+                                  <div className="sm:col-span-2 p-2 rounded-xl bg-sky-500/10 border border-sky-500/30 font-bold text-sky-900 dark:text-sky-200">
+                                    معادلات قياس أُضيفت للقاعدة: {addedUnitEquations.join('  |  ')}
+                                  </div>
+                                )}
+                                {submittedBasePrice !== null && (
+                                  <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/40 font-black text-amber-950 dark:text-amber-200">
+                                    رصد سعر مبدئي مقترح: <span className="font-mono">{submittedBasePrice} ج.م</span>{' '}
+                                    <span className="text-[10px] font-bold">(محفوظ للعضو فقط ولم يُغيّر السعر العام)</span>
+                                  </div>
+                                )}
+                                {submittedBrandEntries.length > 0 && (
+                                  <div className="sm:col-span-2 p-2 rounded-xl bg-amber-500/15 border border-amber-500/40 font-bold text-amber-950 dark:text-amber-200">
+                                    أسعار ماركات مرصودة:{' '}
+                                    {submittedBrandEntries.map(([br, pr]) => `${br}: ${pr} ج.م`).join(' · ')}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              n.reason && (
+                                <div className="text-[11px] font-bold text-[#334155] dark:text-[#CBD5E1] bg-[#F7F3EA] dark:bg-[#132040] px-2.5 py-1.5 rounded-xl">
+                                  التفاصيل: {n.reason}
+                                </div>
+                              )
+                            )}
+
+                            {/* Separate Advisory Suggestion Message Box (NOT written to DB fields) */}
+                            {suggestionNote && (
+                              <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-400/60 text-xs space-y-1">
+                                <div className="text-[10px] font-black text-[#C2410C] dark:text-[#FBBF24]">
+                                  رسالة ومقترح العضو للسوبر أدمن (للعلم والمراجعة فقط — غير مضافة لحقول الخامة):
+                                </div>
+                                <p className="font-bold text-[#0C1427] dark:text-[#F7F3EA] leading-relaxed whitespace-pre-wrap">
+                                  «{suggestionNote}»
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Crystal-Clear Action Buttons */}
+                          {n.status === 'pending' ? (
+                            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleResolveNotification(n.id, 'accept_global')}
+                                title={
+                                  hasSubmittedPrices
+                                    ? 'اعتماد الأسعار المرصودة والإضافات كسعر مرجعي رسمي على مستوى المنظومة وإغلاق الإشعار'
+                                    : 'تأكيد أن الإضافة/التعديل سليم ومعتمد رسمياً في منظومة الخامات وإغلاق الإشعار'
+                                }
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black cursor-pointer whitespace-nowrap transition"
+                              >
+                                {hasSubmittedPrices ? 'اعتماد السعر للمنظومة وإغلاق' : 'اعتماد الإضافة وإغلاق الإشعار'}
+                              </button>
+                              {targetMaster && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditMasterModal(targetMaster)}
+                                  title="فتح شاشة تعديل هذا الصنف لتطبيق مقترحات إضافية أو مراجعة بياناته"
+                                  className="px-3 py-1.5 rounded-lg bg-[#0C1427] hover:bg-[#1A2B54] text-[#FBBF24] text-[11px] font-black cursor-pointer whitespace-nowrap transition"
+                                >
+                                  فتح وتعديل الصنف
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleResolveNotification(n.id, 'dismiss')}
+                                title="تم الاطلاع على الإشعار بدون إجراء تغييرات إضافية"
+                                className="px-3 py-1.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] text-[11px] font-bold border border-[#D4CCBC] dark:border-[#22355E] cursor-pointer whitespace-nowrap transition"
+                              >
+                                تم الاطلاع (إغلاق)
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 shrink-0">
+                              {statusLabelAr[n.status] || 'تمت المراجعة ✓'}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    ) : (
-                      <div className="text-[11px] font-bold text-[#64748B] shrink-0">
-                        تمت المعالجة: {n.status}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                    );
+                  })}
               </div>
             )}
           </div>
@@ -1303,6 +1533,98 @@ export const AdminUnifiedMaterialsPage: React.FC<AdminUnifiedMaterialsPageProps>
                 })}
               </div>
             </div>
+
+            {editingMaster && (
+              <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-500/40 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-black text-xs text-emerald-900 dark:text-emerald-200 inline-flex items-center gap-1.5">
+                    <Banknote className="w-4 h-4 text-emerald-600" />
+                    <span>التسعير المرجعي (سعر السوق العام وأسعار الماركات — ج.م)</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-[#64748B]">يُعتمد رسمياً على مستوى المنظومة</span>
+                </div>
+
+                <div>
+                  <label className="block font-bold mb-1">متوسط سعر السوق العام للخامة (ج.م)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="any"
+                    value={formMarketBasePrice}
+                    onChange={(e) => setFormMarketBasePrice(e.target.value)}
+                    placeholder="مثال: 185"
+                    className="w-full px-3 py-2 rounded-xl border border-emerald-500/40 bg-white dark:bg-[#132040] font-mono font-black outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block font-bold">أسعار الماركات المسجلة للصنف (ج.م)</label>
+                  {Object.keys(formBrandPrices).length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {Object.entries(formBrandPrices).map(([brName, prVal]) => (
+                        <div
+                          key={brName}
+                          className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]"
+                        >
+                          <span className="font-bold text-[11px] truncate flex-1">{brName}</span>
+                          <input
+                            type="number"
+                            min="1"
+                            step="any"
+                            value={prVal}
+                            onChange={(e) =>
+                              setFormBrandPrices((prev) => ({ ...prev, [brName]: e.target.value }))
+                            }
+                            placeholder="اعتباري"
+                            className="w-20 px-2 py-1 rounded-md border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#0D162E] font-mono font-black text-center outline-none"
+                          />
+                          <span className="text-[10px] font-bold text-[#64748B]">ج.م</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-[#64748B]">
+                      لا توجد ماركات مسعّرة بعد لهذا الصنف — يمكنك إضافة ماركة وسعرها بالأسفل.
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <input
+                      type="text"
+                      value={formNewBrandName}
+                      onChange={(e) => setFormNewBrandName(e.target.value)}
+                      placeholder="اسم ماركة جديدة..."
+                      className="flex-1 min-w-[130px] px-2.5 py-1.5 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-bold outline-none"
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      value={formNewBrandPrice}
+                      onChange={(e) => setFormNewBrandPrice(e.target.value)}
+                      placeholder="السعر (ج.م)"
+                      className="w-24 px-2.5 py-1.5 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-mono font-bold outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const br = formNewBrandName.trim();
+                        if (!br) return;
+                        setFormBrandPrices((prev) => ({
+                          ...prev,
+                          [br]: formNewBrandPrice.trim() || formMarketBasePrice || '',
+                        }));
+                        setFormNewBrandName('');
+                        setFormNewBrandPrice('');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-[#0C1427] text-[#FBBF24] font-black cursor-pointer"
+                    >
+                      + إضافة سعر ماركة
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-end gap-2 pt-2 border-t border-[#D4CCBC] dark:border-[#22355E]">
               <button
