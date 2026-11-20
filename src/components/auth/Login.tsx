@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, Lock, Eye, EyeOff, LogIn, AlertCircle, Award, ChevronDown, ChevronUp } from 'lucide-react';
 import { AlShamsFalconEmblem } from '../brand/BrandAssets';
-import { ArtisanSkillLevel, ARTISAN_SKILL_LEVELS } from '../../types/artisanGrowth';
+import { ArtisanSkillLevel, getSkillLevelMeta } from '../../types/artisanGrowth';
 import { ArtisanSkillAssessment } from './ArtisanSkillAssessment';
 
 interface LoginProps {
@@ -254,10 +254,10 @@ export const Login: React.FC<LoginProps> = ({
           >
             <span className="flex items-center gap-2">
               <Award className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
-              <span>اختبار تحديد مستوى الفنان / الترقية لخبير ومدرب</span>
+              <span>اختبار تحديد مستوى الفنان / الترقية لمستوى خبير</span>
             </span>
             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#C2410C] dark:text-[#FBBF24]">
-              <span>{ARTISAN_SKILL_LEVELS[skillLevel]?.shortLabel}</span>
+              <span>{getSkillLevelMeta(skillLevel).displayShortLabel}</span>
               {showLevelQuiz ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </span>
           </button>

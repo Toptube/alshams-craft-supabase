@@ -1227,6 +1227,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 <div className="sm:col-span-2">
                   <ArtisanSkillAssessment
                     value={skillLevel}
+                    gender={gender}
                     onChange={(lvl, score) => {
                       setSkillLevel(lvl);
                       if (typeof score === 'number') setAssessmentScore(score);

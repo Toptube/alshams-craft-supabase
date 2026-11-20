@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Award,
   CheckCircle2,
@@ -9,9 +9,11 @@ import {
 } from 'lucide-react';
 import {
   ARTISAN_ASSESSMENT_QUESTIONS,
-  ARTISAN_SKILL_LEVELS,
   ArtisanSkillLevel,
+  SkillLevelMeta,
   computeRecommendedSkillLevel,
+  getEffectiveSkillLevels,
+  getSkillLevelMeta,
 } from '../../types/artisanGrowth';
 
 interface ArtisanSkillAssessmentProps {
@@ -19,30 +21,39 @@ interface ArtisanSkillAssessmentProps {
   onChange: (level: ArtisanSkillLevel, assessmentScore?: number) => void;
   compact?: boolean;
   defaultOpenQuiz?: boolean;
+  gender?: 'male' | 'female';
 }
-
-const LEVEL_ORDER: ArtisanSkillLevel[] = ['beginner', 'intermediate', 'pro', 'expert_trainer'];
 
 export const ArtisanSkillAssessment: React.FC<ArtisanSkillAssessmentProps> = ({
   value,
   onChange,
   compact = false,
   defaultOpenQuiz = false,
+  gender,
 }) => {
   const [quizOpen, setQuizOpen] = useState(defaultOpenQuiz);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [resultNote, setResultNote] = useState<string | null>(null);
+  const [levels, setLevels] = useState<SkillLevelMeta[]>(() => getEffectiveSkillLevels());
 
-  const selectedMeta = ARTISAN_SKILL_LEVELS[value] || ARTISAN_SKILL_LEVELS.intermediate;
+  useEffect(() => {
+    const sync = () => setLevels(getEffectiveSkillLevels());
+    window.addEventListener('alshams_growth_config_updated', sync);
+    return () => window.removeEventListener('alshams_growth_config_updated', sync);
+  }, []);
+
+  const selectedMeta = getSkillLevelMeta(value, gender);
+  const isFemale = gender === 'female';
 
   const handleAnswer = (qId: string, score: number) => {
     const next = { ...answers, [qId]: score };
     setAnswers(next);
     if (Object.keys(next).length === ARTISAN_ASSESSMENT_QUESTIONS.length) {
       const calc = computeRecommendedSkillLevel(next);
+      const recMeta = getSkillLevelMeta(calc.level, gender);
       onChange(calc.level, calc.score);
       setResultNote(
-        `نتيجة الاختبار (${calc.score}/${calc.maxScore}): مستواك المقترح هو «${ARTISAN_SKILL_LEVELS[calc.level].title}» — يمكنك تأكيده أو تغييره أدناه.`
+        `نتيجة الاختبار (${calc.score}/${calc.maxScore}): مستواك المقترح هو «${recMeta.displayTitle}» — يمكنك تأكيده أو تغييره أدناه.`
       );
     }
   };
@@ -115,16 +126,17 @@ export const ArtisanSkillAssessment: React.FC<ArtisanSkillAssessmentProps> = ({
         </div>
       )}
 
-      {/* بطاقات المستويات الأربعة للاختيار المباشر */}
+      {/* بطاقات المستويات (الافتراضية + أي مستويات مضافة من السوبر أدمن) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {LEVEL_ORDER.map((lvl) => {
-          const meta = ARTISAN_SKILL_LEVELS[lvl];
-          const isSelected = value === lvl;
+        {levels.map((meta) => {
+          const isSelected = value === meta.id;
+          const shortLbl = isFemale && meta.shortLabelFemale ? meta.shortLabelFemale : meta.shortLabel;
+          const canTeach = Boolean(meta.permissions?.canPublishLessons || meta.id === 'expert_trainer');
           return (
             <button
-              key={lvl}
+              key={meta.id}
               type="button"
-              onClick={() => onChange(lvl)}
+              onClick={() => onChange(meta.id)}
               className={`p-2.5 rounded-xl border text-right transition cursor-pointer space-y-1 ${
                 isSelected
                   ? 'bg-[#EA580C]/12 dark:bg-[#FBBF24]/15 border-[#EA580C] dark:border-[#FBBF24] shadow-xs'
@@ -133,9 +145,9 @@ export const ArtisanSkillAssessment: React.FC<ArtisanSkillAssessmentProps> = ({
             >
               <div className="flex items-center justify-between gap-1">
                 <span className="text-[11px] sm:text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight">
-                  {meta.shortLabel}
+                  {shortLbl}
                 </span>
-                {lvl === 'expert_trainer' && (
+                {canTeach && (
                   <GraduationCap className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
                 )}
               </div>
@@ -147,19 +159,19 @@ export const ArtisanSkillAssessment: React.FC<ArtisanSkillAssessmentProps> = ({
         })}
       </div>
 
-      {/* إبراز مزايا المستوى المختار خصوصاً عند اختيار خبير ومدرب */}
+      {/* إبراز مزايا المستوى المختار */}
       <div
         className={`rounded-xl border p-3 space-y-1.5 text-xs ${
-          value === 'expert_trainer'
+          selectedMeta.permissions?.canPublishLessons || value === 'expert_trainer'
             ? 'bg-[#EA580C]/10 dark:bg-[#EA580C]/15 border-[#EA580C]/40'
             : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
         }`}
       >
         <div className="font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-1.5">
-          {value === 'expert_trainer' && (
+          {(selectedMeta.permissions?.canPublishLessons || value === 'expert_trainer') && (
             <GraduationCap className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
           )}
-          <span>المستوى المختار: {selectedMeta.title}</span>
+          <span>المستوى المختار: {selectedMeta.displayTitle}</span>
         </div>
         <ul className="space-y-1 text-[11px] text-[#334155] dark:text-[#CBD5E1]">
           {selectedMeta.perks.map((p, i) => (

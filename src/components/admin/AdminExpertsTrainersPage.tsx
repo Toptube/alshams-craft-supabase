@@ -1,24 +1,39 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
   Award,
   Bell,
   CheckCircle2,
+  Eye,
+  EyeOff,
   GraduationCap,
+  Layers,
+  Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   ShieldCheck,
+  Sliders,
   Trash2,
   Users,
   Video,
 } from 'lucide-react';
 import { authedFetch } from '../../lib/apiClient';
 import {
-  ARTISAN_SKILL_LEVELS,
   ArtisanSkillLevel,
+  DEFAULT_LESSON_LAYOUT_BLOCKS,
+  DEFAULT_SKILL_LEVELS_LIST,
   GrowthHubConfig,
+  LessonLayoutBlockConfig,
+  SkillLevelMeta,
+  SkillLevelPermissions,
   TrainerEmbeddedPost,
+  canLevelPublishLessons,
+  getEffectiveLessonLayoutBlocks,
+  getEffectiveSkillLevels,
   getStoredGrowthHubConfig,
 } from '../../types/artisanGrowth';
 import {
@@ -40,6 +55,7 @@ interface AdminArtisanRow {
   brandName: string;
   email: string;
   country?: string;
+  gender?: 'male' | 'female';
   skillLevel: ArtisanSkillLevel;
   assessmentScore?: number;
   trainerVerified: boolean;
@@ -51,10 +67,17 @@ interface AdminPostItem {
   memberId: string;
   authorName: string;
   brandName: string;
+  authorGender?: 'male' | 'female';
   post: TrainerEmbeddedPost;
 }
 
-const LEVELS: ArtisanSkillLevel[] = ['beginner', 'intermediate', 'pro', 'expert_trainer'];
+const PERMISSION_LABELS: Array<{ key: keyof SkillLevelPermissions; label: string }> = [
+  { key: 'canPublishLessons', label: 'نشر الدروس والشروحات المدمجة' },
+  { key: 'canAccessProTools', label: 'أدوات المحترفين والمتجر' },
+  { key: 'canExportToMarket', label: 'التصدير لسوق الشمساوية' },
+  { key: 'canJoinGroupBuying', label: 'مجمع الشراء التعاوني' },
+  { key: 'showVerifiedBadge', label: 'شارة خبير معتمد' },
+];
 
 export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> = ({
   onBack,
@@ -62,7 +85,7 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
   onNotifyError,
 }) => {
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'artisans' | 'posts'>('artisans');
+  const [activeTab, setActiveTab] = useState<'artisans' | 'levels' | 'layout' | 'posts'>('artisans');
   const [artisans, setArtisans] = useState<AdminArtisanRow[]>([]);
   const [allPosts, setAllPosts] = useState<AdminPostItem[]>([]);
   const [searchQ, setSearchQ] = useState('');
@@ -72,6 +95,17 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
 
   const [growthConfig, setGrowthConfig] = useState<GrowthHubConfig>(() => getStoredGrowthHubConfig());
   const [savingGlobal, setSavingGlobal] = useState(false);
+
+  // Editable skill levels & lesson layout blocks
+  const [levelsDraft, setLevelsDraft] = useState<SkillLevelMeta[]>(() =>
+    getEffectiveSkillLevels(getStoredGrowthHubConfig())
+  );
+  const [blocksDraft, setBlocksDraft] = useState<LessonLayoutBlockConfig[]>(() =>
+    getEffectiveLessonLayoutBlocks(getStoredGrowthHubConfig())
+  );
+  const [newLevelTitle, setNewLevelTitle] = useState('');
+  const [newLevelTitleFemale, setNewLevelTitleFemale] = useState('');
+  const [newLevelTagline, setNewLevelTagline] = useState('');
 
   // Local edits map per memberId
   const [drafts, setDrafts] = useState<
@@ -86,6 +120,9 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
         syncGrowthHubConfigFromCloud(),
       ]);
       setGrowthConfig(cfg);
+      setLevelsDraft(getEffectiveSkillLevels(cfg));
+      setBlocksDraft(getEffectiveLessonLayoutBlocks(cfg));
+
       if (res.ok) {
         const data = await res.json();
         const rows: AdminArtisanRow[] = Array.isArray(data.members)
@@ -98,8 +135,9 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
         setAllPosts(
           rawPosts.map((p: any) => ({
             memberId: p.memberId || '',
-            authorName: p.authorName || 'خبير ومدرب',
+            authorName: p.authorName || (p.authorGender === 'female' ? 'خبيرة' : 'خبير'),
             brandName: p.brandName || '',
+            authorGender: p.authorGender === 'male' ? 'male' : p.authorGender === 'female' ? 'female' : undefined,
             post: p as TrainerEmbeddedPost,
           }))
         );
@@ -116,10 +154,10 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
         }
         setDrafts(nextDrafts);
       } else {
-        onNotifyError?.('تعذر تحميل قائمة الخبراء والمدربين من السيرفر.');
+        onNotifyError?.('تعذر تحميل قائمة الخبراء من السيرفر.');
       }
     } catch {
-      onNotifyError?.('حدث خطأ في الاتصال أثناء جلب بيانات المدربين.');
+      onNotifyError?.('حدث خطأ في الاتصال أثناء جلب بيانات الأكاديمية.');
     } finally {
       setLoading(false);
     }
@@ -143,8 +181,8 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
   }, [artisans, searchQ, levelFilter]);
 
   const stats = useMemo(() => {
-    const trainersCount = artisans.filter(
-      (a) => a.skillLevel === 'expert_trainer' || a.trainerVerified
+    const trainersCount = artisans.filter((a) =>
+      canLevelPublishLessons(a.skillLevel, a.trainerVerified, undefined, { customSkillLevels: levelsDraft })
     ).length;
     const verifiedCount = artisans.filter((a) => a.trainerVerified).length;
     return {
@@ -153,19 +191,107 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
       verifiedCount,
       totalPosts: allPosts.length,
     };
-  }, [artisans, allPosts]);
+  }, [artisans, allPosts, levelsDraft]);
 
-  const handleSaveGlobalSettings = async () => {
+  const handleSaveGlobalSettings = async (override?: Partial<GrowthHubConfig>, successMessage?: string) => {
     setSavingGlobal(true);
-    const res = await saveGrowthHubConfigToCloud(growthConfig);
+    const payload: GrowthHubConfig = {
+      ...growthConfig,
+      customSkillLevels: levelsDraft,
+      lessonLayoutBlocks: blocksDraft,
+      ...(override || {}),
+    };
+    const res = await saveGrowthHubConfigToCloud(payload);
     setSavingGlobal(false);
-    if (res.success) {
+    if (res.success && res.config) {
+      setGrowthConfig(res.config);
       playSuccessSound();
-      onNotifySuccess?.('تم حفظ سياسات أكاديمية الخبراء والمدربين بنجاح.');
+      onNotifySuccess?.(successMessage || 'تم حفظ الإعدادات وتعميمها فوراً على المنظومة بنجاح.');
     } else {
       playErrorSound();
       onNotifyError?.(res.error || 'تعذر حفظ الإعدادات.');
     }
+  };
+
+  const handleMoveLevel = (idx: number, dir: -1 | 1) => {
+    const target = idx + dir;
+    if (target < 0 || target >= levelsDraft.length) return;
+    playButtonClickSound();
+    const copy = [...levelsDraft];
+    [copy[idx], copy[target]] = [copy[target], copy[idx]];
+    setLevelsDraft(copy);
+  };
+
+  const handleUpdateLevelField = (id: string, patch: Partial<SkillLevelMeta>) => {
+    setLevelsDraft((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  };
+
+  const handleToggleLevelPermission = (id: string, permKey: keyof SkillLevelPermissions) => {
+    setLevelsDraft((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const cur: SkillLevelPermissions = {
+          canPublishLessons: l.permissions?.canPublishLessons ?? (l.id === 'expert_trainer'),
+          canAccessProTools: l.permissions?.canAccessProTools ?? true,
+          canJoinGroupBuying: l.permissions?.canJoinGroupBuying ?? true,
+          canExportToMarket: l.permissions?.canExportToMarket ?? true,
+          showVerifiedBadge: l.permissions?.showVerifiedBadge ?? (l.id === 'expert_trainer'),
+        };
+        return { ...l, permissions: { ...cur, [permKey]: !cur[permKey] } };
+      })
+    );
+  };
+
+  const handleAddCustomLevel = () => {
+    const title = newLevelTitle.trim();
+    if (!title) {
+      onNotifyError?.('يرجى كتابة اسم المستوى الجديد أولاً.');
+      return;
+    }
+    const id = `custom_${Date.now().toString(36)}`;
+    const newLvl: SkillLevelMeta = {
+      id,
+      title,
+      titleFemale: newLevelTitleFemale.trim() || title,
+      shortLabel: title.slice(0, 20),
+      shortLabelFemale: (newLevelTitleFemale.trim() || title).slice(0, 20),
+      tagline: newLevelTagline.trim() || 'مستوى مخصص تم إنشاؤه من لوحة الإدارة العليا.',
+      perks: ['صلاحيات مخصصة حسب إعدادات إدارة منظومة الشمساوية'],
+      accentClass: 'text-[#C2410C] dark:text-[#FDBA74] border-[#EA580C]/50 bg-[#EA580C]/12',
+      isSystem: false,
+      permissions: {
+        canPublishLessons: false,
+        canAccessProTools: true,
+        canJoinGroupBuying: true,
+        canExportToMarket: true,
+        showVerifiedBadge: false,
+      },
+    };
+    setLevelsDraft((prev) => [...prev, newLvl]);
+    setNewLevelTitle('');
+    setNewLevelTitleFemale('');
+    setNewLevelTagline('');
+    playSuccessSound();
+  };
+
+  const handleDeleteCustomLevel = (id: string) => {
+    setLevelsDraft((prev) => prev.filter((l) => l.id !== id || l.isSystem));
+    playButtonClickSound();
+  };
+
+  const handleMoveBlock = (idx: number, dir: -1 | 1) => {
+    const target = idx + dir;
+    if (target < 0 || target >= blocksDraft.length) return;
+    playButtonClickSound();
+    const copy = [...blocksDraft];
+    [copy[idx], copy[target]] = [copy[target], copy[idx]];
+    setBlocksDraft(copy);
+  };
+
+  const handleToggleBlockVisible = (id: LessonLayoutBlockConfig['id']) => {
+    if (id === 'media') return; // المشغل دائماً ظاهر
+    playButtonClickSound();
+    setBlocksDraft((prev) => prev.map((b) => (b.id === id ? { ...b, visible: !b.visible } : b)));
   };
 
   const handleSaveMember = async (memberId: string) => {
@@ -251,10 +377,10 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
           <div>
             <h1 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
               <GraduationCap className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
-              <span>أكاديمية الخبراء والمدربين والشروحات المدمجة</span>
+              <span>أكاديمية الخبراء وإدارة المستويات وتنسيق الشروحات</span>
             </h1>
             <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
-              إدارة مستويات الفنانين، اعتماد الخبراء والمدربين، التحكم في عدد منشورات الشرح المدمجة وإشعارات طبلية العيلة.
+              تعديل وإضافة مستويات الفنانين وصلاحياتها، ترتيب عرض الفيديو والشرح، واعتماد الخبراء.
             </p>
           </div>
         </div>
@@ -274,8 +400,8 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'إجمالي الفنانين', value: stats.totalArtisans, icon: Users },
-          { label: 'خبراء ومدربين', value: stats.trainersCount, icon: GraduationCap },
-          { label: 'مدربين معتمدين', value: stats.verifiedCount, icon: ShieldCheck },
+          { label: 'الخبراء المصرح لهم', value: stats.trainersCount, icon: GraduationCap },
+          { label: 'خبراء معتمدون', value: stats.verifiedCount, icon: ShieldCheck },
           { label: 'شروحات مدمجة منشورة', value: stats.totalPosts, icon: Video },
         ].map((kpi) => {
           const Icon = kpi.icon;
@@ -303,12 +429,12 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
             <Bell className="w-4 h-4 text-[#EA580C]" />
-            <span>السياسات العامة للنشر والإشعارات التلقائية للمدربين</span>
+            <span>السياسات العامة للنشر والإشعارات التلقائية للخبراء</span>
           </h2>
           <button
             type="button"
             disabled={savingGlobal}
-            onClick={handleSaveGlobalSettings}
+            onClick={() => handleSaveGlobalSettings()}
             className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
           >
             <Save className="w-3.5 h-3.5" />
@@ -347,7 +473,7 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
 
           <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
             <span className="font-bold text-[#0C1427] dark:text-[#F7F3EA]">
-              الحد الافتراضي لمنشورات المدرب:
+              الحد الافتراضي لمنشورات الخبير:
             </span>
             <input
               type="number"
@@ -367,31 +493,30 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
       </section>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-[#D4CCBC] dark:border-[#22355E] pb-2">
-        <button
-          type="button"
-          onClick={() => setActiveTab('artisans')}
-          className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer transition ${
-            activeTab === 'artisans'
-              ? 'bg-[#EA580C] text-white'
-              : 'bg-[#EFE9DC] dark:bg-[#132040] text-[#334155] dark:text-[#CBD5E1]'
-          }`}
-        >
-          <Award className="w-4 h-4" />
-          <span>إدارة مستويات الفنانين والمدربين ({artisans.length})</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('posts')}
-          className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer transition ${
-            activeTab === 'posts'
-              ? 'bg-[#EA580C] text-white'
-              : 'bg-[#EFE9DC] dark:bg-[#132040] text-[#334155] dark:text-[#CBD5E1]'
-          }`}
-        >
-          <Video className="w-4 h-4" />
-          <span>مكتبة الشروحات المدمجة المنشورة ({allPosts.length})</span>
-        </button>
+      <div className="flex flex-wrap items-center gap-2 border-b border-[#D4CCBC] dark:border-[#22355E] pb-2">
+        {[
+          { id: 'artisans' as const, label: `إدارة الفنانين والخبراء (${artisans.length})`, icon: Award },
+          { id: 'levels' as const, label: `مستويات الفنانين والصلاحيات (${levelsDraft.length})`, icon: Sliders },
+          { id: 'layout' as const, label: 'ترتيب عرض الدروس والشروحات', icon: Layers },
+          { id: 'posts' as const, label: `مكتبة الشروحات المنشورة (${allPosts.length})`, icon: Video },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer transition ${
+                activeTab === tab.id
+                  ? 'bg-[#EA580C] text-white'
+                  : 'bg-[#EFE9DC] dark:bg-[#132040] text-[#334155] dark:text-[#CBD5E1] hover:border-[#EA580C]'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {loading ? (
@@ -414,18 +539,29 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5">
-              {(['all', ...LEVELS] as const).map((lvl) => (
+              <button
+                type="button"
+                onClick={() => setLevelFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-black border cursor-pointer transition ${
+                  levelFilter === 'all'
+                    ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white border-transparent'
+                    : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
+                }`}
+              >
+                الكل
+              </button>
+              {levelsDraft.map((lvl) => (
                 <button
-                  key={lvl}
+                  key={lvl.id}
                   type="button"
-                  onClick={() => setLevelFilter(lvl)}
+                  onClick={() => setLevelFilter(lvl.id)}
                   className={`px-3 py-1.5 rounded-xl text-[11px] font-black border cursor-pointer transition ${
-                    levelFilter === lvl
+                    levelFilter === lvl.id
                       ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white border-transparent'
                       : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
                   }`}
                 >
-                  {lvl === 'all' ? 'الكل' : ARTISAN_SKILL_LEVELS[lvl].shortLabel}
+                  {lvl.shortLabel}
                 </button>
               ))}
             </div>
@@ -433,11 +569,12 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
 
           {filteredArtisans.length === 0 ? (
             <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-8 text-center text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
-              لا يوجد فنانون مطابقون لهذا التصفية حالياً.
+              لا يوجد فنانون مطابقون لهذه التصفية حالياً.
             </div>
           ) : (
             <div className="space-y-2.5">
               {filteredArtisans.map((row) => {
+                const isFemale = row.gender === 'female';
                 const d = drafts[row.memberId] || {
                   skillLevel: row.skillLevel,
                   trainerVerified: row.trainerVerified,
@@ -453,22 +590,27 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
                         <span className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
                           {row.displayName}
                         </span>
-                        <span className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
-                          ({row.brandName})
+                        {row.brandName && (
+                          <span className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
+                            ({row.brandName})
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 rounded-lg bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[10px] font-black text-[#475569] dark:text-[#CBD5E1]">
+                          {isFemale ? 'فنانة' : 'فنان'}
                         </span>
                         {d.trainerVerified && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black">
                             <CheckCircle2 className="w-3 h-3" />
-                            <span>مدرب معتمد</span>
+                            <span>{isFemale ? 'خبيرة معتمدة' : 'خبير معتمد'}</span>
                           </span>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#475569] dark:text-[#94A3B8]">
-                        <span className="font-mono">{row.email}</span>
+                        {row.email && <span className="font-mono">{row.email}</span>}
                         <span>الدولة: {row.country || 'مصر'}</span>
                         <span>شروحات منشورة: {row.trainerPostsCount}</span>
                         {typeof row.assessmentScore === 'number' && (
-                          <span>درجة الاختبار: {row.assessmentScore}/9</span>
+                          <span>درجة الاختبار: {row.assessmentScore}/12</span>
                         )}
                       </div>
                     </div>
@@ -487,9 +629,9 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
                         }
                         className="px-2.5 py-2 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black"
                       >
-                        {LEVELS.map((lvl) => (
-                          <option key={lvl} value={lvl}>
-                            {ARTISAN_SKILL_LEVELS[lvl].title}
+                        {levelsDraft.map((lvl) => (
+                          <option key={lvl.id} value={lvl.id}>
+                            {isFemale ? lvl.titleFemale || lvl.title : lvl.title}
                           </option>
                         ))}
                       </select>
@@ -510,7 +652,7 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
                           }
                           className="accent-[#EA580C] cursor-pointer"
                         />
-                        <span>اعتماد مدرب</span>
+                        <span>{isFemale ? 'اعتماد خبيرة' : 'اعتماد خبير'}</span>
                       </label>
 
                       <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[11px] font-bold">
@@ -549,11 +691,357 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
             </div>
           )}
         </section>
+      ) : activeTab === 'levels' ? (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-3.5">
+            <div className="space-y-0.5">
+              <h3 className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                تحكم كامل في أسماء مستويات الفنانين وصلاحياتها
+              </h3>
+              <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                المسمى يُطبَّق تلقائياً حسب نوع صاحب أو صاحبة الورشة (فنان ← المذكر مثل «خبير»، فنانة ← المؤنث مثل «خبيرة»)، ويمكنك هنا تعديل الصياغة أو الصلاحيات أو إضافة مستويات جديدة.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setLevelsDraft(DEFAULT_SKILL_LEVELS_LIST);
+                  playButtonClickSound();
+                }}
+                className="px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black flex items-center gap-1 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>استعادة الافتراضي</span>
+              </button>
+              <button
+                type="button"
+                disabled={savingGlobal}
+                onClick={() =>
+                  handleSaveGlobalSettings(
+                    { customSkillLevels: levelsDraft },
+                    'تم حفظ مستويات الفنانين وصلاحياتها وتعميمها على جميع الشاشات بنجاح!'
+                  )
+                }
+                className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{savingGlobal ? 'جاري الحفظ...' : 'حفظ تعديلات المستويات'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {levelsDraft.map((lvl, idx) => (
+              <div
+                key={lvl.id}
+                className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 space-y-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#D4CCBC]/60 dark:border-[#22355E] pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-lg bg-[#EA580C]/15 text-[#EA580C] dark:text-[#FBBF24] text-xs font-mono font-black flex items-center justify-center">
+                      {idx + 1}
+                    </span>
+                    <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                      {lvl.title} {lvl.titleFemale && lvl.titleFemale !== lvl.title ? ` / ${lvl.titleFemale}` : ''}
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 text-[#475569] dark:text-[#94A3B8]">
+                      {lvl.id}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={() => handleMoveLevel(idx, -1)}
+                      title="نقل لأعلى"
+                      className="p-1.5 rounded-lg bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] disabled:opacity-30 cursor-pointer"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={idx === levelsDraft.length - 1}
+                      onClick={() => handleMoveLevel(idx, 1)}
+                      title="نقل لأسفل"
+                      className="p-1.5 rounded-lg bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] disabled:opacity-30 cursor-pointer"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    {!lvl.isSystem && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCustomLevel(lvl.id)}
+                        title="حذف هذا المستوى المخصص"
+                        className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-500/10 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] mb-1">
+                      الاسم (فنان / مذكر)
+                    </label>
+                    <input
+                      type="text"
+                      value={lvl.title}
+                      onChange={(e) => handleUpdateLevelField(lvl.id, { title: e.target.value })}
+                      className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] mb-1">
+                      الاسم (فنانة / مؤنث)
+                    </label>
+                    <input
+                      type="text"
+                      value={lvl.titleFemale || ''}
+                      onChange={(e) => handleUpdateLevelField(lvl.id, { titleFemale: e.target.value })}
+                      placeholder={lvl.title}
+                      className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] mb-1">
+                      الاسم المختصر (للشارة)
+                    </label>
+                    <input
+                      type="text"
+                      value={lvl.shortLabel}
+                      onChange={(e) => handleUpdateLevelField(lvl.id, { shortLabel: e.target.value })}
+                      className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] mb-1">
+                      الاسم المختصر (مؤنث)
+                    </label>
+                    <input
+                      type="text"
+                      value={lvl.shortLabelFemale || ''}
+                      onChange={(e) => handleUpdateLevelField(lvl.id, { shortLabelFemale: e.target.value })}
+                      placeholder={lvl.shortLabel}
+                      className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] mb-1">
+                    الوصف التعريفي للمستوى
+                  </label>
+                  <input
+                    type="text"
+                    value={lvl.tagline}
+                    onChange={(e) => handleUpdateLevelField(lvl.id, { tagline: e.target.value })}
+                    className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                  />
+                </div>
+
+                {/* Granular Permissions */}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {PERMISSION_LABELS.map((perm) => {
+                    const checked = Boolean(lvl.permissions?.[perm.key]);
+                    return (
+                      <label
+                        key={perm.key}
+                        className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-black flex items-center gap-1.5 cursor-pointer transition ${
+                          checked
+                            ? 'bg-emerald-600/15 border-emerald-500 text-emerald-800 dark:text-emerald-300'
+                            : 'bg-[#EFE9DC] dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#64748B]'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => handleToggleLevelPermission(lvl.id, perm.key)}
+                          className="accent-emerald-600 cursor-pointer"
+                        />
+                        <span>{perm.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Add New Custom Level */}
+          <div className="rounded-2xl bg-[#EFE9DC]/80 dark:bg-[#132040]/80 border-2 border-dashed border-[#EA580C]/50 p-4 space-y-3">
+            <h4 className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5">
+              <Plus className="w-4 h-4" />
+              <span>إضافة مستوى فنان جديد مخصص</span>
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+              <input
+                type="text"
+                value={newLevelTitle}
+                onChange={(e) => setNewLevelTitle(e.target.value)}
+                placeholder="اسم المستوى (مثال: سفير حرفة)"
+                className="px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+              />
+              <input
+                type="text"
+                value={newLevelTitleFemale}
+                onChange={(e) => setNewLevelTitleFemale(e.target.value)}
+                placeholder="المؤنث (مثال: سفيرة حرفة)"
+                className="px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+              />
+              <input
+                type="text"
+                value={newLevelTagline}
+                onChange={(e) => setNewLevelTagline(e.target.value)}
+                placeholder="وصف مختصر للمستوى..."
+                className="px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleAddCustomLevel}
+              className="px-4 py-2 rounded-xl bg-[#0C1427] dark:bg-[#EA580C] text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>إضافة المستوى للقائمة (ثم اضغط حفظ بالأعلى)</span>
+            </button>
+          </div>
+        </section>
+      ) : activeTab === 'layout' ? (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-3.5">
+            <div className="space-y-0.5">
+              <h3 className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                ترتيب عناصر عرض الدروس والشروحات المدمجة
+              </h3>
+              <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+                الوضع الافتراضي يضع الفيديو أعلى الشرح؛ ويمكنك تحريك أي عنصر لأعلى أو لأسفل أو إخفاؤه مع معاينة فورية.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setBlocksDraft(DEFAULT_LESSON_LAYOUT_BLOCKS);
+                  playButtonClickSound();
+                }}
+                className="px-3 py-2 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black flex items-center gap-1 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>الافتراضي (الفيديو أعلى الشرح)</span>
+              </button>
+              <button
+                type="button"
+                disabled={savingGlobal}
+                onClick={() =>
+                  handleSaveGlobalSettings(
+                    { lessonLayoutBlocks: blocksDraft },
+                    'تم حفظ ترتيب عرض الدروس والشروحات وتطبيقه فوراً على جميع الصفحات!'
+                  )
+                }
+                className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{savingGlobal ? 'جاري الحفظ...' : 'حفظ الترتيب الآن'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            {/* Blocks Reorder Controls */}
+            <div className="space-y-2.5">
+              {blocksDraft.map((blk, idx) => (
+                <div
+                  key={blk.id}
+                  className={`rounded-2xl border p-3.5 flex items-center justify-between gap-2 transition ${
+                    blk.visible
+                      ? 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
+                      : 'bg-[#EFE9DC]/40 dark:bg-[#060B18]/40 border-dashed border-[#D4CCBC]/60 opacity-65'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-6 h-6 rounded-lg bg-[#EA580C]/15 text-[#EA580C] dark:text-[#FBBF24] text-xs font-mono font-black flex items-center justify-center shrink-0">
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] truncate">
+                        {blk.label}
+                      </div>
+                      <div className="text-[10px] text-[#475569] dark:text-[#94A3B8]">
+                        {blk.id === 'media'
+                          ? 'عنصر أساسي (يُعرض بأبعاد الفيديو الطبيعية تلقائياً)'
+                          : blk.visible
+                            ? 'ظاهر في بطاقة الدرس'
+                            : 'مخفي من بطاقة الدرس'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={() => handleMoveBlock(idx, -1)}
+                      title="تحريك لأعلى"
+                      className="p-2 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] disabled:opacity-30 cursor-pointer"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={idx === blocksDraft.length - 1}
+                      onClick={() => handleMoveBlock(idx, 1)}
+                      title="تحريك لأسفل"
+                      className="p-2 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] disabled:opacity-30 cursor-pointer"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={blk.id === 'media'}
+                      onClick={() => handleToggleBlockVisible(blk.id)}
+                      title={blk.visible ? 'إخفاء هذا العنصر' : 'إظهار هذا العنصر'}
+                      className={`p-2 rounded-xl border cursor-pointer disabled:opacity-35 ${
+                        blk.visible
+                          ? 'bg-emerald-600/15 border-emerald-500 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#64748B]'
+                      }`}
+                    >
+                      {blk.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Live Visual Preview of Ordered Lesson Card */}
+            <div className="space-y-2">
+              <div className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24]">
+                معاينة حية لشكل بطاقة الدرس بعد الترتيب:
+              </div>
+              <EmbeddedSocialMediaCard
+                title="درس تطبيقي: حساب تكلفة الجدارية المكرمية بدقة 100%"
+                description="في هذا الشرح العملي نتعرف على اختيار سمك الحبل المناسب، وحساب الهالك 5%، وتحديد مصنعية اليد العادلة قبل التسعير."
+                url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                platform="youtube"
+                videoOrientation="landscape"
+                authorName="حسام بسيوني"
+                brandName="منظومة الشمساوية"
+                layoutBlocksOverride={blocksDraft}
+                onShareToFamily={() => {}}
+                compact
+              />
+            </div>
+          </div>
+        </section>
       ) : (
         <section className="space-y-4">
           {allPosts.length === 0 ? (
             <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-10 text-center text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
-              لا توجد شروحات مدمجة منشورة من الخبراء والمدربين حتى الآن.
+              لا توجد شروحات مدمجة منشورة من الخبراء حتى الآن.
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -564,8 +1052,11 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
                     description={item.post.description}
                     url={item.post.url}
                     platform={item.post.platform}
+                    videoOrientation={item.post.videoOrientation}
+                    videoAspectRatio={item.post.videoAspectRatio}
                     authorName={item.authorName}
                     brandName={item.brandName}
+                    authorGender={item.authorGender || item.post.authorGender}
                     audience={item.post.audience}
                     onDelete={
                       deletingPostId === item.post.id
@@ -581,7 +1072,10 @@ export const AdminExpertsTrainersPage: React.FC<AdminExpertsTrainersPageProps> =
                       className="text-[11px] font-black text-rose-600 dark:text-rose-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      <span>إزالة الشرح نهائياً من صفحة المدرب</span>
+                      <span>
+                        إزالة الشرح نهائياً من صفحة{' '}
+                        {(item.authorGender || item.post.authorGender) === 'female' ? 'الخبيرة' : 'الخبير'}
+                      </span>
                     </button>
                   </div>
                 </div>

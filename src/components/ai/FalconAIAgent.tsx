@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from
 import { FalconMascotAvatar, ArtisanAvatar, falconSearchIconImg } from '../brand/BrandAssets';
 import { UserProfile, CraftCategory, AIVisionAnalysis, ChatMessage } from '../../types';
 import { authedFetch } from '../../lib/apiClient';
-import { getMainSectionForCraft } from '../../registry/craftsRegistry';
+import { buildSmartCalculatorExport } from '../../utils/falconCalculatorExport';
 import {
   Sparkles,
   Camera,
@@ -365,29 +365,29 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   };
 
   const handleExportLatestToCalculator = () => {
-    // 1. البحث عن آخر تحليل رؤية للمشغولة
-    const lastWithVision = [...messages].reverse().find((m) => m.metadata?.visionAnalysis);
-    if (lastWithVision && lastWithVision.metadata?.visionAnalysis) {
-      handleExportStructuredToCalculator(
-        lastWithVision.metadata.visionAnalysis,
-        lastWithVision.metadata?.previewImage || imagePreview || undefined
-      );
-      showFeedback('✓ تم تصدير بيانات القطعة والصورة لحاسبة التكاليف');
+    const payload = buildSmartCalculatorExport({
+      messages,
+      imagePreview,
+      currentCategory,
+      profile,
+    });
+
+    if (!payload) {
+      showFeedback('ابدأ المحادثة مع صقر أو ارفع صورة قطعة أولاً لتصديرها للحاسبة.');
       return;
     }
 
-    // 2. أو تصدير سياق المحادثة الأخيرة
-    const lastAssistant = [...messages].reverse().find((m) => m.sender === 'falcon' && m.id !== 'msg_welcome');
-    if (lastAssistant && onExportStructuredToCalculator) {
-      onExportStructuredToCalculator({
-        category: currentCategory,
-        notes: `توجيهات صقر الشمساوية: ${lastAssistant.text.slice(0, 250)}`,
-      });
-      showFeedback('✓ تم تصدير بيانات المحادثة لحاسبة التكاليف');
-      return;
+    if (onExportStructuredToCalculator) {
+      onExportStructuredToCalculator(payload);
+    } else {
+      if (payload.category) onApplyCategoryFromAI(payload.category as CraftCategory);
+      if (payload.laborWage && payload.hours) onApplyEstimatedLaborWage(payload.laborWage, payload.hours);
+      if (payload.notes) onTransferNotesToCalculator(payload.notes);
     }
 
-    showFeedback('لا توجد بيانات تسعير حالية للتصدير.');
+    setTransferredNotice(true);
+    setTimeout(() => setTransferredNotice(false), 2600);
+    showFeedback('✓ تم تصدير كافة بيانات القطعة والصورة والمقاسات وأهم النقاط للحاسبة');
   };
 
   const startVoiceRecording = async () => {
@@ -756,58 +756,22 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   };
 
   const handleExportStructuredToCalculator = (vData: AIVisionAnalysis, associatedImage?: string) => {
-    if (!vData) return;
-    const minP = vData.competitionPricing?.minMarketPrice || 0;
-    const avgP = vData.competitionPricing?.avgMarketPrice || vData.competitionPricing?.recommendedFairPrice || 0;
-    const maxP = vData.competitionPricing?.maxMarketPrice || 0;
-
-    const wage = vData.estimatedLaborWage || 90;
-    const hours = vData.estimatedHours || 3;
-    const width = vData.suggestedDimensions?.width || vData.widthCm || 40;
-    const height = vData.suggestedDimensions?.totalLength || vData.heightCm || 50;
-    const sideHeight = vData.suggestedDimensions?.sideHeight || vData.sideHeightCm || 15;
-    const diameter = vData.suggestedDimensions?.diameter || vData.diameterCm || 0;
-    const fringe = vData.suggestedDimensions?.fringeLength || 10;
-    const weight = vData.totalWeightGrams ? Math.round((vData.totalWeightGrams / 1000) * 100) / 100 : 0.8;
-    const pName = vData.modelDetectedName || `مشغولة ${vData.detectedCategory || 'يدوية فاخرة'}`;
-    const img = associatedImage || vData.imageUrl || imagePreview || undefined;
-
-    const notes = `تحليل صقر الهندسي (${vData.detectedCategory || 'هاند ميد'}):\n` +
-      `- اسم القطعة: ${pName}\n` +
-      `- الأبعاد التقديرية: العرض ${width} سم × الطول ${height} سم × الارتفاع ${sideHeight} سم\n` +
-      `- الوزن التقديري: ${weight} كجم\n` +
-      `- مصنعية اليد: ${wage} ${profile.currencySymbol || 'ج.م'} (${hours} ساعات عمل)\n` +
-      `- نطاق السوق: جملة ${minP} ${profile.currencySymbol || 'ج.م'} | قطاعي مقترح ${avgP} ${profile.currencySymbol || 'ج.م'}`;
+    const payload = buildSmartCalculatorExport({
+      messages,
+      visionAnalysis: vData,
+      associatedImage,
+      imagePreview,
+      currentCategory,
+      profile,
+    });
+    if (!payload) return;
 
     if (onExportStructuredToCalculator) {
-      const resolvedCraftId = (vData as any).craftType || 'macrame';
-      onExportStructuredToCalculator({
-        productName: pName,
-        category: (vData.detectedCategory as CraftCategory) || currentCategory,
-        craftId: resolvedCraftId,
-        mainSectionId: getMainSectionForCraft(resolvedCraftId),
-        laborWage: wage,
-        hours,
-        minMarketPrice: minP,
-        recommendedFairPrice: avgP,
-        maxMarketPrice: maxP,
-        widthCm: width,
-        heightCm: height,
-        sideHeightCm: sideHeight,
-        diameterCm: diameter,
-        fringeLengthCm: fringe,
-        weightKg: weight,
-        imageUrl: img,
-        notes,
-        costPrice: Math.round(weight * 180 + 60 + wage),
-        wholesalePrice: minP || Math.round((weight * 180 + 60 + wage) * 1.3),
-        retailPrice: avgP || Math.round((weight * 180 + 60 + wage) * 1.6),
-        visionAnalysis: vData,
-      });
+      onExportStructuredToCalculator(payload);
     } else {
-      onApplyCategoryFromAI((vData.detectedCategory as CraftCategory) || currentCategory);
-      onApplyEstimatedLaborWage(wage, hours);
-      onTransferNotesToCalculator(notes);
+      if (payload.category) onApplyCategoryFromAI(payload.category as CraftCategory);
+      if (payload.laborWage && payload.hours) onApplyEstimatedLaborWage(payload.laborWage, payload.hours);
+      if (payload.notes) onTransferNotesToCalculator(payload.notes);
     }
 
     setTransferredNotice(true);

@@ -1500,23 +1500,32 @@ export const FamilyCommunityView: React.FC<FamilyCommunityViewProps> = ({
                 </div>
 
                 {/* Post Body + Optional Native Embedded Trainer Social Media Card */}
-                {parsedBody.cleanText && (
-                  <p className="mt-3 text-sm sm:text-[15px] font-medium text-[#0C1427] dark:text-[#F7F3EA] whitespace-pre-wrap leading-relaxed">
-                    {parsedBody.cleanText}
-                  </p>
-                )}
-
-                {parsedBody.embed && (
+                {parsedBody.embed ? (
                   <div className="mt-3.5">
                     <EmbeddedSocialMediaCard
                       title={parsedBody.embed.title}
+                      description={parsedBody.cleanText}
                       url={parsedBody.embed.url}
                       platform={parsedBody.embed.platform}
+                      videoOrientation={parsedBody.embed.videoOrientation}
+                      videoAspectRatio={parsedBody.embed.videoAspectRatio}
                       authorName={post.authorName}
                       brandName={post.brandName}
+                      authorGender={
+                        parsedBody.embed.authorGender ||
+                        ((post as any).authorGender === 'male' || (post as any).authorGender === 'female'
+                          ? (post as any).authorGender
+                          : undefined)
+                      }
                       isTrainerBadge={parsedBody.embed.trainerBadge !== false}
                     />
                   </div>
+                ) : (
+                  parsedBody.cleanText && (
+                    <p className="mt-3 text-sm sm:text-[15px] font-medium text-[#0C1427] dark:text-[#F7F3EA] whitespace-pre-wrap leading-relaxed">
+                      {parsedBody.cleanText}
+                    </p>
+                  )
                 )}
 
                 {/* Interactive Poll Options (when postType === 'poll') */}

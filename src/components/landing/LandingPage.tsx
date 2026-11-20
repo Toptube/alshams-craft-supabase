@@ -61,9 +61,9 @@ import {
 } from 'lucide-react';
 import { ArtisanSkillAssessment } from '../auth/ArtisanSkillAssessment';
 import {
-  ARTISAN_SKILL_LEVELS,
   ArtisanSkillLevel,
   GrowthHubConfig,
+  getSkillLevelMeta,
   getStoredGrowthHubConfig,
 } from '../../types/artisanGrowth';
 import { syncGrowthHubConfigFromCloud } from '../../db/memberProfileService';
@@ -1460,7 +1460,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       <div className="text-xs font-bold">
                         المستوى المختار:{' '}
                         <span className={`font-black ${accent.primaryText}`}>
-                          {ARTISAN_SKILL_LEVELS[landingSkillLevel].title}
+                          {getSkillLevelMeta(landingSkillLevel).displayTitle}
                         </span>
                       </div>
                       <button
@@ -1476,9 +1476,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 ) : (
                   <div className={`rounded-3xl border p-6 sm:p-8 space-y-4 ${surfaceCardClass}`}>
                     <GraduationCap className={`w-9 h-9 ${accent.primaryText}`} />
-                    <h3 className="text-xl font-black">انضم كفنان حرفي أو خبير ومدرب معتمد</h3>
+                    <h3 className="text-xl font-black">انضم كفنان حرفي أو خبير معتمد</h3>
                     <p className={`text-sm leading-relaxed ${mutedTextClass}`}>
-                      حدّد مستواك الحرفي أثناء التسجيل أو من صفحتك الشخصية لتفتح مزايا الخبراء والمدربين، وتنشر دروسك المدمجة مباشرة لعيلة الشمساوية.
+                      حدّد مستواك الحرفي أثناء التسجيل أو من صفحتك الشخصية لتفتح مزايا الخبراء، وتنشر دروسك المدمجة مباشرة لعيلة الشمساوية.
                     </p>
                     <button
                       type="button"

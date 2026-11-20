@@ -1,6 +1,38 @@
 import { AudienceRule } from './memberProfile';
 
-export type ArtisanSkillLevel = 'beginner' | 'intermediate' | 'pro' | 'expert_trainer';
+export type BuiltinArtisanSkillLevel = 'beginner' | 'intermediate' | 'pro' | 'expert_trainer';
+export type ArtisanSkillLevel = BuiltinArtisanSkillLevel | (string & {});
+
+export type VideoOrientation = 'auto' | 'portrait' | 'landscape' | 'square';
+
+export type LessonCardBlockId =
+  | 'header_bar'
+  | 'media'
+  | 'title'
+  | 'description'
+  | 'footer_actions';
+
+export interface LessonLayoutBlockConfig {
+  id: LessonCardBlockId;
+  label: string;
+  visible: boolean;
+}
+
+export const DEFAULT_LESSON_LAYOUT_BLOCKS: LessonLayoutBlockConfig[] = [
+  { id: 'header_bar', label: 'شريط الهوية وأزرار ملء الشاشة والمشاركة', visible: true },
+  { id: 'media', label: 'الفيديو / المشغل المدمج (أعلى الشرح)', visible: true },
+  { id: 'title', label: 'عنوان الشرح أو الدرس', visible: true },
+  { id: 'description', label: 'الشرح والملخص المكتوب', visible: true },
+  { id: 'footer_actions', label: 'شريط المشاركة في طبلية العيلة', visible: true },
+];
+
+export interface SkillLevelPermissions {
+  canPublishLessons: boolean;
+  canAccessProTools: boolean;
+  canJoinGroupBuying: boolean;
+  canExportToMarket: boolean;
+  showVerifiedBadge: boolean;
+}
 
 export type SocialEmbedPlatform =
   | 'youtube'
@@ -15,29 +47,45 @@ export type SocialEmbedPlatform =
 export interface SkillLevelMeta {
   id: ArtisanSkillLevel;
   title: string;
+  titleFemale?: string;
   shortLabel: string;
+  shortLabelFemale?: string;
   tagline: string;
   perks: string[];
   accentClass: string;
+  isSystem?: boolean;
+  permissions?: SkillLevelPermissions;
 }
 
-export const ARTISAN_SKILL_LEVELS: Record<ArtisanSkillLevel, SkillLevelMeta> = {
+export const ARTISAN_SKILL_LEVELS: Record<string, SkillLevelMeta> = {
   beginner: {
     id: 'beginner',
     title: 'مبتدئ / هاوي حرفة',
+    titleFemale: 'مبتدئة / هاوية حرفة',
     shortLabel: 'مبتدئ',
+    shortLabelFemale: 'مبتدئة',
     tagline: 'في بداية المشوار — تتعلم الخامات الموحدة والتسعير العادل بدون خسارة.',
     perks: [
-      'وصول مجاني لدروس وشروحات الخبراء والمدربين داخل المنظومة',
+      'وصول مجاني لدروس وشروحات الخبراء داخل المنظومة',
       'حاسبة الـ 14 قسماً لمنع التسعير العشوائي منذ أول قطعة',
       'معرض شخصي من 6 أعمال لعرض تطور شغلك',
     ],
     accentClass: 'text-sky-700 dark:text-sky-300 border-sky-400/50 bg-sky-500/10',
+    isSystem: true,
+    permissions: {
+      canPublishLessons: false,
+      canAccessProTools: false,
+      canJoinGroupBuying: true,
+      canExportToMarket: false,
+      showVerifiedBadge: false,
+    },
   },
   intermediate: {
     id: 'intermediate',
     title: 'متوسط / صانع مستقل',
+    titleFemale: 'متوسطة / صانعة مستقلة',
     shortLabel: 'صانع مستقل',
+    shortLabelFemale: 'صانعة مستقلة',
     tagline: 'تنفذ طلبيات فعلية ولديك عملاء وتحتاج تنظيم المخزون والكتالوج والأرباح.',
     perks: [
       'الأرشيف (كارت الصنف) + الكتالوج وعروض الأسعار الموثقة',
@@ -45,11 +93,21 @@ export const ARTISAN_SKILL_LEVELS: Record<ArtisanSkillLevel, SkillLevelMeta> = {
       'معرض 6 أعمال مع زر مشاركة مباشر ومتجر مستقل',
     ],
     accentClass: 'text-emerald-700 dark:text-emerald-300 border-emerald-400/50 bg-emerald-500/10',
+    isSystem: true,
+    permissions: {
+      canPublishLessons: false,
+      canAccessProTools: true,
+      canJoinGroupBuying: true,
+      canExportToMarket: true,
+      showVerifiedBadge: false,
+    },
   },
   pro: {
     id: 'pro',
     title: 'محترف / صاحب ورشة ومشروع',
+    titleFemale: 'محترفة / صاحبة ورشة ومشروع',
     shortLabel: 'محترف',
+    shortLabelFemale: 'محترفة',
     tagline: 'إنتاج منتظم ومتجر وكتالوج وتستهدف التوسع وسوق الشمساوية والهدايا المؤسسية.',
     perks: [
       'متجر مستقل + تصدير منتجاتك لسوق الشمساوية بشارة الاعتماد الخضراء',
@@ -57,21 +115,46 @@ export const ARTISAN_SKILL_LEVELS: Record<ArtisanSkillLevel, SkillLevelMeta> = {
       'مجمع الشراء التعاوني للخامات بسعر الجملة القصوى',
     ],
     accentClass: 'text-amber-800 dark:text-[#FBBF24] border-amber-500/50 bg-amber-500/10',
+    isSystem: true,
+    permissions: {
+      canPublishLessons: false,
+      canAccessProTools: true,
+      canJoinGroupBuying: true,
+      canExportToMarket: true,
+      showVerifiedBadge: false,
+    },
   },
   expert_trainer: {
     id: 'expert_trainer',
-    title: 'خبير ومعلم / مدرب حرفي',
-    shortLabel: 'خبير ومدرب',
+    title: 'خبير',
+    titleFemale: 'خبيرة',
+    shortLabel: 'خبير',
+    shortLabelFemale: 'خبيرة',
     tagline: 'تنقل خبرتك وتقدم شروحات وفيديوهات تعليمية وترشد جيل الحرفيين الجديد.',
     perks: [
       'فتح منشورات الدروس والشروحات المدمجة (يوتيوب/فيسبوك/إنستجرام/تيك توك) داخل صفحتك',
-      'عرض الفيديو والمنشور بشكله الحقيقي داخل المنظومة بملء الشاشة بدون الخروج لمتصفح خارجي',
+      'عرض الفيديو والمنشور بأبعاده الطبيعية داخل المنظومة بملء الشاشة بدون الخروج لمتصفح خارجي',
       'نشر تلقائي باسمك في طبلية عيلة الشمساوية + إرسال إشعار فوري لجميع الفنانين',
       'تحكم كامل في جمهور كل منشور (الكل / الفنانون / الموردون / العملاء)',
     ],
     accentClass: 'text-[#C2410C] dark:text-[#FDBA74] border-[#EA580C]/50 bg-[#EA580C]/12',
+    isSystem: true,
+    permissions: {
+      canPublishLessons: true,
+      canAccessProTools: true,
+      canJoinGroupBuying: true,
+      canExportToMarket: true,
+      showVerifiedBadge: true,
+    },
   },
 };
+
+export const DEFAULT_SKILL_LEVELS_LIST: SkillLevelMeta[] = [
+  ARTISAN_SKILL_LEVELS.beginner,
+  ARTISAN_SKILL_LEVELS.intermediate,
+  ARTISAN_SKILL_LEVELS.pro,
+  ARTISAN_SKILL_LEVELS.expert_trainer,
+];
 
 export interface AssessmentQuestion {
   id: string;
@@ -139,10 +222,13 @@ export interface TrainerEmbeddedPost {
   authorName: string;
   brandName: string;
   authorAvatar?: string | null;
+  authorGender?: 'male' | 'female';
   title: string;
   description: string;
   url: string;
   platform: SocialEmbedPlatform;
+  videoOrientation?: VideoOrientation;
+  videoAspectRatio?: number;
   audience: AudienceRule;
   familyPostId?: string | null;
   notifyArtisans?: boolean;
@@ -185,6 +271,9 @@ export interface GrowthHubConfig {
   paymentGatewayProvider: 'manual' | 'paymob' | 'fawry' | 'kashier';
   shippingCarrierProvider: 'manual' | 'bosta' | 'aramex';
   eInvoiceMode: 'off' | 'eta_egypt' | 'zatca_ksa';
+  // تحكم السوبر أدمن في مستويات الفنانين وصلاحياتها + ترتيب عرض بطاقة الدروس
+  customSkillLevels?: SkillLevelMeta[];
+  lessonLayoutBlocks?: LessonLayoutBlockConfig[];
   updatedAt?: string;
 }
 
@@ -207,6 +296,8 @@ export const DEFAULT_GROWTH_HUB_CONFIG: GrowthHubConfig = {
   paymentGatewayProvider: 'manual',
   shippingCarrierProvider: 'manual',
   eInvoiceMode: 'off',
+  customSkillLevels: DEFAULT_SKILL_LEVELS_LIST,
+  lessonLayoutBlocks: DEFAULT_LESSON_LAYOUT_BLOCKS,
 };
 
 const GROWTH_CONFIG_STORAGE_KEY = 'alshams_growth_hub_config_v1';
@@ -233,6 +324,88 @@ export function saveStoredGrowthHubConfig(cfg: Partial<GrowthHubConfig>): Growth
     window.dispatchEvent(new CustomEvent('alshams_growth_config_updated', { detail: next }));
   } catch {}
   return next;
+}
+
+/**
+ * قائمة المستويات الفعلية (الافتراضية + تعديلات أو مستويات السوبر أدمن)
+ */
+export function getEffectiveSkillLevels(cfg?: Partial<GrowthHubConfig>): SkillLevelMeta[] {
+  const source = cfg || getStoredGrowthHubConfig();
+  if (Array.isArray(source.customSkillLevels) && source.customSkillLevels.length > 0) {
+    return source.customSkillLevels.map((lvl) => {
+      const base = ARTISAN_SKILL_LEVELS[lvl.id];
+      return {
+        ...(base || {}),
+        ...lvl,
+        permissions: {
+          canPublishLessons: lvl.permissions?.canPublishLessons ?? base?.permissions?.canPublishLessons ?? (lvl.id === 'expert_trainer'),
+          canAccessProTools: lvl.permissions?.canAccessProTools ?? base?.permissions?.canAccessProTools ?? true,
+          canJoinGroupBuying: lvl.permissions?.canJoinGroupBuying ?? base?.permissions?.canJoinGroupBuying ?? true,
+          canExportToMarket: lvl.permissions?.canExportToMarket ?? base?.permissions?.canExportToMarket ?? true,
+          showVerifiedBadge: lvl.permissions?.showVerifiedBadge ?? base?.permissions?.showVerifiedBadge ?? (lvl.id === 'expert_trainer'),
+        },
+        perks: Array.isArray(lvl.perks) && lvl.perks.length > 0 ? lvl.perks : base?.perks || [],
+        accentClass: lvl.accentClass || base?.accentClass || 'text-[#C2410C] dark:text-[#FDBA74] border-[#EA580C]/50 bg-[#EA580C]/12',
+      };
+    });
+  }
+  return DEFAULT_SKILL_LEVELS_LIST;
+}
+
+export function getSkillLevelMeta(
+  levelId?: string | null,
+  gender?: 'male' | 'female' | string | null,
+  cfg?: Partial<GrowthHubConfig>
+): SkillLevelMeta & { displayTitle: string; displayShortLabel: string } {
+  const levels = getEffectiveSkillLevels(cfg);
+  const found =
+    levels.find((l) => l.id === levelId) ||
+    ARTISAN_SKILL_LEVELS[levelId || 'intermediate'] ||
+    ARTISAN_SKILL_LEVELS.intermediate;
+  const isFemale = gender === 'female';
+  return {
+    ...found,
+    displayTitle: isFemale && found.titleFemale ? found.titleFemale : found.title,
+    displayShortLabel: isFemale && found.shortLabelFemale ? found.shortLabelFemale : found.shortLabel,
+  };
+}
+
+export function canLevelPublishLessons(
+  levelId?: string | null,
+  trainerVerified?: boolean,
+  accountRole?: string | null,
+  cfg?: Partial<GrowthHubConfig>
+): boolean {
+  if (accountRole === 'superadmin' || trainerVerified) return true;
+  if (!levelId) return false;
+  const meta = getSkillLevelMeta(levelId, undefined, cfg);
+  if (meta.permissions) return Boolean(meta.permissions.canPublishLessons);
+  return levelId === 'expert_trainer';
+}
+
+export function getEffectiveLessonLayoutBlocks(cfg?: Partial<GrowthHubConfig>): LessonLayoutBlockConfig[] {
+  const source = cfg || getStoredGrowthHubConfig();
+  if (Array.isArray(source.lessonLayoutBlocks) && source.lessonLayoutBlocks.length > 0) {
+    const validIds = new Set<LessonCardBlockId>(['header_bar', 'media', 'title', 'description', 'footer_actions']);
+    const seen = new Set<LessonCardBlockId>();
+    const cleaned: LessonLayoutBlockConfig[] = [];
+    for (const blk of source.lessonLayoutBlocks) {
+      if (blk && validIds.has(blk.id) && !seen.has(blk.id)) {
+        const def = DEFAULT_LESSON_LAYOUT_BLOCKS.find((d) => d.id === blk.id)!;
+        cleaned.push({
+          id: blk.id,
+          label: blk.label || def.label,
+          visible: blk.visible !== false,
+        });
+        seen.add(blk.id);
+      }
+    }
+    for (const def of DEFAULT_LESSON_LAYOUT_BLOCKS) {
+      if (!seen.has(def.id)) cleaned.push({ ...def });
+    }
+    return cleaned;
+  }
+  return DEFAULT_LESSON_LAYOUT_BLOCKS;
 }
 
 export const SOCIAL_PLATFORM_META: Record<
@@ -405,6 +578,9 @@ export interface EmbeddedPostMarkerPayload {
   title: string;
   url: string;
   platform: SocialEmbedPlatform;
+  videoOrientation?: VideoOrientation;
+  videoAspectRatio?: number;
+  authorGender?: 'male' | 'female';
   trainerBadge?: boolean;
   postId?: string;
 }
@@ -420,6 +596,9 @@ export function encodeEmbeddedMediaContent(
     title: meta.title.slice(0, 140),
     url: meta.url.slice(0, 600),
     platform: meta.platform,
+    videoOrientation: meta.videoOrientation || 'auto',
+    videoAspectRatio: meta.videoAspectRatio,
+    authorGender: meta.authorGender,
     trainerBadge: meta.trainerBadge !== false,
     postId: meta.postId || '',
   });
@@ -450,6 +629,12 @@ export function extractEmbeddedMediaFromContent(rawContent: string): {
           title: String(parsed.title || ''),
           url: String(parsed.url || ''),
           platform: (parsed.platform as SocialEmbedPlatform) || detectSocialPlatform(parsed.url),
+          videoOrientation: parsed.videoOrientation as VideoOrientation | undefined,
+          videoAspectRatio: typeof parsed.videoAspectRatio === 'number' ? parsed.videoAspectRatio : undefined,
+          authorGender:
+            parsed.authorGender === 'male' || parsed.authorGender === 'female'
+              ? parsed.authorGender
+              : undefined,
           trainerBadge: parsed.trainerBadge !== false,
           postId: parsed.postId || undefined,
         },

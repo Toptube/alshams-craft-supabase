@@ -109,6 +109,8 @@ interface ProductionCalculatorProps {
   initialRecord?: SavedProductRecord | null;
   onOpenWhatsAppShare: (record: SavedProductRecord) => void;
   onOpenNewMaterialModal: () => void;
+  onOpenManageCrafts?: () => void;
+  onAddCraftToProfile?: (craftId: string) => void;
   onSavedSuccess?: () => void;
   externalNotesToTransfer?: string | null;
   onNotesTransferredHandled?: () => void;
@@ -119,6 +121,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
   initialRecord,
   onOpenWhatsAppShare,
   onOpenNewMaterialModal,
+  onOpenManageCrafts,
+  onAddCraftToProfile,
   onSavedSuccess,
   externalNotesToTransfer,
   onNotesTransferredHandled,
@@ -148,27 +152,46 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     { id: 'tufting_gun', nameAr: 'مسدس التافت وصناعة السجاد', shortName: 'التافتنج', icon: '🔫', defaultCat: 'سجادة فنية أرضية' },
   ], []);
 
-  // User selected crafts & sequential dropdowns
+  // User selected crafts & sequential dropdowns (STRICTLY artist's selected workshops!)
   const userCraftIds = useMemo(() => {
-    return profile.selectedCrafts && profile.selectedCrafts.length > 0
-      ? profile.selectedCrafts
-      : ['macrame'];
+    const raw =
+      profile.selectedCrafts && profile.selectedCrafts.length > 0
+        ? profile.selectedCrafts
+        : ['macrame'];
+    return Array.from(new Set(raw.map((id) => (id === 'kilim' ? 'kelim' : id))));
   }, [profile.selectedCrafts]);
+
+  // Temporarily allow an exported/archived record's craft so Saqr export or Archive load is never blocked
+  const externalRecordCraftId = useMemo(() => {
+    const raw = initialRecord?.craftId || initialRecord?.input?.craftId;
+    if (!raw) return null;
+    return raw === 'kilim' ? 'kelim' : raw;
+  }, [initialRecord]);
+
+  const effectiveCraftIds = useMemo(() => {
+    if (externalRecordCraftId && !userCraftIds.includes(externalRecordCraftId)) {
+      return [...userCraftIds, externalRecordCraftId];
+    }
+    return userCraftIds;
+  }, [userCraftIds, externalRecordCraftId]);
 
   // Sub-crafts selected by the artisan
   const userSubCrafts = useMemo(() => {
-    const list = SUB_CRAFTS_REGISTRY.filter((sc) => userCraftIds.includes(sc.id));
+    const list = SUB_CRAFTS_REGISTRY.filter((sc) => effectiveCraftIds.includes(sc.id));
     return list.length > 0 ? list : SUB_CRAFTS_REGISTRY.filter((sc) => sc.id === 'macrame');
-  }, [userCraftIds]);
+  }, [effectiveCraftIds]);
 
-  // Available main sections for the artisan (always includes ropes_textiles)
+  // Only show Main Sections that contain at least one of the artist's selected workshops
   const availableMainSections = useMemo(() => {
-    return MAIN_SECTIONS;
-  }, []);
+    const allowedSecIds = new Set(userSubCrafts.map((sc) => sc.mainSectionId));
+    const filtered = MAIN_SECTIONS.filter((sec) => allowedSecIds.has(sec.id));
+    return filtered.length > 0 ? filtered : MAIN_SECTIONS.slice(0, 1);
+  }, [userSubCrafts]);
 
   const [selectedSectionId, setSelectedSectionId] = useState<string>(() => {
     if (initialRecord?.mainSectionId) return initialRecord.mainSectionId;
-    return 'ropes_textiles';
+    const firstCraft = userSubCrafts[0];
+    return firstCraft?.mainSectionId || 'ropes_textiles';
   });
 
   // Keep selectedSectionId in sync if availableMainSections change
@@ -180,15 +203,15 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     }
   }, [availableMainSections, selectedSectionId]);
 
-  // Sub-crafts under selected main section (all workshops under active section available immediately)
+  // Sub-crafts under selected main section — ONLY artist's selected workshops!
   const availableSubCrafts = useMemo(() => {
     if (!selectedSectionId) return [];
-    return SUB_CRAFTS_REGISTRY.filter((sc) => sc.mainSectionId === selectedSectionId);
-  }, [selectedSectionId]);
+    return userSubCrafts.filter((sc) => sc.mainSectionId === selectedSectionId);
+  }, [selectedSectionId, userSubCrafts]);
 
   const [selectedCraftId, setSelectedCraftId] = useState<string>(() => {
-    if (initialRecord?.craftId) return initialRecord.craftId;
-    return 'macrame';
+    if (initialRecord?.craftId) return initialRecord.craftId === 'kilim' ? 'kelim' : initialRecord.craftId;
+    return userSubCrafts[0]?.id || 'macrame';
   });
 
   // Keep selectedCraftId in sync when availableSubCrafts change
@@ -726,15 +749,23 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     };
   }, [profile.tenantId, profile.workshopId, profile.id, initialRecord]);
 
-  // تحديث الحقول فوراً عند تصدير قطعة هندسية من صقر الشمساوية أو استرجاع منتج
+  // تحديث كافة الحقول فوراً عند تصدير قطعة هندسية من صقر الشمساوية أو استرجاع منتج
   useEffect(() => {
     if (!initialRecord) return;
-    const recCraft = initialRecord.craftId || initialRecord.input?.craftId;
+    const isFalconExport = String(initialRecord.id || '').startsWith('calc_export_');
+    const rawCraft = initialRecord.craftId || initialRecord.input?.craftId;
+    const recCraft = rawCraft === 'kilim' ? 'kelim' : rawCraft;
     if (recCraft) {
-      setSelectedCraftId(recCraft);
       setSelectedSectionId(initialRecord.mainSectionId || getMainSectionForCraft(recCraft));
+      setSelectedCraftId(recCraft);
     } else if (initialRecord.mainSectionId) {
       setSelectedSectionId(initialRecord.mainSectionId);
+    }
+    if (initialRecord.productName) {
+      setProductName(initialRecord.productName);
+    }
+    if (initialRecord.category) {
+      setCategory(initialRecord.category as CraftCategory);
     }
     if (initialRecord.input) {
       const inp = initialRecord.input;
@@ -752,6 +783,8 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       if (typeof inp.pricePerKg === 'number') setPricePerKg(inp.pricePerKg);
       if (Array.isArray(inp.extraMaterials) && inp.extraMaterials.length > 0) setExtraMaterials(inp.extraMaterials);
       if (typeof inp.laborWage === 'number') setLaborWage(inp.laborWage);
+      if (typeof inp.productionHours === 'number') setProductionHours(inp.productionHours);
+      if (typeof inp.hourlyRateOverride === 'number') setHourlyRateOverride(inp.hourlyRateOverride);
       if (typeof inp.packagingCost === 'number') setPackagingCost(inp.packagingCost);
       if (typeof inp.transitFees === 'number') setTransitFees(inp.transitFees);
       if (typeof inp.adminExpensesShare === 'number') setAdminExpensesShare(inp.adminExpensesShare);
@@ -764,8 +797,17 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       if (inp.fusionSecondaryParams) setFusionSecondaryParams(inp.fusionSecondaryParams);
       if ((inp as any).notes || inp.personalNotes) setPersonalNotes((inp as any).notes || inp.personalNotes || '');
     }
-    if (initialRecord.imageUrl) setProductImageUrl(initialRecord.imageUrl);
-    if (initialRecord.id) setExistingRecordId(initialRecord.id);
+    if (initialRecord.imageUrl) {
+      setProductImageUrl(initialRecord.imageUrl);
+    }
+    // For fresh Falcon exports, keep existingRecordId null so saving creates a clean new record
+    if (isFalconExport) {
+      setExistingRecordId(null);
+      setDraftRestoredNotice('🦅 تم تصدير وتعبئة كافة بيانات القطعة والصورة والمقاسات وأهم نقاط المحادثة من صقر الشمساوية بنجاح!');
+      setTimeout(() => setDraftRestoredNotice(''), 6500);
+    } else if (initialRecord.id) {
+      setExistingRecordId(initialRecord.id);
+    }
   }, [initialRecord]);
 
   // Debounced auto-save draft to dexieDB whenever fields change
@@ -1975,53 +2017,84 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         </div>
       )}
 
-      {/* 0. Quick Section & Craft Switcher Bar (14 أقسام رئيسية + 50+ ورشة متخصصة) */}
+      {/* 0. Quick Section & Craft Switcher Bar — Shows ONLY Artist's Selected Workshops! */}
       <div className="p-3.5 sm:p-4 rounded-3xl bg-slate-900 border border-amber-500/30 shadow-lg space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 border-b border-slate-800 pb-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 border-b border-slate-800 pb-2.5">
           <div className="flex items-center gap-2">
             <Scroll className="w-4 h-4 text-amber-400" />
             <h3 className="text-xs sm:text-sm font-black text-amber-300">
-              منظومة الورش الهندسية (14 قسماً • {SUB_CRAFTS_REGISTRY.length} ورشة) — التبديل السريع
+              ورشي المختارة في الحاسبة ({userCraftIds.length} ورشة)
             </h3>
           </div>
-          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
-            الورشة النشطة: {TEXTILE_WORKSHOPS.find((w) => w.id === selectedCraftId || (selectedCraftId === 'kelim' && w.id === 'kilim'))?.shortName || currentCraftDef?.nameAr || 'المكرمية'}
-          </span>
-        </div>
-
-        {/* 14 Main Sections Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-thin">
-          {availableMainSections.map((sec) => {
-            const isActiveSec = selectedSectionId === sec.id;
-            return (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+              الورشة النشطة: {TEXTILE_WORKSHOPS.find((w) => w.id === selectedCraftId || (selectedCraftId === 'kelim' && w.id === 'kilim'))?.shortName || currentCraftDef?.nameAr || 'المكرمية'}
+            </span>
+            {onOpenManageCrafts && (
               <button
-                key={sec.id}
                 type="button"
-                onClick={() => {
-                  setSelectedSectionId(sec.id);
-                  const craftsInSec = SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === sec.id);
-                  if (craftsInSec.length > 0) {
-                    const firstCraft = craftsInSec[0];
-                    setSelectedCraftId(firstCraft.id);
-                    if (firstCraft.sampleCategories && firstCraft.sampleCategories.length > 0) {
-                      setCategory(firstCraft.sampleCategories[0] as any);
-                    }
-                  }
-                }}
-                className={`px-3 py-1.5 rounded-xl text-[11px] font-bold whitespace-nowrap border transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                  isActiveSec
-                    ? 'bg-amber-500 text-stone-950 border-amber-300 shadow-sm'
-                    : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:border-amber-500/50 hover:text-white'
-                }`}
+                onClick={onOpenManageCrafts}
+                className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 text-[11px] font-black cursor-pointer transition"
               >
-                <span>{sec.nameAr}</span>
-                {sec.isNewStar && <span className="text-[9px] text-amber-300">★</span>}
+                + إدارة وتعديل ورشي
               </button>
-            );
-          })}
+            )}
+          </div>
         </div>
 
-        {/* Workshops under Active Section */}
+        {/* Prompt if Falcon exported a craft not yet permanently in artist's selectedCrafts */}
+        {externalRecordCraftId && !userCraftIds.includes(externalRecordCraftId) && (
+          <div className="px-3 py-2 rounded-2xl bg-amber-500/15 border border-amber-400/40 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="font-bold text-amber-200">
+              🦅 تم فتح ورشة «{SUB_CRAFTS_REGISTRY.find((c) => c.id === externalRecordCraftId)?.nameAr || externalRecordCraftId}» مؤقتاً لتصدير قطعة صقر.
+            </span>
+            {onAddCraftToProfile && (
+              <button
+                type="button"
+                onClick={() => onAddCraftToProfile(externalRecordCraftId)}
+                className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-[11px] font-black cursor-pointer transition"
+              >
+                + إضافتها لورشي الدائمة
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Artist's Selected Main Sections Pills (only shown when > 1 section) */}
+        {availableMainSections.length > 1 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-thin">
+            {availableMainSections.map((sec) => {
+              const isActiveSec = selectedSectionId === sec.id;
+              return (
+                <button
+                  key={sec.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedSectionId(sec.id);
+                    const craftsInSec = userSubCrafts.filter((c) => c.mainSectionId === sec.id);
+                    if (craftsInSec.length > 0) {
+                      const firstCraft = craftsInSec[0];
+                      setSelectedCraftId(firstCraft.id);
+                      if (firstCraft.sampleCategories && firstCraft.sampleCategories.length > 0) {
+                        setCategory(firstCraft.sampleCategories[0] as any);
+                      }
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-[11px] font-bold whitespace-nowrap border transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    isActiveSec
+                      ? 'bg-amber-500 text-stone-950 border-amber-300 shadow-sm'
+                      : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:border-amber-500/50 hover:text-white'
+                  }`}
+                >
+                  <span>{sec.nameAr}</span>
+                  {sec.isNewStar && <span className="text-[9px] text-amber-300">★</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Artist's Selected Workshops under Active Section */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {availableSubCrafts.map((workshop) => {
             const textileMeta = TEXTILE_WORKSHOPS.find(
@@ -2094,7 +2167,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
                   onChange={(e) => {
                     const newSecId = e.target.value;
                     setSelectedSectionId(newSecId);
-                    const craftsInSec = SUB_CRAFTS_REGISTRY.filter((c) => c.mainSectionId === newSecId);
+                    const craftsInSec = userSubCrafts.filter((c) => c.mainSectionId === newSecId);
                     if (craftsInSec.length > 0) {
                       const firstCraft = craftsInSec[0];
                       setSelectedCraftId(firstCraft.id);

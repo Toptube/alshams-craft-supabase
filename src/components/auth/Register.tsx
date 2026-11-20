@@ -681,6 +681,7 @@ export const Register: React.FC<RegisterProps> = ({
           <ArtisanSkillAssessment
             value={skillLevel}
             onChange={onSkillLevelChange}
+            gender={gender === 'male' ? 'male' : 'female'}
             compact
           />
         )}

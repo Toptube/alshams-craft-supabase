@@ -186,6 +186,8 @@ export async function addTrainerEmbeddedPost(payload: {
   description: string;
   url: string;
   platform: SocialEmbedPlatform;
+  videoOrientation?: 'auto' | 'portrait' | 'landscape' | 'square';
+  videoAspectRatio?: number;
   audience: AudienceRule;
   publishToFamily?: boolean;
 }): Promise<{

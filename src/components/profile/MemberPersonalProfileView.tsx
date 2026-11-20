@@ -44,14 +44,17 @@ import {
   fetchMemberPersonalProfile,
   resolveAudienceRoleFromUser,
   saveMemberPersonalProfile,
+  syncGrowthHubConfigFromCloud,
   updateMemberShowcasePost,
 } from '../../db/memberProfileService';
 import {
-  ARTISAN_SKILL_LEVELS,
   ArtisanSkillLevel,
   SOCIAL_PLATFORM_META,
   SocialEmbedPlatform,
+  VideoOrientation,
+  canLevelPublishLessons,
   detectSocialPlatform,
+  getSkillLevelMeta,
 } from '../../types/artisanGrowth';
 import { compressImageFile } from '../../utils/imageCompressor';
 import { playButtonClickSound, playErrorSound, playSuccessSound } from '../../lib/sounds';
@@ -143,6 +146,11 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const [trainerDesc, setTrainerDesc] = useState('');
   const [trainerUrl, setTrainerUrl] = useState('');
   const [trainerPlatform, setTrainerPlatform] = useState<SocialEmbedPlatform>('youtube');
+  const [trainerVideoOrientation, setTrainerVideoOrientation] = useState<VideoOrientation>('auto');
+  const [trainerDetectedMeta, setTrainerDetectedMeta] = useState<{
+    orientation: 'portrait' | 'landscape' | 'square';
+    aspectRatio: number;
+  } | null>(null);
   const [trainerAudience, setTrainerAudience] = useState<AudienceRule>({
     artisans: true,
     suppliers: true,
@@ -153,11 +161,34 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const [trainerError, setTrainerError] = useState<string | null>(null);
   const [trainerSuccess, setTrainerSuccess] = useState<string | null>(null);
 
+  useEffect(() => {
+    const u = trainerUrl.trim();
+    if (!u || !/^https?:\/\//i.test(u)) {
+      setTrainerDetectedMeta(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetch(`/api/utils/video-meta?url=${encodeURIComponent(u)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data?.success && data.orientation) {
+            setTrainerDetectedMeta({
+              orientation: data.orientation,
+              aspectRatio: Number(data.aspectRatio) || (data.orientation === 'portrait' ? 9 / 16 : data.orientation === 'square' ? 1 : 16 / 9),
+            });
+          }
+        })
+        .catch(() => {});
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [trainerUrl]);
+
   // Lightbox Modal
   const [lightboxPost, setLightboxPost] = useState<ShowcasePostItem | null>(null);
 
   useEffect(() => {
     let active = true;
+    syncGrowthHubConfigFromCloud().catch(() => {});
     setLoading(true);
     setErrorMsg(null);
     fetchMemberPersonalProfile(targetMemberId, 'owner').then((res) => {
@@ -482,6 +513,15 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       description: trainerDesc.trim(),
       url: trainerUrl.trim(),
       platform: trainerPlatform,
+      videoOrientation: trainerVideoOrientation,
+      videoAspectRatio:
+        trainerVideoOrientation === 'auto'
+          ? trainerDetectedMeta?.aspectRatio
+          : trainerVideoOrientation === 'portrait'
+            ? 9 / 16
+            : trainerVideoOrientation === 'square'
+              ? 1
+              : 16 / 9,
       audience: trainerAudience,
       publishToFamily: trainerPublishToFamily,
     });
@@ -493,6 +533,8 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       setTrainerTitle('');
       setTrainerDesc('');
       setTrainerUrl('');
+      setTrainerVideoOrientation('auto');
+      setTrainerDetectedMeta(null);
       setTrainerComposerOpen(false);
       setTrainerSuccess(
         (res.notifiedCount || 0) > 0
@@ -519,10 +561,11 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const isEditMode = isOwner && previewAs === 'owner';
   const postsCount = rawProfile?.showcasePosts?.length || 0;
   const atLimit = postsCount >= MAX_SHOWCASE_POSTS;
-  const isExpertTrainer =
-    rawProfile?.skillLevel === 'expert_trainer' ||
-    Boolean(rawProfile?.trainerVerified) ||
-    rawProfile?.accountRole === 'superadmin';
+  const isExpertTrainer = canLevelPublishLessons(
+    rawProfile?.skillLevel,
+    rawProfile?.trainerVerified,
+    rawProfile?.accountRole
+  );
   const trainerPostLimit = rawProfile?.trainerPostLimit || 15;
   const trainerPostsList = effectiveProfile?.trainerPosts || [];
   const rawTrainerCount = rawProfile?.trainerPosts?.length || 0;
@@ -671,14 +714,19 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                         ? 'إدارة المنظومة · كبير العيلة'
                         : effectiveProfile.accountRole === 'supplier'
                         ? 'مورد خامات معتمد'
-                        : effectiveProfile.skillLevel === 'expert_trainer' || effectiveProfile.trainerVerified
-                        ? 'خبير ومعلم ومدرب معتمد'
-                        : ARTISAN_SKILL_LEVELS[effectiveProfile.skillLevel || 'intermediate']?.title || 'فنان ومبدع يدوي'}
+                        : getSkillLevelMeta(
+                            effectiveProfile.skillLevel || (effectiveProfile.trainerVerified ? 'expert_trainer' : 'intermediate'),
+                            (effectiveProfile as any).gender || currentUserProfile?.gender
+                          ).displayTitle}
                     </span>
-                    {(effectiveProfile.skillLevel === 'expert_trainer' || effectiveProfile.trainerVerified) && (
+                    {canLevelPublishLessons(
+                      effectiveProfile.skillLevel,
+                      effectiveProfile.trainerVerified,
+                      effectiveProfile.accountRole
+                    ) && effectiveProfile.accountRole !== 'supplier' && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#EA580C] text-white text-[10px] font-black">
                         <GraduationCap className="w-3 h-3" />
-                        <span>أكاديمية المدربين</span>
+                        <span>{(effectiveProfile as any).gender === 'female' ? 'خبيرة' : 'خبير'}</span>
                       </span>
                     )}
                     {effectiveProfile.governorate || effectiveProfile.country
@@ -865,6 +913,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                 {rawProfile.accountRole !== 'supplier' && (
                   <ArtisanSkillAssessment
                     value={skillLevelDraft}
+                    gender={genderDraft}
                     onChange={(lvl, score) => {
                       setSkillLevelDraft(lvl);
                       if (typeof score === 'number') setAssessmentScoreDraft(score);
@@ -1224,7 +1273,10 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                 <div className="space-y-0.5">
                   <h3 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
                     <GraduationCap className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
-                    <span>مكتبة شروحات ودروس الخبير والمدرب (عرض داخلي مباشر)</span>
+                    <span>
+                      مكتبة شروحات ودروس{' '}
+                      {(effectiveProfile as any)?.gender === 'female' ? 'الخبيرة' : 'الخبير'} (عرض داخلي مباشر)
+                    </span>
                   </h3>
                   <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
                     فيديوهات ومنشورات تعليمية مدمجة من يوتيوب وفيسبوك وإنستجرام وتيك توك تُشغّل داخل المنظومة مباشرة دون مغادرتها.
@@ -1259,10 +1311,10 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                 <div className="rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-4 flex flex-wrap items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                      هل أنت خبير أو مدرب حرفة؟ افتح منشورات الشرح المدمجة الآن!
+                      هل أنت {genderDraft === 'female' ? 'خبيرة' : 'خبير'} في حرفتك؟ افتح منشورات الشرح المدمجة الآن!
                     </div>
                     <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
-                      اختر مستوى «خبير ومعلم / مدرب» من بطاقة تحديد المستوى بالأعلى واضغط «حفظ بياناتي» لفتح النشر المباشر للروابط المدمجة مع إرسال إشعارات تلقائية لجميع الفنانين في طبلية العيلة.
+                      اختر مستوى «{genderDraft === 'female' ? 'خبيرة' : 'خبير'}» من بطاقة تحديد المستوى بالأعلى واضغط «حفظ بياناتي» لفتح النشر المباشر للروابط المدمجة مع إرسال إشعارات تلقائية لجميع الفنانين في طبلية العيلة.
                     </p>
                   </div>
                   <button
@@ -1274,7 +1326,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     }}
                     className="px-3.5 py-2 rounded-xl bg-[#0C1427] dark:bg-[#EA580C] text-white text-xs font-black cursor-pointer"
                   >
-                    اختيار مستوى «خبير ومدرب»
+                    اختيار مستوى «{genderDraft === 'female' ? 'خبيرة' : 'خبير'}»
                   </button>
                 </div>
               )}
@@ -1371,6 +1423,46 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                     </div>
                   </div>
 
+                  {/* Video Natural Aspect Ratio Selector (Auto-detects Portrait/Landscape/Square!) */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                      اتجاه ومقاس عرض الفيديو:
+                      {trainerDetectedMeta && trainerVideoOrientation === 'auto' && (
+                        <span className="mr-2 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                          ✓ تم اكتشافه تلقائياً:{' '}
+                          {trainerDetectedMeta.orientation === 'portrait'
+                            ? 'طولي (9:16)'
+                            : trainerDetectedMeta.orientation === 'square'
+                              ? 'مربع (1:1)'
+                              : 'عرضي (16:9)'}
+                        </span>
+                      )}
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(
+                        [
+                          { id: 'auto', label: 'تلقائي حسب الفيديو الأصلي' },
+                          { id: 'portrait', label: 'طولي (9:16)' },
+                          { id: 'landscape', label: 'عرضي (16:9)' },
+                          { id: 'square', label: 'مربع (1:1)' },
+                        ] as Array<{ id: VideoOrientation; label: string }>
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setTrainerVideoOrientation(opt.id)}
+                          className={`px-3 py-1.5 rounded-xl text-[11px] font-black border transition cursor-pointer ${
+                            trainerVideoOrientation === opt.id
+                              ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                              : 'bg-white dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] hover:border-[#EA580C]'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-black mb-1 text-[#0C1427] dark:text-[#F7F3EA]">
                       ملخص الشرح أو الملاحظات المرفقة مع الفيديو
@@ -1449,8 +1541,13 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                         description={trainerDesc}
                         url={trainerUrl.trim()}
                         platform={trainerPlatform}
+                        videoOrientation={trainerVideoOrientation}
+                        videoAspectRatio={
+                          trainerVideoOrientation === 'auto' ? trainerDetectedMeta?.aspectRatio : undefined
+                        }
                         authorName={rawProfile.displayName}
                         brandName={rawProfile.brandName}
+                        authorGender={genderDraft}
                         audience={trainerAudience}
                         compact
                       />
@@ -1499,8 +1596,14 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                       description={tp.description}
                       url={tp.url}
                       platform={tp.platform}
+                      videoOrientation={tp.videoOrientation}
+                      videoAspectRatio={tp.videoAspectRatio}
                       authorName={effectiveProfile.displayName}
                       brandName={effectiveProfile.brandName}
+                      authorGender={
+                        tp.authorGender ||
+                        ((effectiveProfile as any)?.gender === 'male' ? 'male' : 'female')
+                      }
                       audience={isEditMode ? tp.audience : undefined}
                       onDelete={isEditMode ? () => handleDeleteTrainerPost(tp.id) : undefined}
                     />

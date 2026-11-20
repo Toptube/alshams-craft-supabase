@@ -11,7 +11,11 @@ import {
   ThemeMode,
 } from './types';
 import { supabase } from './lib/supabase';
-import { getCurrentWorkshopFromSupabase, getArabicSupabaseError } from './db/supabaseService';
+import {
+  getCurrentWorkshopFromSupabase,
+  getArabicSupabaseError,
+  updateWorkshopProfileInSupabase,
+} from './db/supabaseService';
 import { flushProductSync, startProductSync } from './db/productsCloud';
 import { tenantStorage } from './db/dexieDB';
 import { playPostaNotificationSound } from './lib/sounds';
@@ -1815,23 +1819,27 @@ export const App: React.FC = () => {
   };
 
   const handleExportStructuredToCalculator = (data: StructuredCalculatorExport) => {
-    if (data.notes) setCalculatorExternalNotes(data.notes);
+    // Notes are embedded directly inside synthesizedRecord.input.personalNotes (avoid duplicate append)
+    setCalculatorExternalNotes(null);
     if (data.category) setCurrentCategory(data.category as CraftCategory);
 
-    const safeCategory = (data.category as CraftCategory) || currentCategory || 'macrame';
-    const prodName = data.productName || 'مشغولة يدوية فاخرة';
+    const resolvedCraftId = (data as any).craftId || profile?.selectedCrafts?.[0] || 'macrame';
+    const resolvedSectionId = (data as any).mainSectionId || getMainSectionForCraft(resolvedCraftId);
+    const safeCategory = (data.category as CraftCategory) || currentCategory || 'جدارية';
+    const prodName = data.productName || 'مشغولة يدوية بتصميم خاص';
     const hours = Number(data.hours) || 3;
-    const wage = Number(data.laborWage) || 90;
-    const hourly = hours > 0 ? Math.round(wage / hours) : 35;
+    const wage = Number(data.laborWage) || 120;
+    const hourly = hours > 0 ? Math.round(wage / hours) : 45;
     const weight = Number(data.weightKg) || 0.8;
-    const cordCost = Math.round(weight * 180);
+    const priceKg = Number(data.pricePerKg) || 180;
+    const cordCost = Math.round(weight * priceKg);
 
     const extraMats = data.extraMaterials && data.extraMaterials.length > 0
       ? data.extraMaterials
       : [
           {
             id: 'mat_base_' + Date.now(),
-            name: 'قاعدة خشبية / شاسيه دعم حديد',
+            name: 'قاعدة / خامة دعم مساعدة',
             unit: 'قطعة',
             unitPrice: 40,
             quantity: 1,
@@ -1839,7 +1847,7 @@ export const App: React.FC = () => {
           },
           {
             id: 'mat_acc_' + Date.now(),
-            name: 'إكسسوارات ومقابض وتغليف',
+            name: 'إكسسوارات وتشطيب وتغليف',
             unit: 'طقم',
             unitPrice: 25,
             quantity: 1,
@@ -1853,8 +1861,12 @@ export const App: React.FC = () => {
     const wholesalePrice = data.wholesalePrice || data.minMarketPrice || Math.round(costPrice * 1.3);
     const retailPrice = data.retailPrice || data.recommendedFairPrice || Math.round(costPrice * 1.6);
 
-    const resolvedCraftId = (data as any).craftId || 'macrame';
-    const resolvedSectionId = (data as any).mainSectionId || getMainSectionForCraft(resolvedCraftId);
+    const inferredShape =
+      Number(data.diameterCm) > 0
+        ? 'cylinder'
+        : Number(data.sideHeightCm) > 0
+          ? 'rectangle'
+          : 'flat';
 
     const synthesizedRecord: SavedProductRecord = {
       id: 'calc_export_' + Date.now(),
@@ -1884,24 +1896,26 @@ export const App: React.FC = () => {
         craftId: resolvedCraftId,
         mainSectionId: resolvedSectionId,
         pricingMode: 'margin',
-        shape3D: 'rectangle',
+        shape3D: inferredShape,
         widthCm: Number(data.widthCm) || 40,
         diameterCm: Number(data.diameterCm) || 0,
-        baseDiameterCm: 0,
-        sideHeightCm: Number(data.sideHeightCm) || 15,
+        baseDiameterCm: Number(data.diameterCm) || 0,
+        sideHeightCm: Number(data.sideHeightCm) || 0,
         totalLengthCm: Number(data.heightCm) || 50,
-        fringeLengthCm: Number(data.fringeLengthCm) || 10,
-        cordTypeId: data.cordTypeId || 'cotton_twisted_4mm',
+        fringeLengthCm: Number(data.fringeLengthCm) || 0,
+        cordTypeId: data.cordTypeId || 'cotton_braided',
         cordThicknessMm: Number(data.cordThicknessMm) || 4,
-        pricePerKg: Number(data.pricePerKg) || 180,
+        pricePerKg: priceKg,
         curtainRodCost: 0,
         cushionCoverCost: 0,
         fiberCost: 0,
         bagAccessoriesCost: 0,
         extraMaterials: extraMats,
         laborWage: wage,
+        productionHours: hours,
+        hourlyRateOverride: hourly,
         profitMarginPercent: 35,
-        packagingCost: 15,
+        packagingCost: 20,
         transitFees: 10,
         adminExpensesShare: 15,
         personalNotes: data.notes || '',
@@ -1917,7 +1931,7 @@ export const App: React.FC = () => {
         extraMaterialsTotalCost: extraMatsCost,
         totalDirectMaterialsCost: directMaterials,
         laborWage: wage,
-        packagingCost: 15,
+        packagingCost: 20,
         transitFees: 10,
         adminExpensesShare: 15,
         finalSellingPrice: retailPrice,
@@ -2718,6 +2732,24 @@ export const App: React.FC = () => {
             initialRecord={calculatorInitialRecord}
             onOpenWhatsAppShare={handleOpenWhatsAppShare}
             onOpenNewMaterialModal={() => setIsNewMaterialOpen(true)}
+            onOpenManageCrafts={() => setIsCraftsSelectorOpen(true)}
+            onAddCraftToProfile={(craftId: string) => {
+              const cur = Array.isArray(profile.selectedCrafts) ? profile.selectedCrafts : ['macrame'];
+              if (cur.includes(craftId)) return;
+              const nextCrafts = [...cur, craftId];
+              const updated = { ...profile, selectedCrafts: nextCrafts };
+              setProfile(updated);
+              try {
+                localStorage.setItem('alshams_profile', JSON.stringify(updated));
+              } catch {}
+              tenantStorage.saveProfile(updated).catch(() => {});
+              const workshopId = profile.id || profile.workshopId || profile.tenantId || '';
+              if (workshopId) {
+                updateWorkshopProfileInSupabase(workshopId, {
+                  selectedCrafts: nextCrafts,
+                }).catch(() => {});
+              }
+            }}
             onSavedSuccess={() => {
               flushProductSync(profile.workshopId || profile.id).catch(() => {});
             }}

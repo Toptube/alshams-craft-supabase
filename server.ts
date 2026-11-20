@@ -3431,6 +3431,14 @@ async function getWorkshopDirectoryMap(_client?: SupabaseClient): Promise<Map<st
       raw.avatar_url ||
       null;
 
+    const rawGender =
+      raw.gender ||
+      raw.settings?.gender ||
+      (mp as any)?.gender ||
+      null;
+    const resolvedGender: 'male' | 'female' =
+      rawGender === 'male' ? 'male' : rawGender === 'female' ? 'female' : 'female';
+
     const normalized = {
       id: wid || ownerId,
       memberId: wid || ownerId,
@@ -3438,6 +3446,10 @@ async function getWorkshopDirectoryMap(_client?: SupabaseClient): Promise<Map<st
       accountRole: role,
       artistName: artistName && artistName !== 'فنان الشمساوية' ? artistName : (role === 'supplier' ? fallbackLabel : ''),
       brandName: brandName && brandName !== 'ورشة الشمساوية' ? brandName : (role === 'supplier' ? fallbackBrand : ''),
+      gender: resolvedGender,
+      country: raw.country || mp?.country || 'مصر',
+      phone: mp?.phone || raw.phoneNumber || raw.phone || '',
+      skillLevel: raw.skillLevel || raw.settings?.skillLevel || undefined,
       avatarUrl: mp?.personalAvatar || brandLogo,
       personalAvatar: mp?.personalAvatar || null,
       brandLogo,
@@ -3545,6 +3557,7 @@ function enrichFamilyRecord(raw: any, dirMap: Map<string, any>) {
       isSuperAdmin: true,
       authorRole: 'superadmin',
       authorName: 'كبير العيلة',
+      authorGender: 'male' as const,
       brandName: '',
       avatarUrl: raw.avatar_url || raw.avatarUrl || '/brand_icon_light.png',
       medal: 'diamond',
@@ -3584,6 +3597,7 @@ function enrichFamilyRecord(raw: any, dirMap: Map<string, any>) {
     isSuperAdmin: false,
     authorRole: resolvedRole,
     authorName: resolvedArtist,
+    authorGender: (profileMatch?.gender === 'male' ? 'male' : 'female') as 'male' | 'female',
     brandName: resolvedBrand,
     avatarUrl: profileMatch?.avatarUrl || raw.avatar_url || raw.avatarUrl || null,
     medal: profileMatch?.medal !== undefined ? profileMatch.medal : (raw.medal || null),
@@ -8512,6 +8526,7 @@ interface ArtisanGrowthStoreShape {
     trainerVerified?: boolean;
     trainerPostLimit?: number;
     trainerPosts?: any[];
+    gender?: 'male' | 'female';
     updatedAt?: string;
   }>;
   trainerAlerts: any[];
@@ -8741,7 +8756,11 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
         : (existingMp?.personalAvatar || existingCanon?.brandLogo || existingMp?.brandLogo || null);
 
     const existingArtisanMeta = getMemberArtisanMeta(memberId, existingMp?.visibility);
-    const validLevels = new Set(['beginner', 'intermediate', 'pro', 'expert_trainer']);
+    const dynamicCfg = getEffectiveGrowthConfig();
+    const customLevelIds = Array.isArray((dynamicCfg as any)?.customSkillLevels)
+      ? (dynamicCfg as any).customSkillLevels.map((l: any) => String(l?.id || '').trim()).filter(Boolean)
+      : [];
+    const validLevels = new Set(['beginner', 'intermediate', 'pro', 'expert_trainer', ...customLevelIds]);
     const nextSkillLevel =
       typeof body.skillLevel === 'string' && validLevels.has(body.skillLevel)
         ? body.skillLevel
@@ -9041,14 +9060,22 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
     const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(email));
     const cfg = getEffectiveGrowthConfig();
 
+    const customLevelsArr: any[] = Array.isArray((cfg as any)?.customSkillLevels)
+      ? (cfg as any).customSkillLevels
+      : [];
+    const matchedLevelDef = customLevelsArr.find((l: any) => l?.id === currentFull?.skillLevel);
+    const levelAllowsLessons = matchedLevelDef?.permissions
+      ? Boolean(matchedLevelDef.permissions.canPublishLessons)
+      : currentFull?.skillLevel === 'expert_trainer';
+
     const isTrainer =
       superAdmin ||
-      currentFull?.skillLevel === 'expert_trainer' ||
+      levelAllowsLessons ||
       Boolean(currentFull?.trainerVerified);
 
     if (!isTrainer) {
       return res.status(403).json({
-        error: 'هذه الميزة مفتوحة للخبراء والمدربين المعتمدين. يمكنك تحديد مستواك كـ «خبير ومعلم / مدرب» من ملفك الشخصي أولاً.',
+        error: 'هذه الميزة مفتوحة لمستوى «خبير» والمستويات المصرح لها بالنشر. يمكنك تحديث مستواك من ملفك الشخصي أولاً.',
       });
     }
 
@@ -9056,6 +9083,13 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
     const description = String(req.body?.description || '').trim().slice(0, 1000);
     const url = String(req.body?.url || '').trim().slice(0, 600);
     const platform = String(req.body?.platform || 'youtube').trim();
+    const rawOrientation = String(req.body?.videoOrientation || 'auto').trim();
+    const videoOrientation: 'auto' | 'portrait' | 'landscape' | 'square' =
+      rawOrientation === 'portrait' || rawOrientation === 'landscape' || rawOrientation === 'square'
+        ? rawOrientation
+        : 'auto';
+    const rawAspect = Number(req.body?.videoAspectRatio);
+    const videoAspectRatio = Number.isFinite(rawAspect) && rawAspect > 0.25 && rawAspect < 4 ? rawAspect : undefined;
     const rawAudience = req.body?.audience || {};
     const audience = {
       artisans: rawAudience.artisans !== false,
@@ -9085,7 +9119,18 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
     let familyPostId: string | null = null;
     let notifiedCount = 0;
 
-    // 1. النشر التلقائي باسم الخبير/المدرب في منتدى طبلية عيلة الشمساوية مع تضمين الفيديو/المنشور داخلياً
+    const authorGender: 'male' | 'female' =
+      currentFull?.gender === 'male'
+        ? 'male'
+        : currentFull?.gender === 'female'
+        ? 'female'
+        : superAdmin
+        ? 'male'
+        : 'female';
+    const expertNoun = authorGender === 'female' ? 'الخبيرة' : 'الخبير';
+    const expertShort = authorGender === 'female' ? 'خبيرة' : 'خبير';
+
+    // 1. النشر التلقائي باسم الخبير/الخبيرة في منتدى طبلية عيلة الشمساوية مع تضمين الفيديو/المنشور داخلياً
     if (publishToFamily) {
       const client = getDbClient(req);
       const author = await resolveFamilyAuthorContext(req, client);
@@ -9093,11 +9138,14 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
         title,
         url,
         platform,
+        videoOrientation,
+        ...(videoAspectRatio ? { videoAspectRatio } : {}),
+        authorGender,
         trainerBadge: true,
         postId,
       });
       const visibleBody = [
-        `🎓 درس وشرح جديد من الخبير/المدرب: ${currentFull?.displayName || author.authorName}`,
+        `🎓 درس وشرح جديد من ${expertNoun}: ${currentFull?.displayName || author.authorName}`,
         `📌 ${title}`,
         description || '',
       ]
@@ -9110,7 +9158,7 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
         id: familyPostId,
         workshop_id: author.workshopId || memberId,
         author_email: author.email || email,
-        author_name: currentFull?.displayName || author.authorName || 'خبير ومدرب',
+        author_name: currentFull?.displayName || author.authorName || expertShort,
         brand_name: currentFull?.brandName || author.brandName || '',
         avatar_url: currentFull?.personalAvatar || author.avatarUrl || null,
         medal: currentFull?.medal || author.medal || null,
@@ -9157,7 +9205,7 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
           postId,
           familyPostId,
           trainerMemberId: memberId,
-          trainerName: currentFull?.displayName || author.authorName || 'خبير ومدرب',
+          trainerName: currentFull?.displayName || author.authorName || 'خبير',
           brandName: currentFull?.brandName || author.brandName || '',
           trainerAvatar: currentFull?.personalAvatar || author.avatarUrl || null,
           title,
@@ -9189,13 +9237,16 @@ app.post('/api/member-profile/trainer-posts', requireAuth, async (req: Authentic
     const newTrainerPost = {
       id: postId,
       memberId,
-      authorName: currentFull?.displayName || 'خبير ومدرب',
+      authorName: currentFull?.displayName || expertShort,
       brandName: currentFull?.brandName || '',
       authorAvatar: currentFull?.personalAvatar || null,
+      authorGender,
       title,
       description,
       url,
       platform,
+      videoOrientation,
+      ...(videoAspectRatio ? { videoAspectRatio } : {}),
       audience,
       familyPostId,
       notifyArtisans: publishToFamily && cfg.trainerAutoNotifyArtisans !== false,
@@ -9325,49 +9376,230 @@ app.get('/api/admin/trainers-overview', requireAuth, async (req: AuthenticatedRe
     const store = readArtisanGrowthStore();
     const cfg = getEffectiveGrowthConfig();
     const client = getDbClient(req);
-    const dirMap = await getWorkshopDirectoryMap(client);
+    const [dirMap, mpMap] = await Promise.all([
+      getWorkshopDirectoryMap(client),
+      loadMemberProfilesMap(),
+    ]);
+
     const members: any[] = [];
-    const seenIds = new Set<string>();
+    const seenCanonicalIds = new Set<string>();
+    const seenOwnerIds = new Set<string>();
+    const seenEmails = new Set<string>();
+    const consumedMetaKeys = new Set<string>();
+    let storeMutated = false;
 
-    for (const [wid, ws] of dirMap.entries()) {
-      if (!wid || seenIds.has(wid)) continue;
-      seenIds.add(wid);
-      const meta = getMemberArtisanMeta(wid);
+    const LEVEL_RANK: Record<string, number> = {
+      beginner: 1,
+      intermediate: 2,
+      pro: 3,
+      expert_trainer: 4,
+    };
+
+    // تجميع الورش الفريدة فقط من dirMap (dirMap يخزّن نفس الورشة بـ 3 مفاتيح: id: و owner: و email:)
+    const uniqueWorkshops: any[] = [];
+    for (const ws of dirMap.values()) {
+      if (!ws) continue;
+      // استبعاد الموردين من قائمة الفنانين والخبراء الحرفيين
+      if (ws.accountRole === 'supplier') continue;
+
+      const canonicalId = String(ws.id || ws.memberId || ws.ownerId || '').trim();
+      const ownerId = String(ws.ownerId || '').trim();
+      const wsEmail = String(ws.email || '').trim().toLowerCase();
+
+      if (!canonicalId && !wsEmail) continue;
+      if (
+        (canonicalId && seenCanonicalIds.has(canonicalId)) ||
+        (ownerId && seenOwnerIds.has(ownerId)) ||
+        (wsEmail && seenEmails.has(wsEmail))
+      ) {
+        continue;
+      }
+
+      if (canonicalId) seenCanonicalIds.add(canonicalId);
+      if (ownerId) seenOwnerIds.add(ownerId);
+      if (wsEmail) seenEmails.add(wsEmail);
+      uniqueWorkshops.push(ws);
+    }
+
+    for (const ws of uniqueWorkshops) {
+      const canonicalId = String(ws.id || ws.memberId || ws.ownerId || '').trim();
+      const ownerId = String(ws.ownerId || '').trim();
+      const wsEmail = String(ws.email || '').trim().toLowerCase();
+      const isWsSuperAdmin = Boolean(wsEmail && isSuperAdmin(wsEmail));
+
+      const mp =
+        (canonicalId && mpMap.get(`id:${canonicalId}`)) ||
+        (ownerId && mpMap.get(`owner:${ownerId}`)) ||
+        (wsEmail && mpMap.get(`email:${wsEmail}`)) ||
+        null;
+
+      // دمج أي سجلات قديمة/مكررة لنفس الفنان تحت مفاتيح بديلة (مثل id:... أو owner:... أو email:...)
+      const candidateKeys = Array.from(
+        new Set(
+          [
+            canonicalId,
+            ownerId,
+            canonicalId ? `id:${canonicalId}` : '',
+            ownerId ? `owner:${ownerId}` : '',
+            wsEmail ? `email:${wsEmail}` : '',
+            wsEmail,
+            isWsSuperAdmin ? 'super_admin' : '',
+          ].filter(Boolean)
+        )
+      );
+
+      let mergedSkillLevel: string | undefined = undefined;
+      let mergedVerified = false;
+      let mergedLimit: number | undefined = undefined;
+      let mergedScore: number | undefined = undefined;
+      let mergedGender: 'male' | 'female' | undefined = undefined;
+      let latestUpdatedAt = 0;
+      const mergedPostsMap = new Map<string, any>();
+
+      for (const k of candidateKeys) {
+        consumedMetaKeys.add(k);
+        const rec = store.memberMeta?.[k];
+        if (!rec) continue;
+
+        const recTime = rec.updatedAt ? new Date(rec.updatedAt).getTime() || 0 : 0;
+        if (rec.trainerVerified) mergedVerified = true;
+        if (typeof rec.assessmentScore === 'number') {
+          mergedScore = mergedScore === undefined ? rec.assessmentScore : Math.max(mergedScore, rec.assessmentScore);
+        }
+        if (typeof rec.trainerPostLimit === 'number' && rec.trainerPostLimit > 0) {
+          mergedLimit = mergedLimit === undefined ? rec.trainerPostLimit : Math.max(mergedLimit, rec.trainerPostLimit);
+        }
+        if ((rec as any).gender === 'male' || (rec as any).gender === 'female') {
+          if (!mergedGender || recTime >= latestUpdatedAt) {
+            mergedGender = (rec as any).gender;
+          }
+        }
+        if (typeof rec.skillLevel === 'string' && rec.skillLevel.trim()) {
+          if (
+            !mergedSkillLevel ||
+            recTime > latestUpdatedAt ||
+            (recTime === latestUpdatedAt && (LEVEL_RANK[rec.skillLevel] || 2) > (LEVEL_RANK[mergedSkillLevel] || 2))
+          ) {
+            mergedSkillLevel = rec.skillLevel;
+          }
+        }
+        if (recTime > latestUpdatedAt) latestUpdatedAt = recTime;
+
+        if (Array.isArray(rec.trainerPosts)) {
+          for (const p of rec.trainerPosts) {
+            if (p?.id && !mergedPostsMap.has(p.id)) {
+              mergedPostsMap.set(p.id, { ...p, memberId: canonicalId });
+            }
+          }
+        }
+
+        // تنظيف المفاتيح المكررة القديمة التي كانت تبدأ بـ id:/owner:/email: ودمجها في المفتاح الأساسي
+        if (k !== canonicalId && (k.startsWith('id:') || k.startsWith('owner:') || k.startsWith('email:'))) {
+          delete store.memberMeta[k];
+          storeMutated = true;
+        }
+      }
+
+      const fallbackMeta = getMemberArtisanMeta(canonicalId, mp?.visibility);
+      const finalGender: 'male' | 'female' =
+        mergedGender ||
+        (ws.gender === 'male' || ws.gender === 'female' ? ws.gender : undefined) ||
+        (isWsSuperAdmin ? 'male' : 'female');
+      const finalSkillLevel =
+        mergedSkillLevel ||
+        (typeof ws.skillLevel === 'string' && ws.skillLevel ? ws.skillLevel : undefined) ||
+        fallbackMeta.skillLevel ||
+        'intermediate';
+      const finalPosts = Array.from(mergedPostsMap.values()).map((p) => ({
+        ...p,
+        memberId: canonicalId,
+        authorName: p.authorName || ws.artistName || (finalGender === 'female' ? 'خبيرة' : 'خبير'),
+        brandName: p.brandName || ws.brandName || '',
+        authorGender: p.authorGender || finalGender,
+      }));
+      const finalLimit = mergedLimit ?? fallbackMeta.trainerPostLimit ?? Number(cfg.trainerDefaultPostLimit ?? 15);
+
+      if (storeMutated) {
+        store.memberMeta[canonicalId] = {
+          ...(store.memberMeta[canonicalId] || {}),
+          skillLevel: finalSkillLevel,
+          assessmentScore: mergedScore ?? fallbackMeta.assessmentScore,
+          trainerVerified: mergedVerified || fallbackMeta.trainerVerified,
+          trainerPostLimit: finalLimit,
+          trainerPosts: finalPosts,
+          gender: finalGender,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
       members.push({
-        memberId: wid,
-        displayName: (ws as any).artistName || (ws as any).artist_name || 'فنان',
-        brandName: (ws as any).brandName || (ws as any).brand_name || '',
-        email: (ws as any).email || '',
-        phone: (ws as any).phoneNumber || (ws as any).phone || '',
-        skillLevel: meta.skillLevel,
-        assessmentScore: meta.assessmentScore,
-        trainerVerified: meta.trainerVerified,
-        trainerPostLimit: meta.trainerPostLimit,
-        trainerPostsCount: (meta.trainerPosts || []).length,
-        trainerPosts: meta.trainerPosts || [],
+        memberId: canonicalId,
+        displayName:
+          ws.artistName ||
+          mp?.displayName ||
+          (isWsSuperAdmin ? 'حسام بسيوني (السوبر أدمن)' : finalGender === 'female' ? 'فنانة' : 'فنان'),
+        brandName: ws.brandName || mp?.brandName || (isWsSuperAdmin ? 'منظومة الشمساوية' : ''),
+        email: wsEmail,
+        phone: ws.phone || mp?.phone || '',
+        country: ws.country || mp?.country || 'مصر',
+        gender: finalGender,
+        skillLevel: finalSkillLevel,
+        assessmentScore: mergedScore ?? fallbackMeta.assessmentScore,
+        trainerVerified: mergedVerified || fallbackMeta.trainerVerified,
+        trainerPostLimit: finalLimit,
+        trainerPostsCount: finalPosts.length,
+        trainerPosts: finalPosts,
       });
     }
 
-    // إضافة أي أعضاء في المتجر غير موجودين بالخريطة (مثل super_admin)
-    for (const [mid, m] of Object.entries(store.memberMeta || {})) {
-      if (seenIds.has(mid)) continue;
-      members.push({
-        memberId: mid,
-        displayName: mid === 'super_admin' ? 'كبير العيلة (السوبر أدمن)' : mid,
-        brandName: mid === 'super_admin' ? 'منظومة الشمساوية' : '',
-        email: '',
+    // إضافة super_admin فقط لو لم يكن مدمجاً بالفعل مع ورشة بنفس البريد
+    if (!consumedMetaKeys.has('super_admin') && store.memberMeta?.['super_admin']) {
+      const m = store.memberMeta['super_admin'];
+      const superGender: 'male' | 'female' = (m as any).gender === 'female' ? 'female' : 'male';
+      const posts = (m.trainerPosts || []).map((p: any) => ({
+        ...p,
+        memberId: 'super_admin',
+        authorGender: p.authorGender || superGender,
+      }));
+      members.unshift({
+        memberId: 'super_admin',
+        displayName: 'كبير العيلة (السوبر أدمن)',
+        brandName: 'منظومة الشمساوية',
+        email,
         phone: '',
-        skillLevel: m.skillLevel || 'intermediate',
+        country: 'مصر',
+        gender: superGender,
+        skillLevel: m.skillLevel || 'expert_trainer',
         assessmentScore: m.assessmentScore,
-        trainerVerified: Boolean(m.trainerVerified),
+        trainerVerified: m.trainerVerified !== false,
         trainerPostLimit: m.trainerPostLimit ?? Number(cfg.trainerDefaultPostLimit ?? 15),
-        trainerPostsCount: (m.trainerPosts || []).length,
-        trainerPosts: m.trainerPosts || [],
+        trainerPostsCount: posts.length,
+        trainerPosts: posts,
       });
     }
 
+    if (storeMutated) {
+      try {
+        writeArtisanGrowthStore(store);
+      } catch {}
+    }
+
+    const seenPostIds = new Set<string>();
     const allTrainerPosts = members
-      .flatMap((m) => (m.trainerPosts || []).map((p: any) => ({ ...p, memberId: m.memberId })))
+      .flatMap((m) =>
+        (m.trainerPosts || []).map((p: any) => ({
+          ...p,
+          memberId: m.memberId,
+          authorName: p.authorName || m.displayName,
+          brandName: p.brandName || m.brandName,
+          authorGender: p.authorGender || m.gender,
+        }))
+      )
+      .filter((p) => {
+        if (!p.id || seenPostIds.has(p.id)) return false;
+        seenPostIds.add(p.id);
+        return true;
+      })
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
     return res.json({
@@ -9388,7 +9620,8 @@ app.put('/api/admin/trainers/:memberId', requireAuth, async (req: AuthenticatedR
     if (!req.isSuperAdmin && !isSuperAdmin(email)) {
       return res.status(403).json({ error: 'هذه الصلاحية مخصصة للسوبر أدمن فقط' });
     }
-    const memberId = decodeURIComponent(req.params.memberId || '').trim();
+    const rawId = decodeURIComponent(req.params.memberId || '').trim();
+    const memberId = rawId.replace(/^(id:|owner:)/, '').trim();
     const store = readArtisanGrowthStore();
     const existing = getMemberArtisanMeta(memberId);
     const body = req.body || {};
@@ -9404,6 +9637,9 @@ app.put('/api/admin/trainers/:memberId', requireAuth, async (req: AuthenticatedR
           : existing.trainerPostLimit,
       updatedAt: new Date().toISOString(),
     };
+    // إزالة أي مفتاح قديم ببادئة مكررة
+    if (store.memberMeta[`id:${memberId}`]) delete store.memberMeta[`id:${memberId}`];
+    if (store.memberMeta[`owner:${memberId}`]) delete store.memberMeta[`owner:${memberId}`];
     writeArtisanGrowthStore(store);
 
     return res.json({ success: true, memberMeta: store.memberMeta[memberId] });
@@ -9481,6 +9717,221 @@ app.put('/api/admin/growth-config', requireAuth, async (req: AuthenticatedReques
     return res.json({ success: true, config: store.growthConfig });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'تعذر حفظ إعدادات النمو' });
+  }
+});
+
+// ==================== كشف الأبعاد الطبيعية للفيديو (طولي 9:16 / عرضي 16:9 / مربع 1:1) مجاناً بدون مفاتيح ====================
+const videoMetaCache = new Map<string, { expiresAt: number; payload: any }>();
+
+app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
+  try {
+    const rawUrl = String(req.query?.url || '').trim();
+    if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
+      return res.status(400).json({ success: false, error: 'رابط غير صالح' });
+    }
+    const cacheKey = rawUrl.toLowerCase();
+    const cached = videoMetaCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json(cached.payload);
+    }
+
+    const classify = (w: number, h: number): { orientation: 'portrait' | 'landscape' | 'square'; aspectRatio: number } => {
+      if (!w || !h) return { orientation: 'landscape', aspectRatio: 16 / 9 };
+      const ratio = w / h;
+      if (ratio < 0.85) return { orientation: 'portrait', aspectRatio: Math.max(0.45, Math.min(0.84, ratio)) };
+      if (ratio > 1.15) return { orientation: 'landscape', aspectRatio: Math.max(1.2, Math.min(2.4, ratio)) };
+      return { orientation: 'square', aspectRatio: 1 };
+    };
+
+    const saveAndReturn = (payload: any) => {
+      if (videoMetaCache.size > 300) {
+        const firstKey = videoMetaCache.keys().next().value;
+        if (firstKey) videoMetaCache.delete(firstKey);
+      }
+      videoMetaCache.set(cacheKey, { expiresAt: Date.now() + 6 * 60 * 60 * 1000, payload });
+      return res.json(payload);
+    };
+
+    const lower = rawUrl.toLowerCase();
+
+    // 1. YouTube (watch, youtu.be, shorts, live, embed)
+    if (lower.includes('youtube.com') || lower.includes('youtu.be')) {
+      if (/youtube\.com\/shorts\//i.test(rawUrl)) {
+        return saveAndReturn({
+          success: true,
+          platform: 'youtube',
+          orientation: 'portrait',
+          width: 1080,
+          height: 1920,
+          aspectRatio: 9 / 16,
+          source: 'shorts_url',
+        });
+      }
+
+      const idMatch =
+        rawUrl.match(/(?:v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/) ||
+        rawUrl.match(/([A-Za-z0-9_-]{11})/);
+      const videoId = idMatch?.[1];
+
+      if (videoId) {
+        const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`;
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), 5500);
+        try {
+          const [pageRes, oembedRes] = await Promise.allSettled([
+            fetch(watchUrl, {
+              signal: ac.signal,
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+              },
+            }),
+            fetch(oembedUrl, { signal: ac.signal }),
+          ]);
+
+          let detectedW = 0;
+          let detectedH = 0;
+          let title = '';
+          let source = 'default';
+
+          // Priority A: Watch page true stream/microformat dimensions (catches long vertical watch?v= videos!)
+          if (pageRes.status === 'fulfilled' && pageRes.value.ok) {
+            const html = await pageRes.value.text();
+
+            // 1) playerMicroformatRenderer width/height (true native video resolution)
+            const microMatch = html.match(
+              /"playerMicroformatRenderer"\s*:\s*\{[\s\S]{0,2500}?"width"\s*:\s*(\d{2,5})\s*,\s*"height"\s*:\s*(\d{2,5})/
+            );
+            if (microMatch) {
+              detectedW = Number(microMatch[1]);
+              detectedH = Number(microMatch[2]);
+              source = 'yt_microformat';
+            }
+
+            // 2) og:video:width & og:video:height
+            if (!detectedW || !detectedH) {
+              const ogW = html.match(/property="og:video:width"\s+content="(\d{2,5})"/i) || html.match(/content="(\d{2,5})"\s+property="og:video:width"/i);
+              const ogH = html.match(/property="og:video:height"\s+content="(\d{2,5})"/i) || html.match(/content="(\d{2,5})"\s+property="og:video:height"/i);
+              if (ogW && ogH) {
+                detectedW = Number(ogW[1]);
+                detectedH = Number(ogH[1]);
+                source = 'yt_og_video';
+              }
+            }
+
+            // 3) streamingData formats first video format width/height
+            if (!detectedW || !detectedH) {
+              const fmtMatch = html.match(/"mimeType"\s*:\s*"video\/[^"]+"[\s\S]{0,300}?"width"\s*:\s*(\d{2,5})\s*,\s*"height"\s*:\s*(\d{2,5})/);
+              if (fmtMatch) {
+                detectedW = Number(fmtMatch[1]);
+                detectedH = Number(fmtMatch[2]);
+                source = 'yt_stream_format';
+              }
+            }
+          }
+
+          // Priority B: YouTube oEmbed (title + fallback dimensions)
+          if (oembedRes.status === 'fulfilled' && oembedRes.value.ok) {
+            const oj: any = await oembedRes.value.json().catch(() => null);
+            if (oj) {
+              title = String(oj.title || '');
+              if (!detectedW || !detectedH) {
+                if (Number(oj.width) > 0 && Number(oj.height) > 0) {
+                  detectedW = Number(oj.width);
+                  detectedH = Number(oj.height);
+                  source = 'yt_oembed';
+                }
+              }
+            }
+          }
+
+          if (detectedW > 0 && detectedH > 0) {
+            const cls = classify(detectedW, detectedH);
+            return saveAndReturn({
+              success: true,
+              platform: 'youtube',
+              width: detectedW,
+              height: detectedH,
+              orientation: cls.orientation,
+              aspectRatio: cls.aspectRatio,
+              title,
+              source,
+            });
+          }
+        } catch {
+          // fallback below
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      return saveAndReturn({
+        success: true,
+        platform: 'youtube',
+        orientation: 'landscape',
+        width: 1280,
+        height: 720,
+        aspectRatio: 16 / 9,
+        source: 'fallback',
+      });
+    }
+
+    // 2. Vimeo keyless oEmbed
+    if (lower.includes('vimeo.com')) {
+      try {
+        const vr = await fetch(`https://vimeo.com/api/oembed.json?url=${encodeURIComponent(rawUrl)}`, {
+          signal: AbortSignal.timeout(4000),
+        });
+        if (vr.ok) {
+          const vj: any = await vr.json().catch(() => null);
+          if (vj?.width && vj?.height) {
+            const cls = classify(Number(vj.width), Number(vj.height));
+            return saveAndReturn({
+              success: true,
+              platform: 'vimeo',
+              width: Number(vj.width),
+              height: Number(vj.height),
+              orientation: cls.orientation,
+              aspectRatio: cls.aspectRatio,
+              title: vj.title || '',
+              source: 'vimeo_oembed',
+            });
+          }
+        }
+      } catch {}
+    }
+
+    // 3. TikTok / Reels / Pinterest vertical heuristics
+    if (
+      lower.includes('tiktok.com') ||
+      /instagram\.com\/(reel|reels|tv)\//i.test(rawUrl) ||
+      /facebook\.com\/reel\//i.test(rawUrl) ||
+      lower.includes('pinterest.') ||
+      lower.includes('pin.it')
+    ) {
+      return saveAndReturn({
+        success: true,
+        platform: lower.includes('tiktok') ? 'tiktok' : lower.includes('instagram') ? 'instagram' : lower.includes('facebook') ? 'facebook' : 'pinterest',
+        orientation: 'portrait',
+        width: 1080,
+        height: 1920,
+        aspectRatio: 9 / 16,
+        source: 'url_pattern',
+      });
+    }
+
+    return saveAndReturn({
+      success: true,
+      platform: 'other',
+      orientation: 'landscape',
+      width: 1280,
+      height: 720,
+      aspectRatio: 16 / 9,
+      source: 'default',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'تعذر فحص أبعاد الفيديو' });
   }
 });
 
