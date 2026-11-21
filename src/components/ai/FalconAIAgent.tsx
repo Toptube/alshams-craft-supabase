@@ -1152,6 +1152,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                     <button
                       type="button"
                       onClick={() => {
+                        falconSpeech.unlock();
                         if (falconSpeech.isSpeaking) {
                           falconSpeech.stop();
                         } else {

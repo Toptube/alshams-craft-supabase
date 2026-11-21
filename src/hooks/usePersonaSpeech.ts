@@ -15,9 +15,22 @@ interface UsePersonaSpeechResult {
 
 const STORAGE_KEY_PREFIX = 'alshams_free_tts_enabled_';
 
-// Tiny silent WAV URI strictly used to unlock mobile HTMLAudio autoplay during a user tap
-const SILENT_AUDIO_URI =
-  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+// Shared session-wide AudioContext so unlocking ONCE on any mobile tap stays unlocked permanently!
+let sharedAudioCtx: AudioContext | null = null;
+
+function getOrCreateAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+  if (!Ctx) return null;
+  if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+    try {
+      sharedAudioCtx = new Ctx();
+    } catch {
+      return null;
+    }
+  }
+  return sharedAudioCtx;
+}
 
 /**
  * Cleans markdown, emojis, URLs, and decorative symbols so Arabic neural speech reads naturally.
@@ -36,13 +49,12 @@ function sanitizeTextForSpeech(raw: string): string {
 }
 
 /**
- * Splits long replies into natural ~240-char Egyptian Arabic phrases so:
- * 1) First audio sentence starts playing super quickly,
- * 2) While sentence #1 plays, sentence #2 pre-fetches in parallel for seamless human flow.
+ * Splits long replies into natural Egyptian Arabic chunks so sentence #1 plays quickly
+ * while sentence #2 pre-fetches in parallel.
  */
 function splitIntoNaturalChunks(text: string): string[] {
   const sentences = text
-    .split(/(?<=[.!؟\n])\s+|(?<=،)\s+(?=.{60,})/)
+    .split(/(?<=[.!؟\n])\s+|(?<=،)\s+(?=.{65,})/)
     .map((s) => s.trim())
     .filter(Boolean);
 
@@ -50,7 +62,7 @@ function splitIntoNaturalChunks(text: string): string[] {
   let current = '';
 
   for (const s of sentences) {
-    if (s.length > 260) {
+    if (s.length > 300) {
       if (current) {
         chunks.push(current);
         current = '';
@@ -58,7 +70,7 @@ function splitIntoNaturalChunks(text: string): string[] {
       const words = s.split(/\s+/);
       let part = '';
       for (const w of words) {
-        if ((part + ' ' + w).trim().length > 235) {
+        if ((part + ' ' + w).trim().length > 260) {
           if (part) chunks.push(part.trim());
           part = w;
         } else {
@@ -69,8 +81,7 @@ function splitIntoNaturalChunks(text: string): string[] {
       continue;
     }
 
-    // Keep chunk #1 crisp (~170 chars) for ultra-fast start, subsequent chunks up to ~250 chars
-    const maxLen = chunks.length === 0 ? 185 : 255;
+    const maxLen = chunks.length === 0 ? 220 : 300;
     if ((current + ' ' + s).trim().length <= maxLen) {
       current = (current + ' ' + s).trim();
     } else {
@@ -79,16 +90,16 @@ function splitIntoNaturalChunks(text: string): string[] {
     }
   }
   if (current) chunks.push(current);
-  return chunks.slice(0, 10);
+  return chunks.slice(0, 8);
 }
 
 /**
- * Studio-Grade Free Human Egyptian Voice Hook (Zero Robotic Sound!):
- * - Primary: Calls `/api/tts/free` which delivers natural human Egyptian voices
- *   (Gemini 3.8 Neural Kore/Fenrir + Native Egyptian Neural Salma/Shakir).
- * - Parallel Lookahead Pre-fetching: Pre-fetches the next chunk while current chunk plays
- *   so multi-sentence replies flow continuously without awkward pauses.
- * - Offline Fallback Only: Falls back to browser `speechSynthesis` only if completely offline.
+ * Pure Studio-Grade Human Egyptian Voice Hook (ZERO Robotic Browser Speech!):
+ * - Uses `/api/tts/free` (Gemini 3.8 Expressive Egyptian Human Voice + Native Egyptian Salma/Shakir Neural).
+ * - Uses Web Audio API (`AudioContext.decodeAudioData`) so unlocking ONCE on any mobile tap
+ *   guarantees automatic playback on Android Chrome, iOS Safari, Mi Browser, and Samsung Internet
+ *   even after async network fetches!
+ * - NEVER falls back to the robotic `window.speechSynthesis`.
  */
 export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult {
   const isSupported = true;
@@ -109,19 +120,10 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
   const enabledRef = useRef(isEnabled);
   enabledRef.current = isEnabled;
 
-  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const fallbackAudioElRef = useRef<HTMLAudioElement | null>(null);
   const activeBlobUrlRef = useRef<string | null>(null);
   const activeAbortRef = useRef<AbortController | null>(null);
-
-  const ensureAudioEl = useCallback((): HTMLAudioElement | null => {
-    if (typeof window === 'undefined') return null;
-    if (!audioElRef.current) {
-      const el = new Audio();
-      el.preload = 'auto';
-      audioElRef.current = el;
-    }
-    return audioElRef.current;
-  }, []);
 
   const revokeBlobUrl = () => {
     if (activeBlobUrlRef.current) {
@@ -140,17 +142,20 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
       } catch {}
       activeAbortRef.current = null;
     }
-    if (audioElRef.current) {
+    if (activeSourceRef.current) {
       try {
-        audioElRef.current.pause();
-        audioElRef.current.onended = null;
-        audioElRef.current.onerror = null;
-        audioElRef.current.removeAttribute('src');
+        activeSourceRef.current.onended = null;
+        activeSourceRef.current.stop();
+        activeSourceRef.current.disconnect();
       } catch {}
+      activeSourceRef.current = null;
     }
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    if (fallbackAudioElRef.current) {
       try {
-        window.speechSynthesis.cancel();
+        fallbackAudioElRef.current.pause();
+        fallbackAudioElRef.current.onended = null;
+        fallbackAudioElRef.current.onerror = null;
+        fallbackAudioElRef.current.removeAttribute('src');
       } catch {}
     }
     revokeBlobUrl();
@@ -158,33 +163,49 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
   }, []);
 
   /**
-   * Unlocks mobile HTMLAudio autoplay inside a user tap (Send / Quick Chip / Toggle)
-   * so Shamousa & Falcon speak out loud automatically when replies arrive.
+   * Unlocks the shared Web Audio Context inside any user tap (Send / Chip / Speaker button).
+   * Once resumed in a user gesture, mobile browsers allow all future audio buffers to play freely!
    */
   const unlock = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const el = ensureAudioEl();
-      if (el && el.paused && !el.src) {
-        el.src = SILENT_AUDIO_URI;
-        el.volume = 0.001;
-        const p = el.play();
-        if (p && typeof p.then === 'function') {
-          p.then(() => {
-            el.pause();
-            el.volume = 1;
-            el.removeAttribute('src');
-          }).catch(() => {
-            el.volume = 1;
-            el.removeAttribute('src');
-          });
+    const ctx = getOrCreateAudioContext();
+    if (ctx) {
+      try {
+        if (ctx.state === 'suspended') {
+          void ctx.resume();
         }
-      }
-    } catch {}
-  }, [ensureAudioEl]);
+        // Play a 1-sample silent buffer inside the gesture to permanently unlock iOS/Android WebAudio
+        const silent = ctx.createBuffer(1, 1, 22050);
+        const src = ctx.createBufferSource();
+        src.buffer = silent;
+        src.connect(ctx.destination);
+        src.start(0);
+      } catch {}
+    }
+  }, []);
 
-  const fetchNeuralChunkBlob = useCallback(
-    async (chunkText: string, signal: AbortSignal): Promise<Blob | null> => {
+  // Automatically unlock Web Audio on the very first tap/click/key anywhere on mobile or desktop
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleFirstGesture = () => {
+      unlock();
+      if (sharedAudioCtx && sharedAudioCtx.state === 'running') {
+        window.removeEventListener('pointerdown', handleFirstGesture);
+        window.removeEventListener('touchstart', handleFirstGesture);
+        window.removeEventListener('keydown', handleFirstGesture);
+      }
+    };
+    window.addEventListener('pointerdown', handleFirstGesture, { passive: true });
+    window.addEventListener('touchstart', handleFirstGesture, { passive: true });
+    window.addEventListener('keydown', handleFirstGesture, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('touchstart', handleFirstGesture);
+      window.removeEventListener('keydown', handleFirstGesture);
+    };
+  }, [unlock]);
+
+  const fetchNeuralChunkBuffer = useCallback(
+    async (chunkText: string, signal: AbortSignal): Promise<{ arrayBuffer: ArrayBuffer; contentType: string } | null> => {
       try {
         const res = await authedFetch('/api/tts/free', {
           method: 'POST',
@@ -193,8 +214,11 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
           signal,
         });
         if (!res.ok) return null;
-        const blob = await res.blob();
-        return blob && blob.size > 200 ? blob : null;
+        const contentType = res.headers.get('content-type') || 'audio/wav';
+        const arrayBuffer = await res.arrayBuffer();
+        return arrayBuffer && arrayBuffer.byteLength > 200
+          ? { arrayBuffer, contentType }
+          : null;
       } catch {
         return null;
       }
@@ -202,34 +226,72 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
     [persona]
   );
 
-  const speakOfflineBrowserFallback = useCallback(
-    (cleaned: string, currentRun: number) => {
-      if (
-        typeof window === 'undefined' ||
-        typeof window.speechSynthesis === 'undefined' ||
-        typeof window.SpeechSynthesisUtterance === 'undefined'
-      ) {
-        if (runIdRef.current === currentRun) setIsSpeaking(false);
-        return;
+  const playAudioPayload = useCallback(
+    async (
+      payload: { arrayBuffer: ArrayBuffer; contentType: string },
+      currentRun: number
+    ): Promise<void> => {
+      if (runIdRef.current !== currentRun || !enabledRef.current) return;
+
+      // Method A (Best on Mobile & Desktop): Web Audio API (stays unlocked across async fetches!)
+      const ctx = getOrCreateAudioContext();
+      if (ctx) {
+        try {
+          if (ctx.state === 'suspended') {
+            await ctx.resume();
+          }
+          // Clone ArrayBuffer because decodeAudioData detaches it
+          const copy = payload.arrayBuffer.slice(0);
+          const audioBuffer = await ctx.decodeAudioData(copy);
+          if (runIdRef.current !== currentRun || !enabledRef.current) return;
+
+          await new Promise<void>((resolve) => {
+            const source = ctx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(ctx.destination);
+            activeSourceRef.current = source;
+            source.onended = () => {
+              if (activeSourceRef.current === source) {
+                activeSourceRef.current = null;
+              }
+              resolve();
+            };
+            source.start(0);
+          });
+          return;
+        } catch {
+          // Fall through cleanly to HTMLAudioElement if decodeAudioData rejects
+        }
       }
-      try {
-        window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(cleaned.slice(0, 450));
-        u.lang = 'ar-EG';
-        u.rate = persona === 'shamousa' ? 1.02 : 0.94;
-        u.pitch = persona === 'shamousa' ? 1.1 : 0.85;
-        u.onend = () => {
-          if (runIdRef.current === currentRun) setIsSpeaking(false);
-        };
-        u.onerror = () => {
-          if (runIdRef.current === currentRun) setIsSpeaking(false);
-        };
-        window.speechSynthesis.speak(u);
-      } catch {
-        if (runIdRef.current === currentRun) setIsSpeaking(false);
+
+      // Method B: HTMLAudioElement backup
+      if (runIdRef.current !== currentRun || !enabledRef.current) return;
+      if (!fallbackAudioElRef.current) {
+        fallbackAudioElRef.current = new Audio();
       }
+      const el = fallbackAudioElRef.current;
+      revokeBlobUrl();
+      const blob = new Blob([payload.arrayBuffer], { type: payload.contentType });
+      const blobUrl = URL.createObjectURL(blob);
+      activeBlobUrlRef.current = blobUrl;
+
+      await new Promise<void>((resolve) => {
+        if (runIdRef.current !== currentRun || !enabledRef.current) {
+          resolve();
+          return;
+        }
+        el.onended = () => resolve();
+        el.onerror = () => resolve();
+        el.src = blobUrl;
+        el.volume = 1;
+        el.playbackRate = 1.0;
+        const p = el.play();
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => resolve());
+        }
+      });
     },
-    [persona]
+    []
   );
 
   const speak = useCallback(
@@ -238,7 +300,7 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
       const cleaned = sanitizeTextForSpeech(rawText);
       if (!cleaned) return;
 
-      // Cancel previous run cleanly
+      // Stop any previous speech cleanly
       runIdRef.current += 1;
       const currentRun = runIdRef.current;
 
@@ -250,16 +312,17 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
       const abortController = new AbortController();
       activeAbortRef.current = abortController;
 
-      if (audioElRef.current) {
+      if (activeSourceRef.current) {
         try {
-          audioElRef.current.pause();
-          audioElRef.current.onended = null;
-          audioElRef.current.onerror = null;
+          activeSourceRef.current.onended = null;
+          activeSourceRef.current.stop();
+          activeSourceRef.current.disconnect();
         } catch {}
+        activeSourceRef.current = null;
       }
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      if (fallbackAudioElRef.current) {
         try {
-          window.speechSynthesis.cancel();
+          fallbackAudioElRef.current.pause();
         } catch {}
       }
       revokeBlobUrl();
@@ -269,64 +332,24 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
 
       setIsSpeaking(true);
 
-      const el = ensureAudioEl();
-      if (!el) {
-        speakOfflineBrowserFallback(cleaned, currentRun);
-        return;
-      }
-
       void (async () => {
-        let playedAnyNeuralChunk = false;
-        let nextChunkPromise: Promise<Blob | null> | null = fetchNeuralChunkBlob(
-          chunks[0],
-          abortController.signal
-        );
+        let nextPromise: Promise<{ arrayBuffer: ArrayBuffer; contentType: string } | null> | null =
+          fetchNeuralChunkBuffer(chunks[0], abortController.signal);
 
         for (let i = 0; i < chunks.length; i++) {
           if (runIdRef.current !== currentRun || !enabledRef.current) break;
 
-          const blob = await nextChunkPromise;
+          const payload = await nextPromise;
           if (runIdRef.current !== currentRun || !enabledRef.current) break;
 
-          // Immediately pre-fetch the NEXT sentence in parallel while current sentence plays!
-          nextChunkPromise =
+          // Pre-fetch next chunk in parallel while current chunk plays
+          nextPromise =
             i + 1 < chunks.length
-              ? fetchNeuralChunkBlob(chunks[i + 1], abortController.signal)
+              ? fetchNeuralChunkBuffer(chunks[i + 1], abortController.signal)
               : null;
 
-          if (!blob) {
-            if (!playedAnyNeuralChunk) {
-              // Offline / server unreachable fallback only
-              speakOfflineBrowserFallback(cleaned, currentRun);
-              return;
-            }
-            continue;
-          }
-
-          playedAnyNeuralChunk = true;
-          revokeBlobUrl();
-          const blobUrl = URL.createObjectURL(blob);
-          activeBlobUrlRef.current = blobUrl;
-
-          await new Promise<void>((resolve) => {
-            if (runIdRef.current !== currentRun || !enabledRef.current) {
-              resolve();
-              return;
-            }
-            el.onended = () => resolve();
-            el.onerror = () => resolve();
-            el.src = blobUrl;
-            el.volume = 1;
-            el.playbackRate = 1.0;
-            try {
-              (el as any).preservesPitch = true;
-              (el as any).webkitPreservesPitch = true;
-            } catch {}
-            const playPromise = el.play();
-            if (playPromise && typeof playPromise.catch === 'function') {
-              playPromise.catch(() => resolve());
-            }
-          });
+          if (!payload) continue;
+          await playAudioPayload(payload, currentRun);
         }
 
         revokeBlobUrl();
@@ -335,7 +358,7 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
         }
       })();
     },
-    [ensureAudioEl, fetchNeuralChunkBlob, speakOfflineBrowserFallback]
+    [fetchNeuralChunkBuffer, playAudioPayload]
   );
 
   const toggleEnabled = useCallback(() => {
@@ -361,14 +384,14 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
           activeAbortRef.current.abort();
         } catch {}
       }
-      if (audioElRef.current) {
+      if (activeSourceRef.current) {
         try {
-          audioElRef.current.pause();
+          activeSourceRef.current.stop();
         } catch {}
       }
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      if (fallbackAudioElRef.current) {
         try {
-          window.speechSynthesis.cancel();
+          fallbackAudioElRef.current.pause();
         } catch {}
       }
       revokeBlobUrl();

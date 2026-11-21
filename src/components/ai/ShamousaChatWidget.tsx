@@ -2323,6 +2323,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                             <button
                               type="button"
                               onClick={() => {
+                                shamousaSpeech.unlock();
                                 if (shamousaSpeech.isSpeaking) {
                                   shamousaSpeech.stop();
                                 } else {
