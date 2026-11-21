@@ -62,7 +62,7 @@ function splitIntoNaturalChunks(text: string): string[] {
   let current = '';
 
   for (const s of sentences) {
-    if (s.length > 300) {
+    if (s.length > 520) {
       if (current) {
         chunks.push(current);
         current = '';
@@ -70,7 +70,7 @@ function splitIntoNaturalChunks(text: string): string[] {
       const words = s.split(/\s+/);
       let part = '';
       for (const w of words) {
-        if ((part + ' ' + w).trim().length > 260) {
+        if ((part + ' ' + w).trim().length > 480) {
           if (part) chunks.push(part.trim());
           part = w;
         } else {
@@ -81,7 +81,7 @@ function splitIntoNaturalChunks(text: string): string[] {
       continue;
     }
 
-    const maxLen = chunks.length === 0 ? 220 : 300;
+    const maxLen = chunks.length === 0 ? 380 : 560;
     if ((current + ' ' + s).trim().length <= maxLen) {
       current = (current + ' ' + s).trim();
     } else {
@@ -90,7 +90,7 @@ function splitIntoNaturalChunks(text: string): string[] {
     }
   }
   if (current) chunks.push(current);
-  return chunks.slice(0, 8);
+  return chunks.slice(0, 5);
 }
 
 /**
@@ -206,22 +206,30 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
 
   const fetchNeuralChunkBuffer = useCallback(
     async (chunkText: string, signal: AbortSignal): Promise<{ arrayBuffer: ArrayBuffer; contentType: string } | null> => {
-      try {
-        const res = await authedFetch('/api/tts/free', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: chunkText, persona }),
-          signal,
-        });
-        if (!res.ok) return null;
-        const contentType = res.headers.get('content-type') || 'audio/wav';
-        const arrayBuffer = await res.arrayBuffer();
-        return arrayBuffer && arrayBuffer.byteLength > 200
-          ? { arrayBuffer, contentType }
-          : null;
-      } catch {
-        return null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (signal.aborted) return null;
+        try {
+          const res = await authedFetch('/api/tts/free', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: chunkText, persona }),
+            signal,
+          });
+          if (res.ok) {
+            const contentType = res.headers.get('content-type') || 'audio/wav';
+            const arrayBuffer = await res.arrayBuffer();
+            if (arrayBuffer && arrayBuffer.byteLength > 200) {
+              return { arrayBuffer, contentType };
+            }
+          }
+        } catch {
+          if (signal.aborted) return null;
+        }
+        if (attempt === 0 && !signal.aborted) {
+          await new Promise((r) => setTimeout(r, 450));
+        }
       }
+      return null;
     },
     [persona]
   );
