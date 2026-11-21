@@ -111,6 +111,9 @@ const AdminExpertsTrainersPage = lazy(() =>
 const AdminGrowthHubPage = lazy(() =>
   import('./AdminGrowthHubPage').then((m) => ({ default: m.AdminGrowthHubPage }))
 );
+const SuperAdminPulseDashboard = lazy(() =>
+  import('./SuperAdminPulseDashboard').then((m) => ({ default: m.SuperAdminPulseDashboard }))
+);
 
 const AdminSubViewFallback: React.FC = () => (
   <div className="min-h-[50vh] flex flex-col items-center justify-center p-6 space-y-3" dir="rtl">
@@ -2833,6 +2836,20 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         <AdminGrowthHubPage
           onBack={() => handleNavigatePage('home')}
           onOpenExpertsPage={() => handleNavigatePage('experts_trainers')}
+          onNotifySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+          onNotifyError={showError}
+        />
+      )}
+
+      {currentPage === 'pulse_radar' && (
+        <SuperAdminPulseDashboard
+          profile={profile}
+          workshops={workshops}
+          cloudProductsCount={cloudProductsForReview.length}
+          onBack={() => handleNavigatePage('home')}
           onNotifySuccess={(msg) => {
             playSuccessSound();
             showSuccess(msg);

@@ -31,6 +31,7 @@ import {
   GraduationCap,
   Rocket,
   CloudUpload,
+  Radar,
 } from 'lucide-react';
 import {
   AdminPageId,
@@ -250,6 +251,13 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       icon: <Rocket className="w-5 h-5 sm:w-6 sm:h-6 text-violet-700 dark:text-violet-300" />,
       circleClass: 'bg-violet-100 dark:bg-violet-950/60 border-violet-300/60 dark:border-violet-700/60',
       onClick: () => onNavigatePage('growth_hub'),
+    },
+    {
+      id: 'pulse_radar',
+      label: 'رادار شموسة والاستثناء الإنساني',
+      icon: <Radar className="w-5 h-5 sm:w-6 sm:h-6 text-rose-700 dark:text-rose-300" />,
+      circleClass: 'bg-rose-100 dark:bg-rose-950/60 border-rose-300/60 dark:border-rose-700/60',
+      onClick: () => onNavigatePage('pulse_radar'),
     },
   ];
 

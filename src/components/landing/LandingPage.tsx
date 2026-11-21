@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import {
   AlShamsFalconEmblem,
   AlShamsBrandLogo,
@@ -19,59 +20,79 @@ import { AlShamsWelcomeGate } from './AlShamsWelcomeGate';
 import { AlShamsAudioPlayer, AlShamsAudioPlayerHandle } from './AlShamsAudioPlayer';
 import { InjectedLandingRenderer } from './InjectedLandingRenderer';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
+import { LanguageSwitcher } from '../layout/LanguageSwitcher';
+import { useTranslation } from '../../lib/i18n';
+import { ArtisanSkillAssessment } from '../auth/ArtisanSkillAssessment';
+import { ArtisanSkillLevel, getSkillLevelMeta } from '../../types/artisanGrowth';
+import { syncGrowthHubConfigFromCloud } from '../../db/memberProfileService';
+import { LANDING_COPY, LandingLocale } from './landingExperienceData';
+import { GuidedDiscoverySection } from './GuidedDiscoverySection';
 import {
-  Calculator,
-  Layers,
-  ShoppingBag,
-  Wrench,
-  ShieldCheck,
-  Star,
   ArrowLeft,
+  ArrowRight,
+  Award,
+  BookOpen,
+  Calculator,
+  Camera,
   CheckCircle2,
-  TrendingUp,
-  MessageSquare,
-  Bot,
-  Send,
-  X,
   ChevronDown,
   ChevronUp,
-  Moon,
-  Sun,
-  Check,
-  Users,
-  BookOpen,
-  Store,
-  Receipt,
-  Scale,
-  UserCheck,
-  Truck,
-  Building2,
-  ArrowLeftRight,
-  Printer,
-  Wallet,
-  Sparkles,
-  Award,
-  Camera,
-  SlidersHorizontal,
+  Compass,
+  Cpu,
+  FolderArchive,
   GraduationCap,
+  HeartHandshake,
+  Layers,
+  MapPin,
+  Menu,
+  MessageSquare,
+  Moon,
   PlayCircle,
-  BellRing,
+  Send,
   Share2,
-  Rocket,
+  ShieldCheck,
+  ShoppingBag,
+  SlidersHorizontal,
+  Sparkles,
+  Star,
+  Store,
+  Sun,
+  Truck,
+  Users,
+  Wallet,
+  X,
 } from 'lucide-react';
-import { ArtisanSkillAssessment } from '../auth/ArtisanSkillAssessment';
-import {
-  ArtisanSkillLevel,
-  GrowthHubConfig,
-  getSkillLevelMeta,
-  getStoredGrowthHubConfig,
-} from '../../types/artisanGrowth';
-import { syncGrowthHubConfigFromCloud } from '../../db/memberProfileService';
+
+interface LiveMarketProduct {
+  id: string;
+  brand_name: string;
+  artist_name?: string;
+  store_slug: string;
+  product_name: string;
+  craft_name?: string;
+  category?: string;
+  store_price?: number;
+  retail_price?: number;
+  image_url?: string | null;
+}
+
+interface LiveSupplierEntry {
+  id: string;
+  brand_name: string;
+  owner_name?: string;
+  governorate?: string;
+  store_slug?: string;
+  logo_url?: string | null;
+}
 
 interface LandingPageProps {
   onOpenLogin: () => void;
   onOpenRegister: () => void;
   onOpenRegisterSupplier?: () => void;
+  onOpenMarketplace?: () => void;
+  onOpenSuppliersMarket?: () => void;
+  onOpenStore?: (slug: string) => void;
+  onOpenSupplierStore?: (slug: string) => void;
   isDarkMode?: boolean;
   onToggleTheme?: () => void;
   previewCmsOverride?: LandingCmsConfig;
@@ -81,9 +102,9 @@ interface LandingPageProps {
 interface AccentTokens {
   primaryBtn: string;
   primaryText: string;
+  hoverText: string;
   primaryBorder: string;
   softSurface: string;
-  barFill: string;
   activeTab: string;
 }
 
@@ -91,48 +112,81 @@ const ACCENT_MAP: Record<LandingAccentTheme, AccentTokens> = {
   solar_orange: {
     primaryBtn: 'bg-[#EA580C] hover:bg-[#C2410C] text-white',
     primaryText: 'text-[#C2410C] dark:text-[#FBBF24]',
-    primaryBorder: 'border-[#EA580C]/40 dark:border-[#FBBF24]/40',
-    softSurface: 'bg-[#EA580C]/8 dark:bg-[#FBBF24]/10',
-    barFill: 'bg-[#EA580C] dark:bg-[#FBBF24]',
+    hoverText: 'hover:text-[#C2410C] dark:hover:text-[#FBBF24]',
+    primaryBorder: 'border-[#EA580C]/45 dark:border-[#FBBF24]/45',
+    softSurface: 'bg-[#EA580C]/10 dark:bg-[#FBBF24]/12',
     activeTab: 'bg-[#EA580C] text-white',
   },
   emerald_craft: {
     primaryBtn: 'bg-emerald-700 hover:bg-emerald-800 text-white',
     primaryText: 'text-emerald-700 dark:text-emerald-400',
-    primaryBorder: 'border-emerald-600/40 dark:border-emerald-400/40',
-    softSurface: 'bg-emerald-600/8 dark:bg-emerald-400/10',
-    barFill: 'bg-emerald-600 dark:bg-emerald-400',
+    hoverText: 'hover:text-emerald-700 dark:hover:text-emerald-400',
+    primaryBorder: 'border-emerald-600/45 dark:border-emerald-400/45',
+    softSurface: 'bg-emerald-600/10 dark:bg-emerald-400/12',
     activeTab: 'bg-emerald-700 text-white',
   },
   royal_indigo: {
     primaryBtn: 'bg-indigo-700 hover:bg-indigo-800 text-white',
     primaryText: 'text-indigo-700 dark:text-indigo-400',
-    primaryBorder: 'border-indigo-600/40 dark:border-indigo-400/40',
-    softSurface: 'bg-indigo-600/8 dark:bg-indigo-400/10',
-    barFill: 'bg-indigo-600 dark:bg-indigo-400',
+    hoverText: 'hover:text-indigo-700 dark:hover:text-indigo-400',
+    primaryBorder: 'border-indigo-600/45 dark:border-indigo-400/45',
+    softSurface: 'bg-indigo-600/10 dark:bg-indigo-400/12',
     activeTab: 'bg-indigo-700 text-white',
   },
   crimson_clay: {
     primaryBtn: 'bg-[#9F1239] hover:bg-[#881337] text-white',
     primaryText: 'text-[#9F1239] dark:text-rose-400',
-    primaryBorder: 'border-[#9F1239]/40 dark:border-rose-400/40',
-    softSurface: 'bg-[#9F1239]/8 dark:bg-rose-400/10',
-    barFill: 'bg-[#9F1239] dark:bg-rose-400',
+    hoverText: 'hover:text-[#9F1239] dark:hover:text-rose-400',
+    primaryBorder: 'border-[#9F1239]/45 dark:border-rose-400/45',
+    softSurface: 'bg-[#9F1239]/10 dark:bg-rose-400/12',
     activeTab: 'bg-[#9F1239] text-white',
   },
 };
+
+const FAMILY_ELEMENT_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  profiles: Users,
+  gallery: ShoppingBag,
+  posts: MessageSquare,
+  levels: Award,
+  lessons: PlayCircle,
+  experts: GraduationCap,
+};
+
+const JOURNEY_STEP_ICONS = [
+  Camera,
+  Sparkles,
+  Calculator,
+  SlidersHorizontal,
+  ShieldCheck,
+  FolderArchive,
+  BookOpen,
+  Store,
+  Share2,
+];
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenLogin,
   onOpenRegister,
   onOpenRegisterSupplier,
+  onOpenMarketplace,
+  onOpenSuppliersMarket,
+  onOpenStore,
+  onOpenSupplierStore,
   isDarkMode = false,
   onToggleTheme,
   previewCmsOverride,
   isPreview = false,
 }) => {
   const audioPlayerRef = useRef<AlShamsAudioPlayerHandle | null>(null);
+  const prefersReducedMotion = useReducedMotion();
+  const { lang, dir } = useTranslation();
+  const locale: LandingLocale = lang === 'ar' || dir === 'rtl' ? 'ar' : 'en';
+  const copy = LANDING_COPY[locale];
+  const isRTL = locale === 'ar';
+  const DirectionalArrow = isRTL ? ArrowLeft : ArrowRight;
+
   const [isWelcomeGateOpen, setIsWelcomeGateOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [liveCms, setLiveCms] = useState<LandingCmsConfig>(() => getStoredLandingCmsConfig());
   const flags = useFeatureFlags();
 
@@ -142,18 +196,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const accentKey: LandingAccentTheme = design?.accentTheme || 'solar_orange';
   const accent = ACCENT_MAP[accentKey] || ACCENT_MAP.solar_orange;
 
-  // Interactive states
+  // Interactive sections state
+  const [activeCycleNode, setActiveCycleNode] = useState<'supplier' | 'artisan' | 'customer'>('artisan');
+  const [workbenchTab, setWorkbenchTab] = useState<'simulator' | 'summary'>('simulator');
+  const [simId, setSimId] = useState<
+    'shamousa_or' | 'falcon_macrame' | 'falcon_soap' | 'shamousa_summary' | 'shamousa_stock'
+  >('shamousa_or');
   const [summaryMode, setSummaryMode] = useState<'workshop' | 'supplier'>('workshop');
-  const [simQuestion, setSimQuestion] = useState<
-    'falcon_macrame' | 'falcon_soap' | 'shamousa_summary' | 'shamousa_stock'
-  >('falcon_macrame');
-  const [activeSuiteTab, setActiveSuiteTab] = useState<'store' | 'catalog' | 'crm' | 'maintenance'>('store');
+  const [activeJourneyStep, setActiveJourneyStep] = useState<number>(0);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [heroImgFailed, setHeroImgFailed] = useState(false);
   const [materialsImgFailed, setMaterialsImgFailed] = useState(false);
   const [supplierImgFailed, setSupplierImgFailed] = useState(false);
 
-  // Feedback modal state
+  // Family Table skill preview state
+  const [landingSkillLevel, setLandingSkillLevel] = useState<ArtisanSkillLevel>('intermediate');
+  const [landingSkillScore, setLandingSkillScore] = useState<number | undefined>(undefined);
+  const [previewGender, setPreviewGender] = useState<'male' | 'female'>('male');
+
+  // Live Marketplace real data
+  const [liveProducts, setLiveProducts] = useState<LiveMarketProduct[]>([]);
+  const [liveSuppliers, setLiveSuppliers] = useState<LiveSupplierEntry[]>([]);
+  const [marketsLoaded, setMarketsLoaded] = useState(false);
+
+  // Feedback modal state (wired to real POST /api/public/feedback)
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [feedbackName, setFeedbackName] = useState('');
   const [feedbackCraft, setFeedbackCraft] = useState('');
@@ -162,45 +228,91 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [feedbackContact, setFeedbackContact] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
-  const [landingSkillLevel, setLandingSkillLevel] = useState<ArtisanSkillLevel>('intermediate');
-  const [landingSkillScore, setLandingSkillScore] = useState<number | undefined>(undefined);
-  const [growthConfig, setGrowthConfig] = useState<GrowthHubConfig>(() => getStoredGrowthHubConfig());
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
+  // Sync CMS & Growth config from cloud
   useEffect(() => {
     if (previewCmsOverride) return;
     const syncCms = () => setLiveCms(getStoredLandingCmsConfig());
     syncPlatformSettingsFromCloud()
       .then(() => setLiveCms(getStoredLandingCmsConfig()))
       .catch(() => {});
-    syncGrowthHubConfigFromCloud()
-      .then((cfg) => setGrowthConfig(cfg))
-      .catch(() => {});
+    syncGrowthHubConfigFromCloud().catch(() => {});
     window.addEventListener('alshams_landing_cms_updated', syncCms);
     return () => window.removeEventListener('alshams_landing_cms_updated', syncCms);
   }, [previewCmsOverride]);
 
-  const handleStartWithSkillLevel = () => {
-    try {
-      localStorage.setItem('alshams_pending_skill_level', landingSkillLevel);
-      if (typeof landingSkillScore === 'number') {
-        localStorage.setItem('alshams_pending_skill_score', String(landingSkillScore));
-      }
-    } catch {}
-    onOpenRegister();
-  };
-
+  // Fetch real public marketplace previews safely (only for enabled marketplaces)
   useEffect(() => {
     if (isPreview) return;
-    try {
-      const seen = localStorage.getItem('alshams_welcome_gate_seen');
-      if (!seen) {
-        const timer = setTimeout(() => {
-          setIsWelcomeGateOpen(true);
-        }, 550);
-        return () => clearTimeout(timer);
+    const controller = new AbortController();
+    let mounted = true;
+
+    const loadLiveMarkets = async () => {
+      try {
+        const requests: Promise<any>[] = [
+          flags.artisanMarketplaceEnabled
+            ? fetch('/api/marketplace/products', { signal: controller.signal }).then((r) =>
+                r.ok ? r.json() : null
+              )
+            : Promise.resolve(null),
+          flags.suppliersMarketplaceEnabled
+            ? fetch('/api/suppliers-market', { signal: controller.signal }).then((r) =>
+                r.ok ? r.json() : null
+              )
+            : Promise.resolve(null),
+        ];
+
+        const [prodRes, supRes] = await Promise.allSettled(requests);
+        if (!mounted) return;
+
+        if (prodRes.status === 'fulfilled' && prodRes.value && Array.isArray(prodRes.value.products)) {
+          const validProducts = prodRes.value.products
+            .filter((p: any) => p && p.product_name && p.store_slug)
+            .slice(0, 3)
+            .map((p: any) => ({
+              id: String(p.id || p.product_name),
+              brand_name: String(p.brand_name || p.artist_name || ''),
+              artist_name: p.artist_name ? String(p.artist_name) : undefined,
+              store_slug: String(p.store_slug),
+              product_name: String(p.product_name),
+              craft_name: p.craft_name ? String(p.craft_name) : undefined,
+              category: p.category ? String(p.category) : undefined,
+              store_price: Number(p.store_price || p.retail_price || 0) || undefined,
+              retail_price: Number(p.retail_price || 0) || undefined,
+              image_url: typeof p.image_url === 'string' && p.image_url.trim() ? p.image_url : null,
+            }));
+          setLiveProducts(validProducts);
+        }
+
+        if (supRes.status === 'fulfilled' && supRes.value && Array.isArray(supRes.value.entries)) {
+          const validSuppliers = supRes.value.entries
+            .map((e: any) => e?.supplier || e)
+            .filter((s: any) => s && (s.brand_name || s.owner_name))
+            .slice(0, 3)
+            .map((s: any) => ({
+              id: String(s.id || s.store_slug || s.brand_name),
+              brand_name: String(s.brand_name || s.owner_name || ''),
+              owner_name: s.owner_name ? String(s.owner_name) : undefined,
+              governorate: s.governorate ? String(s.governorate) : undefined,
+              store_slug: s.store_slug ? String(s.store_slug) : undefined,
+              logo_url: typeof s.logo_url === 'string' && s.logo_url.trim() ? s.logo_url : null,
+            }));
+          setLiveSuppliers(validSuppliers);
+        }
+      } catch {
+        // Silent graceful fallback
+      } finally {
+        if (mounted) setMarketsLoaded(true);
       }
-    } catch {}
-  }, [isPreview]);
+    };
+
+    loadLiveMarkets();
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [isPreview, flags.artisanMarketplaceEnabled, flags.suppliersMarketplaceEnabled]);
 
   useEffect(() => {
     setHeroImgFailed(false);
@@ -214,6 +326,81 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     setSupplierImgFailed(false);
   }, [design?.supplierImageUrl]);
 
+  // Close mobile drawer or feedback modal on Escape
+  useEffect(() => {
+    if (!isMobileMenuOpen && !isFeedbackModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileMenuOpen(false);
+        setIsFeedbackModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isMobileMenuOpen, isFeedbackModalOpen]);
+
+  // Real route navigation helpers
+  const handleOpenMarketplace = () => {
+    setIsMobileMenuOpen(false);
+    if (!flags.artisanMarketplaceEnabled) return;
+    if (onOpenMarketplace) {
+      onOpenMarketplace();
+      return;
+    }
+    window.location.hash = '#/market';
+  };
+
+  const handleOpenSuppliersMarket = () => {
+    setIsMobileMenuOpen(false);
+    if (!flags.suppliersMarketplaceEnabled) return;
+    if (onOpenSuppliersMarket) {
+      onOpenSuppliersMarket();
+      return;
+    }
+    window.location.hash = '#/suppliers-market';
+  };
+
+  const handleOpenStore = (slug: string) => {
+    if (!slug) return;
+    if (onOpenStore) {
+      onOpenStore(slug);
+      return;
+    }
+    window.location.hash = `#/store/${encodeURIComponent(slug)}`;
+  };
+
+  const handleOpenSupplierStore = (slug?: string) => {
+    if (!slug) {
+      handleOpenSuppliersMarket();
+      return;
+    }
+    if (onOpenSupplierStore) {
+      onOpenSupplierStore(slug);
+      return;
+    }
+    window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+  };
+
+  const scrollToSection = (id: string) => {
+    setIsMobileMenuOpen(false);
+    const cleanId = id.replace(/^#/, '');
+    const el = document.getElementById(cleanId);
+    if (el) {
+      el.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth', block: 'start' });
+    }
+  };
+
+  const handleStartWithSkillLevel = (overrideLevel?: ArtisanSkillLevel) => {
+    const levelToStore = overrideLevel || landingSkillLevel;
+    try {
+      localStorage.setItem('alshams_pending_skill_level', levelToStore);
+      if (!overrideLevel && typeof landingSkillScore === 'number') {
+        localStorage.setItem('alshams_pending_skill_score', String(landingSkillScore));
+      }
+    } catch {}
+    onOpenRegister();
+  };
+
   const handleGateEnter = () => {
     try {
       localStorage.setItem('alshams_welcome_gate_seen', 'true');
@@ -225,16 +412,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     e.preventDefault();
     if (!feedbackName.trim() || !feedbackMessage.trim()) return;
     setFeedbackSubmitting(true);
+    setFeedbackError(null);
     try {
-      const res = await fetch('/api/landing/feedback', {
+      const res = await fetch('/api/public/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          authorName: feedbackName.trim(),
-          craftType: feedbackCraft.trim() || 'حرفي في الشمساوية',
+          name: feedbackName.trim(),
+          craft: feedbackCraft.trim() || (isRTL ? 'حرفي في الشمساوية' : 'alSHamsawiyah Maker'),
           rating: feedbackRating,
           message: feedbackMessage.trim(),
           contact: feedbackContact.trim(),
+          source: 'landing',
         }),
       });
       if (res.ok) {
@@ -247,20 +436,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           setFeedbackMessage('');
           setFeedbackContact('');
           setFeedbackRating(5);
-        }, 1800);
+        }, 1900);
+      } else {
+        setFeedbackError(copy.feedbackModal.errorBody);
       }
     } catch {
-      // Fallback silent
+      setFeedbackError(copy.feedbackModal.errorBody);
     } finally {
       setFeedbackSubmitting(false);
     }
   };
 
-  // Custom Injected Template Dispatch (Auto-hydrates all CMS data into injected HTML/CSS)
+  // Custom Injected Template Dispatch (Preserves Super Admin CMS custom HTML/CSS mode 100%)
   const injected = design?.injectedTemplate;
   if (activePreset === 'custom_injected' && injected?.enabled && injected.html.trim().length > 0) {
     return (
-      <div className="min-h-screen w-full" dir="rtl">
+      <div className="min-h-screen w-full" dir={isRTL ? 'rtl' : 'ltr'}>
         {!isPreview && (
           <AlShamsWelcomeGate
             isOpen={isWelcomeGateOpen}
@@ -282,7 +473,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     );
   }
 
-  // Preset-driven surface & typography tuning (preserving brand palette while giving real architectural choice)
+  // Preset-driven surface tuning
   const isObsidianPreset = activePreset === 'executive_obsidian';
   const isMinimalPreset = activePreset === 'gallery_minimal';
   const isConversionPreset = activePreset === 'conversion_split';
@@ -303,135 +494,47 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     ? 'text-[#A8B7D1]'
     : 'text-[#475569] dark:text-[#94A3B8]';
 
-  const unifiedSec = cms.sections.unifiedEngine || DEFAULT_LANDING_CMS_CONFIG.sections.unifiedEngine!;
-  const familySec = cms.sections.familyProfile || DEFAULT_LANDING_CMS_CONFIG.sections.familyProfile!;
-  const heroMetrics =
-    cms.hero.metrics && cms.hero.metrics.length > 0
-      ? cms.hero.metrics
-      : DEFAULT_LANDING_CMS_CONFIG.hero.metrics!;
+  const dividerBorderClass = isObsidianPreset
+    ? 'border-[#1D2D52]'
+    : 'border-[#D4CCBC]/80 dark:border-[#1E2E52]';
 
   const heroImageSrc = design?.heroImageUrl || DEFAULT_LANDING_MEDIA.heroImageUrl;
   const materialsImageSrc = design?.materialsImageUrl || DEFAULT_LANDING_MEDIA.materialsImageUrl;
   const supplierImageSrc = design?.supplierImageUrl || DEFAULT_LANDING_MEDIA.supplierImageUrl;
 
-  const simulatorScenarios = {
-    falcon_macrame: {
-      tabLabel: 'صقر · تسعير مكرمية (ث1–ث6)',
-      userQuery: 'عايز أسعر جدارية مكرمية 70×110 سم بخيط قطن محلول 3 مم مع عصا خشب زان وهامش ربح 35%',
-      speaker: cms.sections.aiPartners.falconName,
-      role: cms.sections.aiPartners.falconRoleBadge,
-      replyTitle: 'تحليل هندسي جاهز للتصدير لحاسبة التكاليف:',
-      bullets: [
-        'خامة موحدة TH0001.01 (خيط قطن 3 مم): صافي 148 م + هالك موحد 10% (ث1 بدون ازدواجية) = 162.8 م ≈ 580 جم = 116 ج.م',
-        'عصا خشب زان 80 سم (WD0012) + تغليف فاخر = 74 ج.م · مصنعية تنفيذ وتشطيب فعلي 3.5 ساعة (ث2) = 280 ج.م',
-        'إجمالي التكلفة الحقيقية: 470 ج.م · سعر البيع العادل بهامش Margin 35% (وليس Markup) = 725 ج.م · صافي ربح مضمون 255 ج.م',
-      ],
-      actionNote: 'زر «تصدير للحاسبة» ينقل البنود والأكواد مباشرة ← الحفظ في الأرشيف ككارت صنف معتمد.',
-    },
-    falcon_soap: {
-      tabLabel: 'صقر · صابون بارد وريزن (SAP)',
-      userQuery: 'احسب لي دفعة 12 قطعة صابون بارد زيت زيتون وجوز هند بنسبة سوبرفات 6% وتصويب تالف 1 قطعة',
-      speaker: cms.sections.aiPartners.falconName,
-      role: cms.sections.aiPartners.falconRoleBadge,
-      replyTitle: 'معادلة التصبن SAP والتحقق من الأمان (ث3–ث5):',
-      bullets: [
-        'الزيوت: 700 جم زيت زيتون + 300 جم جوز هند · هيدروكسيد الصوديوم NaOH بعد سوبرفات 6% = 138.4 جم (تحذير سلامة إلزامي)',
-        'ماء مقطر (33%): 330 جم · وقت التصنيع الفعلي 75 دقيقة (يُستبعد وقت التصلب 4 أسابيع من أجر اليد — قاعدة ث2)',
-        'إطفاء قالب السيليكون + توزيع تكلفة الدفعة على 11 قطعة سليمة فقط (ث4) = تكلفة القطعة 31.4 ج.م · السعر المقترح 75 ج.م',
-      ],
-      actionNote: 'دقيق لكل الـ 14 قسماً الحرفياً مع إمكانية دمج حِرفتين في قطعة واحدة (Craft Fusion).',
-    },
-    shamousa_summary: {
-      tabLabel: 'شموسة · بطاقة «هلخصهالك»',
-      userQuery: 'يا شموسة قوليلي وضع الورشة المالي النهارده في 10 ثواني ومين متأخر في السداد؟',
-      speaker: cms.sections.aiPartners.shamousaName,
-      role: cms.sections.aiPartners.shamousaRoleBadge,
-      replyTitle: 'خلاصة خزينتك الحية اليوم:',
-      bullets: [
-        'معانا الآن 18,450 ج.م: درج الورشة 4,200 ج.م · إنستاباي 11,050 ج.م · محفظة فودافون كاش 3,200 ج.م',
-        'لينا بره 3,850 ج.م عند 3 عملاء — أبرزهم (سارة محمود · متأخر 9 أيام بمبلغ 1,450 ج.م) — جهزت لك رسالة تذكير واتساب مهذبة',
-        'علينا للموردين 2,100 ج.م (مورد خيوط النور · يستحق بعد 4 أيام) · صافي موقف السيولة: +20,200 ج.م مطمئن',
-      ],
-      actionNote: 'متاحة للورش وللموردين متعددي الفروع بنفس البساطة وبدون أي مصطلحات دائن ومدين.',
-    },
-    shamousa_stock: {
-      tabLabel: 'شموسة · حركة المخزن والسوق',
-      userQuery: 'إيه الخامات اللي قربت تخلص في المخزن وإيه منتجاتي المعتمدة في سوق الشمساوية؟',
-      speaker: cms.sections.aiPartners.shamousaName,
-      role: cms.sections.aiPartners.shamousaRoleBadge,
-      replyTitle: 'رادار المخزن وسوق الشمساوية الآن:',
-      bullets: [
-        'تنبيه نواقص: خيط مكرمية 3 مم بيج (TH0001.01) المتبقي 2 بكرة فقط — أقل من حد الأمان · اقتراح: اطلبه من موردين الشمساوية بسعر الجملة',
-        'صنف راكد: خرز خشب 16 مم أزرق لم يتحرك منذ 48 يوماً (140 قطعة) — اقترحنا عرض تصفية سريع',
-        'سوق الشمساوية: لديك 9 منتجات بشارة الاعتماد الخضراء، ومنتجان بانتظار المراجعة بعد تعديل السعر الأخير',
-      ],
-      actionNote: 'شموسة تفتح لك الشاشة المطلوبة أو تصيغ لك أمر الشراء فوراً بدون بحث طويل.',
-    },
-  };
+  const visibleNav = copy.nav.filter((lnk) => {
+    if (lnk.id === 'family-table' && !flags.familyCommunityEnabled) return false;
+    return true;
+  });
 
-  const currentSim = simulatorScenarios[simQuestion];
+  const currentCycle =
+    copy.marketsSection.cycleNodes.find((n) => n.id === activeCycleNode) ||
+    copy.marketsSection.cycleNodes[1];
 
-  const suiteTabs = [
-    {
-      id: 'store' as const,
-      label: 'المتجر وسوق الشمساوية',
-      icon: Store,
-      data: cms.sections.craftStore,
-      visible: cms.sections.craftStore.visible && flags.artisanMarketplaceEnabled,
-      metrics: [
-        { k: 'التحكم بالنشر', v: 'قرار يدوي للفنان' },
-        { k: 'حالة الاعتماد', v: 'شارة خضراء معتمدة' },
-        { k: 'تعديل المنتج', v: 'إعادة مراجعة تلقائية' },
-      ],
-    },
-    {
-      id: 'catalog' as const,
-      label: 'الكتالوج وعروض الأسعار',
-      icon: BookOpen,
-      data: cms.sections.smartCatalog,
-      visible: cms.sections.smartCatalog.visible,
-      metrics: [
-        { k: 'الأصل المرجعي', v: 'الأرشيف (كارت الصنف)' },
-        { k: 'عروض الأسعار', v: 'برقم مسلسل وعربون' },
-        { k: 'تحويل لطلبية', v: 'بضغطة واحدة' },
-      ],
-    },
-    {
-      id: 'crm' as const,
-      label: 'إدارة العملاء CRM',
-      icon: Users,
-      data: cms.sections.crmClients,
-      visible: cms.sections.crmClients.visible,
-      metrics: [
-        { k: 'مصدر العميل', v: 'متجري · السوق · خارجي' },
-        { k: 'المستحقات', v: 'عدّاد أيام تأخير حي' },
-        { k: 'التواصل', v: 'رسالة واتساب مهذبة' },
-      ],
-    },
-    {
-      id: 'maintenance' as const,
-      label: 'الأصول وصيانة العدد',
-      icon: Wrench,
-      data: cms.sections.toolMaintenance,
-      visible: cms.sections.toolMaintenance.visible,
-      metrics: [
-        { k: 'إطفاء القوالب', v: 'يُحسب ضمن التكلفة' },
-        { k: 'الصيانة الوقائية', v: 'تنبيهات دورية للمعدات' },
-        { k: 'سجل الأصول', v: 'تاريخ أعطال وتكلفة' },
-      ],
-    },
-  ].filter((t) => t.visible);
+  const currentSim =
+    copy.simulatorScenarios.find((s) => s.id === simId) || copy.simulatorScenarios[0];
+  const activeStep = copy.journeySection.steps[activeJourneyStep] || copy.journeySection.steps[0];
+  const ActiveStepIcon = JOURNEY_STEP_ICONS[activeJourneyStep] || Sparkles;
 
-  const activeSuite = suiteTabs.find((t) => t.id === activeSuiteTab) || suiteTabs[0];
+  const selectedLevelMeta = getSkillLevelMeta(landingSkillLevel, previewGender);
+  const cmsReviews = cms.sections.reviews?.items?.length
+    ? cms.sections.reviews.items
+    : DEFAULT_LANDING_CMS_CONFIG.sections.reviews.items;
+  const cmsFaqs = cms.sections.faq?.items?.length
+    ? cms.sections.faq.items
+    : DEFAULT_LANDING_CMS_CONFIG.sections.faq.items;
+  const cmsFooter = cms.sections.footer || DEFAULT_LANDING_CMS_CONFIG.sections.footer;
 
-  const navLinks = (cms.header.navLinks || []).slice(0, 5);
+  const revealInitial = prefersReducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 18 };
+  const revealAnimate = { opacity: 1, y: 0 };
+  const revealTransition = { duration: 0.45, ease: [0.22, 1, 0.36, 1] as const };
 
   return (
     <div
-      dir="rtl"
+      dir={isRTL ? 'rtl' : 'ltr'}
       className={`min-h-screen font-sans selection:bg-[#EA580C]/20 selection:text-[#0C1427] dark:selection:text-[#F7F3EA] transition-colors duration-300 ${pageCanvasClass}`}
     >
-      {/* بوابة الترحيب التفاعلية للزائر الجديد */}
+      {/* بوابة الترحيب التفاعلية بالنشيد */}
       {!isPreview && (
         <AlShamsWelcomeGate
           isOpen={isWelcomeGateOpen}
@@ -440,7 +543,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         />
       )}
 
-      {/* ==================== 1. الشريط العلوي المتزن (3-Zone Top Bar) ==================== */}
+      {/* ==================== 1. الشريط العلوي المتزن (3-Zone Header + Mobile Drawer) ==================== */}
       <header
         className={`sticky top-0 z-40 border-b backdrop-blur-md transition-colors ${
           isObsidianPreset
@@ -448,30 +551,38 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             : 'bg-[#F2ECE1]/92 dark:bg-[#060B18]/92 border-[#D4CCBC] dark:border-[#1E2E52]'
         }`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-[72px] flex items-center justify-between gap-4">
-          {/* المنطقة 1: هوية المنظومة */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-[74px] flex items-center justify-between gap-3">
+          {/* Zone 1: Brand Identity */}
           <a
             href="#top"
+            onClick={(e) => {
+              e.preventDefault();
+              window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+            }}
             className="flex items-center gap-2.5 shrink-0 focus:outline-none"
-            aria-label="منظومة الشمساوية"
+            aria-label={isRTL ? 'منظومة الشمساوية' : 'alSHamsawiyah'}
           >
             <AlShamsFalconEmblem size={36} isDark={isObsidianPreset || isDarkMode} />
-            <AlShamsBrandLogo
-              isDark={isObsidianPreset || isDarkMode}
-              className="h-9 sm:h-10"
-            />
+            <AlShamsBrandLogo isDark={isObsidianPreset || isDarkMode} className="h-9 sm:h-10" />
           </a>
 
-          {/* المنطقة 2: 5 روابط تنقل أحادية السطر بدون كبسولات */}
-          <nav aria-label="التنقل الرئيسي" className="hidden lg:flex items-center gap-7">
-            {navLinks.map((lnk) => (
+          {/* Zone 2: Clean Single-Line Nav Links */}
+          <nav
+            aria-label={isRTL ? 'التنقل الرئيسي' : 'Primary Navigation'}
+            className="hidden lg:flex items-center gap-6 xl:gap-7"
+          >
+            {visibleNav.map((lnk) => (
               <a
                 key={lnk.id}
                 href={lnk.href}
-                className={`text-sm font-bold whitespace-nowrap shrink-0 transition-colors hover:${accent.primaryText} ${
+                onClick={(e) => {
+                  e.preventDefault();
+                  scrollToSection(lnk.href);
+                }}
+                className={`text-sm font-bold whitespace-nowrap shrink-0 transition-colors ${
                   isObsidianPreset
                     ? 'text-[#CBD5E1] hover:text-[#FBBF24]'
-                    : 'text-[#334155] dark:text-[#CBD5E1]'
+                    : `text-[#334155] dark:text-[#CBD5E1] ${accent.hoverText}`
                 }`}
               >
                 {lnk.label}
@@ -479,10 +590,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             ))}
           </nav>
 
-          {/* المنطقة 3: تحكم هادئ + زر إجراء أساسي واحد واضح */}
-          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          {/* Zone 3: Utilities + Language + Theme + Auth CTAs */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {!isPreview && (
-              <div className="hidden sm:block">
+              <div className="hidden md:block">
                 <AlShamsAudioPlayer ref={audioPlayerRef} />
               </div>
             )}
@@ -493,12 +604,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             )}
 
+            <div className="hidden sm:block">
+              <LanguageSwitcher />
+            </div>
+
             {onToggleTheme && !isObsidianPreset && (
               <button
                 type="button"
                 onClick={onToggleTheme}
-                aria-label="تبديل المظهر النهاري والليلي"
-                title={isDarkMode ? 'الوضع النهاري' : 'الوضع الليلي'}
+                aria-label={isDarkMode ? copy.header.themeLight : copy.header.themeDark}
+                title={isDarkMode ? copy.header.themeLight : copy.header.themeDark}
                 className="w-9 h-9 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center text-[#334155] dark:text-[#CBD5E1] hover:border-[#EA580C] transition cursor-pointer"
               >
                 {isDarkMode ? <Sun className="w-4 h-4 text-[#FBBF24]" /> : <Moon className="w-4 h-4" />}
@@ -508,123 +623,307 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={onOpenLogin}
-              className={`hidden sm:inline-flex items-center px-3.5 py-2 text-xs sm:text-sm font-bold whitespace-nowrap shrink-0 transition cursor-pointer ${
+              className={`hidden sm:inline-flex items-center px-3 py-2 text-xs sm:text-sm font-bold whitespace-nowrap shrink-0 transition cursor-pointer ${
                 isObsidianPreset
                   ? 'text-[#E2E8F0] hover:text-[#FBBF24]'
-                  : 'text-[#0C1427] dark:text-[#F7F3EA] hover:text-[#C2410C] dark:hover:text-[#FBBF24]'
+                  : `text-[#0C1427] dark:text-[#F7F3EA] ${accent.hoverText}`
               }`}
             >
-              دخول
+              {copy.header.login}
             </button>
 
             <button
               type="button"
               onClick={onOpenRegister}
-              className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black whitespace-nowrap shrink-0 transition cursor-pointer shadow-xs ${accent.primaryBtn}`}
+              className={`px-3.5 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-black whitespace-nowrap shrink-0 transition cursor-pointer shadow-xs ${accent.primaryBtn}`}
             >
-              {cms.header.ctaButtonText}
+              {copy.header.startJourney}
+            </button>
+
+            {/* Mobile Menu Button */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              aria-label={copy.header.openMenu}
+              className="lg:hidden w-9 h-9 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center text-[#0C1427] dark:text-[#F7F3EA] cursor-pointer"
+            >
+              <Menu className="w-4.5 h-4.5" />
             </button>
           </div>
         </div>
       </header>
 
-      {/* ==================== 2. الواجهة الرئيسية (Hero Section) ==================== */}
-      <main id="top">
-        <section className="relative overflow-hidden border-b border-[#D4CCBC]/80 dark:border-[#1E2E52]">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-12 sm:pt-14 sm:pb-16 lg:pt-16 lg:pb-20">
+      {/* Mobile Slide-Over Drawer */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 lg:hidden flex"
+            dir={isRTL ? 'rtl' : 'ltr'}
+          >
             <div
-              className={`grid grid-cols-1 ${
-                isConversionPreset ? 'lg:grid-cols-12' : 'lg:grid-cols-12'
-              } gap-8 lg:gap-12 items-stretch`}
+              className="fixed inset-0 bg-[#060B18]/70 backdrop-blur-xs"
+              onClick={() => setIsMobileMenuOpen(false)}
+            />
+            <motion.aside
+              initial={{ x: isRTL ? '100%' : '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: isRTL ? '100%' : '-100%' }}
+              transition={{ type: 'spring', stiffness: 340, damping: 34 }}
+              className={`relative z-10 w-[86%] max-w-sm h-full overflow-y-auto p-5 flex flex-col justify-between gap-6 border-e shadow-2xl ${
+                isObsidianPreset
+                  ? 'bg-[#080E1E] border-[#1D2D52] text-[#F7F3EA]'
+                  : 'bg-[#F7F3EA] dark:bg-[#0B1328] border-[#D4CCBC] dark:border-[#1E2E52] text-[#0C1427] dark:text-[#F7F3EA]'
+              }`}
             >
-              {/* عمود النص التحريري وصياغة القيمة */}
-              <div className="lg:col-span-6 flex flex-col justify-center space-y-6">
-                <p
-                  className={`text-xs sm:text-sm font-extrabold tracking-wide ${accent.primaryText}`}
-                >
-                  الإصدار V 5.0 · {cms.hero.falconBadgeText}
-                </p>
-
-                <h1 className="text-3xl sm:text-5xl lg:text-[3.25rem] font-black leading-[1.15] tracking-tight [text-wrap:balance]">
-                  <span className="block">{cms.hero.headlineLine1}</span>
-                  <span className={`block mt-1.5 ${accent.primaryText}`}>
-                    {cms.hero.headlineHighlight}
-                  </span>
-                </h1>
-
-                <p className={`text-sm sm:text-base lg:text-[17px] leading-[1.85] max-w-2xl ${mutedTextClass}`}>
-                  {cms.hero.description}
-                </p>
-
-                {/* أزرار القرار المزدوجة (فنان حرفي vs مورد خامات) */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+              <div className="space-y-6">
+                <div className="flex items-center justify-between pb-4 border-b border-[#D4CCBC] dark:border-[#1E2E52]">
+                  <div className="flex items-center gap-2">
+                    <AlShamsFalconEmblem size={30} isDark={isObsidianPreset || isDarkMode} />
+                    <AlShamsBrandLogo isDark={isObsidianPreset || isDarkMode} className="h-8" />
+                  </div>
                   <button
                     type="button"
-                    onClick={onOpenRegister}
-                    className={`px-6 py-3.5 rounded-xl text-sm sm:text-base font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-sm ${accent.primaryBtn}`}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    aria-label={copy.header.closeMenu}
+                    className="w-9 h-9 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer"
                   >
-                    <span>{cms.hero.primaryCtaText}</span>
-                    <ArrowLeft className="w-4 h-4" />
+                    <X className="w-4.5 h-4.5" />
                   </button>
-
-                  {flags.supplierLandingPromoEnabled && (
-                    <button
-                      type="button"
-                      onClick={onOpenRegisterSupplier || onOpenRegister}
-                      className={`px-6 py-3.5 rounded-xl text-sm sm:text-base font-black border flex items-center justify-center gap-2 transition cursor-pointer ${
-                        isObsidianPreset
-                          ? 'bg-[#122042] border-[#294072] text-[#F7F3EA] hover:border-[#FBBF24]'
-                          : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#C9BFA9] dark:border-[#2A3F6E] hover:border-[#EA580C]'
-                      }`}
-                    >
-                      <Truck className="w-4 h-4" />
-                      <span>{cms.hero.secondaryCtaText}</span>
-                    </button>
-                  )}
                 </div>
 
-                {/* سطر ثقة نظيف بدون كبسولات مكدسة */}
-                <div
-                  className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-2 text-xs sm:text-[13px] font-bold ${mutedTextClass}`}
-                >
-                  <span className="inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    {cms.hero.trustBadge1}
-                  </span>
-                  <span aria-hidden="true" className="opacity-40">·</span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    {cms.hero.trustBadge2}
-                  </span>
-                  <span aria-hidden="true" className="opacity-40">·</span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    {cms.hero.trustBadge3}
-                  </span>
+                <nav className="space-y-1.5">
+                  {visibleNav.map((lnk) => (
+                    <button
+                      key={lnk.id}
+                      type="button"
+                      onClick={() => scrollToSection(lnk.href)}
+                      className="w-full px-3.5 py-3 rounded-xl text-sm font-black text-start flex items-center justify-between hover:bg-[#EA580C]/10 transition cursor-pointer"
+                    >
+                      <span>{lnk.label}</span>
+                      <DirectionalArrow className="w-4 h-4 opacity-50" />
+                    </button>
+                  ))}
+                </nav>
+
+                {(flags.artisanMarketplaceEnabled || flags.suppliersMarketplaceEnabled) && (
+                  <div className="pt-4 border-t border-[#D4CCBC] dark:border-[#1E2E52] space-y-2">
+                    <p className={`text-[11px] font-extrabold px-1 ${mutedTextClass}`}>
+                      {copy.header.marketsQuickTitle}
+                    </p>
+                    {flags.artisanMarketplaceEnabled && (
+                      <button
+                        type="button"
+                        onClick={handleOpenMarketplace}
+                        className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-black flex items-center justify-between cursor-pointer ${surfaceCardClass}`}
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <Store className="w-4 h-4 text-[#EA580C]" />
+                          {copy.header.alshamsMarket}
+                        </span>
+                        <DirectionalArrow className="w-3.5 h-3.5 opacity-60" />
+                      </button>
+                    )}
+                    {flags.suppliersMarketplaceEnabled && (
+                      <button
+                        type="button"
+                        onClick={handleOpenSuppliersMarket}
+                        className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-black flex items-center justify-between cursor-pointer ${surfaceCardClass}`}
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <Truck className="w-4 h-4 text-[#EA580C]" />
+                          {copy.header.suppliersMarket}
+                        </span>
+                        <DirectionalArrow className="w-3.5 h-3.5 opacity-60" />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-[#D4CCBC] dark:border-[#1E2E52] flex flex-wrap items-center gap-2.5">
+                  <LanguageSwitcher />
+                  {!isPreview && <AlShamsAudioPlayer ref={audioPlayerRef} />}
+                  {!isPreview && <PWAInstallButton compact />}
                 </div>
 
                 {!isPreview && (
-                  <div className="pt-1 flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setIsWelcomeGateOpen(true)}
-                      className={`text-xs font-extrabold underline underline-offset-4 cursor-pointer ${accent.primaryText}`}
-                    >
-                      {cms.header.welcomeGateButtonText} مع النشيد الترحيبي
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      setIsWelcomeGateOpen(true);
+                    }}
+                    className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-extrabold text-start flex items-center gap-2 ${accent.softSurface} ${accent.primaryText} cursor-pointer`}
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>{copy.header.welcomeGateShort}</span>
+                  </button>
                 )}
               </div>
 
-              {/* عمود المشهد البصري التحريري (Editorial Craft Photography + Live Atelier Telemetry Card) */}
-              <div className="lg:col-span-6 flex">
+              <div className="pt-4 border-t border-[#D4CCBC] dark:border-[#1E2E52] grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onOpenLogin();
+                  }}
+                  className="px-4 py-3 rounded-xl border border-[#C9BFA9] dark:border-[#2A3F6E] text-xs font-black cursor-pointer"
+                >
+                  {copy.header.login}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onOpenRegister();
+                  }}
+                  className={`px-4 py-3 rounded-xl text-xs font-black cursor-pointer ${accent.primaryBtn}`}
+                >
+                  {copy.header.startJourney}
+                </button>
+              </div>
+            </motion.aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ==================== 2. القسم الافتتاحي (Hero Section) ==================== */}
+      <main id="top">
+        <section className={`relative overflow-hidden border-b ${dividerBorderClass}`}>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-36 start-1/4 w-[520px] h-[520px] rounded-full bg-[#EA580C]/10 dark:bg-[#EA580C]/12 blur-3xl"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -bottom-36 end-10 w-[440px] h-[440px] rounded-full bg-[#0C1427]/8 dark:bg-[#FBBF24]/8 blur-3xl"
+          />
+
+          <div
+            className={`relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${
+              isConversionPreset
+                ? 'pt-8 pb-10 sm:pt-12 sm:pb-14'
+                : 'pt-10 pb-12 sm:pt-14 sm:pb-16 lg:pt-16 lg:pb-20'
+            }`}
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
+              {/* Editorial Value Proposition Column */}
+              <motion.div
+                initial={revealInitial}
+                animate={revealAnimate}
+                transition={revealTransition}
+                className={`${isConversionPreset ? 'lg:col-span-7' : 'lg:col-span-6'} flex flex-col justify-center space-y-5 sm:space-y-6`}
+              >
+                <p className={`text-xs sm:text-sm font-extrabold tracking-wide ${accent.primaryText}`}>
+                  {copy.hero.eyebrow}
+                </p>
+
+                <h1 className="text-3xl sm:text-4xl lg:text-[3.05rem] font-black leading-[1.18] tracking-tight [text-wrap:balance]">
+                  <span className="block">{copy.hero.headlineLine1}</span>
+                  <span className={`block mt-1.5 ${accent.primaryText}`}>
+                    {copy.hero.headlineHighlight}
+                  </span>
+                </h1>
+
+                <div className="space-y-2 max-w-2xl">
+                  <p className={`text-sm sm:text-base lg:text-[17px] leading-[1.85] ${mutedTextClass}`}>
+                    {copy.hero.description}
+                  </p>
+                  <p className="text-xs sm:text-sm font-black">{copy.hero.companionLine}</p>
+                </div>
+
+                {/* 3 Direct Interactive CTAs */}
+                <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection('guided-discovery')}
+                    className={`px-6 py-3.5 rounded-xl text-sm sm:text-base font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-sm ${accent.primaryBtn}`}
+                  >
+                    <Compass className="w-4 h-4" />
+                    <span>{copy.hero.ctaDiscoverRole}</span>
+                    <DirectionalArrow className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onOpenRegister}
+                    className={`px-6 py-3.5 rounded-xl text-sm sm:text-base font-black border flex items-center justify-center gap-2 transition cursor-pointer ${
+                      isObsidianPreset
+                        ? 'bg-[#122042] border-[#294072] text-[#F7F3EA] hover:border-[#FBBF24]'
+                        : 'bg-[#0C1427] text-[#F7F3EA] border-[#0C1427] hover:bg-[#162344] dark:bg-[#F7F3EA] dark:text-[#0C1427] dark:border-[#F7F3EA] dark:hover:bg-[#E7DFCE]'
+                    }`}
+                  >
+                    <Sparkles className="w-4 h-4 text-[#FBBF24] dark:text-[#EA580C]" />
+                    <span>{copy.hero.ctaStartJourney}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onOpenLogin}
+                    className={`px-5 py-3.5 rounded-xl text-sm font-black border flex items-center justify-center gap-2 transition cursor-pointer ${
+                      isObsidianPreset
+                        ? 'border-[#294072] text-[#CBD5E1] hover:border-[#FBBF24] hover:text-white'
+                        : 'bg-[#F7F3EA]/80 dark:bg-[#0D162E] border-[#C9BFA9] dark:border-[#2A3F6E] hover:border-[#EA580C]'
+                    }`}
+                  >
+                    <span>{copy.hero.ctaEnterWorld}</span>
+                  </button>
+                </div>
+
+                {/* Clean Single Trust Line */}
                 <div
-                  className={`relative w-full min-h-[340px] sm:min-h-[430px] rounded-2xl overflow-hidden border flex flex-col justify-between ${surfaceCardClass}`}
+                  className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-1 text-xs sm:text-[13px] font-bold ${mutedTextClass}`}
+                >
+                  {copy.hero.trustLine.map((item, idx) => (
+                    <React.Fragment key={item}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        {item}
+                      </span>
+                      {idx < copy.hero.trustLine.length - 1 && (
+                        <span aria-hidden="true" className="opacity-35 hidden sm:inline">
+                          ·
+                        </span>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+
+                {!isPreview && (
+                  <div className="pt-0.5 flex flex-wrap items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsWelcomeGateOpen(true)}
+                      className={`text-xs font-extrabold underline underline-offset-4 cursor-pointer inline-flex items-center gap-1.5 ${accent.primaryText}`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>{copy.hero.welcomeGateLink}</span>
+                    </button>
+                  </div>
+                )}
+              </motion.div>
+
+              {/* Editorial Craft Scene + Original Falcon & Shamousa Mascots */}
+              <motion.div
+                initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.55, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+                className={`${isConversionPreset ? 'lg:col-span-5' : 'lg:col-span-6'}`}
+              >
+                <div
+                  className={`relative w-full min-h-[360px] sm:min-h-[455px] rounded-3xl overflow-hidden border shadow-xl flex flex-col justify-between ${surfaceCardClass}`}
                 >
                   {!heroImgFailed ? (
                     <img
                       src={heroImageSrc}
-                      alt="مشغل حرفي مصري منظم يعمل بمنظومة الشمساوية"
+                      alt={
+                        isRTL
+                          ? 'مشهد يجمع الحِرفة اليدوية والتجارة والتكنولوجيا في منظومة الشمساوية'
+                          : 'Artisan craft, commerce and technology united in alSHamsawiyah'
+                      }
                       referrerPolicy="no-referrer"
                       onError={() => setHeroImgFailed(true)}
                       className="absolute inset-0 w-full h-full object-cover"
@@ -633,942 +932,1370 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div className="absolute inset-0 bg-gradient-to-br from-[#1A2B54] via-[#0D162E] to-[#431407]" />
                   )}
 
-                  {/* غطاء تباين ناعم لقراءة النص دون تشتيت الصورة */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#060B18]/92 via-[#060B18]/35 to-[#060B18]/20" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#060B18]/92 via-[#060B18]/25 to-[#060B18]/30" />
 
-                  {/* الشريط العلوي داخل الإطار */}
                   <div className="relative z-10 p-4 sm:p-6 flex items-center justify-between gap-3">
-                    <span className="text-xs font-black text-[#F7F3EA]/90 tracking-wide">
-                      منظومة الشمساوية · التشغيل اليومي الموحد
+                    <span className="text-xs font-black text-[#F7F3EA]/95 tracking-wide drop-shadow-xs">
+                      {copy.hero.visualCaptionTop}
                     </span>
-                    <span className="text-xs font-mono tabular-nums font-bold text-[#FBBF24]">
-                      TH0001.01#B003
+                    <span className="text-xs font-mono font-bold text-[#FBBF24] bg-[#060B18]/65 backdrop-blur-sm px-2.5 py-1 rounded-lg border border-white/15">
+                      alSHamsawiyah
                     </span>
                   </div>
 
-                  {/* بطاقة لقطة تشغيلية نظيفة أسفل الصورة */}
-                  <div className="relative z-10 p-4 sm:p-6 space-y-3">
-                    <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
-                      <div className="rounded-xl bg-[#081024]/82 backdrop-blur-md border border-white/15 p-3">
-                        <span className="block text-[11px] font-bold text-[#CBD5E1]">خامة موحدة</span>
-                        <span className="block text-base sm:text-lg font-black text-white font-mono tabular-nums mt-0.5">
-                          +395
+                  <div className="relative z-10 p-4 sm:p-6 space-y-4">
+                    <div className="flex items-end justify-between gap-4">
+                      <motion.div
+                        animate={prefersReducedMotion ? undefined : { y: [0, -5, 0] }}
+                        transition={{ duration: 4.2, repeat: Infinity, ease: 'easeInOut' }}
+                        className="flex flex-col items-center"
+                      >
+                        <div className="w-24 h-24 sm:w-32 sm:h-32 flex items-end justify-center">
+                          <FalconMascotFull isDark height="100%" className="w-full h-full" />
+                        </div>
+                        <span className="mt-1 px-2.5 py-0.5 rounded-lg bg-[#060B18]/80 backdrop-blur-sm border border-[#FBBF24]/35 text-[11px] font-black text-[#FBBF24]">
+                          {copy.hero.falconCaption}
                         </span>
-                      </div>
-                      <div className="rounded-xl bg-[#081024]/82 backdrop-blur-md border border-white/15 p-3">
-                        <span className="block text-[11px] font-bold text-[#CBD5E1]">ورشة ومعادلة</span>
-                        <span className="block text-base sm:text-lg font-black text-[#FBBF24] font-mono tabular-nums mt-0.5">
-                          +50
+                      </motion.div>
+
+                      <motion.div
+                        animate={prefersReducedMotion ? undefined : { y: [0, -5, 0] }}
+                        transition={{ duration: 4.2, delay: 0.6, repeat: Infinity, ease: 'easeInOut' }}
+                        className="flex flex-col items-center"
+                      >
+                        <div className="w-24 h-24 sm:w-32 sm:h-32 flex items-end justify-center">
+                          <ShamousaMascotFull isDark height="100%" className="w-full h-full" />
+                        </div>
+                        <span className="mt-1 px-2.5 py-0.5 rounded-lg bg-[#060B18]/80 backdrop-blur-sm border border-[#FBBF24]/35 text-[11px] font-black text-[#FBBF24]">
+                          {copy.hero.shamousaCaption}
                         </span>
-                      </div>
-                      <div className="rounded-xl bg-[#081024]/82 backdrop-blur-md border border-white/15 p-3">
-                        <span className="block text-[11px] font-bold text-[#CBD5E1]">المتجر والسوق</span>
-                        <span className="block text-base sm:text-lg font-black text-emerald-400 mt-0.5">
-                          متصل حي
-                        </span>
-                      </div>
+                      </motion.div>
                     </div>
 
-                    <div className="rounded-xl bg-[#081024]/85 backdrop-blur-md border border-white/15 p-3.5 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs font-black text-white truncate">
-                          الأرشيف (كارت الصنف) ← الكتالوج ← متجرك ← سوق الشمساوية
-                        </p>
-                        <p className="text-[11px] text-[#CBD5E1] mt-0.5">
-                          حماية كاملة للهامش · فروع ومخازن الموردين · ذكاء اصطناعي فوري
-                        </p>
-                      </div>
-                      <div className="flex items-center -space-x-2 space-x-reverse shrink-0">
-                        <div className="w-9 h-9 rounded-full bg-[#132040] border border-white/20 flex items-center justify-center overflow-hidden p-1">
-                          <FalconMascotFull className="w-full h-full object-contain" isDark />
-                        </div>
-                        <div className="w-9 h-9 rounded-full bg-[#132040] border border-white/20 flex items-center justify-center overflow-hidden p-1">
-                          <ShamousaMascotFull className="w-full h-full object-contain" isDark />
-                        </div>
-                      </div>
+                    <div className="rounded-2xl bg-[#081024]/82 backdrop-blur-md border border-white/15 p-3.5 sm:p-4">
+                      <p className="text-xs sm:text-sm font-black text-white leading-snug">
+                        {copy.hero.visualCaptionBottomTitle}
+                      </p>
+                      <p className="text-[11px] sm:text-xs text-[#CBD5E1] mt-1 leading-relaxed">
+                        {copy.hero.visualCaptionBottomSub}
+                      </p>
                     </div>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             </div>
 
-            {/* شريط الأرقام الموثقة (4-Column Quantitative Proof Strip) */}
-            <div className="mt-10 sm:mt-14 pt-8 border-t border-[#D4CCBC] dark:border-[#1E2E52] grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-              {heroMetrics.map((m) => (
-                <div key={m.id} className="space-y-1">
-                  <div className={`text-2xl sm:text-3xl font-black font-mono tabular-nums ${accent.primaryText}`}>
-                    {m.value}
-                  </div>
-                  <div className="text-sm font-black">{m.label}</div>
-                  <p className={`text-xs leading-relaxed ${mutedTextClass}`}>{m.detail}</p>
+            {/* 4 Factual Architectural Pillars (Zero Unverified Numbers) */}
+            <div
+              className={`mt-10 sm:mt-14 pt-8 border-t ${dividerBorderClass} grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-7`}
+            >
+              {copy.hero.pillars.map((p) => (
+                <div key={p.id} className="space-y-1.5">
+                  <span className={`text-[11px] font-extrabold block ${accent.primaryText}`}>
+                    {p.badge}
+                  </span>
+                  <div className="text-sm sm:text-[15px] font-black">{p.title}</div>
+                  <p className={`text-xs leading-relaxed ${mutedTextClass}`}>{p.detail}</p>
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* ==================== 3. القسم 01: منظومة الخامات الموحدة والورش الـ 14 ==================== */}
-        {unifiedSec.visible && (
-          <section id="unified-engine" className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-                <div className="space-y-3 max-w-3xl">
-                  <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                    {unifiedSec.badge}
-                  </p>
-                  <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
-                    {unifiedSec.title}
-                  </h2>
-                  <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
-                    {unifiedSec.subtitle}
-                  </p>
-                </div>
+        {/* ==================== 3. تجربة اكتشاف الزائر (5-Role Guided Discovery) ==================== */}
+        <GuidedDiscoverySection
+          copy={copy.discovery}
+          isRTL={isRTL}
+          isObsidianPreset={isObsidianPreset}
+          surfaceCardClass={surfaceCardClass}
+          mutedTextClass={mutedTextClass}
+          dividerBorderClass={dividerBorderClass}
+          accent={accent}
+          flags={flags}
+          onOpenLogin={onOpenLogin}
+          onOpenRegister={onOpenRegister}
+          onOpenRegisterSupplier={onOpenRegisterSupplier}
+          onOpenMarketplace={handleOpenMarketplace}
+          onOpenSuppliersMarket={handleOpenSuppliersMarket}
+          onStartBeginner={() => handleStartWithSkillLevel('beginner')}
+          onExploreExpertInFamily={() => {
+            setLandingSkillLevel('expert_trainer');
+            scrollToSection('family-table');
+          }}
+          onExploreFamily={() => scrollToSection('family-table')}
+        />
 
-                <button
-                  type="button"
-                  onClick={onOpenRegister}
-                  className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 shrink-0 self-start lg:self-end transition cursor-pointer ${accent.primaryBtn}`}
-                >
-                  <Calculator className="w-4 h-4" />
-                  <span>{unifiedSec.ctaText}</span>
-                </button>
-              </div>
+        {/* ==================== 4. سوق الشمساوية وسوق الموردين (Connected Two-Market Ecosystem) ==================== */}
+        <section id="markets" className={`py-16 sm:py-24 border-b ${dividerBorderClass}`}>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10 sm:space-y-12">
+            <motion.div
+              initial={revealInitial}
+              whileInView={revealAnimate}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={revealTransition}
+              className="max-w-3xl space-y-3"
+            >
+              <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
+                {copy.marketsSection.eyebrow}
+              </p>
+              <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
+                {copy.marketsSection.title}
+              </h2>
+              <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
+                {copy.marketsSection.subtitle}
+              </p>
+            </motion.div>
 
-              {/* شبكة غير متماثلة: بطاقة الخامات المرئية + بطاقات القواعد الهندسية الأربع */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-                {/* الصورة التحريرية للخامات + تفكيك الكود الرباعي */}
-                <div className={`lg:col-span-5 rounded-2xl border overflow-hidden flex flex-col ${surfaceCardClass}`}>
-                  <div className="relative h-60 sm:h-64 w-full overflow-hidden bg-[#132040]">
-                    {!materialsImgFailed ? (
-                      <img
-                        src={materialsImageSrc}
-                        alt="خامات حرفية موحدة: خيوط، خرز، ريزن، جلود، أخشاب وأدوات قياس"
-                        referrerPolicy="no-referrer"
-                        onError={() => setMaterialsImgFailed(true)}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-[#292524] to-[#0C1427]" />
-                    )}
-                  </div>
+            {/* Interactive 3-Node Connected Economy Cycle */}
+            <div className={`rounded-3xl border p-5 sm:p-7 space-y-5 ${surfaceCardClass}`}>
+              <p className={`text-xs sm:text-sm font-black ${accent.primaryText}`}>
+                {copy.marketsSection.cycleTitle}
+              </p>
 
-                  <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-5">
-                    <div className="space-y-2">
-                      <span className={`text-xs font-extrabold ${accent.primaryText}`}>
-                        تشريح الكود الهندسي الرباعي للخامات
-                      </span>
-                      <div
-                        dir="ltr"
-                        className="p-3.5 rounded-xl bg-[#0C1427] text-[#F7F3EA] font-mono text-sm sm:text-base font-black tracking-wider flex items-center justify-between"
-                      >
-                        <span>
-                          <span className="text-[#FBBF24]">TH</span>
-                          <span className="text-sky-400">0001</span>
-                          <span className="text-emerald-400">.01</span>
-                          <span className="text-orange-400">#B003</span>
-                        </span>
-                        <span className="text-[11px] font-sans text-[#94A3B8]">4 مستويات</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2.5 text-xs">
-                      <div className="p-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E]">
-                        <span className="font-mono font-black text-[#C2410C] dark:text-[#FBBF24]">TH</span>
-                        <span className={`block mt-0.5 ${mutedTextClass}`}>القسم من 12 قسماً</span>
-                      </div>
-                      <div className="p-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E]">
-                        <span className="font-mono font-black text-sky-700 dark:text-sky-400">0001</span>
-                        <span className={`block mt-0.5 ${mutedTextClass}`}>الخامة الرئيسية</span>
-                      </div>
-                      <div className="p-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E]">
-                        <span className="font-mono font-black text-emerald-700 dark:text-emerald-400">.01</span>
-                        <span className={`block mt-0.5 ${mutedTextClass}`}>المقاس / السمك / السعة</span>
-                      </div>
-                      <div className="p-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E]">
-                        <span className="font-mono font-black text-orange-700 dark:text-orange-400">#B003</span>
-                        <span className={`block mt-0.5 ${mutedTextClass}`}>الماركة + قاموس AL</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 4 بطاقات معمارية للقواعد المصححة والأقسام */}
-                <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-                  {unifiedSec.cards.map((card, index) => (
-                    <article
-                      key={card.id}
-                      className={`rounded-2xl border p-5 sm:p-6 flex flex-col justify-between space-y-4 ${surfaceCardClass}`}
-                    >
-                      <div className="space-y-3">
-                        <span className={`text-xs font-mono font-black tabular-nums ${accent.primaryText}`}>
-                          0{index + 1}
-                        </span>
-                        <h3 className="text-base sm:text-lg font-black leading-snug">
-                          {card.title}
-                        </h3>
-                        <p className={`text-xs sm:text-sm leading-relaxed ${mutedTextClass}`}>
-                          {card.description}
-                        </p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-
-              {/* شريط المسار الإنتاجي الستة (من الخامة إلى سوق الشمساوية) */}
-              <div className={`rounded-2xl border p-5 sm:p-6 space-y-4 ${surfaceCardClass}`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm sm:text-base font-black">
-                    تسلسل التشغيل المعتمد داخل المنظومة (6 مراحل مترابطة بدون تكرار إدخال)
-                  </h3>
-                  <span className={`text-xs font-bold ${mutedTextClass}`}>
-                    البيانات تتدفق تلقائياً مع حفظ كامل لقرار الفنان
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                  {unifiedSec.pipelineSteps.map((step, i) => (
-                    <div
-                      key={i}
-                      className="rounded-xl border border-[#D4CCBC] dark:border-[#22355E] p-3 flex flex-col justify-between gap-2"
-                    >
-                      <span className={`text-xs font-mono font-black tabular-nums ${accent.primaryText}`}>
-                        المرحلة 0{i + 1}
-                      </span>
-                      <span className="text-xs sm:text-[13px] font-black leading-snug">{step}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* ==================== 4. القسم 02: المالية وبطاقة «هلخصهالك» التفاعلية ==================== */}
-        {cms.sections.safeAccounts.visible && (
-          <section id="safe-accounts" className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                <div className="lg:col-span-5 space-y-4">
-                  <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                    {cms.sections.safeAccounts.badge}
-                  </p>
-                  <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
-                    {cms.sections.safeAccounts.title}
-                  </h2>
-                  <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
-                    {cms.sections.safeAccounts.subtitle}
-                  </p>
-                  <div className="pt-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                {copy.marketsSection.cycleNodes.map((node) => {
+                  const isActive = activeCycleNode === node.id;
+                  return (
                     <button
+                      key={node.id}
                       type="button"
-                      onClick={onOpenRegister}
-                      className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
+                      onClick={() => setActiveCycleNode(node.id)}
+                      className={`rounded-2xl border p-4 text-start transition-all cursor-pointer space-y-1.5 ${
+                        isActive
+                          ? 'bg-[#0C1427] text-[#F7F3EA] border-[#EA580C] shadow-md'
+                          : isObsidianPreset
+                            ? 'bg-[#091124] border-[#21335C] hover:border-[#FBBF24]/60'
+                            : 'bg-[#EFE9DC]/65 dark:bg-[#091124] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
+                      }`}
                     >
-                      <Wallet className="w-4 h-4" />
-                      <span>{cms.sections.safeAccounts.ctaText}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* معاينة تفاعلية حية لبطاقة «هلخصهالك» (تبديل: ورشة حرفية vs مورد خامات) */}
-                <div className={`lg:col-span-7 rounded-2xl border p-5 sm:p-6 space-y-5 ${surfaceCardClass}`}>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#D4CCBC] dark:border-[#22355E]">
-                    <div>
-                      <h3 className="text-base sm:text-lg font-black">معاينة حية لبطاقة «هلخصهالك»</h3>
-                      <p className={`text-xs mt-0.5 ${mutedTextClass}`}>
-                        اختر نوع النشاط لترى كيف تلخص المنظومة موقفك المالي في 30 ثانية
-                      </p>
-                    </div>
-                    <div className="inline-flex p-1 rounded-xl bg-[#E8E0D1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] self-start">
-                      <button
-                        type="button"
-                        onClick={() => setSummaryMode('workshop')}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
-                          summaryMode === 'workshop' ? accent.activeTab : mutedTextClass
-                        }`}
-                      >
-                        وضع الورشة الحرفية
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSummaryMode('supplier')}
-                        className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
-                          summaryMode === 'supplier' ? accent.activeTab : mutedTextClass
-                        }`}
-                      >
-                        وضع مورد الخامات
-                      </button>
-                    </div>
-                  </div>
-
-                  {summaryMode === 'workshop' ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                      <div className="p-4 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
-                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">معانا كام وفين الآن</span>
-                        <div className="text-xl font-black font-mono tabular-nums">18,450 ج.م</div>
-                        <p className={`text-[11px] ${mutedTextClass}`}>
-                          درج الورشة 4,200 · إنستاباي 11,050 · محفظة 3,200
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
-                        <span className="text-xs font-bold text-amber-700 dark:text-amber-400">لينا كام بره عند الزباين</span>
-                        <div className="text-xl font-black font-mono tabular-nums">3,850 ج.م</div>
-                        <p className={`text-[11px] ${mutedTextClass}`}>
-                          3 عملاء · أعلى تأخير 9 أيام · زر تذكير واتساب مهذب جاهز
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
-                        <span className="text-xs font-bold text-rose-700 dark:text-rose-400">علينا كام للموردين</span>
-                        <div className="text-xl font-black font-mono tabular-nums">2,100 ج.م</div>
-                        <p className={`text-[11px] ${mutedTextClass}`}>
-                          فاتورة خيوط آجلة تستحق خلال 4 أيام
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
-                        <span className="text-xs font-bold text-sky-700 dark:text-sky-400">حركة المخزون (طاير vs نايم)</span>
-                        <div className="text-sm font-black">الأسرع: خيط 3 مم بيج · الراكد: خرز أزرق 16 مم</div>
-                        <p className={`text-[11px] ${mutedTextClass}`}>
-                          تنبيه تلقائي قبل نفاد الخامة الأسرع طلباً
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                      <div className="p-4 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
-                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">سيولة خزينة المالك والفروع</span>
-                        <div className="text-xl font-black font-mono tabular-nums">142,800 ج.م</div>
-                        <p className={`text-[11px] ${mutedTextClass}`}>
-                          الخزينة الرئيسية 94,000 · فرع وسط البلد 29,300 · فرع المعادي 19,500
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
-                        <span className="text-xs font-bold text-amber-700 dark:text-amber-400">لينا بره عند الورش والتجار</span>
-                        <div className="text-xl font-black font-mono tabular-nums">31,400 ج.م</div>
-                        <p className={`text-[11px] ${mutedTextClass}`}>
-                          11 ورشة · تحذير بيع آجل لورشتين + تذكير واتساب مهذب
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
-                        <span className="text-xs font-bold text-rose-700 dark:text-rose-400">علينا للمصانع والمستوردين</span>
-                        <div className="text-xl font-black font-mono tabular-nums">48,000 ج.م</div>
-                        <p className={`text-[11px] ${mutedTextClass}`}>
-                          شحنة غزل قطن وريزن · توريدات مجدولة بدون انكشاف سيولة
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
-                        <span className="text-xs font-bold text-sky-700 dark:text-sky-400">تحويلات قيد الاستلام بين الفروع</span>
-                        <div className="text-sm font-black">3 شحنات معلقة بانتظار تأكيد أمين الفرع</div>
-                        <p className={`text-[11px] ${mutedTextClass}`}>
-                          كل حركة مسجلة بكارت الصنف — صفر ضياع بين المخزن والمحلات
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* البطاقات الأربع الشارحة للنظام المالي */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-                {cms.sections.safeAccounts.cards.map((card, i) => (
-                  <div key={card.id} className={`rounded-2xl border p-5 space-y-2.5 ${surfaceCardClass}`}>
-                    <span className={`text-xs font-mono font-black tabular-nums ${accent.primaryText}`}>
-                      0{i + 1}
-                    </span>
-                    <h3 className="text-base font-black leading-snug">{card.title}</h3>
-                    <p className={`text-xs sm:text-[13px] leading-relaxed ${mutedTextClass}`}>
-                      {card.description}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* ==================== 5. القسم 03: صقر الشمساوية وشموسة AI ==================== */}
-        {cms.sections.aiPartners.visible && flags.aiAssistantsEnabled && (
-          <section id="ai-partners" className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-              <div className="space-y-3 max-w-3xl">
-                <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                  {cms.sections.aiPartners.badge}
-                </p>
-                <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
-                  {cms.sections.aiPartners.title}
-                </h2>
-                <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
-                  {cms.sections.aiPartners.subtitle}
-                </p>
-              </div>
-
-              {/* بطاقتا الشريكين: صقر + شموسة */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
-                <div className={`rounded-2xl border p-6 flex flex-col sm:flex-row items-start gap-5 ${surfaceCardClass}`}>
-                  <div className="w-20 h-20 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-2 shrink-0 flex items-center justify-center">
-                    <FalconMascotFull className="w-full h-full object-contain" isDark={isObsidianPreset || isDarkMode} />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <h3 className="text-lg font-black">{cms.sections.aiPartners.falconName}</h3>
-                      <span className={`text-xs font-extrabold ${accent.primaryText}`}>
-                        · {cms.sections.aiPartners.falconRoleBadge}
-                      </span>
-                    </div>
-                    <p className={`text-xs sm:text-sm leading-relaxed ${mutedTextClass}`}>
-                      {cms.sections.aiPartners.falconDescription}
-                    </p>
-                    <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 pt-1">
-                      {cms.sections.aiPartners.falconFootnote}
-                    </p>
-                  </div>
-                </div>
-
-                <div className={`rounded-2xl border p-6 flex flex-col sm:flex-row items-start gap-5 ${surfaceCardClass}`}>
-                  <div className="w-20 h-20 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-2 shrink-0 flex items-center justify-center">
-                    <ShamousaMascotFull className="w-full h-full object-contain" isDark={isObsidianPreset || isDarkMode} />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <h3 className="text-lg font-black">{cms.sections.aiPartners.shamousaName}</h3>
-                      <span className={`text-xs font-extrabold ${accent.primaryText}`}>
-                        · {cms.sections.aiPartners.shamousaRoleBadge}
-                      </span>
-                    </div>
-                    <p className={`text-xs sm:text-sm leading-relaxed ${mutedTextClass}`}>
-                      {cms.sections.aiPartners.shamousaDescription}
-                    </p>
-                    <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 pt-1">
-                      {cms.sections.aiPartners.shamousaFootnote}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* محاكي تفاعلي للردود الحية (4 سيناريوهات حقيقية) */}
-              <div className={`rounded-2xl border p-5 sm:p-7 space-y-5 ${surfaceCardClass}`}>
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-center gap-2.5">
-                    <Bot className={`w-5 h-5 ${accent.primaryText}`} />
-                    <h3 className="text-base sm:text-lg font-black">
-                      {cms.sections.aiPartners.simulatorTitle}
-                    </h3>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {(Object.keys(simulatorScenarios) as Array<keyof typeof simulatorScenarios>).map((key) => (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => setSimQuestion(key)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer border ${
-                          simQuestion === key
-                            ? `${accent.activeTab} border-transparent`
-                            : 'border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
-                        }`}
-                      >
-                        {simulatorScenarios[key].tabLabel}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-                  <div className="lg:col-span-4 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] p-4 flex flex-col justify-between gap-3">
-                    <div className="space-y-2">
-                      <span className={`text-[11px] font-bold ${mutedTextClass}`}>سؤال الحرفي أو المورد</span>
-                      <p className="text-sm font-black leading-relaxed">«{currentSim.userQuery}»</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={onOpenRegister}
-                      className={`w-full py-2.5 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
-                    >
-                      <span>{cms.sections.aiPartners.simulatorCtaText}</span>
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="lg:col-span-8 rounded-xl bg-[#0C1427] text-[#F7F3EA] p-5 space-y-3 border border-[#22355E]">
-                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-white/10">
-                      <span className="text-sm font-black text-[#FBBF24]">
-                        {currentSim.speaker} · {currentSim.role}
-                      </span>
-                      <span className="text-[11px] font-mono text-emerald-400">استجابة فورية</span>
-                    </div>
-                    <p className="text-xs sm:text-sm font-bold text-white">{currentSim.replyTitle}</p>
-                    <ul className="space-y-2 text-xs sm:text-[13px] text-[#CBD5E1] leading-relaxed">
-                      {currentSim.bullets.map((b, i) => (
-                        <li key={i} className="flex items-start gap-2">
-                          <Check className="w-4 h-4 text-[#FBBF24] shrink-0 mt-0.5" />
-                          <span>{b}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="pt-2 border-t border-white/10 text-[11px] font-bold text-emerald-300">
-                      {currentSim.actionNote}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* ==================== 6. القسم 04: دورة حياة المشغولة + جناح المتجر والكتالوج وCRM ==================== */}
-        {cms.sections.craftLifecycle.visible && (
-          <section id="craft-lifecycle" className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
-              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-                <div className="space-y-3 max-w-3xl">
-                  <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                    {cms.sections.craftLifecycle.badge}
-                  </p>
-                  <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
-                    {cms.sections.craftLifecycle.title}
-                  </h2>
-                  <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
-                    {cms.sections.craftLifecycle.subtitle}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={onOpenRegister}
-                  className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 shrink-0 self-start lg:self-end transition cursor-pointer ${accent.primaryBtn}`}
-                >
-                  <span>{cms.sections.craftLifecycle.ctaText}</span>
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* 4 خطوات مرقمة لدورة الحياة */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-                {cms.sections.craftLifecycle.steps.map((st) => (
-                  <div key={st.id} className={`rounded-2xl border p-5 sm:p-6 space-y-3 ${surfaceCardClass}`}>
-                    <span className={`text-xl font-mono font-black tabular-nums ${accent.primaryText}`}>
-                      {st.stepNumber}
-                    </span>
-                    <h3 className="text-base font-black">{st.title}</h3>
-                    <p className={`text-xs sm:text-sm leading-relaxed ${mutedTextClass}`}>{st.description}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* عرض مبوّب تفاعلي لأدوات الورشة الأربعة (المتجر والسوق / الكتالوج / CRM / الصيانة) */}
-              {activeSuite && (
-                <div className={`rounded-2xl border p-5 sm:p-8 space-y-6 ${surfaceCardClass}`}>
-                  <div className="flex flex-wrap items-center gap-2 pb-4 border-b border-[#D4CCBC] dark:border-[#22355E]">
-                    {suiteTabs.map((tab) => {
-                      const Icon = tab.icon;
-                      const isActive = tab.id === activeSuite.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setActiveSuiteTab(tab.id)}
-                          className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${
-                            isActive
-                              ? accent.activeTab
-                              : 'border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className={`text-xs font-mono font-black ${
+                            isActive ? 'text-[#FBBF24]' : accent.primaryText
                           }`}
                         >
-                          <Icon className="w-4 h-4" />
-                          <span>{tab.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-                    <div className="lg:col-span-7 space-y-4">
-                      <p className={`text-xs font-extrabold ${accent.primaryText}`}>
-                        {activeSuite.data.badge}
-                      </p>
-                      <h3 className="text-xl sm:text-3xl font-black leading-tight [text-wrap:balance]">
-                        {activeSuite.data.titleLine1}{' '}
-                        <span className={accent.primaryText}>{activeSuite.data.titleHighlight}</span>
-                      </h3>
-                      <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
-                        {activeSuite.data.description}
-                      </p>
-                      <ul className="space-y-2.5 pt-1">
-                        {activeSuite.data.bullets.map((bullet, idx) => (
-                          <li key={idx} className="flex items-start gap-2.5 text-xs sm:text-sm font-bold">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                            <span>{bullet}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      <div className="pt-2">
-                        <button
-                          type="button"
-                          onClick={onOpenRegister}
-                          className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
+                          {node.step}
+                        </span>
+                        <span
+                          className={`text-[11px] font-extrabold ${
+                            isActive ? 'text-[#CBD5E1]' : mutedTextClass
+                          }`}
                         >
-                          <span>{activeSuite.data.ctaText}</span>
-                          <ArrowLeft className="w-4 h-4" />
-                        </button>
+                          {node.role}
+                        </span>
                       </div>
-                    </div>
+                      <div className="text-sm sm:text-[15px] font-black leading-snug">{node.title}</div>
+                    </button>
+                  );
+                })}
+              </div>
 
-                    <div className="lg:col-span-5 space-y-3">
-                      {activeSuite.metrics.map((m, i) => (
-                        <div
-                          key={i}
-                          className="rounded-xl border border-[#D4CCBC] dark:border-[#22355E] p-4 flex items-center justify-between gap-3"
-                        >
-                          <span className={`text-xs font-bold ${mutedTextClass}`}>{m.k}</span>
-                          <span className="text-xs sm:text-sm font-black">{m.v}</span>
-                        </div>
-                      ))}
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentCycle.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18 }}
+                  className={`rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    isObsidianPreset
+                      ? 'bg-[#091124] border-[#21335C]'
+                      : 'bg-white/75 dark:bg-[#091124] border-[#D4CCBC] dark:border-[#22355E]'
+                  }`}
+                >
+                  <p className="text-xs sm:text-sm font-bold leading-relaxed">
+                    <span className={`${accent.primaryText} font-black`}>{currentCycle.role}: </span>
+                    {currentCycle.detail}
+                  </p>
+                  <span className="text-[11px] font-mono font-black opacity-50 shrink-0">
+                    {isRTL ? 'المورد ← الفنان ← العميل' : 'Supplier → Artisan → Customer'}
+                  </span>
+                </motion.div>
+              </AnimatePresence>
+            </div>
+
+            {/* Two Market Cards */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 items-stretch">
+              {/* Marketplace 1: سوق الشمساوية */}
+              <motion.div
+                initial={revealInitial}
+                whileInView={revealAnimate}
+                viewport={{ once: true, amount: 0.15 }}
+                transition={revealTransition}
+                className={`rounded-3xl border p-6 sm:p-8 flex flex-col justify-between gap-6 ${surfaceCardClass}`}
+              >
+                <div className="space-y-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1.5">
+                      <span className={`text-xs font-extrabold ${accent.primaryText}`}>
+                        {copy.marketsSection.alshamsMarket.badge}
+                      </span>
+                      <h3 className="text-2xl sm:text-3xl font-black">
+                        {copy.marketsSection.alshamsMarket.title}
+                      </h3>
+                      <p className="text-sm sm:text-base font-bold">
+                        {copy.marketsSection.alshamsMarket.tagline}
+                      </p>
+                    </div>
+                    <div
+                      className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${accent.softSurface} ${accent.primaryText}`}
+                    >
+                      <Store className="w-6 h-6" />
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
 
-        {/* ==================== 7. القسم 05: بوابة موردي وتجار ومصانع الخامات (B2B & B2C) ==================== */}
-        {cms.sections.suppliersPromo.visible && flags.supplierLandingPromoEnabled && (
-          <section id="suppliers-promo" className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-stretch">
-                {/* نص ومزايا بوابة الموردين */}
-                <div className="lg:col-span-6 flex flex-col justify-center space-y-5">
-                  <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                    {cms.sections.suppliersPromo.badge}
-                  </p>
-                  <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
-                    {cms.sections.suppliersPromo.titleLine1}{' '}
-                    <span className={accent.primaryText}>{cms.sections.suppliersPromo.titleHighlight}</span>
-                  </h2>
-                  <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
-                    {cms.sections.suppliersPromo.description}
-                  </p>
-
-                  <ul className="space-y-3 pt-1">
-                    {cms.sections.suppliersPromo.bullets.map((b, i) => (
-                      <li key={i} className="flex items-start gap-2.5 text-xs sm:text-sm font-bold leading-relaxed">
+                  <ul className="space-y-2.5 text-xs sm:text-sm">
+                    {copy.marketsSection.alshamsMarket.bullets.map((b) => (
+                      <li key={b} className="flex items-start gap-2.5">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                        <span>{b}</span>
+                        <span className={mutedTextClass}>{b}</span>
                       </li>
                     ))}
                   </ul>
 
-                  <div className="grid grid-cols-3 gap-3 pt-2">
-                    <div className={`rounded-xl border p-3 ${surfaceCardClass}`}>
-                      <Building2 className={`w-4 h-4 mb-1.5 ${accent.primaryText}`} />
-                      <div className="text-xs font-black">فروع ومخزن مركزي</div>
+                  {/* Live Real Products Preview (only when artisanMarketplaceEnabled & real items exist) */}
+                  {flags.artisanMarketplaceEnabled && liveProducts.length > 0 ? (
+                    <div className="space-y-2.5 pt-2">
+                      <span className={`text-[11px] font-extrabold block ${accent.primaryText}`}>
+                        {copy.marketsSection.alshamsMarket.liveBadge}
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {liveProducts.map((prod) => (
+                          <button
+                            key={prod.id}
+                            type="button"
+                            onClick={() => handleOpenStore(prod.store_slug)}
+                            className={`rounded-2xl border p-2.5 text-start transition hover:border-[#EA580C] cursor-pointer flex flex-col justify-between gap-2 ${
+                              isObsidianPreset
+                                ? 'bg-[#091124] border-[#21335C]'
+                                : 'bg-[#EFE9DC]/65 dark:bg-[#091124] border-[#D4CCBC] dark:border-[#22355E]'
+                            }`}
+                          >
+                            {prod.image_url ? (
+                              <img
+                                src={prod.image_url}
+                                alt={prod.product_name}
+                                className="w-full h-24 object-cover rounded-xl bg-[#132040]"
+                              />
+                            ) : (
+                              <div className="w-full h-24 rounded-xl bg-gradient-to-br from-[#EA580C]/15 to-[#0C1427]/20 flex items-center justify-center">
+                                <ShoppingBag className="w-6 h-6 text-[#EA580C]" />
+                              </div>
+                            )}
+                            <div className="space-y-0.5 min-w-0">
+                              <p className="text-xs font-black truncate">{prod.product_name}</p>
+                              <p className={`text-[11px] truncate ${mutedTextClass}`}>{prod.brand_name}</p>
+                              {prod.store_price ? (
+                                <p className={`text-xs font-mono font-black ${accent.primaryText}`}>
+                                  {prod.store_price.toLocaleString()} {isRTL ? 'ج.م' : 'EGP'}
+                                </p>
+                              ) : null}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className={`rounded-xl border p-3 ${surfaceCardClass}`}>
-                      <Printer className={`w-4 h-4 mb-1.5 ${accent.primaryText}`} />
-                      <div className="text-xs font-black">كاشير وريسيت 80 مم</div>
-                    </div>
-                    <div className={`rounded-xl border p-3 ${surfaceCardClass}`}>
-                      <ArrowLeftRight className={`w-4 h-4 mb-1.5 ${accent.primaryText}`} />
-                      <div className="text-xs font-black">تحويل على مرحلتين</div>
-                    </div>
-                  </div>
+                  ) : (
+                    marketsLoaded && (
+                      <div
+                        className={`rounded-2xl border p-4 text-xs font-bold leading-relaxed ${
+                          isObsidianPreset
+                            ? 'bg-[#091124] border-[#21335C] text-[#A8B7D1]'
+                            : 'bg-[#EFE9DC]/65 dark:bg-[#091124] border-[#D4CCBC] dark:border-[#22355E] text-[#475569] dark:text-[#94A3B8]'
+                        }`}
+                      >
+                        {flags.artisanMarketplaceEnabled
+                          ? copy.marketsSection.alshamsMarket.emptyNote
+                          : copy.marketsSection.alshamsMarket.disabledNote}
+                      </div>
+                    )
+                  )}
+                </div>
 
-                  <div className="pt-2">
+                <div className="pt-2 flex flex-wrap items-center gap-3">
+                  {flags.artisanMarketplaceEnabled ? (
                     <button
                       type="button"
-                      onClick={onOpenRegisterSupplier || onOpenRegister}
-                      className={`px-6 py-3.5 rounded-xl text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
+                      onClick={handleOpenMarketplace}
+                      className={`px-6 py-3.5 rounded-xl text-sm font-black inline-flex items-center gap-2 transition cursor-pointer shadow-xs ${accent.primaryBtn}`}
                     >
-                      <Truck className="w-4 h-4" />
-                      <span>{cms.sections.suppliersPromo.ctaText}</span>
-                      <ArrowLeft className="w-4 h-4" />
+                      <ShoppingBag className="w-4 h-4" />
+                      <span>{copy.marketsSection.alshamsMarket.cta}</span>
+                      <DirectionalArrow className="w-4 h-4" />
                     </button>
-                  </div>
-                </div>
-
-                {/* الصورة التحريرية لمعرض المورد + بطاقة شرائح الكميات الحية */}
-                <div className={`lg:col-span-6 rounded-2xl border overflow-hidden flex flex-col ${surfaceCardClass}`}>
-                  <div className="relative h-64 sm:h-72 w-full overflow-hidden bg-[#132040]">
-                    {!supplierImgFailed ? (
-                      <img
-                        src={supplierImageSrc}
-                        alt="معرض مورد خامات حرفية مجهز بكاشير ونظام فروع"
-                        referrerPolicy="no-referrer"
-                        onError={() => setSupplierImgFailed(true)}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-[#064E3B] to-[#0C1427]" />
-                    )}
-                  </div>
-
-                  <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-black">مثال حي · شرائح تسعير الجملة والقطاعي</span>
-                      <span className={`text-xs font-mono font-bold ${accent.primaryText}`}>POS 80mm</span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2.5 text-center">
-                      <div className="rounded-xl border border-[#D4CCBC] dark:border-[#22355E] p-3">
-                        <span className={`block text-[11px] font-bold ${mutedTextClass}`}>قطاعي (1–9)</span>
-                        <span className="block text-base font-black font-mono tabular-nums mt-0.5">85 ج.م</span>
-                      </div>
-                      <div className={`rounded-xl border p-3 ${accent.primaryBorder} ${accent.softSurface}`}>
-                        <span className={`block text-[11px] font-bold ${accent.primaryText}`}>نصف جملة (+10)</span>
-                        <span className="block text-base font-black font-mono tabular-nums mt-0.5">74 ج.م</span>
-                      </div>
-                      <div className="rounded-xl border border-[#D4CCBC] dark:border-[#22355E] p-3">
-                        <span className={`block text-[11px] font-bold ${mutedTextClass}`}>جملة (+50)</span>
-                        <span className="block text-base font-black font-mono tabular-nums mt-0.5">66 ج.م</span>
-                      </div>
-                    </div>
-
-                    <p className={`text-xs leading-relaxed ${mutedTextClass}`}>
-                      يدعم البيع بالوزن والكسور العشرية (مثل 2.4 كجم)، تثبيت شاشة جهاز الفرع (Kiosk Lock)، وتوريد الخزائن اليومي بضغطة تأكيد من المالك.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* ==================== 8. القسم 06: طبلية عيلة الشمساوية والصفحة الشخصية ==================== */}
-        {familySec.visible && (
-          <section id="family-profile" className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
-              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-                <div className="space-y-3 max-w-3xl">
-                  <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                    {familySec.badge}
-                  </p>
-                  <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
-                    {familySec.titleLine1}{' '}
-                    <span className={accent.primaryText}>{familySec.titleHighlight}</span>
-                  </h2>
-                  <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
-                    {familySec.description}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={onOpenRegister}
-                  className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 shrink-0 self-start lg:self-end transition cursor-pointer ${accent.primaryBtn}`}
-                >
-                  <UserCheck className="w-4 h-4" />
-                  <span>{familySec.ctaText}</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
-                <div className={`rounded-2xl border p-6 sm:p-7 space-y-4 ${surfaceCardClass}`}>
-                  <MessageSquare className={`w-6 h-6 ${accent.primaryText}`} />
-                  <h3 className="text-lg sm:text-xl font-black">{familySec.communityTitle}</h3>
-                  <p className={`text-sm leading-relaxed ${mutedTextClass}`}>{familySec.communityDesc}</p>
-                </div>
-
-                <div className={`rounded-2xl border p-6 sm:p-7 space-y-4 ${surfaceCardClass}`}>
-                  <Camera className={`w-6 h-6 ${accent.primaryText}`} />
-                  <h3 className="text-lg sm:text-xl font-black">{familySec.profileTitle}</h3>
-                  <p className={`text-sm leading-relaxed ${mutedTextClass}`}>{familySec.profileDesc}</p>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* ==================== 8.5. أكاديمية الخبراء والمدربين + اختبار تحديد مستوى الفنان ==================== */}
-        <section
-          id="trainers-academy"
-          className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]"
-        >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* العمود الأيمن: الترويج لأكاديمية الخبراء والشروحات المدمجة وأدوات النمو */}
-              <div className="lg:col-span-6 space-y-5">
-                <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                  06.5 · أكاديمية الخبراء والمدربين + جناح أدوات النمو الذكية
-                </p>
-                <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
-                  تعلّم ودرّب داخل المنصة..{' '}
-                  <span className={accent.primaryText}>بدون خروج للمتصفح وبإشعار فوري للجميع</span>
-                </h2>
-                <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
-                  لو أنت خبير أو مدرب حِرفي، افتح صلاحية نشر دروسك وشروحاتك (يوتيوب، فيسبوك، إنستجرام، تيك توك، فيميو) لتُعرض داخل شاشة سينمائية مدمجة جوة الشمساوية وتنزل باسمك في طبلية العيلة مع إشعار فوري لكل الفنانين.
-                </p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
-                  <div className={`rounded-2xl border p-4 space-y-1.5 ${surfaceCardClass}`}>
-                    <PlayCircle className={`w-5 h-5 ${accent.primaryText}`} />
-                    <h3 className="text-sm font-black">مشغل مدمج 100% داخل المنصة</h3>
-                    <p className={`text-xs leading-relaxed ${mutedTextClass}`}>
-                      الفيديوهات والشروحات تعمل بوضع سينمائي وملء الشاشة داخل التطبيق دون مغادرته أو عرض روابط خارجية مشتتة.
-                    </p>
-                  </div>
-
-                  <div className={`rounded-2xl border p-4 space-y-1.5 ${surfaceCardClass}`}>
-                    <BellRing className={`w-5 h-5 ${accent.primaryText}`} />
-                    <h3 className="text-sm font-black">نشر تلقائي + إشعار لكل الفنانين</h3>
-                    <p className={`text-xs leading-relaxed ${mutedTextClass}`}>
-                      ينزل الدرس باسم المدرب في منتدى «طبلية العيلة» ويصل تنبيه فوري للجميع للدخول والمشاهدة والتعليق والتفاعل.
-                    </p>
-                  </div>
-
-                  <div className={`rounded-2xl border p-4 space-y-1.5 ${surfaceCardClass}`}>
-                    <Share2 className={`w-5 h-5 ${accent.primaryText}`} />
-                    <h3 className="text-sm font-black">مشاركة مباشرة لكل منشور</h3>
-                    <p className={`text-xs leading-relaxed ${mutedTextClass}`}>
-                      زرار مشاركة فوري على كل أعمال الفنانين والموردين وشروحات المدربين لانتشار أكبر على واتساب والسوشيال ميديا.
-                    </p>
-                  </div>
-
-                  <div className={`rounded-2xl border p-4 space-y-1.5 ${surfaceCardClass}`}>
-                    <Rocket className={`w-5 h-5 ${accent.primaryText}`} />
-                    <h3 className="text-sm font-black">9 أدوات نمو للورش والموردين</h3>
-                    <p className={`text-xs leading-relaxed ${mutedTextClass}`}>
-                      تقويم الإنتاج، حاسبة هدايا الشركات، جواز سفر QR، الشراء التعاوني، مولد الريلز، سقف الائتمان، وجرد الباركود.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* العمود الأيسر: اختبار تحديد المستوى التفاعلي كأداة جذب للتسجيل */}
-              <div className="lg:col-span-6">
-                {growthConfig.landingQuizEnabled !== false ? (
-                  <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 shadow-sm ${surfaceCardClass}`}>
-                    <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
-                      <div>
-                        <span className={`text-xs font-extrabold ${accent.primaryText}`}>
-                          اختبار تفاعلي في 30 ثانية
-                        </span>
-                        <h3 className="text-base sm:text-lg font-black mt-0.5">
-                          اكتشف مستواك الحرفي وافتح صلاحياتك قبل التسجيل
-                        </h3>
-                      </div>
-                      <GraduationCap className={`w-7 h-7 shrink-0 ${accent.primaryText}`} />
-                    </div>
-
-                    <ArtisanSkillAssessment
-                      value={landingSkillLevel}
-                      onChange={(lvl, score) => {
-                        setLandingSkillLevel(lvl);
-                        setLandingSkillScore(score);
-                      }}
-                      compact
-                      defaultOpenQuiz
-                    />
-
-                    <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                      <div className="text-xs font-bold">
-                        المستوى المختار:{' '}
-                        <span className={`font-black ${accent.primaryText}`}>
-                          {getSkillLevelMeta(landingSkillLevel).displayTitle}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleStartWithSkillLevel}
-                        className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-black inline-flex items-center justify-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
-                      >
-                        <span>سجّل الآن بهذا المستوى وافتح صلاحياتك</span>
-                        <ArrowLeft className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className={`rounded-3xl border p-6 sm:p-8 space-y-4 ${surfaceCardClass}`}>
-                    <GraduationCap className={`w-9 h-9 ${accent.primaryText}`} />
-                    <h3 className="text-xl font-black">انضم كفنان حرفي أو خبير معتمد</h3>
-                    <p className={`text-sm leading-relaxed ${mutedTextClass}`}>
-                      حدّد مستواك الحرفي أثناء التسجيل أو من صفحتك الشخصية لتفتح مزايا الخبراء، وتنشر دروسك المدمجة مباشرة لعيلة الشمساوية.
-                    </p>
+                  ) : (
                     <button
                       type="button"
                       onClick={onOpenRegister}
-                      className={`px-6 py-3 rounded-xl text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
+                      className={`px-6 py-3.5 rounded-xl text-sm font-black inline-flex items-center gap-2 transition cursor-pointer shadow-xs ${accent.primaryBtn}`}
                     >
-                      <span>ابدأ التسجيل الآن مجاناً</span>
-                      <ArrowLeft className="w-4 h-4" />
+                      <span>{copy.hero.ctaStartJourney}</span>
+                      <DirectionalArrow className="w-4 h-4" />
                     </button>
+                  )}
+                </div>
+              </motion.div>
+
+              {/* Marketplace 2: سوق الموردين */}
+              {flags.supplierLandingPromoEnabled && (
+                <motion.div
+                  initial={revealInitial}
+                  whileInView={revealAnimate}
+                  viewport={{ once: true, amount: 0.15 }}
+                  transition={{ ...revealTransition, delay: prefersReducedMotion ? 0 : 0.08 }}
+                  className={`rounded-3xl border overflow-hidden flex flex-col justify-between ${surfaceCardClass}`}
+                >
+                  <div>
+                    <div className="relative h-44 sm:h-48 w-full overflow-hidden bg-[#132040]">
+                      {!supplierImgFailed ? (
+                        <img
+                          src={supplierImageSrc}
+                          alt={
+                            isRTL
+                              ? 'سوق الموردين والخامات في منظومة الشمساوية'
+                              : 'alSHamsawiyah Raw Materials Suppliers Market'
+                          }
+                          referrerPolicy="no-referrer"
+                          onError={() => setSupplierImgFailed(true)}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-[#132040] to-[#0C1427]" />
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#0C1427]/85 via-[#0C1427]/20 to-transparent" />
+                      <div className="absolute bottom-4 start-6 end-6 flex items-end justify-between gap-3">
+                        <div>
+                          <span className="text-xs font-extrabold text-[#FBBF24] block">
+                            {copy.marketsSection.suppliersMarket.badge}
+                          </span>
+                          <h3 className="text-2xl sm:text-3xl font-black text-white">
+                            {copy.marketsSection.suppliersMarket.title}
+                          </h3>
+                        </div>
+                        <div className="w-11 h-11 rounded-2xl bg-[#0C1427]/80 border border-white/20 flex items-center justify-center text-[#FBBF24] shrink-0">
+                          <Truck className="w-5 h-5" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-6 sm:p-8 space-y-5">
+                      <p className="text-sm sm:text-base font-bold">
+                        {copy.marketsSection.suppliersMarket.tagline}
+                      </p>
+
+                      <ul className="space-y-2.5 text-xs sm:text-sm">
+                        {copy.marketsSection.suppliersMarket.bullets.map((b) => (
+                          <li key={b} className="flex items-start gap-2.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                            <span className={mutedTextClass}>{b}</span>
+                          </li>
+                        ))}
+                      </ul>
+
+                      {/* Live Real Suppliers Preview (Strictly gated on flags.suppliersMarketplaceEnabled) */}
+                      {flags.suppliersMarketplaceEnabled && liveSuppliers.length > 0 ? (
+                        <div className="space-y-2.5 pt-1">
+                          <span className={`text-[11px] font-extrabold block ${accent.primaryText}`}>
+                            {copy.marketsSection.suppliersMarket.liveBadge}
+                          </span>
+                          <div className="space-y-2">
+                            {liveSuppliers.map((sup) => (
+                              <button
+                                key={sup.id}
+                                type="button"
+                                onClick={() => handleOpenSupplierStore(sup.store_slug)}
+                                className={`w-full rounded-2xl border px-3.5 py-2.5 flex items-center justify-between gap-3 text-start transition hover:border-[#EA580C] cursor-pointer ${
+                                  isObsidianPreset
+                                    ? 'bg-[#091124] border-[#21335C]'
+                                    : 'bg-[#EFE9DC]/65 dark:bg-[#091124] border-[#D4CCBC] dark:border-[#22355E]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {sup.logo_url ? (
+                                    <img
+                                      src={sup.logo_url}
+                                      alt={sup.brand_name}
+                                      className="w-10 h-10 rounded-xl object-contain bg-white p-0.5 shrink-0 border border-[#D4CCBC]"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-xl bg-[#EA580C]/15 text-[#EA580C] flex items-center justify-center font-black text-sm shrink-0">
+                                      {sup.brand_name.charAt(0)}
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <p className="text-xs sm:text-sm font-black truncate">
+                                      {sup.brand_name}
+                                    </p>
+                                    {sup.governorate && (
+                                      <p className={`text-[11px] flex items-center gap-1 ${mutedTextClass}`}>
+                                        <MapPin className="w-3 h-3 shrink-0" />
+                                        <span className="truncate">{sup.governorate}</span>
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className={`text-[11px] font-black shrink-0 ${accent.primaryText}`}>
+                                  {copy.marketsSection.suppliersMarket.viewSupplier}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        marketsLoaded && (
+                          <div
+                            className={`rounded-2xl border p-4 text-xs font-bold leading-relaxed ${
+                              isObsidianPreset
+                                ? 'bg-[#091124] border-[#21335C] text-[#A8B7D1]'
+                                : 'bg-[#EFE9DC]/65 dark:bg-[#091124] border-[#D4CCBC] dark:border-[#22355E] text-[#475569] dark:text-[#94A3B8]'
+                            }`}
+                          >
+                            {flags.suppliersMarketplaceEnabled
+                              ? copy.marketsSection.suppliersMarket.emptyNote
+                              : copy.marketsSection.suppliersMarket.disabledNote}
+                          </div>
+                        )
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  <div className="px-6 sm:px-8 pb-6 sm:pb-8 flex flex-wrap items-center gap-3">
+                    {flags.suppliersMarketplaceEnabled ? (
+                      <button
+                        type="button"
+                        onClick={handleOpenSuppliersMarket}
+                        className="px-6 py-3.5 rounded-xl text-sm font-black inline-flex items-center gap-2 transition cursor-pointer bg-[#0C1427] hover:bg-[#19284C] text-white dark:bg-[#F7F3EA] dark:text-[#0C1427] dark:hover:bg-[#E7DFCE]"
+                      >
+                        <Truck className="w-4 h-4" />
+                        <span>{copy.marketsSection.suppliersMarket.cta}</span>
+                        <DirectionalArrow className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      flags.supplierRegistrationEnabled && (
+                        <button
+                          type="button"
+                          onClick={onOpenRegisterSupplier || onOpenRegister}
+                          className="px-6 py-3.5 rounded-xl text-sm font-black inline-flex items-center gap-2 transition cursor-pointer bg-[#0C1427] hover:bg-[#19284C] text-white dark:bg-[#F7F3EA] dark:text-[#0C1427] dark:hover:bg-[#E7DFCE]"
+                        >
+                          <Truck className="w-4 h-4" />
+                          <span>{copy.marketsSection.suppliersMarket.portalCta}</span>
+                          <DirectionalArrow className="w-4 h-4" />
+                        </button>
+                      )
+                    )}
+                  </div>
+                </motion.div>
+              )}
             </div>
           </div>
         </section>
 
-        {/* ==================== 9. القسم 07: شهادات الورش والموردين ==================== */}
-        {cms.sections.reviews.visible && (
-          <section id="reviews" className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
-              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                <div className="space-y-2.5 max-w-2xl">
-                  <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                    {cms.sections.reviews.badge}
-                  </p>
-                  <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
-                    {cms.sections.reviews.title}
-                  </h2>
-                  <p className={`text-sm sm:text-base ${mutedTextClass}`}>
-                    {cms.sections.reviews.subtitle}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsFeedbackModalOpen(true)}
-                  className="px-4 py-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs sm:text-sm font-black inline-flex items-center gap-2 self-start md:self-end transition cursor-pointer"
+        {/* ==================== 5. طبلية العيلة — مجتمع الشمساوية ==================== */}
+        {flags.familyCommunityEnabled && (
+          <section id="family-table" className={`py-16 sm:py-24 border-b ${dividerBorderClass}`}>
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-start">
+                <motion.div
+                  initial={revealInitial}
+                  whileInView={revealAnimate}
+                  viewport={{ once: true, amount: 0.15 }}
+                  transition={revealTransition}
+                  className="lg:col-span-6 space-y-6"
                 >
-                  <MessageSquare className="w-4 h-4" />
-                  <span>{cms.sections.reviews.feedbackCtaText}</span>
-                </button>
-              </div>
+                  <div className="space-y-3">
+                    <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
+                      {copy.familySection.eyebrow}
+                    </p>
+                    <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
+                      {copy.familySection.title}
+                    </h2>
+                    <p className={`text-base sm:text-xl font-black leading-snug ${accent.primaryText}`}>
+                      «{copy.familySection.tagline}»
+                    </p>
+                    <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
+                      {copy.familySection.description}
+                    </p>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-                {cms.sections.reviews.items.map((rev) => (
-                  <blockquote
-                    key={rev.id}
-                    className={`rounded-2xl border p-5 sm:p-6 flex flex-col justify-between gap-4 ${surfaceCardClass}`}
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-0.5 text-amber-500">
-                        {Array.from({ length: Math.min(5, Math.max(1, rev.rating || 5)) }).map((_, i) => (
-                          <Star key={i} className="w-3.5 h-3.5 fill-current" />
-                        ))}
-                      </div>
-                      <p className="text-xs sm:text-sm font-bold leading-relaxed">«{rev.quote}»</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {copy.familySection.elements.map((el) => {
+                      const ElIcon = FAMILY_ELEMENT_ICON_MAP[el.id] || Users;
+                      return (
+                        <div key={el.id} className={`rounded-2xl border p-4 space-y-1.5 ${surfaceCardClass}`}>
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${accent.softSurface} ${accent.primaryText}`}
+                            >
+                              <ElIcon className="w-4 h-4" />
+                            </div>
+                            <h3 className="text-xs sm:text-sm font-black">{el.title}</h3>
+                          </div>
+                          <p className={`text-xs leading-relaxed ${mutedTextClass}`}>{el.desc}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={revealInitial}
+                  whileInView={revealAnimate}
+                  viewport={{ once: true, amount: 0.15 }}
+                  transition={{ ...revealTransition, delay: prefersReducedMotion ? 0 : 0.08 }}
+                  className={`lg:col-span-6 rounded-3xl border p-5 sm:p-7 space-y-5 ${surfaceCardClass}`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className={`text-xs font-extrabold ${mutedTextClass}`}>
+                      {copy.familySection.genderPrompt}
+                    </span>
+                    <div className="inline-flex p-1 rounded-xl bg-[#E8E0D1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewGender('male')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                          previewGender === 'male' ? accent.activeTab : mutedTextClass
+                        }`}
+                      >
+                        {copy.familySection.genderMale}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewGender('female')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                          previewGender === 'female' ? accent.activeTab : mutedTextClass
+                        }`}
+                      >
+                        {copy.familySection.genderFemale}
+                      </button>
                     </div>
-                    <footer className="pt-3 border-t border-[#D4CCBC]/70 dark:border-[#22355E]">
-                      <div className="text-xs sm:text-sm font-black">{rev.author}</div>
-                      <div className={`text-[11px] font-bold mt-0.5 ${mutedTextClass}`}>{rev.workshop}</div>
-                    </footer>
-                  </blockquote>
-                ))}
+                  </div>
+
+                  <ArtisanSkillAssessment
+                    value={landingSkillLevel}
+                    gender={previewGender}
+                    onChange={(lvl, score) => {
+                      setLandingSkillLevel(lvl);
+                      setLandingSkillScore(score);
+                    }}
+                  />
+
+                  <div className="space-y-3 pt-1">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleStartWithSkillLevel()}
+                        className={`flex-1 px-6 py-3.5 rounded-xl text-sm font-black inline-flex items-center justify-center gap-2 transition cursor-pointer shadow-sm ${accent.primaryBtn}`}
+                      >
+                        <Users className="w-4 h-4" />
+                        <span>
+                          {copy.familySection.ctaEnterFamily}
+                          {isRTL ? ` (${selectedLevelMeta.displayTitle})` : ''}
+                        </span>
+                        <DirectionalArrow className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={onOpenLogin}
+                        className="px-5 py-3.5 rounded-xl text-xs sm:text-sm font-black border border-[#C9BFA9] dark:border-[#2A3F6E] hover:border-[#EA580C] transition cursor-pointer"
+                      >
+                        {copy.header.login}
+                      </button>
+                    </div>
+
+                    <p className={`text-[11px] leading-relaxed ${mutedTextClass}`}>
+                      {copy.familySection.ctaNote}
+                    </p>
+                  </div>
+                </motion.div>
               </div>
             </div>
           </section>
         )}
 
-        {/* ==================== 10. تحديثات الإصدار V 5.0 ==================== */}
-        {cms.sections.whatsNew.visible && (
-          <section id="whats-new" className="py-16 sm:py-20 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-              <div className="space-y-2 max-w-2xl">
-                <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                  {cms.sections.whatsNew.badge}
-                </p>
-                <h2 className="text-2xl sm:text-3xl font-black leading-tight">
-                  {cms.sections.whatsNew.title}
-                </h2>
-                <p className={`text-sm ${mutedTextClass}`}>{cms.sections.whatsNew.subtitle}</p>
+        {/* ==================== 6. أبطال الشمساوية (صقر · شموسة + بحوث العمليات OR · موسوعة الخامات) ==================== */}
+        <section
+          id="platform-heroes"
+          className="relative py-16 sm:py-24 bg-[#0C1427] text-[#F7F3EA] border-b border-[#1E2E52] overflow-hidden"
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 end-0 w-[440px] h-[440px] rounded-full bg-[#EA580C]/10 blur-3xl"
+          />
+          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+            <motion.div
+              initial={revealInitial}
+              whileInView={revealAnimate}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={revealTransition}
+              className="max-w-3xl space-y-3"
+            >
+              <p className="text-xs sm:text-sm font-extrabold text-[#FBBF24]">
+                {copy.heroesSection.eyebrow}
+              </p>
+              <h2 className="text-2xl sm:text-4xl font-black leading-tight text-white [text-wrap:balance]">
+                {copy.heroesSection.title}
+              </h2>
+              <p className="text-sm sm:text-base leading-relaxed text-[#A8B7D1]">
+                {copy.heroesSection.subtitle}
+              </p>
+            </motion.div>
+
+            {/* Top Row: Saqr & Shamousa (with Operations Research OR Spotlight) */}
+            {flags.aiAssistantsEnabled && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                {/* Hero 1: صقر الشمساوية */}
+                <motion.article
+                  initial={revealInitial}
+                  whileInView={revealAnimate}
+                  viewport={{ once: true, amount: 0.15 }}
+                  transition={revealTransition}
+                  className="lg:col-span-5 rounded-3xl bg-[#111C38] border border-[#243763] p-6 sm:p-7 flex flex-col justify-between gap-6 hover:border-[#FBBF24]/50 transition-colors"
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <div className="w-24 h-24 rounded-2xl bg-[#091124] border border-[#243763] p-2 flex items-center justify-center shrink-0">
+                        <FalconMascotFull isDark height="100%" className="w-full h-full" />
+                      </div>
+                      <div>
+                        <span className="text-[11px] font-extrabold text-[#FBBF24] block">
+                          {copy.heroesSection.falcon.role}
+                        </span>
+                        <h3 className="text-xl sm:text-2xl font-black text-white mt-0.5">
+                          {copy.heroesSection.falcon.name}
+                        </h3>
+                      </div>
+                    </div>
+
+                    <p className="text-sm sm:text-base font-black text-[#F7F3EA] leading-snug">
+                      {copy.heroesSection.falcon.tagline}
+                    </p>
+                    <p className="text-xs sm:text-sm text-[#CBD5E1] leading-relaxed">
+                      {copy.heroesSection.falcon.description}
+                    </p>
+
+                    {/* Exact 7-Step Visual Flow */}
+                    <div className="rounded-2xl bg-[#091124] border border-[#243763] p-4 space-y-2.5">
+                      <span className="text-[11px] font-extrabold text-[#FBBF24] block">
+                        {copy.heroesSection.falcon.workflowTitle}
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {copy.heroesSection.falcon.workflowSteps.map((step, i) => (
+                          <React.Fragment key={step}>
+                            <span className="px-2.5 py-1 rounded-lg bg-[#111C38] border border-[#243763] text-[11px] font-black text-[#F7F3EA]">
+                              {step}
+                            </span>
+                            {i < copy.heroesSection.falcon.workflowSteps.length - 1 && (
+                              <span aria-hidden="true" className="text-[#FBBF24] font-black text-xs">
+                                {isRTL ? '←' : '→'}
+                              </span>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-[#243763] text-[11px] font-bold text-[#94A3B8]">
+                    {copy.heroesSection.falcon.footnote}
+                  </div>
+                </motion.article>
+
+                {/* Hero 2: شموسة + نظام بحوث العمليات (Operations Research — OR) */}
+                <motion.article
+                  initial={revealInitial}
+                  whileInView={revealAnimate}
+                  viewport={{ once: true, amount: 0.15 }}
+                  transition={{ ...revealTransition, delay: prefersReducedMotion ? 0 : 0.08 }}
+                  className="lg:col-span-7 rounded-3xl bg-[#111C38] border border-[#FBBF24]/40 p-6 sm:p-7 flex flex-col justify-between gap-6"
+                >
+                  <div className="space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-4">
+                        <div className="w-24 h-24 rounded-2xl bg-[#091124] border border-[#243763] p-2 flex items-center justify-center shrink-0">
+                          <ShamousaMascotFull isDark height="100%" className="w-full h-full" />
+                        </div>
+                        <div>
+                          <span className="text-[11px] font-extrabold text-[#FBBF24] block">
+                            {copy.heroesSection.shamousa.role}
+                          </span>
+                          <h3 className="text-xl sm:text-2xl font-black text-white mt-0.5">
+                            {copy.heroesSection.shamousa.name}
+                          </h3>
+                        </div>
+                      </div>
+
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#EA580C]/20 border border-[#EA580C]/50 text-[#FBBF24] text-[11px] font-black self-start sm:self-center">
+                        <Cpu className="w-3.5 h-3.5" />
+                        <span>{copy.heroesSection.shamousa.orBadge}</span>
+                      </span>
+                    </div>
+
+                    <p className="text-sm sm:text-base font-black text-[#F7F3EA] leading-snug">
+                      {copy.heroesSection.shamousa.tagline}
+                    </p>
+                    <p className="text-xs sm:text-sm text-[#CBD5E1] leading-relaxed">
+                      {copy.heroesSection.shamousa.description}
+                    </p>
+
+                    {/* Operations Research (OR) 4-Pillar Grid */}
+                    <div className="rounded-2xl bg-[#091124] border border-[#243763] p-4 sm:p-5 space-y-3">
+                      <p className="text-xs sm:text-sm font-black text-[#FBBF24]">
+                        {copy.heroesSection.shamousa.orTitle}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {copy.heroesSection.shamousa.orPillars.map((pillar) => (
+                          <div
+                            key={pillar.title}
+                            className="rounded-xl bg-[#111C38] border border-[#243763] p-3.5 space-y-1"
+                          >
+                            <div className="text-xs font-black text-white flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>{pillar.title}</span>
+                            </div>
+                            <p className="text-[11px] text-[#A8B7D1] leading-relaxed">{pillar.desc}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-[#243763] text-[11px] font-bold text-[#94A3B8]">
+                    {copy.heroesSection.shamousa.footnote}
+                  </div>
+                </motion.article>
+              </div>
+            )}
+
+            {/* Hero 3: موسوعة الخامات الموحدة (Full-Width Feature Card) */}
+            <motion.article
+              initial={revealInitial}
+              whileInView={revealAnimate}
+              viewport={{ once: true, amount: 0.15 }}
+              transition={revealTransition}
+              className="rounded-3xl bg-[#111C38] border border-[#243763] overflow-hidden grid grid-cols-1 lg:grid-cols-12"
+            >
+              <div className="lg:col-span-5 relative min-h-[240px] bg-[#091124]">
+                {!materialsImgFailed ? (
+                  <img
+                    src={materialsImageSrc}
+                    alt={
+                      isRTL
+                        ? 'موسوعة الخامات الموحدة للحرف اليدوية في الشمساوية'
+                        : 'Unified Materials Encyclopedia in alSHamsawiyah'
+                    }
+                    referrerPolicy="no-referrer"
+                    onError={() => setMaterialsImgFailed(true)}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-[#292524] to-[#0C1427]" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-[#091124]/90 via-transparent to-transparent" />
+
+                <div className="absolute bottom-4 start-4 end-4 space-y-2">
+                  <div
+                    dir="ltr"
+                    className="px-3.5 py-2.5 rounded-xl bg-[#080F22]/92 backdrop-blur-sm border border-[#243763] font-mono text-sm font-black tracking-wider flex items-center justify-between"
+                  >
+                    <span>
+                      <span className="text-[#FBBF24]">TH</span>
+                      <span className="text-sky-400">0001</span>
+                      <span className="text-emerald-400">.01</span>
+                      <span className="text-orange-400">#B003</span>
+                    </span>
+                    <span className="text-[10px] font-sans text-[#94A3B8]">
+                      {copy.heroesSection.materials.codeLabel}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5 text-center">
+                    {copy.heroesSection.materials.codeParts.map((part) => (
+                      <div
+                        key={part.code}
+                        className="rounded-lg bg-[#080F22]/90 border border-[#243763]/80 py-1.5 px-1"
+                      >
+                        <span className={`block font-mono text-[11px] font-black ${part.colorClass}`}>
+                          {part.code}
+                        </span>
+                        <span className="block text-[10px] text-[#CBD5E1] truncate">{part.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                {cms.sections.whatsNew.items.map((item) => (
-                  <article key={item.id} className={`rounded-2xl border p-5 sm:p-6 space-y-2.5 ${surfaceCardClass}`}>
-                    <div className={`text-xs font-extrabold ${accent.primaryText}`}>
-                      {item.tag} · <span className="font-mono">{item.version}</span>
+              <div className="lg:col-span-7 p-6 sm:p-8 flex flex-col justify-between gap-5">
+                <div className="space-y-3">
+                  <span className="text-xs font-extrabold text-[#FBBF24] block">
+                    {copy.heroesSection.materials.role}
+                  </span>
+                  <h3 className="text-xl sm:text-2xl font-black text-white">
+                    {copy.heroesSection.materials.name}
+                  </h3>
+                  <p className="text-sm sm:text-base font-bold text-[#F7F3EA]">
+                    {copy.heroesSection.materials.tagline}
+                  </p>
+                  <p className="text-xs sm:text-sm text-[#CBD5E1] leading-relaxed">
+                    {copy.heroesSection.materials.description}
+                  </p>
+
+                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 text-xs sm:text-[13px] text-[#E2E8F0]">
+                    {copy.heroesSection.materials.bullets.map((b) => (
+                      <li
+                        key={b}
+                        className="rounded-xl bg-[#091124] border border-[#243763] p-3 flex items-start gap-2 leading-relaxed"
+                      >
+                        <Layers className="w-4 h-4 text-[#FBBF24] shrink-0 mt-0.5" />
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <p className="text-xs font-bold text-emerald-300 flex items-center gap-2 pt-2 border-t border-[#243763]">
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span>{copy.heroesSection.materials.note}</span>
+                </p>
+              </div>
+            </motion.article>
+
+            {/* Interactive Workbench: Saqr, Shamousa (OR) & «هلخصهالك» Live Preview */}
+            {flags.aiAssistantsEnabled && (
+              <div className="rounded-3xl bg-[#091124] border border-[#243763] p-5 sm:p-7 space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-[#1E2E52]">
+                  <div className="space-y-1">
+                    <h3 className="text-lg sm:text-xl font-black text-white">
+                      {copy.heroesSection.workbench.title}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-[#94A3B8]">
+                      {copy.heroesSection.workbench.subtitle}
+                    </p>
+                  </div>
+
+                  <div className="inline-flex p-1 rounded-xl bg-[#111C38] border border-[#243763] self-start shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setWorkbenchTab('simulator')}
+                      className={`px-4 py-2 rounded-lg text-xs font-black transition cursor-pointer ${
+                        workbenchTab === 'simulator'
+                          ? accent.activeTab
+                          : 'text-[#CBD5E1] hover:text-white'
+                      }`}
+                    >
+                      {copy.heroesSection.workbench.tabSimulator}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWorkbenchTab('summary')}
+                      className={`px-4 py-2 rounded-lg text-xs font-black transition cursor-pointer ${
+                        workbenchTab === 'summary'
+                          ? accent.activeTab
+                          : 'text-[#CBD5E1] hover:text-white'
+                      }`}
+                    >
+                      {copy.heroesSection.workbench.tabSummary}
+                    </button>
+                  </div>
+                </div>
+
+                <AnimatePresence mode="wait">
+                  {workbenchTab === 'simulator' ? (
+                    <motion.div
+                      key="sim-pane"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.22 }}
+                      className="space-y-5"
+                    >
+                      <div className="flex flex-wrap gap-2">
+                        {copy.simulatorScenarios.map((sc) => (
+                          <button
+                            key={sc.id}
+                            type="button"
+                            onClick={() => setSimId(sc.id)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black border transition cursor-pointer ${
+                              simId === sc.id
+                                ? `${accent.activeTab} border-transparent`
+                                : 'bg-[#111C38] border-[#243763] text-[#CBD5E1] hover:border-[#FBBF24]/60'
+                            }`}
+                          >
+                            {sc.tabLabel}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+                        <div className="lg:col-span-4 rounded-2xl bg-[#111C38] border border-[#243763] p-5 flex flex-col justify-between gap-4">
+                          <div className="space-y-2.5">
+                            <span className="text-[11px] font-extrabold text-[#94A3B8]">
+                              {isRTL ? 'مثال سؤال من داخل الورشة:' : 'Example Workshop Question:'}
+                            </span>
+                            <p className="text-sm font-bold text-white leading-relaxed">
+                              «{currentSim.userQuery}»
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={onOpenRegister}
+                            className={`w-full px-4 py-3 rounded-xl text-xs font-black inline-flex items-center justify-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
+                          >
+                            <span>{copy.heroesSection.workbench.simulatorCta}</span>
+                            <DirectionalArrow className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="lg:col-span-8 rounded-2xl bg-[#111C38] border border-[#FBBF24]/30 p-5 space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-xl bg-[#091124] border border-[#243763] p-1 flex items-center justify-center shrink-0">
+                                {currentSim.speakerKind === 'falcon' ? (
+                                  <FalconMascotFull isDark height="100%" className="w-full h-full" />
+                                ) : (
+                                  <ShamousaMascotFull isDark height="100%" className="w-full h-full" />
+                                )}
+                              </div>
+                              <div>
+                                <div className="text-sm font-black text-white">
+                                  {currentSim.speakerKind === 'falcon'
+                                    ? copy.heroesSection.falcon.name
+                                    : copy.heroesSection.shamousa.name}
+                                </div>
+                                <div className="text-[11px] font-bold text-[#FBBF24]">
+                                  {currentSim.replyTitle}
+                                </div>
+                              </div>
+                            </div>
+
+                            {currentSim.badge && (
+                              <span className="px-2.5 py-1 rounded-lg bg-[#EA580C]/20 border border-[#EA580C]/45 text-[11px] font-black text-[#FBBF24]">
+                                {currentSim.badge}
+                              </span>
+                            )}
+                          </div>
+
+                          <ul className="space-y-2.5 text-xs sm:text-[13px] text-[#E2E8F0]">
+                            {currentSim.bullets.map((line) => (
+                              <li
+                                key={line}
+                                className="p-3 rounded-xl bg-[#091124]/90 border border-[#243763] leading-relaxed"
+                              >
+                                {line}
+                              </li>
+                            ))}
+                          </ul>
+
+                          <p className="text-[11px] font-bold text-emerald-300 flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 shrink-0" />
+                            <span>{currentSim.actionNote}</span>
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="summary-pane"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.22 }}
+                      className="space-y-5"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm sm:text-base font-black text-white">
+                            {copy.heroesSection.workbench.summaryTitle}
+                          </p>
+                          <p className="text-xs text-[#94A3B8] mt-0.5">
+                            {copy.heroesSection.workbench.summarySubtitle}
+                          </p>
+                        </div>
+                        <div className="inline-flex p-1 rounded-xl bg-[#111C38] border border-[#243763] self-start">
+                          <button
+                            type="button"
+                            onClick={() => setSummaryMode('workshop')}
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                              summaryMode === 'workshop' ? accent.activeTab : 'text-[#CBD5E1]'
+                            }`}
+                          >
+                            {copy.heroesSection.workbench.summaryWorkshopTab}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSummaryMode('supplier')}
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                              summaryMode === 'supplier' ? accent.activeTab : 'text-[#CBD5E1]'
+                            }`}
+                          >
+                            {copy.heroesSection.workbench.summarySupplierTab}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="rounded-2xl bg-[#111C38] border border-emerald-500/30 p-4 space-y-1.5">
+                          <span className="text-[11px] font-bold text-emerald-300">
+                            {isRTL ? 'معانا كام وفين الآن' : 'Cash on Hand Now'}
+                          </span>
+                          <div className="text-sm font-black text-white">
+                            {summaryMode === 'workshop'
+                              ? isRTL
+                                ? 'خزينة الورشة · التحويلات · المحافظ'
+                                : 'Workshop Drawer · Transfers · Wallets'
+                              : isRTL
+                                ? 'الخزينة الرئيسية · خزائن الفروع · التوريدات المعتمدة'
+                                : 'Main Treasury · Branch Cashboxes · Approved Remittances'}
+                          </div>
+                          <p className="text-[11px] text-[#A8B7D1] leading-relaxed">
+                            {summaryMode === 'workshop'
+                              ? isRTL
+                                ? 'رؤية لحظية للسيولة المتاحة داخل ورشتك بدون تعقيد دائن ومدين.'
+                                : 'Instant liquidity snapshot across your workshop accounts.'
+                              : isRTL
+                                ? 'متابعة ما تم تسليمه للمحاسب وما اعتمده صاحب النشاط في خزينته.'
+                                : 'Track shift handovers, accountant reviews, and owner approvals.'}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl bg-[#111C38] border border-[#FBBF24]/30 p-4 space-y-1.5">
+                          <span className="text-[11px] font-bold text-[#FBBF24]">
+                            {isRTL ? 'لينا كام بره عند العملاء' : 'Client Receivables'}
+                          </span>
+                          <div className="text-sm font-black text-white">
+                            {summaryMode === 'workshop'
+                              ? isRTL
+                                ? 'الفواتير والمستحقات والمتأخرات'
+                                : 'Invoices, Deposits & Overdue Tracking'
+                              : isRTL
+                                ? 'أرصدة الورش والعملاء الخارجيين والمتجر'
+                                : 'Workshop, External & Storefront Balances'}
+                          </div>
+                          <p className="text-[11px] text-[#A8B7D1] leading-relaxed">
+                            {isRTL
+                              ? 'متابعة واضحة لكل عميل ومدة التأخير لتسهيل التحصيل المنظم.'
+                              : 'Clear visibility into every receivable for timely collections.'}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl bg-[#111C38] border border-sky-400/30 p-4 space-y-1.5">
+                          <span className="text-[11px] font-bold text-sky-300">
+                            {isRTL ? 'علينا للموردين والمصانع' : 'Supplier & Factory Payables'}
+                          </span>
+                          <div className="text-sm font-black text-white">
+                            {isRTL
+                              ? 'فواتير الشراء ومواعيد الاستحقاق والعُهد'
+                              : 'Purchase Invoices, Due Dates & Custodies'}
+                          </div>
+                          <p className="text-[11px] text-[#A8B7D1] leading-relaxed">
+                            {isRTL
+                              ? 'يحفظ استقرار السيولة ويمنع أي مفاجآت في مواعيد السداد.'
+                              : 'Keeps cashflow predictable with zero payment surprises.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={
+                            summaryMode === 'supplier' ? onOpenRegisterSupplier || onOpenRegister : onOpenRegister
+                          }
+                          className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
+                        >
+                          <Wallet className="w-4 h-4" />
+                          <span>{copy.heroesSection.workbench.summaryCta}</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* ==================== 7. رحلة المنتج من الفكرة إلى السوق (Interactive 9-Step Connected Journey) ==================== */}
+        <section id="product-journey" className={`py-16 sm:py-24 border-b ${dividerBorderClass}`}>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+            <motion.div
+              initial={revealInitial}
+              whileInView={revealAnimate}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={revealTransition}
+              className="flex flex-col lg:flex-row lg:items-end justify-between gap-6"
+            >
+              <div className="max-w-3xl space-y-3">
+                <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
+                  {copy.journeySection.eyebrow}
+                </p>
+                <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
+                  {copy.journeySection.title}
+                </h2>
+                <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
+                  {copy.journeySection.subtitle}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onOpenRegister}
+                className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-black inline-flex items-center gap-2 shrink-0 self-start lg:self-end transition cursor-pointer ${accent.primaryBtn}`}
+              >
+                <span>{copy.journeySection.ctaStartFirstProduct}</span>
+                <DirectionalArrow className="w-4 h-4" />
+              </button>
+            </motion.div>
+
+            {/* 9 Connected Interactive Step Cards (3x3 Clean Grid on Desktop) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {copy.journeySection.steps.map((step, index) => {
+                const StepIcon = JOURNEY_STEP_ICONS[index] || Sparkles;
+                const isSelected = activeJourneyStep === index;
+                return (
+                  <button
+                    key={step.stepNumber}
+                    type="button"
+                    onClick={() => setActiveJourneyStep(index)}
+                    className={`rounded-2xl border p-4 text-start flex items-start gap-3.5 transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#0C1427] text-[#F7F3EA] border-[#EA580C] shadow-lg'
+                        : `${surfaceCardClass} hover:border-[#EA580C]/65`
+                    }`}
+                  >
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+                        isSelected ? 'bg-[#EA580C] text-white' : `${accent.softSurface} ${accent.primaryText}`
+                      }`}
+                    >
+                      <StepIcon className="w-4.5 h-4.5" />
                     </div>
-                    <h3 className="text-base font-black leading-snug">{item.title}</h3>
-                    <p className={`text-xs sm:text-sm leading-relaxed ${mutedTextClass}`}>{item.description}</p>
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-[11px] font-mono font-black tabular-nums ${
+                            isSelected ? 'text-[#FBBF24]' : accent.primaryText
+                          }`}
+                        >
+                          {step.stepNumber}
+                        </span>
+                        <span
+                          className={`text-[11px] font-extrabold ${
+                            isSelected ? 'text-[#CBD5E1]' : mutedTextClass
+                          }`}
+                        >
+                          {step.shortLabel}
+                        </span>
+                      </div>
+                      <span className="block text-xs sm:text-sm font-black leading-snug">{step.title}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active Step Detail Inspector with Prev/Next Controls */}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeStep.stepNumber}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+                className={`rounded-3xl border p-6 sm:p-8 space-y-6 ${surfaceCardClass} ${accent.primaryBorder}`}
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                  <div className="lg:col-span-7 space-y-3">
+                    <div className="inline-flex items-center gap-2 text-xs font-extrabold">
+                      <span className={`px-2.5 py-1 rounded-lg font-mono font-black ${accent.activeTab}`}>
+                        {activeStep.stepNumber} / 09
+                      </span>
+                      <span className={accent.primaryText}>{copy.journeySection.activeStepLabel}</span>
+                    </div>
+                    <h3 className="text-xl sm:text-2xl font-black leading-snug flex items-center gap-2.5">
+                      <ActiveStepIcon className={`w-6 h-6 shrink-0 ${accent.primaryText}`} />
+                      <span>{activeStep.title}</span>
+                    </h3>
+                    <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
+                      {activeStep.description}
+                    </p>
+                  </div>
+
+                  <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
+                    <div
+                      className={`rounded-2xl border p-4 ${
+                        isObsidianPreset
+                          ? 'bg-[#091124] border-[#21335C]'
+                          : 'bg-[#EFE9DC]/70 dark:bg-[#091124] border-[#D4CCBC] dark:border-[#22355E]'
+                      }`}
+                    >
+                      <span className={`text-[11px] font-extrabold block ${mutedTextClass}`}>
+                        {copy.journeySection.moduleLabel}
+                      </span>
+                      <span className="text-sm font-black mt-1 block">{activeStep.moduleName}</span>
+                    </div>
+
+                    <div
+                      className={`rounded-2xl border p-4 ${
+                        isObsidianPreset
+                          ? 'bg-[#091124] border-[#21335C]'
+                          : 'bg-[#EFE9DC]/70 dark:bg-[#091124] border-[#D4CCBC] dark:border-[#22355E]'
+                      }`}
+                    >
+                      <span className={`text-[11px] font-extrabold block ${mutedTextClass}`}>
+                        {copy.journeySection.outcomeLabel}
+                      </span>
+                      <span className="text-sm font-black mt-1 block text-emerald-700 dark:text-emerald-400">
+                        {activeStep.outcome}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step Navigation Controls */}
+                <div className="flex items-center justify-between pt-4 border-t border-[#D4CCBC]/60 dark:border-[#22355E]">
+                  <button
+                    type="button"
+                    disabled={activeJourneyStep === 0}
+                    onClick={() => setActiveJourneyStep((prev) => Math.max(0, prev - 1))}
+                    className="px-4 py-2 rounded-xl border border-[#C9BFA9] dark:border-[#2A3F6E] text-xs font-black disabled:opacity-40 hover:border-[#EA580C] transition cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {copy.journeySection.prevStep}
+                  </button>
+
+                  <div className="flex items-center gap-1.5">
+                    {copy.journeySection.steps.map((s, idx) => (
+                      <button
+                        key={s.stepNumber}
+                        type="button"
+                        aria-label={s.title}
+                        onClick={() => setActiveJourneyStep(idx)}
+                        className={`h-2 rounded-full transition-all cursor-pointer ${
+                          idx === activeJourneyStep
+                            ? 'w-6 bg-[#EA580C]'
+                            : 'w-2 bg-[#C9BFA9] dark:bg-[#2A3F6E]'
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={activeJourneyStep === copy.journeySection.steps.length - 1}
+                    onClick={() =>
+                      setActiveJourneyStep((prev) =>
+                        Math.min(copy.journeySection.steps.length - 1, prev + 1)
+                      )
+                    }
+                    className={`px-4 py-2 rounded-xl text-xs font-black disabled:opacity-40 transition cursor-pointer disabled:cursor-not-allowed ${accent.primaryBtn}`}
+                  >
+                    {copy.journeySection.nextStep}
+                  </button>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </section>
+
+        {/* ==================== 8. قسم «لماذا الشمساوية؟» (Sincere Philosophy) ==================== */}
+        <section id="why-alshams" className={`py-16 sm:py-24 border-b ${dividerBorderClass}`}>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+            <motion.div
+              initial={revealInitial}
+              whileInView={revealAnimate}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={revealTransition}
+              className="max-w-4xl space-y-4"
+            >
+              <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
+                {copy.whySection.eyebrow}
+              </p>
+              <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
+                {copy.whySection.title}
+              </h2>
+              <blockquote
+                className={`rounded-2xl border-s-4 border-[#EA580C] p-5 sm:p-6 text-base sm:text-xl font-black leading-relaxed ${surfaceCardClass}`}
+              >
+                {copy.whySection.manifesto}
+              </blockquote>
+              <p className={`text-sm sm:text-base leading-relaxed ${mutedTextClass}`}>
+                {copy.whySection.subtitle}
+              </p>
+            </motion.div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+              {copy.whySection.pillars.map((pillar, idx) => (
+                <motion.article
+                  key={pillar.id}
+                  initial={revealInitial}
+                  whileInView={revealAnimate}
+                  viewport={{ once: true, amount: 0.15 }}
+                  transition={{ ...revealTransition, delay: prefersReducedMotion ? 0 : idx * 0.04 }}
+                  className={`rounded-2xl border p-5 space-y-2.5 ${surfaceCardClass}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <HeartHandshake className={`w-5 h-5 ${accent.primaryText}`} />
+                    <span className="text-[11px] font-mono font-black opacity-35 tabular-nums">
+                      0{idx + 1}
+                    </span>
+                  </div>
+                  <h3 className="text-sm sm:text-[15px] font-black leading-snug">{pillar.title}</h3>
+                  <p className={`text-xs leading-relaxed ${mutedTextClass}`}>{pillar.desc}</p>
+                </motion.article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ==================== 9. الشهادات والأسئلة الشائعة (Preserving CMS Sections) ==================== */}
+        {cms.sections.reviews.visible && (
+          <section id="reviews" className={`py-16 sm:py-20 border-b ${dividerBorderClass}`}>
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-5">
+                <div className="space-y-2.5 max-w-2xl">
+                  <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
+                    {copy.reviewsSection.eyebrow}
+                  </p>
+                  <h2 className="text-2xl sm:text-3xl font-black leading-tight">
+                    {isRTL ? cms.sections.reviews.title || copy.reviewsSection.title : copy.reviewsSection.title}
+                  </h2>
+                  <p className={`text-sm leading-relaxed ${mutedTextClass}`}>
+                    {isRTL
+                      ? cms.sections.reviews.subtitle || copy.reviewsSection.subtitle
+                      : copy.reviewsSection.subtitle}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeedbackError(null);
+                    setIsFeedbackModalOpen(true);
+                  }}
+                  className={`px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-black inline-flex items-center gap-2 self-start lg:self-end transition cursor-pointer hover:border-[#EA580C] ${surfaceCardClass}`}
+                >
+                  <MessageSquare className={`w-4 h-4 ${accent.primaryText}`} />
+                  <span>{copy.reviewsSection.feedbackCta}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+                {cmsReviews.slice(0, 4).map((rev) => (
+                  <article
+                    key={rev.id}
+                    className={`rounded-2xl border p-5 flex flex-col justify-between gap-4 ${surfaceCardClass}`}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-0.5 text-[#EA580C] dark:text-[#FBBF24]">
+                        {Array.from({ length: Math.min(5, Math.max(1, rev.rating || 5)) }).map((_, i) => (
+                          <Star key={i} className="w-3.5 h-3.5 fill-current" />
+                        ))}
+                      </div>
+                      <p className="text-xs sm:text-[13px] leading-relaxed font-medium">«{rev.quote}»</p>
+                    </div>
+                    <div className="pt-3 border-t border-[#D4CCBC]/60 dark:border-[#22355E]">
+                      <div className="text-xs font-black">{rev.author}</div>
+                      <div className={`text-[11px] mt-0.5 ${mutedTextClass}`}>{rev.workshop}</div>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -1576,43 +2303,61 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </section>
         )}
 
-        {/* ==================== 11. الأسئلة الشائعة ==================== */}
         {cms.sections.faq.visible && (
-          <section id="faq-section" className="py-16 sm:py-24 border-b border-[#D4CCBC]/70 dark:border-[#1E2E52]">
+          <section id="faq" className={`py-16 sm:py-20 border-b ${dividerBorderClass}`}>
             <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-              <div className="space-y-2.5">
+              <div className="text-center space-y-2.5">
                 <p className={`text-xs sm:text-sm font-extrabold ${accent.primaryText}`}>
-                  {cms.sections.faq.badge}
+                  {copy.faqSection.eyebrow}
                 </p>
-                <h2 className="text-2xl sm:text-4xl font-black leading-tight">
-                  {cms.sections.faq.title}
+                <h2 className="text-2xl sm:text-3xl font-black leading-tight">
+                  {isRTL ? cms.sections.faq.title || copy.faqSection.title : copy.faqSection.title}
                 </h2>
-                <p className={`text-sm sm:text-base ${mutedTextClass}`}>{cms.sections.faq.subtitle}</p>
+                <p className={`text-sm leading-relaxed ${mutedTextClass}`}>
+                  {isRTL ? cms.sections.faq.subtitle || copy.faqSection.subtitle : copy.faqSection.subtitle}
+                </p>
               </div>
 
-              <div className="divide-y divide-[#D4CCBC] dark:divide-[#22355E] border-y border-[#D4CCBC] dark:border-[#22355E]">
-                {cms.sections.faq.items.map((fq, idx) => {
+              <div className="space-y-3">
+                {cmsFaqs.map((item, idx) => {
                   const isOpen = openFaq === idx;
                   return (
-                    <div key={fq.id} className="py-4">
+                    <div
+                      key={item.id}
+                      className={`rounded-2xl border overflow-hidden transition-colors ${surfaceCardClass} ${
+                        isOpen ? accent.primaryBorder : ''
+                      }`}
+                    >
                       <button
                         type="button"
                         onClick={() => setOpenFaq(isOpen ? null : idx)}
-                        className="w-full flex items-center justify-between gap-4 text-right cursor-pointer"
                         aria-expanded={isOpen}
+                        className="w-full px-5 py-4 flex items-center justify-between gap-4 text-start cursor-pointer"
                       >
-                        <span className="text-sm sm:text-base font-black">{fq.q}</span>
+                        <span className="text-sm sm:text-[15px] font-black leading-snug">{item.q}</span>
                         {isOpen ? (
-                          <ChevronUp className={`w-5 h-5 shrink-0 ${accent.primaryText}`} />
+                          <ChevronUp className={`w-4.5 h-4.5 shrink-0 ${accent.primaryText}`} />
                         ) : (
-                          <ChevronDown className={`w-5 h-5 shrink-0 ${mutedTextClass}`} />
+                          <ChevronDown className="w-4.5 h-4.5 shrink-0 opacity-60" />
                         )}
                       </button>
-                      {isOpen && (
-                        <p className={`mt-3 text-xs sm:text-sm leading-relaxed pl-6 ${mutedTextClass}`}>
-                          {fq.a}
-                        </p>
-                      )}
+                      <AnimatePresence initial={false}>
+                        {isOpen && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div
+                              className={`px-5 pb-4 pt-1 text-xs sm:text-sm leading-relaxed border-t border-[#D4CCBC]/50 dark:border-[#22355E]/70 ${mutedTextClass}`}
+                            >
+                              {item.a}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   );
                 })}
@@ -1621,139 +2366,343 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </section>
         )}
 
-        {/* ==================== 12. البانر الختامي النظيف ==================== */}
-        {cms.sections.finalCta.visible && (
-          <section className="py-16 sm:py-24">
-            <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="rounded-3xl bg-[#0C1427] text-[#F7F3EA] border border-[#22355E] p-8 sm:p-12 lg:p-14 text-center space-y-6">
-                <h2 className="text-2xl sm:text-4xl font-black leading-tight [text-wrap:balance]">
-                  {cms.sections.finalCta.title}
-                </h2>
-                <p className="text-sm sm:text-base text-[#CBD5E1] max-w-2xl mx-auto leading-relaxed">
-                  {cms.sections.finalCta.subtitle}
-                </p>
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+        {/* ==================== 10. قسم الختام والدعوة للانضمام ==================== */}
+        <section className="relative py-20 sm:py-28 bg-[#0C1427] text-[#F7F3EA] overflow-hidden">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_center,rgba(234,88,12,0.22),transparent_58%)]"
+          />
+          <motion.div
+            initial={revealInitial}
+            whileInView={revealAnimate}
+            viewport={{ once: true, amount: 0.2 }}
+            transition={revealTransition}
+            className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-7"
+          >
+            <div className="flex justify-center">
+              <AlShamsFalconEmblem size={54} isDark />
+            </div>
+
+            <p className="text-xs sm:text-sm font-extrabold text-[#FBBF24] tracking-wide">
+              {copy.closing.eyebrow}
+            </p>
+
+            <h2 className="text-2xl sm:text-4xl lg:text-[2.7rem] font-black leading-tight text-white [text-wrap:balance]">
+              {copy.closing.headline}
+            </h2>
+
+            <p className="text-sm sm:text-lg leading-[1.9] text-[#CBD5E1] max-w-3xl mx-auto">
+              {copy.closing.body}
+            </p>
+
+            <div className="py-4 px-6 rounded-3xl bg-[#111C38]/90 border border-[#FBBF24]/30 inline-block space-y-2">
+              <p className="text-xl sm:text-2xl font-black text-[#FBBF24]">
+                {copy.closing.familyStatement}
+              </p>
+              <p className="text-sm sm:text-base font-bold text-[#F7F3EA]">
+                {copy.closing.threadLine}
+              </p>
+              <p
+                dir="ltr"
+                className="text-xs sm:text-sm font-semibold tracking-[0.22em] uppercase text-[#A8B7D1] pt-1"
+              >
+                {copy.closing.luxuryLine}
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 pt-2">
+              <button
+                type="button"
+                onClick={onOpenRegister}
+                className={`w-full sm:w-auto px-8 py-4 rounded-2xl text-sm sm:text-base font-black inline-flex items-center justify-center gap-2 transition cursor-pointer shadow-lg ${accent.primaryBtn}`}
+              >
+                <span>{copy.closing.primaryCta}</span>
+                <DirectionalArrow className="w-4.5 h-4.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => scrollToSection('guided-discovery')}
+                className="w-full sm:w-auto px-7 py-4 rounded-2xl text-sm sm:text-base font-black border border-white/25 hover:border-[#FBBF24] text-white hover:text-[#FBBF24] inline-flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <Compass className="w-4.5 h-4.5" />
+                <span>{copy.closing.secondaryCta}</span>
+              </button>
+            </div>
+          </motion.div>
+        </section>
+      </main>
+
+      {/* ==================== 11. التذييل (Clean Editorial Footer) ==================== */}
+      <footer
+        className={`border-t py-12 sm:py-16 ${
+          isObsidianPreset
+            ? 'bg-[#060B18] border-[#1D2D52] text-[#F7F3EA]'
+            : 'bg-[#EBE3D5] dark:bg-[#050914] border-[#D4CCBC] dark:border-[#1E2E52]'
+        }`}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-5 space-y-4">
+              <div className="flex items-center gap-2.5">
+                <AlShamsFalconEmblem size={36} isDark={isObsidianPreset || isDarkMode} />
+                <AlShamsBrandLogo isDark={isObsidianPreset || isDarkMode} className="h-9" />
+              </div>
+              <p className={`text-xs sm:text-sm leading-relaxed max-w-md ${mutedTextClass}`}>
+                {isRTL ? cmsFooter.brandSubtitle || copy.hero.description : copy.hero.description}
+              </p>
+              <p
+                dir="ltr"
+                className={`text-xs font-extrabold tracking-[0.18em] uppercase ${accent.primaryText}`}
+              >
+                {copy.closing.luxuryLine}
+              </p>
+            </div>
+
+            <div className="lg:col-span-2 space-y-3">
+              <h3 className="text-xs font-black uppercase tracking-wide opacity-75">
+                {copy.footer.quickLinksTitle}
+              </h3>
+              <ul className="space-y-2 text-xs sm:text-sm font-bold">
+                {visibleNav.map((lnk) => (
+                  <li key={lnk.id}>
+                    <a
+                      href={lnk.href}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        scrollToSection(lnk.href);
+                      }}
+                      className={`transition-colors ${mutedTextClass} ${accent.hoverText}`}
+                    >
+                      {lnk.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="lg:col-span-2 space-y-3">
+              <h3 className="text-xs font-black uppercase tracking-wide opacity-75">
+                {copy.footer.marketsTitle}
+              </h3>
+              <ul className="space-y-2 text-xs sm:text-sm font-bold">
+                {flags.artisanMarketplaceEnabled && (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={handleOpenMarketplace}
+                      className={`transition-colors cursor-pointer ${mutedTextClass} ${accent.hoverText}`}
+                    >
+                      {copy.header.alshamsMarket}
+                    </button>
+                  </li>
+                )}
+                {flags.suppliersMarketplaceEnabled && (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={handleOpenSuppliersMarket}
+                      className={`transition-colors cursor-pointer ${mutedTextClass} ${accent.hoverText}`}
+                    >
+                      {copy.header.suppliersMarket}
+                    </button>
+                  </li>
+                )}
+                <li>
+                  <button
+                    type="button"
+                    onClick={onOpenLogin}
+                    className={`transition-colors cursor-pointer ${mutedTextClass} ${accent.hoverText}`}
+                  >
+                    {copy.footer.loginBtn}
+                  </button>
+                </li>
+                <li>
                   <button
                     type="button"
                     onClick={onOpenRegister}
-                    className={`w-full sm:w-auto px-7 py-3.5 rounded-xl text-sm sm:text-base font-black inline-flex items-center justify-center gap-2 transition cursor-pointer ${accent.primaryBtn}`}
+                    className={`transition-colors cursor-pointer ${mutedTextClass} ${accent.hoverText}`}
                   >
-                    <span>{cms.sections.finalCta.ctaText}</span>
-                    <ArrowLeft className="w-4 h-4" />
+                    {copy.footer.registerBtn}
                   </button>
-                  {flags.supplierLandingPromoEnabled && (
-                    <button
-                      type="button"
-                      onClick={onOpenRegisterSupplier || onOpenRegister}
-                      className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/20 text-white text-sm font-black transition cursor-pointer"
-                    >
-                      {cms.hero.secondaryCtaText}
-                    </button>
-                  )}
-                </div>
+                </li>
+              </ul>
+            </div>
+
+            <div className="lg:col-span-3 space-y-3">
+              <h3 className="text-xs font-black uppercase tracking-wide opacity-75">
+                {copy.footer.experienceTitle}
+              </h3>
+              <div className="space-y-2.5">
+                {!isPreview && (
+                  <button
+                    type="button"
+                    onClick={() => setIsWelcomeGateOpen(true)}
+                    className={`w-full px-4 py-2.5 rounded-xl border text-xs font-black flex items-center justify-between cursor-pointer hover:border-[#EA580C] transition ${surfaceCardClass}`}
+                  >
+                    <span>{copy.footer.welcomeGateBtn}</span>
+                    <Sparkles className={`w-4 h-4 ${accent.primaryText}`} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeedbackError(null);
+                    setIsFeedbackModalOpen(true);
+                  }}
+                  className={`w-full px-4 py-2.5 rounded-xl border text-xs font-black flex items-center justify-between cursor-pointer hover:border-[#EA580C] transition ${surfaceCardClass}`}
+                >
+                  <span>{copy.footer.feedbackBtn}</span>
+                  <MessageSquare className={`w-4 h-4 ${accent.primaryText}`} />
+                </button>
               </div>
             </div>
-          </section>
-        )}
-      </main>
-
-      {/* ==================== 13. التذييل الهادئ ==================== */}
-      <footer className="border-t border-[#D4CCBC] dark:border-[#1E2E52] py-10 sm:py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2.5">
-              <AlShamsFalconEmblem size={30} isDark={isObsidianPreset || isDarkMode} />
-              <span className="text-base font-black">{cms.sections.footer.brandTitle}</span>
-            </div>
-            <p className={`text-xs max-w-md ${mutedTextClass}`}>{cms.sections.footer.brandSubtitle}</p>
           </div>
 
-          <div className="space-y-1 md:text-left">
-            <p className="text-xs font-bold">{cms.sections.footer.copyrightText}</p>
-            <p className={`text-[11px] font-bold ${mutedTextClass}`}>{cms.sections.footer.subTagline}</p>
+          <div
+            className={`pt-6 border-t ${dividerBorderClass} flex flex-col sm:flex-row items-center justify-between gap-3 text-xs ${mutedTextClass}`}
+          >
+            <p>{cmsFooter.copyrightText}</p>
+            <p className="font-bold">{cmsFooter.subTagline}</p>
           </div>
         </div>
       </footer>
 
-      {/* ==================== نافذة مشاركة الرأي والاقتراح ==================== */}
-      {isFeedbackModalOpen && (
-        <div className="fixed inset-0 z-50 bg-[#060B18]/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`w-full max-w-lg rounded-2xl border p-6 space-y-4 shadow-2xl ${surfaceCardClass}`}>
-            <div className="flex items-center justify-between border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
-              <h3 className="text-base font-black">شاركنا رأيك أو اقتراحك لتطوير المنظومة</h3>
-              <button
-                type="button"
-                onClick={() => setIsFeedbackModalOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-black/5 cursor-pointer"
-                aria-label="إغلاق"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {feedbackSuccess ? (
-              <div className="py-8 text-center space-y-2">
-                <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
-                <p className="text-sm font-black">تم استلام رأيك بنجاح، شكراً لكونك جزءاً من عيلة الشمساوية!</p>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmitFeedback} className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    required
-                    value={feedbackName}
-                    onChange={(e) => setFeedbackName(e.target.value)}
-                    placeholder="الاسم أو اسم الورشة"
-                    className="px-3.5 py-2.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
-                  />
-                  <input
-                    type="text"
-                    value={feedbackCraft}
-                    onChange={(e) => setFeedbackCraft(e.target.value)}
-                    placeholder="مجال الحرفة أو التوريد"
-                    className="px-3.5 py-2.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
-                  />
+      {/* ==================== 12. نافذة إرسال الآراء والمقترحات (/api/public/feedback) ==================== */}
+      <AnimatePresence>
+        {isFeedbackModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-sm"
+            dir={isRTL ? 'rtl' : 'ltr'}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              className={`w-full max-w-lg rounded-3xl border p-6 shadow-2xl space-y-5 ${
+                isObsidianPreset
+                  ? 'bg-[#0E1833] border-[#21335C] text-[#F7F3EA]'
+                  : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E]'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-black">{copy.feedbackModal.title}</h3>
+                  <p className={`text-xs mt-1 ${mutedTextClass}`}>{copy.feedbackModal.subtitle}</p>
                 </div>
-                <textarea
-                  rows={3}
-                  required
-                  value={feedbackMessage}
-                  onChange={(e) => setFeedbackMessage(e.target.value)}
-                  placeholder="اكتب تجربتك أو اقتراحك..."
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
-                />
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-1">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <button
-                        key={star}
-                        type="button"
-                        onClick={() => setFeedbackRating(star)}
-                        className="p-1 cursor-pointer"
-                      >
-                        <Star
-                          className={`w-5 h-5 ${
-                            star <= feedbackRating ? 'text-amber-500 fill-current' : 'text-slate-400'
-                          }`}
-                        />
-                      </button>
-                    ))}
+                <button
+                  type="button"
+                  onClick={() => setIsFeedbackModalOpen(false)}
+                  aria-label={copy.header.closeMenu}
+                  className="w-9 h-9 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {feedbackSuccess ? (
+                <div className="py-8 text-center space-y-3">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-8 h-8" />
                   </div>
+                  <h4 className="text-base font-black">{copy.feedbackModal.successTitle}</h4>
+                  <p className={`text-xs ${mutedTextClass}`}>{copy.feedbackModal.successBody}</p>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmitFeedback} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold block">{copy.feedbackModal.nameLabel}</label>
+                      <input
+                        type="text"
+                        required
+                        value={feedbackName}
+                        onChange={(e) => setFeedbackName(e.target.value)}
+                        placeholder={copy.feedbackModal.namePlaceholder}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#091124] text-xs sm:text-sm outline-none focus:border-[#EA580C]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold block">{copy.feedbackModal.craftLabel}</label>
+                      <input
+                        type="text"
+                        value={feedbackCraft}
+                        onChange={(e) => setFeedbackCraft(e.target.value)}
+                        placeholder={copy.feedbackModal.craftPlaceholder}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#091124] text-xs sm:text-sm outline-none focus:border-[#EA580C]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold block">{copy.feedbackModal.ratingLabel}</label>
+                    <div className="flex items-center gap-1.5">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => setFeedbackRating(star)}
+                          className="p-1 cursor-pointer"
+                          aria-label={`${star} / 5`}
+                        >
+                          <Star
+                            className={`w-5 h-5 transition ${
+                              star <= feedbackRating
+                                ? 'text-[#EA580C] dark:text-[#FBBF24] fill-current'
+                                : 'text-[#94A3B8]'
+                            }`}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold block">{copy.feedbackModal.messageLabel}</label>
+                    <textarea
+                      required
+                      rows={3}
+                      value={feedbackMessage}
+                      onChange={(e) => setFeedbackMessage(e.target.value)}
+                      placeholder={copy.feedbackModal.messagePlaceholder}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#091124] text-xs sm:text-sm outline-none focus:border-[#EA580C] resize-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold block">{copy.feedbackModal.contactLabel}</label>
+                    <input
+                      type="text"
+                      value={feedbackContact}
+                      onChange={(e) => setFeedbackContact(e.target.value)}
+                      placeholder={copy.feedbackModal.contactPlaceholder}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#091124] text-xs sm:text-sm outline-none focus:border-[#EA580C]"
+                    />
+                  </div>
+
+                  {feedbackError && (
+                    <p className="text-xs font-bold text-rose-600 dark:text-rose-400">{feedbackError}</p>
+                  )}
+
                   <button
                     type="submit"
                     disabled={feedbackSubmitting}
-                    className={`px-5 py-2.5 rounded-xl text-xs font-black inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${accent.primaryBtn}`}
+                    className={`w-full py-3 rounded-xl text-sm font-black inline-flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-60 ${accent.primaryBtn}`}
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>{feedbackSubmitting ? 'جاري الإرسال...' : 'إرسال'}</span>
+                    <Send className="w-4 h-4" />
+                    <span>
+                      {feedbackSubmitting ? copy.feedbackModal.submitting : copy.feedbackModal.submit}
+                    </span>
                   </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
+                </form>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

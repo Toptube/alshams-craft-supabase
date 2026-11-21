@@ -110,6 +110,9 @@ const SaaSReportsAnalyticsView = lazy(() =>
 const FalconAIAgent = lazy(() =>
   import('./components/ai/FalconAIAgent').then((m) => ({ default: m.FalconAIAgent }))
 );
+const ShamousaCompanion = lazy(() =>
+  import('./components/shamousa/ShamousaCompanion').then((m) => ({ default: m.ShamousaCompanion }))
+);
 const AdminDashboard = lazy(() =>
   import('./components/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard }))
 );
@@ -2113,15 +2116,11 @@ export const App: React.FC = () => {
       <Suspense fallback={<AppScreenFallback />}>
         <SuppliersMarketView
           profile={profile}
-          onNavigateBack={
-            profile
-              ? () => {
-                  if (window.location.hash) window.location.hash = '';
-                  if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
-                  setActiveRoute({ type: 'app' });
-                }
-              : undefined
-          }
+          onNavigateBack={() => {
+            if (window.location.hash) window.location.hash = '';
+            if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
+            setActiveRoute({ type: 'app' });
+          }}
           onNavigateToMyOrders={() => {
             if (window.location.hash) window.location.hash = '';
             if (window.location.pathname !== '/') window.history.pushState({}, '', '/');
@@ -2356,6 +2355,22 @@ export const App: React.FC = () => {
             setAuthRegisterRole('supplier');
             setAuthGatewayMode('signup');
             setShowAuthGateway(true);
+          }}
+          onOpenMarketplace={() => {
+            window.location.hash = '#/market';
+            setActiveRoute({ type: 'market' });
+          }}
+          onOpenSuppliersMarket={() => {
+            window.location.hash = '#/suppliers-market';
+            setActiveRoute({ type: 'suppliers_market' });
+          }}
+          onOpenStore={(slug) => {
+            window.location.hash = `#/store/${encodeURIComponent(slug)}`;
+            setActiveRoute({ type: 'store', slug });
+          }}
+          onOpenSupplierStore={(slug) => {
+            window.location.hash = `#/supplier/${encodeURIComponent(slug)}`;
+            setActiveRoute({ type: 'supplier_store', slug });
           }}
           isDarkMode={isDarkMode}
           onToggleTheme={handleToggleTheme}
@@ -3192,7 +3207,7 @@ export const App: React.FC = () => {
           )}
       </main>
 
-      {/* Floating Shamousa Chat Assistant: Active across workshops & gated by Feature Flag */}
+      {/* Floating Shamousa Chat Assistant & Strategic OR Companion: Active across workshops */}
       {profile &&
         activeView !== 'ai_agent' &&
         activeView !== 'family' &&
@@ -3202,6 +3217,31 @@ export const App: React.FC = () => {
               profile={profile}
               onOpenFalcon={() => navigateTo('ai_agent')}
               isAnyModalOpen={isAnyModalOpen}
+            />
+            <ShamousaCompanion
+              profile={profile}
+              isAnyModalOpen={isAnyModalOpen}
+              onNavigateView={(target) => {
+                if (target === 'catalog') {
+                  handleNavigateToCatalog('catalog');
+                } else if (target === 'store') {
+                  handleOpenArtisanStore('products');
+                } else if (target === 'my_orders') {
+                  handleOpenArtisanStore('orders');
+                } else if (target === 'unified_materials') {
+                  handleNavigateToUnifiedMaterials();
+                } else if (target === 'marketplace') {
+                  navigateTo('marketplace');
+                } else if (target === 'suppliers_market') {
+                  navigateTo('suppliers_market');
+                } else if (target === 'customers') {
+                  navigateTo('customers');
+                } else if (target === 'calculator') {
+                  navigateTo('calculator');
+                } else {
+                  navigateTo(target as any);
+                }
+              }}
             />
           </Suspense>
         )}

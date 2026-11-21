@@ -39,6 +39,24 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
     }
   }, [isOpen]);
 
+  const handleDismiss = () => {
+    try {
+      localStorage.setItem('alshams_welcome_gate_seen', 'true');
+    } catch {}
+    onClose();
+  };
+
+  useEffect(() => {
+    if (phase !== 'modal') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleDismiss();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [phase]);
+
   const handleEnterClick = () => {
     // 1. تشغيل الأوديو فوراً عبر الكولباك (تزامن مع ضغطة المستخدم الصريحة)
     onEnter();
@@ -133,9 +151,10 @@ export const AlShamsWelcomeGate: React.FC<AlShamsWelcomeGateProps> = ({
             {/* زر إغلاق ناعم في الزاوية لمن يفضل التصفح الفوري */}
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleDismiss}
               className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-stone-300 hover:text-white flex items-center justify-center transition cursor-pointer z-20"
               title="إغلاق الترحيب"
+              aria-label="إغلاق الترحيب"
             >
               <X className="w-5 h-5" />
             </button>
