@@ -38,6 +38,7 @@ import {
   getAgentSecretStatus,
   runFullApiHealthAudit,
 } from './server/googleSearchService.js';
+import { synthesizePersonaSpeech } from './server/neuralTtsService.js';
 import { registerSupplierErpRoutes } from './server/supplierErpRoutes.js';
 import {
   loadUnifiedMaterialsState,
@@ -5039,48 +5040,28 @@ app.post('/api/ai/transcribe-audio', requireAuth, handleAudioTranscription);
 app.post('/api/transcribe-audio', requireAuth, handleAudioTranscription);
 
 // -------------------------------------------------------------
-// نطق صوتي عربي مجاني 100% (Fallback للهواتف والمتصفحات التي لا تدعم speechSynthesis)
+// نطق صوتي بشري مصري طبيعي مجاني 100% (شموسة وصقر — Gemini 3.8 Neural + Salma/Shakir Neural)
 // -------------------------------------------------------------
 app.post('/api/tts/free', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const rawText = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    const persona = req.body?.persona === 'falcon' ? 'falcon' : 'shamousa';
     if (!rawText) {
       res.status(400).json({ error: 'النص مطلوب' });
       return;
     }
-    // الحد الأقصى للمقطع الواحد 200 حرف لضمان سرعة الاستجابة ونقاء النطق
-    const chunk = rawText.slice(0, 200);
-    const ttsUrl =
-      'https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=ar&client=gtx&q=' +
-      encodeURIComponent(chunk);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6500);
-    try {
-      const upstream = await fetch(ttsUrl, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          Referer: 'https://translate.google.com/',
-        },
-        signal: controller.signal,
-      });
-
-      if (!upstream.ok) {
-        res.status(502).json({ error: 'تعذر تجهيز الصوت حالياً' });
-        return;
-      }
-
-      const arrayBuf = await upstream.arrayBuffer();
-      const buffer = Buffer.from(arrayBuf);
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Cache-Control', 'private, max-age=3600');
-      res.send(buffer);
-    } finally {
-      clearTimeout(timeout);
+    const synthesized = await synthesizePersonaSpeech(rawText, persona);
+    if (!synthesized) {
+      res.status(503).json({ error: 'تعذر تجهيز الصوت حالياً' });
+      return;
     }
+
+    res.setHeader('Content-Type', synthesized.contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(synthesized.buffer);
   } catch (err: any) {
-    console.warn('[Free TTS Notice]:', err?.message || err);
+    console.warn('[Neural TTS Notice]:', err?.message || err);
     res.status(500).json({ error: 'تعذر تشغيل النطق الصوتي' });
   }
 });

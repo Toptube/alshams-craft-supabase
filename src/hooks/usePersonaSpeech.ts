@@ -15,12 +15,12 @@ interface UsePersonaSpeechResult {
 
 const STORAGE_KEY_PREFIX = 'alshams_free_tts_enabled_';
 
-// Tiny silent WAV data URI used strictly to unlock mobile HTMLAudio autoplay inside a user tap gesture
+// Tiny silent WAV URI strictly used to unlock mobile HTMLAudio autoplay during a user tap
 const SILENT_AUDIO_URI =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
 /**
- * Cleans markdown, emojis, URLs, and decorative symbols so Arabic speech reads naturally.
+ * Cleans markdown, emojis, URLs, and decorative symbols so Arabic neural speech reads naturally.
  */
 function sanitizeTextForSpeech(raw: string): string {
   return String(raw || '')
@@ -36,12 +36,13 @@ function sanitizeTextForSpeech(raw: string): string {
 }
 
 /**
- * Splits long replies into natural ~155-char Arabic chunks so neither native speechSynthesis
- * nor the free server audio fallback ever truncates long responses.
+ * Splits long replies into natural ~240-char Egyptian Arabic phrases so:
+ * 1) First audio sentence starts playing super quickly,
+ * 2) While sentence #1 plays, sentence #2 pre-fetches in parallel for seamless human flow.
  */
-function splitIntoSpeechChunks(text: string): string[] {
+function splitIntoNaturalChunks(text: string): string[] {
   const sentences = text
-    .split(/(?<=[.!؟\n])\s+|(?<=،)\s+(?=.{35,})/)
+    .split(/(?<=[.!؟\n])\s+|(?<=،)\s+(?=.{60,})/)
     .map((s) => s.trim())
     .filter(Boolean);
 
@@ -49,7 +50,7 @@ function splitIntoSpeechChunks(text: string): string[] {
   let current = '';
 
   for (const s of sentences) {
-    if (s.length > 165) {
+    if (s.length > 260) {
       if (current) {
         chunks.push(current);
         current = '';
@@ -57,7 +58,7 @@ function splitIntoSpeechChunks(text: string): string[] {
       const words = s.split(/\s+/);
       let part = '';
       for (const w of words) {
-        if ((part + ' ' + w).trim().length > 155) {
+        if ((part + ' ' + w).trim().length > 235) {
           if (part) chunks.push(part.trim());
           part = w;
         } else {
@@ -68,7 +69,9 @@ function splitIntoSpeechChunks(text: string): string[] {
       continue;
     }
 
-    if ((current + ' ' + s).trim().length <= 160) {
+    // Keep chunk #1 crisp (~170 chars) for ultra-fast start, subsequent chunks up to ~250 chars
+    const maxLen = chunks.length === 0 ? 185 : 255;
+    if ((current + ' ' + s).trim().length <= maxLen) {
       current = (current + ' ' + s).trim();
     } else {
       if (current) chunks.push(current);
@@ -76,61 +79,18 @@ function splitIntoSpeechChunks(text: string): string[] {
     }
   }
   if (current) chunks.push(current);
-  return chunks.slice(0, 12);
+  return chunks.slice(0, 10);
 }
 
 /**
- * Picks the closest free browser/OS Arabic voice for each persona:
- * - Shamousa: prefers ar-EG female (Microsoft Salma, Google Arabic female)
- * - Falcon: prefers ar-EG male (Microsoft Shakir, Hamed, Majed, Tarik)
- */
-function selectBestVoice(voices: SpeechSynthesisVoice[], persona: SpeechPersona): SpeechSynthesisVoice | null {
-  if (!voices.length) return null;
-
-  const arabicVoices = voices.filter((v) => /^ar\b/i.test(v.lang || ''));
-  if (!arabicVoices.length) return null;
-
-  const femaleHints = /(salma|laila|zeina|mariam|hoda|rana|fatima|amira|sara|female|woman|أنثى|سلمى|هدى|ليلى)/i;
-  const maleHints = /(shakir|hamed|majed|tarik|naayf|bassel|omar|karim|male|man|ذكر|شاكر|ماجد|طارق|حامد)/i;
-
-  const scoreVoice = (v: SpeechSynthesisVoice): number => {
-    const lang = (v.lang || '').toLowerCase();
-    const name = `${v.name || ''} ${v.voiceURI || ''}`;
-    let score = 0;
-
-    if (lang.startsWith('ar-eg')) score += 60;
-    else if (lang.startsWith('ar-sa') || lang.startsWith('ar-ae')) score += 25;
-    else score += 15;
-
-    if (/natural|online|neural|enhanced|premium/i.test(name)) score += 30;
-
-    if (persona === 'shamousa') {
-      if (femaleHints.test(name)) score += 50;
-      if (maleHints.test(name)) score -= 40;
-    } else {
-      if (maleHints.test(name)) score += 50;
-      if (femaleHints.test(name)) score -= 40;
-    }
-
-    return score;
-  };
-
-  return [...arabicVoices].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0] || arabicVoices[0];
-}
-
-/**
- * 100% Free Dual-Layer Arabic Voice Engine (ALWAYS available on every phone & desktop):
- * 1. Primary: Native browser/OS SpeechSynthesis (prefers ar-EG female for Shamousa, ar-EG male for Falcon).
- * 2. Automatic Free Fallback: /api/tts/free MP3 stream played on a shared HTMLAudioElement whenever
- *    mobile WebViews/browsers lack SpeechSynthesis or Arabic voices or fail to start speaking.
+ * Studio-Grade Free Human Egyptian Voice Hook (Zero Robotic Sound!):
+ * - Primary: Calls `/api/tts/free` which delivers natural human Egyptian voices
+ *   (Gemini 3.8 Neural Kore/Fenrir + Native Egyptian Neural Salma/Shakir).
+ * - Parallel Lookahead Pre-fetching: Pre-fetches the next chunk while current chunk plays
+ *   so multi-sentence replies flow continuously without awkward pauses.
+ * - Offline Fallback Only: Falls back to browser `speechSynthesis` only if completely offline.
  */
 export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult {
-  const hasNativeSpeech =
-    typeof window !== 'undefined' &&
-    typeof window.speechSynthesis !== 'undefined' &&
-    typeof window.SpeechSynthesisUtterance !== 'undefined';
-
-  // Always true because HTML5 Audio + /api/tts/free works on every mobile & desktop browser
   const isSupported = true;
   const storageKey = `${STORAGE_KEY_PREFIX}${persona}`;
 
@@ -138,7 +98,6 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
     if (typeof window === 'undefined') return true;
     try {
       const saved = window.localStorage.getItem(storageKey);
-      // Default is ON as requested
       return saved === null ? true : saved === '1';
     } catch {
       return true;
@@ -146,15 +105,13 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
   });
 
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const runIdRef = useRef(0);
   const enabledRef = useRef(isEnabled);
   enabledRef.current = isEnabled;
 
-  // Persistent HTMLAudioElement unlocked on user gesture so mobile browsers allow auto-playback
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const activeBlobUrlRef = useRef<string | null>(null);
-  const watchdogRef = useRef<number | null>(null);
+  const activeAbortRef = useRef<AbortController | null>(null);
 
   const ensureAudioEl = useCallback((): HTMLAudioElement | null => {
     if (typeof window === 'undefined') return null;
@@ -165,31 +122,6 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
     }
     return audioElRef.current;
   }, []);
-
-  useEffect(() => {
-    if (!hasNativeSpeech) return;
-    const loadVoices = () => {
-      try {
-        voicesRef.current = window.speechSynthesis.getVoices() || [];
-      } catch {
-        voicesRef.current = [];
-      }
-    };
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-    return () => {
-      if (window.speechSynthesis.onvoiceschanged === loadVoices) {
-        window.speechSynthesis.onvoiceschanged = null;
-      }
-    };
-  }, [hasNativeSpeech]);
-
-  const clearWatchdog = () => {
-    if (watchdogRef.current !== null) {
-      window.clearTimeout(watchdogRef.current);
-      watchdogRef.current = null;
-    }
-  };
 
   const revokeBlobUrl = () => {
     if (activeBlobUrlRef.current) {
@@ -202,11 +134,11 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
 
   const stop = useCallback(() => {
     runIdRef.current += 1;
-    clearWatchdog();
-    if (hasNativeSpeech) {
+    if (activeAbortRef.current) {
       try {
-        window.speechSynthesis.cancel();
+        activeAbortRef.current.abort();
       } catch {}
+      activeAbortRef.current = null;
     }
     if (audioElRef.current) {
       try {
@@ -216,13 +148,18 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
         audioElRef.current.removeAttribute('src');
       } catch {}
     }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
     revokeBlobUrl();
     setIsSpeaking(false);
-  }, [hasNativeSpeech]);
+  }, []);
 
   /**
-   * Call inside any user tap (Send / Chip / Toggle) so iOS/Android browsers permit auto-playback
-   * when the AI reply arrives 1–3 seconds later.
+   * Unlocks mobile HTMLAudio autoplay inside a user tap (Send / Quick Chip / Toggle)
+   * so Shamousa & Falcon speak out loud automatically when replies arrive.
    */
   const unlock = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -244,38 +181,129 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
         }
       }
     } catch {}
-    if (hasNativeSpeech) {
-      try {
-        window.speechSynthesis.resume();
-      } catch {}
-    }
-  }, [ensureAudioEl, hasNativeSpeech]);
+  }, [ensureAudioEl]);
 
-  /**
-   * 100% Free Audio Fallback: streams Arabic MP3 chunks from /api/tts/free
-   */
-  const playChunksViaFreeAudio = useCallback(
-    async (chunks: string[], startIndex: number, currentRun: number) => {
-      const el = ensureAudioEl();
-      if (!el) {
+  const fetchNeuralChunkBlob = useCallback(
+    async (chunkText: string, signal: AbortSignal): Promise<Blob | null> => {
+      try {
+        const res = await authedFetch('/api/tts/free', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: chunkText, persona }),
+          signal,
+        });
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        return blob && blob.size > 200 ? blob : null;
+      } catch {
+        return null;
+      }
+    },
+    [persona]
+  );
+
+  const speakOfflineBrowserFallback = useCallback(
+    (cleaned: string, currentRun: number) => {
+      if (
+        typeof window === 'undefined' ||
+        typeof window.speechSynthesis === 'undefined' ||
+        typeof window.SpeechSynthesisUtterance === 'undefined'
+      ) {
         if (runIdRef.current === currentRun) setIsSpeaking(false);
         return;
       }
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(cleaned.slice(0, 450));
+        u.lang = 'ar-EG';
+        u.rate = persona === 'shamousa' ? 1.02 : 0.94;
+        u.pitch = persona === 'shamousa' ? 1.1 : 0.85;
+        u.onend = () => {
+          if (runIdRef.current === currentRun) setIsSpeaking(false);
+        };
+        u.onerror = () => {
+          if (runIdRef.current === currentRun) setIsSpeaking(false);
+        };
+        window.speechSynthesis.speak(u);
+      } catch {
+        if (runIdRef.current === currentRun) setIsSpeaking(false);
+      }
+    },
+    [persona]
+  );
 
-      for (let i = startIndex; i < chunks.length; i++) {
-        if (runIdRef.current !== currentRun || !enabledRef.current) break;
+  const speak = useCallback(
+    (rawText: string) => {
+      if (!enabledRef.current) return;
+      const cleaned = sanitizeTextForSpeech(rawText);
+      if (!cleaned) return;
+
+      // Cancel previous run cleanly
+      runIdRef.current += 1;
+      const currentRun = runIdRef.current;
+
+      if (activeAbortRef.current) {
         try {
-          const res = await authedFetch('/api/tts/free', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: chunks[i], persona }),
-          });
-          if (!res.ok || runIdRef.current !== currentRun || !enabledRef.current) {
-            break;
-          }
-          const blob = await res.blob();
+          activeAbortRef.current.abort();
+        } catch {}
+      }
+      const abortController = new AbortController();
+      activeAbortRef.current = abortController;
+
+      if (audioElRef.current) {
+        try {
+          audioElRef.current.pause();
+          audioElRef.current.onended = null;
+          audioElRef.current.onerror = null;
+        } catch {}
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {}
+      }
+      revokeBlobUrl();
+
+      const chunks = splitIntoNaturalChunks(cleaned);
+      if (chunks.length === 0) return;
+
+      setIsSpeaking(true);
+
+      const el = ensureAudioEl();
+      if (!el) {
+        speakOfflineBrowserFallback(cleaned, currentRun);
+        return;
+      }
+
+      void (async () => {
+        let playedAnyNeuralChunk = false;
+        let nextChunkPromise: Promise<Blob | null> | null = fetchNeuralChunkBlob(
+          chunks[0],
+          abortController.signal
+        );
+
+        for (let i = 0; i < chunks.length; i++) {
           if (runIdRef.current !== currentRun || !enabledRef.current) break;
 
+          const blob = await nextChunkPromise;
+          if (runIdRef.current !== currentRun || !enabledRef.current) break;
+
+          // Immediately pre-fetch the NEXT sentence in parallel while current sentence plays!
+          nextChunkPromise =
+            i + 1 < chunks.length
+              ? fetchNeuralChunkBlob(chunks[i + 1], abortController.signal)
+              : null;
+
+          if (!blob) {
+            if (!playedAnyNeuralChunk) {
+              // Offline / server unreachable fallback only
+              speakOfflineBrowserFallback(cleaned, currentRun);
+              return;
+            }
+            continue;
+          }
+
+          playedAnyNeuralChunk = true;
           revokeBlobUrl();
           const blobUrl = URL.createObjectURL(blob);
           activeBlobUrlRef.current = blobUrl;
@@ -289,133 +317,25 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
             el.onerror = () => resolve();
             el.src = blobUrl;
             el.volume = 1;
-            // Distinct acoustic color per persona (Shamousa warm & bright, Falcon deeper & steady)
+            el.playbackRate = 1.0;
             try {
-              (el as any).preservesPitch = false;
-              (el as any).webkitPreservesPitch = false;
-              el.playbackRate = persona === 'shamousa' ? 1.05 : 0.91;
-            } catch {
-              el.playbackRate = persona === 'shamousa' ? 1.04 : 0.95;
-            }
+              (el as any).preservesPitch = true;
+              (el as any).webkitPreservesPitch = true;
+            } catch {}
             const playPromise = el.play();
             if (playPromise && typeof playPromise.catch === 'function') {
               playPromise.catch(() => resolve());
             }
           });
-        } catch {
-          break;
         }
-      }
 
-      revokeBlobUrl();
-      if (runIdRef.current === currentRun) {
-        setIsSpeaking(false);
-      }
+        revokeBlobUrl();
+        if (runIdRef.current === currentRun) {
+          setIsSpeaking(false);
+        }
+      })();
     },
-    [ensureAudioEl, persona]
-  );
-
-  const speak = useCallback(
-    (rawText: string) => {
-      if (!enabledRef.current) return;
-      const cleaned = sanitizeTextForSpeech(rawText);
-      if (!cleaned) return;
-
-      // Cancel any previous playback
-      runIdRef.current += 1;
-      clearWatchdog();
-      if (hasNativeSpeech) {
-        try {
-          window.speechSynthesis.cancel();
-        } catch {}
-      }
-      if (audioElRef.current) {
-        try {
-          audioElRef.current.pause();
-          audioElRef.current.onended = null;
-          audioElRef.current.onerror = null;
-        } catch {}
-      }
-      revokeBlobUrl();
-
-      const currentRun = runIdRef.current;
-      const chunks = splitIntoSpeechChunks(cleaned);
-      if (chunks.length === 0) return;
-
-      setIsSpeaking(true);
-
-      // Refresh voices list if empty
-      if (hasNativeSpeech && voicesRef.current.length === 0) {
-        try {
-          voicesRef.current = window.speechSynthesis.getVoices() || [];
-        } catch {}
-      }
-
-      const chosenVoice = hasNativeSpeech ? selectBestVoice(voicesRef.current, persona) : null;
-
-      // If browser has NO native SpeechSynthesis OR no Arabic voice installed -> use 100% free audio fallback directly
-      if (!hasNativeSpeech || !chosenVoice) {
-        void playChunksViaFreeAudio(chunks, 0, currentRun);
-        return;
-      }
-
-      const speakNativeChunk = (idx: number) => {
-        if (runIdRef.current !== currentRun || !enabledRef.current || idx >= chunks.length) {
-          clearWatchdog();
-          if (runIdRef.current === currentRun) setIsSpeaking(false);
-          return;
-        }
-        try {
-          const utterance = new SpeechSynthesisUtterance(chunks[idx]);
-          utterance.lang = chosenVoice.lang || 'ar-EG';
-          utterance.voice = chosenVoice;
-
-          if (persona === 'shamousa') {
-            utterance.rate = 1.03;
-            utterance.pitch = 1.14;
-          } else {
-            utterance.rate = 0.94;
-            utterance.pitch = 0.82;
-          }
-          utterance.volume = 1;
-
-          let started = false;
-          utterance.onstart = () => {
-            started = true;
-            clearWatchdog();
-          };
-          utterance.onend = () => {
-            clearWatchdog();
-            speakNativeChunk(idx + 1);
-          };
-          utterance.onerror = () => {
-            clearWatchdog();
-            if (runIdRef.current === currentRun && enabledRef.current) {
-              void playChunksViaFreeAudio(chunks, idx, currentRun);
-            }
-          };
-
-          // Watchdog: if mobile browser silently swallows speechSynthesis without starting, auto-fallback to free audio
-          clearWatchdog();
-          watchdogRef.current = window.setTimeout(() => {
-            if (!started && runIdRef.current === currentRun && enabledRef.current) {
-              try {
-                window.speechSynthesis.cancel();
-              } catch {}
-              void playChunksViaFreeAudio(chunks, idx, currentRun);
-            }
-          }, 800);
-
-          window.speechSynthesis.speak(utterance);
-        } catch {
-          clearWatchdog();
-          void playChunksViaFreeAudio(chunks, idx, currentRun);
-        }
-      };
-
-      speakNativeChunk(0);
-    },
-    [hasNativeSpeech, persona, playChunksViaFreeAudio]
+    [ensureAudioEl, fetchNeuralChunkBlob, speakOfflineBrowserFallback]
   );
 
   const toggleEnabled = useCallback(() => {
@@ -436,10 +356,9 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
 
   useEffect(() => {
     return () => {
-      clearWatchdog();
-      if (hasNativeSpeech) {
+      if (activeAbortRef.current) {
         try {
-          window.speechSynthesis.cancel();
+          activeAbortRef.current.abort();
         } catch {}
       }
       if (audioElRef.current) {
@@ -447,9 +366,14 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
           audioElRef.current.pause();
         } catch {}
       }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {}
+      }
       revokeBlobUrl();
     };
-  }, [hasNativeSpeech]);
+  }, []);
 
   return {
     isEnabled,
