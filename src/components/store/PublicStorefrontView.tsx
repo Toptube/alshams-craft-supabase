@@ -350,8 +350,9 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
             if (typeof navigator === 'undefined' || navigator.onLine) {
               try {
+                const sourceTable = isOwnerPreview ? 'marketplace_products' : 'public_marketplace_products';
                 const { data: marketData } = await supabase
-                  .from('marketplace_products')
+                  .from(sourceTable)
                   .select('*')
                   .eq('workshop_id', targetWorkshopId);
                 if (Array.isArray(marketData)) {

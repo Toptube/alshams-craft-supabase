@@ -499,3 +499,29 @@ html.performance-mode .artisan-card-hover:hover {
     transform: none !important;
   }
 }
+
+/* تخصيص السوبر أدمن العام للبطاقات والأزرار على مستوى جميع الصفحات */
+html:not(.sa-show-hidden-elements) [data-sa-hidden="true"] {
+  display: none !important;
+}
+
+html.sa-show-hidden-elements [data-sa-hidden="true"] {
+  opacity: 0.45 !important;
+  outline: 2px dashed #EA580C !important;
+  outline-offset: 2px !important;
+  filter: grayscale(0.5);
+}
+
+html.sa-edit-mode-active button:not([data-sa-customizer="true"]):not([data-sa-customizer="true"] *):hover,
+html.sa-edit-mode-active [role="button"]:not([data-sa-customizer="true"]):not([data-sa-customizer="true"] *):hover,
+html.sa-edit-mode-active a:not([data-sa-customizer="true"]):not([data-sa-customizer="true"] *):hover,
+html.sa-edit-mode-active h1:not([data-sa-customizer="true"]):not([data-sa-customizer="true"] *):hover,
+html.sa-edit-mode-active h2:not([data-sa-customizer="true"]):not([data-sa-customizer="true"] *):hover,
+html.sa-edit-mode-active h3:not([data-sa-customizer="true"]):not([data-sa-customizer="true"] *):hover,
+html.sa-edit-mode-active h4:not([data-sa-customizer="true"]):not([data-sa-customizer="true"] *):hover,
+html.sa-edit-mode-active [data-card-title]:not([data-sa-customizer="true"]):not([data-sa-customizer="true"] *):hover {
+  outline: 2px solid #EA580C !important;
+  outline-offset: 2px !important;
+  cursor: crosshair !important;
+}
+

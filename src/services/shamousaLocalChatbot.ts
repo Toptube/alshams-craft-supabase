@@ -12,6 +12,12 @@ import {
   UnifiedCategoryDef,
   UnifiedMaterialMaster,
 } from '../registry/unifiedMaterialsRegistry';
+import {
+  type UserExperienceMode,
+  getPlatformExperienceModeConfig,
+  getExperienceLabelFromConfig,
+  isExperienceItemVisibleFromConfig,
+} from '../types/experienceMode';
 
 export interface ShamousaChatbotOption {
   id: string;
@@ -551,7 +557,8 @@ interface KnowledgeTopic {
   buildReply: (
     firstName: string,
     isSupplier: boolean,
-    turnCount: number
+    turnCount: number,
+    experienceMode?: UserExperienceMode
   ) => {
     reply: string;
     options?: ShamousaChatbotOption[];
@@ -562,7 +569,7 @@ interface KnowledgeTopic {
 }
 
 const CORE_KNOWLEDGE_TOPICS: KnowledgeTopic[] = [
-  // الترحيب والقائمة الرئيسية
+  // الترحيب والقائمة الرئيسية (متكيّف مع الوضع الحرفي والمحاسبي ومسميات السوبر أدمن الحية)
   {
     id: 'greeting',
     title: 'الترحيب والقائمة الرئيسية',
@@ -583,25 +590,299 @@ const CORE_KNOWLEDGE_TOPICS: KnowledgeTopic[] = [
       'بتعملي ايه',
       'رجوع',
     ],
-    buildReply: (firstName, isSupplier, turnCount) => ({
-      reply:
-        `${pickGreeting(firstName, isSupplier, turnCount)}\n` +
-        `أنا **شموسة**، مديرة أعمالك الذكية في منظومة الشمساوية — أجاوبك فوراً على كل تفاصيل شغلك، ولو حابب تفتحلي البحث المباشر على الإنترنت أدوّرلك في السوق أكتر، اضغط بس على **صورتي اللي جنب خانة الكتابة عشان تنوّر أخضر 🟢**.\n` +
-        `تحب نبدأ بإيه دلوقتي؟`,
-      options: isSupplier
-        ? [
-            { id: 'opt_sup_brief', label: 'هلخصهالك للموردين 💰', intentKey: 'sup_full_brief' },
+    buildReply: (firstName, isSupplier, turnCount, experienceMode = 'craft') => {
+      const cfg = getPlatformExperienceModeConfig();
+      const isCraft = experienceMode === 'craft';
+      const modeName = isCraft ? 'الوضع الحرفي البسيط' : 'الوضع المحاسبي المتقدم';
+
+      if (isSupplier) {
+        const financeLabel = getExperienceLabelFromConfig(cfg, 'sup_finance_title', experienceMode);
+        const briefLabel = getExperienceLabelFromConfig(cfg, 'sup_exec_brief_card', experienceMode);
+        const ledgerVisible = isExperienceItemVisibleFromConfig(cfg, 'sup_ledger_tab', experienceMode);
+        return {
+          reply:
+            `${pickGreeting(firstName, isSupplier, turnCount)}\n` +
+            `أنتِ شغّالة حالياً على **${modeName}** ☀️ ` +
+            (isCraft
+              ? `يعني كلامنا كله بلغة المحل السهلة (فلوس داخلة وخارجة ومين عليه ومين ليه من غير أي تعقيد).\n`
+              : `يعني جاهزة معاكِ بأدق مسميات الحسابات (دفتر الأستاذ، المدين والدائن، وتقييم المخزون والفروع).\n`) +
+            `تحب نبدأ بإيه دلوقتي؟`,
+          options: [
+            { id: 'opt_sup_brief', label: `${briefLabel} 💰`, intentKey: 'sup_full_brief' },
+            { id: 'opt_sup_fin', label: `${financeLabel} 🏦`, view: 'supplier_finance' },
+            ledgerVisible
+              ? { id: 'opt_sup_mode', label: 'الفرق بين الوضع الحرفي والمحاسبي ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' }
+              : { id: 'opt_sup_pos', label: 'الكاشير 80 مم والبيع بالوزن 🛒', queryText: 'كاشير 80 مم' },
             { id: 'opt_sup_unified', label: 'منظومة الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
-            { id: 'opt_sup_pos', label: 'الكاشير 80 مم والبيع بالوزن 🛒', queryText: 'كاشير 80 مم' },
-            { id: 'opt_sup_flow', label: 'خطة بداية مورد جديد 🌿', queryText: 'مورد جديد أبدأ منين' },
-          ]
-        : [
-            { id: 'opt_brief', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
-            { id: 'opt_price', label: 'أسعّر منتج خطوة بخطوة 🧮', queryText: 'عايز أسعّر منتج' },
-            { id: 'opt_unified', label: 'منظومة الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
-            { id: 'opt_agenda', label: 'مواعيد ومهام اليوم 📅', action: 'open_agenda' },
           ],
-    }),
+        };
+      }
+
+      const woLabel = getExperienceLabelFromConfig(cfg, 'wo_page_title', experienceMode);
+      const repLabel = getExperienceLabelFromConfig(cfg, 'rep_page_title', experienceMode);
+      const trLabel = getExperienceLabelFromConfig(cfg, 'fin_treasury_title', experienceMode);
+
+      return {
+        reply:
+          `${pickGreeting(firstName, isSupplier, turnCount)}\n` +
+          `شغّالين دلوقتي على **${modeName}** ☀️ ` +
+          (isCraft
+            ? `هكلمك فيه بلغة الورشة البسيطة بدون «دائن ومدين» وتقاريرك جاهزة بـ «الخلاصة قبل الرسم».\n`
+            : `معاكِ كل التفاصيل المحاسبية الرسمية (الأذونات، المدين والدائن، ميزان المراجعة، والرسوم المتقدمة).\n`) +
+          `تحب نبدأ بإيه دلوقتي؟`,
+        options: [
+          { id: 'opt_brief', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
+          { id: 'opt_wo', label: `${woLabel} 🔨`, view: 'work_orders' },
+          { id: 'opt_rep', label: `${repLabel} 📊`, view: 'reports' },
+          { id: 'opt_tr', label: `${trLabel} 🏦`, view: 'treasuries' },
+        ],
+      };
+    },
+  },
+
+  // 1) الوضع الحرفي والوضع المحاسبي — التبديل والفرق بينهما للفنان والمورد
+  {
+    id: 'dual_experience_modes',
+    title: 'الوضع الحرفي والوضع المحاسبي',
+    keywords: [
+      'الوضع الحرفي',
+      'الوضع المحاسبي',
+      'وضع حرفي',
+      'وضع محاسبي',
+      'تبديل الوضع',
+      'اغير الوضع',
+      'تغيير الوضع',
+      'الوضعين',
+      'الوضع البسيط',
+      'الوضع المتقدم',
+      'الكلام المجعلص',
+      'تبسيط الحسابات',
+      'الفرق بين الوضعين',
+    ],
+    buildReply: (firstName, isSupplier, _turnCount, experienceMode = 'craft') => {
+      const cfg = getPlatformExperienceModeConfig();
+      const isCraft = experienceMode === 'craft';
+      const currentName = isCraft ? 'الوضع الحرفي (البسيط)' : 'الوضع المحاسبي (المتقدم)';
+
+      if (isSupplier) {
+        const craftFin = getExperienceLabelFromConfig(cfg, 'sup_finance_title', 'craft');
+        const accFin = getExperienceLabelFromConfig(cfg, 'sup_finance_title', 'accounting');
+        const craftDeb = getExperienceLabelFromConfig(cfg, 'sup_debit', 'craft');
+        const accDeb = getExperienceLabelFromConfig(cfg, 'sup_debit', 'accounting');
+        const craftCred = getExperienceLabelFromConfig(cfg, 'sup_credit', 'craft');
+        const accCred = getExperienceLabelFromConfig(cfg, 'sup_credit', 'accounting');
+        return {
+          reply:
+            `نظام الوضعين في بوابة الموردين معمول عشان يريحك تماماً يا **${firstName}** ☀️ (أنت حالياً على **${currentName}**):\n` +
+            `• **الوضع الحرفي (المبسّط للتاجر):** بيظهرلك الشاشات بلغة المحل السهلة زي **«${craftFin}»**، وبدل دائن ومدين بتشوف **«${craftDeb}»** و **«${craftCred}»**، ويخفي دفاتر الأستاذ المعقدة عشان تركز في البيع والتحصيل.\n` +
+            `• **الوضع المحاسبي (المتقدم):** بيفتحلك كل الأدوات المحاسبية الرسمية (**«${accFin}»**، **«${accDeb} / ${accCred}»**، دفتر الأستاذ العام، وتقارير التحليل الكاملة).\n` +
+            `🔄 للتبديل في أي وقت: افتح **الإعدادات الأساسية** من أعلى الشاشة، أو اضغط زر التبديل السريع أعلى الرئيسية والخزينة!`,
+          actionLink: { label: getExperienceLabelFromConfig(cfg, 'sup_finance_title', experienceMode), view: 'supplier_finance' },
+          options: [
+            { id: 'dm_s_brief', label: '1) هلخصهالك للموردين 💰', intentKey: 'sup_full_brief' },
+            { id: 'dm_s_fin', label: `2) افتح ${getExperienceLabelFromConfig(cfg, 'sup_finance_title', experienceMode)} 🏦`, view: 'supplier_finance' },
+            { id: 'dm_s_dc', label: '3) شرح الدائن والمدين بالبلدي 📘', queryText: 'يعني ايه دائن ومدين' },
+          ],
+        };
+      }
+
+      const craftIssue = getExperienceLabelFromConfig(cfg, 'wo_issue_voucher', 'craft');
+      const accIssue = getExperienceLabelFromConfig(cfg, 'wo_issue_voucher', 'accounting');
+      const craftRec = getExperienceLabelFromConfig(cfg, 'wo_receive_voucher', 'craft');
+      const accRec = getExperienceLabelFromConfig(cfg, 'wo_receive_voucher', 'accounting');
+      const craftRep = getExperienceLabelFromConfig(cfg, 'rep_page_title', 'craft');
+      const accRep = getExperienceLabelFromConfig(cfg, 'rep_page_title', 'accounting');
+
+      return {
+        reply:
+          `يا **${firstName}**، المنظومة فيها وضعين أساسيين تقدر تقلب بينهم بضغطة واحدة (وضعك دلوقتي: **${currentName}**) ☀️:\n` +
+          `1️⃣ **الوضع الحرفي (بسيط وسلس):** كل حاجة بلغة الورشة؛ بدل الأذونات المعقدة بتشوف **«${craftIssue}»** و **«${craftRec}»**، والتقارير بتبدأ بـ **«${craftRep}»** (الخلاصة بالبلدي + أهم رسمين بس) وبدون دائن ومدين.\n` +
+          `2️⃣ **الوضع المحاسبي (كامل للمحاسبين):** بيظهر المسميات الرسمية كلها زي **«${accIssue}»**، **«${accRec}»**، **«${accRep}»**، **ميزان المراجعة**، سجل التدقيق، وكل الرسوم البيانية المتقدمة.\n` +
+          `🔄 تقدر تبدّل بينهم في أي ثانية من **الإعدادات الأساسية** (أول خانة فوق) أو من زر التبديل السريع أعلى الشاشة!`,
+        actionLink: { label: getExperienceLabelFromConfig(cfg, 'rep_page_title', experienceMode), view: 'reports' },
+        options: [
+          { id: 'dm_a_ret', label: '1) إزاي أرجّع بواقي الخامات للمخزن؟ 🧶', queryText: 'بواقي الخامات بعد أمر التشغيل' },
+          { id: 'dm_a_vch', label: '2) وظيفة الأذونات إيه بالظبط؟ 📋', queryText: 'وظيفة الأذونات' },
+          { id: 'dm_a_dc', label: '3) يعني إيه دائن ومدين؟ 💰', queryText: 'يعني ايه دائن ومدين' },
+        ],
+      };
+    },
+  },
+
+  // 2) بواقي الخامات بعد أمر التشغيل (مثال 5 كجم خيط قطن ← اتفضل 2 كجم)
+  {
+    id: 'work_order_leftover_return',
+    title: 'إرجاع بواقي الخامات من أمر التشغيل',
+    keywords: [
+      'بواقي',
+      'اتفضل',
+      'متبقي',
+      'رجع الخامات',
+      'ارجاع الخامات',
+      'مرتجع خامات',
+      'سحبت 5',
+      'اتفضل 2',
+      'خيط اتفضل',
+      'الخامة اللي اتبقت',
+      'بواقي التشغيل',
+      'هيرجعوا المخزن',
+      'يرجع المخزن',
+    ],
+    buildReply: (firstName, _isSupplier, _turnCount, experienceMode = 'craft') => {
+      const cfg = getPlatformExperienceModeConfig();
+      const receiveLabel = getExperienceLabelFromConfig(cfg, 'wo_receive_voucher', experienceMode);
+      const returnLabel = getExperienceLabelFromConfig(cfg, 'wo_return_leftover', experienceMode);
+      const woPageLabel = getExperienceLabelFromConfig(cfg, 'wo_page_title', experienceMode);
+
+      return {
+        reply:
+          `سؤال ممتاز ومهم جداً يا **${firstName}** 🧶✨ لو سحبت مثلاً **5 كجم خيط قطن** عشان تصنّع 10 شنط واتفضّل معاك **2 كجم سليمة**:\n` +
+          `1️⃣ أول ما تخلص الشغل وتضغط على زر **«${receiveLabel}»** داخل شاشة **«${woPageLabel}»**.\n` +
+          `2️⃣ هتلاقي خانة واضحة اسمها **«${returnLabel}»** بتسألك: *إيه اللي اتفضل سليم وهيرجع المخزن؟* — تكتب **2** (أو تضغط أزرار الاختصار السريعة).\n` +
+          `3️⃣ المنظومة أوتوماتيك:\n` +
+          `   • بترجّع الـ **2 كجم** فوراً لرصيد مخزن الخامات.\n` +
+          `   • وبتحسب تكلفة الـ 10 شنط على **الصافي الفعلي بس (3 كجم)** عشان تسعيرك وربحك يبقوا 100% مظبوطين بدون أي هدر وهمي!`,
+        actionLink: { label: `فتح ${woPageLabel} 🔨`, view: 'work_orders' },
+        options: [
+          { id: 'lo_1', label: `1) افتح ${woPageLabel} 🔨`, view: 'work_orders' },
+          { id: 'lo_2', label: '2) شرح باقي الأذونات 📋', queryText: 'وظيفة الأذونات' },
+          { id: 'lo_3', label: '3) الفرق بين الوضع الحرفي والمحاسبي ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
+        ],
+      };
+    },
+  },
+
+  // 3) وظيفة الأذونات في المنظومة (متكيّفة مع الوضع الحالي ومسميات السوبر أدمن)
+  {
+    id: 'vouchers_and_permits_guide',
+    title: 'وظيفة الأذونات (صرف / توريد / جرد)',
+    keywords: [
+      'الاذونات',
+      'الأذونات',
+      'اذن صرف',
+      'إذن صرف',
+      'اذن توريد',
+      'إذن توريد',
+      'اذن استلام',
+      'إذن استلام',
+      'اذن اضافة',
+      'إذن إضافة',
+      'وظيفة الأذونات',
+      'وظيفة الاذونات',
+      'فايدة الاذونات',
+    ],
+    buildReply: (firstName, isSupplier, _turnCount, experienceMode = 'craft') => {
+      const cfg = getPlatformExperienceModeConfig();
+      const isCraft = experienceMode === 'craft';
+
+      if (isSupplier) {
+        const whLabel = getExperienceLabelFromConfig(cfg, 'sup_warehouse_card', experienceMode);
+        return {
+          reply:
+            `الأذونات في بوابة الموردين هي «عينك اللي بتحفظ بضاعتك» يا **${firstName}** 📦:\n` +
+            `• **${isCraft ? 'إضافة بضاعة جديدة للمخزن' : 'إذن إضافة واستلام مشتريات'}:** لما تشتري من المصنع، الكمية بتزيد وتتسجل الفاتورة تلقائياً.\n` +
+            `• **${isCraft ? 'تحويل بضاعة بين الفروع' : 'إذن تحويل مخزني بخطوتين (شحن ⇠ استلام)'}:** البضاعة تفضل معلّقة لحد ما الفرع المستلم يأكد استلامها فتسمّع في **كارت الصنف**.\n` +
+            `• **${isCraft ? 'توريد الفلوس لخزنتك' : 'إذن توريد خزينة فرع للخزينة الرئيسية'}:** بينقل التحصيل بأمان بعد موافقتك.`,
+          actionLink: { label: `فتح ${whLabel} 🏭`, view: 'supplier_warehouse_erp' },
+          options: [
+            { id: 'vg_s1', label: `1) افتح ${whLabel} 🏭`, view: 'supplier_warehouse_erp' },
+            { id: 'vg_s2', label: '2) هلخصهالك للموردين 💰', intentKey: 'sup_full_brief' },
+          ],
+        };
+      }
+
+      const issueLbl = getExperienceLabelFromConfig(cfg, 'wo_issue_voucher', experienceMode);
+      const receiveLbl = getExperienceLabelFromConfig(cfg, 'wo_receive_voucher', experienceMode);
+      const returnLbl = getExperienceLabelFromConfig(cfg, 'wo_return_leftover', experienceMode);
+      const auditLbl = getExperienceLabelFromConfig(cfg, 'inv_audit_btn', experienceMode);
+      const woPageLbl = getExperienceLabelFromConfig(cfg, 'wo_page_title', experienceMode);
+
+      return {
+        reply:
+          `الأذونات هدفها واحد بس يا **${firstName}**: إنك في آخر اليوم تعرف خاماتك راحت فين وقطعتك كلفت كام من غير ورق ولا وجع دماغ ☀️\n` +
+          `1️⃣ **«${issueLbl}»:** معناه ببساطة إنك سحبت خامات من المخزن عشان تبدأ تصنّع؛ فالمخزن ينقص تلقائياً.\n` +
+          `2️⃣ **«${receiveLbl}»:** أول ما القطع تجهز بتدخل مخزن المنتجات الجاهزة جاهزة للبيع وتكلفتها محسوبة.\n` +
+          `3️⃣ **«${returnLbl}»:** لو اتفضّل خامة سليمة (زي 2 كجم خيط من 5 كجم)، بتكتبها فترجع للمخزن وتنخصم من التكلفة.\n` +
+          `4️⃣ **«${auditLbl}»:** مراجعة سريعة إن اللي على الرف مطابق للي في البرنامج.`,
+        actionLink: { label: `فتح ${woPageLbl} 🔨`, view: 'work_orders' },
+        options: [
+          { id: 'vg_a1', label: '1) إزاي أرجّع بواقي الخامات (مثال 5 كجم)؟ 🧶', queryText: 'بواقي الخامات بعد أمر التشغيل' },
+          { id: 'vg_a2', label: `2) افتح ${woPageLbl} 🔨`, view: 'work_orders' },
+          { id: 'vg_a3', label: '3) الفرق بين الوضع الحرفي والمحاسبي ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
+        ],
+      };
+    },
+  },
+
+  // 4) الدائن والمدين والخزينة والتقارير وميزان المراجعة
+  {
+    id: 'debit_credit_and_reports_guide',
+    title: 'الدائن والمدين والخزينة والتقارير',
+    keywords: [
+      'دائن',
+      'مدين',
+      'الدائن والمدين',
+      'مدين ودائن',
+      'ميزان المراجعة',
+      'ميزان الحسابات',
+      'التقارير والرسوم',
+      'الرسوم البيانية',
+      'الخلاصة قبل الرسم',
+      'مش فاهم الحسابات',
+      'الحسابات صعبة',
+    ],
+    buildReply: (firstName, isSupplier, _turnCount, experienceMode = 'craft') => {
+      const cfg = getPlatformExperienceModeConfig();
+      const isCraft = experienceMode === 'craft';
+
+      if (isSupplier) {
+        const debLbl = getExperienceLabelFromConfig(cfg, 'sup_debit', experienceMode);
+        const credLbl = getExperienceLabelFromConfig(cfg, 'sup_credit', experienceMode);
+        const finLbl = getExperienceLabelFromConfig(cfg, 'sup_finance_title', experienceMode);
+        const ledgerLbl = getExperienceLabelFromConfig(cfg, 'sup_ledger_tab', experienceMode);
+
+        return {
+          reply: isCraft
+            ? `ولا تشغل بالك بكلام المحاسبين يا **${firstName}** ☀️ في **الوضع الحرفي** لغينا التعقيد خالص:\n` +
+              `• بدل «مدين» بتشوف **«${debLbl}»** (يعني فلوس داخلة ليك أو ليك عند الورش).\n` +
+              `• بدل «دائن» بتشوف **«${credLbl}»** (يعني فلوس خارجة منك أو علينا للمصانع).\n` +
+              `• وبطاقة **هلخصهالك للموردين** بتديك صافي الموقف كله في سطرين بالبلدي!`
+            : `في **الوضع المحاسبي المتقدم** يا **${firstName}** 📘 كل الحركات بتتسجل بدقة مزدوجة داخل **«${finLbl}»**:\n` +
+              `• **${debLbl}:** كل ما يزيد رصيد الخزينة أو مديونية العملاء.\n` +
+              `• **${credLbl}:** كل المنصرفات والمشتريات والتزامات المصانع.\n` +
+              `• وتقدر تراجع القيود التفصيلية من تبويب **«${ledgerLbl}»** في أي وقت.`,
+          actionLink: { label: `فتح ${finLbl} 🏦`, view: 'supplier_finance' },
+          options: [
+            { id: 'dc_s1', label: '1) هلخصهالك للموردين 💰', intentKey: 'sup_full_brief' },
+            { id: 'dc_s2', label: `2) افتح ${finLbl} 🏦`, view: 'supplier_finance' },
+            { id: 'dc_s3', label: '3) إزاي أبدّل بين الوضعين؟ ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
+          ],
+        };
+      }
+
+      const debLbl = getExperienceLabelFromConfig(cfg, 'fin_debit', experienceMode);
+      const credLbl = getExperienceLabelFromConfig(cfg, 'fin_credit', experienceMode);
+      const trLbl = getExperienceLabelFromConfig(cfg, 'fin_treasury_title', experienceMode);
+      const repLbl = getExperienceLabelFromConfig(cfg, 'rep_page_title', experienceMode);
+      const tbLbl = getExperienceLabelFromConfig(cfg, 'rep_trial_balance', experienceMode);
+
+      return {
+        reply: isCraft
+          ? `ما تتعبش نفسك بـ «دائن ومدين» خالص يا **${firstName}** 💛 إحنا ترجمناهالك بالبلدي في **الوضع الحرفي**:\n` +
+            `• **«${debLbl}»** = أي فلوس دخلت الخزنة أو ليك عند عميل.\n` +
+            `• **«${credLbl}»** = أي فلوس طلعت مصروف/خامات أو عليك لمورد.\n` +
+            `• وفي شاشة **«${repLbl}»** عملنالك **«الخلاصة قبل الرسم»**: بتقولك في 3 سطور إحنا كسبانين كام ومعانا كام وفوقيها رسمين بساط بس! ولو احتجت تفاصيل المحاسبين اقلب لـ **الوضع المحاسبي** من الإعدادات.`
+          : `أهلاً بيك في **الوضع المحاسبي المتقدم** يا **${firstName}** 📊:\n` +
+            `• في **«${trLbl}»**: كل حركة نقدية بتظهر بتصنيف **«${debLbl}»** (مقبوضات/إيرادات) و **«${credLbl}»** (مدفوعات/مصروفات).\n` +
+            `• وفي **«${repLbl}»**: مفتوحلك **«${tbLbl}»**، مراجعة المبيعات، سجل التدقيق الكامل، وجميع الرسوم البيانية التحليلية.`,
+        actionLink: { label: `فتح ${repLbl} 📊`, view: 'reports' },
+        options: [
+          { id: 'dc_a1', label: `1) افتح ${repLbl} 📊`, view: 'reports' },
+          { id: 'dc_a2', label: `2) افتح ${trLbl} 🏦`, view: 'treasuries' },
+          { id: 'dc_a3', label: '3) هلخصهالك (الموقف المالي كله) 💰', intentKey: 'full_brief' },
+        ],
+      };
+    },
   },
 
   // التعريف بشموسة بدون أي مصطلح "شات بوت" أو "ذكاء اصطناعي"
@@ -1828,11 +2109,13 @@ export function resolveShamousaLocalChatbot(
   options: {
     firstName: string;
     isSupplier: boolean;
+    experienceMode?: UserExperienceMode;
     state?: ShamousaConversationState;
     history?: Array<{ role: string; content: string }>;
   }
 ): ShamousaLocalChatbotResult {
   const { firstName, isSupplier, state } = options;
+  const activeExperienceMode: UserExperienceMode = options.experienceMode || 'craft';
   const currentState: ShamousaConversationState = state || {};
   const nextTurnCount = (currentState.turnCount || 0) + 1;
   const normQuery = normalizeArabicChatbotText(rawQuery);
@@ -2109,7 +2392,7 @@ export function resolveShamousaLocalChatbot(
       };
     }
 
-    const built = topTopic.topic.buildReply(firstName, isSupplier, nextTurnCount);
+    const built = topTopic.topic.buildReply(firstName, isSupplier, nextTurnCount, activeExperienceMode);
     return {
       handled: true,
       confidence: 'high',

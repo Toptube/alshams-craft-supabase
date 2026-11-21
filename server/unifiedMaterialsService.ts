@@ -753,7 +753,7 @@ export async function loadUnifiedMaterialsSnapshotFromSupabase(
       } catch {}
     }
 
-    const [mastersRes, specsRes, aliasesRes, brandsRes, notifsRes, customRes] = await Promise.all([
+    const [mastersRes, specsRes, aliasesRes, brandsRes, notifsRes, customRes, pricingIdxRes] = await Promise.all([
       db.from('unified_materials_master').select('*').order('code', { ascending: true }).limit(2000),
       db.from('unified_material_specs').select('*').order('spec_code', { ascending: true }).limit(2000),
       db.from('unified_material_aliases').select('*').order('alias_code', { ascending: true }).limit(2000),
@@ -767,13 +767,10 @@ export async function loadUnifiedMaterialsSnapshotFromSupabase(
         ? db
             .from('member_material_customizations')
             .select('*')
-            .or(`member_id.eq.${GLOBAL_PRICING_MEMBER_ID},member_id.eq.${options.memberId}`)
+            .eq('member_id', options.memberId)
             .limit(2000)
-        : db
-            .from('member_material_customizations')
-            .select('*')
-            .eq('member_id', GLOBAL_PRICING_MEMBER_ID)
-            .limit(1000),
+        : Promise.resolve({ data: [], error: null }),
+      db.from('unified_market_pricing_index').select('*').limit(2000),
     ]);
 
     if (mastersRes.error || !Array.isArray(mastersRes.data) || mastersRes.data.length === 0) {
@@ -785,6 +782,16 @@ export async function loadUnifiedMaterialsSnapshotFromSupabase(
       localState.memberCustomizations
     );
     const { globalMap: sbGlobalMap, obsCounts: sbObsCounts } = extractGlobalPricingAndObsCounts(rawCustomizations);
+
+    // Authoritative global market pricing table (Phase 2) takes precedence over legacy sentinel rows
+    if (!pricingIdxRes.error && Array.isArray(pricingIdxRes.data)) {
+      for (const pr of pricingIdxRes.data) {
+        const code = String(pr.master_code || '').toUpperCase();
+        if (code && pr.bridge_overrides && typeof pr.bridge_overrides === 'object') {
+          sbGlobalMap.set(code, pr.bridge_overrides as Record<string, any>);
+        }
+      }
+    }
 
     const masters = mastersRes.data.map((r) => {
       const m = rowToMaster(r);
@@ -997,7 +1004,26 @@ async function upsertGlobalPricingRecord(
   if (idx >= 0) state.memberCustomizations[idx] = nextRec;
   else state.memberCustomizations.unshift(nextRec);
 
-  await trySyncMemberCustomizationToSupabase(db, nextRec);
+  // Sync primarily to dedicated unified_market_pricing_index table (Phase 2)
+  let syncedDedicated = false;
+  if (db) {
+    try {
+      const { error } = await db.from('unified_market_pricing_index').upsert(
+        {
+          master_code: upperCode,
+          spec_code: GLOBAL_PRICE_SPEC_CODE,
+          bridge_overrides: nextRec.bridgeOverrides,
+          updated_by: patch.priceSource,
+          updated_at: nowIso,
+        },
+        { onConflict: 'master_code' }
+      );
+      if (!error) syncedDedicated = true;
+    } catch {}
+  }
+  if (!syncedDedicated) {
+    await trySyncMemberCustomizationToSupabase(db, nextRec);
+  }
   return nextRec;
 }
 
@@ -1765,6 +1791,7 @@ export async function contributeToUnifiedMaster(
     nextMaster.unitNote = existingNoteParts.join(' | ');
   }
 
+  const isGlobalAuthority = input.actorRole === 'super_admin';
   const cleanSuggestionNote = String(input.suggestionNote || '').trim();
   const hasDbChanges =
     addedAliases.length > 0 ||
@@ -1775,7 +1802,7 @@ export async function contributeToUnifiedMaster(
     addedUnitEquations.length > 0;
 
   let supabaseSynced = true;
-  if (hasDbChanges) {
+  if (hasDbChanges && isGlobalAuthority) {
     state.masterPatches[upperCode] = {
       ...(state.masterPatches[upperCode] || {}),
       artistAliases: nextMaster.artistAliases,
@@ -1799,6 +1826,21 @@ export async function contributeToUnifiedMaster(
         } catch {}
       }
     }
+  } else if (hasDbChanges && !isGlobalAuthority) {
+    // Non-super-admin contributions are NEVER written directly to global master/spec/alias/brand tables!
+    // Revert any optimistic local state pushes so only approved proposals enter the shared catalog.
+    if (createdAliasRows.length > 0) {
+      const createdCodes = new Set(createdAliasRows.map((a) => a.aliasCode));
+      state.customAliases = state.customAliases.filter((a) => !createdCodes.has(a.aliasCode));
+    }
+    if (addedSpecs.length > 0) {
+      const createdSpecCodes = new Set(addedSpecs.map((s) => s.specCode));
+      state.customSpecs = state.customSpecs.filter((s) => !createdSpecCodes.has(s.specCode));
+    }
+    if (addedBrands.length > 0) {
+      const createdBrandCodes = new Set(addedBrands.map((b) => b.brandCode));
+      state.customBrands = state.customBrands.filter((b) => !createdBrandCodes.has(b.brandCode));
+    }
   }
 
   // Record individual member price observations cleanly isolated from global baseline pricing.
@@ -1819,16 +1861,16 @@ export async function contributeToUnifiedMaster(
     });
   }
 
-  // Send a clear structured notification to Super Admin (suggestionNote is strictly advisory, NEVER stored on master DB!)
+  // Send a clear structured notification to Super Admin (non-admin contributions require Super Admin approval!)
   let notif: UnifiedMaterialNotification | null = null;
-  if (hasDbChanges || cleanSuggestionNote || hasPriceObservation) {
+  if ((!isGlobalAuthority && (hasDbChanges || cleanSuggestionNote || hasPriceObservation)) || (isGlobalAuthority && cleanSuggestionNote)) {
     const summaryParts: string[] = [];
-    if (addedAliases.length > 0) summaryParts.push(`مسميات جديدة: ${addedAliases.join('، ')}`);
-    if (addedThicknessesMm.length > 0) summaryParts.push(`سماكات جديدة: ${addedThicknessesMm.map((t) => `${t} مم`).join('، ')}`);
+    if (addedAliases.length > 0) summaryParts.push(`مسميات مقترحة: ${addedAliases.join('، ')}`);
+    if (addedThicknessesMm.length > 0) summaryParts.push(`سماكات مقترحة: ${addedThicknessesMm.map((t) => `${t} مم`).join('، ')}`);
     const customSpecLabels = addedSpecs.filter((s) => !s.thicknessMm).map((s) => s.label);
-    if (customSpecLabels.length > 0) summaryParts.push(`مواصفات جديدة: ${customSpecLabels.join('، ')}`);
-    if (addedBrandNames.length > 0) summaryParts.push(`ماركات جديدة: ${addedBrandNames.join('، ')}`);
-    if (addedUnitEquations.length > 0) summaryParts.push(`معادلات قياس جديدة: ${addedUnitEquations.join(' | ')}`);
+    if (customSpecLabels.length > 0) summaryParts.push(`مواصفات مقترحة: ${customSpecLabels.join('، ')}`);
+    if (addedBrandNames.length > 0) summaryParts.push(`ماركات مقترحة: ${addedBrandNames.join('، ')}`);
+    if (addedUnitEquations.length > 0) summaryParts.push(`معادلات قياس مقترحة: ${addedUnitEquations.join(' | ')}`);
     if (submittedBasePrice !== undefined) summaryParts.push(`رصد سعر مبدئي: ${submittedBasePrice} ج.م`);
     if (Object.keys(submittedBrandPrices).length > 0) {
       const bpSummary = Object.entries(submittedBrandPrices)
@@ -1847,7 +1889,7 @@ export async function contributeToUnifiedMaster(
       actorName: input.actorName,
       reason: summaryParts.length > 0 ? summaryParts.join(' · ') : 'رسالة مقترح من العضو حول الصنف',
       payload: {
-        kind: 'direct_contribution',
+        kind: isGlobalAuthority ? 'direct_contribution' : 'member_contribution_proposal',
         addedAliases,
         addedThicknessesMm,
         addedSpecLabels: customSpecLabels,
@@ -1855,20 +1897,20 @@ export async function contributeToUnifiedMaster(
         addedUnitEquations,
         submittedBasePrice,
         submittedBrandPrices: Object.keys(submittedBrandPrices).length > 0 ? submittedBrandPrices : undefined,
-        // Advisory message ONLY for Super Admin — never written into material DB fields
         suggestionNote: cleanSuggestionNote || undefined,
       },
       status: 'pending',
       createdAt: nowIso,
     };
     state.notifications.unshift(notif);
-    await trySyncNotificationToSupabase(db, notif);
+    supabaseSynced = await trySyncNotificationToSupabase(db, notif);
   }
 
   saveUnifiedMaterialsState(state);
 
   return {
-    master: nextMaster,
+    master: isGlobalAuthority ? nextMaster : existing,
+    pendingReview: !isGlobalAuthority && hasDbChanges,
     addedAliases,
     addedThicknessesMm,
     addedSpecs,
@@ -2032,6 +2074,27 @@ export async function resolveUnifiedMaterialNotification(
           updatedAt: nowIso,
         };
         await trySyncMasterToSupabase(db, { ...master, ...state.masterPatches[master.code] });
+      }
+      // If notification is a gated member contribution proposal, apply its approved aliases/specs/brands/equations globally now!
+      if (notif.payload?.kind === 'member_contribution_proposal') {
+        const proposedEqs = Array.isArray(notif.payload.addedUnitEquations)
+          ? notif.payload.addedUnitEquations.map((formulaAr: string) => ({
+              formulaAr,
+              topUnit: '',
+              baseUnitAr: '',
+              totalInBaseUnit: 1,
+            }))
+          : [];
+        await contributeToUnifiedMaster(db, master.code, {
+          newAliases: Array.isArray(notif.payload.addedAliases) ? notif.payload.addedAliases : [],
+          newThicknessesMm: Array.isArray(notif.payload.addedThicknessesMm) ? notif.payload.addedThicknessesMm : [],
+          newSpecLabels: Array.isArray(notif.payload.addedSpecLabels) ? notif.payload.addedSpecLabels : [],
+          newBrands: Array.isArray(notif.payload.addedBrands) ? notif.payload.addedBrands : [],
+          newUnitEquations: proposedEqs,
+          actorRole: 'super_admin',
+          actorId: adminEmail,
+          actorName: adminEmail,
+        });
       }
       // If notification carried submitted market/brand prices, Super Admin approving adopts them globally!
       const approvedBase = sanitizePositivePrice(notif.payload?.submittedBasePrice);

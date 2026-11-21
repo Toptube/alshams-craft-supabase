@@ -57,26 +57,79 @@ function extractClientIp(req: Request): string {
   return raw.split(',')[0].trim();
 }
 
+const LEGACY_STAFF_SALT = 'alshams_sup_staff_2026';
+const STAFF_TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
 function hashStaffPassword(raw: string): string {
-  const salt = 'alshams_sup_staff_2026';
-  return crypto.createHash('sha256').update(`${salt}:${String(raw || '')}`).digest('hex');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(String(raw || ''), salt, 64).toString('hex');
+  return `scrypt:${salt}:${derived}`;
 }
 
-const STAFF_TOKEN_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'alshams_erp_kiosk_secret_2026';
+function legacySha256StaffPassword(raw: string): string {
+  return crypto.createHash('sha256').update(`${LEGACY_STAFF_SALT}:${String(raw || '')}`).digest('hex');
+}
+
+function verifyStaffPassword(raw: string, storedHash?: string | null): { valid: boolean; needsRehash: boolean } {
+  if (!storedHash || typeof storedHash !== 'string') return { valid: false, needsRehash: false };
+  const plain = String(raw || '');
+  if (storedHash.startsWith('scrypt:')) {
+    const parts = storedHash.split(':');
+    if (parts.length !== 3) return { valid: false, needsRehash: false };
+    const [, salt, hexKey] = parts;
+    try {
+      const derived = crypto.scryptSync(plain, salt, 64);
+      const expected = Buffer.from(hexKey, 'hex');
+      if (derived.length !== expected.length) return { valid: false, needsRehash: false };
+      return { valid: crypto.timingSafeEqual(derived, expected), needsRehash: false };
+    } catch {
+      return { valid: false, needsRehash: false };
+    }
+  }
+  // Legacy SHA-256 compatibility with timing-safe comparison & transparent upgrade on login
+  const legacyCandidate = Buffer.from(legacySha256StaffPassword(plain), 'utf-8');
+  const expectedBuf = Buffer.from(storedHash, 'utf-8');
+  if (legacyCandidate.length !== expectedBuf.length) return { valid: false, needsRehash: false };
+  const valid = crypto.timingSafeEqual(legacyCandidate, expectedBuf);
+  return { valid, needsRehash: valid };
+}
+
+const STAFF_TOKEN_SECRET: string = (() => {
+  const configured =
+    process.env.STAFF_TOKEN_SECRET || process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (configured && configured.trim().length >= 16) return configured.trim();
+  console.warn(
+    '[Supplier ERP Security] STAFF_TOKEN_SECRET/JWT_SECRET not configured — generating ephemeral runtime secret for staff tokens.'
+  );
+  return crypto.randomBytes(32).toString('hex');
+})();
 
 function signStaffToken(payload: { staffId: string; supplierId: string; branchId: string; role: string; fullName: string }): string {
-  const body = Buffer.from(JSON.stringify({ ...payload, iat: Date.now() })).toString('base64url');
+  const now = Date.now();
+  const body = Buffer.from(
+    JSON.stringify({ ...payload, iat: now, exp: now + STAFF_TOKEN_TTL_MS })
+  ).toString('base64url');
   const sig = crypto.createHmac('sha256', STAFF_TOKEN_SECRET).update(body).digest('base64url');
   return `${body}.${sig}`;
 }
 
-function verifyStaffToken(token?: string | null): { staffId: string; supplierId: string; branchId: string; role: string; fullName: string } | null {
+function verifyStaffToken(token?: string | null): { staffId: string; supplierId: string; branchId: string; role: string; fullName: string; exp?: number } | null {
   if (!token || !token.includes('.')) return null;
-  const [body, sig] = token.split('.');
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [body, sig] = parts;
   const expected = crypto.createHmac('sha256', STAFF_TOKEN_SECRET).update(body).digest('base64url');
-  if (sig !== expected) return null;
+  const sigBuf = Buffer.from(sig, 'utf-8');
+  const expBuf = Buffer.from(expected, 'utf-8');
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
   try {
-    return JSON.parse(Buffer.from(body, 'base64url').toString('utf-8'));
+    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf-8'));
+    if (!parsed?.staffId || !parsed?.supplierId) return null;
+    if (typeof parsed.exp === 'number' && Date.now() > parsed.exp) return null;
+    if (typeof parsed.exp !== 'number' && typeof parsed.iat === 'number' && Date.now() - parsed.iat > STAFF_TOKEN_TTL_MS) {
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -92,6 +145,72 @@ export interface SupplierErpRouteDeps {
 
 export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDeps) {
   const { requireAuth, getDbClient, supabaseAdminClient, resolveActiveSupplierForReq, isSuperAdmin } = deps;
+  const confirmingTransferIds = new Set<string>();
+
+  type ErpRole = 'owner' | 'branch_manager' | 'accountant' | 'warehouse' | 'hr_manager' | 'cashier';
+
+  interface ErpActor {
+    supplier: any;
+    client: any;
+    isOwner: boolean;
+    role: ErpRole;
+    staff: any | null;
+    assignedBranchId: string | null;
+    actorName: string;
+  }
+
+  function normalizeErpRole(raw?: string | null): ErpRole {
+    const r = String(raw || '').trim().toLowerCase();
+    if (r === 'owner' || r === 'branch_manager' || r === 'accountant' || r === 'warehouse' || r === 'hr_manager' || r === 'cashier') {
+      return r;
+    }
+    return 'cashier';
+  }
+
+  function assertErpRoles(
+    actor: ErpActor,
+    res: Response,
+    allowed: ErpRole[],
+    errorMessage = 'صلاحيات دورك الوظيفي لا تسمح بتنفيذ هذه العملية'
+  ): boolean {
+    if (actor.isOwner || allowed.includes(actor.role)) return true;
+    res.status(403).json({ error: errorMessage });
+    return false;
+  }
+
+  function resolveScopedBranchId(
+    actor: ErpActor,
+    res: Response,
+    requestedBranchId?: string | null,
+    requireBranch = false
+  ): string | null | undefined {
+    const requested = String(requestedBranchId || '').trim();
+    const isBranchLocked =
+      !actor.isOwner &&
+      Boolean(actor.assignedBranchId) &&
+      actor.role !== 'accountant' &&
+      actor.role !== 'hr_manager';
+
+    if (isBranchLocked) {
+      if (requested && requested !== actor.assignedBranchId) {
+        res.status(403).json({ error: 'لا يمكنك الوصول أو التعديل على بيانات فرع آخر غير فرعك المخصص' });
+        return undefined;
+      }
+      return actor.assignedBranchId!;
+    }
+
+    if (requireBranch && !requested) {
+      res.status(400).json({ error: 'تحديد الفرع/المخزن مطلوب' });
+      return undefined;
+    }
+    return requested || null;
+  }
+
+  function extractIdempotencyKey(req: Request): string {
+    const raw = req.body?.idempotencyKey || req.headers['x-idempotency-key'] || '';
+    const cleaned = String(raw || '').trim().slice(0, 128);
+    return cleaned;
+  }
 
   /**
    * Resolves either an authenticated Supplier Owner OR an authenticated Branch Staff Terminal session
@@ -99,7 +218,7 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   async function resolveErpActor(
     req: any,
     res: Response
-  ): Promise<{ supplier: any; client: any; isOwner: boolean; staff: any | null; actorName: string } | null> {
+  ): Promise<ErpActor | null> {
     const staffToken = (req.headers['x-staff-token'] as string) || '';
     if (staffToken) {
       const claims = verifyStaffToken(staffToken);
@@ -117,30 +236,64 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
           } catch {}
         }
         if (supplier) {
-          const staffList = readArr(FILES.staff);
-          const staffRow = staffList.find((st: any) => st.id === claims.staffId && st.supplier_id === supplier.id);
-          if (!staffRow || staffRow.is_active !== false) {
-            return {
-              supplier,
-              client: supabaseAdminClient,
-              isOwner: false,
-              staff: staffRow || claims,
-              actorName: claims.fullName || staffRow?.full_name || 'موظف الفرع',
-            };
+          let staffRow = readArr(FILES.staff).find((st: any) => st.id === claims.staffId && st.supplier_id === supplier.id);
+          if (!staffRow) {
+            try {
+              const { data } = await supabaseAdminClient
+                .from('supplier_staff_users')
+                .select('*')
+                .eq('id', claims.staffId)
+                .eq('supplier_id', supplier.id)
+                .maybeSingle();
+              if (data) staffRow = data;
+            } catch {}
           }
+          if (staffRow && staffRow.is_active === false) {
+            res.status(401).json({ error: 'تم تعطيل حساب الموظف، يرجى مراجعة مالك النشاط' });
+            return null;
+          }
+          const role = normalizeErpRole(staffRow?.role || claims.role);
+          const assignedBranchId = String(staffRow?.branch_id || claims.branchId || '').trim() || null;
+          return {
+            supplier,
+            client: supabaseAdminClient,
+            isOwner: false,
+            role,
+            staff: staffRow || claims,
+            assignedBranchId,
+            actorName: claims.fullName || staffRow?.full_name || 'موظف الفرع',
+          };
         }
       }
+      res.status(401).json({ error: 'جلسة جهاز الفرع غير صالحة أو منتهية، يرجى إعادة تسجيل الدخول' });
+      return null;
     }
 
-    // Fallback to standard Supabase JWT Auth
+    // Fallback to standard Supabase JWT Auth (deterministic resolution without 50ms timeout race)
     let authedOk = false;
     await new Promise<void>((resolve) => {
-      requireAuth(req, res, () => {
-        authedOk = true;
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(safetyTimer);
+        res.removeListener('finish', done);
+        res.removeListener('close', done);
         resolve();
-      });
-      // If requireAuth responded with 401/403 directly, wait won't invoke next
-      setTimeout(() => resolve(), 50);
+      };
+      const safetyTimer = setTimeout(done, 5000);
+      res.once('finish', done);
+      res.once('close', done);
+      try {
+        Promise.resolve(
+          requireAuth(req, res, () => {
+            authedOk = true;
+            done();
+          })
+        ).catch(() => done());
+      } catch {
+        done();
+      }
     });
     if (!authedOk || res.headersSent) return null;
 
@@ -152,7 +305,15 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
 
     const client = getDbClient(req);
     const actorName = supplier.owner_name || supplier.ownerName || req.userEmail || 'المالك';
-    return { supplier, client, isOwner: true, staff: null, actorName };
+    return {
+      supplier,
+      client,
+      isOwner: true,
+      role: 'owner',
+      staff: null,
+      assignedBranchId: null,
+      actorName,
+    };
   }
 
   /** Helper to merge Supabase table + JSON array for a given supplier_id */
@@ -215,30 +376,56 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
     if (!actor) return;
     const { supplier, client } = actor;
 
-    const branches = await ensureDefaultBranch(client, supplier);
+    const allBranches = await ensureDefaultBranch(client, supplier);
+    const isBranchRestricted =
+      !actor.isOwner &&
+      Boolean(actor.assignedBranchId) &&
+      actor.role !== 'accountant' &&
+      actor.role !== 'hr_manager';
+    const canSeeOwnerFinance = actor.isOwner || actor.role === 'accountant';
+
     const [
       mainTreasuries,
-      branchTreasuries,
-      transfers,
-      shifts,
+      rawBranchTreasuries,
+      rawTransfers,
+      rawShifts,
       customers,
       vendors,
-      inventory,
-      posOrders,
+      rawInventory,
+      rawPosOrders,
     ] = await Promise.all([
-      loadSupplierTable(client, 'supplier_treasuries', FILES.treasuries, supplier.id),
+      canSeeOwnerFinance ? loadSupplierTable(client, 'supplier_treasuries', FILES.treasuries, supplier.id) : Promise.resolve([]),
       loadSupplierTable(client, 'supplier_branch_treasuries', FILES.branchTreasuries, supplier.id),
       loadSupplierTable(client, 'supplier_treasury_transfers', FILES.treasuryTransfers, supplier.id),
       loadSupplierTable(client, 'supplier_pos_shifts', FILES.shifts, supplier.id),
-      loadSupplierTable(client, 'supplier_customers', FILES.customers, supplier.id),
-      loadSupplierTable(client, 'supplier_vendors', FILES.vendors, supplier.id),
+      canSeeOwnerFinance ? loadSupplierTable(client, 'supplier_customers', FILES.customers, supplier.id) : Promise.resolve([]),
+      canSeeOwnerFinance ? loadSupplierTable(client, 'supplier_vendors', FILES.vendors, supplier.id) : Promise.resolve([]),
       loadSupplierTable(client, 'supplier_branch_inventory', FILES.inventory, supplier.id),
       loadSupplierTable(client, 'supplier_pos_orders', FILES.posOrders, supplier.id),
     ]);
 
-    const ownerMainTreasuryTotal = r2(
-      mainTreasuries.reduce((sum: number, t: any) => sum + Number(t.balance || 0), 0)
-    );
+    const branches = isBranchRestricted
+      ? allBranches.filter((b: any) => b.id === actor.assignedBranchId)
+      : allBranches;
+    const branchTreasuries = isBranchRestricted
+      ? rawBranchTreasuries.filter((bt: any) => bt.branch_id === actor.assignedBranchId)
+      : rawBranchTreasuries;
+    const transfers = isBranchRestricted
+      ? rawTransfers.filter((t: any) => t.branch_id === actor.assignedBranchId)
+      : rawTransfers;
+    const shifts = isBranchRestricted
+      ? rawShifts.filter((s: any) => s.branch_id === actor.assignedBranchId)
+      : rawShifts;
+    const inventory = isBranchRestricted
+      ? rawInventory.filter((i: any) => i.branch_id === actor.assignedBranchId)
+      : rawInventory;
+    const posOrders = isBranchRestricted
+      ? rawPosOrders.filter((o: any) => o.branch_id === actor.assignedBranchId)
+      : rawPosOrders;
+
+    const ownerMainTreasuryTotal = canSeeOwnerFinance
+      ? r2(mainTreasuries.reduce((sum: number, t: any) => sum + Number(t.balance || 0), 0))
+      : 0;
     const branchesPendingTreasuryTotal = r2(
       branchTreasuries.reduce(
         (sum: number, bt: any) =>
@@ -246,15 +433,16 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
         0
       )
     );
-    const receivablesFromCustomers = r2(
-      customers.reduce((sum: number, c: any) => sum + Number(c.balance_due || c.balanceDue || 0), 0)
-    );
-    const payablesToVendors = r2(
-      vendors.reduce((sum: number, v: any) => sum + Number(v.balance_owed || 0), 0)
-    );
-    const totalStockValuation = r2(
-      inventory.reduce((sum: number, it: any) => sum + Number(it.quantity || 0) * Number(it.avg_cost || 0), 0)
-    );
+    const receivablesFromCustomers = canSeeOwnerFinance
+      ? r2(customers.reduce((sum: number, c: any) => sum + Number(c.balance_due || c.balanceDue || 0), 0))
+      : 0;
+    const payablesToVendors = canSeeOwnerFinance
+      ? r2(vendors.reduce((sum: number, v: any) => sum + Number(v.balance_owed || 0), 0))
+      : 0;
+    const totalStockValuation =
+      canSeeOwnerFinance || actor.role === 'branch_manager' || actor.role === 'warehouse'
+        ? r2(inventory.reduce((sum: number, it: any) => sum + Number(it.quantity || 0) * Number(it.avg_cost || 0), 0))
+        : 0;
 
     const todayStr = new Date().toISOString().slice(0, 10);
     const todayOrders = posOrders.filter((o: any) => String(o.created_at || '').startsWith(todayStr));
@@ -271,7 +459,7 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
         branchExpansionRequested: Number(supplier.branch_expansion_requested || 0),
         branchExpansionReason: supplier.branch_expansion_reason || '',
         branchExpansionStatus: supplier.branch_expansion_status || 'none',
-        ownerUnlockPinSet: Boolean(supplier.owner_unlock_pin || '1234'),
+        ownerUnlockPinSet: Boolean(supplier.owner_unlock_pin && String(supplier.owner_unlock_pin).trim().length >= 4),
         branches: branches.map(mapBranch),
         branchTreasuries: branchTreasuries.map(mapBranchTreasury),
         pendingTransfers: transfers
@@ -500,6 +688,9 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/categories', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'branch_manager', 'warehouse'], 'إدارة التصنيفات متاحة للمالك أو مدير الفرع أو أمين المخزن فقط')) {
+      return;
+    }
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'اسم التصنيف مطلوب' });
     const row = {
@@ -525,6 +716,9 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.delete('/api/supplier/erp/categories/:id', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'branch_manager'], 'حذف التصنيفات متاح للمالك أو مدير الفرع فقط')) {
+      return;
+    }
     const id = req.params.id;
     const list = readArr(FILES.categories).filter(
       (c: any) => !(c.supplier_id === actor.supplier.id && (c.id === id || c.parent_id === id))
@@ -542,7 +736,8 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.get('/api/supplier/erp/inventory', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
-    const branchIdFilter = String(req.query?.branchId || '');
+    const branchIdFilter = resolveScopedBranchId(actor, res, String(req.query?.branchId || ''), false);
+    if (branchIdFilter === undefined) return;
     const all = await loadSupplierTable(actor.client, 'supplier_branch_inventory', FILES.inventory, actor.supplier.id);
     const filtered = branchIdFilter ? all.filter((i: any) => i.branch_id === branchIdFilter) : all;
     return res.json({ success: true, items: filtered.map(mapInventoryItem) });
@@ -551,9 +746,14 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/inventory', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'branch_manager', 'warehouse'], 'تعديل أرصدة المخزون متاح للمالك أو مدير الفرع أو أمين المخزن فقط')) {
+      return;
+    }
     const { supplier, client, actorName, staff } = actor;
     const b = req.body || {};
-    const branchId = String(b.branchId || '');
+    const scopedBranchId = resolveScopedBranchId(actor, res, b.branchId, true);
+    if (!scopedBranchId) return;
+    const branchId = scopedBranchId;
     const itemName = String(b.itemName || '').trim();
     if (!branchId || !itemName) {
       return res.status(400).json({ error: 'الفرع/المخزن واسم الصنف مطلوبان' });
@@ -627,15 +827,20 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/transfer', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'branch_manager', 'warehouse'], 'تحويلات المخزون متاحة للمالك أو مدير الفرع أو أمين المخزن فقط')) {
+      return;
+    }
     const { supplier, client, actorName, staff } = actor;
     const { fromBranchId, toBranchId, itemId, quantity, notes, requireConfirmation } = req.body || {};
+    const verifiedFromBranch = resolveScopedBranchId(actor, res, fromBranchId, true);
+    if (!verifiedFromBranch) return;
     const qty = r3(Number(quantity || 0));
-    if (!fromBranchId || !toBranchId || fromBranchId === toBranchId || !itemId || qty <= 0) {
+    if (!verifiedFromBranch || !toBranchId || verifiedFromBranch === toBranchId || !itemId || qty <= 0) {
       return res.status(400).json({ error: 'بيانات التحويل بين المخازن غير مكتملة' });
     }
 
     const allInv = await loadSupplierTable(client, 'supplier_branch_inventory', FILES.inventory, supplier.id);
-    const src = allInv.find((i: any) => i.branch_id === fromBranchId && i.item_id === itemId);
+    const src = allInv.find((i: any) => i.branch_id === verifiedFromBranch && i.item_id === itemId);
     if (!src) return res.status(404).json({ error: 'الصنف غير موجود في المخزن المُرسِل' });
     if (Number(src.quantity) < qty) {
       return res.status(400).json({ error: `الرصيد المتاح (${src.quantity} ${src.sale_unit}) أقل من الكمية المطلوب تحويلها` });
@@ -775,9 +980,11 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.get('/api/supplier/erp/transfers/pending', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    const scopedBranch = resolveScopedBranchId(actor, res, String(req.query?.branchId || ''), false);
+    if (scopedBranch === undefined) return;
     const allMovements = await loadSupplierTable(actor.client, 'supplier_stock_movements', FILES.movements, actor.supplier.id);
     const pending = allMovements
-      .filter((m: any) => m.movement_type === 'transfer_pending')
+      .filter((m: any) => m.movement_type === 'transfer_pending' && (!scopedBranch || m.branch_id === scopedBranch || m.to_branch_id === scopedBranch))
       .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     return res.json({ success: true, transfers: pending.map(mapMovement) });
   });
@@ -785,6 +992,9 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/transfer/:movementId/confirm', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'branch_manager', 'warehouse'], 'تأكيد استلام التحويلات متاح للمالك أو مدير الفرع أو أمين المخزن فقط')) {
+      return;
+    }
     const { supplier, client, actorName, staff } = actor;
     const movementId = req.params.movementId;
     const approve = req.body?.approve !== false;
@@ -793,6 +1003,9 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
     const mov = allMovements.find((m: any) => m.id === movementId && m.movement_type === 'transfer_pending');
     if (!mov) {
       return res.status(404).json({ error: 'حركة التحويل المعلقة غير موجودة أو تم البت فيها بالفعل' });
+    }
+    if (!actor.isOwner && actor.assignedBranchId && mov.branch_id !== actor.assignedBranchId) {
+      return res.status(403).json({ error: 'تأكيد استلام التحويل مسموح فقط للفرع المستلم أو مالك النشاط' });
     }
 
     const allInv = await loadSupplierTable(client, 'supplier_branch_inventory', FILES.inventory, supplier.id);
@@ -881,7 +1094,8 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
     const itemId = req.params.itemId;
-    const branchId = String(req.query?.branchId || '');
+    const branchId = resolveScopedBranchId(actor, res, String(req.query?.branchId || ''), false);
+    if (branchId === undefined) return;
     const allMovements = await loadSupplierTable(actor.client, 'supplier_stock_movements', FILES.movements, actor.supplier.id);
     const filtered = allMovements
       .filter((m: any) => m.item_id === itemId && (!branchId || m.branch_id === branchId))
@@ -896,6 +1110,9 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.get('/api/supplier/erp/vendors', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'accountant', 'branch_manager'], 'الاطلاع على حسابات الموردين الخارجيين غير متاح لهذا الدور')) {
+      return;
+    }
     const list = await loadSupplierTable(actor.client, 'supplier_vendors', FILES.vendors, actor.supplier.id);
     return res.json({ success: true, vendors: list.map(mapVendor) });
   });
@@ -903,6 +1120,9 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/vendors', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'accountant', 'branch_manager'], 'إضافة وتعديل الموردين الخارجيين متاح للمالك أو المحاسب أو مدير الفرع فقط')) {
+      return;
+    }
     const b = req.body || {};
     const name = String(b.name || '').trim();
     if (!name) return res.status(400).json({ error: 'اسم المصنع أو المورد مطلوب' });
@@ -924,7 +1144,13 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.get('/api/supplier/erp/purchases', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
-    const list = await loadSupplierTable(actor.client, 'supplier_purchases', FILES.purchases, actor.supplier.id);
+    if (!assertErpRoles(actor, res, ['owner', 'accountant', 'branch_manager'], 'الاطلاع على فواتير المشتريات غير متاح لهذا الدور')) {
+      return;
+    }
+    const scopedBranch = resolveScopedBranchId(actor, res, String(req.query?.branchId || ''), false);
+    if (scopedBranch === undefined) return;
+    const rawList = await loadSupplierTable(actor.client, 'supplier_purchases', FILES.purchases, actor.supplier.id);
+    const list = scopedBranch ? rawList.filter((p: any) => p.branch_id === scopedBranch) : rawList;
     list.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     return res.json({ success: true, purchases: list.map(mapPurchase) });
   });
@@ -932,12 +1158,26 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/purchases', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'accountant', 'branch_manager'], 'تسجيل فواتير المشتريات متاح للمالك أو المحاسب أو مدير الفرع فقط')) {
+      return;
+    }
     const { supplier, client, actorName, staff } = actor;
     const b = req.body || {};
-    const branchId = String(b.branchId || '');
+    const scopedBranchId = resolveScopedBranchId(actor, res, b.branchId, true);
+    if (!scopedBranchId) return;
+    const branchId = scopedBranchId;
     const items: any[] = Array.isArray(b.items) ? b.items : [];
     if (!branchId || items.length === 0) {
       return res.status(400).json({ error: 'المخزن/الفرع وبنود الفاتورة مطلوبة' });
+    }
+
+    const idempotencyKey = extractIdempotencyKey(req);
+    if (idempotencyKey) {
+      const existingPurchases = await loadSupplierTable(client, 'supplier_purchases', FILES.purchases, supplier.id);
+      const dup = existingPurchases.find((p: any) => p.idempotency_key === idempotencyKey);
+      if (dup) {
+        return res.json({ success: true, deduplicated: true, purchase: mapPurchase(dup) });
+      }
     }
 
     const nowIso = new Date().toISOString();
@@ -1032,6 +1272,7 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
       treasury_channel: b.treasuryChannel || 'cash',
       actor_name: actorName,
       notes: String(b.notes || ''),
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       created_at: nowIso,
     };
     await upsertRow(client, 'supplier_purchases', FILES.purchases, purchaseRow);
@@ -1079,7 +1320,8 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.get('/api/supplier/erp/shifts', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
-    const branchId = String(req.query?.branchId || '');
+    const branchId = resolveScopedBranchId(actor, res, String(req.query?.branchId || ''), false);
+    if (branchId === undefined) return;
     const list = await loadSupplierTable(actor.client, 'supplier_pos_shifts', FILES.shifts, actor.supplier.id);
     const filtered = branchId ? list.filter((s: any) => s.branch_id === branchId) : list;
     filtered.sort((a: any, b: any) => new Date(b.opened_at || 0).getTime() - new Date(a.opened_at || 0).getTime());
@@ -1089,9 +1331,12 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/shifts/open', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'branch_manager', 'cashier'], 'فتح الورديات متاح للمالك أو مدير الفرع أو الكاشير فقط')) {
+      return;
+    }
     const { supplier, client, actorName, staff } = actor;
-    const branchId = String(req.body?.branchId || '');
-    if (!branchId) return res.status(400).json({ error: 'تحديد الفرع مطلوب لفتح الوردية' });
+    const branchId = resolveScopedBranchId(actor, res, req.body?.branchId, true);
+    if (!branchId) return;
 
     const existing = await loadSupplierTable(client, 'supplier_pos_shifts', FILES.shifts, supplier.id);
     const alreadyOpen = existing.find((s: any) => s.branch_id === branchId && s.status === 'open');
@@ -1124,11 +1369,17 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/shifts/:id/close', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'branch_manager', 'cashier'], 'إغلاق الورديات متاح للمالك أو مدير الفرع أو الكاشير فقط')) {
+      return;
+    }
     const { supplier, client, actorName } = actor;
     const shiftId = req.params.id;
     const shifts = await loadSupplierTable(client, 'supplier_pos_shifts', FILES.shifts, supplier.id);
     const target = shifts.find((s: any) => s.id === shiftId);
     if (!target) return res.status(404).json({ error: 'الوردية غير موجودة' });
+    if (!actor.isOwner && actor.assignedBranchId && target.branch_id !== actor.assignedBranchId) {
+      return res.status(403).json({ error: 'لا يمكنك إغلاق وردية تابعة لفرع آخر' });
+    }
     if (target.status === 'closed') return res.json({ success: true, shift: mapShift(target) });
 
     const nowIso = new Date().toISOString();
@@ -1161,7 +1412,8 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.get('/api/supplier/erp/pos-orders', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
-    const branchId = String(req.query?.branchId || '');
+    const branchId = resolveScopedBranchId(actor, res, String(req.query?.branchId || ''), false);
+    if (branchId === undefined) return;
     const list = await loadSupplierTable(actor.client, 'supplier_pos_orders', FILES.posOrders, actor.supplier.id);
     const filtered = branchId ? list.filter((o: any) => o.branch_id === branchId) : list;
     filtered.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
@@ -1171,20 +1423,64 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/pos-orders', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'branch_manager', 'cashier'], 'تسجيل فواتير البيع متاح للمالك أو مدير الفرع أو الكاشير فقط')) {
+      return;
+    }
     const { supplier, client, actorName, staff } = actor;
     const b = req.body || {};
-    const branchId = String(b.branchId || '');
+    const scopedBranchId = resolveScopedBranchId(actor, res, b.branchId, true);
+    if (!scopedBranchId) return;
+    const branchId = scopedBranchId;
     const items: any[] = Array.isArray(b.items) ? b.items : [];
     if (!branchId || items.length === 0) {
       return res.status(400).json({ error: 'يرجى تحديد الفرع وإضافة صنف واحد على الأقل للفاتورة' });
+    }
+
+    const idempotencyKey = extractIdempotencyKey(req);
+    if (idempotencyKey) {
+      const existingOrders = await loadSupplierTable(client, 'supplier_pos_orders', FILES.posOrders, supplier.id);
+      const dupOrder = existingOrders.find((o: any) => o.idempotency_key === idempotencyKey);
+      if (dupOrder) {
+        return res.json({ success: true, deduplicated: true, order: mapPosOrder(dupOrder) });
+      }
     }
 
     const nowIso = new Date().toISOString();
     const orderNumber = `POS-${Date.now().toString().slice(-6)}`;
     const allInv = await loadSupplierTable(client, 'supplier_branch_inventory', FILES.inventory, supplier.id);
 
+    // Pre-validate stock sufficiency across all requested lines BEFORE mutating any inventory record
+    const requiredByInvId = new Map<string, { inv: any; totalQty: number }>();
+    for (const line of items) {
+      const qty = r3(Number(line.quantity || 0));
+      if (!Number.isFinite(qty) || qty <= 0) {
+        return res.status(400).json({ error: 'كمية الصنف يجب أن تكون أكبر من صفر' });
+      }
+      const inv = allInv.find(
+        (i: any) => i.branch_id === branchId && (i.id === line.inventoryId || i.item_id === line.itemId)
+      );
+      if (inv) {
+        const entry = requiredByInvId.get(inv.id) || { inv, totalQty: 0 };
+        entry.totalQty = r3(entry.totalQty + qty);
+        requiredByInvId.set(inv.id, entry);
+      }
+    }
+    for (const { inv, totalQty } of requiredByInvId.values()) {
+      const available = r3(Number(inv.quantity || 0));
+      if (available < totalQty) {
+        return res.status(400).json({
+          error: `الرصيد المتاح للصنف "${inv.item_name}" (${available} ${inv.sale_unit}) غير كافٍ للكمية المطلوبة (${totalQty} ${inv.sale_unit})`,
+          code: 'INSUFFICIENT_STOCK',
+          itemId: inv.item_id,
+          available,
+          requested: totalQty,
+        });
+      }
+    }
+
     let subtotal = 0;
     const processedLines: any[] = [];
+    const runningBalanceByInvId = new Map<string, number>();
 
     for (const line of items) {
       const qty = r3(Math.max(0.001, Number(line.quantity || 0)));
@@ -1192,9 +1488,16 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
       const lineTotal = r2(qty * unitPrice);
       subtotal += lineTotal;
 
-      const inv = allInv.find((i: any) => i.id === line.inventoryId || (i.branch_id === branchId && i.item_id === line.itemId));
+      const inv = allInv.find(
+        (i: any) => i.branch_id === branchId && (i.id === line.inventoryId || i.item_id === line.itemId)
+      );
       if (inv) {
-        const nextQty = r3(Math.max(0, Number(inv.quantity || 0) - qty));
+        const prevBalance = runningBalanceByInvId.has(inv.id)
+          ? runningBalanceByInvId.get(inv.id)!
+          : r3(Number(inv.quantity || 0));
+        const nextQty = r3(prevBalance - qty);
+        runningBalanceByInvId.set(inv.id, nextQty);
+
         await upsertRow(client, 'supplier_branch_inventory', FILES.inventory, {
           ...inv,
           quantity: nextQty,
@@ -1352,6 +1655,7 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
       payment_method: paymentMethod,
       payment_status: paymentStatus,
       notes: String(b.notes || ''),
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       created_at: nowIso,
     };
     await upsertRow(client, 'supplier_pos_orders', FILES.posOrders, orderRow);
@@ -1363,9 +1667,21 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/treasury-transfers', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'branch_manager', 'cashier'], 'إرسال توريدات الخزينة متاح للمالك أو مدير الفرع أو الكاشير فقط')) {
+      return;
+    }
     const { supplier, client, actorName } = actor;
-    const branchId = String(req.body?.branchId || '');
-    if (!branchId) return res.status(400).json({ error: 'تحديد الفرع مطلوب' });
+    const branchId = resolveScopedBranchId(actor, res, req.body?.branchId, true);
+    if (!branchId) return;
+
+    const idempotencyKey = extractIdempotencyKey(req);
+    if (idempotencyKey) {
+      const existingTransfers = await loadSupplierTable(client, 'supplier_treasury_transfers', FILES.treasuryTransfers, supplier.id);
+      const dupTr = existingTransfers.find((t: any) => t.idempotency_key === idempotencyKey);
+      if (dupTr) {
+        return res.json({ success: true, deduplicated: true, transfer: mapTreasuryTransfer(dupTr) });
+      }
+    }
 
     const [branches, branchTreasuries] = await Promise.all([
       loadSupplierTable(client, 'supplier_branches', FILES.branches, supplier.id),
@@ -1399,6 +1715,7 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
       confirmed_by: '',
       confirmed_at: null,
       notes: String(req.body?.notes || 'تقفيل وتوريد نهاية اليوم للخزينة الرئيسية'),
+      ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       created_at: nowIso,
     };
     await upsertRow(client, 'supplier_treasury_transfers', FILES.treasuryTransfers, transferRow);
@@ -1426,66 +1743,107 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
     const id = req.params.id;
     const approve = req.body?.approve !== false;
 
-    const transfers = await loadSupplierTable(client, 'supplier_treasury_transfers', FILES.treasuryTransfers, supplier.id);
-    const tr = transfers.find((t: any) => t.id === id);
-    if (!tr) return res.status(404).json({ error: 'طلب التوريد غير موجود' });
-    if (tr.status !== 'pending_owner_confirmation') {
-      return res.json({ success: true, transfer: mapTreasuryTransfer(tr) });
+    if (confirmingTransferIds.has(id)) {
+      return res.status(409).json({ error: 'جاري معالجة طلب التوريد بالفعل، يرجى الانتظار لحظة' });
     }
+    confirmingTransferIds.add(id);
 
-    const nowIso = new Date().toISOString();
-    if (!approve) {
-      // Return funds back to Branch Treasury if rejected
-      const bts = await loadSupplierTable(client, 'supplier_branch_treasuries', FILES.branchTreasuries, supplier.id);
-      const bt = bts.find((x: any) => x.branch_id === tr.branch_id);
-      if (bt) {
-        await upsertRow(client, 'supplier_branch_treasuries', FILES.branchTreasuries, {
-          ...bt,
-          cash_balance: r2(Number(bt.cash_balance) + Number(tr.cash_amount || 0)),
-          instapay_balance: r2(Number(bt.instapay_balance) + Number(tr.instapay_amount || 0)),
-          wallet_balance: r2(Number(bt.wallet_balance) + Number(tr.wallet_amount || 0)),
-          updated_at: nowIso,
-        });
+    try {
+      const transfers = await loadSupplierTable(client, 'supplier_treasury_transfers', FILES.treasuryTransfers, supplier.id);
+      const tr = transfers.find((t: any) => t.id === id);
+      if (!tr) return res.status(404).json({ error: 'طلب التوريد غير موجود' });
+      if (tr.status !== 'pending_owner_confirmation') {
+        return res.json({ success: true, alreadyProcessed: true, transfer: mapTreasuryTransfer(tr) });
       }
-      const rejected = { ...tr, status: 'rejected', confirmed_by: actorName, confirmed_at: nowIso };
-      await upsertRow(client, 'supplier_treasury_transfers', FILES.treasuryTransfers, rejected);
-      return res.json({ success: true, transfer: mapTreasuryTransfer(rejected) });
-    }
 
-    // Confirmed: Credit Owner Main Treasuries per channel or main treasury
-    const treasuries = await loadSupplierTable(client, 'supplier_treasuries', FILES.treasuries, supplier.id);
-    let mainCash = treasuries.find((x: any) => x.channel_type === 'cash') || treasuries[0];
-    if (!mainCash) {
-      mainCash = {
+      const nowIso = new Date().toISOString();
+
+      // Atomic DB path via Phase-3 FOR UPDATE RPC when confirming (prevents double-credit race)
+      if (approve) {
+        try {
+          const { data: rpcResult, error: rpcErr } = await client.rpc('confirm_supplier_branch_treasury_transfer', {
+            p_transfer_id: id,
+            p_supplier_id: supplier.id,
+            p_confirmed_by: actorName,
+            p_target_treasury_id: null,
+          });
+          if (!rpcErr && rpcResult?.ok) {
+            const confirmedLocal = { ...tr, status: 'confirmed', confirmed_by: actorName, confirmed_at: nowIso };
+            const list = readArr(FILES.treasuryTransfers);
+            const idx = list.findIndex((x: any) => x.id === id);
+            if (idx >= 0) list[idx] = confirmedLocal;
+            else list.unshift(confirmedLocal);
+            writeArr(FILES.treasuryTransfers, list);
+            return res.json({
+              success: true,
+              atomic: true,
+              alreadyProcessed: Boolean(rpcResult.already_confirmed),
+              transfer: mapTreasuryTransfer(confirmedLocal),
+            });
+          }
+          if (!rpcErr && rpcResult && rpcResult.ok === false && rpcResult.reason === 'already_processed') {
+            return res.status(409).json({ error: 'تم البت في طلب التوريد بالفعل' });
+          }
+        } catch {
+          // Fall back cleanly to local+client path if transfer only exists in local JSON or RPC unavailable
+        }
+      }
+
+      if (!approve) {
+        // Return funds back to Branch Treasury if rejected
+        const bts = await loadSupplierTable(client, 'supplier_branch_treasuries', FILES.branchTreasuries, supplier.id);
+        const bt = bts.find((x: any) => x.branch_id === tr.branch_id);
+        if (bt) {
+          await upsertRow(client, 'supplier_branch_treasuries', FILES.branchTreasuries, {
+            ...bt,
+            cash_balance: r2(Number(bt.cash_balance) + Number(tr.cash_amount || 0)),
+            instapay_balance: r2(Number(bt.instapay_balance) + Number(tr.instapay_amount || 0)),
+            wallet_balance: r2(Number(bt.wallet_balance) + Number(tr.wallet_amount || 0)),
+            updated_at: nowIso,
+          });
+        }
+        const rejected = { ...tr, status: 'rejected', confirmed_by: actorName, confirmed_at: nowIso };
+        await upsertRow(client, 'supplier_treasury_transfers', FILES.treasuryTransfers, rejected);
+        return res.json({ success: true, transfer: mapTreasuryTransfer(rejected) });
+      }
+
+      // Fallback confirmation path (when transfer is local-only)
+      const treasuries = await loadSupplierTable(client, 'supplier_treasuries', FILES.treasuries, supplier.id);
+      let mainCash = treasuries.find((x: any) => x.channel_type === 'cash') || treasuries[0];
+      if (!mainCash) {
+        mainCash = {
+          id: crypto.randomUUID(),
+          supplier_id: supplier.id,
+          name: 'الخزينة الرئيسية للمالك',
+          channel_type: 'cash',
+          balance: 0,
+          currency: supplier.currency || 'EGP',
+          created_at: nowIso,
+        };
+      }
+
+      await upsertRow(client, 'supplier_treasuries', FILES.treasuries, {
+        ...mainCash,
+        balance: r2(Number(mainCash.balance || 0) + Number(tr.total_amount || 0)),
+        updated_at: nowIso,
+      });
+
+      await upsertRow(client, 'supplier_treasury_transactions', FILES.transactions, {
         id: crypto.randomUUID(),
         supplier_id: supplier.id,
-        name: 'الخزينة الرئيسية للمالك',
-        channel_type: 'cash',
-        balance: 0,
-        currency: supplier.currency || 'EGP',
+        treasury_id: mainCash.id,
+        tx_type: 'deposit',
+        amount: Number(tr.total_amount || 0),
+        description: `تأكيد استلام توريد (${tr.branch_name}): كاش ${tr.cash_amount} + إنستا باي ${tr.instapay_amount} + محفظة ${tr.wallet_amount} — المرسِل: ${tr.sent_by_name}`,
         created_at: nowIso,
-      };
+      });
+
+      const confirmed = { ...tr, status: 'confirmed', confirmed_by: actorName, confirmed_at: nowIso };
+      await upsertRow(client, 'supplier_treasury_transfers', FILES.treasuryTransfers, confirmed);
+      return res.json({ success: true, transfer: mapTreasuryTransfer(confirmed) });
+    } finally {
+      confirmingTransferIds.delete(id);
     }
-
-    await upsertRow(client, 'supplier_treasuries', FILES.treasuries, {
-      ...mainCash,
-      balance: r2(Number(mainCash.balance || 0) + Number(tr.total_amount || 0)),
-      updated_at: nowIso,
-    });
-
-    await upsertRow(client, 'supplier_treasury_transactions', FILES.transactions, {
-      id: crypto.randomUUID(),
-      supplier_id: supplier.id,
-      treasury_id: mainCash.id,
-      tx_type: 'deposit',
-      amount: Number(tr.total_amount || 0),
-      description: `تأكيد استلام توريد (${tr.branch_name}): كاش ${tr.cash_amount} + إنستا باي ${tr.instapay_amount} + محفظة ${tr.wallet_amount} — المرسِل: ${tr.sent_by_name}`,
-      created_at: nowIso,
-    });
-
-    const confirmed = { ...tr, status: 'confirmed', confirmed_by: actorName, confirmed_at: nowIso };
-    await upsertRow(client, 'supplier_treasury_transfers', FILES.treasuryTransfers, confirmed);
-    return res.json({ success: true, transfer: mapTreasuryTransfer(confirmed) });
   });
 
   // =========================================================================
@@ -1494,10 +1852,16 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.get('/api/supplier/erp/staff', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
-    const [staff, logs] = await Promise.all([
+    if (!assertErpRoles(actor, res, ['owner', 'hr_manager', 'branch_manager'], 'الاطلاع على بيانات الموظفين والرواتب غير متاح لهذا الدور')) {
+      return;
+    }
+    const [rawStaff, rawLogs] = await Promise.all([
       loadSupplierTable(actor.client, 'supplier_staff_users', FILES.staff, actor.supplier.id),
       loadSupplierTable(actor.client, 'supplier_hr_logs', FILES.hrLogs, actor.supplier.id),
     ]);
+    const scopeBranch = !actor.isOwner && actor.role === 'branch_manager' && actor.assignedBranchId ? actor.assignedBranchId : null;
+    const staff = scopeBranch ? rawStaff.filter((s: any) => s.branch_id === scopeBranch) : rawStaff;
+    const logs = scopeBranch ? rawLogs.filter((l: any) => l.branch_id === scopeBranch) : rawLogs;
     return res.json({
       success: true,
       staff: staff.map(mapStaffUser),
@@ -1523,11 +1887,18 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
       return res.status(409).json({ error: 'اسم المستخدم مسجل لموظف آخر بالفعل' });
     }
 
+    const rawPassword = String(b.password || '').trim();
+    if (!existing && rawPassword.length < 6) {
+      return res.status(400).json({ error: 'يجب تحديد كلمة مرور للموظف الجديد لا تقل عن 6 أحرف أو أرقام' });
+    }
+    if (rawPassword && rawPassword.length < 6) {
+      return res.status(400).json({ error: 'كلمة المرور يجب أن لا تقل عن 6 أحرف أو أرقام' });
+    }
+
     const nowIso = new Date().toISOString();
-    const passwordHash =
-      b.password && String(b.password).trim()
-        ? hashStaffPassword(String(b.password).trim())
-        : existing?.password_hash || hashStaffPassword('123456');
+    const passwordHash = rawPassword
+      ? hashStaffPassword(rawPassword)
+      : existing?.password_hash;
 
     const row = {
       id: existing?.id || crypto.randomUUID(),
@@ -1555,16 +1926,21 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
   app.post('/api/supplier/erp/hr-logs', async (req: Request, res: Response) => {
     const actor = await resolveErpActor(req, res);
     if (!actor) return;
+    if (!assertErpRoles(actor, res, ['owner', 'hr_manager', 'branch_manager'], 'تسجيل حركات الموارد البشرية متاح للمالك أو مدير الموارد البشرية أو مدير الفرع فقط')) {
+      return;
+    }
     const b = req.body || {};
     if (!b.staffId || !b.logType) {
       return res.status(400).json({ error: 'بيانات سجل الموظف ونوع الحركة مطلوبة' });
     }
+    const scopedBranch = resolveScopedBranchId(actor, res, b.branchId, false);
+    if (scopedBranch === undefined) return;
     const nowIso = new Date().toISOString();
     const row = {
       id: crypto.randomUUID(),
       supplier_id: actor.supplier.id,
       staff_id: b.staffId,
-      branch_id: b.branchId || null,
+      branch_id: scopedBranch || null,
       log_type: b.logType,
       amount: r2(b.amount || 0),
       notes: String(b.notes || ''),
@@ -1602,7 +1978,8 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
     if (!target || target.is_active === false) {
       return res.status(401).json({ error: 'اسم المستخدم غير صحيح أو الحساب معطل' });
     }
-    if (target.password_hash !== hashStaffPassword(cleanPass)) {
+    const passCheck = verifyStaffPassword(cleanPass, target.password_hash);
+    if (!passCheck.valid) {
       return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
     }
     if (branchId && target.branch_id && target.branch_id !== branchId && target.role !== 'branch_manager') {
@@ -1611,6 +1988,7 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
 
     const nowIso = new Date().toISOString();
     const clientIp = extractClientIp(req);
+    const upgradedHash = passCheck.needsRehash ? hashStaffPassword(cleanPass) : target.password_hash;
     const token = signStaffToken({
       staffId: target.id,
       supplierId,
@@ -1621,6 +1999,7 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
 
     await upsertRow(supabaseAdminClient, 'supplier_staff_users', FILES.staff, {
       ...target,
+      password_hash: upgradedHash,
       last_login_at: nowIso,
       device_ip: clientIp || target.device_ip,
       device_lock_token: deviceToken || target.device_lock_token,
@@ -1682,8 +2061,15 @@ export function registerSupplierErpRoutes(app: Express, deps: SupplierErpRouteDe
         if (data) sup = data;
       } catch {}
     }
-    const expectedPin = String(sup?.owner_unlock_pin || '1234');
-    if (String(ownerPin).trim() !== expectedPin) {
+    const expectedPin = String(sup?.owner_unlock_pin || '').trim();
+    if (!expectedPin) {
+      return res.status(403).json({
+        error: 'لم يتم تعيين رقم سري للمالك بعد — يرجى تعيينه أولاً من إعدادات شجرة الفروع في لوحة المالك.',
+      });
+    }
+    const candidateBuf = Buffer.from(String(ownerPin).trim(), 'utf-8');
+    const expectedBuf = Buffer.from(expectedPin, 'utf-8');
+    if (candidateBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(candidateBuf, expectedBuf)) {
       return res.status(403).json({ error: 'الرقم السري غير صحيح! تواصل مع مالك النشاط.' });
     }
     return res.json({ success: true });

@@ -9,6 +9,14 @@
  */
 
 import type { Gender, UserProfile } from '../types';
+import {
+  type ExperienceAudience,
+  type PlatformExperienceModeConfig,
+  type UserExperienceMode,
+  getPlatformExperienceModeConfig,
+  getExperienceLabelFromConfig,
+  isExperienceItemVisibleFromConfig,
+} from '../types/experienceMode';
 
 export type MoodWaveColor =
   | 'blue_calm'
@@ -756,3 +764,71 @@ export async function optionalLightAiPolish(params: {
     return params.localReply;
   }
 }
+
+/**
+ * يولّد سياق وضع التشغيل المزدوج لـ «شموسة» (الوضع الحرفي vs الوضع المحاسبي)
+ * مع المسميات الحية المعدّلة من قِبل السوبر أدمن للفنانين والموردين
+ */
+export function buildShamousaModePromptContext(
+  mode: UserExperienceMode,
+  audience: ExperienceAudience,
+  config?: PlatformExperienceModeConfig
+): string {
+  const cfg = config || getPlatformExperienceModeConfig();
+  const isSupplier = audience === 'supplier';
+  const isCraft = mode === 'craft';
+
+  const roleLabel = isSupplier ? 'مورد / تاجر خامات' : 'فنان / صاحب ورشة حرفية';
+  const modeLabel = isCraft ? 'الوضع الحرفي (البسيط والعملي)' : 'الوضع المحاسبي (المتقدم والقيود الكاملة)';
+
+  const relevantItems = Object.values(cfg.items).filter(
+    (item) => item.audience === audience || item.audience === 'both'
+  );
+
+  const visibleButtonsSummary = relevantItems
+    .filter((item) => isExperienceItemVisibleFromConfig(cfg, item.id, mode))
+    .slice(0, 18)
+    .map((item) => {
+      const activeLabel = getExperienceLabelFromConfig(cfg, item.id, mode);
+      return `  • ${activeLabel}`;
+    })
+    .join('\n');
+
+  const toneRules = isCraft
+    ? isSupplier
+      ? [
+          '- المستخدم في «الوضع الحرفي (المبسّط للتاجر)»: تكلّمي بلغة محل وتجارة واضحة ومباشرة بدون مصطلحات «دائن/مدين» أو قيود محاسبية معقدة.',
+          `- استخدمي بدل «مدين / دائن»: "${getExperienceLabelFromConfig(cfg, 'sup_debit', 'craft')}" و "${getExperienceLabelFromConfig(cfg, 'sup_credit', 'craft')}".`,
+          '- اختصري له الخلاصة الأول في جملتين (الفلوس اللي معانا، اللي بره، واللي علينا للمصانع) قبل أي تفاصيل إضافية.',
+          '- اسأليه بأسئلة بسيطة من نوع: «عايز تراجع الفلوس اللي دخلت النهاردة ولا اللي ليك عند الورش ولا فواتير المصانع؟».',
+        ].join('\n')
+      : [
+          '- المستخدم في «الوضع الحرفي (البسيط لصاحب الورشة)»: ممنوع تماماً تعقيده بمصطلحات «مدين ودائن» أو «ميزان مراجعة» إلا لو سأل بنفسه عن معناها.',
+          `- استخدمي المسميات الحية البسيطة الظاهرة عنده حالياً: "${getExperienceLabelFromConfig(cfg, 'wo_issue_voucher', 'craft')}"، "${getExperienceLabelFromConfig(cfg, 'wo_receive_voucher', 'craft')}"، "${getExperienceLabelFromConfig(cfg, 'wo_return_leftover', 'craft')}"، "${getExperienceLabelFromConfig(cfg, 'fin_debit', 'craft')}"، "${getExperienceLabelFromConfig(cfg, 'fin_credit', 'craft')}".`,
+          '- في التقارير، قدّمي له «الخلاصة قبل الرسم» بالعامية الراقية (إحنا كسبانين ولا لأ + أهم رقمين)، ولو طلب تفاصيل أكتر عرّفيه إنه يقدر يقلب لـ «الوضع المحاسبي» من الإعدادات الأساسية بضغطة واحدة.',
+        ].join('\n')
+    : isSupplier
+    ? [
+        '- المستخدم في «الوضع المحاسبي المتقدم للموردين»: تكلّمي بلغة مالية وإدارية دقيقة (مدين، دائن، أستاذ مساعد، تقييم المخزون، كارت الصنف، تسويات الفروع والعهد).',
+        `- استخدمي المسميات الرسمية الحية الظاهرة في شاشته: "${getExperienceLabelFromConfig(cfg, 'sup_finance_title', 'accounting')}"، "${getExperienceLabelFromConfig(cfg, 'sup_ledger_tab', 'accounting')}"، "${getExperienceLabelFromConfig(cfg, 'sup_debit', 'accounting')}"، "${getExperienceLabelFromConfig(cfg, 'sup_credit', 'accounting')}".`,
+        '- اقترحي عليه مراجعة دفتر الأستاذ، تقييم المخزون، وتسويات الفروع عند اللزوم.',
+      ].join('\n')
+    : [
+        '- المستخدم في «الوضع المحاسبي المتقدم للورش»: استخدمي المسميات المحاسبية والرقابية الكاملة بدقة (إذن صرف خامات، إذن توريد منتج تام، مرتجع خامات، مدين/دائن، ميزان المراجعة، سجل التدقيق).',
+        `- استخدمي المسميات الحية الظاهرة في شاشته الآن: "${getExperienceLabelFromConfig(cfg, 'wo_issue_voucher', 'accounting')}"، "${getExperienceLabelFromConfig(cfg, 'wo_receive_voucher', 'accounting')}"، "${getExperienceLabelFromConfig(cfg, 'rep_trial_balance', 'accounting')}"، "${getExperienceLabelFromConfig(cfg, 'fin_debit', 'accounting')}"، "${getExperienceLabelFromConfig(cfg, 'fin_credit', 'accounting')}".`,
+        '- عند الحديث عن الأرباح أو التكلفة، اذكري التكلفة الصافية بعد خصم مرتجع الخامات السليمة، وميزان المراجعة، والرسوم البيانية المتقدمة.',
+      ].join('\n');
+
+  return [
+    `[سياق وضع التشغيل المزدوج النشط الآن]`,
+    `- نوع الحساب: ${roleLabel}`,
+    `- الوضع النشط حالياً: ${modeLabel}`,
+    `- قاعدة بواقي الخامات في أوامر التشغيل: لو الفنان سحب مثلاً 5 كجم خيط قطن لتصنيع 10 شنط وتبقّى 2 كجم سليمة، عند تقفيل الأمر يسجّل (2 كجم) في خانة "${getExperienceLabelFromConfig(cfg, 'wo_return_leftover', mode)}"؛ فترجع تلقائياً لرصيد مخزن الخامات، وتتحسب تكلفة الـ 10 شنط على الصافي الفعلي فقط (3 كجم) وليس 5 كجم.`,
+    `- التبديل بين الوضعين: متاح في أي وقت من «الإعدادات الأساسية» (الوضع الحرفي ↔ الوضع المحاسبي) أو من زر التبديل السريع أعلى الشاشات.`,
+    `- أسلوب الخطاب المطلوب في هذا الوضع:`,
+    toneRules,
+    `- المسميات الحية للأزرار والشاشات الظاهرة للمستخدم الآن (التزمي بها حرفياً لأن السوبر أدمن قد يعدّلها):`,
+    visibleButtonsSummary,
+  ].join('\n');
+}
+

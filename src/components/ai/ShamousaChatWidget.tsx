@@ -45,6 +45,13 @@ import {
   ShamousaChatbotOption,
   ShamousaConversationState,
 } from '../../services/shamousaLocalChatbot';
+import { buildShamousaModePromptContext } from '../../services/shamousaBrain';
+import {
+  useExperienceMode,
+  getPlatformExperienceModeConfig,
+  getExperienceLabelFromConfig,
+  type UserExperienceMode,
+} from '../../types/experienceMode';
 
 export interface ShamousaActionLink {
   label: string;
@@ -306,16 +313,25 @@ export function detectSummaryOrAmbiguousIntent(
 }
 
 // الكشف الذكي بالكلمات الدلالية وتوليد أزرار إجراء مرتبطة فقط بموضوع السؤال الفعلي
-export function detectKeywordActionChips(userQuery: string, isSupplier = false): SmartActionChip[] {
+export function detectKeywordActionChips(
+  userQuery: string,
+  isSupplier = false,
+  experienceMode: UserExperienceMode = 'craft'
+): SmartActionChip[] {
   const chips: SmartActionChip[] = [];
   const lower = userQuery.toLowerCase();
+  const expCfg = getPlatformExperienceModeConfig();
 
   // 0. هلخصهالك والملخص للورش والموردين
   if (!isSupplier && /هلخصهالك|ملخص|تلخيص|لخص|معانا كام|لينا بره|علينا كام|موقف مالي/i.test(lower)) {
     chips.push({ id: 'chip_exec_brief', label: 'فتح بطاقة هلخصهالك 📋', view: 'executive_brief' });
   }
   if (isSupplier && /هلخصهالك|ملخص|تلخيص|لخص|معانا كام|لينا بره|علينا كام|موقف مالي/i.test(lower)) {
-    chips.push({ id: 'chip_sup_exec_brief', label: 'هلخصهالك للموردين 📋', view: 'supplier_executive_brief' });
+    chips.push({
+      id: 'chip_sup_exec_brief',
+      label: `${getExperienceLabelFromConfig(expCfg, 'sup_exec_brief_card', experienceMode)} 📋`,
+      view: 'supplier_executive_brief',
+    });
   }
 
   // 1. الصفحة الشخصية ومعرض الأعمال + مجتمع العيلة
@@ -328,21 +344,53 @@ export function detectKeywordActionChips(userQuery: string, isSupplier = false):
 
   // 2. إدارة الفروع وتثبيت الأجهزة والـ POS للمورد
   if (isSupplier && /فرع|فروع|شجرة|مركزي|توريد|استلام الفلوس|اعتماد|خزن|معانا كام/i.test(lower)) {
-    chips.push({ id: 'chip_sup_erp_hub', label: 'مركز قيادة الفروع والخزينة 🌿', view: 'supplier_erp_hub' });
+    chips.push({
+      id: 'chip_sup_erp_hub',
+      label: `${getExperienceLabelFromConfig(expCfg, 'sup_erp_hub_card', experienceMode)} 🌿`,
+      view: 'supplier_erp_hub',
+    });
+  }
+  if (isSupplier && /دائن|مدين|خزينة|خزائن|أستاذ|قيود|حسابات/i.test(lower)) {
+    chips.push({
+      id: 'chip_sup_fin',
+      label: `${getExperienceLabelFromConfig(expCfg, 'sup_finance_title', experienceMode)} 🏦`,
+      view: 'supplier_finance',
+    });
   }
   if (isSupplier && /كاشير|pos|نقطة بيع|وردية|شفت|انستاباي|إنستاباي|محفظة|بيع مباشر|كسر|وزن/i.test(lower)) {
     chips.push({ id: 'chip_sup_pos', label: 'كاشير نقاط البيع (POS) 🛒', view: 'supplier_pos' });
   }
   if (isSupplier && /كارت الصنف|مصنع|مصانع|علينا كام|طرد|تحويل|جرد/i.test(lower)) {
-    chips.push({ id: 'chip_sup_wh', label: 'المخازن وكارت الصنف والمصانع 🏭', view: 'supplier_warehouse_erp' });
+    chips.push({
+      id: 'chip_sup_wh',
+      label: `${getExperienceLabelFromConfig(expCfg, 'sup_warehouse_card', experienceMode)} 🏭`,
+      view: 'supplier_warehouse_erp',
+    });
   }
   if (isSupplier && /تثبيت|kiosk|جهاز|موظف|حضور|انصراف|سلف|جزاء|حافز|باسورد|pin/i.test(lower)) {
-    chips.push({ id: 'chip_sup_hr', label: 'شؤون العاملين وتثبيت الأجهزة 🖥️', view: 'supplier_hr_terminal' });
+    chips.push({
+      id: 'chip_sup_hr',
+      label: `${getExperienceLabelFromConfig(expCfg, 'sup_hr_card', experienceMode)} 🖥️`,
+      view: 'supplier_hr_terminal',
+    });
   }
 
   // 3. الخزينة / الفلوس / السيولة / الكاش / المصروف
-  if (!isSupplier && /خزن|خزنة|خزينة|سيول|سيولة|كاش|انستاباي|إنستاباي|محفظة|نقدية|معانا كام/i.test(lower)) {
-    chips.push({ id: 'chip_treasuries', label: 'فتح الخزائن والأرصدة 💰', view: 'treasuries' });
+  if (!isSupplier && /خزن|خزنة|خزينة|سيول|سيولة|كاش|انستاباي|إنستاباي|محفظة|نقدية|معانا كام|دائن|مدين/i.test(lower)) {
+    chips.push({
+      id: 'chip_treasuries',
+      label: `${getExperienceLabelFromConfig(expCfg, 'fin_treasury_title', experienceMode)} 💰`,
+      view: 'treasuries',
+    });
+  }
+
+  // 3.5 التقارير وميزان المراجعة
+  if (!isSupplier && /تقرير|تقارير|رسوم|ميزان|أرباح|ارباح|خلاصة/i.test(lower)) {
+    chips.push({
+      id: 'chip_reports',
+      label: `${getExperienceLabelFromConfig(expCfg, 'rep_page_title', experienceMode)} 📊`,
+      view: 'reports',
+    });
   }
 
   // 4. الخامات / المشتريات / الموردين
@@ -374,9 +422,13 @@ export function detectKeywordActionChips(userQuery: string, isSupplier = false):
     chips.push({ id: 'chip_new_appt', label: 'تسجيل موعد جديد ➕', action: 'new_appointment' });
   }
 
-  // 8. أوامر التشغيل / التصنيع / الصنايعية
-  if (!isSupplier && /تشغيل|أمر تشغيل|تصنيع|صنايعي|حرفي|عمال|أجور/i.test(lower)) {
-    chips.push({ id: 'chip_wo', label: 'سجل أوامر التشغيل 🔨', view: 'work_orders' });
+  // 8. أوامر التشغيل / التصنيع / الصنايعية / بواقي الخامات
+  if (!isSupplier && /تشغيل|أمر تشغيل|تصنيع|صنايعي|حرفي|عمال|أجور|بواقي|اتفضل|إذن|اذن/i.test(lower)) {
+    chips.push({
+      id: 'chip_wo',
+      label: `${getExperienceLabelFromConfig(expCfg, 'wo_page_title', experienceMode)} 🔨`,
+      view: 'work_orders',
+    });
   }
 
   return chips.slice(0, 3);
@@ -495,6 +547,14 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const tasksDoneStorageKey = `alshams_shamousa_tasks_done_${workshopId}_${todayDateStr}`;
 
   const isSupplierAccount = profile?.accountRole === 'supplier';
+  const {
+    mode: experienceMode,
+    setMode: setExperienceMode,
+    config: experienceModeConfig,
+    getLabel: getModeLabel,
+    allowSwitch: allowModeSwitch,
+  } = useExperienceMode(isSupplierAccount ? 'supplier' : 'artisan', profile);
+  const isCraftMode = experienceMode === 'craft';
   const firstName = extractUserFirstName((profile as any).fullName || (profile as any).name || profile.artistName || (profile as any).artisanName) || 'صديقي';
   const brandTitle = profile.brandName
     ? `${isSupplierAccount ? 'متجر' : 'ورشة'} ${profile.brandName}`
@@ -506,8 +566,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     /hmb\.top\.tu[bp]e/i.test(String(profile.email || '').trim());
 
   const welcomeMessage = isSupplierAccount
-    ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين.\nأنا **شموسة**، مديرة أعمالك الذكية — جاهزة أتابع معاك الفروع والكاشير والمخازن فوراً. ولو حابب تفتحلي البحث المباشر على الإنترنت عشان أدوّرلك في السوق أكتر، اضغط بس على **صورتي اللي جنب خانة الكتابة عشان تنوّر أخضر 🟢**.`
-    : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية.\nأنا **شموسة**، مديرة أعمالك الذكية — هجاوبك فوراً في التسعير، الخامات الموحدة، الخزينة، والمخزن. ولو حابب تفتحلي البحث المباشر على الإنترنت عشان أدوّرلك في السوق أكتر، اضغط بس على **صورتي اللي جنب خانة الكتابة عشان تنوّر أخضر 🟢**.`;
+    ? isCraftMode
+      ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هكلّمك بلغة المحل السهلة من غير تعقيد دائن ومدين، وهتابع معاك الفلوس والمخازن والبيع فوراً. ولو حابب أدوّرلك في السوق أونلاين اضغط على **صورتي جنب خانة الكتابة عشان تنوّر أخضر 🟢**.`
+      : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل التفاصيل الرسمية: **${getModeLabel('sup_finance_title')}**، دفتر الأستاذ، تسويات الفروع، وتقييم المخزون. ولو حابب تفتحلي البحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`
+    : isCraftMode
+    ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هكلمك بلغة الورشة السهلة من غير كلام المحاسبين المعقّد، وهساعدك في التسعير، **${getModeLabel('wo_page_title')}**، بواقي الخامات، و**${getModeLabel('rep_page_title')}**. وللبحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`
+    : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل المسميات والأذونات المحاسبية الكاملة (**${getModeLabel('wo_issue_voucher')}**، **${getModeLabel('rep_trial_balance')}**، المدين والدائن، والرسوم المتقدمة). وللبحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`;
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'tasks_agenda'>('chat');
@@ -1477,6 +1541,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         const localRes = resolveShamousaLocalChatbot(message, {
           firstName,
           isSupplier: isSupplierAccount,
+          experienceMode,
           state: conversationStateRef.current,
           history,
         });
@@ -1494,7 +1559,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           }).catch(() => {});
         }
         if (localRes.handled && localRes.reply) {
-          const replyChips = detectKeywordActionChips(message, isSupplierAccount).filter(
+          const replyChips = detectKeywordActionChips(message, isSupplierAccount, experienceMode).filter(
             (c) => !localRes.actionLink || c.view !== localRes.actionLink.view
           );
           setMessages((prev) => [
@@ -1622,6 +1687,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           userEmail: profile.email || '',
           accountRole: isSupplierAccount ? 'supplier' : 'artisan',
           clientWorkshopState: {
+            experienceMode,
+            experienceModePromptContext: buildShamousaModePromptContext(
+              experienceMode,
+              isSupplierAccount ? 'supplier' : 'artisan',
+              experienceModeConfig
+            ),
             treasuryBalance: currentTreasury,
             treasuriesDetail: treasuriesList,
             lowMaterialsCount: lowMaterialsList.length,
@@ -1645,7 +1716,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       const shouldHandoff = !isInternalData && (Boolean(data.handoffToFalcon) || isFalconExplicitlyRequested);
 
       const dynamicLink = data.actionLink || detectNavigationIntent(message, isSupplierAccount);
-      const replyChips = detectKeywordActionChips(message, isSupplierAccount).filter(
+      const replyChips = detectKeywordActionChips(message, isSupplierAccount, experienceMode).filter(
         (c) => !dynamicLink || c.view !== dynamicLink.view
       );
 
@@ -1746,6 +1817,19 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             </div>
 
             <div className="flex items-center gap-1 flex-shrink-0">
+              {allowModeSwitch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    setExperienceMode(isCraftMode ? 'accounting' : 'craft');
+                  }}
+                  title={isCraftMode ? 'تبديل للوضع المحاسبي المتقدم' : 'تبديل للوضع الحرفي البسيط'}
+                  className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-black transition cursor-pointer"
+                >
+                  {isCraftMode ? 'حرفي ✦' : 'محاسبي ✦'}
+                </button>
+              )}
               {messages.length > 0 && activeTab === 'chat' && (
                 <button
                   type="button"
@@ -1823,16 +1907,31 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   {renderText(welcomeMessage)}
                   <div className="flex flex-wrap gap-1.5 pt-2.5 mt-2 border-t border-stone-200/70 dark:border-stone-700/60">
                     {(isSupplierAccount
+                      ? isCraftMode
+                        ? [
+                            { id: 'w_sb', label: `${getModeLabel('sup_exec_brief_card')} 💰`, intentKey: 'sup_full_brief' },
+                            { id: 'w_sfin', label: `${getModeLabel('sup_finance_title')} 🏦`, view: 'supplier_finance' },
+                            { id: 'w_smode', label: 'الوضع الحرفي والمحاسبي ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
+                            { id: 'w_sum', label: 'الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
+                          ]
+                        : [
+                            { id: 'w_sb', label: `${getModeLabel('sup_exec_brief_card')} 💰`, intentKey: 'sup_full_brief' },
+                            { id: 'w_sfin', label: `${getModeLabel('sup_finance_title')} 📊`, view: 'supplier_finance' },
+                            { id: 'w_swh', label: `${getModeLabel('sup_warehouse_card')} 🏭`, view: 'supplier_warehouse_erp' },
+                            { id: 'w_sdc', label: 'شرح المدين والدائن 📘', queryText: 'يعني ايه دائن ومدين' },
+                          ]
+                      : isCraftMode
                       ? [
-                          { id: 'w_sb', label: 'هلخصهالك للموردين 💰', intentKey: 'sup_full_brief' },
-                          { id: 'w_sum', label: 'الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
-                          { id: 'w_scat', label: 'كتالوجي وأسعاري 📦', view: 'supplier_catalog' },
+                          { id: 'w_ab', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
+                          { id: 'w_left', label: 'إرجاع بواقي الخامات 🧶', queryText: 'بواقي الخامات بعد أمر التشغيل' },
+                          { id: 'w_rep', label: `${getModeLabel('rep_page_title')} 📊`, view: 'reports' },
+                          { id: 'w_mode', label: 'الفرق بين الوضعين ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
                         ]
                       : [
                           { id: 'w_ab', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
-                          { id: 'w_um', label: 'الخامات الموحدة (TH/BD) 🏷️', queryText: 'منظومة الخامات الموحدة' },
-                          { id: 'w_cr', label: 'الورش ومعادلات التسعير 🧮', queryText: 'معادلات الورش والتسعير' },
-                          { id: 'w_fl', label: 'الأرشيف والكتالوج 🛍️', queryText: 'دورة المنتج والأرشيف' },
+                          { id: 'w_wo', label: `${getModeLabel('wo_page_title')} 📋`, view: 'work_orders' },
+                          { id: 'w_rep', label: `${getModeLabel('rep_trial_balance')} ⚖️`, view: 'reports' },
+                          { id: 'w_vch', label: 'دليل الأذونات والقيود 📘', queryText: 'وظيفة الأذونات' },
                         ]
                     ).map((wOpt) => (
                       <button

@@ -49,6 +49,7 @@ import {
   HeartHandshake,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import type { PlatformExperienceModeConfig } from './experienceMode';
 
 export type UiLayoutAudience = 'artisan' | 'supplier';
 export type UiCardShape = 'classic' | 'wide' | 'compact';
@@ -380,9 +381,31 @@ export interface RoleUiLayoutConfig {
   };
 }
 
+export interface UiGlobalElementOverride {
+  key: string;
+  elementType: 'button' | 'card';
+  originalText: string;
+  customLabel?: string;
+  hidden?: boolean;
+  pageHint?: string;
+  updatedAt: string;
+}
+
+export function normalizeOverrideText(text: string): string {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function buildGlobalOverrideKey(elementType: 'button' | 'card', originalText: string): string {
+  return `${elementType}::${normalizeOverrideText(originalText)}`;
+}
+
 export interface PlatformUiLayoutConfig {
   artisan: RoleUiLayoutConfig;
   supplier: RoleUiLayoutConfig;
+  globalElementOverrides?: Record<string, UiGlobalElementOverride>;
+  experienceModeConfig?: PlatformExperienceModeConfig;
   updatedAt?: string;
 }
 
@@ -1014,9 +1037,34 @@ function mergeRoleLayout(raw: Partial<RoleUiLayoutConfig> | undefined, fallback:
 }
 
 export function normalizeUiLayoutConfig(raw?: Partial<PlatformUiLayoutConfig> | null): PlatformUiLayoutConfig {
+  const safeOverrides: Record<string, UiGlobalElementOverride> = {};
+  if (raw?.globalElementOverrides && typeof raw.globalElementOverrides === 'object') {
+    for (const [k, v] of Object.entries(raw.globalElementOverrides)) {
+      if (!v || typeof v !== 'object') continue;
+      const elementType: 'button' | 'card' = v.elementType === 'card' ? 'card' : 'button';
+      const originalText = normalizeOverrideText(v.originalText || '');
+      if (!originalText) continue;
+      const key = buildGlobalOverrideKey(elementType, originalText);
+      const customLabel = typeof v.customLabel === 'string' ? v.customLabel.trim() : undefined;
+      const hidden = Boolean(v.hidden);
+      if (!customLabel && !hidden) continue;
+      safeOverrides[key || k] = {
+        key: key || k,
+        elementType,
+        originalText,
+        ...(customLabel ? { customLabel } : {}),
+        ...(hidden ? { hidden: true } : {}),
+        ...(v.pageHint ? { pageHint: String(v.pageHint).slice(0, 80) } : {}),
+        updatedAt: typeof v.updatedAt === 'string' ? v.updatedAt : new Date().toISOString(),
+      };
+    }
+  }
+
   return {
     artisan: mergeRoleLayout(raw?.artisan, DEFAULT_ARTISAN_UI_LAYOUT),
     supplier: mergeRoleLayout(raw?.supplier, DEFAULT_SUPPLIER_UI_LAYOUT),
+    globalElementOverrides: safeOverrides,
+    ...(raw?.experienceModeConfig ? { experienceModeConfig: raw.experienceModeConfig } : {}),
     updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : undefined,
   };
 }

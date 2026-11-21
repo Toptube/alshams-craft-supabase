@@ -23,6 +23,7 @@ import {
   Receipt,
   ArrowLeftRight,
 } from 'lucide-react';
+import { useExperienceMode } from '../../types/experienceMode';
 
 interface SupplierFinanceViewProps {
   profile: UserProfile;
@@ -44,7 +45,22 @@ export const SupplierFinanceView: React.FC<SupplierFinanceViewProps> = ({
   onGoHome,
 }) => {
   const currencySymbol = profile.currencySymbol || 'ج.م';
+  const {
+    mode: expMode,
+    setMode: setExpMode,
+    isCraft,
+    allowSwitch: allowExpSwitch,
+    getLabel: getModeLabel,
+    isVisible: isModeVisible,
+  } = useExperienceMode('supplier', profile);
+  const showLedgerTab = isModeVisible('sup_ledger_tab');
   const [tab, setTab] = useState<'treasuries' | 'expenses' | 'ledger'>('treasuries');
+
+  useEffect(() => {
+    if (!showLedgerTab && tab === 'ledger') {
+      setTab('treasuries');
+    }
+  }, [showLedgerTab, tab]);
   const [treasuries, setTreasuries] = useState<SupplierTreasury[]>([]);
   const [transactions, setTransactions] = useState<SupplierTreasuryTransaction[]>([]);
   const [expenses, setExpenses] = useState<SupplierExpense[]>([]);
@@ -160,52 +176,85 @@ export const SupplierFinanceView: React.FC<SupplierFinanceViewProps> = ({
           <div>
             <h1 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
               <Wallet className="w-4 h-4 text-[#EA580C]" />
-              <span>خزائن المورد والمصروفات والحسابات</span>
+              <span>{getModeLabel('sup_finance_title', 'خزائن المورد والمصروفات والحسابات')}</span>
             </h1>
             <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
-              الرصيد المتاح: <strong className="font-mono">{totalBalance.toLocaleString()} {currencySymbol}</strong> • إجمالي المصروفات:{' '}
-              <strong className="font-mono text-rose-600 dark:text-rose-400">
+              {isCraft ? 'الفلوس اللي في خزنتك دلوقتي:' : 'الرصيد المتاح:'}{' '}
+              <strong className="font-mono tabular-nums">{totalBalance.toLocaleString()} {currencySymbol}</strong> •{' '}
+              {isCraft ? 'إجمالي اللي صرفته:' : 'إجمالي المصروفات:'}{' '}
+              <strong className="font-mono tabular-nums text-rose-600 dark:text-rose-400">
                 {totalExpenses.toLocaleString()} {currencySymbol}
               </strong>
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onGoHome}
-          aria-label="إغلاق"
-          title="إغلاق"
-          className="w-8 h-8 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 hover:text-rose-600 flex items-center justify-center cursor-pointer"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          {allowExpSwitch && (
+            <div className="inline-flex items-center p-0.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+              <button
+                type="button"
+                onClick={() => setExpMode('craft')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-black cursor-pointer transition-colors ${
+                  isCraft ? 'bg-emerald-600 text-white' : 'text-[#475569] dark:text-[#CBD5E1]'
+                }`}
+              >
+                الوضع الحرفي
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpMode('accounting')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-black cursor-pointer transition-colors ${
+                  !isCraft ? 'bg-indigo-600 text-white' : 'text-[#475569] dark:text-[#CBD5E1]'
+                }`}
+              >
+                الوضع المحاسبي
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onGoHome}
+            aria-label="إغلاق"
+            title="إغلاق"
+            className="w-8 h-8 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-rose-500 hover:text-rose-600 flex items-center justify-center cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-2">
         {[
-          { id: 'treasuries' as const, label: 'الخزائن والأرصدة', icon: Wallet },
-          { id: 'expenses' as const, label: 'المصروفات التشغيلية', icon: Coins },
-          { id: 'ledger' as const, label: 'سجل الحركات المالية', icon: ArrowLeftRight },
-        ].map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-black border flex items-center gap-1.5 cursor-pointer ${
-                tab === t.id
-                  ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white border-transparent'
-                  : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{t.label}</span>
-            </button>
-          );
-        })}
+          { id: 'treasuries' as const, label: isCraft ? 'الخزنة والفلوس' : 'الخزائن والأرصدة', icon: Wallet, visible: true },
+          { id: 'expenses' as const, label: isCraft ? 'مصاريف المحل' : 'المصروفات التشغيلية', icon: Coins, visible: true },
+          {
+            id: 'ledger' as const,
+            label: getModeLabel('sup_ledger_tab', 'سجل الحركات المالية'),
+            icon: ArrowLeftRight,
+            visible: showLedgerTab,
+          },
+        ]
+          .filter((t) => t.visible)
+          .map((t) => {
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black border flex items-center gap-1.5 cursor-pointer ${
+                  tab === t.id
+                    ? 'bg-[#0C1427] dark:bg-[#EA580C] text-white border-transparent'
+                    : 'bg-[#F7F3EA] dark:bg-[#0D162E] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
       </div>
 
       {loading ? (
@@ -305,8 +354,8 @@ export const SupplierFinanceView: React.FC<SupplierFinanceViewProps> = ({
                   onChange={(e) => setTxType(e.target.value as any)}
                   className="px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-bold"
                 >
-                  <option value="deposit">إيداع (+)</option>
-                  <option value="withdrawal">سحب (-)</option>
+                  <option value="deposit">{getModeLabel('sup_debit', 'إيداع (+)')}</option>
+                  <option value="withdrawal">{getModeLabel('sup_credit', 'سحب (-)')}</option>
                 </select>
                 <input
                   type="number"

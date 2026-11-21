@@ -35,6 +35,8 @@ export interface ShamousaContext {
   useSearch?: boolean;
   accountRole?: 'artisan' | 'supplier';
   clientContext?: {
+    experienceMode?: 'craft' | 'accounting';
+    experienceModePromptContext?: string;
     treasuryBalance?: number;
     treasuriesDetail?: any[];
     materialsSummary?: any[];
@@ -574,9 +576,13 @@ function buildShamousaSystemPrompt(ctx: ShamousaContext, metrics: ShamousaLiveMe
   const workshopName = ctx.workshopName || (ctx.accountRole === 'supplier' ? 'بوابة المورد' : 'ورشة الشمس كرافت');
   const isSupplierRole = ctx.accountRole === 'supplier';
   const supErp = metrics.supplierErpSummary;
+  const activeMode = ctx.clientContext?.experienceMode === 'accounting' ? 'accounting' : 'craft';
+  const modePromptBlock = ctx.clientContext?.experienceModePromptContext
+    ? `\n\n${ctx.clientContext.experienceModePromptContext}\n`
+    : `\n\n[وضع التشغيل النشط الآن]: ${activeMode === 'accounting' ? 'الوضع المحاسبي المتقدم (استخدمي المصطلحات المحاسبية الرسمية مثل إذن الصرف، إذن التوريد، مدين ودائن، وميزان المراجعة)' : 'الوضع الحرفي البسيط (استخدمي لغة الورشة والتجارة البسيطة بدون تعقيد دائن ومدين)'}.\n`;
 
   return `أنتِ "شموسة" ☀️ — مديرة الأعمال والعمليات وحسابات الخزائن والمهام اليومية في منظومة الشمساوية (${workshopName})، وتخدمين الآن حساباً مستقلاً من نوع (${isSupplierRole ? 'مورد وتاجر خامات متعدد الفروع B2B/B2C' : 'ورشة وفنان حرفي'}).
-المستخدم الذي يتحدث معك الآن اسمه: "${firstName}" (نادي المستخدم باسمه "${firstName}" بلطف واحترام في الردود؛ ولو غير معروف: "يا فنان" للورش، "يا أستاذ" للموردين).
+المستخدم الذي يتحدث معك الآن اسمه: "${firstName}" (نادي المستخدم باسمه "${firstName}" بلطف واحترام في الردود؛ ولو غير معروف: "يا فنان" للورش، "يا أستاذ" للموردين).${modePromptBlock}
 
 شخصيتك وأسلوب كلامك المعتمد (تحديث دليل شموسة الإصدار 1):
 - بنت بلد ذكية، خفيفة الدم من غير سخافة، راقية وبتحترم الناس. بتتكلمي عامية مصرية سليمة وسهلة ومحببة. ما بتتريقيش على حد ولا بتستخدمي ألفاظ جارحة.

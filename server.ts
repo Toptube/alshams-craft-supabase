@@ -489,14 +489,9 @@ function getDbClient(req?: AuthenticatedRequest | Request): SupabaseClient {
   return authedReq?.scopedSupabase || supabaseAdminClient;
 }
 
-// Authentication Middleware via Supabase JWT (always prefer verified JWT over dev header fallback)
+// Authentication Middleware via Supabase JWT (strictly verified Bearer JWT — no header email bypass)
 async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
-  const devEmail =
-    (req.headers['x-user-email'] as string) ||
-    req.body?.userEmail ||
-    (req.query?.userEmail as string) ||
-    '';
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
@@ -521,7 +516,7 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
       }
       if (!error && user) {
         req.user = user;
-        const userEmail = user.email || (user.user_metadata?.email as string) || devEmail || '';
+        const userEmail = String(user.email || (user.user_metadata?.email as string) || '').trim();
         req.userEmail = userEmail;
         const superAdmin = isSuperAdmin(userEmail);
         req.isSuperAdmin = superAdmin;
@@ -560,21 +555,6 @@ async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextF
       res.status(401).json({ error: 'تعذر التحقق من هوية المستخدم' });
       return;
     }
-  }
-
-  // Fallback for direct Super Admin supervisory server calls without Bearer header
-  if (devEmail && isSuperAdmin(devEmail)) {
-    req.user = {
-      id: 'super_admin_hossam',
-      email: devEmail,
-      user_metadata: { full_name: 'الباشمهندس حسام بسيوني', name: 'حسام' },
-    };
-    req.userEmail = devEmail;
-    req.isSuperAdmin = true;
-    req.workshopId = (req.headers['x-workshop-id'] as string) || req.body?.workshopId || (req.query?.workshopId as string) || 'ALL_WORKSHOPS';
-    req.scopedSupabase = supabaseAdminClient;
-    next();
-    return;
   }
 
   res.status(401).json({ error: 'غير مصرح: يجب تسجيل الدخول للوصول إلى هذه الخدمة' });
@@ -4916,7 +4896,7 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
       workshopContext: {
         ...(workshopContext || {}),
         accountRole: resolvedRole,
-        supplierId: verifiedSupplier?.id || workshopContext?.supplierId,
+        supplierId: verifiedSupplier?.id || (superAdmin ? workshopContext?.supplierId : undefined),
         artistName: artistName || workshopContext?.artistName,
         brandName: verifiedSupplier?.brand_name || verifiedSupplier?.brandName || workshopContext?.brandName,
         userEmail: email,
@@ -5302,7 +5282,7 @@ app.get('/api/media/workshop-logo/:id', async (req: Request, res: Response) => {
   if (!rawMedia) {
     try {
       const { data } = await supabaseAdminClient
-        .from('workshops')
+        .from('public_workshops_directory')
         .select('logo_data, logo_url')
         .eq('id', wid)
         .maybeSingle();
@@ -5333,17 +5313,7 @@ app.get('/api/media/marketplace-product/:id', async (req: Request, res: Response
   if (!rawMedia) {
     try {
       const { data } = await supabaseAdminClient
-        .from('marketplace_products')
-        .select('image_url')
-        .eq('id', pid)
-        .maybeSingle();
-      if (data?.image_url) rawMedia = data.image_url;
-    } catch {}
-  }
-  if (!rawMedia) {
-    try {
-      const { data } = await supabaseAdminClient
-        .from('products')
+        .from('public_marketplace_products')
         .select('image_url')
         .eq('id', pid)
         .maybeSingle();
@@ -5353,7 +5323,7 @@ app.get('/api/media/marketplace-product/:id', async (req: Request, res: Response
   serveMediaDataUriOrRedirect(cacheKey, rawMedia, res);
 });
 
-// 1. Get Marketplace Products for Public Shoppers (Strictly APPROVED & from ACTIVE workshops only)
+// 1. Get Marketplace Products for Public Shoppers (Strictly APPROVED & from ACTIVE workshops via Safe Public Views)
 app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
   try {
     const client = supabaseAdminClient;
@@ -5370,8 +5340,8 @@ app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
 
     try {
       const { data: wsRows } = await client
-        .from('workshops')
-        .select('id, brand_name, artist_name, phone, phone_number, logo_url, store_slug, rating_stars, medal, status, is_frozen, hide_from_market');
+        .from('public_workshops_directory')
+        .select('id, workshop_id, brand_name, artist_name, logo_url, store_slug, rating_stars, medal, status, hide_from_market');
       if (Array.isArray(wsRows)) {
         wsRows.forEach((w: any) => {
           const wid = w.id || w.workshop_id;
@@ -5388,9 +5358,8 @@ app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
 
     try {
       const { data, error } = await client
-        .from('marketplace_products')
+        .from('public_marketplace_products')
         .select('*')
-        .eq('status', 'approved')
         .order('created_at', { ascending: false });
 
       if (!error && Array.isArray(data)) {
@@ -5414,11 +5383,12 @@ app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
         const ws = workshopLookup.get(wid);
         const rawImg = p.image_url || p.imageUrl || null;
         const rawLogo = ws?.logo_url || ws?.logoUrl || p.logo_url || p.logoUrl || null;
+        const { cost_price: _cp, costPrice: _cp2, ...safeProd } = p;
         const enriched = {
-          ...p,
+          ...safeProd,
+          cost_price: 0,
           brand_name: ws?.brand_name || ws?.brandName || p.brand_name || p.brandName || 'ورشة الشمساوية',
           artist_name: ws?.artist_name || ws?.artistName || p.artist_name || p.artistName || 'فنان الشمساوية',
-          phone_number: ws?.phone_number || ws?.phone || ws?.phoneNumber || p.phone_number || p.phoneNumber || '',
           image_url: slimImageUrl(rawImg, `/api/media/marketplace-product/${encodeURIComponent(p.id)}`),
           logo_url: slimImageUrl(rawLogo, `/api/media/workshop-logo/${encodeURIComponent(wid)}`),
           store_slug: ws?.store_slug || ws?.storeSlug || p.store_slug || p.storeSlug || wid,
@@ -5434,44 +5404,59 @@ app.get('/api/marketplace/products', async (_req: Request, res: Response) => {
   }
 });
 
-// 2. Publish/Sync Product from Artisan Store to Central Marketplace (Pending Approval by default)
-app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
+// 2. Publish/Sync Product from Artisan Store to Central Marketplace (Requires Auth; strictly Pending Approval for non-admins)
+app.post('/api/marketplace/publish', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const product = req.body || {};
     if (!product.id || (!product.product_name && !product.productName)) {
       return res.status(400).json({ error: 'بيانات المنتج غير مكتملة' });
     }
 
-    const dbClient = req.headers.authorization ? getDbClient(req) : supabaseAdminClient;
+    const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(req.userEmail));
+    const dbClient = getDbClient(req);
     const persistent = loadPersistentMarketplaceProducts();
     const existingIndex = persistent.findIndex((p: any) => p.id === product.id);
 
-    // Check remote DB status too so already-approved products preserve 'approved'
+    // Derive workshop_id strictly from authenticated session for non-super-admins
+    const wid = superAdmin
+      ? String(product.workshop_id || product.workshopId || req.workshopId || '')
+      : String(req.workshopId || req.user?.id || '');
+    if (!wid || wid === 'ALL_WORKSHOPS') {
+      return res.status(400).json({ error: 'تعذر تحديد معرف الورشة المصرح به' });
+    }
+
+    // Check remote DB status too so already-approved products owned by this workshop preserve 'approved'
     let remoteExisting: any = null;
     try {
       const { data } = await dbClient
         .from('marketplace_products')
-        .select('id, status, created_at')
+        .select('id, workshop_id, status, created_at')
         .eq('id', product.id)
         .maybeSingle();
-      if (data) remoteExisting = data;
+      if (data) {
+        if (!superAdmin && data.workshop_id && String(data.workshop_id) !== wid) {
+          return res.status(403).json({ error: 'غير مصرح بتعديل منتج يتبع ورشة أخرى' });
+        }
+        remoteExisting = data;
+      }
     } catch {}
 
     const alreadyApprovedRemotely =
-      (existingIndex >= 0 && persistent[existingIndex].status === 'approved') ||
+      (existingIndex >= 0 && persistent[existingIndex].workshop_id === wid && persistent[existingIndex].status === 'approved') ||
       remoteExisting?.status === 'approved';
 
     const forceReReview = Boolean(product.reSubmitForApproval || product.re_submit_for_approval);
-    const initialStatus = forceReReview
+    const initialStatus = superAdmin
+      ? (product.status || (alreadyApprovedRemotely ? 'approved' : 'pending_approval'))
+      : forceReReview
       ? 'pending_approval'
       : alreadyApprovedRemotely && product.status !== 'rejected'
       ? 'approved'
-      : (product.status || 'pending_approval');
+      : 'pending_approval';
 
-    const wid = product.workshop_id || product.workshopId || '';
     const nowIso = new Date().toISOString();
 
-    // Only include real Supabase marketplace_products columns
+    // Only include real Supabase marketplace_products columns (never expose cost_price in public marketplace table)
     const supaRow: any = {
       id: product.id,
       workshop_id: wid,
@@ -5485,7 +5470,7 @@ app.post('/api/marketplace/publish', async (req: Request, res: Response) => {
       store_price: Number(product.store_price ?? product.storePrice ?? product.retail_price ?? product.retailPrice ?? 0),
       retail_price: Number(product.retail_price ?? product.retailPrice ?? product.store_price ?? 0),
       wholesale_price: Number(product.wholesale_price ?? product.wholesalePrice ?? 0),
-      cost_price: Number(product.cost_price ?? product.costPrice ?? 0),
+      cost_price: 0,
       current_stock: Number(product.current_stock ?? product.currentStock ?? 1),
       image_url: product.image_url || product.imageUrl || '/alshams_falcon_emblem.png',
       store_description: product.store_description || product.storeDescription || '',
@@ -6616,7 +6601,7 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
 
     try {
       const { data: supaWorkshops } = await client
-        .from('workshops')
+        .from('public_workshops_directory')
         .select('*');
 
       if (Array.isArray(supaWorkshops)) {
@@ -6702,12 +6687,13 @@ app.get('/api/store/:slug', async (req: Request, res: Response) => {
       }
     });
 
-    // Strict database isolation by workshop_id ONLY across both marketplace_products and products
+    // Strict database isolation by workshop_id via Safe Public View
     try {
-      const [{ data: mktData }, { data: catData }] = await Promise.all([
-        client.from('marketplace_products').select('*').eq('workshop_id', wid),
-        client.from('products').select('*').eq('workshop_id', wid),
-      ]);
+      const { data: mktData } = await client
+        .from('public_marketplace_products')
+        .select('*')
+        .eq('workshop_id', wid);
+      const catData: any[] = [];
 
       if (Array.isArray(mktData)) {
         mktData.forEach((p: any) => {
@@ -8264,7 +8250,7 @@ app.get('/api/public/supplier-store/:slug', async (req: Request, res: Response) 
     const client = getDbClient(req);
     if (!found) {
       const { data: supRow } = await client
-        .from('platform_suppliers')
+        .from('public_suppliers_directory')
         .select('*')
         .or(`store_slug.ilike.${cleanSlug},id.eq.${cleanSlug}`)
         .maybeSingle();
@@ -8289,6 +8275,15 @@ app.get('/api/public/supplier-store/:slug', async (req: Request, res: Response) 
 
   if (!found) return res.status(404).json({ error: 'متجر المورد غير موجود' });
 
+  // Strip all private credentials/PII before exposing supplier publicly
+  const {
+    owner_unlock_pin: _pin,
+    ownerUnlockPin: _pin2,
+    email: _email,
+    owner_uid: _ouid,
+    ...safeFound
+  } = found;
+
   const isBlocked = Boolean(found.is_frozen || found.status === 'banned' || found.status === 'suspended');
   const isHiddenStore = Boolean(found.hide_storefront || found.hideStorefront);
 
@@ -8300,7 +8295,7 @@ app.get('/api/public/supplier-store/:slug', async (req: Request, res: Response) 
       suspensionReason: isHiddenStore
         ? 'متجر المورد مخفي مؤقتاً لحين مراجعة وتحديث الأسعار والصور بناءً على تعليمات إدارة المنصة.'
         : (found.suspension_reason || 'حساب المورد موقوف مؤقتاً للمراجعة.'),
-      supplier: found,
+      supplier: safeFound,
       items: [],
     });
   }
@@ -8332,7 +8327,7 @@ app.get('/api/public/supplier-store/:slug', async (req: Request, res: Response) 
 
   return res.json({
     success: true,
-    supplier: { ...found, rating_stars: ratingAvg, reviews_count: reviews.length },
+    supplier: { ...safeFound, rating_stars: ratingAvg, reviews_count: reviews.length },
     items: catalog,
     memberProfile: customerMemberProfile,
     reviews,
@@ -9327,8 +9322,15 @@ app.delete('/api/member-profile/trainer-posts/:postId', requireAuth, async (req:
     store.trainerAlerts = (store.trainerAlerts || []).filter((a: any) => a.postId !== postId);
     writeArtisanGrowthStore(store);
     try {
-      await supabaseAdminClient.from('trainer_embedded_posts').delete().eq('id', postId);
-      await supabaseAdminClient.from('trainer_lesson_alerts').delete().eq('post_id', postId);
+      const dbClient = getDbClient(req);
+      const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(req.userEmail));
+      let postDel = dbClient.from('trainer_embedded_posts').delete().eq('id', postId);
+      let alertDel = dbClient.from('trainer_lesson_alerts').delete().eq('post_id', postId);
+      if (!superAdmin) {
+        postDel = postDel.eq('member_id', memberId);
+        alertDel = alertDel.eq('trainer_member_id', memberId);
+      }
+      await Promise.all([postDel, alertDel]);
     } catch {}
     return res.json({ success: true, trainerPosts: nextPosts });
   } catch (err: any) {
@@ -9729,6 +9731,29 @@ app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
     if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
       return res.status(400).json({ success: false, error: 'رابط غير صالح' });
     }
+    // Strict SSRF protection: allow only trusted public video hosting hostnames
+    let parsedHost = '';
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        return res.status(400).json({ success: false, error: 'بروتوكول غير مسموح' });
+      }
+      parsedHost = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    } catch {
+      return res.status(400).json({ success: false, error: 'رابط غير صالح' });
+    }
+    const ALLOWED_VIDEO_HOSTS = [
+      'youtube.com', 'm.youtube.com', 'youtu.be',
+      'tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
+      'vimeo.com', 'player.vimeo.com',
+      'instagram.com', 'facebook.com', 'm.facebook.com', 'fb.watch',
+      'dailymotion.com', 'dai.ly',
+    ];
+    const isAllowedHost = ALLOWED_VIDEO_HOSTS.some((h) => parsedHost === h || parsedHost.endsWith('.' + h));
+    if (!isAllowedHost) {
+      return res.status(400).json({ success: false, error: 'نطاق الفيديو غير مدعوم' });
+    }
+
     const cacheKey = rawUrl.toLowerCase();
     const cached = videoMetaCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
@@ -10735,7 +10760,7 @@ app.get('/api/suppliers-market', async (req: Request, res: Response) => {
   try {
     const client = supabaseAdminClient;
     const [supRes, catRes] = await Promise.all([
-      client.from('platform_suppliers').select('*'),
+      client.from('public_suppliers_directory').select('*'),
       client.from('supplier_catalog_items').select('*').eq('in_market', true).eq('is_approved', true),
     ]);
     if (Array.isArray(supRes.data)) {
@@ -10773,6 +10798,7 @@ app.get('/api/suppliers-market', async (req: Request, res: Response) => {
       return !frozen && !hiddenFromMarket;
     })
     .map((s: any) => {
+      const { owner_unlock_pin: _p1, ownerUnlockPin: _p2, email: _e, owner_uid: _u, ...safeSupplier } = s;
       const items = allItems.filter(
         (i: any) =>
           i.supplier_id === s.id &&
@@ -10790,7 +10816,7 @@ app.get('/api/suppliers-market', async (req: Request, res: Response) => {
         : Number(s.rating_stars ?? s.ratingStars ?? 5);
       const reviewsCount = revStat?.count || Number(s.reviews_count ?? 0);
       return {
-        supplier: { ...s, rating_stars: ratingAvg, reviews_count: reviewsCount },
+        supplier: { ...safeSupplier, rating_stars: ratingAvg, reviews_count: reviewsCount },
         items,
         minRetailPrice: retailPrices.length > 0 ? Math.min(...retailPrices) : 0,
         maxRetailPrice: retailPrices.length > 0 ? Math.max(...retailPrices) : 0,
@@ -11311,12 +11337,26 @@ app.post('/api/b2b/orders/:id/receive', requireAuth, async (req: AuthenticatedRe
 // =============================================================
 // Unified Materials Registry & 4-Level Coding APIs
 // =============================================================
+// Helper to strictly bind unified-materials memberId/actorId to authenticated JWT identity (closes IDOR)
+async function resolveVerifiedUnifiedMemberId(req: AuthenticatedRequest, roleParam: 'artisan' | 'supplier', requestedId?: string): Promise<string> {
+  const superAdmin = Boolean(req.isSuperAdmin || isSuperAdmin(req.userEmail || req.user?.email || ''));
+  if (superAdmin && requestedId && requestedId !== '__GLOBAL_MARKET_PRICING__') {
+    return String(requestedId).trim();
+  }
+  if (roleParam === 'supplier') {
+    const sup = await resolveActiveSupplierForReq(req).catch(() => null);
+    if (sup?.id) return String(sup.id);
+  }
+  const verified = String(req.workshopId || req.user?.id || '').trim();
+  return verified && verified !== 'ALL_WORKSHOPS' ? verified : String(req.user?.id || '').trim();
+}
+
 app.get('/api/unified-materials', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const email = req.userEmail || req.user?.email || '';
     const superAdmin = isSuperAdmin(email);
     const roleParam = req.query.role === 'supplier' ? 'supplier' : 'artisan';
-    const memberId = String(req.query.memberId || req.workshopId || req.user?.id || '').trim();
+    const memberId = await resolveVerifiedUnifiedMemberId(req, roleParam, String(req.query.memberId || ''));
     const snapshot = await loadUnifiedMaterialsSnapshotFromSupabase(getDbClient(req), {
       memberRole: roleParam,
       memberId,
@@ -11354,7 +11394,7 @@ app.post('/api/unified-materials/master', requireAuth, async (req: Authenticated
       : b.actorRole === 'supplier'
       ? 'supplier'
       : 'artisan';
-    const actorId = String(b.actorId || req.workshopId || req.user?.id || email);
+    const actorId = await resolveVerifiedUnifiedMemberId(req, actorRole === 'supplier' ? 'supplier' : 'artisan', b.actorId);
     const actorName = String(b.actorName || req.user?.user_metadata?.brand_name || req.user?.user_metadata?.full_name || email);
     const result = await createUnifiedMasterItem(getDbClient(req), {
       prefix: String(b.prefix).toUpperCase() as any,
@@ -11396,7 +11436,7 @@ app.post('/api/unified-materials/spec', requireAuth, async (req: AuthenticatedRe
       : b.actorRole === 'supplier'
       ? 'supplier'
       : 'artisan';
-    const actorId = String(b.actorId || req.workshopId || req.user?.id || email);
+    const actorId = await resolveVerifiedUnifiedMemberId(req, actorRole === 'supplier' ? 'supplier' : 'artisan', b.actorId);
     const actorName = String(b.actorName || email);
     const result = await createUnifiedSpecItem(getDbClient(req), {
       masterCode: String(b.masterCode),
@@ -11430,6 +11470,7 @@ app.post('/api/unified-materials/alias', requireAuth, async (req: AuthenticatedR
       : b.actorRole === 'supplier'
       ? 'supplier'
       : 'artisan';
+    const actorId = await resolveVerifiedUnifiedMemberId(req, actorRole === 'supplier' ? 'supplier' : 'artisan', b.actorId);
     const result = await createUnifiedAliasItem(getDbClient(req), {
       targetCode: String(b.targetCode),
       aliasName: String(b.aliasName),
@@ -11437,7 +11478,7 @@ app.post('/api/unified-materials/alias', requireAuth, async (req: AuthenticatedR
       contextHint: b.contextHint,
       isAmbiguous: Boolean(b.isAmbiguous),
       actorRole,
-      actorId: String(b.actorId || req.workshopId || req.user?.id || email),
+      actorId,
       actorName: String(b.actorName || email),
     });
     return res.json({ success: true, ...result });
@@ -11474,6 +11515,7 @@ app.patch('/api/unified-materials/:code', requireAuth, async (req: Authenticated
       : b.actorRole === 'supplier'
       ? 'supplier'
       : 'artisan';
+    const actorId = await resolveVerifiedUnifiedMemberId(req, actorRole === 'supplier' ? 'supplier' : 'artisan', b.actorId);
     const result = await updateOrProposeUnifiedMaster(getDbClient(req), req.params.code, {
       action: b.action || 'update',
       canonicalName: b.canonicalName,
@@ -11487,7 +11529,7 @@ app.patch('/api/unified-materials/:code', requireAuth, async (req: Authenticated
       brandPrices: b.brandPrices && typeof b.brandPrices === 'object' ? b.brandPrices : undefined,
       reason: b.reason,
       actorRole,
-      actorId: String(b.actorId || req.workshopId || req.user?.id || email),
+      actorId,
       actorName: String(b.actorName || email),
     });
     return res.json({ success: true, ...result });
@@ -11506,6 +11548,7 @@ app.post('/api/unified-materials/:code/contribute', requireAuth, async (req: Aut
       : b.actorRole === 'supplier'
       ? 'supplier'
       : 'artisan';
+    const actorId = await resolveVerifiedUnifiedMemberId(req, actorRole === 'supplier' ? 'supplier' : 'artisan', b.actorId);
     const result = await contributeToUnifiedMaster(getDbClient(req), req.params.code, {
       newAliases: Array.isArray(b.newAliases) ? b.newAliases : [],
       newThicknessesMm: Array.isArray(b.newThicknessesMm) ? b.newThicknessesMm : [],
@@ -11517,7 +11560,7 @@ app.post('/api/unified-materials/:code/contribute', requireAuth, async (req: Aut
         b.personalBrandPrices && typeof b.personalBrandPrices === 'object' ? b.personalBrandPrices : undefined,
       suggestionNote: typeof b.suggestionNote === 'string' ? b.suggestionNote : '',
       actorRole,
-      actorId: String(b.actorId || req.workshopId || req.user?.id || email),
+      actorId,
       actorName: String(b.actorName || req.user?.user_metadata?.brand_name || req.user?.user_metadata?.full_name || email),
     });
     return res.json({ success: true, ...result });

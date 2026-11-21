@@ -2,6 +2,7 @@ import {createRoot} from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/common/ErrorBoundary.tsx';
+import { SuperAdminUiCustomizer } from './components/admin/SuperAdminUiCustomizer.tsx';
 import { initGlobalButtonFeedback } from './lib/sounds';
 import './index.css';
 
@@ -58,5 +59,6 @@ if (typeof window !== 'undefined') {
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
     <App />
+    <SuperAdminUiCustomizer />
   </ErrorBoundary>
 );

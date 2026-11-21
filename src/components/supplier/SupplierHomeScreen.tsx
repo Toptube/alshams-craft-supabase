@@ -23,6 +23,7 @@ import {
   UiHomeCardConfig,
   useUiLayoutConfig,
 } from '../../types/uiLayoutConfig';
+import { useExperienceMode } from '../../types/experienceMode';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -81,6 +82,13 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   const flags = useFeatureFlags();
   const uiLayout = useUiLayoutConfig();
   const homeCfg = uiLayout.supplier.home;
+  const {
+    isCraft,
+    setMode: setExpMode,
+    allowSwitch: allowExpSwitch,
+    getLabel: getModeLabel,
+    isVisible: isModeVisible,
+  } = useExperienceMode('supplier', profile);
   const showErpModules = isUserAdmin(profile) || flags.supplierErpEnabled !== false;
   const [catalog, setCatalog] = useState<SupplierCatalogItem[]>([]);
   const [orders, setOrders] = useState<B2BSupplyOrder[]>([]);
@@ -273,10 +281,29 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
     }
   };
 
+  const CARD_MODE_KEY_MAP: Record<string, string> = {
+    erp_hub: 'sup_erp_hub_card',
+    sup_erp_hub: 'sup_erp_hub_card',
+    warehouse_erp: 'sup_warehouse_erp_card',
+    sup_warehouse_erp: 'sup_warehouse_erp_card',
+    hr_terminal: 'sup_hr_terminal_card',
+    sup_hr_terminal: 'sup_hr_terminal_card',
+    executive_brief: 'sup_executive_brief_card',
+    sup_executive_brief: 'sup_executive_brief_card',
+    finance: 'sup_finance_title',
+    sup_finance: 'sup_finance_title',
+  };
+
   const visibleCards = useMemo(() => {
     return homeCfg.cards.filter((card) => {
       if (!card.visible) return false;
       if (!showErpModules && ['erp_hub', 'pos_cashier', 'warehouse_erp', 'hr_terminal'].includes(card.id)) {
+        return false;
+      }
+      const modeKey =
+        CARD_MODE_KEY_MAP[card.id] ||
+        (card.directActionKey ? CARD_MODE_KEY_MAP[card.directActionKey] : undefined);
+      if (modeKey && !isModeVisible(modeKey)) {
         return false;
       }
       if (card.directActionKey === 'sup_personal_profile' && !onNavigateToPersonalProfile) return false;
@@ -287,10 +314,18 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   }, [
     homeCfg.cards,
     showErpModules,
+    isModeVisible,
     onNavigateToPersonalProfile,
     onNavigateToFamily,
     onNavigateToExecutiveBrief,
   ]);
+
+  const resolveCardLabel = (card: UiHomeCardConfig) => {
+    const modeKey =
+      CARD_MODE_KEY_MAP[card.id] ||
+      (card.directActionKey ? CARD_MODE_KEY_MAP[card.directActionKey] : undefined);
+    return modeKey ? getModeLabel(modeKey, card.label) : card.label;
+  };
 
   const gridColsClass = useMemo(() => {
     const mob = homeCfg.columnsMobile === 3 ? 'grid-cols-3' : 'grid-cols-2';
@@ -407,20 +442,44 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
       ) : (
         /* Main Action Hub Grid — Driven Dynamically by UI Layout Studio */
         <section className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
-              أدوات إدارة متجر المورد
+              {isCraft ? 'أدوات إدارة متجرك (الوضع الحرفي البسيط)' : 'أدوات إدارة متجر المورد (الوضع المحاسبي المتقدم)'}
             </h2>
-            {showErpModules && erpOverview && erpOverview.pendingTransfers.length > 0 && onNavigateToErpHub && (
-              <button
-                type="button"
-                onClick={onNavigateToErpHub}
-                className="px-3.5 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black flex items-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
-              >
-                <Clock className="w-3.5 h-3.5" />
-                <span>{erpOverview.pendingTransfers.length} توريد بانتظار تأكيد الاستلام</span>
-              </button>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {allowExpSwitch && (
+                <div className="inline-flex items-center p-0.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+                  <button
+                    type="button"
+                    onClick={() => setExpMode('craft')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black cursor-pointer transition-colors ${
+                      isCraft ? 'bg-emerald-600 text-white' : 'text-[#475569] dark:text-[#CBD5E1]'
+                    }`}
+                  >
+                    الوضع الحرفي
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExpMode('accounting')}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black cursor-pointer transition-colors ${
+                      !isCraft ? 'bg-indigo-600 text-white' : 'text-[#475569] dark:text-[#CBD5E1]'
+                    }`}
+                  >
+                    الوضع المحاسبي
+                  </button>
+                </div>
+              )}
+              {showErpModules && erpOverview && erpOverview.pendingTransfers.length > 0 && onNavigateToErpHub && (
+                <button
+                  type="button"
+                  onClick={onNavigateToErpHub}
+                  className="px-3.5 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-black flex items-center gap-1.5 cursor-pointer shrink-0 shadow-xs"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{erpOverview.pendingTransfers.length} توريد بانتظار تأكيد الاستلام</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className={gridColsClass}>
@@ -454,7 +513,7 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
                       <Icon className="w-5 h-5" />
                     </div>
                     <h3 className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-amber-300 leading-tight">
-                      {card.label}
+                      {resolveCardLabel(card)}
                     </h3>
                     <span className="text-[11px] font-black text-[#C2410C] dark:text-amber-300 font-mono tabular-nums">
                       {statLabel}
@@ -483,7 +542,7 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
 
                   <div className="space-y-1">
                     <h3 className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-amber-300 transition">
-                      {card.label}
+                      {resolveCardLabel(card)}
                     </h3>
                     {card.subtitle && (
                       <p className="text-xs text-[#475569] dark:text-[#94A3B8] leading-relaxed">

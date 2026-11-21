@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 export interface OfflineMutation {
   id: string;
   workshopId: string;
+  ownerUserId?: string;
   type:
     | 'marketplace_publish'
     | 'product_upsert'
@@ -30,9 +31,30 @@ export interface OfflineMutation {
   retryCount: number;
 }
 
-const STORAGE_KEY = 'alshams_offline_mutations_v2';
+const STORAGE_KEY_PREFIX = 'alshams_offline_mutations_v2';
 export const OFFLINE_QUEUE_EVENT = 'alshams:offline-queue-changed';
 export const OFFLINE_SYNC_STATUS_EVENT = 'alshams:offline-sync-status';
+
+let cachedActiveUserId: string | null = null;
+
+function resolveActiveUserScope(): string {
+  if (cachedActiveUserId) return cachedActiveUserId;
+  if (typeof window === 'undefined') return 'anon';
+  try {
+    const rawProf = localStorage.getItem('alshams_profile');
+    if (rawProf) {
+      const p = JSON.parse(rawProf);
+      const uid = p?.uid || p?.owner_uid || p?.userId || p?.authUid;
+      if (uid && typeof uid === 'string') return uid;
+    }
+  } catch {}
+  return 'anon';
+}
+
+function getScopedStorageKey(userScope?: string): string {
+  const scope = userScope || resolveActiveUserScope();
+  return `${STORAGE_KEY_PREFIX}:${scope}`;
+}
 
 function isValidCloudWorkshopId(workshopId?: string): boolean {
   return Boolean(
@@ -44,20 +66,20 @@ function isValidCloudWorkshopId(workshopId?: string): boolean {
   );
 }
 
-function readQueue(): OfflineMutation[] {
+function readQueue(userScope?: string): OfflineMutation[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getScopedStorageKey(userScope));
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function writeQueue(queue: OfflineMutation[]): void {
+function writeQueue(queue: OfflineMutation[], userScope?: string): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
+    localStorage.setItem(getScopedStorageKey(userScope), JSON.stringify(queue));
     window.dispatchEvent(
       new CustomEvent(OFFLINE_QUEUE_EVENT, {
         detail: { pendingCount: queue.length },
@@ -69,14 +91,16 @@ function writeQueue(queue: OfflineMutation[]): void {
 }
 
 /**
- * إضافة عملية للطابور المحلي فورياً
+ * إضافة عملية للطابور المحلي فورياً (معزولة حسب المستخدم النشط لمنع تداخل الحسابات على الأجهزة المشتركة)
  */
 export function enqueueOfflineMutation(
   mutation: Omit<OfflineMutation, 'id' | 'queuedAt' | 'retryCount'>
 ): OfflineMutation {
-  const queue = readQueue();
+  const scope = mutation.ownerUserId || resolveActiveUserScope();
+  const queue = readQueue(scope);
   const newMutation: OfflineMutation = {
     ...mutation,
+    ownerUserId: scope !== 'anon' ? scope : mutation.ownerUserId,
     id: `mut_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     queuedAt: Date.now(),
     retryCount: 0,
@@ -93,7 +117,7 @@ export function enqueueOfflineMutation(
     queue.push(newMutation);
   }
 
-  writeQueue(queue);
+  writeQueue(queue, scope);
 
   // Try registering background sync if supported
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'SyncManager' in window) {
@@ -110,7 +134,7 @@ export function enqueueOfflineMutation(
 }
 
 /**
- * استرجاع العمليات المعلقة
+ * استرجاع العمليات المعلقة للمستخدم النشط فقط
  */
 export function getOfflineMutations(workshopId?: string): OfflineMutation[] {
   const all = readQueue();
@@ -128,9 +152,9 @@ export function getPendingOfflineMutationsCount(workshopId?: string): number {
 /**
  * حذف عملية بعد نجاح الرفع
  */
-export function removeOfflineMutation(id: string): void {
-  const queue = readQueue().filter((m) => m.id !== id);
-  writeQueue(queue);
+export function removeOfflineMutation(id: string, userScope?: string): void {
+  const queue = readQueue(userScope).filter((m) => m.id !== id);
+  writeQueue(queue, userScope);
 }
 
 let isFlushing = false;
@@ -152,7 +176,7 @@ const MUTATION_PRIORITY: Record<OfflineMutation['type'], number> = {
 };
 
 /**
- * تفريغ الطابور ورفع كافة العمليات المعلقة لسحابة Supabase
+ * تفريغ الطابور ورفع كافة العمليات المعلقة لسحابة Supabase للمستخدم المصادق عليه حالياً فقط
  */
 export async function flushOfflineMutations(): Promise<{ synced: number; remaining: number }> {
   if (isFlushing) return { synced: 0, remaining: readQueue().length };
@@ -160,9 +184,28 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
     return { synced: 0, remaining: readQueue().length };
   }
 
-  const queue = readQueue();
+  // Verify authenticated Supabase session UID before reading/flushing to prevent cross-account writes
+  let activeUid: string | null = null;
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const exp = sessionData?.session?.expires_at;
+    if (sessionData?.session && exp && exp * 1000 - Date.now() < 60_000) {
+      await supabase.auth.refreshSession().catch(() => {});
+    }
+    activeUid = sessionData?.session?.user?.id || null;
+    cachedActiveUserId = activeUid;
+  } catch {}
+
+  const scope = activeUid || 'anon';
+  const queue = readQueue(scope);
   const pending = queue
-    .filter((item) => (item.retryCount || 0) < 12)
+    .filter((item) => {
+      if ((item.retryCount || 0) >= 12) return false;
+      // Never flush protected workshop/ERP mutations without a verified matching user session
+      if (item.type !== 'order_create' && !activeUid) return false;
+      if (item.ownerUserId && activeUid && item.ownerUserId !== activeUid) return false;
+      return true;
+    })
     .sort((a, b) => {
       const pa = MUTATION_PRIORITY[a.type] ?? 10;
       const pb = MUTATION_PRIORITY[b.type] ?? 10;
@@ -177,15 +220,6 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
   let synced = 0;
 
   try {
-    // Ensure fresh auth token if available before flushing protected RLS rows
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const exp = sessionData?.session?.expires_at;
-      if (sessionData?.session && exp && exp * 1000 - Date.now() < 60_000) {
-        await supabase.auth.refreshSession().catch(() => {});
-      }
-    } catch {}
-
     window.dispatchEvent(
       new CustomEvent(OFFLINE_SYNC_STATUS_EVENT, {
         detail: { status: 'syncing', pending: pending.length },
@@ -198,7 +232,7 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
 
       // Skip synthetic local-only demo workspaces gracefully
       if (!isValidCloudWorkshopId(wid) && item.type !== 'order_create') {
-        removeOfflineMutation(item.id);
+        removeOfflineMutation(item.id, scope);
         continue;
       }
 
@@ -288,20 +322,20 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
       }
 
       if (success) {
-        removeOfflineMutation(item.id);
+        removeOfflineMutation(item.id, scope);
         synced++;
       } else {
-        const currentQueue = readQueue();
+        const currentQueue = readQueue(scope);
         const target = currentQueue.find((m) => m.id === item.id);
         if (target) {
           target.retryCount = (target.retryCount || 0) + 1;
-          writeQueue(currentQueue);
+          writeQueue(currentQueue, scope);
         }
       }
     }
   } finally {
     isFlushing = false;
-    const remaining = readQueue().length;
+    const remaining = readQueue(scope).length;
     window.dispatchEvent(
       new CustomEvent(OFFLINE_SYNC_STATUS_EVENT, {
         detail: { status: remaining === 0 ? 'idle' : 'error', pending: remaining },
@@ -309,7 +343,7 @@ export async function flushOfflineMutations(): Promise<{ synced: number; remaini
     );
   }
 
-  return { synced, remaining: readQueue().length };
+  return { synced, remaining: readQueue(scope).length };
 }
 
 /**
@@ -319,6 +353,16 @@ let listenersInitialized = false;
 export function initOfflineSyncListeners(): () => void {
   if (typeof window === 'undefined' || listenersInitialized) return () => {};
   listenersInitialized = true;
+
+  const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
+    cachedActiveUserId = session?.user?.id || null;
+    const pendingCount = readQueue(cachedActiveUserId || 'anon').length;
+    window.dispatchEvent(
+      new CustomEvent(OFFLINE_QUEUE_EVENT, {
+        detail: { pendingCount },
+      })
+    );
+  });
 
   const handleOnline = () => {
     // Reset transient retry counts on reconnect so queued items retry cleanly
@@ -352,6 +396,7 @@ export function initOfflineSyncListeners(): () => void {
   }
 
   return () => {
+    authSub?.subscription?.unsubscribe();
     window.removeEventListener('online', handleOnline);
     if (handleMessage && 'serviceWorker' in navigator) {
       navigator.serviceWorker.removeEventListener('message', handleMessage);

@@ -31,6 +31,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
+import { useExperienceMode } from '../../types/experienceMode';
 
 interface WorkOrdersViewProps {
   workshop: WorkshopProfile;
@@ -44,6 +45,14 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
   initialStage,
 }) => {
   const workshopId = workshop.tenantId || workshop.workshopId || workshop.id || '';
+  const {
+    mode: expMode,
+    setMode: setExpMode,
+    isCraft,
+    allowSwitch: allowExpSwitch,
+    getLabel: getModeLabel,
+    isVisible: isModeVisible,
+  } = useExperienceMode('artisan', workshop);
   const [workOrders, setWorkOrders] = useState<WorkOrderRecord[]>([]);
   const [materials, setMaterials] = useState<RawMaterialItem[]>([]);
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
@@ -683,18 +692,33 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
         };
       });
 
-      // 2. إعادة الخامات المتبقية لمخزن الخامات
-      for (const ret of returnedMaterials) {
-        if (ret.quantity > 0) {
-          try {
-            const raw = materials.find((m) => m.id === ret.materialId);
-            if (raw) {
-              raw.currentStock = Math.round(((raw.currentStock || 0) + ret.quantity) * 1000) / 1000;
-              await tenantStorage.saveRawMaterial(raw);
+      // 2. معالجة حركة المخزن بدقة:
+      // - إذا كان الأمر "in_progress" (تم سحب الـ 5 كيلو سابقاً): نعيد الباقي السليم (2 كيلو) إلى رصيد المخزن.
+      // - إذا كان الأمر "open" (إغلاق مباشر بدون صرف مسبق): نخصم الصافي المستهلك فقط (5 - 2 = 3 كيلو).
+      const wasAlreadyIssued = closingOrder.status === 'in_progress';
+      for (const pulled of closingOrder.pulledMaterials) {
+        const retQty = Math.min(
+          pulled.quantity,
+          Math.max(0, returnedMaterials.find((r) => r.materialId === pulled.materialId)?.quantity || 0)
+        );
+        try {
+          const raw = materials.find((m) => m.id === pulled.materialId);
+          if (raw) {
+            if (wasAlreadyIssued) {
+              if (retQty > 0) {
+                raw.currentStock = Math.round(((raw.currentStock || 0) + retQty) * 1000) / 1000;
+                await tenantStorage.saveRawMaterial(raw);
+              }
+            } else {
+              const netConsumed = Math.max(0, pulled.quantity - retQty);
+              if (netConsumed > 0) {
+                raw.currentStock = Math.max(0, Math.round(((raw.currentStock || 0) - netConsumed) * 1000) / 1000);
+                await tenantStorage.saveRawMaterial(raw);
+              }
             }
-          } catch (retErr) {
-            console.warn('Returning material notice:', retErr);
           }
+        } catch (retErr) {
+          console.warn('Returning material notice:', retErr);
         }
       }
 
@@ -794,8 +818,15 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
       window.dispatchEvent(new CustomEvent('alshams_financials_updated'));
       window.dispatchEvent(new CustomEvent('alshams_workorders_updated'));
 
+      const totalReturnedSummary = returnedMaterials
+        .filter((r) => r.quantity > 0)
+        .map((r) => `${r.quantity} ${r.unit} ${r.materialName}`)
+        .join('، ');
+
       setNotice({
-        text: `تم استلام ${finishedQty} قطعة تامة من المشغولة "${completedOrder.productName}" وتوريدها للمخزن بنجاح! تم قيد أجر المصنعية (${actualLaborCost.toLocaleString()} ${workshop.currencySymbol}) لحساب الصانع.`,
+        text: totalReturnedSummary
+          ? `تم استلام ${finishedQty} قطعة من "${completedOrder.productName}" وإرجاع بواقي الخامات (${totalReturnedSummary}) للمخزن تلقائياً، وتكلفة القطعة اتحسبت على المستهلك الفعلي فقط (${calculatedUnitCost.toLocaleString()} ${workshop.currencySymbol}).`
+          : `تم استلام ${finishedQty} قطعة تامة من المشغولة "${completedOrder.productName}" وتوريدها للمخزن بنجاح! تم قيد أجر المصنعية (${actualLaborCost.toLocaleString()} ${workshop.currencySymbol}) لحساب الصانع.`,
       });
       setClosingOrder(null);
       await loadData();
@@ -848,16 +879,40 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               </button>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 mt-1">
-              أوامر التشغيل ومسار التصنيع الصناعي
+              {getModeLabel('wo_page_title', 'أوامر التشغيل ومسار التصنيع الصناعي')}
             </h2>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              مسار تشغيلي منضبط: فتح أمر التشغيل ⬅️ صرف الخامات ونقلها لقيد التشغيل ⬅️ استلام المشغولة التامة وقيد أجر الصانع.
+              {isCraft
+                ? 'ابدأ شغل جديد، اسحب خاماتك، ولما القطع تخلص اكتب لو اتفضل معاك خامات هترجع المخزن أوتوماتيك والتكلفة هتتحسب على اللي استهلكته بس.'
+                : 'مسار تشغيلي منضبط: فتح أمر التشغيل ⬅️ إذن صرف الخامات (WIP) ⬅️ إذن استلام وتوريد المنتج التام ومرتجع الخامات وقيد أجر الصانع.'}
             </p>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-mono font-bold text-stone-500">
-            <span className="px-3 py-1 rounded-xl bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
-              إجمالي الأوامر: {workOrders.length}
+          <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+            {allowExpSwitch && (
+              <div className="inline-flex items-center p-0.5 rounded-xl bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
+                <button
+                  type="button"
+                  onClick={() => setExpMode('craft')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-black cursor-pointer transition-colors ${
+                    isCraft ? 'bg-emerald-600 text-white' : 'text-stone-600 dark:text-stone-300'
+                  }`}
+                >
+                  الوضع الحرفي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExpMode('accounting')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-black cursor-pointer transition-colors ${
+                    !isCraft ? 'bg-indigo-600 text-white' : 'text-stone-600 dark:text-stone-300'
+                  }`}
+                >
+                  الوضع المحاسبي
+                </button>
+              </div>
+            )}
+            <span className="px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 font-mono tabular-nums text-stone-600 dark:text-stone-300">
+              إجمالي الطلبات: {workOrders.length}
             </span>
           </div>
         </div>
@@ -877,82 +932,92 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               <Hammer className="w-5 h-5 text-amber-600 dark:text-amber-400 group-hover:scale-110 transition-transform" />
             </div>
             <h3 className="text-sm font-black text-stone-900 dark:text-stone-100 group-hover:text-amber-700 dark:group-hover:text-amber-400 transition-colors">
-              أمر تشغيل وتصنيع جديد
+              {getModeLabel('wo_create_btn', 'أمر تشغيل وتصنيع جديد')}
             </h3>
             <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
-              استدعاء المشغولة من الأرشيف وتحديد الخامات والصانع المسؤول.
+              {isCraft
+                ? 'اختار القطعة اللي هتشتغل فيها والخامات اللي هتسحبها.'
+                : 'استدعاء المشغولة من الأرشيف وتحديد الخامات والصانع المسؤول.'}
             </p>
           </button>
 
           {/* Step 2 Button */}
-          <button
-            type="button"
-            onClick={() => {
-              if (openOrders.length === 0) {
-                setNotice({ text: 'لا توجد أوامر تشغيل مفتوحة بانتظار صرف الخامات حالياً. افتح أمر تشغيل أولاً.', isError: true });
-                setTimeout(() => setNotice(null), 3500);
-                return;
-              }
-              setSelectedIssueOrderId(openOrders[0].id);
-              setIsIssueModalOpen(true);
-            }}
-            className="p-4 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-cyan-500/5 to-transparent border border-cyan-300 dark:border-cyan-800/80 hover:border-cyan-500 hover:bg-cyan-500/15 transition-all text-right group cursor-pointer shadow-xs active:scale-98"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="w-7 h-7 rounded-xl bg-cyan-600 text-white font-mono font-black text-xs flex items-center justify-center shadow-xs">
-                2
-              </span>
-              <Boxes className="w-5 h-5 text-cyan-600 dark:text-cyan-400 group-hover:scale-110 transition-transform" />
-            </div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-black text-stone-900 dark:text-stone-100 group-hover:text-cyan-700 dark:group-hover:text-cyan-400 transition-colors">
-                إذن صرف خامات للتصنيع
-              </h3>
-              {openOrders.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300">
-                  {openOrders.length} بانتظار الصرف
+          {isModeVisible('wo_issue_voucher') && (
+            <button
+              type="button"
+              onClick={() => {
+                if (openOrders.length === 0) {
+                  setNotice({ text: 'لا توجد أوامر تشغيل مفتوحة بانتظار صرف الخامات حالياً. افتح طلب شغل أولاً.', isError: true });
+                  setTimeout(() => setNotice(null), 3500);
+                  return;
+                }
+                setSelectedIssueOrderId(openOrders[0].id);
+                setIsIssueModalOpen(true);
+              }}
+              className="p-4 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-cyan-500/5 to-transparent border border-cyan-300 dark:border-cyan-800/80 hover:border-cyan-500 hover:bg-cyan-500/15 transition-all text-right group cursor-pointer shadow-xs active:scale-98"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="w-7 h-7 rounded-xl bg-cyan-600 text-white font-mono font-black text-xs flex items-center justify-center shadow-xs">
+                  2
                 </span>
-              )}
-            </div>
-            <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
-              خصم الخامات من المخزن ونقلها إلى خانة "خامات قيد التشغيل (WIP)".
-            </p>
-          </button>
+                <Boxes className="w-5 h-5 text-cyan-600 dark:text-cyan-400 group-hover:scale-110 transition-transform" />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-black text-stone-900 dark:text-stone-100 group-hover:text-cyan-700 dark:group-hover:text-cyan-400 transition-colors">
+                  {getModeLabel('wo_issue_voucher', 'إذن صرف خامات للتصنيع')}
+                </h3>
+                {openOrders.length > 0 && (
+                  <span className="text-[11px] font-bold text-cyan-700 dark:text-cyan-300 tabular-nums shrink-0">
+                    {openOrders.length} جاهز
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+                {isCraft
+                  ? 'يخصم الخامات اللي سحبتها للشغل من رصيد المخزن تلقائياً.'
+                  : 'خصم الخامات من المخزن ونقلها إلى خانة "خامات قيد التشغيل (WIP)".'}
+              </p>
+            </button>
+          )}
 
           {/* Step 3 Button */}
-          <button
-            type="button"
-            onClick={() => {
-              const readyToClose = inProgressOrders.length > 0 ? inProgressOrders[0] : openOrders[0];
-              if (!readyToClose) {
-                setNotice({ text: 'لا توجد أوامر قيد التشغيل حالياً لاستلامها. اصرف خامات أمر تشغيل أولاً.', isError: true });
-                setTimeout(() => setNotice(null), 3500);
-                return;
-              }
-              handleOpenCloseWizard(readyToClose);
-            }}
-            className="p-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-300 dark:border-emerald-800/80 hover:border-emerald-500 hover:bg-emerald-500/15 transition-all text-right group cursor-pointer shadow-xs active:scale-98"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white font-mono font-black text-xs flex items-center justify-center shadow-xs">
-                3
-              </span>
-              <PackageCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
-            </div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-black text-stone-900 dark:text-stone-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
-                إذن استلام وتوريد منتج تام
-              </h3>
-              {inProgressOrders.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                  {inProgressOrders.length} قيد التشغيل
+          {isModeVisible('wo_receive_voucher') && (
+            <button
+              type="button"
+              onClick={() => {
+                const readyToClose = inProgressOrders.length > 0 ? inProgressOrders[0] : openOrders[0];
+                if (!readyToClose) {
+                  setNotice({ text: 'لا توجد طلبات شغل مفتوحة حالياً لتقفيلها. ابدأ طلب شغل أولاً.', isError: true });
+                  setTimeout(() => setNotice(null), 3500);
+                  return;
+                }
+                handleOpenCloseWizard(readyToClose);
+              }}
+              className="p-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-300 dark:border-emerald-800/80 hover:border-emerald-500 hover:bg-emerald-500/15 transition-all text-right group cursor-pointer shadow-xs active:scale-98"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white font-mono font-black text-xs flex items-center justify-center shadow-xs">
+                  3
                 </span>
-              )}
-            </div>
-            <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
-              إثبات المنتج بالمخزن، احتساب الهالك، وقيد مستحقات الصانع آلياً بالـ HR.
-            </p>
-          </button>
+                <PackageCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-black text-stone-900 dark:text-stone-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
+                  {getModeLabel('wo_receive_voucher', 'إذن استلام وتوريد منتج تام')}
+                </h3>
+                {inProgressOrders.length > 0 && (
+                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 tabular-nums shrink-0">
+                    {inProgressOrders.length} شغال
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+                {isCraft
+                  ? 'أضف القطع الجاهزة للبيع، ورجّع أي بواقي خامات سليمة لمخزنك بضغطة واحدة.'
+                  : 'إثبات المنتج بالمخزن، إرجاع بواقي الخامات السليمة، احتساب الهالك، وقيد مستحقات الصانع.'}
+              </p>
+            </button>
+          )}
 
           {/* Fast-Track Option */}
           <button
@@ -1580,14 +1645,18 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               </button>
               <h3 className="font-extrabold text-sm text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5">
                 <PackageCheck className="w-5 h-5 text-emerald-600" />
-                <span>الخطوة 3: إذن استلام وتوريد منتج تام #{closingOrder.orderNumber}</span>
+                <span>
+                  {getModeLabel('wo_receive_voucher', 'إذن استلام وتوريد منتج تام')} #{closingOrder.orderNumber}
+                </span>
               </h3>
             </div>
 
             {/* (أ) الكمية التامة المنتجة */}
             <div className="p-3.5 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/60 space-y-2">
               <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 block">
-                (أ) الكمية التامة المصنعة (تُضاف فورياً لمخزن المنتجات الجاهزة):
+                {isCraft
+                  ? '(أ) خلصت كام قطعة جاهزة للبيع؟ (هتتضاف فوراً لمخزن الجاهز):'
+                  : '(أ) الكمية التامة المصنعة (تُضاف فورياً لمخزن المنتجات الجاهزة):'}
               </span>
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-stone-800 dark:text-stone-200 flex-1">
@@ -1605,29 +1674,98 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
               </div>
             </div>
 
-            {/* (ب) الخامات المتبقية/المرتجعة للمخزن */}
-            <div className="p-3.5 rounded-2xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/60 space-y-2 text-xs">
-              <span className="font-bold text-blue-900 dark:text-blue-200 block">
-                (ب) خامات متبقية وسليمة مرتجعة للمخزن (إن وُجدت):
-              </span>
-              {returnedMaterials.map((ret, idx) => (
-                <div key={idx} className="flex items-center justify-between gap-2">
-                  <span className="text-stone-700 dark:text-stone-300">
-                    {ret.materialName} ({ret.unit}):
-                  </span>
-                  <NumberInput
-                    min={0}
-                    step={0.1}
-                    value={ret.quantity}
-                    onChange={(val) => {
-                      const updated = [...returnedMaterials];
-                      updated[idx].quantity = val;
-                      setReturnedMaterials(updated);
-                    }}
-                    className="w-28 px-2 py-1 text-center rounded-xl border border-blue-300 dark:border-blue-700 bg-white dark:bg-stone-900 font-mono font-bold"
-                  />
-                </div>
-              ))}
+            {/* (ب) الخامات المتبقية/المرتجعة للمخزن — مثال: سحبت 5ك اتفضل 2ك */}
+            <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/25 border border-blue-200 dark:border-blue-900/60 space-y-3 text-xs">
+              <div>
+                <span className="font-black text-blue-900 dark:text-blue-200 block">
+                  (ب) {getModeLabel('wo_return_leftover', 'خامات متبقية وسليمة مرتجعة للمخزن')}
+                </span>
+                <p className="text-[11px] text-blue-800/80 dark:text-blue-300/80 mt-0.5 leading-relaxed">
+                  {isCraft
+                    ? 'لو سحبت مثلاً 5 كيلو واتفضل معاك 2 كيلو سليم، اكتب 2 هنا ← هيرجعوا رصيد مخزنك أوتوماتيك وتكلفة القطع هتتحسب على الـ 3 كيلو بس.'
+                    : 'أي كمية سليمة متبقية يتم إرجاعها آلياً لرصيد مخزن الخامات وتُخصم من صافي تكلفة أمر التشغيل (إذن ارتجاع خامات).'}
+                </p>
+              </div>
+              <div className="space-y-2.5">
+                {returnedMaterials.map((ret, idx) => {
+                  const pulledMatch = closingOrder.pulledMaterials.find(
+                    (p) => p.materialId === ret.materialId
+                  );
+                  const pulledQty = Number(pulledMatch?.quantity || 0);
+                  const safeReturn = Math.min(pulledQty, Math.max(0, Number(ret.quantity || 0)));
+                  const netUsed = Math.max(0, Math.round((pulledQty - safeReturn) * 1000) / 1000);
+
+                  return (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-xl bg-white dark:bg-stone-900 border border-blue-200/80 dark:border-blue-900/50 space-y-2"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="font-black text-stone-900 dark:text-stone-100">
+                            {ret.materialName}
+                          </div>
+                          <div className="text-[11px] text-stone-500 dark:text-stone-400 tabular-nums">
+                            المسحوب للشغل: <strong className="text-stone-800 dark:text-stone-200">{pulledQty} {ret.unit}</strong>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300">
+                            {isCraft ? 'الباقي الراجع:' : 'كمية الارتجاع:'}
+                          </span>
+                          <NumberInput
+                            min={0}
+                            max={pulledQty}
+                            step={0.1}
+                            value={ret.quantity}
+                            onChange={(val) => {
+                              const clamped = Math.min(pulledQty, Math.max(0, Number(val) || 0));
+                              const updated = [...returnedMaterials];
+                              updated[idx].quantity = clamped;
+                              setReturnedMaterials(updated);
+                            }}
+                            className="w-24 px-2 py-1 text-center rounded-xl border border-blue-300 dark:border-blue-700 bg-white dark:bg-stone-900 font-mono font-bold tabular-nums"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-stone-100 dark:border-stone-800">
+                        <div className="flex items-center gap-1.5">
+                          {[
+                            { label: 'مفيش باقي (0)', val: 0 },
+                            { label: 'ربع الكمية', val: Math.round(pulledQty * 0.25 * 100) / 100 },
+                            { label: 'نص الكمية', val: Math.round(pulledQty * 0.5 * 100) / 100 },
+                          ].map((preset) => (
+                            <button
+                              key={preset.label}
+                              type="button"
+                              onClick={() => {
+                                const updated = [...returnedMaterials];
+                                updated[idx].quantity = preset.val;
+                                setReturnedMaterials(updated);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-[10px] font-bold text-blue-800 dark:text-blue-200 hover:bg-blue-100 cursor-pointer"
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="text-[11px] font-bold tabular-nums flex items-center gap-2">
+                          <span className="text-emerald-700 dark:text-emerald-400">
+                            راجع للمخزن: +{safeReturn} {ret.unit}
+                          </span>
+                          <span aria-hidden="true" className="text-stone-300">·</span>
+                          <span className="text-stone-700 dark:text-stone-300">
+                            المستهلك الفعلي: {netUsed} {ret.unit}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* (ج) أجر يد الصانع والمصنعية المستحقة (تُقيد بالـ HR) */}

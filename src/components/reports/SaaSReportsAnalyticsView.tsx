@@ -67,15 +67,31 @@ import {
   Line,
 } from 'recharts';
 import { MonthlyFinancialTrendsChart } from './MonthlyFinancialTrendsChart';
+import { useExperienceMode } from '../../types/experienceMode';
 
 interface SaaSReportsAnalyticsViewProps {
   profile: UserProfile;
 }
 
 export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> = ({ profile }) => {
+  const {
+    mode: expMode,
+    setMode: setExpMode,
+    isCraft,
+    allowSwitch: allowExpSwitch,
+    getLabel: getModeLabel,
+    isVisible: isModeVisible,
+  } = useExperienceMode('artisan', profile);
+
+  const showTrialBalance = isModeVisible('rep_trial_balance');
+  const showSalesAudit = isModeVisible('rep_sales_audit');
+  const showAuditLogs = isModeVisible('rep_audit_logs');
+  const showAdvancedCharts = isModeVisible('rep_advanced_charts');
+  const showCraftSummary = isModeVisible('rep_craft_summary');
+
   const [activeTab, setActiveTab] = useState<
-    'trial_balance' | 'financial' | 'safes' | 'sales_audit' | 'suppliers' | 'audit_logs'
-  >('trial_balance');
+    'craft_summary' | 'trial_balance' | 'financial' | 'safes' | 'sales_audit' | 'suppliers' | 'audit_logs'
+  >(() => (isCraft ? 'craft_summary' : 'trial_balance'));
 
   // Balances & Data
   const [safeBalances, setSafeBalances] = useState<{
@@ -120,6 +136,20 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
 
   // View Mode: Tables vs Charts vs Infographics
   const [viewMode, setViewMode] = useState<'tables' | 'charts' | 'infographics'>('tables');
+
+  // Auto-sync active tab & view mode when user or Super Admin switches Craft vs Accounting mode
+  useEffect(() => {
+    if (!showAdvancedCharts && viewMode !== 'tables') {
+      setViewMode('tables');
+    }
+    if (isCraft && (activeTab === 'trial_balance' && !showTrialBalance)) {
+      setActiveTab(showCraftSummary ? 'craft_summary' : 'financial');
+    } else if (activeTab === 'sales_audit' && !showSalesAudit) {
+      setActiveTab(showCraftSummary ? 'craft_summary' : 'financial');
+    } else if (activeTab === 'audit_logs' && !showAuditLogs) {
+      setActiveTab(showCraftSummary ? 'craft_summary' : 'financial');
+    }
+  }, [isCraft, showTrialBalance, showSalesAudit, showAuditLogs, showAdvancedCharts, showCraftSummary, activeTab, viewMode]);
 
   // Financial Closings state
   const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
@@ -984,14 +1014,44 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-blue-700 dark:text-blue-400">
             <BarChart3 className="w-4 h-4" />
-            <span>التقارير التحليلية والمالية الشاملة (SaaS ERP Analytics)</span>
+            <span>{isCraft ? 'الوضع الحرفي · خلاصة شغلك ومكسبك ببساطة' : 'الوضع المحاسبي · التقارير المالية وميزان المراجعة الكامل'}</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 mt-1">
-            مؤشرات الأداء، الأرباح، وحركة الخزائن
+            {getModeLabel('rep_page_title', 'مؤشرات الأداء، الأرباح، وحركة الخزائن')}
           </h2>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {allowExpSwitch && (
+            <div className="inline-flex items-center p-0.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
+              <button
+                type="button"
+                onClick={() => {
+                  setExpMode('craft');
+                  setActiveTab('craft_summary');
+                  setViewMode('tables');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black cursor-pointer transition-colors ${
+                  isCraft ? 'bg-emerald-600 text-white' : 'text-stone-600 dark:text-stone-300'
+                }`}
+              >
+                الوضع الحرفي
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExpMode('accounting');
+                  setActiveTab('trial_balance');
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-black cursor-pointer transition-colors ${
+                  !isCraft ? 'bg-indigo-600 text-white' : 'text-stone-600 dark:text-stone-300'
+                }`}
+              >
+                الوضع المحاسبي
+              </button>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={handleExportComprehensiveExcel}
@@ -999,7 +1059,7 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
             title="تصدير شيت إكسيل محاسبي متقدم بـ 4 تبويبات تفصيلية"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
-            <span>تصدير التقرير المالي الشامل (Excel) 📊📥</span>
+            <span>تصدير التقرير (Excel)</span>
           </button>
 
           <button
@@ -1159,39 +1219,43 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
                 }`}
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
-                <span>جداول تفصيلية</span>
+                <span>{isCraft ? 'الخلاصة والتقارير' : 'جداول تفصيلية'}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setViewMode('charts')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  viewMode === 'charts'
-                    ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs font-black'
-                    : 'text-stone-500 hover:text-stone-900'
-                }`}
-              >
-                <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>رسومات بيانية تفاعلية</span>
-              </button>
+              {showAdvancedCharts && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('charts')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      viewMode === 'charts'
+                        ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs font-black'
+                        : 'text-stone-500 hover:text-stone-900'
+                    }`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>رسومات بيانية تفاعلية</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => setViewMode('infographics')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  viewMode === 'infographics'
-                    ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs font-black'
-                    : 'text-stone-500 hover:text-stone-900'
-                }`}
-              >
-                <PieIcon className="w-3.5 h-3.5 text-purple-600" />
-                <span>إنفوجرافيك ومؤشرات</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('infographics')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      viewMode === 'infographics'
+                        ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs font-black'
+                        : 'text-stone-500 hover:text-stone-900'
+                    }`}
+                  >
+                    <PieIcon className="w-3.5 h-3.5 text-purple-600" />
+                    <span>إنفوجرافيك ومؤشرات</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
-          <div className="text-xs font-mono font-bold text-stone-500">
-            <span>صافي أرباح الفترة: </span>
+          <div className="text-xs font-mono tabular-nums font-bold text-stone-500">
+            <span>{isCraft ? 'مكسبك الصافي في الفترة: ' : 'صافي أرباح الفترة: '}</span>
             <span className={netEstimatedProfit >= 0 ? 'text-emerald-600 font-black' : 'text-rose-600 font-black'}>
               {netEstimatedProfit.toLocaleString()} {profile.currencySymbol}
             </span>
@@ -1204,86 +1268,265 @@ export const SaaSReportsAnalyticsView: React.FC<SaaSReportsAnalyticsViewProps> =
         <>
           {/* Tabs */}
           <div className="flex items-center gap-2 border-b border-stone-200 dark:border-stone-800 pb-3 overflow-x-auto text-xs font-bold">
-        <button
-          type="button"
-          onClick={() => setActiveTab('trial_balance')}
-          className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
-            activeTab === 'trial_balance'
-              ? 'bg-amber-600 text-white shadow-md font-black'
-              : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
-          }`}
-        >
-          <Scale className="w-3.5 h-3.5" />
-          <span>ميزان المراجعة المحاسبي (Double-Entry)</span>
-        </button>
+            {showCraftSummary && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('craft_summary')}
+                className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+                  activeTab === 'craft_summary'
+                    ? 'bg-emerald-600 text-white shadow-md font-black'
+                    : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{getModeLabel('rep_craft_summary', 'خلاصة شغلك (بالبلدي)')}</span>
+              </button>
+            )}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('sales_audit')}
-          className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
-            activeTab === 'sales_audit'
-              ? 'bg-amber-600 text-white shadow-md font-black'
-              : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>سجل تدقيق حالات المبيعات (Audit Ledger)</span>
-        </button>
+            {showTrialBalance && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('trial_balance')}
+                className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+                  activeTab === 'trial_balance'
+                    ? 'bg-amber-600 text-white shadow-md font-black'
+                    : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
+                }`}
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>{getModeLabel('rep_trial_balance', 'ميزان المراجعة المحاسبي (Double-Entry)')}</span>
+              </button>
+            )}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('financial')}
-          className={`px-4 py-2 rounded-xl transition cursor-pointer ${
-            activeTab === 'financial'
-              ? 'bg-blue-600 text-white shadow-md font-black'
-              : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
-          }`}
-        >
-          قائمة الأرباح والخسائر
-        </button>
+            {showSalesAudit && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('sales_audit')}
+                className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+                  activeTab === 'sales_audit'
+                    ? 'bg-amber-600 text-white shadow-md font-black'
+                    : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>{getModeLabel('rep_sales_audit', 'سجل تدقيق حالات المبيعات')}</span>
+              </button>
+            )}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('safes')}
-          className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
-            activeTab === 'safes'
-              ? 'bg-blue-600 text-white shadow-md font-black'
-              : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
-          }`}
-        >
-          <Wallet className="w-3.5 h-3.5" />
-          <span>حركة الخزينة الرئيسية والفرعية</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('financial')}
+              className={`px-4 py-2 rounded-xl transition cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'financial'
+                  ? 'bg-blue-600 text-white shadow-md font-black'
+                  : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
+              }`}
+            >
+              {getModeLabel('rep_financial_statements', 'قائمة الأرباح والخسائر')}
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('suppliers')}
-          className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
-            activeTab === 'suppliers'
-              ? 'bg-blue-600 text-white shadow-md font-black'
-              : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
-          }`}
-        >
-          <Building className="w-3.5 h-3.5" />
-          <span>كشوف حساب الموردين والآجلة</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('safes')}
+              className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'safes'
+                  ? 'bg-blue-600 text-white shadow-md font-black'
+                  : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5" />
+              <span>{getModeLabel('fin_treasury_title', 'حركة الخزينة الرئيسية والفرعية')}</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('audit_logs')}
-          className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
-            activeTab === 'audit_logs'
-              ? 'bg-blue-600 text-white shadow-md font-black'
-              : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
-          }`}
-        >
-          <History className="w-3.5 h-3.5" />
-          <span>تقرير حركة المنظومة والأمان ({activityLogs.length})</span>
-        </button>
-      </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('suppliers')}
+              className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+                activeTab === 'suppliers'
+                  ? 'bg-blue-600 text-white shadow-md font-black'
+                  : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
+              }`}
+            >
+              <Building className="w-3.5 h-3.5" />
+              <span>{isCraft ? 'حسابات الموردين واللي عليك' : 'كشوف حساب الموردين والآجلة'}</span>
+            </button>
 
-      {/* TAB 0: SAAS ACCOUNTING LEDGER & TRIAL BALANCE SHEET */}
-      {activeTab === 'trial_balance' && (
+            {showAuditLogs && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('audit_logs')}
+                className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+                  activeTab === 'audit_logs'
+                    ? 'bg-blue-600 text-white shadow-md font-black'
+                    : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border'
+                }`}
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>{getModeLabel('rep_audit_logs', 'تقرير حركة المنظومة والأمان')} ({activityLogs.length})</span>
+              </button>
+            )}
+          </div>
+
+          {/* TAB CRAFT SUMMARY: Story-First Plain Arabic Summary + 2 Clean Core Charts */}
+          {activeTab === 'craft_summary' && (() => {
+            const totalCashNow = Math.max(0, mainSafeLiveBalance) + Math.max(0, subSafeLiveBalance);
+            const customerReceivables = filteredOrders.reduce(
+              (s, o) => s + Math.max(0, Number(o.remainingAmount || 0)),
+              0
+            );
+            const supplierPayables = supplierInvoices.reduce(
+              (s, inv) => s + Math.max(0, Number(inv.remainingAmount || 0)),
+              0
+            );
+            const totalOutflows =
+              totalMaterialPurchasesPaid + totalPayrollOperatingExpenses + totalAdminOperatingExpenses;
+            const moneyDistributionData = [
+              { name: 'كاش في إيدك والدرج', value: Math.round(totalCashNow), color: '#059669' },
+              { name: 'خامات في المخزن', value: Math.round(currentInventoryStockValue), color: '#D97706' },
+              { name: 'فلوس ليك عند العملاء', value: Math.round(customerReceivables), color: '#2563EB' },
+              { name: 'فلوس عليك للموردين', value: Math.round(supplierPayables), color: '#E11D48' },
+            ].filter((d) => d.value > 0);
+
+            const storyHeadline =
+              netEstimatedProfit > 0
+                ? `شغلك كسبان صافي ${netEstimatedProfit.toLocaleString()} ${profile.currencySymbol} — دخللك ${totalSalesRevenue.toLocaleString()} ${profile.currencySymbol} وصرفت ${totalOutflows.toLocaleString()} ${profile.currencySymbol}.`
+                : netEstimatedProfit < 0
+                ? `خلي بالك: مصاريفك ومشترياتك (${totalOutflows.toLocaleString()} ${profile.currencySymbol}) أعلى من مبيعاتك (${totalSalesRevenue.toLocaleString()} ${profile.currencySymbol}) بفرق ${Math.abs(netEstimatedProfit).toLocaleString()} ${profile.currencySymbol}.`
+                : 'سجّل أول بيعة أو مصروف عشان نطلّعلك خلاصة مكسبك الصافي في ثانية واحدة.';
+
+            return (
+              <div className="space-y-5 text-right">
+                {/* Story-First Headline Card */}
+                <div className="p-5 rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] space-y-2">
+                  <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                    الخلاصة قبل الرسم · كلام ورشة مباشر بدون دائن ومدين
+                  </div>
+                  <p className="text-base sm:text-lg font-black text-[#0F172A] dark:text-white leading-relaxed">
+                    {storyHeadline}
+                  </p>
+                  {customerReceivables > 0 && (
+                    <p className="text-xs text-[#475569] dark:text-[#CBD5E1]">
+                      عندك <strong className="font-mono tabular-nums text-blue-700 dark:text-blue-400">{customerReceivables.toLocaleString()} {profile.currencySymbol}</strong> ليك بره عند العملاء — لو حصّلتهم سيولتك هتنتعش فوراً.
+                    </p>
+                  )}
+                </div>
+
+                {/* 4 Clean Plain-Language KPI Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                  <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-1">
+                    <div className="text-xs font-bold text-stone-500 dark:text-stone-400">
+                      {getModeLabel('fin_cash_balance', 'اللي في درجك ومحفظتك دلوقتي')}
+                    </div>
+                    <div className="text-xl font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                      {totalCashNow.toLocaleString()} {profile.currencySymbol}
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-1">
+                    <div className="text-xs font-bold text-stone-500 dark:text-stone-400">
+                      {getModeLabel('fin_receivables', 'فلوس ليك بره (عند العملاء)')}
+                    </div>
+                    <div className="text-xl font-black font-mono tabular-nums text-blue-700 dark:text-blue-400">
+                      {customerReceivables.toLocaleString()} {profile.currencySymbol}
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-1">
+                    <div className="text-xs font-bold text-stone-500 dark:text-stone-400">
+                      {getModeLabel('fin_payables', 'فلوس عليك بره (للموردين)')}
+                    </div>
+                    <div className="text-xl font-black font-mono tabular-nums text-rose-700 dark:text-rose-400">
+                      {supplierPayables.toLocaleString()} {profile.currencySymbol}
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-1">
+                    <div className="text-xs font-bold text-stone-500 dark:text-stone-400">
+                      مكسبك الصافي بعد كل المصاريف
+                    </div>
+                    <div
+                      className={`text-xl font-black font-mono tabular-nums ${
+                        netEstimatedProfit >= 0
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-rose-700 dark:text-rose-400'
+                      }`}
+                    >
+                      {netEstimatedProfit.toLocaleString()} {profile.currencySymbol}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2 Crystal-Clear Craft Mode Charts */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-3">
+                    <div>
+                      <h3 className="text-sm font-black text-stone-900 dark:text-stone-100">
+                        {getModeLabel('fin_debit', 'اللي داخل (+)')} مقابل {getModeLabel('fin_credit', 'اللي خارج (-)')}
+                      </h3>
+                      <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                        مقارنة سريعة بين مبيعاتك ومصاريفك في آخر الشهور عشان تشوف شغلك ماشي لفوق ولا محتاج تظبيط.
+                      </p>
+                    </div>
+                    <div className="h-[240px] w-full" dir="ltr">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={monthlyFinancialBreakdown}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey="salesRevenue" name="فلوس داخلة (مبيعات)" fill="#059669" radius={[6, 6, 0, 0]} />
+                          <Bar dataKey="totalCosts" name="فلوس خارجة (مصاريف وخامات)" fill="#E11D48" radius={[6, 6, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-3">
+                    <div>
+                      <h3 className="text-sm font-black text-stone-900 dark:text-stone-100">
+                        فلوسك متوزعة فين دلوقتي؟
+                      </h3>
+                      <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+                        نظرة واحدة تعرفك كام كاش في إيدك، وكام واقف خامات، وكام ليك بره أو عليك.
+                      </p>
+                    </div>
+                    {moneyDistributionData.length === 0 ? (
+                      <div className="h-[240px] flex items-center justify-center text-xs text-stone-500">
+                        ابدأ بتسجيل مبيعاتك أو رصيد خاماتك ليظهر توزيع فلوسك هنا.
+                      </div>
+                    ) : (
+                      <div className="h-[240px] w-full" dir="ltr">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={moneyDistributionData}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={52}
+                              outerRadius={86}
+                              paddingAngle={3}
+                            >
+                              {moneyDistributionData.map((entry, idx) => (
+                                <Cell key={idx} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* TAB 0: SAAS ACCOUNTING LEDGER & TRIAL BALANCE SHEET */}
+          {activeTab === 'trial_balance' && showTrialBalance && (
         <div className="space-y-6">
           {/* Printable Double-Entry Accounting Matrix Table */}
           <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xl space-y-5 print:p-0 print:border-none print:shadow-none">

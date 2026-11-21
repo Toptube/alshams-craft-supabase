@@ -446,11 +446,10 @@ export async function fetchApprovedMarketplaceProducts(): Promise<CloudMarketpla
   try {
     const [{ data, error }, { data: wsRows }] = await Promise.all([
       supabase
-        .from('marketplace_products')
+        .from('public_marketplace_products')
         .select('*')
-        .eq('status', 'approved')
         .order('created_at', { ascending: false }),
-      supabase.from('workshops').select('*'),
+      supabase.from('public_workshops_directory').select('*'),
     ]);
 
     const wsMap = new Map<string, any>();
@@ -474,6 +473,7 @@ export async function fetchApprovedMarketplaceProducts(): Promise<CloudMarketpla
           const ws = wsMap.get(row.workshop_id);
           return normalizeCloudProduct({
             ...row,
+            cost_price: 0,
             brand_name: ws?.brand_name || row.brand_name || 'ورشة الشمساوية',
             artist_name: ws?.artist_name || row.artist_name || 'فنان الشمساوية',
             phone_number: ws?.phone_number || ws?.phone || row.phone_number || '',
@@ -608,7 +608,7 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
 
   try {
     const { data: wsData } = await supabase
-      .from('workshops')
+      .from('public_workshops_directory')
       .select('*');
 
     if (wsData && Array.isArray(wsData)) {
@@ -633,7 +633,7 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
               brandName: found.brand_name || found.brandName || 'ورشة الشمساوية',
               artistName: found.artist_name || found.artistName || 'فنان الشمساوية',
               phoneNumber: phone,
-              email: found.email || '',
+              email: '',
               country: found.country || 'مصر',
               currencySymbol: found.currency_symbol || found.currencySymbol || 'ج.م',
               logoUrl: logo,
@@ -652,59 +652,15 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
         }
 
         const prodsMap = new Map<string, any>();
-        const rejectedIds = new Set<string>();
 
         try {
           const { data: pData } = await supabase
-            .from('marketplace_products')
+            .from('public_marketplace_products')
             .select('*')
             .eq('workshop_id', wid);
           if (Array.isArray(pData)) {
             pData.forEach((p: any) => {
-              if (p.status === 'rejected') {
-                rejectedIds.add(p.id);
-              } else {
-                prodsMap.set(p.id, p);
-              }
-            });
-          }
-        } catch {}
-
-        try {
-          const { data: catData } = await supabase
-            .from('products')
-            .select('*')
-            .eq('workshop_id', wid);
-          if (Array.isArray(catData)) {
-            catData.forEach((p: any) => {
-              if (p.is_active === false || rejectedIds.has(p.id)) return;
-              const lr = p.local_record || {};
-              if (lr.inStore === false || lr.isPublishedInStore === false) return;
-              if (!prodsMap.has(p.id)) {
-                prodsMap.set(p.id, {
-                  id: p.id,
-                  workshop_id: p.workshop_id,
-                  brand_name: found.brand_name || 'ورشة الشمساوية',
-                  artist_name: found.artist_name || 'فنان الشمساوية',
-                  phone_number: found.phone_number || found.phone || '',
-                  logo_url: logo,
-                  store_slug: storeSlug,
-                  product_name: p.product_name || lr.productName,
-                  category: p.category || lr.category || 'أعمال يدوية',
-                  craft_name: p.craft_name || lr.craftName || p.category || 'أعمال يدوية',
-                  store_price: lr.storePrice || p.retail_price || 0,
-                  retail_price: p.retail_price || lr.retailPrice || 0,
-                  wholesale_price: p.wholesale_price || lr.wholesalePrice || 0,
-                  cost_price: p.cost_price || lr.costPrice || 0,
-                  current_stock: lr.currentStock ?? 1,
-                  image_url: p.image_url || lr.imageUrl || null,
-                  store_description: lr.storeDescription || p.specs?.marketingDescription || p.specs?.materialsDescription || p.product_name,
-                  available_colors: lr.availableColors || [],
-                  available_sizes: lr.availableSizes || [],
-                  status: lr.isMarketplaceApproved ? 'approved' : 'pending_approval',
-                  created_at: p.created_at,
-                });
-              }
+              prodsMap.set(p.id, { ...p, cost_price: 0 });
             });
           }
         } catch {}
@@ -725,7 +681,7 @@ export async function fetchPublicStorefrontBySlug(slug: string): Promise<PublicW
             brandName: found.brand_name || found.brandName || 'ورشة الشمساوية',
             artistName: found.artist_name || found.artistName || 'فنان الشمساوية',
             phoneNumber: phone,
-            email: found.email || '',
+            email: '',
             country: found.country || 'مصر',
             currencySymbol: found.currency_symbol || found.currencySymbol || 'ج.م',
             logoUrl: logo,

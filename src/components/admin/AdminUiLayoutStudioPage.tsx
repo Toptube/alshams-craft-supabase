@@ -52,6 +52,7 @@ import {
   UiLayoutAudience,
 } from '../../types/uiLayoutConfig';
 import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
+import { AdminExperienceModePanel } from './AdminExperienceModePanel';
 
 interface AdminUiLayoutStudioPageProps {
   onBack: () => void;
@@ -59,7 +60,7 @@ interface AdminUiLayoutStudioPageProps {
   onPublishToCloud: (nextLayout: PlatformUiLayoutConfig) => Promise<void>;
 }
 
-type StudioSectionTab = 'cards' | 'navbar' | 'sidebar';
+type StudioSectionTab = 'cards' | 'navbar' | 'sidebar' | 'global_elements' | 'experience_modes';
 
 function reorderArray<T>(list: T[], fromIdx: number, toIdx: number): T[] {
   if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= list.length || toIdx >= list.length) {
@@ -887,6 +888,8 @@ export const AdminUiLayoutStudioPage: React.FC<AdminUiLayoutStudioPageProps> = (
               { id: 'cards', label: 'البطاقات والأزرار الداخلية', icon: LayoutGrid },
               { id: 'navbar', label: 'القائمة العلوية (Navbar)', icon: Menu },
               { id: 'sidebar', label: 'القائمة الجانبية (Sidebar)', icon: PanelRight },
+              { id: 'experience_modes', label: 'مقارنة الوضع الحرفي والمحاسبي', icon: FileText },
+              { id: 'global_elements', label: 'تعديلات كل الصفحات', icon: Sparkles },
             ] as const
           ).map((t) => {
             const Icon = t.icon;
@@ -1782,6 +1785,131 @@ export const AdminUiLayoutStudioPage: React.FC<AdminUiLayoutStudioPageProps> = (
             )}
           </div>
         </div>
+      )}
+
+      {/* ================= TAB 4: GLOBAL ALL-PAGES BUTTON & CARD OVERRIDES ================= */}
+      {studioTab === 'global_elements' && (
+        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-black">تعديلات الأسماء والإخفاء المباشر على مستوى جميع الصفحات</h3>
+              <p className="text-xs text-[#475569] dark:text-[#CBD5E1] mt-1">
+                يمكنك استخدام زر «تخصيص الأزرار والبطاقات» أسفل يسار الشاشة في أي صفحة لتغيير اسم أي بطاقة أو زر أو إخفائه فوراً، وستظهر كافة تعديلاتك هنا للمراجعة أو الاستعادة.
+              </p>
+            </div>
+            {Object.keys(draft.globalElementOverrides || {}).length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    globalElementOverrides: {},
+                    updatedAt: new Date().toISOString(),
+                  }))
+                }
+                className="px-3 py-2 rounded-xl border border-rose-300 text-rose-600 text-xs font-black hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+              >
+                مسح كل التعديلات المباشرة
+              </button>
+            )}
+          </div>
+
+          {Object.keys(draft.globalElementOverrides || {}).length === 0 ? (
+            <div className="rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-8 text-center text-xs text-[#475569] dark:text-[#CBD5E1]">
+              لا توجد تعديلات مباشرة محفوظة حالياً. افتح أي صفحة في المنظومة واضغط زر «تخصيص الأزرار والبطاقات» أسفل اليسار ثم اضغط على أي زر أو بطاقة لتعديلها.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {Object.values(draft.globalElementOverrides || {}).map((ov) => (
+                <div
+                  key={ov.key}
+                  className="p-3.5 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-2.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[#475569] dark:text-[#CBD5E1]">
+                      {ov.elementType === 'button' ? 'زر تفاعلي' : 'عنوان بطاقة'}
+                      {ov.pageHint ? ` · ${ov.pageHint}` : ''}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft((prev) => {
+                            const next = { ...(prev.globalElementOverrides || {}) };
+                            next[ov.key] = {
+                              ...ov,
+                              hidden: !ov.hidden,
+                              updatedAt: new Date().toISOString(),
+                            };
+                            return { ...prev, globalElementOverrides: next };
+                          })
+                        }
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer ${
+                          ov.hidden
+                            ? 'bg-rose-600 text-white'
+                            : 'bg-emerald-600 text-white'
+                        }`}
+                      >
+                        {ov.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        <span>{ov.hidden ? 'مخفي' : 'ظاهر'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft((prev) => {
+                            const next = { ...(prev.globalElementOverrides || {}) };
+                            delete next[ov.key];
+                            return { ...prev, globalElementOverrides: next };
+                          })
+                        }
+                        title="استعادة الافتراضي"
+                        className="p-1.5 rounded-lg border border-[#D4CCBC] dark:border-[#22355E] text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-[#475569] dark:text-slate-400">
+                    الاسم الأصلي: {ov.originalText}
+                  </div>
+
+                  <input
+                    type="text"
+                    value={ov.customLabel || ''}
+                    placeholder={ov.originalText}
+                    onChange={(e) =>
+                      setDraft((prev) => {
+                        const next = { ...(prev.globalElementOverrides || {}) };
+                        next[ov.key] = {
+                          ...ov,
+                          customLabel: e.target.value,
+                          updatedAt: new Date().toISOString(),
+                        };
+                        return { ...prev, globalElementOverrides: next };
+                      })
+                    }
+                    className="w-full h-9 px-3 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ================= TAB 5: CRAFT MODE VS ACCOUNTING MODE COMPARISON ================= */}
+      {studioTab === 'experience_modes' && (
+        <AdminExperienceModePanel
+          value={draft.experienceModeConfig}
+          onChange={(nextExpCfg) =>
+            setDraft((prev) => ({
+              ...prev,
+              experienceModeConfig: nextExpCfg,
+              updatedAt: new Date().toISOString(),
+            }))
+          }
+        />
       )}
     </div>
   );

@@ -13,6 +13,7 @@ import {
   UiHomeCardConfig,
   useUiLayoutConfig,
 } from '../../types/uiLayoutConfig';
+import { useExperienceMode } from '../../types/experienceMode';
 import {
   Layers,
   ShoppingBag,
@@ -189,7 +190,21 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const flags = useFeatureFlags();
   const uiLayout = useUiLayoutConfig();
   const artisanHomeCfg = uiLayout.artisan.home;
+  const {
+    getLabel: getModeLabel,
+    isVisible: isModeVisible,
+  } = useExperienceMode('artisan', profile);
   const isAdminUser = isUserAdmin(profile);
+
+  const ARTISAN_ACTION_MODE_MAP: Record<string, string> = {
+    nav_work_orders_create: 'wo_create_btn',
+    nav_work_orders_issue: 'wo_issue_voucher',
+    nav_work_orders_receive: 'wo_receive_voucher',
+    nav_work_orders: 'wo_page_title',
+    modal_inv_audit: 'inv_audit_voucher',
+    nav_treasuries: 'fin_treasury_title',
+    nav_reports: 'rep_page_title',
+  };
 
   // Active sub-screen card id (null = main operational cards grid)
   const [activeSubSection, setActiveSubSection] = useState<string | null>(null);
@@ -928,40 +943,47 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
 
           {/* Sub-Action Buttons Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5 pt-1">
-            {activeCardVisibleItems.map((sub) => {
-              const SubIcon = getUiIcon(sub.iconKey);
-              const isFalcon = sub.actionKey === 'nav_ai_agent' || sub.label.includes('صقر');
-              const isShamousa = sub.actionKey === 'open_shamousa' || sub.label.includes('شموسة');
-              return (
-                <button
-                  key={sub.id}
-                  type="button"
-                  onClick={() => executeArtisanAction(sub.actionKey)}
-                  className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-b from-[#F7F3EA] to-[#E9E2D4] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] transition-all flex flex-col items-center justify-center gap-2 cursor-pointer group text-center min-h-[90px]"
-                >
-                  <div className="w-9 h-9 rounded-xl bg-transparent text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-none group-hover:scale-110 transition-transform overflow-hidden p-0.5">
-                    {isFalcon ? (
-                      <FalconMascotAvatar size="sm" statusDot={false} />
-                    ) : isShamousa ? (
-                      <div className="w-8 h-8 rounded-full overflow-hidden border border-amber-400 bg-gradient-to-tr from-[#EA580C] to-amber-400 flex items-center justify-center shadow-xs p-0.5">
-                        <ShamousaMascotAvatar size="sm" statusDot={false} className="w-full h-full" />
-                      </div>
-                    ) : (
-                      <div
-                        className={`w-8 h-8 ${
-                          artisanHomeCfg.iconShape === 'circle' ? 'rounded-full' : 'rounded-xl'
-                        } bg-[#F7F3EA] dark:bg-[#0D162E] text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-2xs p-0.5 border border-[#D4CCBC] dark:border-[#22355E]`}
-                      >
-                        <SubIcon className="w-4 h-4" />
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-amber-300 transition-colors">
-                    {sub.label}
-                  </span>
-                </button>
-              );
-            })}
+            {activeCardVisibleItems
+              .filter((sub) => {
+                const mk = ARTISAN_ACTION_MODE_MAP[sub.actionKey];
+                return !mk || isModeVisible(mk);
+              })
+              .map((sub) => {
+                const SubIcon = getUiIcon(sub.iconKey);
+                const modeKey = ARTISAN_ACTION_MODE_MAP[sub.actionKey];
+                const resolvedLabel = modeKey ? getModeLabel(modeKey, sub.label) : sub.label;
+                const isFalcon = sub.actionKey === 'nav_ai_agent' || sub.label.includes('صقر');
+                const isShamousa = sub.actionKey === 'open_shamousa' || sub.label.includes('شموسة');
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => executeArtisanAction(sub.actionKey)}
+                    className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-b from-[#F7F3EA] to-[#E9E2D4] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] transition-all flex flex-col items-center justify-center gap-2 cursor-pointer group text-center min-h-[90px]"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-transparent text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-none group-hover:scale-110 transition-transform overflow-hidden p-0.5">
+                      {isFalcon ? (
+                        <FalconMascotAvatar size="sm" statusDot={false} />
+                      ) : isShamousa ? (
+                        <div className="w-8 h-8 rounded-full overflow-hidden border border-amber-400 bg-gradient-to-tr from-[#EA580C] to-amber-400 flex items-center justify-center shadow-xs p-0.5">
+                          <ShamousaMascotAvatar size="sm" statusDot={false} className="w-full h-full" />
+                        </div>
+                      ) : (
+                        <div
+                          className={`w-8 h-8 ${
+                            artisanHomeCfg.iconShape === 'circle' ? 'rounded-full' : 'rounded-xl'
+                          } bg-[#F7F3EA] dark:bg-[#0D162E] text-[#EA580C] dark:text-amber-400 flex items-center justify-center shadow-2xs p-0.5 border border-[#D4CCBC] dark:border-[#22355E]`}
+                        >
+                          <SubIcon className="w-4 h-4" />
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] group-hover:text-[#C2410C] dark:group-hover:text-amber-300 transition-colors">
+                      {resolvedLabel}
+                    </span>
+                  </button>
+                );
+              })}
           </div>
         </div>
       ) : (

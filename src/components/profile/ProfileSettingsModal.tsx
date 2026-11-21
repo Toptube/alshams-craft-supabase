@@ -25,6 +25,7 @@ import {
   getStoredQuickLanguages,
   setStoredQuickLanguages,
 } from '../../lib/i18n';
+import { useExperienceMode } from '../../types/experienceMode';
 import {
   X,
   Building2,
@@ -149,6 +150,11 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     }
   };
   const isSupplier = (profile as any)?.accountRole === 'supplier';
+  const {
+    mode: experienceMode,
+    setMode: setExperienceMode,
+    allowSwitch: allowExperienceModeSwitch,
+  } = useExperienceMode(isSupplier ? 'supplier' : 'artisan', profile);
   const [activeTab, setActiveTab] = useState<'profile' | 'language' | 'reminders' | 'export_data' | 'factory_reset'>('profile');
 
   // Language settings state
@@ -676,6 +682,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
         workshopClosingHour,
         address: address.trim(),
         skillLevel,
+        experienceMode,
         ...(typeof assessmentScore === 'number' ? { assessmentScore } : {}),
         socials: {
           facebook: activeSocials.facebook ? socialUrls.facebook.trim() : undefined,
@@ -1107,6 +1114,83 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               compact
               onRestored={(prevUrl) => setLogoUrl(prevUrl)}
             />
+
+            {/* اختيار وضع عرض المنظومة الأساسي: الوضع الحرفي مقابل الوضع المحاسبي */}
+            <div className="p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs sm:text-sm font-black text-[#0F172A] dark:text-white">
+                    وضع عرض المنظومة الأساسي (لغة الشاشات والتقارير)
+                  </div>
+                  <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] mt-0.5 leading-relaxed">
+                    اختر الطريقة الأنسب لإدارة {isSupplier ? 'متجرك وتوريداتك' : 'ورشتك ومشغولاتك'} — يتطبق فوراً على كل الصفحات وعلى أسلوب كلام «شموسة».
+                  </p>
+                </div>
+                {!allowExperienceModeSwitch && (
+                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                    الوضع محدد من إدارة المنظومة
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  disabled={!allowExperienceModeSwitch}
+                  onClick={() => {
+                    playTapSound();
+                    setExperienceMode('craft');
+                  }}
+                  className={`p-3.5 rounded-xl border-2 text-right transition-all cursor-pointer disabled:opacity-60 ${
+                    experienceMode === 'craft'
+                      ? 'bg-emerald-50/90 dark:bg-emerald-950/35 border-emerald-600 text-[#0F172A] dark:text-white'
+                      : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#475569] dark:text-[#CBD5E1] hover:border-emerald-400'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs sm:text-sm font-black">
+                      الوضع الحرفي (بسيط وسريع)
+                    </span>
+                    {experienceMode === 'craft' && (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[#475569] dark:text-slate-300 mt-1.5 leading-relaxed">
+                    {isSupplier
+                      ? 'لغة تجارية سهلة (فلوس داخلة وخارجة، خزنتك ومصاريفك، خلاصة سريعة بدون قيود محاسبية معقدة).'
+                      : 'لغة ورشة واضحة (فلوس داخلة وخارجة، قفل الشغل وإرجاع البواقي بضغطة، تقارير ورسوم مختصرة بدون دائن ومدين).'}
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!allowExperienceModeSwitch}
+                  onClick={() => {
+                    playTapSound();
+                    setExperienceMode('accounting');
+                  }}
+                  className={`p-3.5 rounded-xl border-2 text-right transition-all cursor-pointer disabled:opacity-60 ${
+                    experienceMode === 'accounting'
+                      ? 'bg-indigo-50/90 dark:bg-indigo-950/35 border-indigo-600 text-[#0F172A] dark:text-white'
+                      : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#475569] dark:text-[#CBD5E1] hover:border-indigo-400'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs sm:text-sm font-black">
+                      الوضع المحاسبي (متقدم وتفصيلي)
+                    </span>
+                    {experienceMode === 'accounting' && (
+                      <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[#475569] dark:text-slate-300 mt-1.5 leading-relaxed">
+                    {isSupplier
+                      ? 'إظهار دفتر الأستاذ، المدين والدائن، مركز قيادة الفروع، كارت الصنف والأذونات والرسوم البيانية الكاملة.'
+                      : 'إظهار الأذونات المحاسبية الحقيقية (صرف وتوريد)، المدين والدائن، ميزان المراجعة، سجل التدقيق والرسوم الكاملة.'}
+                  </p>
+                </button>
+              </div>
+            </div>
 
             {/* مفتاح وضع الأداء الفائق وتوفير الطاقة (High-Performance Lite Mode) */}
             <div className="p-4 rounded-2xl bg-[#0C1427] text-white border-2 border-amber-500/40 shadow-xl flex items-center justify-between gap-4">

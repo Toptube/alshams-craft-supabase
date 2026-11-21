@@ -70,6 +70,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
+import { useExperienceMode } from '../../types/experienceMode';
 
 interface TreasuriesViewProps {
   workshop: WorkshopProfile;
@@ -85,6 +86,13 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
   const workshopId = workshop.id || workshop.workshopId || workshop.tenantId || '';
   const currency = workshop.currency || 'ج.م';
   const { lang: currentLang, t: tr } = useTranslation();
+  const {
+    isCraft,
+    setMode: setExpMode,
+    allowSwitch: allowExpSwitch,
+    getLabel: getModeLabel,
+    isVisible: isModeVisible,
+  } = useExperienceMode('artisan', workshop);
 
   // Treasuries state from treasury_balances view
   const [treasuryBalances, setTreasuryBalances] = useState<SupabaseTreasuryBalance[]>([]);
@@ -1418,14 +1426,38 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
             <span>السيولة النقدية والخزائن</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black tracking-tight text-stone-900 dark:text-stone-50 mt-1">
-            {t('treasuries_title', currentLang)}
+            {getModeLabel('fin_treasury_title', t('treasuries_title', currentLang))}
           </h1>
           <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-            تتبع الأرصدة الحية، صرف العهد، التحويلات، حدود الأمان، وتخصيص تصنيفات المصروفات والواردات.
+            {isCraft
+              ? 'تابع الفلوس اللي داخلة والخارجة من درجك ومحفظتك ببساطة بدون أي تعقيد محاسبي.'
+              : 'تتبع الأرصدة الحية، صرف العهد، التحويلات، حدود الأمان، وتخصيص تصنيفات المصروفات والواردات.'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-auto">
+          {allowExpSwitch && (
+            <div className="inline-flex items-center p-0.5 rounded-xl bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700">
+              <button
+                type="button"
+                onClick={() => setExpMode('craft')}
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black cursor-pointer transition-colors ${
+                  isCraft ? 'bg-emerald-600 text-white' : 'text-stone-600 dark:text-stone-300'
+                }`}
+              >
+                الوضع الحرفي
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpMode('accounting')}
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black cursor-pointer transition-colors ${
+                  !isCraft ? 'bg-indigo-600 text-white' : 'text-stone-600 dark:text-stone-300'
+                }`}
+              >
+                الوضع المحاسبي
+              </button>
+            </div>
+          )}
           {/* Button: Manage Categories */}
           <button
             type="button"
@@ -1470,24 +1502,28 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
           </button>
 
           {/* Button: Issue Custody */}
-          <button
-            type="button"
-            onClick={() => handleOpenIssueCustody()}
-            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black shadow-md hover:shadow-lg transition cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>صرف عهدة جديدة</span>
-          </button>
+          {isModeVisible('fin_custody') && (
+            <button
+              type="button"
+              onClick={() => handleOpenIssueCustody()}
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black shadow-md hover:shadow-lg transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{isCraft ? 'صرف فلوس لصنايعي' : 'صرف عهدة جديدة'}</span>
+            </button>
+          )}
 
           {/* Button: New Sub Treasury */}
-          <button
-            type="button"
-            onClick={() => handleOpenCreateSub()}
-            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-900 dark:text-stone-100 text-xs font-bold border border-stone-300 dark:border-stone-700 transition cursor-pointer"
-          >
-            <Building className="w-4 h-4 text-amber-600" />
-            <span>خزنة فرعية جديدة</span>
-          </button>
+          {isModeVisible('fin_sub_treasuries') && (
+            <button
+              type="button"
+              onClick={() => handleOpenCreateSub()}
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-900 dark:text-stone-100 text-xs font-bold border border-stone-300 dark:border-stone-700 transition cursor-pointer"
+            >
+              <Building className="w-4 h-4 text-amber-600" />
+              <span>خزنة فرعية جديدة</span>
+            </button>
+          )}
 
           {/* Button: Payment Reminders (تذكير دفع للعهد أو الالتزامات المالية المعلقة) */}
           <button
@@ -3742,12 +3778,12 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
               {/* Movement Totals Summary */}
               <div className="grid grid-cols-3 gap-2 pt-1 text-center font-bold">
                 <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300">
-                  <div className="text-[10px] text-stone-500">إجمالي الوارد (مدين)</div>
-                  <div className="text-sm font-black">+{statementTotals.totalIn.toFixed(2)}</div>
+                  <div className="text-[10px] text-stone-500">{getModeLabel('fin_debit', 'إجمالي الوارد (مدين)')}</div>
+                  <div className="text-sm font-black tabular-nums">+{statementTotals.totalIn.toFixed(2)}</div>
                 </div>
                 <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300">
-                  <div className="text-[10px] text-stone-500">إجمالي الصادر (دائن)</div>
-                  <div className="text-sm font-black">-{statementTotals.totalOut.toFixed(2)}</div>
+                  <div className="text-[10px] text-stone-500">{getModeLabel('fin_credit', 'إجمالي الصادر (دائن)')}</div>
+                  <div className="text-sm font-black tabular-nums">-{statementTotals.totalOut.toFixed(2)}</div>
                 </div>
                 <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300">
                   <div className="text-[10px] text-stone-500">صافي الحركة في الفترة</div>
