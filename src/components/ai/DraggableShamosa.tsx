@@ -9,6 +9,9 @@ interface DraggableShamosaProps {
   isGlowingAlert?: boolean;
 }
 
+// Module-level guard so unmounting/remounting DraggableShamosa can NEVER replay an old orbit nonce
+let lastHandledOrbitNonce = 0;
+
 export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
   children,
   onClick,
@@ -47,7 +50,6 @@ export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
   const elementStartPosRef = useRef({ x: 0, y: 0 });
   const hasMovedRef = useRef(false);
   const restPosRef = useRef(position);
-  const lastHandledNonceRef = useRef(0);
   const onOrbitCompleteRef = useRef(onOrbitComplete);
   onOrbitCompleteRef.current = onOrbitComplete;
 
@@ -74,10 +76,10 @@ export const DraggableShamosa: React.FC<DraggableShamosaProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, [isOrbiting]);
 
-  // Full smooth circular orbit around the page + glow/blink + open-close pulse
+  // Full smooth circular orbit around the page + glow/blink + open-close pulse (STRICTLY ONCE per nonce)
   useEffect(() => {
-    if (!orbitTriggerNonce || orbitTriggerNonce === lastHandledNonceRef.current) return;
-    lastHandledNonceRef.current = orbitTriggerNonce;
+    if (!orbitTriggerNonce || orbitTriggerNonce <= lastHandledOrbitNonce) return;
+    lastHandledOrbitNonce = orbitTriggerNonce;
 
     if (typeof window === 'undefined') return;
     const prefersReduced =

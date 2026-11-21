@@ -654,9 +654,16 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     isOpenRef.current = isOpen;
   }, [isOpen]);
 
+  const isAnyModalOpenRef = useRef(Boolean(isAnyModalOpen));
+  useEffect(() => {
+    isAnyModalOpenRef.current = Boolean(isAnyModalOpen);
+  }, [isAnyModalOpen]);
+
   const snoozeStorageKey = `shamousa_snooze_until_${workshopId}`;
   const dailyDoneStorageKey = `shamousa_daily_done_${workshopId}`;
   const dailyRemindedStorageKey = `shamousa_daily_reminded_${workshopId}`;
+  const sessionOrbitDoneKey = `shamousa_orbit_done_session_${workshopId}`;
+  const hasAutoOrbitedThisSessionRef = useRef<boolean>(false);
 
   // مزامنة وقت الفضفضة اليومي من إعدادات المستخدم
   useEffect(() => {
@@ -682,7 +689,23 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     } catch {}
   };
 
-  const triggerShamousaAttention = (followupText: string) => {
+  const triggerShamousaAttention = (followupText: string, isManualDemo = false) => {
+    // لا تقاطع المستخدم أبداً لو فيه أي نافذة أو شاشة تفعيل/إعداد مفتوحة
+    if (!isManualDemo && isAnyModalOpenRef.current) return;
+
+    // اللفة التلقائية مرة واحدة فقط في الجلسة كلها بعد الدخول الكامل — مستحيل تتكرر!
+    if (!isManualDemo) {
+      let alreadyOrbited = hasAutoOrbitedThisSessionRef.current;
+      try {
+        if (sessionStorage.getItem(sessionOrbitDoneKey) === '1') alreadyOrbited = true;
+      } catch {}
+      if (alreadyOrbited) return;
+      hasAutoOrbitedThisSessionRef.current = true;
+      try {
+        sessionStorage.setItem(sessionOrbitDoneKey, '1');
+      } catch {}
+    }
+
     playShamousaReminderChime();
     if (isOpenRef.current) {
       setActiveTab('daily');
@@ -691,13 +714,16 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     }
     pendingFollowupAfterOrbitRef.current = followupText;
     setIsGlowingAlert(true);
-    setOrbitTriggerNonce((n) => n + 1);
+    setOrbitTriggerNonce(Date.now());
   };
 
   const handleOrbitComplete = () => {
+    // تصفير النونص فوراً حتى لا تعيد شموسة اللفة أبداً عند إغلاق الشات!
+    setOrbitTriggerNonce(0);
     setIsGlowingAlert(false);
     const pendingMsg = pendingFollowupAfterOrbitRef.current;
     pendingFollowupAfterOrbitRef.current = null;
+    if (isAnyModalOpenRef.current) return;
     setIsOpen(true);
     setActiveTab('daily');
     if (pendingMsg) {
@@ -715,14 +741,25 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       pendingFollowupAfterOrbitRef.current = demoText;
       playShamousaReminderChime();
       setIsGlowingAlert(true);
-      setOrbitTriggerNonce((n) => n + 1);
+      setOrbitTriggerNonce(Date.now());
     }, 260);
   };
 
-  // المجدول الذكي الخلفي: يتابع ميعاد الـ 8 مساءً اليومي + أي تأجيل ("استني ساعة")
+  // المجدول الذكي الخلفي: يعمل بعد استقرار الدخول بالكامل، وبحد أقصى لفة واحدة فقط بدون أي تكرار
   useEffect(() => {
-    if (!workshopId) return;
+    if (!profile?.id || !workshopId) return;
     const checkReminders = () => {
+      // لا تبدأ أي حركة أثناء فتح نافذة/مودال أو إذا كانت الصفحة في الخلفية أو الشات مفتوح بالفعل
+      if (isAnyModalOpenRef.current || isOpenRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+
+      // لو شموسة لفت لفتها الوحيدة في الجلسة خلاص -> اخرج فوراً
+      try {
+        if (hasAutoOrbitedThisSessionRef.current || sessionStorage.getItem(sessionOrbitDoneKey) === '1') {
+          return;
+        }
+      } catch {}
+
       const nowMs = Date.now();
       const todayIso = new Date().toISOString().slice(0, 10);
 
@@ -751,7 +788,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         }
       } catch {}
 
-      // 2) فحص ميعاد الطمأنة اليومي (الافتراضي 20:00 — 8 مساءً)
+      // 2) فحص ميعاد الطمأنة اليومي (الافتراضي 20:00 — 8 مساءً) — مرة واحدة فقط في اليوم
       try {
         const doneDate = localStorage.getItem(dailyDoneStorageKey);
         const remindedDate = localStorage.getItem(dailyRemindedStorageKey);
@@ -775,13 +812,15 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       } catch {}
     };
 
-    const initialTimer = window.setTimeout(checkReminders, 4500);
-    const intervalId = window.setInterval(checkReminders, 15000);
+    // ننتظر 10 ثوانٍ بعد استقرار الدخول الكامل في المنظومة قبل أول فحص
+    const initialTimer = window.setTimeout(checkReminders, 10000);
+    const intervalId = window.setInterval(checkReminders, 30000);
     return () => {
       window.clearTimeout(initialTimer);
       window.clearInterval(intervalId);
     };
   }, [
+    profile?.id,
     workshopId,
     dailyCheckinTime,
     aiCfg.shamousaDailyDefaultTime,
@@ -791,6 +830,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     snoozeStorageKey,
     dailyDoneStorageKey,
     dailyRemindedStorageKey,
+    sessionOrbitDoneKey,
   ]);
 
   // الاستماع لحدث فتح شموسة من أي مكان في المنظومة
@@ -2070,6 +2110,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         <DraggableShamosa
           onClick={() => {
             playButtonClickSound();
+            setOrbitTriggerNonce(0);
+            setIsGlowingAlert(false);
             setIsOpen(true);
             setActiveTab('chat');
           }}
