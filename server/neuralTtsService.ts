@@ -1,12 +1,11 @@
 import { GoogleGenAI } from '@google/genai';
-import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
 export type NeuralTtsPersona = 'shamousa' | 'falcon';
 
 export interface NeuralTtsAudioResult {
   buffer: Buffer;
-  contentType: 'audio/wav' | 'audio/mpeg';
-  engine: 'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts' | 'egyptian_neural';
+  contentType: 'audio/wav';
+  engine: 'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts' | 'gemini-2.5-flash-preview-tts';
 }
 
 interface CacheEntry {
@@ -15,10 +14,10 @@ interface CacheEntry {
 }
 
 const AUDIO_CACHE = new Map<string, CacheEntry>();
-const MAX_CACHE_ITEMS = 120;
+const MAX_CACHE_ITEMS = 140;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
-// Per-key cooldown so one invalid/quota-limited key NEVER blocks process.env.GEMINI_API_KEY
+// Per-key cooldown so an invalid or quota-limited key is skipped instantly without wasting latency
 const keyCooldownUntil = new Map<string, number>();
 
 function cleanEnvKey(val?: string): string {
@@ -27,24 +26,32 @@ function cleanEnvKey(val?: string): string {
 }
 
 /**
- * IMPORTANT: Put platform `process.env.GEMINI_API_KEY` FIRST because it has direct access
- * to `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts`, then try any custom keys.
+ * Orders the active free Gemini API keys (rotating across all configured keys for high free throughput).
  */
 function getTtsGeminiKeys(persona: NeuralTtsPersona): string[] {
   const ordered =
     persona === 'shamousa'
       ? [
-          process.env.GEMINI_API_KEY,
           process.env.GEMINI_API_KEY_SHAMOUSA,
           process.env.SHAMOUSA_GEMINI_API_KEY,
           process.env.GEMINI_API_KEY_FALCON_CHAT,
+          process.env.FALCON_CHAT_GEMINI_API_KEY,
+          process.env.GEMINI_API_KEY_FALCON_VISION,
+          process.env.FALCON_VISION_GEMINI_API_KEY,
           process.env.GEMINI_API_KEY_FALCON,
+          process.env.FALCON_GEMINI_API_KEY,
+          process.env.GEMINI_API_KEY,
         ]
       : [
-          process.env.GEMINI_API_KEY,
           process.env.GEMINI_API_KEY_FALCON_CHAT,
+          process.env.FALCON_CHAT_GEMINI_API_KEY,
+          process.env.GEMINI_API_KEY_FALCON_VISION,
+          process.env.FALCON_VISION_GEMINI_API_KEY,
           process.env.GEMINI_API_KEY_FALCON,
+          process.env.FALCON_GEMINI_API_KEY,
           process.env.GEMINI_API_KEY_SHAMOUSA,
+          process.env.SHAMOUSA_GEMINI_API_KEY,
+          process.env.GEMINI_API_KEY,
         ];
   return Array.from(new Set(ordered.map(cleanEnvKey).filter(Boolean)));
 }
@@ -69,7 +76,8 @@ function getCache(key: string): NeuralTtsAudioResult | null {
 
 /**
  * Ensures Gemini audio bytes are wrapped in a valid RIFF WAV container (24kHz mono 16-bit LE).
- * Gemini 3.8 unary returns complete WAV (starts with "RIFF"); raw PCM is automatically wrapped.
+ * - `gemini-3.8-flash-tts` & `gemini-3.8-flash-lite-tts` return a complete WAV file (starts with "RIFF").
+ * - `gemini-2.5-flash-preview-tts` returns raw L16 PCM and is wrapped cleanly in a 44-byte WAV header.
  */
 function ensureWavBuffer(raw: Buffer, sampleRate = 24000): Buffer {
   if (raw.length >= 12 && raw.subarray(0, 4).toString('ascii') === 'RIFF') {
@@ -96,21 +104,15 @@ function ensureWavBuffer(raw: Buffer, sampleRate = 24000): Buffer {
   return Buffer.concat([header, raw]);
 }
 
-function escapeForSsml(input: string): string {
-  return input
-    .replace(/&/g, ' و ')
-    .replace(/[<>]/g, ' ')
-    .replace(/"/g, ' ')
-    .replace(/'/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
-
 /**
- * Tier 1: Real Expressive Gemini 3.8 Neural Human Voice (Free-Tier `@google/genai`)
- * - Uses flagship `gemini-3.8-flash-tts` (Voice Design) first, then `gemini-3.8-flash-lite-tts`.
- * - Shamousa: Kore — warm, cheerful, charming colloquial Egyptian woman
- * - Falcon:   Fenrir — deep, noble, charismatic Egyptian gentleman & proud artisan knight
+ * Pure Real Studio-Grade Gemini Human Egyptian Voices (100% Free — ZERO Robotic Voices!):
+ * - CRITICAL: Uses `apiVersion: 'v1beta'` (required by `@google/genai` v3+ for `speechConfig` & `speechMetadata`).
+ * - Shamousa (`Kore`): Warm, cheerful, playful, charming Cairo Egyptian woman with natural human inflection.
+ * - Falcon (`Fenrir`): Deep, resonant, noble, charismatic Egyptian gentleman & proud artisan knight.
+ * - Automatic 3-tier free Gemini cascade:
+ *   1) `gemini-3.8-flash-tts` (Flagship Voice Design)
+ *   2) `gemini-3.8-flash-lite-tts` (Fast Studio TTS)
+ *   3) `gemini-2.5-flash-preview-tts` (Natural Expressive Backup)
  */
 async function synthesizeWithGeminiTts(
   text: string,
@@ -122,12 +124,16 @@ async function synthesizeWithGeminiTts(
   const voiceName = persona === 'shamousa' ? 'Kore' : 'Fenrir';
   const style =
     persona === 'shamousa'
-      ? 'Warm, cheerful, charming Egyptian woman speaking natural Cairo colloquial Arabic (عامية مصرية لطيفة ومريحة ومرحة) with elegance, friendliness, smiling human inflection, natural breath and rhythm — never robotic'
-      : 'Deep, resonant, dignified, charismatic Egyptian gentleman and proud noble artisan knight speaking confident Cairo colloquial Arabic (عامية مصرية راقية بفخامة وعزة ووقار) with warmth, strength, authority, and natural human cadence — never robotic';
+      ? 'Warm, cheerful, playful, charming Egyptian woman speaking natural everyday Cairo colloquial Arabic (عامية مصرية قاهرية دافية ومرحة ولذيذة ومريحة) with a soft smile, elegant feminine warmth, natural breathing, lively human intonation and warmth — sounds like a real beloved Egyptian friend, never flat or robotic'
+      : 'Deep, resonant, dignified, charismatic Egyptian gentleman and proud authentic Egyptian knight speaking refined Cairo colloquial Arabic (عامية مصرية راقية بفخامة وعزة ووقار وذكاء وشهامة) with rich masculine gravity, calm authority, warmth, and natural human cadence — never robotic';
 
-  const models: Array<'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts'> = [
-    'gemini-3.8-flash-tts',
-    'gemini-3.8-flash-lite-tts',
+  const models: Array<{
+    id: 'gemini-3.8-flash-tts' | 'gemini-3.8-flash-lite-tts' | 'gemini-2.5-flash-preview-tts';
+    supportsMetadata: boolean;
+  }> = [
+    { id: 'gemini-3.8-flash-tts', supportsMetadata: true },
+    { id: 'gemini-3.8-flash-lite-tts', supportsMetadata: true },
+    { id: 'gemini-2.5-flash-preview-tts', supportsMetadata: false },
   ];
 
   const now = Date.now();
@@ -136,8 +142,10 @@ async function synthesizeWithGeminiTts(
     const coolUntil = keyCooldownUntil.get(keyTag) || 0;
     if (now < coolUntil) continue;
 
+    // CRITICAL: `apiVersion: 'v1beta'` is required for `speechConfig` and `speechMetadata`!
     const ai = new GoogleGenAI({
       apiKey,
+      apiVersion: 'v1beta',
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build',
@@ -148,18 +156,25 @@ async function synthesizeWithGeminiTts(
     for (const model of models) {
       const t0 = Date.now();
       try {
+        const partPayload: any = model.supportsMetadata
+          ? {
+              text,
+              speechMetadata: { style },
+            }
+          : {
+              text:
+                persona === 'shamousa'
+                  ? `اقرئي الكلام ده بصوت أنثوي مصري قاهري طبيعي دافئ ومرح ومريح جداً:\n${text}`
+                  : `اقرأ الكلام ده بصوت رجولي مصري عميق راقي فيه فخامة وعزة ووقار بالعامية المصرية:\n${text}`,
+            };
+
         const response: any = await Promise.race([
           ai.models.generateContent({
-            model,
+            model: model.id,
             contents: [
               {
                 role: 'user',
-                parts: [
-                  {
-                    text,
-                    speechMetadata: { style },
-                  } as any,
-                ],
+                parts: [partPayload],
               },
             ],
             config: {
@@ -172,7 +187,7 @@ async function synthesizeWithGeminiTts(
             },
           }),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('GEMINI_TTS_TIMEOUT')), 9000)
+            setTimeout(() => reject(new Error('GEMINI_TTS_TIMEOUT')), 14000)
           ),
         ]);
 
@@ -183,29 +198,35 @@ async function synthesizeWithGeminiTts(
           const rawBytes = Buffer.from(base64Audio, 'base64');
           const wavBuffer = ensureWavBuffer(rawBytes, 24000);
           console.log(
-            `[Neural TTS] OK persona=${persona} engine=${model} bytes=${wavBuffer.length} ms=${Date.now() - t0}`
+            `[Gemini Studio TTS] OK persona=${persona} engine=${model.id} key=...${keyTag} bytes=${wavBuffer.length} ms=${Date.now() - t0}`
           );
           return {
             buffer: wavBuffer,
             contentType: 'audio/wav',
-            engine: model,
+            engine: model.id,
           };
         }
       } catch (err: any) {
         const msg = String(err?.message || err || '');
         const status = Number(err?.status || err?.code || 0);
         console.warn(
-          `[Neural TTS] Gemini attempt failed (${model}, key=...${keyTag}, status=${status}): ${msg.slice(0, 140)}`
+          `[Gemini Studio TTS] attempt failed (${model.id}, key=...${keyTag}, status=${status}): ${msg.slice(0, 150)}`
         );
+        if (
+          status === 401 ||
+          status === 403 ||
+          /API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(msg)
+        ) {
+          // Invalid key — skip for 30 minutes so we never waste latency on it
+          keyCooldownUntil.set(keyTag, Date.now() + 30 * 60 * 1000);
+          break;
+        }
         if (status === 429 || /RESOURCE_EXHAUSTED|quota|429/i.test(msg)) {
-          keyCooldownUntil.set(keyTag, Date.now() + 2 * 60 * 1000);
-          break; // try next key
+          // Rate-limited key — rotate to next key immediately
+          keyCooldownUntil.set(keyTag, Date.now() + 90 * 1000);
+          break;
         }
-        if (status === 403 || status === 401 || /API_KEY_INVALID|PERMISSION_DENIED/i.test(msg)) {
-          keyCooldownUntil.set(keyTag, Date.now() + 5 * 60 * 1000);
-          break; // try next key
-        }
-        // On 404 or model-specific error, continue to next model (e.g. flash-lite-tts) or next key
+        // Otherwise try next model on same key
       }
     }
   }
@@ -214,73 +235,8 @@ async function synthesizeWithGeminiTts(
 }
 
 /**
- * Tier 2: 100% Free Unlimited Native Egyptian Neural Voices (`msedge-tts`)
- * - Shamousa: ar-EG-SalmaNeural (authentic warm cheerful Egyptian woman)
- * - Falcon:   ar-EG-ShakirNeural (authentic deep noble Egyptian gentleman)
- */
-async function synthesizeWithEgyptianNeuralTts(
-  text: string,
-  persona: NeuralTtsPersona
-): Promise<NeuralTtsAudioResult | null> {
-  const safeText = escapeForSsml(text);
-  if (!safeText) return null;
-
-  const voice = persona === 'shamousa' ? 'ar-EG-SalmaNeural' : 'ar-EG-ShakirNeural';
-  const prosody =
-    persona === 'shamousa'
-      ? { rate: '+4%', pitch: '+3Hz' }
-      : { rate: '-2%', pitch: '-5Hz' };
-
-  const t0 = Date.now();
-  const tts = new MsEdgeTTS();
-  try {
-    const buffer = await Promise.race([
-      (async () => {
-        await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-        const { audioStream } = tts.toStream(safeText, prosody);
-        return await new Promise<Buffer>((resolve, reject) => {
-          const chunks: Buffer[] = [];
-          audioStream.on('data', (chunk: any) => {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-          });
-          audioStream.on('end', () => resolve(Buffer.concat(chunks)));
-          audioStream.on('error', (err: any) => reject(err));
-        });
-      })(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('EGYPTIAN_NEURAL_TIMEOUT')), 9000)
-      ),
-    ]);
-
-    if (buffer && buffer.length > 200) {
-      console.log(
-        `[Neural TTS] OK persona=${persona} engine=${voice} bytes=${buffer.length} ms=${Date.now() - t0}`
-      );
-      return {
-        buffer,
-        contentType: 'audio/mpeg',
-        engine: 'egyptian_neural',
-      };
-    }
-    return null;
-  } catch (err: any) {
-    console.warn('[Egyptian Neural TTS Notice]:', err?.message || err);
-    return null;
-  } finally {
-    setTimeout(() => {
-      try {
-        tts.close();
-      } catch {}
-    }, 80);
-  }
-}
-
-/**
- * Main Entry: Synthesizes natural, expressive Egyptian human speech for Shamousa & Falcon.
- * Priority:
- *  1) Cache hit (0ms)
- *  2) Gemini 3.8 Expressive Human Voice (`gemini-3.8-flash-tts` -> `gemini-3.8-flash-lite-tts`)
- *  3) Native Egyptian Neural Voices (`ar-EG-SalmaNeural` / `ar-EG-ShakirNeural` — unlimited & free)
+ * Main Entry: Synthesizes genuine studio-grade Gemini human Egyptian speech for Shamousa & Falcon.
+ * ZERO robotic voices — uses ONLY authentic Gemini TTS models (`gemini-3.8-flash-tts`, `gemini-3.8-flash-lite-tts`, `gemini-2.5-flash-preview-tts`).
  */
 export async function synthesizePersonaSpeech(
   rawText: string,
@@ -293,18 +249,10 @@ export async function synthesizePersonaSpeech(
   const cached = getCache(cacheKey);
   if (cached) return cached;
 
-  // Tier 1: Gemini 3.8 flagship expressive Egyptian voice
   const geminiAudio = await synthesizeWithGeminiTts(text, persona);
   if (geminiAudio) {
     putCache(cacheKey, geminiAudio);
     return geminiAudio;
-  }
-
-  // Tier 2: Unlimited native Egyptian neural voices (Salma / Shakir)
-  const egyptianNeural = await synthesizeWithEgyptianNeuralTts(text, persona);
-  if (egyptianNeural) {
-    putCache(cacheKey, egyptianNeural);
-    return egyptianNeural;
   }
 
   return null;
