@@ -29,6 +29,8 @@ import {
   Globe,
   HelpCircle,
   RotateCcw,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { AlShamsSunIcon, shamousaSearchIconImg, ShamousaMascotAvatar, ShamousaMascotFull } from '../brand/BrandAssets';
 import { authedFetch } from '../../lib/apiClient';
@@ -77,6 +79,8 @@ import {
   buildInstantFallbackExplanation,
   type ShamousaExplainPayload,
 } from '../../services/shamousaOrMemory';
+import { useInstantVoiceDictation } from '../../hooks/useInstantVoiceDictation';
+import { usePersonaSpeech } from '../../hooks/usePersonaSpeech';
 
 export interface ShamousaActionLink {
   label: string;
@@ -825,121 +829,56 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const inputLatestRef = useRef(input);
+  inputLatestRef.current = input;
 
-  // Modern Chat UX additions: Auto-expanding, Voice, Attachments
+  // Modern Chat UX additions: Auto-expanding, Instant Voice, Free TTS, Attachments
   const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
-  const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
-  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [useGoogleSearch, setUseGoogleSearch] = useState(false);
 
   const adjustTextareaHeight = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = Math.min(Math.max(el.scrollHeight, 44), 140) + 'px';
+    el.style.height = Math.min(Math.max(el.scrollHeight, 52), 132) + 'px';
   };
 
-  const startVoiceRecording = async () => {
-    try {
-      if (!navigator?.mediaDevices?.getUserMedia) {
-        setVoiceNotice('المتصفح لا يدعم التسجيل الصوتي المباشر.');
-        setTimeout(() => setVoiceNotice(null), 3000);
-        return;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunksRef.current = [];
-      const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : 'audio/ogg';
+  // Instant zero-cost keyboard-speed voice dictation (live into textarea, no scary red banner)
+  const {
+    isListening: isRecordingVoice,
+    isFallbackProcessing: isTranscribingVoice,
+    toggleListening: toggleVoiceRecording,
+    stopListening: stopVoiceRecording,
+  } = useInstantVoiceDictation({
+    getCurrentValue: () => inputLatestRef.current,
+    onTextChange: (nextValue) => {
+      setInput(nextValue);
+      setTimeout(() => adjustTextareaHeight(inputRef.current), 15);
+    },
+    lang: 'ar-EG',
+  });
 
-      const recorder = new MediaRecorder(stream, { mimeType });
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
-        }
-      };
+  // Free built-in Egyptian/Arabic voice speaker (ON by default, toggleable from header)
+  const shamousaSpeech = usePersonaSpeech('shamousa');
+  const lastSpokenMsgIdRef = useRef<string | null>(
+    messages.length > 0 ? messages[messages.length - 1].id : null
+  );
 
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        setIsRecordingVoice(false);
-
-        if (audioChunksRef.current.length === 0) return;
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        audioChunksRef.current = [];
-
-        setIsTranscribingVoice(true);
-        setVoiceNotice('⏳ جاري تفريغ الصوت وتحويله لكلام مكتوب...');
-
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const rawBase64 = event.target?.result as string;
-          try {
-            const res = await authedFetch('/api/ai/transcribe-audio', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ audioBase64: rawBase64, mimeType }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.text && data.text.trim()) {
-                setInput((prev) => {
-                  const cleanPrev = prev.trim();
-                  const newText = data.text.trim();
-                  const merged = cleanPrev ? `${cleanPrev} ${newText}` : newText;
-                  setTimeout(() => adjustTextareaHeight(inputRef.current), 50);
-                  return merged;
-                });
-                setVoiceNotice('✓ تم تفريغ الصوت بنجاح');
-                setTimeout(() => setVoiceNotice(null), 2000);
-              } else {
-                setVoiceNotice(null);
-              }
-            } else {
-              setVoiceNotice(null);
-            }
-          } catch (err) {
-            console.warn('Transcription error:', err);
-            setVoiceNotice(null);
-          } finally {
-            setIsTranscribingVoice(false);
-          }
-        };
-        reader.readAsDataURL(audioBlob);
-      };
-
-      mediaRecorderRef.current = recorder;
-      recorder.start(250);
-      setIsRecordingVoice(true);
-      setVoiceNotice('🔴 جاري التسجيل الصوتي... تحدث بحرية ثم انقر على الميكروفون للإيقاف والتفريغ');
-    } catch (err: any) {
-      console.warn('Microphone error in Shamousa:', err);
-      setIsRecordingVoice(false);
-      setVoiceNotice('يرجى السماح بالوصول للميكروفون للتسجيل.');
-      setTimeout(() => setVoiceNotice(null), 3000);
+  // Auto-read every new Shamousa reply when speaker is ON
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'chat') {
+      shamousaSpeech.stop();
+      if (!isOpen) stopVoiceRecording();
+      return;
     }
-  };
-
-  const stopVoiceRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {}
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant') return;
+    if (lastSpokenMsgIdRef.current === last.id) return;
+    lastSpokenMsgIdRef.current = last.id;
+    if (shamousaSpeech.isEnabled) {
+      shamousaSpeech.speak(last.content);
     }
-    setIsRecordingVoice(false);
-  };
-
-  const toggleVoiceRecording = () => {
-    if (isRecordingVoice) {
-      stopVoiceRecording();
-    } else {
-      startVoiceRecording();
-    }
-  };
+  }, [messages, isOpen, activeTab, shamousaSpeech.isEnabled]);
 
   const handleAttachmentSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -2205,24 +2144,54 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             </button>
 
             {/* 3 Raised 3D Buttons: مهام / نتائج / بحوث */}
-            <div className="flex items-center justify-center gap-2 sm:gap-3 flex-1 min-w-0">
+            <div className="flex items-center justify-center gap-1.5 sm:gap-3 flex-1 min-w-0">
               {renderRaisedSilverBtn('tasks_agenda', aiCfg.shamousaBtnTasks, totalPendingBadge)}
               {renderRaisedSilverBtn('results', aiCfg.shamousaBtnResults)}
               {renderRaisedSilverBtn('or360', aiCfg.shamousaBtnOR)}
             </div>
 
-            {/* Clean Close Button */}
-            <button
-              type="button"
-              onClick={() => {
-                playButtonClickSound();
-                setIsOpen(false);
-              }}
-              aria-label="إغلاق"
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#FBF7F0] dark:bg-[#132960] hover:bg-[#E1D4BE] dark:hover:bg-[#1B377D] border border-[#D5C7B0] dark:border-[#2C488D] text-[#1C2434] dark:text-[#E2E8F0] flex items-center justify-center shrink-0 transition cursor-pointer active:scale-95"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {/* Free Speaker Toggle + Clean Close Button */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {shamousaSpeech.isSupported && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    shamousaSpeech.toggleEnabled();
+                  }}
+                  aria-label={shamousaSpeech.isEnabled ? 'إيقاف صوت شموسة' : 'تشغيل صوت شموسة'}
+                  aria-pressed={shamousaSpeech.isEnabled}
+                  title={shamousaSpeech.isEnabled ? 'صوت شموسة شغّال — اضغط لكتمه' : 'صوت شموسة مكتوم — اضغط لتشغيله'}
+                  className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full border flex items-center justify-center shrink-0 transition cursor-pointer active:scale-95 ${
+                    shamousaSpeech.isEnabled
+                      ? shamousaSpeech.isSpeaking
+                        ? 'bg-[#142A5C] dark:bg-[#24489C] border-[#60A5FA] text-white shadow-[0_0_12px_rgba(96,165,250,0.65)] animate-pulse'
+                        : 'bg-[#FBF7F0] dark:bg-[#16306B] border-[#142A5C]/40 dark:border-[#4F74C9] text-[#142A5C] dark:text-[#DCE8FF] shadow-xs'
+                      : 'bg-[#FBF7F0]/70 dark:bg-[#102350] border-[#D5C7B0] dark:border-[#243C78] text-[#94A3B8] dark:text-[#64748B]'
+                  }`}
+                >
+                  {shamousaSpeech.isEnabled ? (
+                    <Volume2 className="w-4 h-4" />
+                  ) : (
+                    <VolumeX className="w-4 h-4" />
+                  )}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  playButtonClickSound();
+                  shamousaSpeech.stop();
+                  stopVoiceRecording();
+                  setIsOpen(false);
+                }}
+                aria-label="إغلاق"
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#FBF7F0] dark:bg-[#132960] hover:bg-[#E1D4BE] dark:hover:bg-[#1B377D] border border-[#D5C7B0] dark:border-[#2C488D] text-[#1C2434] dark:text-[#E2E8F0] flex items-center justify-center shrink-0 transition cursor-pointer active:scale-95"
+              >
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+            </div>
           </header>
 
           {/* شريط تلميح رفيع من سطر واحد يظهر لثانيتين فقط بدون حجب الشاشة */}
@@ -2347,11 +2316,34 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                           </div>
                         )}
                         {renderText(m.content)}
-                        {(m.searchUsed || (m.sources && m.sources.length > 0)) && (
+                        {m.role === 'assistant' && shamousaSpeech.isSupported && (
+                          <div className="mt-1.5 flex items-center justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (shamousaSpeech.isSpeaking) {
+                                  shamousaSpeech.stop();
+                                } else {
+                                  if (!shamousaSpeech.isEnabled) shamousaSpeech.toggleEnabled();
+                                  shamousaSpeech.speak(m.content);
+                                }
+                              }}
+                              title={shamousaSpeech.isSpeaking ? 'إيقاف القراءة' : 'اسمع الرد بصوت شموسة'}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg text-[#64748B] dark:text-[#94A3B8] hover:text-[#142A5C] dark:hover:text-[#DCE8FF] hover:bg-[#EFE6D7] dark:hover:bg-[#13285C] transition cursor-pointer"
+                            >
+                              {shamousaSpeech.isSpeaking ? (
+                                <VolumeX className="w-3 h-3" />
+                              ) : (
+                                <Volume2 className="w-3 h-3" />
+                              )}
+                            </button>
+                          </div>
+                        )}
+                        {isSuperAdminAccount && (m.searchUsed || (m.sources && m.sources.length > 0)) && (
                           <div className="mt-2 pt-2 border-t border-[#E3D8C5] dark:border-[#243C78] space-y-1">
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
                               <Globe className="w-3 h-3" />
-                              <span>مدعوم ببحث جوجل الحي</span>
+                              <span>بحث حي مباشر (عرض السوبر أدمن فقط)</span>
                             </span>
                             {m.sources && m.sources.length > 0 && (
                               <div className="flex flex-wrap gap-1 pt-0.5">
@@ -2511,45 +2503,14 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 </div>
               )}
 
-              {/* شريط حالة التسجيل الصوتي والتفريغ */}
-              {(isRecordingVoice || isTranscribingVoice || voiceNotice) && (
-                <div
-                  className={`px-4 py-1.5 border-t flex items-center justify-between text-xs shrink-0 transition-all ${
-                    isRecordingVoice
-                      ? 'bg-rose-500/15 border-rose-500/30 text-rose-700 dark:text-rose-300 animate-pulse'
-                      : isTranscribingVoice
-                      ? 'bg-[#EAE0CE] dark:bg-[#152B62] border-[#CDBEA3] dark:border-[#31509B] text-[#142A5C] dark:text-[#E2E8F0]'
-                      : 'bg-[#EAE0CE] dark:bg-[#0F204D] border-[#D5C7B0] dark:border-[#243C78] text-[#1C2434] dark:text-[#CBD5E1]'
-                  }`}
-                >
-                  <div className="max-w-3xl mx-auto w-full flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      {isRecordingVoice && <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />}
-                      <span className="font-bold">
-                        {voiceNotice ||
-                          (isRecordingVoice ? 'شموسة تسجل صوتك.. اضغط الميكروفون للإيقاف' : '')}
-                      </span>
-                    </div>
-                    {isRecordingVoice && (
-                      <button
-                        type="button"
-                        onClick={stopVoiceRecording}
-                        className="text-[11px] font-black px-2.5 py-0.5 rounded-lg bg-rose-600 text-white cursor-pointer hover:bg-rose-700"
-                      >
-                        إيقاف وتفريغ
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Chat Input Form — Comfortable, Unclipped, Royal Blue / Sandy Beige */}
+              {/* Spacious 2-Tier Chat Composer — Clear Multi-Line Writing Area Above Action Icons */}
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
+                  stopVoiceRecording();
                   send(input);
                 }}
-                className="px-3 sm:px-5 py-2.5 sm:py-3 border-t border-[#D5C7B0] dark:border-[#223B78] bg-[#EAE0CE] dark:bg-[#0C1D47] shrink-0"
+                className="px-3 sm:px-5 py-2 sm:py-2.5 border-t border-[#D5C7B0] dark:border-[#223B78] bg-[#EAE0CE] dark:bg-[#0C1D47] shrink-0"
               >
                 <input
                   type="file"
@@ -2559,89 +2520,101 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   className="hidden"
                 />
 
-                <div className="max-w-3xl mx-auto flex items-end gap-1.5 sm:gap-2">
-                  {/* زر المرفقات */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    title="إرفاق فاتورة أو صورة"
-                    className="w-10 h-10 rounded-xl bg-[#FBF7F0] dark:bg-[#122657] border border-[#D5C7B0] dark:border-[#2A468B] text-[#475569] dark:text-[#CBD5E1] hover:text-[#142A5C] dark:hover:text-white flex items-center justify-center transition cursor-pointer shrink-0"
-                  >
-                    <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
-                  </button>
-
-                  {/* زر التسجيل الصوتي */}
-                  <button
-                    type="button"
-                    onClick={toggleVoiceRecording}
-                    title={isRecordingVoice ? 'إيقاف التسجيل' : 'تسجيل صوتي'}
-                    className={`w-10 h-10 rounded-xl border flex items-center justify-center transition cursor-pointer shrink-0 ${
-                      isRecordingVoice
-                        ? 'bg-rose-600 border-rose-500 text-white shadow-md animate-pulse'
-                        : isTranscribingVoice
-                        ? 'bg-[#142A5C] border-[#2C4B94] text-white animate-spin'
-                        : 'bg-[#FBF7F0] dark:bg-[#122657] border-[#D5C7B0] dark:border-[#2A468B] text-[#475569] dark:text-[#CBD5E1] hover:text-[#142A5C] dark:hover:text-white'
-                    }`}
-                  >
-                    {isRecordingVoice ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5" />}
-                  </button>
-
-                  {/* زر بحث جوجل الحي بأيقونة شموسة */}
-                  <button
-                    type="button"
-                    onClick={() => setUseGoogleSearch((v) => !v)}
-                    title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل' : 'تفعيل بحث جوجل الحي'}
-                    aria-pressed={useGoogleSearch}
-                    className={`w-10 h-10 rounded-xl border transition-all cursor-pointer shrink-0 flex items-center justify-center ${
-                      useGoogleSearch
-                        ? 'bg-emerald-500 border-emerald-400 text-white shadow-[0_0_14px_rgba(16,185,129,0.65)]'
-                        : 'bg-[#FBF7F0] dark:bg-[#122657] border-[#D5C7B0] dark:border-[#2A468B] hover:border-[#142A5C]'
-                    }`}
-                  >
-                    <img
-                      src={shamousaSearchIconImg}
-                      alt="بحث شموسة"
-                      draggable={false}
-                      className="w-6 h-6 sm:w-7 sm:h-7 object-contain select-none pointer-events-none"
-                    />
-                  </button>
-
-                  {/* مربع النص المتمدد بدون قص للنص أو Placeholder */}
-                  <div className="flex-1 min-w-0">
-                    <textarea
-                      ref={inputRef}
-                      value={input}
-                      onChange={(e) => {
-                        setInput(e.target.value);
-                        adjustTextareaHeight(e.target);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                          e.preventDefault();
-                          send(input);
-                        }
-                      }}
-                      rows={1}
-                      maxLength={1000}
-                      placeholder={
-                        useGoogleSearch
-                          ? 'البحث الحي شغّال 🟢 اسأل عن أي أسعار أو موردين...'
-                          : aiCfg.shamousaChatPlaceholder
+                <div className="max-w-3xl mx-auto rounded-2xl border border-[#CDBEA3] dark:border-[#2E4C94] bg-[#FBF7F0] dark:bg-[#091533] focus-within:ring-2 focus-within:ring-[#1E3F8A] dark:focus-within:ring-[#60A5FA] transition shadow-xs overflow-hidden">
+                  {/* Top Tier: Full-Width 2-Line Clear Textarea */}
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => {
+                      setInput(e.target.value);
+                      adjustTextareaHeight(e.target);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        stopVoiceRecording();
+                        send(input);
                       }
-                      className="w-full min-h-[42px] resize-none max-h-36 overflow-y-auto px-3.5 py-2.5 rounded-xl border border-[#CDBEA3] dark:border-[#2E4C94] bg-[#FBF7F0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] placeholder:text-[#64748B] dark:placeholder:text-[#94A3B8] text-sm outline-none focus:ring-2 focus:ring-[#1E3F8A] dark:focus:ring-[#60A5FA] leading-normal block"
-                    />
-                  </div>
+                    }}
+                    rows={2}
+                    maxLength={1000}
+                    placeholder={
+                      useGoogleSearch
+                        ? 'اسأل شموسة عن أحدث أسعار السوق والخامات...'
+                        : aiCfg.shamousaChatPlaceholder
+                    }
+                    className="w-full min-h-[52px] max-h-32 resize-none overflow-y-auto px-3.5 pt-2.5 pb-1 bg-transparent text-[#1C2434] dark:text-[#F1F5F9] placeholder:text-[#64748B] dark:placeholder:text-[#94A3B8] text-[13px] sm:text-sm leading-relaxed outline-none block"
+                  />
 
-                  {/* زر الإرسال */}
-                  <button
-                    type="submit"
-                    disabled={(!input.trim() && !pendingAttachment) || isLoading}
-                    aria-label="إرسال"
-                    title="إرسال (Ctrl+Enter)"
-                    className="w-10 h-10 shrink-0 rounded-xl bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#24489C] dark:hover:bg-[#2F59BD] disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-md active:scale-95 cursor-pointer"
-                  >
-                    <ArrowUp className="w-5 h-5 stroke-[2.5]" />
-                  </button>
+                  {/* Bottom Tier: Clean Compact Action Bar */}
+                  <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
+                    <div className="flex items-center gap-1.5">
+                      {/* زر المرفقات */}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="إرفاق فاتورة أو صورة"
+                        className="w-8 h-8 rounded-xl bg-[#EFE6D7] dark:bg-[#122657] border border-[#D5C7B0] dark:border-[#2A468B] text-[#475569] dark:text-[#CBD5E1] hover:text-[#142A5C] dark:hover:text-white flex items-center justify-center transition cursor-pointer shrink-0"
+                      >
+                        <Paperclip className="w-4 h-4" />
+                      </button>
+
+                      {/* زر التسجيل الصوتي الفوري — ينوّر أحمر بهدوء أثناء الكلام ويكتب فوراً */}
+                      <button
+                        type="button"
+                        onClick={toggleVoiceRecording}
+                        aria-pressed={isRecordingVoice}
+                        title={isRecordingVoice ? 'إيقاف الميكروفون' : 'تحدث بصوتك ليتحول لكتابة فوراً'}
+                        className={`relative w-8 h-8 rounded-xl border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                          isRecordingVoice
+                            ? 'bg-rose-600 border-rose-500 text-white shadow-[0_0_12px_rgba(225,29,72,0.55)] ring-2 ring-rose-400/40'
+                            : isTranscribingVoice
+                            ? 'bg-[#142A5C] border-[#2C4B94] text-white animate-pulse'
+                            : 'bg-[#EFE6D7] dark:bg-[#122657] border-[#D5C7B0] dark:border-[#2A468B] text-[#475569] dark:text-[#CBD5E1] hover:text-[#142A5C] dark:hover:text-white'
+                        }`}
+                      >
+                        {isRecordingVoice && (
+                          <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-rose-300 animate-ping pointer-events-none" />
+                        )}
+                        {isRecordingVoice ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                      </button>
+
+                      {/* زر البحث الذكي المباشر بأيقونة شموسة */}
+                      <button
+                        type="button"
+                        onClick={() => setUseGoogleSearch((v) => !v)}
+                        title={
+                          useGoogleSearch
+                            ? 'البحث الذكي المباشر مُفعّل'
+                            : 'تفعيل البحث الذكي المباشر للأسعار والسوق'
+                        }
+                        aria-pressed={useGoogleSearch}
+                        className={`w-8 h-8 rounded-xl border transition-all cursor-pointer shrink-0 flex items-center justify-center ${
+                          useGoogleSearch
+                            ? 'bg-emerald-500 border-emerald-400 text-white shadow-[0_0_12px_rgba(16,185,129,0.65)]'
+                            : 'bg-[#EFE6D7] dark:bg-[#122657] border-[#D5C7B0] dark:border-[#2A468B] hover:border-[#142A5C]'
+                        }`}
+                      >
+                        <img
+                          src={shamousaSearchIconImg}
+                          alt="البحث المباشر"
+                          draggable={false}
+                          className="w-5 h-5 object-contain select-none pointer-events-none"
+                        />
+                      </button>
+                    </div>
+
+                    {/* زر الإرسال */}
+                    <button
+                      type="submit"
+                      disabled={(!input.trim() && !pendingAttachment) || isLoading}
+                      aria-label="إرسال"
+                      title="إرسال (Ctrl+Enter)"
+                      className="w-9 h-8 shrink-0 rounded-xl bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#24489C] dark:hover:bg-[#2F59BD] disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-sm active:scale-95 cursor-pointer"
+                    >
+                      <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                    </button>
+                  </div>
                 </div>
 
                 {remaining !== null && (

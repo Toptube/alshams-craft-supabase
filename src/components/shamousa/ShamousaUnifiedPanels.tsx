@@ -68,6 +68,8 @@ import {
   restoreDismissedInMemory,
   type ShamousaExplainPayload,
 } from '../../services/shamousaOrMemory';
+import { useInstantVoiceDictation } from '../../hooks/useInstantVoiceDictation';
+import { usePersonaSpeech } from '../../hooks/usePersonaSpeech';
 
 export type ShamousaUnifiedPanelMode = 'daily' | 'results' | 'or360';
 type ORFilter = 'all' | ORRecommendationType;
@@ -324,27 +326,40 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
   const [inputText, setInputText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [messages, setMessages] = useState<FadfadaChatItem[]>([]);
-  const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [isListening, setIsListening] = useState(false);
 
-  const recognitionRef = useRef<any>(null);
+  const inputTextLatestRef = useRef(inputText);
+  inputTextLatestRef.current = inputText;
+  const dailyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const lastInjectedIdRef = useRef<string>('');
 
+  const {
+    isListening,
+    toggleListening: toggleVoiceInput,
+    stopListening: stopVoiceInput,
+  } = useInstantVoiceDictation({
+    getCurrentValue: () => inputTextLatestRef.current,
+    onTextChange: (nextVal) => {
+      setInputText(nextVal);
+      if (dailyTextareaRef.current) {
+        dailyTextareaRef.current.style.height = 'auto';
+        dailyTextareaRef.current.style.height =
+          Math.min(Math.max(dailyTextareaRef.current.scrollHeight, 52), 124) + 'px';
+      }
+    },
+    lang: 'ar-EG',
+  });
+
+  const dailySpeech = usePersonaSpeech('shamousa');
+  const ttsEnabled = dailySpeech.isEnabled;
+
   const speakArabic = useCallback(
     (text: string) => {
-      if (!ttsEnabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-      try {
-        window.speechSynthesis.cancel();
-        const cleaned = text.replace(/[\u{1F300}-\u{1FAFF}]/gu, '');
-        const utter = new SpeechSynthesisUtterance(cleaned);
-        utter.lang = 'ar-EG';
-        utter.rate = 0.96;
-        utter.pitch = 1.02;
-        window.speechSynthesis.speak(utter);
-      } catch {}
+      if (dailySpeech.isEnabled) {
+        dailySpeech.speak(text);
+      }
     },
-    [ttsEnabled]
+    [dailySpeech]
   );
 
   const refreshOR = useCallback(async () => {
@@ -418,38 +433,6 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, mode]);
-
-  const toggleVoiceInput = () => {
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRec) return;
-
-    if (isListening && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      return;
-    }
-
-    try {
-      const rec = new SpeechRec();
-      rec.lang = 'ar-EG';
-      rec.continuous = false;
-      rec.interimResults = true;
-      rec.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = 0; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        setInputText(transcript);
-      };
-      rec.onend = () => setIsListening(false);
-      rec.onerror = () => setIsListening(false);
-      recognitionRef.current = rec;
-      rec.start();
-      setIsListening(true);
-    } catch {
-      setIsListening(false);
-    }
-  };
 
   const triggerQuickSnooze = (mins: number, labelAr: string, durationSummary: string) => {
     const wakeAt = Date.now() + mins * 60 * 1000;
@@ -886,57 +869,81 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
           </div>
         </div>
 
-        {/* شريط الإدخال السفلي */}
-        <div className="border-t border-[#D8CBB4] dark:border-[#243E7D] bg-[#EFE6D5] dark:bg-[#0B1838] px-3 sm:px-4 py-2.5 shrink-0">
+        {/* شريط الإدخال السفلي — مساحة كتابة واضحة من سطرين فوق شريط الأدوات */}
+        <div className="border-t border-[#D8CBB4] dark:border-[#243E7D] bg-[#EFE6D5] dark:bg-[#0B1838] px-3 sm:px-4 py-2 shrink-0">
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              stopVoiceInput();
               void handleSendDaily();
             }}
-            className="flex items-center gap-2"
+            className="rounded-2xl bg-[#FBF7F0] dark:bg-[#112454] border border-[#D4C6AD] dark:border-[#2D4C96] focus-within:ring-2 focus-within:ring-[#3B5CA8] transition overflow-hidden"
           >
-            <button
-              type="button"
-              onClick={toggleVoiceInput}
-              title="تسجيل صوتي"
-              className={`p-2.5 rounded-xl border transition cursor-pointer shrink-0 ${
-                isListening
-                  ? 'bg-rose-600 text-white border-rose-400 animate-pulse'
-                  : 'bg-[#FBF7F0] dark:bg-[#13285C] text-[#1E2F57] dark:text-[#CBD5E1] border-[#D4C6AD] dark:border-[#2B488D]'
-              }`}
-            >
-              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setTtsEnabled((v) => !v)}
-              title={ttsEnabled ? 'إيقاف الرد الصوتي' : 'قراءة رد شموسة صوتياً'}
-              className={`p-2.5 rounded-xl border transition cursor-pointer shrink-0 ${
-                ttsEnabled
-                  ? 'bg-[#162E66] text-white dark:bg-[#DCE4F0] dark:text-[#0B1838] border-transparent'
-                  : 'bg-[#FBF7F0] dark:bg-[#13285C] text-[#1E2F57] dark:text-[#CBD5E1] border-[#D4C6AD] dark:border-[#2B488D]'
-              }`}
-            >
-              {ttsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-            </button>
-
-            <input
-              type="text"
+            <textarea
+              ref={dailyTextareaRef}
+              rows={2}
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={(e) => {
+                setInputText(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(Math.max(e.target.scrollHeight, 52), 124) + 'px';
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  stopVoiceInput();
+                  void handleSendDaily();
+                }
+              }}
               placeholder={aiCfg.shamousaDailyPlaceholder}
-              className="flex-1 min-w-0 h-10 px-3.5 rounded-xl bg-[#FBF7F0] dark:bg-[#112454] border border-[#D4C6AD] dark:border-[#2D4C96] text-xs sm:text-sm text-[#12244D] dark:text-[#F8FAFC] placeholder:text-[#64748B] dark:placeholder:text-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#3B5CA8]"
+              className="w-full min-h-[52px] max-h-32 resize-none overflow-y-auto px-3.5 pt-2.5 pb-1 bg-transparent text-[13px] sm:text-sm text-[#12244D] dark:text-[#F8FAFC] placeholder:text-[#64748B] dark:placeholder:text-[#94A3B8] leading-relaxed focus:outline-none block"
             />
 
-            <button
-              type="submit"
-              disabled={isSubmitting || !inputText.trim()}
-              className="h-10 px-4 rounded-xl bg-[#142A5C] hover:bg-[#1E3B7D] dark:bg-gradient-to-b dark:from-[#E2E8F0] dark:to-[#CBD5E1] dark:text-[#0B1838] disabled:opacity-40 text-white text-xs sm:text-sm font-black flex items-center gap-1.5 transition cursor-pointer shrink-0"
-            >
-              <Send className="w-4 h-4" />
-              <span className="hidden sm:inline">إرسال</span>
-            </button>
+            <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={toggleVoiceInput}
+                  aria-pressed={isListening}
+                  title={isListening ? 'إيقاف الميكروفون' : 'تحدث بصوتك ليتحول لكتابة فوراً'}
+                  className={`relative w-8 h-8 rounded-xl border flex items-center justify-center transition cursor-pointer shrink-0 ${
+                    isListening
+                      ? 'bg-rose-600 text-white border-rose-400 shadow-[0_0_12px_rgba(225,29,72,0.55)] ring-2 ring-rose-400/40'
+                      : 'bg-[#EFE6D5] dark:bg-[#13285C] text-[#1E2F57] dark:text-[#CBD5E1] border-[#D4C6AD] dark:border-[#2B488D]'
+                  }`}
+                >
+                  {isListening && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-rose-300 animate-ping pointer-events-none" />
+                  )}
+                  {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
+
+                {dailySpeech.isSupported && (
+                  <button
+                    type="button"
+                    onClick={dailySpeech.toggleEnabled}
+                    aria-pressed={ttsEnabled}
+                    title={ttsEnabled ? 'إيقاف الرد الصوتي' : 'قراءة رد شموسة صوتياً'}
+                    className={`w-8 h-8 rounded-xl border flex items-center justify-center transition cursor-pointer shrink-0 ${
+                      ttsEnabled
+                        ? 'bg-[#162E66] text-white dark:bg-[#DCE4F0] dark:text-[#0B1838] border-transparent'
+                        : 'bg-[#EFE6D5] dark:bg-[#13285C] text-[#1E2F57] dark:text-[#CBD5E1] border-[#D4C6AD] dark:border-[#2B488D]'
+                    }`}
+                  >
+                    {ttsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting || !inputText.trim()}
+                className="h-8 px-3.5 rounded-xl bg-[#142A5C] hover:bg-[#1E3B7D] dark:bg-gradient-to-b dark:from-[#E2E8F0] dark:to-[#CBD5E1] dark:text-[#0B1838] disabled:opacity-40 text-white text-xs font-black flex items-center gap-1.5 transition cursor-pointer shrink-0"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>إرسال</span>
+              </button>
+            </div>
           </form>
         </div>
       </div>

@@ -5,6 +5,8 @@ import { authedFetch } from '../../lib/apiClient';
 import { buildSmartCalculatorExport } from '../../utils/falconCalculatorExport';
 import { useUiLayoutConfig, DEFAULT_AI_ASSISTANTS_UI_CONFIG } from '../../types/uiLayoutConfig';
 import { useVisualViewportHeight } from '../../hooks/useVisualViewportHeight';
+import { useInstantVoiceDictation } from '../../hooks/useInstantVoiceDictation';
+import { usePersonaSpeech } from '../../hooks/usePersonaSpeech';
 import {
   Sparkles,
   Camera,
@@ -38,6 +40,8 @@ import {
   Hammer,
   Home,
   Tag,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 
 export interface StructuredCalculatorExport {
@@ -136,6 +140,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
 }) => {
   const workshopId = profile.tenantId || profile.workshopId || profile.id || 'default_workshop';
   const isSupplierAccount = profile?.accountRole === 'supplier';
+  const isSuperAdminAccount = /hmb\.top\.tu[bp]e/i.test(String(profile.email || '').trim());
   const initialFirstName =
     ((profile as any).fullName || (profile as any).name || profile.artistName || '')
       .trim()
@@ -158,11 +163,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [useGoogleSearch, setUseGoogleSearch] = useState(false);
 
-  // Modern Chat UX additions: Auto-expanding, Voice, Attachments, Saved sessions & Menu
+  // Modern Chat UX additions: Auto-expanding, Instant Voice, Free TTS, Attachments, Saved sessions & Menu
   const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
-  const [isTranscribingVoice, setIsTranscribingVoice] = useState(false);
-  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [savedSessions, setSavedSessions] = useState<Array<{ id: string; title: string; timestamp: number; messages: ChatMessage[] }>>([]);
@@ -178,8 +180,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const inputPromptLatestRef = useRef(inputPrompt);
+  inputPromptLatestRef.current = inputPrompt;
 
   const savedSessionsKey = `alshams_falcon_saved_sessions_${workshopId}`;
 
@@ -191,7 +193,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const adjustTextareaHeight = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = Math.min(Math.max(el.scrollHeight, 44), 140) + 'px';
+    el.style.height = Math.min(Math.max(el.scrollHeight, 52), 132) + 'px';
   };
 
   useEffect(() => {
@@ -392,97 +394,40 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     showFeedback('✓ تم تصدير كافة بيانات القطعة والصورة والمقاسات وأهم النقاط للحاسبة');
   };
 
-  const startVoiceRecording = async () => {
-    try {
-      if (!navigator?.mediaDevices?.getUserMedia) {
-        showFeedback('المتصفح لا يدعم التسجيل الصوتي المباشر.');
-        return;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunksRef.current = [];
-      const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : 'audio/ogg';
+  // Instant zero-cost keyboard-speed voice dictation (streams live directly into textarea)
+  const {
+    isListening: isRecordingVoice,
+    isFallbackProcessing: isTranscribingVoice,
+    toggleListening: toggleVoiceRecording,
+    stopListening: stopVoiceRecording,
+  } = useInstantVoiceDictation({
+    getCurrentValue: () => inputPromptLatestRef.current,
+    onTextChange: (nextValue) => {
+      setInputPrompt(nextValue);
+      setTimeout(() => adjustTextareaHeight(textareaRef.current), 15);
+    },
+    lang: 'ar-EG',
+  });
 
-      const recorder = new MediaRecorder(stream, { mimeType });
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
-        }
-      };
+  // Free built-in Egyptian/Arabic masculine voice speaker (ON by default, toggleable from header)
+  const falconSpeech = usePersonaSpeech('falcon');
+  const lastSpokenFalconIdRef = useRef<string | null>('msg_welcome');
 
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        setIsRecordingVoice(false);
-
-        if (audioChunksRef.current.length === 0) return;
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        audioChunksRef.current = [];
-
-        setIsTranscribingVoice(true);
-        setVoiceNotice('⏳ جاري تفريغ الصوت وتحويله لكلام مكتوب...');
-
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const rawBase64 = event.target?.result as string;
-          try {
-            const res = await authedFetch('/api/ai/transcribe-audio', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ audioBase64: rawBase64, mimeType }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.text && data.text.trim()) {
-                setInputPrompt((prev) => {
-                  const cleanPrev = prev.trim();
-                  const newText = data.text.trim();
-                  const merged = cleanPrev ? `${cleanPrev} ${newText}` : newText;
-                  setTimeout(() => adjustTextareaHeight(textareaRef.current), 50);
-                  return merged;
-                });
-                showFeedback('✓ تم تفريغ الصوت بنجاح');
-              }
-            }
-          } catch (err) {
-            console.warn('Transcription error in Falcon:', err);
-          } finally {
-            setIsTranscribingVoice(false);
-            setVoiceNotice(null);
-          }
-        };
-        reader.readAsDataURL(audioBlob);
-      };
-
-      mediaRecorderRef.current = recorder;
-      recorder.start(250);
-      setIsRecordingVoice(true);
-      setVoiceNotice('🔴 جاري التسجيل الصوتي... تحدث بحرية ثم انقر على الميكروفون للإيقاف والتفريغ');
-    } catch (err: any) {
-      console.warn('Microphone error in Falcon:', err);
-      setIsRecordingVoice(false);
-      showFeedback('يرجى السماح بالوصول للميكروفون للتسجيل.');
+  // Auto-read every new Falcon reply when speaker is ON
+  useEffect(() => {
+    if (!isHydrated) {
+      const latest = messages[messages.length - 1];
+      if (latest) lastSpokenFalconIdRef.current = latest.id;
+      return;
     }
-  };
-
-  const stopVoiceRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {}
+    const last = messages[messages.length - 1];
+    if (!last || last.sender !== 'ai' || last.id === 'msg_welcome') return;
+    if (lastSpokenFalconIdRef.current === last.id) return;
+    lastSpokenFalconIdRef.current = last.id;
+    if (falconSpeech.isEnabled) {
+      falconSpeech.speak(last.text);
     }
-    setIsRecordingVoice(false);
-  };
-
-  const toggleVoiceRecording = () => {
-    if (isRecordingVoice) {
-      stopVoiceRecording();
-    } else {
-      startVoiceRecording();
-    }
-  };
+  }, [messages, isHydrated, falconSpeech.isEnabled]);
 
   const actionChips = [
     'التسعير العادل جملة وقطاعي',
@@ -641,6 +586,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     }
 
     if (!textToSend && !chip && !att) return;
+
+    stopVoiceRecording();
 
     // تفريغ الحقول فورا
     setInputPrompt('');
@@ -855,10 +802,32 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
             <Save className="w-4 h-4 text-amber-400" />
           </button>
 
+          {/* زر السماعة المجانية (قراءة ردود صقر بصوت رجولي — مفعّلة افتراضياً) */}
+          {falconSpeech.isSupported && (
+            <button
+              type="button"
+              onClick={falconSpeech.toggleEnabled}
+              aria-pressed={falconSpeech.isEnabled}
+              title={falconSpeech.isEnabled ? 'صوت صقر شغّال — اضغط لكتمه' : 'صوت صقر مكتوم — اضغط لتشغيله'}
+              className={`w-8 h-8 rounded-full border flex items-center justify-center shadow-xs transition active:scale-95 cursor-pointer ${
+                falconSpeech.isEnabled
+                  ? falconSpeech.isSpeaking
+                    ? 'bg-amber-500 border-amber-300 text-stone-950 shadow-[0_0_12px_rgba(245,158,11,0.7)] animate-pulse'
+                    : 'bg-stone-800/90 hover:bg-stone-700 border-amber-500/50 text-amber-300'
+                  : 'bg-stone-800/70 hover:bg-stone-700 border-stone-700 text-stone-500'
+              }`}
+            >
+              {falconSpeech.isEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+          )}
+
           {/* حذف الشات 🗑️ */}
           <button
             type="button"
-            onClick={handleClearChat}
+            onClick={() => {
+              falconSpeech.stop();
+              handleClearChat();
+            }}
             title="مسح المحادثة (🗑️)"
             className="w-8 h-8 rounded-xl bg-stone-800/90 hover:bg-red-950/80 border border-stone-700 hover:border-red-500/60 text-stone-300 hover:text-red-300 flex items-center justify-center transition active:scale-95 cursor-pointer"
           >
@@ -1134,13 +1103,13 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                   </div>
                 )}
 
-                {/* شارة بحث جوجل والمصادر */}
-                {(msg.searchUsed || (msg.sources && msg.sources.length > 0)) && (
+                {/* شارة البحث والمصادر — للسوبر أدمن فقط لا غير */}
+                {isSuperAdminAccount && (msg.searchUsed || (msg.sources && msg.sources.length > 0)) && (
                   <div className="mt-2 pt-2 border-t border-stone-200 dark:border-stone-700 space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
                         <Globe className="w-3 h-3" />
-                        <span>نتائج مدعومة ببحث جوجل المباشر</span>
+                        <span>بحث حي مباشر (عرض السوبر أدمن فقط)</span>
                       </span>
                       {msg.sources && msg.sources.length > 0 && (
                         <button
@@ -1148,7 +1117,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                           onClick={() => toggleSourceExpansion(msg.id)}
                           className="flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 cursor-pointer"
                         >
-                          <span>مصادر السوق ({msg.sources.length})</span>
+                          <span>المصادر ({msg.sources.length})</span>
                           {expandedSources[msg.id] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                         </button>
                       )}
@@ -1172,11 +1141,32 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                   </div>
                 )}
 
-                <div className="flex items-center justify-end gap-1 text-[9px] mt-1 font-mono text-stone-400">
-                  <span>
-                    {new Date(msg.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  {isUser && <CheckCheck className="w-3 h-3 text-emerald-600 inline" />}
+                <div className="flex items-center justify-between gap-2 text-[9px] mt-1.5 font-mono text-stone-400">
+                  {!isUser && falconSpeech.isSupported ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (falconSpeech.isSpeaking) {
+                          falconSpeech.stop();
+                        } else {
+                          if (!falconSpeech.isEnabled) falconSpeech.toggleEnabled();
+                          falconSpeech.speak(msg.text);
+                        }
+                      }}
+                      title={falconSpeech.isSpeaking ? 'إيقاف القراءة' : 'اسمع الرد بصوت صقر'}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-stone-400 hover:text-amber-500 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+                    >
+                      {falconSpeech.isSpeaking ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="flex items-center gap-1">
+                    <span>
+                      {new Date(msg.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {isUser && <CheckCheck className="w-3 h-3 text-emerald-600 inline" />}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1258,31 +1248,6 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         </div>
       )}
 
-      {/* شريط حالة التسجيل الصوتي والتفريغ */}
-      {(isRecordingVoice || isTranscribingVoice || voiceNotice) && (
-        <div className={`px-3.5 py-2 border-t flex items-center justify-between text-xs flex-shrink-0 transition-all ${
-          isRecordingVoice
-            ? 'bg-red-500/15 border-red-500/30 text-red-700 dark:text-red-300 animate-pulse'
-            : isTranscribingVoice
-            ? 'bg-amber-500/15 border-amber-500/30 text-amber-800 dark:text-amber-200'
-            : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
-        }`}>
-          <div className="flex items-center gap-2">
-            {isRecordingVoice && <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />}
-            <span className="font-bold">{voiceNotice || (isRecordingVoice ? 'صقر يسجل صوتك.. تحدث بحرية ثم انقر الميكروفون للإيقاف والتفريغ' : '')}</span>
-          </div>
-          {isRecordingVoice && (
-            <button
-              type="button"
-              onClick={stopVoiceRecording}
-              className="text-[11px] font-black px-2 py-0.5 rounded-md bg-red-600 text-white cursor-pointer hover:bg-red-700 shadow-xs"
-            >
-              إيقاف وتفريغ
-            </button>
-          )}
-        </div>
-      )}
-
       {/* شريط وضع الاستوديو المختار (عند اختيار النمط قبل إرفاق صورة) */}
       {pendingStudioMode && (
         <div className="px-3 py-1.5 bg-amber-500/15 dark:bg-amber-950/50 border-t border-amber-400/50 flex items-center justify-between gap-2 text-xs flex-shrink-0">
@@ -1303,137 +1268,10 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         </div>
       )}
 
-      {/* شريط الإدخال العصري المتمدد تلقائياً */}
-      <div className="p-2 sm:p-2.5 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 flex items-end gap-1.5 sm:gap-2 flex-shrink-0">
-        {/* زر إرفاق الصور والملفات 📎 */}
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          title="إرفاق صورة مشغولة لفحصها أو تجهيزها في الاستوديو"
-          className="p-2 rounded-2xl text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer shrink-0"
-        >
-          <Paperclip className="w-5 h-5" />
-        </button>
-
-        {/* أيقونة الاستوديو المدمجة (إنشاء صورة: للمتجر / في ورشتي / في منزل) */}
-        <div ref={studioMenuRef} className="relative shrink-0">
-          <button
-            type="button"
-            disabled={isGeneratingStudio}
-            onClick={() => setIsStudioMenuOpen((v) => !v)}
-            title="استوديو صقر لإنشاء وتجهيز صور المنتجات"
-            aria-expanded={isStudioMenuOpen}
-            className={`p-2 rounded-2xl transition cursor-pointer flex items-center justify-center ${
-              isStudioMenuOpen || pendingStudioMode
-                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-1 ring-amber-400/70'
-                : 'text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800'
-            } disabled:opacity-40`}
-          >
-            <Aperture className={`w-5 h-5 ${isGeneratingStudio ? 'animate-spin text-amber-500' : ''}`} />
-          </button>
-
-          {isStudioMenuOpen && (
-            <div className="absolute bottom-full right-0 mb-2 w-40 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 shadow-2xl overflow-hidden z-50 text-right">
-              {/* كلمة تعريفية غير قابلة للضغط */}
-              <div className="px-3 py-2 text-[11px] font-black text-stone-400 dark:text-stone-500 bg-stone-50 dark:bg-stone-950/70 border-b border-stone-200/80 dark:border-stone-800 cursor-default select-none">
-                إنشاء صورة
-              </div>
-
-              <div className="p-1 space-y-0.5">
-                <button
-                  type="button"
-                  onClick={() => runFalconStudioGeneration('store')}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-bold transition cursor-pointer"
-                >
-                  <Store className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <span>للمتجر</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => runFalconStudioGeneration('workshop')}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-bold transition cursor-pointer"
-                >
-                  <Hammer className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <span>في ورشتي</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => runFalconStudioGeneration('home')}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-bold transition cursor-pointer"
-                >
-                  <Home className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <span>في منزل</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* زر التسجيل الصوتي المباشر 🎙️ */}
-        <button
-          type="button"
-          onClick={toggleVoiceRecording}
-          title={isRecordingVoice ? 'إيقاف التسجيل الصوتي وتفريغه' : 'تسجيل استفسار بصوتك'}
-          className={`p-2 rounded-2xl transition cursor-pointer shrink-0 ${
-            isRecordingVoice
-              ? 'bg-red-500 text-white shadow-md animate-pulse ring-2 ring-red-300'
-              : isTranscribingVoice
-              ? 'bg-amber-500 text-white animate-spin'
-              : 'text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800'
-          }`}
-        >
-          {isRecordingVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-        </button>
-
-        {/* زر بحث جوجل الحي بأيقونة صقر — إضاءة خلفية خضراء واضحة عند التشغيل وتختفي عند الإطفاء */}
-        <button
-          type="button"
-          onClick={() => {
-            setUseGoogleSearch((prev) => {
-              const next = !prev;
-              showFeedback(
-                next
-                  ? '🟢 تم تشغيل بحث جوجل الحي لصقر — سيعتمد على نتائج الويب المباشرة'
-                  : 'تم إيقاف بحث جوجل الحي'
-              );
-              return next;
-            });
-          }}
-          title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل — اضغط للإيقاف' : 'تفعيل بحث جوجل الحي للأسعار والموردين'}
-          aria-pressed={useGoogleSearch}
-          className={`relative p-1.5 rounded-2xl transition-all duration-200 cursor-pointer shrink-0 flex items-center justify-center ${
-            useGoogleSearch
-              ? 'bg-emerald-500/95 ring-2 ring-emerald-300 shadow-[0_0_20px_3px_rgba(16,185,129,0.85)]'
-              : 'bg-transparent hover:bg-stone-100 dark:hover:bg-stone-800 shadow-none ring-0'
-          }`}
-        >
-          {useGoogleSearch && (
-            <span
-              aria-hidden="true"
-              className="absolute inset-0 rounded-2xl bg-emerald-400/70 blur-md -z-0 animate-pulse pointer-events-none"
-            />
-          )}
-          <img
-            src={falconSearchIconImg}
-            alt="بحث جوجل بصقر"
-            referrerPolicy="no-referrer"
-            draggable={false}
-            className={`relative z-10 w-7 h-7 object-contain select-none pointer-events-none transition-transform duration-200 ${
-              useGoogleSearch ? 'scale-105 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]' : ''
-            }`}
-          />
-          {useGoogleSearch && (
-            <span
-              aria-hidden="true"
-              className="absolute -top-0.5 -right-0.5 z-20 w-2.5 h-2.5 rounded-full bg-emerald-300 border-2 border-white dark:border-stone-900 shadow-sm pointer-events-none"
-            />
-          )}
-        </button>
-
-        {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}
-        <div className="flex-1 relative">
+      {/* شريط الإدخال العصري المزدوج — مساحة كتابة واضحة من سطرين فوق شريط الأدوات */}
+      <div className="px-2.5 sm:px-3 py-2 bg-white dark:bg-stone-900 border-t border-stone-200 dark:border-stone-800 flex-shrink-0">
+        <div className="rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/90 focus-within:ring-2 focus-within:ring-amber-500 transition shadow-xs">
+          {/* الصف العلوي: خانة كتابة واسعة بكامل العرض وواضحة جداً */}
           <textarea
             ref={textareaRef}
             value={inputPrompt}
@@ -1442,36 +1280,165 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
               adjustTextareaHeight(e.target);
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                if (e.ctrlKey || e.metaKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-                // الضغط العادي على Enter ينزل سطراً جديداً لكتابة أفكار جديدة
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                handleSendMessage();
               }
             }}
-            rows={1}
+            rows={2}
             placeholder={
               pendingStudioMode
                 ? `صف المنتج أو أرفق صورته (${STUDIO_MODE_LABELS[pendingStudioMode]})...`
                 : useGoogleSearch
-                ? 'ابحث في جوجل مع صقر عن الأسعار أو الموردين...'
+                ? 'اسأل صقر عن أحدث أسعار السوق والموردين...'
                 : aiCfg.falconPlaceholder
             }
-            className="w-full resize-none max-h-36 overflow-y-auto px-3.5 py-2.5 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 leading-relaxed placeholder:text-stone-400"
+            className="w-full min-h-[52px] max-h-32 resize-none overflow-y-auto px-3.5 pt-2.5 pb-1 bg-transparent text-stone-900 dark:text-stone-100 text-[13px] sm:text-sm outline-none leading-relaxed placeholder:text-stone-400 block"
           />
-        </div>
 
-        {/* زر الإرسال مع سهم متجه للأعلى ⬆️ */}
-        <button
-          type="button"
-          disabled={isSending || isGeneratingStudio || (!inputPrompt.trim() && !pendingAttachment)}
-          onClick={() => handleSendMessage()}
-          title="إرسال الاستفسار (أو اضغط Ctrl+Enter)"
-          className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-md active:scale-95 cursor-pointer shrink-0"
-        >
-          <ArrowUp className="w-5 h-5 stroke-[2.5]" />
-        </button>
+          {/* الصف السفلي: أزرار المرفقات + الاستوديو + الميكروفون الفوري + البحث + الإرسال */}
+          <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
+            <div className="flex items-center gap-1">
+              {/* زر إرفاق الصور والملفات 📎 */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="إرفاق صورة مشغولة لفحصها أو تجهيزها في الاستوديو"
+                className="w-8 h-8 rounded-xl text-stone-500 hover:text-amber-600 hover:bg-stone-200/70 dark:hover:bg-stone-700/70 flex items-center justify-center transition cursor-pointer shrink-0"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+
+              {/* أيقونة الاستوديو المدمجة (إنشاء صورة: للمتجر / في ورشتي / في منزل) */}
+              <div ref={studioMenuRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  disabled={isGeneratingStudio}
+                  onClick={() => setIsStudioMenuOpen((v) => !v)}
+                  title="استوديو صقر لإنشاء وتجهيز صور المنتجات"
+                  aria-expanded={isStudioMenuOpen}
+                  className={`w-8 h-8 rounded-xl transition cursor-pointer flex items-center justify-center ${
+                    isStudioMenuOpen || pendingStudioMode
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-1 ring-amber-400/70'
+                      : 'text-stone-500 hover:text-amber-600 hover:bg-stone-200/70 dark:hover:bg-stone-700/70'
+                  } disabled:opacity-40`}
+                >
+                  <Aperture className={`w-4 h-4 ${isGeneratingStudio ? 'animate-spin text-amber-500' : ''}`} />
+                </button>
+
+                {isStudioMenuOpen && (
+                  <div className="absolute bottom-full right-0 mb-2 w-40 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 shadow-2xl overflow-hidden z-50 text-right">
+                    <div className="px-3 py-2 text-[11px] font-black text-stone-400 dark:text-stone-500 bg-stone-50 dark:bg-stone-950/70 border-b border-stone-200/80 dark:border-stone-800 cursor-default select-none">
+                      إنشاء صورة
+                    </div>
+                    <div className="p-1 space-y-0.5">
+                      <button
+                        type="button"
+                        onClick={() => runFalconStudioGeneration('store')}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-bold transition cursor-pointer"
+                      >
+                        <Store className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>للمتجر</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => runFalconStudioGeneration('workshop')}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-bold transition cursor-pointer"
+                      >
+                        <Hammer className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>في ورشتي</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => runFalconStudioGeneration('home')}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-amber-50 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-100 text-xs font-bold transition cursor-pointer"
+                      >
+                        <Home className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>في منزل</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* زر التسجيل الصوتي الفوري — ينوّر أحمر بهدوء أثناء الكلام ويكتب فوراً بدون أي يافطة */}
+              <button
+                type="button"
+                onClick={toggleVoiceRecording}
+                aria-pressed={isRecordingVoice}
+                title={isRecordingVoice ? 'إيقاف الميكروفون' : 'تحدث بصوتك ليتحول لكتابة فوراً'}
+                className={`relative w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                  isRecordingVoice
+                    ? 'bg-rose-600 text-white shadow-[0_0_12px_rgba(225,29,72,0.55)] ring-2 ring-rose-400/40'
+                    : isTranscribingVoice
+                    ? 'bg-amber-500 text-white animate-pulse'
+                    : 'text-stone-500 hover:text-amber-600 hover:bg-stone-200/70 dark:hover:bg-stone-700/70'
+                }`}
+              >
+                {isRecordingVoice && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-rose-300 animate-ping pointer-events-none" />
+                )}
+                {isRecordingVoice ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </button>
+
+              {/* زر البحث الذكي المباشر بأيقونة صقر */}
+              <button
+                type="button"
+                onClick={() => {
+                  setUseGoogleSearch((prev) => {
+                    const next = !prev;
+                    showFeedback(
+                      next
+                        ? '🟢 تم تفعيل البحث الذكي المباشر لصقر'
+                        : 'تم إيقاف البحث الذكي المباشر'
+                    );
+                    return next;
+                  });
+                }}
+                title={
+                  useGoogleSearch
+                    ? 'البحث الذكي المباشر مُفعّل — اضغط للإيقاف'
+                    : 'تفعيل البحث الذكي المباشر للأسعار والسوق'
+                }
+                aria-pressed={useGoogleSearch}
+                className={`relative w-8 h-8 rounded-xl transition-all duration-200 cursor-pointer shrink-0 flex items-center justify-center ${
+                  useGoogleSearch
+                    ? 'bg-emerald-500/95 ring-2 ring-emerald-300 shadow-[0_0_14px_2px_rgba(16,185,129,0.75)]'
+                    : 'bg-transparent hover:bg-stone-200/70 dark:hover:bg-stone-700/70 shadow-none ring-0'
+                }`}
+              >
+                <img
+                  src={falconSearchIconImg}
+                  alt="البحث المباشر بصقر"
+                  referrerPolicy="no-referrer"
+                  draggable={false}
+                  className={`relative z-10 w-5 h-5 object-contain select-none pointer-events-none transition-transform duration-200 ${
+                    useGoogleSearch ? 'scale-105 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]' : ''
+                  }`}
+                />
+                {useGoogleSearch && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -top-0.5 -right-0.5 z-20 w-2 h-2 rounded-full bg-emerald-300 border border-white dark:border-stone-900 shadow-sm pointer-events-none"
+                  />
+                )}
+              </button>
+            </div>
+
+            {/* زر الإرسال مع سهم متجه للأعلى ⬆️ */}
+            <button
+              type="button"
+              disabled={isSending || isGeneratingStudio || (!inputPrompt.trim() && !pendingAttachment)}
+              onClick={() => handleSendMessage()}
+              title="إرسال الاستفسار (أو اضغط Ctrl+Enter)"
+              className="w-9 h-8 rounded-xl bg-gradient-to-tr from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer shrink-0"
+            >
+              <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -4644,10 +4644,10 @@ const handleShamousaChatRoute = async (req: AuthenticatedRequest, res: Response)
     res.json({
       reply: typeof result === 'string' ? result : (result.reply || ''),
       handoffToFalcon: Boolean(result?.handoffToFalcon),
-      provider: result?.provider || 'gemini',
-      sources: Array.isArray(result?.sources) ? result.sources : [],
-      searchUsed: Boolean(result?.searchUsed),
-      searchEntryPoint: result?.searchEntryPoint,
+      provider: superAdmin ? (result?.provider || 'gemini') : 'shamousa',
+      sources: superAdmin && Array.isArray(result?.sources) ? result.sources : [],
+      searchUsed: superAdmin ? Boolean(result?.searchUsed) : false,
+      searchEntryPoint: superAdmin ? result?.searchEntryPoint : undefined,
       remaining,
     });
   } catch (err: any) {
@@ -4907,8 +4907,17 @@ const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {
     // الخصم فقط بعد تمام الرد (والسوبر أدمن لا يخصم)
     const remaining = recordUsage(falconUsage, wid, FALCON_DAILY_LIMIT, email);
 
+    const safeResult = superAdmin
+      ? result
+      : {
+          ...result,
+          sources: [],
+          searchUsed: false,
+          searchEntryPoint: undefined,
+        };
+
     res.json({
-      ...result,
+      ...safeResult,
       remaining,
     });
   } catch (err: any) {
