@@ -401,11 +401,73 @@ export function buildGlobalOverrideKey(elementType: 'button' | 'card', originalT
   return `${elementType}::${normalizeOverrideText(originalText)}`;
 }
 
+export interface AiAssistantsUiConfig {
+  shamousaLauncherName: string;
+  shamousaTabChat: string;
+  shamousaTabDaily: string;
+  shamousaBtnTasks: string;
+  shamousaBtnResults: string;
+  shamousaBtnOR: string;
+  shamousaChatPlaceholder: string;
+  shamousaDailyPlaceholder: string;
+  shamousaDailyDefaultTime: string;
+  shamousaSnoozeFollowupText: string;
+  falconTitle: string;
+  falconPlaceholder: string;
+  falconHandoffBtnLabel: string;
+}
+
+export const DEFAULT_AI_ASSISTANTS_UI_CONFIG: AiAssistantsUiConfig = {
+  shamousaLauncherName: 'شموسة',
+  shamousaTabChat: 'المحادثة الذكية',
+  shamousaTabDaily: 'يومي كان ماشي إزاي',
+  shamousaBtnTasks: 'مهام',
+  shamousaBtnResults: 'نتائج',
+  shamousaBtnOR: 'بحوث',
+  shamousaChatPlaceholder: 'اكتب لشموسة أي حاجة في شغلك...',
+  shamousaDailyPlaceholder: 'احكي لشموسة يومك أو فضفض براحتك...',
+  shamousaDailyDefaultTime: '20:00',
+  shamousaSnoozeFollowupText: 'عدّى الوقت اللي قولت عليه يا {name} 🌙✨ كنت مستنياك.. ها إيه الأخبار دلوقتي؟ يومك كان ماشي إزاي؟',
+  falconTitle: 'صقر الشمساوية',
+  falconPlaceholder: 'اكتب استفسارك لصقر... (Enter لسطر جديد)',
+  falconHandoffBtnLabel: 'استشر صقر الشمساوية 🦅',
+};
+
+export function normalizeAiAssistantsUiConfig(
+  raw?: Partial<AiAssistantsUiConfig> | null
+): AiAssistantsUiConfig {
+  const src = raw || {};
+  const str = (val: unknown, fallback: string) =>
+    typeof val === 'string' && val.trim() ? val.trim() : fallback;
+  const rawTime = typeof src.shamousaDailyDefaultTime === 'string' ? src.shamousaDailyDefaultTime.trim() : '';
+  return {
+    shamousaLauncherName: str(src.shamousaLauncherName, DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaLauncherName),
+    shamousaTabChat: str(src.shamousaTabChat, DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaTabChat),
+    shamousaTabDaily: str(src.shamousaTabDaily, DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaTabDaily),
+    shamousaBtnTasks: str(src.shamousaBtnTasks, DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaBtnTasks),
+    shamousaBtnResults: str(src.shamousaBtnResults, DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaBtnResults),
+    shamousaBtnOR: str(src.shamousaBtnOR, DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaBtnOR),
+    shamousaChatPlaceholder: str(src.shamousaChatPlaceholder, DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaChatPlaceholder),
+    shamousaDailyPlaceholder: str(src.shamousaDailyPlaceholder, DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaDailyPlaceholder),
+    shamousaDailyDefaultTime: /^\d{2}:\d{2}$/.test(rawTime)
+      ? rawTime
+      : DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaDailyDefaultTime,
+    shamousaSnoozeFollowupText: str(
+      src.shamousaSnoozeFollowupText,
+      DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaSnoozeFollowupText
+    ),
+    falconTitle: str(src.falconTitle, DEFAULT_AI_ASSISTANTS_UI_CONFIG.falconTitle),
+    falconPlaceholder: str(src.falconPlaceholder, DEFAULT_AI_ASSISTANTS_UI_CONFIG.falconPlaceholder),
+    falconHandoffBtnLabel: str(src.falconHandoffBtnLabel, DEFAULT_AI_ASSISTANTS_UI_CONFIG.falconHandoffBtnLabel),
+  };
+}
+
 export interface PlatformUiLayoutConfig {
   artisan: RoleUiLayoutConfig;
   supplier: RoleUiLayoutConfig;
   globalElementOverrides?: Record<string, UiGlobalElementOverride>;
   experienceModeConfig?: PlatformExperienceModeConfig;
+  aiAssistantsConfig?: AiAssistantsUiConfig;
   updatedAt?: string;
 }
 
@@ -1065,6 +1127,7 @@ export function normalizeUiLayoutConfig(raw?: Partial<PlatformUiLayoutConfig> | 
     supplier: mergeRoleLayout(raw?.supplier, DEFAULT_SUPPLIER_UI_LAYOUT),
     globalElementOverrides: safeOverrides,
     ...(raw?.experienceModeConfig ? { experienceModeConfig: raw.experienceModeConfig } : {}),
+    aiAssistantsConfig: normalizeAiAssistantsUiConfig(raw?.aiAssistantsConfig),
     updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : undefined,
   };
 }

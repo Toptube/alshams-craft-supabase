@@ -52,6 +52,16 @@ import {
   getExperienceLabelFromConfig,
   type UserExperienceMode,
 } from '../../types/experienceMode';
+import {
+  useUiLayoutConfig,
+  DEFAULT_AI_ASSISTANTS_UI_CONFIG,
+} from '../../types/uiLayoutConfig';
+import {
+  ShamousaUnifiedPanels,
+  playShamousaReminderChime,
+  parseArabicSnoozeRequest,
+} from '../shamousa/ShamousaUnifiedPanels';
+import { loadCompanionPrefs } from '../../services/orEngine';
 
 export interface ShamousaActionLink {
   label: string;
@@ -144,6 +154,7 @@ export interface ShamousaDailyTask {
 export interface ShamousaChatWidgetProps {
   profile: UserProfile;
   onOpenFalcon: () => void;
+  onNavigateView?: (view: string) => void;
   liftUp?: boolean;
   isAnyModalOpen?: boolean;
 }
@@ -525,7 +536,7 @@ export function downloadIcsFile(appointment: {
 function renderText(text: string) {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
     part.startsWith('**') && part.endsWith('**') ? (
-      <strong key={i} className="font-extrabold text-amber-950 dark:text-amber-200">
+      <strong key={i} className="font-extrabold text-[#142A5C] dark:text-[#CBD5E1]">
         {part.slice(2, -2)}
       </strong>
     ) : (
@@ -537,9 +548,12 @@ function renderText(text: string) {
 export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   profile,
   onOpenFalcon,
+  onNavigateView,
   liftUp = false,
   isAnyModalOpen = false,
 }) => {
+  const uiLayout = useUiLayoutConfig();
+  const aiCfg = uiLayout.aiAssistantsConfig || DEFAULT_AI_ASSISTANTS_UI_CONFIG;
   const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
   const storageKey = `shamousa_chat_${workshopId}`;
   const agendaStorageKey = `alshams_agenda_${workshopId || 'default'}`;
@@ -574,9 +588,165 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل المسميات والأذونات المحاسبية الكاملة (**${getModeLabel('wo_issue_voucher')}**، **${getModeLabel('rep_trial_balance')}**، المدين والدائن، والرسوم المتقدمة). وللبحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`;
 
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chat' | 'tasks_agenda'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'daily' | 'tasks_agenda' | 'results' | 'or360'>('chat');
   const conversationStateRef = useRef<ShamousaConversationState>({});
   const customRulesLoadedRef = useRef(false);
+
+  // Orbit & 8:00 PM Daily Auto-Check-in + Snooze state
+  const [orbitTriggerNonce, setOrbitTriggerNonce] = useState(0);
+  const [isGlowingAlert, setIsGlowingAlert] = useState(false);
+  const [dailyCheckinTime, setDailyCheckinTime] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(`shamousa_daily_time_${workshopId}`);
+      if (saved && /^\d{2}:\d{2}$/.test(saved)) return saved;
+    } catch {}
+    return aiCfg.shamousaDailyDefaultTime || '20:00';
+  });
+  const [injectedDailyFollowup, setInjectedDailyFollowup] = useState<{ id: string; text: string } | null>(null);
+  const pendingFollowupAfterOrbitRef = useRef<string | null>(null);
+  const isOpenRef = useRef(isOpen);
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  const snoozeStorageKey = `shamousa_snooze_until_${workshopId}`;
+  const dailyDoneStorageKey = `shamousa_daily_done_${workshopId}`;
+  const dailyRemindedStorageKey = `shamousa_daily_reminded_${workshopId}`;
+
+  // مزامنة وقت الفضفضة اليومي من إعدادات المستخدم
+  useEffect(() => {
+    if (!profile) return;
+    loadCompanionPrefs(profile)
+      .then((p) => {
+        if (p?.fadfada_time && /^\d{2}:\d{2}$/.test(p.fadfada_time)) {
+          setDailyCheckinTime(p.fadfada_time);
+          try {
+            localStorage.setItem(`shamousa_daily_time_${workshopId}`, p.fadfada_time);
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, [profile, workshopId]);
+
+  const handleScheduleSnooze = (wakeAtMs: number, labelAr: string, durationSummary: string) => {
+    try {
+      localStorage.setItem(
+        snoozeStorageKey,
+        JSON.stringify({ wakeAtMs, labelAr, durationSummary })
+      );
+    } catch {}
+  };
+
+  const triggerShamousaAttention = (followupText: string) => {
+    playShamousaReminderChime();
+    if (isOpenRef.current) {
+      setActiveTab('daily');
+      setInjectedDailyFollowup({ id: `fu_${Date.now()}`, text: followupText });
+      return;
+    }
+    pendingFollowupAfterOrbitRef.current = followupText;
+    setIsGlowingAlert(true);
+    setOrbitTriggerNonce((n) => n + 1);
+  };
+
+  const handleOrbitComplete = () => {
+    setIsGlowingAlert(false);
+    const pendingMsg = pendingFollowupAfterOrbitRef.current;
+    pendingFollowupAfterOrbitRef.current = null;
+    setIsOpen(true);
+    setActiveTab('daily');
+    if (pendingMsg) {
+      setInjectedDailyFollowup({ id: `fu_${Date.now()}`, text: pendingMsg });
+    }
+  };
+
+  const handleTestOrbitDemo = () => {
+    const demoText = (aiCfg.shamousaSnoozeFollowupText || DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaSnoozeFollowupText).replace(
+      /\{name\}/g,
+      firstName
+    );
+    setIsOpen(false);
+    setTimeout(() => {
+      pendingFollowupAfterOrbitRef.current = demoText;
+      playShamousaReminderChime();
+      setIsGlowingAlert(true);
+      setOrbitTriggerNonce((n) => n + 1);
+    }, 260);
+  };
+
+  // المجدول الذكي الخلفي: يتابع ميعاد الـ 8 مساءً اليومي + أي تأجيل ("استني ساعة")
+  useEffect(() => {
+    if (!workshopId) return;
+    const checkReminders = () => {
+      const nowMs = Date.now();
+      const todayIso = new Date().toISOString().slice(0, 10);
+
+      // 1) فحص التأجيل المجدول ("استني ساعة" أو ميعاد مخصص)
+      try {
+        const rawSnooze = localStorage.getItem(snoozeStorageKey);
+        if (rawSnooze) {
+          const parsed = JSON.parse(rawSnooze) as {
+            wakeAtMs?: number;
+            labelAr?: string;
+            durationSummary?: string;
+          };
+          if (parsed?.wakeAtMs && nowMs >= parsed.wakeAtMs) {
+            localStorage.removeItem(snoozeStorageKey);
+            const template =
+              aiCfg.shamousaSnoozeFollowupText ||
+              DEFAULT_AI_ASSISTANTS_UI_CONFIG.shamousaSnoozeFollowupText;
+            const comebackMsg = template.replace(/\{name\}/g, firstName);
+            triggerShamousaAttention(comebackMsg);
+            return;
+          }
+          // يوجد تأجيل نشط لم يحن موعده بعد -> لا تقطع شغل المستخدم بالتنبيه اليومي
+          if (parsed?.wakeAtMs && nowMs < parsed.wakeAtMs) {
+            return;
+          }
+        }
+      } catch {}
+
+      // 2) فحص ميعاد الطمأنة اليومي (الافتراضي 20:00 — 8 مساءً)
+      try {
+        const doneDate = localStorage.getItem(dailyDoneStorageKey);
+        const remindedDate = localStorage.getItem(dailyRemindedStorageKey);
+        if (doneDate === todayIso || remindedDate === todayIso) return;
+
+        const targetHHmm = dailyCheckinTime || aiCfg.shamousaDailyDefaultTime || '20:00';
+        const [th, tm] = targetHHmm.split(':').map(Number);
+        if (!Number.isFinite(th) || !Number.isFinite(tm)) return;
+
+        const nowDate = new Date();
+        const currentMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
+        const targetMinutes = th * 60 + tm;
+
+        if (currentMinutes >= targetMinutes) {
+          localStorage.setItem(dailyRemindedStorageKey, todayIso);
+          const eveningGreeting = `مساء الخير يا ${firstName} 🌙✨ جه ميعادنا اليومي سوا! احكيلي يومك في ${
+            isSupplierAccount ? 'المحل والتوريدات' : 'الورشة والشغل'
+          } كان ماشي إزاي؟ ولو مشغول دلوقتي قولي "استني ساعة" وهلفلك وأرجعلك تاني ☀️`;
+          triggerShamousaAttention(eveningGreeting);
+        }
+      } catch {}
+    };
+
+    const initialTimer = window.setTimeout(checkReminders, 4500);
+    const intervalId = window.setInterval(checkReminders, 15000);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(intervalId);
+    };
+  }, [
+    workshopId,
+    dailyCheckinTime,
+    aiCfg.shamousaDailyDefaultTime,
+    aiCfg.shamousaSnoozeFollowupText,
+    firstName,
+    isSupplierAccount,
+    snoozeStorageKey,
+    dailyDoneStorageKey,
+    dailyRemindedStorageKey,
+  ]);
 
   // الاستماع لحدث فتح شموسة من أي مكان في المنظومة
   useEffect(() => {
@@ -1083,7 +1253,9 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   }, [messages, isOpen, isLoading, activeTab]);
 
   const openScreen = (view: string) => {
-    if (typeof window !== 'undefined') {
+    if (onNavigateView) {
+      onNavigateView(view);
+    } else if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view } }));
     }
     setIsOpen(false);
@@ -1513,6 +1685,30 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
+
+    // فحص طلبات التأجيل ("استني ساعة" / "كلميني الساعة 10") حتى داخل المحادثة الرئيسية
+    if (!currentAttachment && message) {
+      const snoozeParsed = parseArabicSnoozeRequest(message);
+      if (snoozeParsed) {
+        handleScheduleSnooze(
+          snoozeParsed.wakeAtMs,
+          snoozeParsed.labelAr,
+          snoozeParsed.durationSummary
+        );
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_snooze_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: `على عيني يا **${firstName}** 🌙✨ هسيبك تكمّل شغلك براحتك، وهلفلك وأرجعلك **${snoozeParsed.labelAr}** برنّة خفيفة نطمن سوا على اليوم!`,
+          },
+        ]);
+        window.setTimeout(() => setIsOpen(false), 1600);
+        return;
+      }
+    }
+
     setIsLoading(true);
 
     if (preIntent) {
@@ -1750,86 +1946,176 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     }
   };
 
+  const toggleHeaderSection = (target: 'tasks_agenda' | 'results' | 'or360') => {
+    playButtonClickSound();
+    setActiveTab((prev) => (prev === target ? 'chat' : target));
+  };
+
+  const renderRaisedSilverBtn = (
+    id: 'tasks_agenda' | 'results' | 'or360',
+    label: string,
+    badgeCount?: number
+  ) => {
+    const isActive = activeTab === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        onClick={() => toggleHeaderSection(id)}
+        aria-pressed={isActive}
+        className={`relative px-3.5 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-black tracking-tight transition-all duration-200 cursor-pointer select-none border ${
+          isActive
+            ? 'bg-gradient-to-b from-[#FFFFFF] via-[#E6ECF5] to-[#BDC9DB] text-[#091533] border-white shadow-[0_0_18px_rgba(235,242,255,0.88),inset_0_1px_2px_rgba(255,255,255,0.98),0_2px_0_#94A3B8] translate-y-[1px]'
+            : 'bg-gradient-to-b from-[#FBF7F0] to-[#E5D8C1] dark:from-[#1A3575] dark:to-[#102350] text-[#1C2434] dark:text-[#E5EDF8] border-[#CDBEA3] dark:border-[#314E96] shadow-[0_3px_0_#C4B395,0_4px_8px_rgba(28,36,52,0.12)] dark:shadow-[0_3px_0_#060E24,0_4px_10px_rgba(0,0,0,0.45)] hover:brightness-105 active:translate-y-[1px]'
+        }`}
+      >
+        <span>{label}</span>
+        {typeof badgeCount === 'number' && badgeCount > 0 && (
+          <span
+            className={`absolute -top-1.5 -left-1.5 min-w-[17px] h-[17px] px-1 rounded-full text-[9px] font-mono font-black flex items-center justify-center shadow-sm border ${
+              isActive
+                ? 'bg-[#142A5C] text-white border-white'
+                : 'bg-rose-600 text-white border-[#F4ECE0] dark:border-[#091533]'
+            }`}
+          >
+            {badgeCount}
+          </span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <>
-      {/* Floating launcher mascot with transparent PNG silhouette */}
+      {/* Floating compact launcher mascot — ONLY ONE Shamousa on screen */}
       {!isOpen && (
-        <DraggableShamosa onClick={() => setIsOpen(true)}>
+        <DraggableShamosa
+          onClick={() => {
+            playButtonClickSound();
+            setIsOpen(true);
+            setActiveTab('chat');
+          }}
+          orbitTriggerNonce={orbitTriggerNonce}
+          onOrbitComplete={handleOrbitComplete}
+          isGlowingAlert={isGlowingAlert}
+        >
           <div
-            aria-label="افتح شموسة — مديرة أعمال الورشة"
-            title="شموسة — مديرة أعمال الورشة (اسحبي في أي مكان على الشاشة)"
-            className={`group relative flex flex-col items-center justify-center cursor-pointer transition-transform duration-200 hover:scale-110 active:scale-95 select-none ${
+            aria-label={`افتح ${aiCfg.shamousaLauncherName}`}
+            title={`${aiCfg.shamousaLauncherName} — اسحبني في أي مكان على الشاشة`}
+            className={`group relative flex flex-col items-center justify-center cursor-pointer transition-transform duration-200 hover:scale-105 active:scale-95 select-none ${
               isAnyModalOpen ? 'opacity-0 pointer-events-none scale-0' : 'opacity-100 scale-100'
             }`}
           >
-            {/* Mascot Image - Transparent PNG without any background container box */}
-            <div className="relative w-16 h-20 sm:w-20 sm:h-24 flex items-center justify-center">
+            <div className="relative w-12 h-14 sm:w-14 sm:h-16 flex items-center justify-center">
               <ShamousaMascotFull
                 height="100%"
-                alt="شموسة — مديرة أعمال الورشة"
-                className="w-full h-full object-contain filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.5)] select-none pointer-events-none group-hover:brightness-105 transition-all"
+                alt={aiCfg.shamousaLauncherName}
+                className={`w-full h-full object-contain filter select-none pointer-events-none transition-all ${
+                  isGlowingAlert
+                    ? 'drop-shadow-[0_0_22px_rgba(255,220,120,0.95)] brightness-110'
+                    : 'drop-shadow-[0_6px_12px_rgba(9,21,51,0.45)] group-hover:brightness-105'
+                }`}
               />
-              {/* نقطة الاتصال والنشاط الأخضر */}
-              <span className="absolute top-1 right-2 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-[#060B18] shadow-md z-10" />
+              <span className="absolute top-0.5 right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#091533] shadow-sm z-10" />
 
-              {/* شارة رقمية (Badge) توضح عدد التوجيهات أو المواعيد المستحقة */}
               {totalPendingBadge > 0 && (
-                <span className="absolute -top-1 -left-1 min-w-[22px] h-[22px] px-1 rounded-full bg-rose-600 border-2 border-white text-white font-mono text-[11px] font-black flex items-center justify-center shadow-md animate-pulse z-20">
+                <span className="absolute -top-0.5 -left-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 border-[1.5px] border-white text-white font-mono text-[10px] font-black flex items-center justify-center shadow-md z-20">
                   {totalPendingBadge}
                 </span>
               )}
             </div>
 
-            {/* الاسم اللطيف أسفل الشخصية مباشرة بدون حجب التفاصيل */}
-            <span className="-mt-1 px-2.5 py-0.5 rounded-full bg-[#060B18]/90 text-amber-300 border border-amber-500/40 text-[10px] font-black shadow-lg backdrop-blur-xs select-none">
-              شموسة
+            {/* اسم شموسة صغير ومرتب أسفل الأيقونة */}
+            <span className="-mt-1 px-2 py-0.5 rounded-full bg-[#091533]/92 text-[#F8E7B9] border border-[#3B5998]/70 text-[9px] leading-none font-black shadow-md backdrop-blur-xs select-none">
+              {aiCfg.shamousaLauncherName}
             </span>
           </div>
         </DraggableShamosa>
       )}
 
-      {/* Main Shamousa Popup Window */}
+      {/* Full-Screen Unified Shamousa Workspace — Royal Dark Blue (Dark) & Warm Sandy Beige (Light) */}
       {isOpen && (
         <div
           dir="rtl"
           role="dialog"
-          aria-label="شموسة مديرة أعمال الورشة"
-          className="fixed bottom-4 left-4 z-[60] w-[min(440px,calc(100vw-2rem))] h-[min(650px,calc(100vh-5rem))] flex flex-col rounded-3xl overflow-hidden bg-white dark:bg-stone-900 border border-amber-300 dark:border-stone-700 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200"
+          aria-label={aiCfg.shamousaLauncherName}
+          className="fixed inset-0 z-[70] w-screen h-[100dvh] flex flex-col overflow-hidden bg-[#F4ECE0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] animate-in fade-in duration-200"
         >
-          {/* Header */}
-          <div className="flex items-center justify-between gap-2 px-4 py-3 bg-gradient-to-l from-amber-500 via-orange-500 to-amber-600 text-white flex-shrink-0 shadow-xs">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/80 bg-gradient-to-tr from-amber-400 to-orange-400 flex-shrink-0 flex items-center justify-center shadow-xs p-0.5">
-                <ShamousaMascotAvatar size="md" statusDot={false} className="w-full h-full" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <p className="font-extrabold text-sm leading-tight">شموسة</p>
-                  <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full font-medium">
-                    مديرة أعمالك الذكية ☀️
-                  </span>
-                </div>
-                <p className="text-[11px] text-amber-50/90 flex items-center gap-1 truncate">
-                  <Database className="w-3 h-3 flex-shrink-0" />
-                  <span className="truncate">{brandTitle} • {firstName}</span>
-                </p>
-              </div>
+          {/* Ultra-Clean Header: Shamousa Logo + 3 Raised 3D Silver Moon-Glow Buttons + Close */}
+          <header className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2.5 sm:py-3 bg-[#EAE0CE] dark:bg-[#0C1D47] border-b border-[#D5C7B0] dark:border-[#223B78] shrink-0 shadow-xs">
+            {/* Shamousa Luminous Mascot Logo */}
+            <button
+              type="button"
+              onClick={() => {
+                playButtonClickSound();
+                setActiveTab('chat');
+              }}
+              aria-label={aiCfg.shamousaLauncherName}
+              title={aiCfg.shamousaLauncherName}
+              className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#FBF7F0] dark:bg-[#132960] border-2 border-[#D4C3A3] dark:border-[#395AA8] flex items-center justify-center shrink-0 shadow-[0_0_16px_rgba(251,191,36,0.35)] cursor-pointer transition-transform active:scale-95 p-0.5"
+            >
+              <ShamousaMascotAvatar size="md" statusDot={false} className="w-full h-full" />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#EAE0CE] dark:border-[#0C1D47]" />
+            </button>
+
+            {/* 3 Raised 3D Buttons: مهام / نتائج / بحوث */}
+            <div className="flex items-center justify-center gap-2 sm:gap-3 flex-1 min-w-0">
+              {renderRaisedSilverBtn('tasks_agenda', aiCfg.shamousaBtnTasks, totalPendingBadge)}
+              {renderRaisedSilverBtn('results', aiCfg.shamousaBtnResults)}
+              {renderRaisedSilverBtn('or360', aiCfg.shamousaBtnOR)}
             </div>
 
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {allowModeSwitch && (
+            {/* Clean Close Button */}
+            <button
+              type="button"
+              onClick={() => {
+                playButtonClickSound();
+                setIsOpen(false);
+              }}
+              aria-label="إغلاق"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#FBF7F0] dark:bg-[#132960] hover:bg-[#E1D4BE] dark:hover:bg-[#1B377D] border border-[#D5C7B0] dark:border-[#2C488D] text-[#1C2434] dark:text-[#E2E8F0] flex items-center justify-center shrink-0 transition cursor-pointer active:scale-95"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </header>
+
+          {/* 2-Way Split Bar Under Header: المحادثة الذكية | يومي كان ماشي إزاي */}
+          <div className="px-3 sm:px-5 py-2 bg-[#EFE6D7] dark:bg-[#0B1A3F] border-b border-[#D5C7B0] dark:border-[#1E356B] shrink-0">
+            <div className="max-w-3xl mx-auto flex items-center gap-2">
+              <div className="grid grid-cols-2 gap-2 flex-1">
                 <button
                   type="button"
                   onClick={() => {
                     playButtonClickSound();
-                    setExperienceMode(isCraftMode ? 'accounting' : 'craft');
+                    setActiveTab('chat');
                   }}
-                  title={isCraftMode ? 'تبديل للوضع المحاسبي المتقدم' : 'تبديل للوضع الحرفي البسيط'}
-                  className="px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-black transition cursor-pointer"
+                  className={`py-2 px-3 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
+                    activeTab === 'chat'
+                      ? 'bg-[#142A5C] dark:bg-[#1E3F8A] text-white border-[#142A5C] dark:border-[#4C73C9] shadow-sm'
+                      : 'bg-[#FBF7F0] dark:bg-[#102350] text-[#334155] dark:text-[#CBD5E1] border-[#D5C7B0] dark:border-[#243C78] hover:border-[#142A5C]/40 dark:hover:border-[#4C73C9]/60'
+                  }`}
                 >
-                  {isCraftMode ? 'حرفي ✦' : 'محاسبي ✦'}
+                  <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{aiCfg.shamousaTabChat}</span>
                 </button>
-              )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    setActiveTab('daily');
+                  }}
+                  className={`py-2 px-3 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
+                    activeTab === 'daily'
+                      ? 'bg-[#142A5C] dark:bg-[#1E3F8A] text-white border-[#142A5C] dark:border-[#4C73C9] shadow-sm'
+                      : 'bg-[#FBF7F0] dark:bg-[#102350] text-[#334155] dark:text-[#CBD5E1] border-[#D5C7B0] dark:border-[#243C78] hover:border-[#142A5C]/40 dark:hover:border-[#4C73C9]/60'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{aiCfg.shamousaTabDaily}</span>
+                </button>
+              </div>
+
               {messages.length > 0 && activeTab === 'chat' && (
                 <button
                   type="button"
@@ -1839,319 +2125,278 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   }}
                   aria-label="مسح المحادثة"
                   title="مسح المحادثة"
-                  className="p-1.5 rounded-full hover:bg-white/20 text-white/90 transition cursor-pointer"
+                  className="p-2 rounded-xl bg-[#FBF7F0] dark:bg-[#102350] border border-[#D5C7B0] dark:border-[#243C78] text-[#64748B] dark:text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 transition cursor-pointer shrink-0"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                aria-label="إغلاق"
-                className="p-1.5 rounded-full hover:bg-white/20 text-white transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
             </div>
           </div>
 
-          {/* Navigation Tabs Header: شات شموسة + المهام والأجندة */}
-          <div className="flex items-center border-b border-stone-200 dark:border-stone-800 bg-amber-50/50 dark:bg-stone-850 px-3 py-1.5 gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                playButtonClickSound();
-                setActiveTab('chat');
-              }}
-              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 ${
-                activeTab === 'chat'
-                  ? 'bg-white dark:bg-stone-800 text-amber-700 dark:text-amber-300 shadow-2xs border border-amber-300/80 dark:border-amber-800'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-              }`}
-            >
-              <MessageCircle className="w-3.5 h-3.5" />
-              <span>المحادثة الذكية</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                playButtonClickSound();
-                setActiveTab('tasks_agenda');
-              }}
-              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-black transition cursor-pointer flex items-center justify-center gap-1.5 relative ${
-                activeTab === 'tasks_agenda'
-                  ? 'bg-white dark:bg-stone-800 text-amber-700 dark:text-amber-300 shadow-2xs border border-amber-300/80 dark:border-amber-800'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>المهام والأجندة</span>
-              {totalPendingBadge > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-mono font-bold leading-none">
-                  {totalPendingBadge}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* Tab 1: Chat View */}
+          {/* VIEW 1: Smart Chat View (Default) */}
           {activeTab === 'chat' && (
-            <>
-              {/* Messages Container */}
+            <div className="flex-1 min-h-0 flex flex-col">
+              {/* Messages Container — generous top padding so first bubble is NEVER clipped */}
               <div
                 ref={listRef}
-                className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5 bg-stone-50 dark:bg-stone-950"
+                className="flex-1 min-h-0 overflow-y-auto px-3.5 sm:px-6 pt-5 pb-6 bg-[#F4ECE0] dark:bg-[#091533]"
               >
-                <Bubble role="assistant">
-                  {renderText(welcomeMessage)}
-                  <div className="flex flex-wrap gap-1.5 pt-2.5 mt-2 border-t border-stone-200/70 dark:border-stone-700/60">
-                    {(isSupplierAccount
-                      ? isCraftMode
+                <div className="max-w-3xl mx-auto space-y-4">
+                  <Bubble role="assistant">
+                    {renderText(welcomeMessage)}
+                    <div className="flex flex-wrap gap-1.5 pt-3 mt-2.5 border-t border-[#E3D8C5] dark:border-[#233B75]">
+                      {(isSupplierAccount
+                        ? isCraftMode
+                          ? [
+                              { id: 'w_sb', label: `${getModeLabel('sup_exec_brief_card')} 💰`, intentKey: 'sup_full_brief' },
+                              { id: 'w_sfin', label: `${getModeLabel('sup_finance_title')} 🏦`, view: 'supplier_finance' },
+                              { id: 'w_smode', label: 'الوضع الحرفي والمحاسبي ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
+                              { id: 'w_sum', label: 'الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
+                            ]
+                          : [
+                              { id: 'w_sb', label: `${getModeLabel('sup_exec_brief_card')} 💰`, intentKey: 'sup_full_brief' },
+                              { id: 'w_sfin', label: `${getModeLabel('sup_finance_title')} 📊`, view: 'supplier_finance' },
+                              { id: 'w_swh', label: `${getModeLabel('sup_warehouse_card')} 🏭`, view: 'supplier_warehouse_erp' },
+                              { id: 'w_sdc', label: 'شرح المدين والدائن 📘', queryText: 'يعني ايه دائن ومدين' },
+                            ]
+                        : isCraftMode
                         ? [
-                            { id: 'w_sb', label: `${getModeLabel('sup_exec_brief_card')} 💰`, intentKey: 'sup_full_brief' },
-                            { id: 'w_sfin', label: `${getModeLabel('sup_finance_title')} 🏦`, view: 'supplier_finance' },
-                            { id: 'w_smode', label: 'الوضع الحرفي والمحاسبي ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
-                            { id: 'w_sum', label: 'الخامات الموحدة 🏷️', queryText: 'منظومة الخامات الموحدة' },
+                            { id: 'w_ab', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
+                            { id: 'w_left', label: 'إرجاع بواقي الخامات 🧶', queryText: 'بواقي الخامات بعد أمر التشغيل' },
+                            { id: 'w_rep', label: `${getModeLabel('rep_page_title')} 📊`, view: 'reports' },
+                            { id: 'w_mode', label: 'الفرق بين الوضعين ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
                           ]
                         : [
-                            { id: 'w_sb', label: `${getModeLabel('sup_exec_brief_card')} 💰`, intentKey: 'sup_full_brief' },
-                            { id: 'w_sfin', label: `${getModeLabel('sup_finance_title')} 📊`, view: 'supplier_finance' },
-                            { id: 'w_swh', label: `${getModeLabel('sup_warehouse_card')} 🏭`, view: 'supplier_warehouse_erp' },
-                            { id: 'w_sdc', label: 'شرح المدين والدائن 📘', queryText: 'يعني ايه دائن ومدين' },
+                            { id: 'w_ab', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
+                            { id: 'w_wo', label: `${getModeLabel('wo_page_title')} 📋`, view: 'work_orders' },
+                            { id: 'w_rep', label: `${getModeLabel('rep_trial_balance')} ⚖️`, view: 'reports' },
+                            { id: 'w_vch', label: 'دليل الأذونات والقيود 📘', queryText: 'وظيفة الأذونات' },
                           ]
-                      : isCraftMode
-                      ? [
-                          { id: 'w_ab', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
-                          { id: 'w_left', label: 'إرجاع بواقي الخامات 🧶', queryText: 'بواقي الخامات بعد أمر التشغيل' },
-                          { id: 'w_rep', label: `${getModeLabel('rep_page_title')} 📊`, view: 'reports' },
-                          { id: 'w_mode', label: 'الفرق بين الوضعين ⚖️', queryText: 'الوضع الحرفي والوضع المحاسبي' },
-                        ]
-                      : [
-                          { id: 'w_ab', label: 'هلخصهالك (الفلوس والمخزن) 💰', intentKey: 'full_brief' },
-                          { id: 'w_wo', label: `${getModeLabel('wo_page_title')} 📋`, view: 'work_orders' },
-                          { id: 'w_rep', label: `${getModeLabel('rep_trial_balance')} ⚖️`, view: 'reports' },
-                          { id: 'w_vch', label: 'دليل الأذونات والقيود 📘', queryText: 'وظيفة الأذونات' },
-                        ]
-                    ).map((wOpt) => (
-                      <button
-                        key={wOpt.id}
-                        type="button"
-                        onClick={() => handleChatbotOptionClick(wOpt, 0)}
-                        className="text-[11px] font-black px-2.5 py-1 rounded-xl bg-amber-100/90 hover:bg-[#EA580C] text-[#0C1427] hover:text-white dark:bg-[#1A2B54] dark:text-[#FBBF24] dark:hover:bg-[#EA580C] border border-amber-400/70 dark:border-[#EA580C]/50 transition cursor-pointer"
-                      >
-                        {wOpt.label}
-                      </button>
-                    ))}
-                  </div>
-                </Bubble>
-
-                {messages.map((m, mIdx) => (
-                  <div key={m.id} className="space-y-1.5">
-                    <Bubble role={m.role}>
-                      {m.attachmentPreview && (
-                        <div className="mb-2 overflow-hidden rounded-xl border border-amber-300/60 max-w-[220px] shadow-xs">
-                          <img src={m.attachmentPreview} alt="مرفق" className="w-full h-auto max-h-44 object-cover" />
-                        </div>
-                      )}
-                      {renderText(m.content)}
-                      {(m.searchUsed || (m.sources && m.sources.length > 0)) && (
-                        <div className="mt-2 pt-2 border-t border-stone-200 dark:border-stone-700 space-y-1">
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
-                            <Globe className="w-3 h-3" />
-                            <span>مدعوم ببحث جوجل الحي</span>
-                          </span>
-                          {m.sources && m.sources.length > 0 && (
-                            <div className="flex flex-wrap gap-1 pt-0.5">
-                              {m.sources.map((src, idx) => (
-                                <a
-                                  key={idx}
-                                  href={src.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-stone-100 dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:bg-amber-50 dark:hover:bg-amber-950/50"
-                                >
-                                  <ExternalLink className="w-2.5 h-2.5 text-stone-400" />
-                                  <span className="truncate max-w-[140px]">{src.title || src.url}</span>
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </Bubble>
-
-                    {/* اختيارات الشات بوت التفاعلية المحلية (نظام أقرب كلمة وسؤال وجواب) */}
-                    {m.chatbotOptions && m.chatbotOptions.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
-                        {m.chatbotOptions.map((opt) => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => handleChatbotOptionClick(opt, mIdx)}
-                            className={`inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1.5 rounded-xl border transition shadow-xs cursor-pointer active:scale-95 ${
-                              opt.triggerAI
-                                ? 'bg-amber-50 hover:bg-amber-100 text-amber-950 dark:bg-stone-800 dark:text-amber-300 border-amber-400/70'
-                                : 'bg-[#0C1427] hover:bg-[#EA580C] text-[#FBBF24] hover:text-white dark:bg-[#1A2B54] dark:hover:bg-[#EA580C] border-[#EA580C]/60'
-                            }`}
-                          >
-                            <span>{opt.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* أزرار التوضيح التفاعلية عند وجود استفسار غائم أو متشعب */}
-                    {m.disambiguationChoices && m.disambiguationChoices.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
-                        {m.disambiguationChoices.map((choice) => (
-                          <button
-                            key={choice.id}
-                            type="button"
-                            onClick={() => handleDisambiguationChoiceClick(choice)}
-                            className="inline-flex items-center gap-1.5 text-[11px] font-black px-3 py-1.5 rounded-xl bg-[#0C1427] hover:bg-[#EA580C] text-[#FBBF24] hover:text-white dark:bg-[#1A2B54] dark:hover:bg-[#EA580C] border border-[#EA580C]/60 transition shadow-xs cursor-pointer active:scale-95"
-                          >
-                            <span>{choice.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* أزرار الإجراءات السريعة بالكلمات الدلالية */}
-                    {m.actionChips && m.actionChips.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
-                        {m.actionChips.map((chip) => (
-                          <button
-                            key={chip.id}
-                            type="button"
-                            onClick={() => handleActionChipClick(chip)}
-                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-xl bg-amber-100/80 hover:bg-amber-200 text-amber-950 dark:bg-amber-950/70 dark:text-amber-200 border border-amber-300/80 dark:border-amber-800 transition shadow-2xs cursor-pointer active:scale-95"
-                          >
-                            <span>{chip.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* زر التنقل المباشر يظهر فقط عند طلب شاشة بعينها */}
-                    {m.actionLink && (
-                      <div className="flex justify-start pr-2">
+                      ).map((wOpt) => (
                         <button
+                          key={wOpt.id}
                           type="button"
-                          onClick={() => openScreen(m.actionLink!.view)}
-                          className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 transition shadow-2xs cursor-pointer active:scale-95"
+                          onClick={() => handleChatbotOptionClick(wOpt, 0)}
+                          className="text-[11px] sm:text-xs font-black px-3 py-1.5 rounded-xl bg-[#EFE6D7] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#152B62] dark:text-[#E2E8F0] dark:hover:bg-[#244594] border border-[#D5C7B0] dark:border-[#2C4A91] transition cursor-pointer"
                         >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>{m.actionLink.label}</span>
+                          {wOpt.label}
                         </button>
-                      </div>
-                    )}
-
-                    {/* زر الاتصال السريع بالعميل أو المورد */}
-                    {m.contactAction && (
-                      <div className="flex justify-start pr-2">
-                        <a
-                          href={`tel:${m.contactAction.phone}`}
-                          className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm cursor-pointer"
-                        >
-                          <PhoneCall className="w-3.5 h-3.5" />
-                          <span>اتصال بـ {m.contactAction.name} ({m.contactAction.phone})</span>
-                        </a>
-                      </div>
-                    )}
-
-                    {/* زر الإحالة لـ "صقر" في المهام الخارجية وفحص الصور ودراسة السوق فقط */}
-                    {m.handoffToFalcon && (
-                      <div className="flex justify-start pr-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsOpen(false);
-                            onOpenFalcon();
-                          }}
-                          className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-xl bg-stone-900 text-amber-300 border border-amber-500/40 hover:bg-stone-800 transition shadow-sm cursor-pointer active:scale-95"
-                        >
-                          <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
-                          <span>استشر صقر الشمساوية 🦅</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {isLoading && (
-                  <Bubble role="assistant">
-                    <span className="inline-flex gap-1.5 items-center py-1" aria-label="شموسة تبحث وتراجع">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" />
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:150ms]" />
-                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-bounce [animation-delay:300ms]" />
-                      <span className="text-xs text-stone-500 mr-2 font-bold">شموسة تراجع دفاتر وسجلات الورشة...</span>
-                    </span>
+                      ))}
+                    </div>
                   </Bubble>
-                )}
+
+                  {messages.map((m, mIdx) => (
+                    <div key={m.id} className="space-y-1.5">
+                      <Bubble role={m.role}>
+                        {m.attachmentPreview && (
+                          <div className="mb-2 overflow-hidden rounded-xl border border-[#D5C7B0] dark:border-[#32519E] max-w-[240px] shadow-xs">
+                            <img src={m.attachmentPreview} alt="مرفق" className="w-full h-auto max-h-48 object-cover" />
+                          </div>
+                        )}
+                        {renderText(m.content)}
+                        {(m.searchUsed || (m.sources && m.sources.length > 0)) && (
+                          <div className="mt-2 pt-2 border-t border-[#E3D8C5] dark:border-[#243C78] space-y-1">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                              <Globe className="w-3 h-3" />
+                              <span>مدعوم ببحث جوجل الحي</span>
+                            </span>
+                            {m.sources && m.sources.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-0.5">
+                                {m.sources.map((src, idx) => (
+                                  <a
+                                    key={idx}
+                                    href={src.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg bg-[#EFE6D7] dark:bg-[#13285C] text-[#1C2434] dark:text-[#CBD5E1] border border-[#D5C7B0] dark:border-[#2B478C] hover:border-[#142A5C]"
+                                  >
+                                    <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                                    <span className="truncate max-w-[160px]">{src.title || src.url}</span>
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </Bubble>
+
+                      {m.chatbotOptions && m.chatbotOptions.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
+                          {m.chatbotOptions.map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => handleChatbotOptionClick(opt, mIdx)}
+                              className={`inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-black px-3 py-1.5 rounded-xl border transition shadow-xs cursor-pointer active:scale-95 ${
+                                opt.triggerAI
+                                  ? 'bg-[#FBF7F0] hover:bg-[#EAE0CE] text-[#142A5C] dark:bg-[#122657] dark:text-[#E2E8F0] border-[#CDBEA3] dark:border-[#3454A1]'
+                                  : 'bg-[#142A5C] hover:bg-[#1E3F8A] text-white dark:bg-[#1B377B] dark:hover:bg-[#2549A0] border-[#1E3F8A] dark:border-[#3D60B5]'
+                              }`}
+                            >
+                              <span>{opt.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {m.disambiguationChoices && m.disambiguationChoices.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
+                          {m.disambiguationChoices.map((choice) => (
+                            <button
+                              key={choice.id}
+                              type="button"
+                              onClick={() => handleDisambiguationChoiceClick(choice)}
+                              className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-black px-3 py-1.5 rounded-xl bg-[#142A5C] hover:bg-[#1E3F8A] text-white dark:bg-[#1B377B] dark:hover:bg-[#2549A0] border border-[#244594] transition shadow-xs cursor-pointer active:scale-95"
+                            >
+                              <span>{choice.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {m.actionChips && m.actionChips.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pr-2 pt-1">
+                          {m.actionChips.map((chip) => (
+                            <button
+                              key={chip.id}
+                              type="button"
+                              onClick={() => handleActionChipClick(chip)}
+                              className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-bold px-3 py-1.5 rounded-xl bg-[#EAE0CE] hover:bg-[#DFD2BA] text-[#142A5C] dark:bg-[#132960] dark:text-[#DCE6F7] border border-[#CDBEA3] dark:border-[#2E4C94] transition shadow-2xs cursor-pointer active:scale-95"
+                            >
+                              <span>{chip.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {m.actionLink && (
+                        <div className="flex justify-start pr-2">
+                          <button
+                            type="button"
+                            onClick={() => openScreen(m.actionLink!.view)}
+                            className="inline-flex items-center gap-1.5 text-xs font-black px-3.5 py-1.5 rounded-xl bg-[#EAE0CE] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#152B62] dark:text-[#E2E8F0] dark:hover:bg-[#234491] border border-[#CDBEA3] dark:border-[#31509B] transition shadow-2xs cursor-pointer active:scale-95"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>{m.actionLink.label}</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {m.contactAction && (
+                        <div className="flex justify-start pr-2">
+                          <a
+                            href={`tel:${m.contactAction.phone}`}
+                            className="inline-flex items-center gap-2 text-xs font-bold px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm cursor-pointer"
+                          >
+                            <PhoneCall className="w-3.5 h-3.5" />
+                            <span>اتصال بـ {m.contactAction.name} ({m.contactAction.phone})</span>
+                          </a>
+                        </div>
+                      )}
+
+                      {m.handoffToFalcon && (
+                        <div className="flex justify-start pr-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsOpen(false);
+                              onOpenFalcon();
+                            }}
+                            className="inline-flex items-center gap-2 text-xs font-black px-3.5 py-1.5 rounded-xl bg-[#0C1D47] text-[#E2E8F0] border border-[#3B5998] hover:bg-[#142E6B] transition shadow-sm cursor-pointer active:scale-95"
+                          >
+                            <ArrowLeftRight className="w-3.5 h-3.5 text-[#CBD5E1]" />
+                            <span>{aiCfg.falconHandoffBtnLabel}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {isLoading && (
+                    <Bubble role="assistant">
+                      <span className="inline-flex gap-1.5 items-center py-1" aria-label="شموسة تبحث وتراجع">
+                        <span className="w-2 h-2 rounded-full bg-[#142A5C] dark:bg-[#93C5FD] animate-bounce" />
+                        <span className="w-2 h-2 rounded-full bg-[#142A5C] dark:bg-[#93C5FD] animate-bounce [animation-delay:150ms]" />
+                        <span className="w-2 h-2 rounded-full bg-[#142A5C] dark:bg-[#93C5FD] animate-bounce [animation-delay:300ms]" />
+                        <span className="text-xs text-[#475569] dark:text-[#CBD5E1] mr-2 font-bold">
+                          شموسة تراجع دفاتر وسجلات الورشة...
+                        </span>
+                      </span>
+                    </Bubble>
+                  )}
+                </div>
               </div>
 
               {/* معاينة المرفق قيد الإرسال */}
               {pendingAttachment && (
-                <div className="px-3 py-2 bg-amber-500/10 dark:bg-amber-950/40 border-t border-amber-300/60 dark:border-amber-700/40 flex items-center justify-between gap-2 flex-shrink-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <img
-                      src={pendingAttachment.base64}
-                      alt="مرفق"
-                      className="w-9 h-9 rounded-xl object-cover border border-amber-400 shrink-0"
-                    />
-                    <div className="min-w-0 text-right">
-                      <span className="text-xs font-bold text-stone-900 dark:text-stone-100 block truncate max-w-[180px]">
-                        {pendingAttachment.name || 'مستند / صورة'}
-                      </span>
-                      <span className="text-[10px] text-amber-700 dark:text-amber-400 block font-bold">
-                        مرفق لسؤال أو معاملة الخزينة
-                      </span>
+                <div className="px-4 py-2 bg-[#EAE0CE] dark:bg-[#0F204D] border-t border-[#D5C7B0] dark:border-[#243C78] flex items-center justify-between gap-2 shrink-0">
+                  <div className="max-w-3xl mx-auto w-full flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <img
+                        src={pendingAttachment.base64}
+                        alt="مرفق"
+                        className="w-9 h-9 rounded-xl object-cover border border-[#CDBEA3] dark:border-[#3655A2] shrink-0"
+                      />
+                      <div className="min-w-0 text-right">
+                        <span className="text-xs font-bold text-[#1C2434] dark:text-[#F1F5F9] block truncate max-w-[200px]">
+                          {pendingAttachment.name || 'مستند / صورة'}
+                        </span>
+                        <span className="text-[10px] text-[#475569] dark:text-[#94A3B8] block font-bold">
+                          مرفق جاهز للإرسال
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setPendingAttachment(null)}
-                    className="p-1.5 rounded-full hover:bg-stone-200 dark:hover:bg-stone-800 text-stone-500 hover:text-red-500 transition cursor-pointer"
-                    title="حذف المرفق"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              {/* شريط حالة التسجيل الصوتي والتفريغ في شموسة */}
-              {(isRecordingVoice || isTranscribingVoice || voiceNotice) && (
-                <div className={`px-3 py-1.5 border-t flex items-center justify-between text-xs flex-shrink-0 transition-all ${
-                  isRecordingVoice
-                    ? 'bg-red-500/15 border-red-500/30 text-red-700 dark:text-red-300 animate-pulse'
-                    : isTranscribingVoice
-                    ? 'bg-amber-500/15 border-amber-500/30 text-amber-800 dark:text-amber-200'
-                    : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    {isRecordingVoice && <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />}
-                    <span className="font-bold">{voiceNotice || (isRecordingVoice ? 'شموسة تسجل صوتك.. تحدثي بحرية ثم انقري الميكروفون للإيقاف' : '')}</span>
-                  </div>
-                  {isRecordingVoice && (
                     <button
                       type="button"
-                      onClick={stopVoiceRecording}
-                      className="text-[11px] font-black px-2 py-0.5 rounded-md bg-red-600 text-white cursor-pointer hover:bg-red-700 shadow-xs"
+                      onClick={() => setPendingAttachment(null)}
+                      className="p-1.5 rounded-full hover:bg-[#DFD2BA] dark:hover:bg-[#19326E] text-[#475569] hover:text-rose-600 transition cursor-pointer"
+                      title="حذف المرفق"
                     >
-                      إيقاف وتفريغ
+                      <X className="w-4 h-4" />
                     </button>
-                  )}
+                  </div>
                 </div>
               )}
 
-              {/* Chat Input Form */}
+              {/* شريط حالة التسجيل الصوتي والتفريغ */}
+              {(isRecordingVoice || isTranscribingVoice || voiceNotice) && (
+                <div
+                  className={`px-4 py-1.5 border-t flex items-center justify-between text-xs shrink-0 transition-all ${
+                    isRecordingVoice
+                      ? 'bg-rose-500/15 border-rose-500/30 text-rose-700 dark:text-rose-300 animate-pulse'
+                      : isTranscribingVoice
+                      ? 'bg-[#EAE0CE] dark:bg-[#152B62] border-[#CDBEA3] dark:border-[#31509B] text-[#142A5C] dark:text-[#E2E8F0]'
+                      : 'bg-[#EAE0CE] dark:bg-[#0F204D] border-[#D5C7B0] dark:border-[#243C78] text-[#1C2434] dark:text-[#CBD5E1]'
+                  }`}
+                >
+                  <div className="max-w-3xl mx-auto w-full flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {isRecordingVoice && <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />}
+                      <span className="font-bold">
+                        {voiceNotice ||
+                          (isRecordingVoice ? 'شموسة تسجل صوتك.. اضغط الميكروفون للإيقاف' : '')}
+                      </span>
+                    </div>
+                    {isRecordingVoice && (
+                      <button
+                        type="button"
+                        onClick={stopVoiceRecording}
+                        className="text-[11px] font-black px-2.5 py-0.5 rounded-lg bg-rose-600 text-white cursor-pointer hover:bg-rose-700"
+                      >
+                        إيقاف وتفريغ
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Chat Input Form — Comfortable, Unclipped, Royal Blue / Sandy Beige */}
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   send(input);
                 }}
-                className="p-2.5 border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 flex-shrink-0"
+                className="px-3 sm:px-5 py-2.5 sm:py-3 border-t border-[#D5C7B0] dark:border-[#223B78] bg-[#EAE0CE] dark:bg-[#0C1D47] shrink-0"
               >
                 <input
                   type="file"
@@ -2161,55 +2406,55 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   className="hidden"
                 />
 
-                <div className="flex items-end gap-1.5">
-                  {/* زر المرفقات 📎 */}
+                <div className="max-w-3xl mx-auto flex items-end gap-1.5 sm:gap-2">
+                  {/* زر المرفقات */}
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    title="إرفاق فاتورة، إيصال، أو صورة خامة"
-                    className="p-2.5 rounded-2xl text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer shrink-0"
+                    title="إرفاق فاتورة أو صورة"
+                    className="w-10 h-10 rounded-xl bg-[#FBF7F0] dark:bg-[#122657] border border-[#D5C7B0] dark:border-[#2A468B] text-[#475569] dark:text-[#CBD5E1] hover:text-[#142A5C] dark:hover:text-white flex items-center justify-center transition cursor-pointer shrink-0"
                   >
-                    <Paperclip className="w-5 h-5" />
+                    <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
 
-                  {/* زر التسجيل الصوتي 🎙️ */}
+                  {/* زر التسجيل الصوتي */}
                   <button
                     type="button"
                     onClick={toggleVoiceRecording}
-                    title={isRecordingVoice ? 'إيقاف التسجيل الصوتي وتفريغه' : 'تسجيل سؤال بصوتك'}
-                    className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 ${
+                    title={isRecordingVoice ? 'إيقاف التسجيل' : 'تسجيل صوتي'}
+                    className={`w-10 h-10 rounded-xl border flex items-center justify-center transition cursor-pointer shrink-0 ${
                       isRecordingVoice
-                        ? 'bg-red-500 text-white shadow-md animate-pulse ring-2 ring-red-300'
+                        ? 'bg-rose-600 border-rose-500 text-white shadow-md animate-pulse'
                         : isTranscribingVoice
-                        ? 'bg-amber-500 text-white animate-spin'
-                        : 'text-stone-500 hover:text-amber-600 hover:bg-stone-100 dark:hover:bg-stone-800'
+                        ? 'bg-[#142A5C] border-[#2C4B94] text-white animate-spin'
+                        : 'bg-[#FBF7F0] dark:bg-[#122657] border-[#D5C7B0] dark:border-[#2A468B] text-[#475569] dark:text-[#CBD5E1] hover:text-[#142A5C] dark:hover:text-white'
                     }`}
                   >
-                    {isRecordingVoice ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                    {isRecordingVoice ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5" />}
                   </button>
 
                   {/* زر بحث جوجل الحي بأيقونة شموسة */}
                   <button
                     type="button"
                     onClick={() => setUseGoogleSearch((v) => !v)}
-                    title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل لشموسة' : 'تفعيل بحث جوجل الحي للأسعار والموردين'}
+                    title={useGoogleSearch ? 'بحث جوجل الحي مُفعّل' : 'تفعيل بحث جوجل الحي'}
                     aria-pressed={useGoogleSearch}
-                    className={`p-1.5 rounded-2xl transition-all cursor-pointer shrink-0 flex items-center justify-center ${
+                    className={`w-10 h-10 rounded-xl border transition-all cursor-pointer shrink-0 flex items-center justify-center ${
                       useGoogleSearch
-                        ? 'bg-emerald-500 text-white shadow-[0_0_14px_rgba(16,185,129,0.7)] ring-2 ring-emerald-400/70'
-                        : 'bg-transparent hover:bg-stone-100 dark:hover:bg-stone-800'
+                        ? 'bg-emerald-500 border-emerald-400 text-white shadow-[0_0_14px_rgba(16,185,129,0.65)]'
+                        : 'bg-[#FBF7F0] dark:bg-[#122657] border-[#D5C7B0] dark:border-[#2A468B] hover:border-[#142A5C]'
                     }`}
                   >
                     <img
                       src={shamousaSearchIconImg}
                       alt="بحث شموسة"
                       draggable={false}
-                      className="w-7 h-7 object-contain select-none pointer-events-none"
+                      className="w-6 h-6 sm:w-7 sm:h-7 object-contain select-none pointer-events-none"
                     />
                   </button>
 
-                  {/* مربع النص المتمدد تلقائياً للأعلى مع دعم Scroll و Enter لسطر جديد */}
-                  <div className="flex-1 relative">
+                  {/* مربع النص المتمدد بدون قص للنص أو Placeholder */}
+                  <div className="flex-1 min-w-0">
                     <textarea
                       ref={inputRef}
                       value={input}
@@ -2218,377 +2463,397 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                         adjustTextareaHeight(e.target);
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          if (e.ctrlKey || e.metaKey) {
-                            e.preventDefault();
-                            send(input);
-                          }
-                          // الضغط العادي على Enter ينزل سطراً جديداً لكتابة أفكار جديدة
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                          e.preventDefault();
+                          send(input);
                         }
                       }}
                       rows={1}
                       maxLength={1000}
                       placeholder={
                         useGoogleSearch
-                          ? 'البحث المباشر شغّال 🟢 اسأل شموسة عن أي أسعار أو موردين في السوق...'
-                          : 'اسأل شموسة عن التسعير، الخامات، الخزنة، أو النواقص... (Enter لسطر جديد)'
+                          ? 'البحث الحي شغّال 🟢 اسأل عن أي أسعار أو موردين...'
+                          : aiCfg.shamousaChatPlaceholder
                       }
-                      className="w-full resize-none max-h-36 overflow-y-auto px-3.5 py-2.5 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-500 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 leading-relaxed"
+                      className="w-full min-h-[42px] resize-none max-h-36 overflow-y-auto px-3.5 py-2.5 rounded-xl border border-[#CDBEA3] dark:border-[#2E4C94] bg-[#FBF7F0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] placeholder:text-[#64748B] dark:placeholder:text-[#94A3B8] text-sm outline-none focus:ring-2 focus:ring-[#1E3F8A] dark:focus:ring-[#60A5FA] leading-normal block"
                     />
                   </div>
 
-                  {/* زر الإرسال مع سهم متجه للأعلى ⬆️ */}
+                  {/* زر الإرسال */}
                   <button
                     type="submit"
                     disabled={(!input.trim() && !pendingAttachment) || isLoading}
                     aria-label="إرسال"
                     title="إرسال (Ctrl+Enter)"
-                    className="w-10 h-10 flex-shrink-0 rounded-2xl bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-md active:scale-95 cursor-pointer"
+                    className="w-10 h-10 shrink-0 rounded-xl bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#24489C] dark:hover:bg-[#2F59BD] disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition shadow-md active:scale-95 cursor-pointer"
                   >
                     <ArrowUp className="w-5 h-5 stroke-[2.5]" />
                   </button>
                 </div>
 
                 {remaining !== null && (
-                  <p className="text-[10px] text-center text-stone-500 dark:text-stone-400 pt-1.5 font-bold">
+                  <p className="text-[10px] text-center text-[#64748B] dark:text-[#94A3B8] pt-1 font-bold">
                     باقي {remaining} استفسار اليوم
                   </p>
                 )}
               </form>
-            </>
+            </div>
           )}
 
-          {/* Tab 2: Daily Tasks & Delivery Agenda View */}
+          {/* VIEW 2, 3, 4: Daily Check-in / Results / OR 360 Unified Panels */}
+          {(activeTab === 'daily' || activeTab === 'results' || activeTab === 'or360') && (
+            <div className="flex-1 min-h-0 flex flex-col">
+              <ShamousaUnifiedPanels
+                profile={profile}
+                mode={activeTab}
+                onSwitchToOR={() => setActiveTab('or360')}
+                onNavigateView={(view) => openScreen(view)}
+                onCloseShamousa={() => setIsOpen(false)}
+                onScheduleSnooze={handleScheduleSnooze}
+                onDailyTimeChanged={(hhmm) => {
+                  setDailyCheckinTime(hhmm);
+                  try {
+                    localStorage.setItem(`shamousa_daily_time_${workshopId}`, hhmm);
+                  } catch {}
+                }}
+                onTestOrbitDemo={handleTestOrbitDemo}
+                injectedFollowupMessage={injectedDailyFollowup}
+              />
+            </div>
+          )}
+
+          {/* VIEW 5: Daily Tasks & Delivery Agenda View (Royal Blue / Sandy Beige — Zero Orange) */}
           {activeTab === 'tasks_agenda' && (
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-stone-50 dark:bg-stone-950">
-              {/* قسم 1: توجيهات ومهام اليوم من شموسة 🌞 */}
-              <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-900 border border-amber-200/90 dark:border-stone-800 shadow-2xs space-y-3">
-                <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">🌞</span>
-                    <h3 className="text-xs sm:text-sm font-black text-stone-900 dark:text-stone-100">
-                      توجيهات ومهام اليوم من شموسة
-                    </h3>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold">
-                    {completedTaskIds.filter((id) => dailyTasks.some((t) => t.id === id)).length} / {dailyTasks.length} منجز
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  {dailyTasks.map((task) => {
-                    const isDone = completedTaskIds.includes(task.id);
-                    return (
-                      <div
-                        key={task.id}
-                        className={`p-2.5 rounded-xl border transition-all flex flex-col gap-2 ${
-                          isDone
-                            ? 'bg-emerald-50/40 dark:bg-emerald-950/15 border-emerald-200 dark:border-emerald-900/40 opacity-70'
-                            : task.urgency === 'high'
-                            ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800'
-                            : 'bg-stone-50/80 dark:bg-stone-850 border-stone-200 dark:border-stone-800'
-                        }`}
-                      >
-                        <div className="flex items-start gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTask(task.id)}
-                            className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border transition-all cursor-pointer mt-0.5 active:scale-90 ${
-                              isDone
-                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs ring-1 ring-emerald-500/30'
-                                : 'bg-white dark:bg-stone-800 text-stone-300 hover:text-emerald-600 border-stone-300 dark:border-stone-700 hover:border-emerald-500'
-                            }`}
-                            title={isDone ? 'إلغاء الإنجاز' : 'تم الإنجاز بنجاح (✔️)'}
-                          >
-                            <Check className="w-3.5 h-3.5 stroke-[3]" />
-                          </button>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span
-                                className={`text-xs font-black transition-all ${
-                                  isDone
-                                    ? 'line-through text-stone-400 dark:text-stone-500'
-                                    : 'text-stone-900 dark:text-stone-100'
-                                }`}
-                              >
-                                {task.title}
-                              </span>
-                              {task.urgency === 'high' && !isDone && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-bold">
-                                  عاجل
-                                </span>
-                              )}
-                            </div>
-                            <p
-                              className={`text-[11px] mt-0.5 transition-all ${
-                                isDone
-                                  ? 'line-through text-stone-400 dark:text-stone-600'
-                                  : 'text-stone-600 dark:text-stone-400'
-                              }`}
-                            >
-                              {task.detail}
-                            </p>
-                          </div>
-                        </div>
-
-                        {task.view && !isDone && (
-                          <div className="flex justify-end">
-                            <button
-                              type="button"
-                              onClick={() => openScreen(task.view!)}
-                              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-300/60 dark:border-amber-800 text-[11px] font-black transition cursor-pointer flex items-center gap-1 active:scale-95"
-                            >
-                              <span>{task.actionLabel}</span>
-                              <ChevronLeft className="w-3 h-3 text-amber-600" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* قسم 2: مواعيد وأجندة تسليم الطلبيات والربط مع تقويم جوجل 📅 */}
-              <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-2xs space-y-3">
-                <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-2">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                    <h3 className="text-xs sm:text-sm font-black text-stone-900 dark:text-stone-100">
-                      مواعيد وأجندة الورشة
-                    </h3>
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-[#F4ECE0] dark:bg-[#091533]">
+              <div className="max-w-3xl mx-auto space-y-4">
+                {/* قسم 1: توجيهات ومهام اليوم من شموسة */}
+                <div className="p-4 rounded-2xl bg-[#FBF7F0] dark:bg-[#0F204D] border border-[#D5C7B0] dark:border-[#243C78] shadow-xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#E3D8C5] dark:border-[#1E356B] pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">☀️</span>
+                      <h3 className="text-xs sm:text-sm font-black text-[#1C2434] dark:text-[#F1F5F9]">
+                        توجيهات ومهام اليوم من شموسة
+                      </h3>
+                    </div>
+                    <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#CBD5E1] font-black">
+                      {completedTaskIds.filter((id) => dailyTasks.some((t) => t.id === id)).length} / {dailyTasks.length} منجز
+                    </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      playButtonClickSound();
-                      setIsNewApptFormOpen(!isNewApptFormOpen);
-                    }}
-                    className="px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black transition cursor-pointer flex items-center gap-1 active:scale-95 shadow-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>موعد جديد</span>
-                  </button>
-                </div>
-
-                {/* New Appointment inline form */}
-                {isNewApptFormOpen && (
-                  <form
-                    onSubmit={handleCreateAppointment}
-                    className="p-3 rounded-xl bg-amber-50/60 dark:bg-stone-850 border border-amber-300/80 dark:border-amber-800/80 space-y-2.5 animate-in fade-in duration-200"
-                  >
-                    <div className="flex items-center justify-between pb-1 border-b border-amber-200/50 dark:border-stone-800">
-                      <span className="text-xs font-black text-amber-900 dark:text-amber-200">
-                        تسجيل موعد أو تسليم جديد 📅
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setIsNewApptFormOpen(false)}
-                        className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <input
-                        type="text"
-                        value={apptFormTitle}
-                        onChange={(e) => setApptFormTitle(e.target.value)}
-                        placeholder="عنوان الموعد أو المشغولة (مثلاً: تسليم طقم صواني رخام)"
-                        required
-                        className="w-full text-xs p-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-bold"
-                      />
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          type="text"
-                          value={apptFormClient}
-                          onChange={(e) => setApptFormClient(e.target.value)}
-                          placeholder="اسم العميل (اختياري)"
-                          className="w-full text-xs p-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-bold"
-                        />
-                        <input
-                          type="tel"
-                          value={apptFormPhone}
-                          onChange={(e) => setApptFormPhone(e.target.value)}
-                          placeholder="هاتف العميل"
-                          className="w-full text-xs p-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-bold font-mono"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] font-bold text-stone-500 block mb-0.5">التاريخ</label>
-                          <input
-                            type="date"
-                            value={apptFormDate}
-                            onChange={(e) => setApptFormDate(e.target.value)}
-                            required
-                            className="w-full text-xs p-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-mono"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold text-stone-500 block mb-0.5">الساعة</label>
-                          <input
-                            type="time"
-                            value={apptFormTime}
-                            onChange={(e) => setApptFormTime(e.target.value)}
-                            className="w-full text-xs p-1.5 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 font-mono"
-                          />
-                        </div>
-                      </div>
-
-                      <input
-                        type="text"
-                        value={apptFormNotes}
-                        onChange={(e) => setApptFormNotes(e.target.value)}
-                        placeholder="ملاحظات التسليم (مثال: تغليف هدايا)"
-                        className="w-full text-xs p-2 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100"
-                      />
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setIsNewApptFormOpen(false)}
-                        className="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-600 dark:text-stone-400 text-xs font-bold"
-                      >
-                        إلغاء
-                      </button>
-                      <button
-                        type="submit"
-                        className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-black shadow-xs cursor-pointer active:scale-95"
-                      >
-                        حفظ الموعد
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {/* Appointments List */}
-                <div className="space-y-2.5">
-                  {appointments.length === 0 ? (
-                    <div className="text-center py-4 text-xs text-stone-500 dark:text-stone-400">
-                      لا توجد مواعيد تسليم مسجلة حالياً. اضغط "موعد جديد" لتسجيل موعد تسليم للعميل.
-                    </div>
-                  ) : (
-                    appointments.map((appt) => {
-                      const isDone = appt.status === 'completed';
-                      const gcalUrl = createGoogleCalendarUrl({
-                        title: appt.title,
-                        date: appt.date,
-                        time: appt.time,
-                        notes: appt.notes,
-                        clientName: appt.clientName,
-                        clientPhone: appt.clientPhone,
-                        brandName: profile.brandName,
-                      });
-
+                  <div className="space-y-2.5">
+                    {dailyTasks.map((task) => {
+                      const isDone = completedTaskIds.includes(task.id);
                       return (
                         <div
-                          key={appt.id}
-                          className={`p-3 rounded-2xl border transition-all space-y-2 ${
+                          key={task.id}
+                          className={`p-3 rounded-xl border transition-all flex flex-col gap-2 ${
                             isDone
-                              ? 'bg-stone-100/50 dark:bg-stone-900/40 border-stone-200 dark:border-stone-800 opacity-70'
-                              : 'bg-white dark:bg-stone-850 border-stone-200 dark:border-stone-800 shadow-2xs'
+                              ? 'bg-emerald-500/10 border-emerald-500/30 opacity-75'
+                              : task.urgency === 'high'
+                              ? 'bg-[#EFE6D7] dark:bg-[#152B62] border-[#B8A586] dark:border-[#395AA8]'
+                              : 'bg-[#F4ECE0] dark:bg-[#102250] border-[#D5C7B0] dark:border-[#243C78]'
                           }`}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <h4
-                                className={`text-xs font-black ${
-                                  isDone
-                                    ? 'line-through text-stone-400 dark:text-stone-500'
-                                    : 'text-stone-900 dark:text-stone-100'
-                                }`}
-                              >
-                                {appt.title}
-                              </h4>
-                              {appt.clientName && (
-                                <p className="text-[11px] text-stone-600 dark:text-stone-400 flex items-center gap-1 mt-0.5">
-                                  <User className="w-3 h-3 text-stone-400" />
-                                  <span>{appt.clientName}</span>
-                                  {appt.clientPhone && (
-                                    <span className="font-mono text-stone-500 mr-1">({appt.clientPhone})</span>
-                                  )}
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="text-left shrink-0">
-                              <span className="text-[11px] font-mono font-black text-amber-700 dark:text-amber-400 block">
-                                {appt.date}
-                              </span>
-                              {appt.time && (
-                                <span className="text-[10px] font-mono text-stone-500 block">
-                                  {appt.time}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {appt.notes && (
-                            <p className="text-[11px] text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-900/60 p-1.5 rounded-lg border border-stone-200/50 dark:border-stone-800">
-                              {appt.notes}
-                            </p>
-                          )}
-
-                          {/* أزرار تقويم جوجل وتنزيل .ics والإنجاز */}
-                          <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-stone-100 dark:border-stone-800">
-                            <div className="flex items-center gap-1.5">
-                              {/* حفظ في تقويم جوجل 📅 */}
-                              <a
-                                href={gcalUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 transition cursor-pointer"
-                                title="حفظ الموعد في تقويم جوجل"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                                <span>تقويم جوجل 📅</span>
-                              </a>
-
-                              {/* تحميل ملف التقويم .ics */}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  downloadIcsFile({
-                                    id: appt.id,
-                                    title: appt.title,
-                                    date: appt.date,
-                                    time: appt.time,
-                                    notes: appt.notes,
-                                    clientName: appt.clientName,
-                                    brandName: profile.brandName,
-                                  })
-                                }
-                                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:bg-stone-200 transition cursor-pointer"
-                                title="تحميل ملف التقويم للأجهزة والهواتف (.ics)"
-                              >
-                                <Download className="w-3 h-3 text-stone-500" />
-                                <span>ملف .ics</span>
-                              </button>
-                            </div>
-
+                          <div className="flex items-start gap-2.5">
                             <button
                               type="button"
-                              onClick={() => handleToggleAppointment(appt.id)}
-                              className={`text-[10px] font-black px-2.5 py-1 rounded-lg transition cursor-pointer active:scale-95 ${
+                              onClick={() => handleToggleTask(task.id)}
+                              className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border transition-all cursor-pointer mt-0.5 active:scale-90 ${
                                 isDone
-                                  ? 'bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-400'
-                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                  : 'bg-[#FBF7F0] dark:bg-[#091533] text-transparent hover:text-emerald-600 border-[#C4B395] dark:border-[#35539E] hover:border-emerald-500'
                               }`}
+                              title={isDone ? 'إلغاء الإنجاز' : 'تم الإنجاز بنجاح'}
                             >
-                              {isDone ? 'تم التسليم ✔️' : 'تأكيد التسليم'}
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
                             </button>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span
+                                  className={`text-xs sm:text-sm font-black transition-all ${
+                                    isDone
+                                      ? 'line-through text-[#64748B]'
+                                      : 'text-[#1C2434] dark:text-[#F1F5F9]'
+                                  }`}
+                                >
+                                  {task.title}
+                                </span>
+                                {task.urgency === 'high' && !isDone && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-700 dark:text-rose-300 font-black">
+                                    عاجل
+                                  </span>
+                                )}
+                              </div>
+                              <p
+                                className={`text-xs mt-1 leading-relaxed transition-all ${
+                                  isDone
+                                    ? 'line-through text-[#64748B]'
+                                    : 'text-[#475569] dark:text-[#CBD5E1]'
+                                }`}
+                              >
+                                {task.detail}
+                              </p>
+                            </div>
                           </div>
+
+                          {task.view && !isDone && (
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => openScreen(task.view!)}
+                                className="px-3 py-1 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] text-white text-[11px] font-black transition cursor-pointer flex items-center gap-1 active:scale-95"
+                              >
+                                <span>{task.actionLabel}</span>
+                                <ChevronLeft className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       );
-                    })
+                    })}
+                  </div>
+                </div>
+
+                {/* قسم 2: مواعيد وأجندة تسليم الطلبيات والربط مع تقويم جوجل */}
+                <div className="p-4 rounded-2xl bg-[#FBF7F0] dark:bg-[#0F204D] border border-[#D5C7B0] dark:border-[#243C78] shadow-xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#E3D8C5] dark:border-[#1E356B] pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-[#142A5C] dark:text-[#93C5FD]" />
+                      <h3 className="text-xs sm:text-sm font-black text-[#1C2434] dark:text-[#F1F5F9]">
+                        مواعيد وأجندة الورشة
+                      </h3>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playButtonClickSound();
+                        setIsNewApptFormOpen(!isNewApptFormOpen);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#24489C] dark:hover:bg-[#2F59BD] text-white text-xs font-black transition cursor-pointer flex items-center gap-1 active:scale-95 shadow-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>موعد جديد</span>
+                    </button>
+                  </div>
+
+                  {isNewApptFormOpen && (
+                    <form
+                      onSubmit={handleCreateAppointment}
+                      className="p-3.5 rounded-xl bg-[#EFE6D7] dark:bg-[#132960] border border-[#CDBEA3] dark:border-[#32519E] space-y-2.5 animate-in fade-in duration-200"
+                    >
+                      <div className="flex items-center justify-between pb-1.5 border-b border-[#D5C7B0] dark:border-[#243C78]">
+                        <span className="text-xs font-black text-[#142A5C] dark:text-[#E2E8F0]">
+                          تسجيل موعد أو تسليم جديد 📅
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setIsNewApptFormOpen(false)}
+                          className="text-[#64748B] hover:text-[#1C2434] dark:hover:text-white cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={apptFormTitle}
+                          onChange={(e) => setApptFormTitle(e.target.value)}
+                          placeholder="عنوان الموعد أو المشغولة (مثلاً: تسليم طقم صواني رخام)"
+                          required
+                          className="w-full text-xs p-2.5 rounded-lg border border-[#CDBEA3] dark:border-[#32519E] bg-[#FBF7F0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] font-bold"
+                        />
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            value={apptFormClient}
+                            onChange={(e) => setApptFormClient(e.target.value)}
+                            placeholder="اسم العميل (اختياري)"
+                            className="w-full text-xs p-2.5 rounded-lg border border-[#CDBEA3] dark:border-[#32519E] bg-[#FBF7F0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] font-bold"
+                          />
+                          <input
+                            type="tel"
+                            value={apptFormPhone}
+                            onChange={(e) => setApptFormPhone(e.target.value)}
+                            placeholder="هاتف العميل"
+                            className="w-full text-xs p-2.5 rounded-lg border border-[#CDBEA3] dark:border-[#32519E] bg-[#FBF7F0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] font-bold font-mono"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8] block mb-0.5">
+                              التاريخ
+                            </label>
+                            <input
+                              type="date"
+                              value={apptFormDate}
+                              onChange={(e) => setApptFormDate(e.target.value)}
+                              required
+                              className="w-full text-xs p-2 rounded-lg border border-[#CDBEA3] dark:border-[#32519E] bg-[#FBF7F0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8] block mb-0.5">
+                              الساعة
+                            </label>
+                            <input
+                              type="time"
+                              value={apptFormTime}
+                              onChange={(e) => setApptFormTime(e.target.value)}
+                              className="w-full text-xs p-2 rounded-lg border border-[#CDBEA3] dark:border-[#32519E] bg-[#FBF7F0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <input
+                          type="text"
+                          value={apptFormNotes}
+                          onChange={(e) => setApptFormNotes(e.target.value)}
+                          placeholder="ملاحظات التسليم (مثال: تغليف هدايا)"
+                          className="w-full text-xs p-2.5 rounded-lg border border-[#CDBEA3] dark:border-[#32519E] bg-[#FBF7F0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9]"
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setIsNewApptFormOpen(false)}
+                          className="px-3 py-1.5 rounded-lg border border-[#CDBEA3] dark:border-[#32519E] text-[#475569] dark:text-[#CBD5E1] text-xs font-bold cursor-pointer"
+                        >
+                          إلغاء
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-1.5 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] text-white text-xs font-black shadow-xs cursor-pointer active:scale-95"
+                        >
+                          حفظ الموعد
+                        </button>
+                      </div>
+                    </form>
                   )}
+
+                  <div className="space-y-2.5">
+                    {appointments.length === 0 ? (
+                      <div className="text-center py-4 text-xs text-[#64748B] dark:text-[#94A3B8]">
+                        لا توجد مواعيد تسليم مسجلة حالياً. اضغط "موعد جديد" لتسجيل موعد تسليم للعميل.
+                      </div>
+                    ) : (
+                      appointments.map((appt) => {
+                        const isDone = appt.status === 'completed';
+                        const gcalUrl = createGoogleCalendarUrl({
+                          title: appt.title,
+                          date: appt.date,
+                          time: appt.time,
+                          notes: appt.notes,
+                          clientName: appt.clientName,
+                          clientPhone: appt.clientPhone,
+                          brandName: profile.brandName,
+                        });
+
+                        return (
+                          <div
+                            key={appt.id}
+                            className={`p-3.5 rounded-2xl border transition-all space-y-2 ${
+                              isDone
+                                ? 'bg-[#EFE6D7]/50 dark:bg-[#0C1D47]/50 border-[#D5C7B0] dark:border-[#1E356B] opacity-70'
+                                : 'bg-[#F4ECE0] dark:bg-[#102350] border-[#D5C7B0] dark:border-[#243C78] shadow-2xs'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <h4
+                                  className={`text-xs sm:text-sm font-black ${
+                                    isDone
+                                      ? 'line-through text-[#64748B]'
+                                      : 'text-[#1C2434] dark:text-[#F1F5F9]'
+                                  }`}
+                                >
+                                  {appt.title}
+                                </h4>
+                                {appt.clientName && (
+                                  <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] flex items-center gap-1 mt-0.5">
+                                    <User className="w-3 h-3 opacity-70" />
+                                    <span>{appt.clientName}</span>
+                                    {appt.clientPhone && (
+                                      <span className="font-mono opacity-80 mr-1">({appt.clientPhone})</span>
+                                    )}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="text-left shrink-0">
+                                <span className="text-[11px] font-mono font-black text-[#142A5C] dark:text-[#93C5FD] block">
+                                  {appt.date}
+                                </span>
+                                {appt.time && (
+                                  <span className="text-[10px] font-mono text-[#64748B] dark:text-[#94A3B8] block">
+                                    {appt.time}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {appt.notes && (
+                              <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] bg-[#FBF7F0] dark:bg-[#091533]/60 p-2 rounded-lg border border-[#E3D8C5] dark:border-[#1E356B]">
+                                {appt.notes}
+                              </p>
+                            )}
+
+                            <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1.5 border-t border-[#E3D8C5] dark:border-[#1E356B]">
+                              <div className="flex items-center gap-1.5">
+                                <a
+                                  href={gcalUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-lg bg-[#EAE0CE] dark:bg-[#17306B] text-[#142A5C] dark:text-[#DBEAFE] border border-[#CDBEA3] dark:border-[#31509B] hover:brightness-95 transition cursor-pointer"
+                                  title="حفظ الموعد في تقويم جوجل"
+                                >
+                                  <ExternalLink className="w-3 h-3" />
+                                  <span>تقويم جوجل 📅</span>
+                                </a>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    downloadIcsFile({
+                                      id: appt.id,
+                                      title: appt.title,
+                                      date: appt.date,
+                                      time: appt.time,
+                                      notes: appt.notes,
+                                      clientName: appt.clientName,
+                                      brandName: profile.brandName,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-[#FBF7F0] dark:bg-[#0C1D47] text-[#334155] dark:text-[#CBD5E1] border border-[#D5C7B0] dark:border-[#243C78] hover:border-[#142A5C] transition cursor-pointer"
+                                  title="تحميل ملف التقويم للأجهزة والهواتف (.ics)"
+                                >
+                                  <Download className="w-3 h-3 opacity-70" />
+                                  <span>ملف .ics</span>
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleAppointment(appt.id)}
+                                className={`text-[10px] font-black px-2.5 py-1 rounded-lg transition cursor-pointer active:scale-95 ${
+                                  isDone
+                                    ? 'bg-[#DFD2BA] dark:bg-[#152B62] text-[#475569] dark:text-[#94A3B8]'
+                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                                }`}
+                              >
+                                {isDone ? 'تم التسليم ✔️' : 'تأكيد التسليم'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2603,17 +2868,17 @@ const Bubble: React.FC<{ role: 'user' | 'assistant'; children: React.ReactNode }
   role,
   children,
 }) => (
-  <div className={`flex items-end gap-2 ${role === 'user' ? 'justify-start' : 'justify-end'}`}>
+  <div className={`flex items-end gap-2.5 ${role === 'user' ? 'justify-start' : 'justify-end'}`}>
     {role === 'assistant' && (
-      <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-amber-400 bg-amber-500/20 shadow-2xs flex items-center justify-center p-0.5">
+      <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 border-2 border-[#D4C3A3] dark:border-[#395AA8] bg-[#FBF7F0] dark:bg-[#132960] shadow-[0_0_12px_rgba(251,191,36,0.3)] flex items-center justify-center p-0.5">
         <ShamousaMascotAvatar size="xs" statusDot={false} className="w-full h-full" />
       </div>
     )}
     <div
-      className={`max-w-[85%] whitespace-pre-wrap break-words text-sm leading-relaxed px-4 py-2.5 rounded-2xl shadow-2xs ${
+      className={`max-w-[86%] sm:max-w-[78%] whitespace-pre-wrap break-words text-sm leading-relaxed px-4 py-3 rounded-2xl shadow-2xs ${
         role === 'user'
-          ? 'bg-amber-600 text-white rounded-br-xs'
-          : 'bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-100 border border-stone-200 dark:border-stone-700 rounded-bl-xs'
+          ? 'bg-[#142A5C] dark:bg-[#1E3F8A] text-white rounded-br-xs'
+          : 'bg-[#FBF7F0] dark:bg-[#102350] text-[#1C2434] dark:text-[#F1F5F9] border border-[#D5C7B0] dark:border-[#243C78] rounded-bl-xs'
       }`}
     >
       {children}

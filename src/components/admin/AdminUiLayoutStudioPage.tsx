@@ -53,6 +53,7 @@ import {
 } from '../../types/uiLayoutConfig';
 import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
 import { AdminExperienceModePanel } from './AdminExperienceModePanel';
+import { AdminAiAssistantsPanel } from './AdminAiAssistantsPanel';
 
 interface AdminUiLayoutStudioPageProps {
   onBack: () => void;
@@ -60,7 +61,13 @@ interface AdminUiLayoutStudioPageProps {
   onPublishToCloud: (nextLayout: PlatformUiLayoutConfig) => Promise<void>;
 }
 
-type StudioSectionTab = 'cards' | 'navbar' | 'sidebar' | 'global_elements' | 'experience_modes';
+type StudioSectionTab =
+  | 'cards'
+  | 'navbar'
+  | 'sidebar'
+  | 'global_elements'
+  | 'experience_modes'
+  | 'ai_assistants';
 
 function reorderArray<T>(list: T[], fromIdx: number, toIdx: number): T[] {
   if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= list.length || toIdx >= list.length) {
@@ -889,6 +896,7 @@ export const AdminUiLayoutStudioPage: React.FC<AdminUiLayoutStudioPageProps> = (
               { id: 'navbar', label: 'القائمة العلوية (Navbar)', icon: Menu },
               { id: 'sidebar', label: 'القائمة الجانبية (Sidebar)', icon: PanelRight },
               { id: 'experience_modes', label: 'مقارنة الوضع الحرفي والمحاسبي', icon: FileText },
+              { id: 'ai_assistants', label: 'شموسة وصقر', icon: Sun },
               { id: 'global_elements', label: 'تعديلات كل الصفحات', icon: Sparkles },
             ] as const
           ).map((t) => {
@@ -1906,6 +1914,20 @@ export const AdminUiLayoutStudioPage: React.FC<AdminUiLayoutStudioPageProps> = (
             setDraft((prev) => ({
               ...prev,
               experienceModeConfig: nextExpCfg,
+              updatedAt: new Date().toISOString(),
+            }))
+          }
+        />
+      )}
+
+      {/* ================= TAB 6: SHAMOUSA & FALCON AI ASSISTANTS LABELS ================= */}
+      {studioTab === 'ai_assistants' && (
+        <AdminAiAssistantsPanel
+          value={draft.aiAssistantsConfig}
+          onChange={(nextAiCfg) =>
+            setDraft((prev) => ({
+              ...prev,
+              aiAssistantsConfig: nextAiCfg,
               updatedAt: new Date().toISOString(),
             }))
           }

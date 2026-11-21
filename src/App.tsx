@@ -110,9 +110,6 @@ const SaaSReportsAnalyticsView = lazy(() =>
 const FalconAIAgent = lazy(() =>
   import('./components/ai/FalconAIAgent').then((m) => ({ default: m.FalconAIAgent }))
 );
-const ShamousaCompanion = lazy(() =>
-  import('./components/shamousa/ShamousaCompanion').then((m) => ({ default: m.ShamousaCompanion }))
-);
 const AdminDashboard = lazy(() =>
   import('./components/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard }))
 );
@@ -3207,7 +3204,7 @@ export const App: React.FC = () => {
           )}
       </main>
 
-      {/* Floating Shamousa Chat Assistant & Strategic OR Companion: Active across workshops */}
+      {/* Unified Floating Shamousa Assistant (Chat + Daily Check-in + Tasks + Results + OR 360) */}
       {profile &&
         activeView !== 'ai_agent' &&
         activeView !== 'family' &&
@@ -3216,10 +3213,6 @@ export const App: React.FC = () => {
             <ShamousaChatWidget
               profile={profile}
               onOpenFalcon={() => navigateTo('ai_agent')}
-              isAnyModalOpen={isAnyModalOpen}
-            />
-            <ShamousaCompanion
-              profile={profile}
               isAnyModalOpen={isAnyModalOpen}
               onNavigateView={(target) => {
                 if (target === 'catalog') {

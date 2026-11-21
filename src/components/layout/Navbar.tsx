@@ -13,6 +13,12 @@ import {
   ChevronLeft,
   FileText,
   User,
+  Plus,
+  ShoppingCart,
+  Layers,
+  Calculator,
+  Sparkles,
+  X,
 } from 'lucide-react';
 import { AlShamsBrandIcon, AlShamsBrandLogo } from '../brand/BrandAssets';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
@@ -72,6 +78,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenNotifications,
   isDarkMode = false,
   onToggleTheme,
+  onOpenNewMaterialModal,
+  onNavigateToCalculator,
+  onNavigateToSales,
+  onOpenNewClientModal,
   onNavigateToCatalog,
   onOpenArtisanStore,
   onNavigateToFamily,
@@ -86,18 +96,27 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isCompactNav = isSuperAdminMode || navLayout.density === 'compact';
 
   const [isAdminBellOpen, setIsAdminBellOpen] = useState(false);
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const bellWrapperRef = useRef<HTMLDivElement>(null);
+  const quickAddWrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isAdminBellOpen) return;
+    if (!isAdminBellOpen && !isQuickAddOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (bellWrapperRef.current && !bellWrapperRef.current.contains(e.target as Node)) {
         setIsAdminBellOpen(false);
       }
+      if (quickAddWrapperRef.current && !quickAddWrapperRef.current.contains(e.target as Node)) {
+        setIsQuickAddOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isAdminBellOpen]);
+  }, [isAdminBellOpen, isQuickAddOpen]);
+
+  const showQuickAddButton =
+    !isSuperAdminMode &&
+    Boolean(onNavigateToSales || onOpenNewMaterialModal || onNavigateToCalculator || onOpenNewClientModal);
 
   const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64 || '';
 
@@ -197,10 +216,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           className={`${
             isCompactNav
               ? 'h-7 sm:h-8 px-1.5 sm:px-2.5 text-[10px] sm:text-[11px] gap-1'
-              : 'px-2 sm:px-3.5 py-1.5 text-[11px] sm:text-xs gap-1 sm:gap-1.5'
+              : 'h-7 sm:h-8 px-1.5 sm:px-3 text-[10px] sm:text-xs gap-1'
           } rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white border border-[#FDBA74]/50 font-black flex items-center transition cursor-pointer shadow-sm whitespace-nowrap shrink-0`}
         >
-          <Store className={`${isCompactNav ? 'w-3 h-3 sm:w-3.5 sm:h-3.5' : 'w-3.5 h-3.5'} text-amber-100 shrink-0`} />
+          <Store className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-100 shrink-0" />
           <span>{label || 'متجري'}</span>
         </button>
       );
@@ -215,14 +234,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           className={`${
             isCompactNav
               ? 'h-7 sm:h-8 px-1.5 sm:px-2.5 text-[10px] sm:text-[11px] gap-1'
-              : 'px-2 sm:px-3.5 py-1.5 text-[11px] sm:text-xs gap-1 sm:gap-1.5'
+              : 'h-7 sm:h-8 px-1.5 sm:px-3 text-[10px] sm:text-xs gap-1'
           } rounded-xl border font-black flex items-center transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 ${
             activeView === 'family'
               ? 'bg-[#0C1427] text-[#FBBF24] border-[#EA580C] dark:bg-[#FBBF24] dark:text-[#0C1427] dark:border-[#EA580C]'
               : 'bg-[#E9E2D4] hover:bg-[#DFD7C6] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#132040] dark:hover:bg-[#1A2B54] dark:text-[#F7F3EA] dark:border-[#22355E]'
           }`}
         >
-          <Users className={`${isCompactNav ? 'w-3 h-3 sm:w-3.5 sm:h-3.5' : 'w-3.5 h-3.5'} text-[#EA580C] dark:text-[#FBBF24] shrink-0`} />
+          <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
           <span>{label || 'العيلة'}</span>
         </button>
       );
@@ -237,14 +256,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           className={`${
             isCompactNav
               ? 'h-7 sm:h-8 px-1.5 sm:px-2.5 text-[10px] sm:text-[11px] gap-1'
-              : 'px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs gap-1'
+              : 'h-7 sm:h-8 px-1.5 sm:px-2.5 text-[10px] sm:text-xs gap-1'
           } rounded-xl border font-black flex items-center transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 ${
             activeView === 'executive_brief' || activeView === 'supplier_executive_brief'
               ? 'bg-[#0C1427] text-[#FBBF24] border-[#EA580C]'
               : 'bg-[#E9E2D4] hover:bg-[#DFD7C6] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#132040] dark:text-[#F7F3EA] dark:border-[#22355E]'
           }`}
         >
-          <FileText className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
+          <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
           <span>{label || 'هلخصهالك'}</span>
         </button>
       );
@@ -259,14 +278,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           className={`${
             isCompactNav
               ? 'h-7 sm:h-8 px-1.5 sm:px-2.5 text-[10px] sm:text-[11px] gap-1'
-              : 'px-2 sm:px-3 py-1.5 text-[11px] sm:text-xs gap-1'
+              : 'h-7 sm:h-8 px-1.5 sm:px-2.5 text-[10px] sm:text-xs gap-1'
           } rounded-xl border font-black flex items-center transition cursor-pointer shadow-2xs whitespace-nowrap shrink-0 ${
             activeView === 'personal_profile'
               ? 'bg-[#0C1427] text-[#FBBF24] border-[#EA580C]'
               : 'bg-[#E9E2D4] hover:bg-[#DFD7C6] text-[#0C1427] border-[#D4CCBC] hover:border-[#EA580C] dark:bg-[#132040] dark:text-[#F7F3EA] dark:border-[#22355E]'
           }`}
         >
-          <User className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
+          <User className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
           <span>{label || 'صفحتي'}</span>
         </button>
       );
@@ -279,7 +298,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       className={`sticky top-0 z-40 flex items-center justify-between w-full max-w-full box-border bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] shadow-2xs overflow-x-clip ${
         isCompactNav
           ? 'gap-1 sm:gap-2 px-1.5 sm:px-3.5 md:px-4 py-1.5 sm:py-2'
-          : 'gap-1 sm:gap-2 px-2 sm:px-4 md:px-5 py-2 sm:py-2.5'
+          : 'gap-1 sm:gap-2 px-1.5 sm:px-3.5 md:px-5 py-1.5 sm:py-2'
       }`}
     >
       {/* اليمين: شعار المنظومة/الورشة + وسم SUPER ADMIN عند السوبر أدمن */}
@@ -328,15 +347,133 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* الوسط: الأزرار الديناميكية المرتبة من هندسة الواجهات */}
-      <div className={`flex items-center min-w-0 shrink ${isCompactNav ? 'gap-1 sm:gap-1.5' : 'gap-1 sm:gap-2'}`}>
+      <div className="flex items-center min-w-0 shrink gap-1 sm:gap-1.5">
         {middleItemsOrdered.map((mi) => renderMiddleItem(mi.id, mi.label))}
       </div>
 
-      {/* اليسار: تثبيت التطبيق + جرس الإشعارات + الثيم + القائمة الجانبية */}
-      <div className={`flex items-center shrink-0 ${isCompactNav ? 'gap-1 sm:gap-1.5' : 'gap-1 sm:gap-2'}`}>
+      {/* اليسار: زر الإجراءات السريعة (+) بين العيلة والإشعارات + تثبيت التطبيق + جرس الإشعارات + الثيم + القائمة الجانبية */}
+      <div className="flex items-center shrink-0 gap-1 sm:gap-1.5">
+        {showQuickAddButton && (
+          <div className="relative" ref={quickAddWrapperRef}>
+            <button
+              type="button"
+              onClick={() => setIsQuickAddOpen((v) => !v)}
+              aria-label="إجراءات سريعة"
+              aria-expanded={isQuickAddOpen}
+              title="إجراءات سريعة (+)"
+              className={`w-7 h-7 sm:w-8 sm:h-8 rounded-xl border flex items-center justify-center transition cursor-pointer shrink-0 ${
+                isQuickAddOpen
+                  ? 'bg-[#0C1427] text-white border-[#3B82F6] dark:bg-[#F7F3EA] dark:text-[#0C1427]'
+                  : 'bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border-[#D4CCBC] dark:border-[#2B468B] text-[#0C1427] dark:text-[#F7F3EA]'
+              }`}
+            >
+              <Plus className={`w-3.5 h-3.5 sm:w-4 sm:h-4 transition-transform duration-200 ${isQuickAddOpen ? 'rotate-45' : ''}`} />
+            </button>
+
+            {isQuickAddOpen && (
+              <div
+                role="menu"
+                aria-label="إجراءات الوصول السريع"
+                dir="rtl"
+                className="fixed sm:absolute left-2 sm:left-0 top-12 sm:top-full sm:mt-2 w-64 rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#2B468B] shadow-2xl p-2 z-50 space-y-1.5 text-right animate-in fade-in slide-in-from-top-1 duration-150"
+              >
+                <div className="px-2 py-1 border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
+                  <span className="text-[11px] font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[#2563EB] dark:text-sky-300" />
+                    <span>{isSupplierAccount ? 'إجراءات المتجر السريعة' : 'إجراءات الورشة السريعة'}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickAddOpen(false)}
+                    className="p-0.5 rounded-md text-[#64748B] hover:text-[#0C1427] dark:hover:text-white cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {onNavigateToSales && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsQuickAddOpen(false);
+                      onNavigateToSales();
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl flex items-center gap-2.5 text-right bg-[#EFE8DA] hover:bg-[#E5DCCB] dark:bg-[#132040] dark:hover:bg-[#1B2F5E] border border-[#D4CCBC] dark:border-[#22355E] transition cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                      <ShoppingCart className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-black block text-[#0C1427] dark:text-[#F7F3EA]">تسجيل بيع جديد</span>
+                      <span className="text-[10px] text-[#475569] dark:text-[#CBD5E1] block">فاتورة نقدية أو آجل</span>
+                    </div>
+                  </button>
+                )}
+
+                {onOpenNewMaterialModal && !isSupplierAccount && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsQuickAddOpen(false);
+                      onOpenNewMaterialModal();
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl flex items-center gap-2.5 text-right bg-[#EFE8DA] hover:bg-[#E5DCCB] dark:bg-[#132040] dark:hover:bg-[#1B2F5E] border border-[#D4CCBC] dark:border-[#22355E] transition cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-[#1E3A8A] text-white flex items-center justify-center shrink-0">
+                      <Layers className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-black block text-[#0C1427] dark:text-[#F7F3EA]">إضافة خامة جديدة</span>
+                      <span className="text-[10px] text-[#475569] dark:text-[#CBD5E1] block">إدخال صنف خام للمخزن</span>
+                    </div>
+                  </button>
+                )}
+
+                {onNavigateToCalculator && !isSupplierAccount && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsQuickAddOpen(false);
+                      onNavigateToCalculator();
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl flex items-center gap-2.5 text-right bg-[#EFE8DA] hover:bg-[#E5DCCB] dark:bg-[#132040] dark:hover:bg-[#1B2F5E] border border-[#D4CCBC] dark:border-[#22355E] transition cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-violet-600 text-white flex items-center justify-center shrink-0">
+                      <Calculator className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-black block text-[#0C1427] dark:text-[#F7F3EA]">حاسبة التكاليف والتسعير</span>
+                      <span className="text-[10px] text-[#475569] dark:text-[#CBD5E1] block">حساب تكلفة ومصنعية القطعة</span>
+                    </div>
+                  </button>
+                )}
+
+                {onOpenNewClientModal && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsQuickAddOpen(false);
+                      onOpenNewClientModal();
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl flex items-center gap-2.5 text-right bg-[#EFE8DA] hover:bg-[#E5DCCB] dark:bg-[#132040] dark:hover:bg-[#1B2F5E] border border-[#D4CCBC] dark:border-[#22355E] transition cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-sky-600 text-white flex items-center justify-center shrink-0">
+                      <Users className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-black block text-[#0C1427] dark:text-[#F7F3EA]">تسجيل عميل جديد</span>
+                      <span className="text-[10px] text-[#475569] dark:text-[#CBD5E1] block">إضافة لملف العملاء والحساب</span>
+                    </div>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {rightUtilityOrdered.map((utilItem) => {
           if (utilItem.id === 'pwa' && (isSuperAdminMode || utilItem.visible !== false)) {
-            return <PWAInstallButton key="pwa" variant="navbar" compact={isCompactNav} />;
+            return <PWAInstallButton key="pwa" variant="navbar" compact={true} />;
           }
           if (utilItem.id === 'notifications' && (isSuperAdminMode || utilItem.visible !== false)) {
             return (
@@ -347,17 +484,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                   aria-label="الإشعارات ورسائل البريد"
                   aria-expanded={isSuperAdminMode ? isAdminBellOpen : undefined}
                   title="الإشعارات ورسائل البريد"
-                  className={`${
-                    isSuperAdminMode
-                      ? `h-7 sm:h-8 ${hasAnyUnread ? 'px-1.5 sm:px-2' : 'w-7 sm:w-8 justify-center'}`
-                      : `h-8 sm:h-9 ${hasAnyUnread ? 'px-1.5 sm:px-2.5' : 'w-8 sm:w-9 justify-center'}`
-                  } rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border ${
+                  className={`h-7 sm:h-8 ${hasAnyUnread ? 'px-1.5 sm:px-2' : 'w-7 sm:w-8 justify-center'} rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border ${
                     isAdminBellOpen
                       ? 'border-[#EA580C] ring-2 ring-[#EA580C]/25'
                       : 'border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
                   } text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-1 transition cursor-pointer whitespace-nowrap shrink-0`}
                 >
-                  <Bell className={`${isSuperAdminMode ? 'w-3.5 h-3.5 sm:w-4 sm:h-4' : 'w-4 h-4'} text-[#C2410C] dark:text-[#FBBF24] shrink-0`} />
+                  <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#C2410C] dark:text-[#FBBF24] shrink-0" />
                   {isSuperAdminMode ? (
                     totalAdminUnread > 0 && (
                       <span
@@ -437,9 +570,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={onToggleTheme}
                 type="button"
                 aria-label="تبديل الثيم"
-                className={`${
-                  isCompactNav ? 'w-7 h-7 sm:w-8 sm:h-8' : 'w-8 h-8 sm:w-9 sm:h-9'
-                } rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#C2410C] dark:text-amber-300 flex items-center justify-center text-base transition cursor-pointer shrink-0`}
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#C2410C] dark:text-amber-300 flex items-center justify-center text-base transition cursor-pointer shrink-0"
               >
                 {isDarkMode ? <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" /> : <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#C2410C]" />}
               </button>
@@ -453,11 +584,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           onClick={onToggleSidebar}
           type="button"
           aria-label="القائمة الجانبية"
-          className={`${
-            isSuperAdminMode ? 'w-7 h-7 sm:w-8 sm:h-8' : 'w-8 h-8 sm:w-9 sm:h-9'
-          } rounded-xl bg-gradient-to-b from-[#F7F3EA] to-[#E5DDD0] dark:from-[#1A294B] dark:to-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#C2410C] dark:text-amber-400 flex items-center justify-center transition cursor-pointer shrink-0`}
+          className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-b from-[#F7F3EA] to-[#E5DDD0] dark:from-[#1A294B] dark:to-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#C2410C] dark:text-amber-400 flex items-center justify-center transition cursor-pointer shrink-0"
         >
-          <Menu className={`${isSuperAdminMode ? 'w-3.5 h-3.5 sm:w-4 sm:h-4' : 'w-4 h-4 sm:w-5 sm:h-5'}`} />
+          <Menu className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
       </div>
     </nav>

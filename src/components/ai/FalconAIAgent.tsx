@@ -3,6 +3,7 @@ import { FalconMascotAvatar, ArtisanAvatar, falconSearchIconImg } from '../brand
 import { UserProfile, CraftCategory, AIVisionAnalysis, ChatMessage } from '../../types';
 import { authedFetch } from '../../lib/apiClient';
 import { buildSmartCalculatorExport } from '../../utils/falconCalculatorExport';
+import { useUiLayoutConfig, DEFAULT_AI_ASSISTANTS_UI_CONFIG } from '../../types/uiLayoutConfig';
 import {
   Sparkles,
   Camera,
@@ -782,6 +783,9 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     setExpandedSources((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
   };
 
+  const uiLayout = useUiLayoutConfig();
+  const aiCfg = uiLayout.aiAssistantsConfig || DEFAULT_AI_ASSISTANTS_UI_CONFIG;
+
   return (
     <div className="bg-[#F7F3EA] dark:bg-[#0D162E] rounded-2xl sm:rounded-3xl border border-[#D4CCBC] dark:border-[#22355E] shadow-xl overflow-hidden flex flex-col h-[calc(100dvh-5.5rem)] sm:h-[750px] max-h-[100dvh] relative transition-colors duration-200">
       {/* Compact Slim Header for Mobile & Desktop */}
@@ -793,7 +797,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
             <h3 className="font-black text-sm sm:text-base text-amber-300 truncate">
-              صقر الشمساوية
+              {aiCfg.falconTitle}
             </h3>
             <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse" title="متصل الآن" />
           </div>
@@ -1431,7 +1435,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                 ? `صف المنتج أو أرفق صورته (${STUDIO_MODE_LABELS[pendingStudioMode]})...`
                 : useGoogleSearch
                 ? 'ابحث في جوجل مع صقر عن الأسعار أو الموردين...'
-                : 'اكتب استفسارك لصقر... (Enter لسطر جديد)'
+                : aiCfg.falconPlaceholder
             }
             className="w-full resize-none max-h-36 overflow-y-auto px-3.5 py-2.5 rounded-2xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 leading-relaxed placeholder:text-stone-400"
           />
