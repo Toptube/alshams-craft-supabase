@@ -588,6 +588,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     if (!textToSend && !chip && !att) return;
 
     stopVoiceRecording();
+    falconSpeech.unlock();
 
     // تفريغ الحقول فورا
     setInputPrompt('');
@@ -802,24 +803,29 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
             <Save className="w-4 h-4 text-amber-400" />
           </button>
 
-          {/* زر السماعة المجانية (قراءة ردود صقر بصوت رجولي — مفعّلة افتراضياً) */}
-          {falconSpeech.isSupported && (
-            <button
-              type="button"
-              onClick={falconSpeech.toggleEnabled}
-              aria-pressed={falconSpeech.isEnabled}
-              title={falconSpeech.isEnabled ? 'صوت صقر شغّال — اضغط لكتمه' : 'صوت صقر مكتوم — اضغط لتشغيله'}
-              className={`w-8 h-8 rounded-full border flex items-center justify-center shadow-xs transition active:scale-95 cursor-pointer ${
-                falconSpeech.isEnabled
-                  ? falconSpeech.isSpeaking
-                    ? 'bg-amber-500 border-amber-300 text-stone-950 shadow-[0_0_12px_rgba(245,158,11,0.7)] animate-pulse'
-                    : 'bg-stone-800/90 hover:bg-stone-700 border-amber-500/50 text-amber-300'
-                  : 'bg-stone-800/70 hover:bg-stone-700 border-stone-700 text-stone-500'
-              }`}
-            >
-              {falconSpeech.isEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-            </button>
-          )}
+          {/* زر السماعة المجانية (قراءة ردود صقر بصوت رجولي — ظاهرة دائماً ومفعّلة افتراضياً) */}
+          <button
+            type="button"
+            onClick={falconSpeech.toggleEnabled}
+            aria-pressed={falconSpeech.isEnabled}
+            title={falconSpeech.isEnabled ? 'صوت صقر شغّال — اضغط لكتمه' : 'صوت صقر مكتوم — اضغط لتشغيله'}
+            className={`relative w-8 h-8 rounded-full border flex items-center justify-center shadow-xs transition active:scale-95 cursor-pointer ${
+              falconSpeech.isEnabled
+                ? falconSpeech.isSpeaking
+                  ? 'bg-amber-500 border-amber-300 text-stone-950 shadow-[0_0_12px_rgba(245,158,11,0.8)] animate-pulse'
+                  : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-400/70 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
+                : 'bg-stone-800/70 hover:bg-stone-700 border-stone-700 text-stone-500'
+            }`}
+          >
+            {falconSpeech.isEnabled ? (
+              <>
+                <Volume2 className="w-4 h-4" />
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-stone-900" />
+              </>
+            ) : (
+              <VolumeX className="w-4 h-4" />
+            )}
+          </button>
 
           {/* حذف الشات 🗑️ */}
           <button

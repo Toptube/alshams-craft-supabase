@@ -5039,6 +5039,53 @@ app.post('/api/ai/transcribe-audio', requireAuth, handleAudioTranscription);
 app.post('/api/transcribe-audio', requireAuth, handleAudioTranscription);
 
 // -------------------------------------------------------------
+// نطق صوتي عربي مجاني 100% (Fallback للهواتف والمتصفحات التي لا تدعم speechSynthesis)
+// -------------------------------------------------------------
+app.post('/api/tts/free', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const rawText = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    if (!rawText) {
+      res.status(400).json({ error: 'النص مطلوب' });
+      return;
+    }
+    // الحد الأقصى للمقطع الواحد 200 حرف لضمان سرعة الاستجابة ونقاء النطق
+    const chunk = rawText.slice(0, 200);
+    const ttsUrl =
+      'https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=ar&client=gtx&q=' +
+      encodeURIComponent(chunk);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6500);
+    try {
+      const upstream = await fetch(ttsUrl, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Referer: 'https://translate.google.com/',
+        },
+        signal: controller.signal,
+      });
+
+      if (!upstream.ok) {
+        res.status(502).json({ error: 'تعذر تجهيز الصوت حالياً' });
+        return;
+      }
+
+      const arrayBuf = await upstream.arrayBuffer();
+      const buffer = Buffer.from(arrayBuf);
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.send(buffer);
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (err: any) {
+    console.warn('[Free TTS Notice]:', err?.message || err);
+    res.status(500).json({ error: 'تعذر تشغيل النطق الصوتي' });
+  }
+});
+
+// -------------------------------------------------------------
 // Chat Session Management
 // -------------------------------------------------------------
 app.get('/api/ai/session', requireAuth, (req: AuthenticatedRequest, res: Response) => {

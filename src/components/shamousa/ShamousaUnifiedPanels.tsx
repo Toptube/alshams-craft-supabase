@@ -456,6 +456,7 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
     const text = (customText ?? inputText).trim();
     if (!text || isSubmitting) return;
 
+    dailySpeech.unlock();
     setInputText('');
     setIsSubmitting(true);
 

@@ -1653,6 +1653,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     if (isRecordingVoice) {
       stopVoiceRecording();
     }
+    shamousaSpeech.unlock();
     let message = text.trim();
     const currentAttachment = pendingAttachment;
     if (pendingAttachment) {
@@ -2150,33 +2151,34 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               {renderRaisedSilverBtn('or360', aiCfg.shamousaBtnOR)}
             </div>
 
-            {/* Free Speaker Toggle + Clean Close Button */}
+            {/* Free Speaker Toggle (Always Visible, Default ON) + Clean Close Button */}
             <div className="flex items-center gap-1.5 shrink-0">
-              {shamousaSpeech.isSupported && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    playButtonClickSound();
-                    shamousaSpeech.toggleEnabled();
-                  }}
-                  aria-label={shamousaSpeech.isEnabled ? 'إيقاف صوت شموسة' : 'تشغيل صوت شموسة'}
-                  aria-pressed={shamousaSpeech.isEnabled}
-                  title={shamousaSpeech.isEnabled ? 'صوت شموسة شغّال — اضغط لكتمه' : 'صوت شموسة مكتوم — اضغط لتشغيله'}
-                  className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full border flex items-center justify-center shrink-0 transition cursor-pointer active:scale-95 ${
-                    shamousaSpeech.isEnabled
-                      ? shamousaSpeech.isSpeaking
-                        ? 'bg-[#142A5C] dark:bg-[#24489C] border-[#60A5FA] text-white shadow-[0_0_12px_rgba(96,165,250,0.65)] animate-pulse'
-                        : 'bg-[#FBF7F0] dark:bg-[#16306B] border-[#142A5C]/40 dark:border-[#4F74C9] text-[#142A5C] dark:text-[#DCE8FF] shadow-xs'
-                      : 'bg-[#FBF7F0]/70 dark:bg-[#102350] border-[#D5C7B0] dark:border-[#243C78] text-[#94A3B8] dark:text-[#64748B]'
-                  }`}
-                >
-                  {shamousaSpeech.isEnabled ? (
+              <button
+                type="button"
+                onClick={() => {
+                  playButtonClickSound();
+                  shamousaSpeech.toggleEnabled();
+                }}
+                aria-label={shamousaSpeech.isEnabled ? 'إيقاف صوت شموسة' : 'تشغيل صوت شموسة'}
+                aria-pressed={shamousaSpeech.isEnabled}
+                title={shamousaSpeech.isEnabled ? 'صوت شموسة شغّال — اضغط لكتمه' : 'صوت شموسة مكتوم — اضغط لتشغيله'}
+                className={`relative w-8 h-8 sm:w-9 sm:h-9 rounded-full border flex items-center justify-center shrink-0 transition cursor-pointer active:scale-95 ${
+                  shamousaSpeech.isEnabled
+                    ? shamousaSpeech.isSpeaking
+                      ? 'bg-[#142A5C] dark:bg-[#24489C] border-[#60A5FA] text-white shadow-[0_0_12px_rgba(96,165,250,0.75)] animate-pulse'
+                      : 'bg-[#142A5C] dark:bg-[#1E3F8A] border-[#38BDF8]/70 text-white shadow-[0_0_8px_rgba(56,189,248,0.35)]'
+                    : 'bg-[#FBF7F0]/80 dark:bg-[#102350] border-[#D5C7B0] dark:border-[#243C78] text-[#94A3B8] dark:text-[#64748B]'
+                }`}
+              >
+                {shamousaSpeech.isEnabled ? (
+                  <>
                     <Volume2 className="w-4 h-4" />
-                  ) : (
-                    <VolumeX className="w-4 h-4" />
-                  )}
-                </button>
-              )}
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-[#0C1D47]" />
+                  </>
+                ) : (
+                  <VolumeX className="w-4 h-4" />
+                )}
+              </button>
 
               <button
                 type="button"
@@ -2508,6 +2510,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                 onSubmit={(e) => {
                   e.preventDefault();
                   stopVoiceRecording();
+                  shamousaSpeech.unlock();
                   send(input);
                 }}
                 className="px-3 sm:px-5 py-2 sm:py-2.5 border-t border-[#D5C7B0] dark:border-[#223B78] bg-[#EAE0CE] dark:bg-[#0C1D47] shrink-0"
