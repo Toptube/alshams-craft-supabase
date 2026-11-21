@@ -35,6 +35,10 @@ import {
   type DailyJournalRecord,
   type PersonalCareEventRecord,
 } from './shamousaBrain';
+import {
+  loadShamousaOrMemory,
+  saveLatestOrSnapshotToShamousaMemory,
+} from './shamousaOrMemory';
 
 export type ORRecommendationType =
   | 'operational'
@@ -1227,6 +1231,32 @@ export async function runFullOperationsResearch(profile: UserProfile): Promise<O
     ];
   }
 
+  // تطبيق حلقة التعلّم المتبادلة مع ذاكرة شموسة:
+  // 1) احترام العناصر المستبعدة (✕) حتى لا تُكرر
+  // 2) رفع أولوية المحاور التي استفسر عنها المستخدم بعلامة (؟) في شموسة لتقديم توصيات أحدث وأعلى دقة
+  const shamousaMemory = loadShamousaOrMemory(tenantId);
+  const dismissedSet = new Set(shamousaMemory.dismissedIds);
+
+  allRecs = allRecs.map((rec) => {
+    const isDismissedInMem = dismissedSet.has(rec.id);
+    const learnedBoost = Number(
+      shamousaMemory.categoryInterestBoost[rec.recommendation_type] ||
+        shamousaMemory.categoryInterestBoost[rec.categoryBadge] ||
+        0
+    );
+    const boostedScore =
+      learnedBoost > 0 ? Math.min(99, rec.impact_score + Math.round(learnedBoost * 0.5)) : rec.impact_score;
+    return {
+      ...rec,
+      impact_score: boostedScore,
+      status: isDismissedInMem ? 'dismissed' : rec.status,
+      metricsSummary:
+        learnedBoost > 0 && rec.metricsSummary && !rec.metricsSummary.includes('مُحدّث بذاكرة شموسة')
+          ? `${rec.metricsSummary} · ✨ مُحدّث بذاكرة شموسة`
+          : rec.metricsSummary,
+    };
+  });
+
   allRecs.sort((a, b) => b.impact_score - a.impact_score);
 
   // أهم 3 قرارات جاهزة للتنفيذ الفوري في "قعدة النتايج الأسبوعية" (توازن بين التشغيلي والبيعي والتسويقي)
@@ -1253,7 +1283,7 @@ export async function runFullOperationsResearch(profile: UserProfile): Promise<O
   // مزامنة صامتة لأعلى 3 توصيات مع Supabase (لا تعطل الواجهة أبداً)
   void syncTopRecommendationsToCloud(tenantId, weeklyTopThreeDecisions);
 
-  return {
+  const report: OROverviewReport = {
     generatedAt: new Date().toISOString(),
     currencySymbol,
     weeklyCapacityHours,
@@ -1271,6 +1301,11 @@ export async function runFullOperationsResearch(profile: UserProfile): Promise<O
       churnFlagsCount: churnRecs.length,
     },
   };
+
+  // تغذية ذاكرة شموسة فوراً بأحدث مخرجات بحوث العمليات لزيادة ذكائها في كل محادثة
+  saveLatestOrSnapshotToShamousaMemory(tenantId, report);
+
+  return report;
 }
 
 async function syncTopRecommendationsToCloud(tenantId: string, recs: ORRecommendation[]): Promise<void> {

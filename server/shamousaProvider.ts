@@ -37,6 +37,16 @@ export interface ShamousaContext {
   clientContext?: {
     experienceMode?: 'craft' | 'accounting';
     experienceModePromptContext?: string;
+    shamousaOrLearningContext?: string;
+    explainItemContext?: {
+      id?: string;
+      section?: string;
+      title?: string;
+      summary?: string;
+      actionSteps?: string[];
+      metricBadge?: string;
+      category?: string;
+    };
     treasuryBalance?: number;
     treasuriesDetail?: any[];
     materialsSummary?: any[];
@@ -716,6 +726,27 @@ ${debtorsLines}
 ${creditorsLines}
    - مخزن الخامات (${eb.materialsCount || 0} صنف بقيمة ${Number(eb.materialsTotalValue || 0).toLocaleString('ar-EG')} ج.م): الأكثر سحباً [${fastMats}] | قليل السحب [${slowMats}].
    - مخزن المنتجات (${eb.productsCount || 0} منتج بتكلفة ${Number(eb.productsCostValue || 0).toLocaleString('ar-EG')} وقيمة بيع ${Number(eb.productsRetailValue || 0).toLocaleString('ar-EG')} ج.م): الأكثر مبيعاً [${bestProds}] | الأقل حركة [${slowProds}].`;
+})()}
+${(() => {
+  const parts: string[] = [];
+  if (ctx.clientContext?.shamousaOrLearningContext) {
+    parts.push(`\n6. ذاكرة التعلم المتبادل بين شموسة ومحرك بحوث العمليات (OR 360 Memory):\n${ctx.clientContext.shamousaOrLearningContext}`);
+  }
+  const ex = ctx.clientContext?.explainItemContext;
+  if (ex && ex.title) {
+    const stepsLine = Array.isArray(ex.actionSteps) && ex.actionSteps.length > 0
+      ? `\n   - خطوات مقترحة من المحرك: ${ex.actionSteps.join(' | ')}`
+      : '';
+    parts.push(
+      `\n7. طلب شرح فوري لبند من شاشة (${ex.section || 'لوحة شموسة'}) عبر زر علامة الاستفهام (؟):\n` +
+      `   - العنوان: ${ex.title}\n` +
+      (ex.metricBadge ? `   - المؤشر/الرقم: ${ex.metricBadge}\n` : '') +
+      (ex.summary ? `   - التفاصيل: ${ex.summary}` : '') +
+      stepsLine +
+      `\n   - المطلوب منك الآن: اشرحي لـ ${firstName} البند ده ببساطة شديدة بالعامية المصرية الواضحة، وضّحي له "ده معناه إيه على شغله وأرباحه دلوقتي؟" وادّيه 2 إلى 3 خطوات عملية فورية ينفذها حالاً، مع ربط الشرح بأرقام ورشته الحية.`
+    );
+  }
+  return parts.join('\n');
 })()}
 
 - عندما يسألك ${firstName} عن الملخص أو "هلخصهالك" (للورشة أو للمورد)، أو عن رصيد الخزنة، لينا بره كام، علينا كام، النواقص، إيه اللي شغال في المنتجات، الفروع، التحويلات بين الفروع، الفواتير الحرارية، هندسة الواجهات، أو المبيعات: أجيبي فوراً بالأرقام الحقيقية أعلاه بلغة بسيطة وودودة وخالية من تعقيدات الدائن والمدين، وأرشديه لبطاقة [هلخصهالك] لإرسال تذكير لطيف بالواتساب عند وجود متأخرات.

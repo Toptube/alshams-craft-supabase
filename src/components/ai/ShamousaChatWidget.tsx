@@ -15,6 +15,7 @@ import {
   Calendar,
   Clock,
   Check,
+  CheckCheck,
   CheckCircle2,
   Download,
   Plus,
@@ -26,6 +27,8 @@ import {
   ChevronLeft,
   ChevronDown,
   Globe,
+  HelpCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { AlShamsSunIcon, shamousaSearchIconImg, ShamousaMascotAvatar, ShamousaMascotFull } from '../brand/BrandAssets';
 import { authedFetch } from '../../lib/apiClient';
@@ -62,6 +65,18 @@ import {
   parseArabicSnoozeRequest,
 } from '../shamousa/ShamousaUnifiedPanels';
 import { loadCompanionPrefs } from '../../services/orEngine';
+import { useVisualViewportHeight } from '../../hooks/useVisualViewportHeight';
+import {
+  loadShamousaOrMemory,
+  dismissItemInMemory,
+  dismissManyInMemory,
+  restoreDismissedInMemory,
+  markManyReadInMemory,
+  recordShamousaQuestionFromPanel,
+  buildShamousaMemoryPromptContext,
+  buildInstantFallbackExplanation,
+  type ShamousaExplainPayload,
+} from '../../services/shamousaOrMemory';
 
 export interface ShamousaActionLink {
   label: string;
@@ -592,6 +607,32 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const conversationStateRef = useRef<ShamousaConversationState>({});
   const customRulesLoadedRef = useRef(false);
 
+  // تثبيت الهيدر العلوي بذكاء عند فتح كيبورد الموبايل (VisualViewport)
+  const vp = useVisualViewportHeight(isOpen, { lockBodyScroll: true });
+
+  // رسالة تلميح خفيفة من سطر واحد تظهر لثانيتين عند فتح مهام / نتائج / بحوث
+  const [showQuestionHint, setShowQuestionHint] = useState(false);
+  const hintTimerRef = useRef<number | null>(null);
+  const triggerTopQuestionHint = () => {
+    setShowQuestionHint(true);
+    if (hintTimerRef.current) window.clearTimeout(hintTimerRef.current);
+    hintTimerRef.current = window.setTimeout(() => {
+      setShowQuestionHint(false);
+    }, 2800);
+  };
+  useEffect(() => {
+    return () => {
+      if (hintTimerRef.current) window.clearTimeout(hintTimerRef.current);
+    };
+  }, []);
+
+  // حالة الذاكرة المتبادلة (المقروء + المستبعد + العناصر الموسّعة) لقسم مهام وأجندة
+  const [taskMemory, setTaskMemory] = useState(() => loadShamousaOrMemory(workshopId));
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setTaskMemory(loadShamousaOrMemory(workshopId));
+  }, [workshopId, isOpen]);
+
   // Orbit & 8:00 PM Daily Auto-Check-in + Snooze state
   const [orbitTriggerNonce, setOrbitTriggerNonce] = useState(0);
   const [isGlowingAlert, setIsGlowingAlert] = useState(false);
@@ -1047,14 +1088,28 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     return () => window.removeEventListener('alshams_agenda_updated', handleAgendaSync);
   }, [workshopId, agendaStorageKey]);
 
-  // Count of pending tasks & upcoming appointments
+  // Count of pending tasks & upcoming appointments (excluding dismissed)
+  const visibleDailyTasks = useMemo(
+    () => dailyTasks.filter((t) => !taskMemory.dismissedIds.includes(t.id)),
+    [dailyTasks, taskMemory.dismissedIds]
+  );
+
+  const visibleAppointments = useMemo(
+    () => appointments.filter((a) => !taskMemory.dismissedIds.includes(a.id)),
+    [appointments, taskMemory.dismissedIds]
+  );
+
   const pendingTasksCount = useMemo(() => {
-    return dailyTasks.filter((t) => !completedTaskIds.includes(t.id)).length;
-  }, [dailyTasks, completedTaskIds]);
+    return visibleDailyTasks.filter(
+      (t) => !completedTaskIds.includes(t.id) && !taskMemory.readIds.includes(t.id)
+    ).length;
+  }, [visibleDailyTasks, completedTaskIds, taskMemory.readIds]);
 
   const upcomingApptsCount = useMemo(() => {
-    return appointments.filter((a) => a.status === 'upcoming').length;
-  }, [appointments]);
+    return visibleAppointments.filter(
+      (a) => a.status === 'upcoming' && !taskMemory.readIds.includes(a.id)
+    ).length;
+  }, [visibleAppointments, taskMemory.readIds]);
 
   const totalPendingBadge = pendingTasksCount + upcomingApptsCount;
 
@@ -1652,7 +1707,10 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     }
   };
 
-  const send = async (text: string, sendOptions?: { forceAI?: boolean }) => {
+  const send = async (
+    text: string,
+    sendOptions?: { forceAI?: boolean; explainPayload?: ShamousaExplainPayload }
+  ) => {
     if (isRecordingVoice) {
       stopVoiceRecording();
     }
@@ -1889,6 +1947,19 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               isSupplierAccount ? 'supplier' : 'artisan',
               experienceModeConfig
             ),
+            shamousaOrLearningContext: buildShamousaMemoryPromptContext(workshopId),
+            ...(sendOptions?.explainPayload
+              ? {
+                  explainItemContext: {
+                    source: sendOptions.explainPayload.source,
+                    title: sendOptions.explainPayload.title,
+                    detail: sendOptions.explainPayload.detail,
+                    metricsSummary: sendOptions.explainPayload.metricsSummary,
+                    instruction:
+                      'اشرحي هذه النقطة بلغة مصرية سهلة وعملية مع خطوات واضحة، وخزّني في سياقك إن صاحب الورشة/المورد مهتم بالموضوع ده لتقديم نصائح أذكى مستقبلاً.',
+                  },
+                }
+              : {}),
             treasuryBalance: currentTreasury,
             treasuriesDetail: treasuriesList,
             lowMaterialsCount: lowMaterialsList.length,
@@ -1931,14 +2002,24 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         },
       ]);
     } catch (err: any) {
-      const diplomaticFallback =
-        `معلش يا **${firstName}**، في زحمة بسيطة على خط البحث الحي دلوقتي.. جرّب تاني بعد لحظة، أو اكتبلي سؤالك عن ورشتك وخاماتك وأنا هرد عليك فوراً ☀️`;
+      const diplomaticFallback = sendOptions?.explainPayload
+        ? buildInstantFallbackExplanation(sendOptions.explainPayload, firstName, isSupplierAccount)
+        : `معلش يا **${firstName}**، في زحمة بسيطة على خط البحث الحي دلوقتي.. جرّب تاني بعد لحظة، أو اكتبلي سؤالك عن ورشتك وخاماتك وأنا هرد عليك فوراً ☀️`;
       setMessages((prev) => [
         ...prev,
         {
           id: `e_${Date.now()}`,
           role: 'assistant',
-          content: isSuperAdminAccount ? `⚠️ ${err?.message || diplomaticFallback}` : diplomaticFallback,
+          content:
+            sendOptions?.explainPayload || !isSuperAdminAccount
+              ? diplomaticFallback
+              : `⚠️ ${err?.message || diplomaticFallback}`,
+          actionLink: sendOptions?.explainPayload?.targetView
+            ? {
+                label: sendOptions.explainPayload.actionLabel || 'فتح الشاشة المختصة الآن',
+                view: sendOptions.explainPayload.targetView,
+              }
+            : undefined,
         },
       ]);
     } finally {
@@ -1946,9 +2027,66 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     }
   };
 
+  // مفتاح اللعبة (?): إرسال أي مهمة/نتيجة/توصية بحوث عمليات مباشرة لشموسة للشرح + التعلّم المتبادل
+  const handleAskShamousaAboutItem = (payload: ShamousaExplainPayload) => {
+    playButtonClickSound();
+    const updatedMem = recordShamousaQuestionFromPanel(workshopId, payload);
+    setTaskMemory(updatedMem);
+    setActiveTab('chat');
+    const sourceLabel =
+      payload.source === 'or360'
+        ? 'بحوث العمليات'
+        : payload.source === 'result'
+        ? 'النتائج الأسبوعية'
+        : payload.source === 'appointment'
+        ? 'الأجندة والمواعيد'
+        : 'مهام اليوم';
+    const userQuestion = `يا شموسة، عايزك تشرحيلي النقطة دي من (${sourceLabel}) ببساطة وتقوليلي أعمل إيه بالظبط:\n«${payload.title}»\n${payload.detail}`;
+    window.setTimeout(() => {
+      void send(userQuestion, { forceAI: true, explainPayload: payload });
+    }, 60);
+  };
+
+  const handleMarkAllTasksRead = () => {
+    playTaskDoneSound();
+    const allTaskIds = visibleDailyTasks.map((t) => t.id);
+    const allApptIds = visibleAppointments.map((a) => a.id);
+    const nextCompleted = Array.from(new Set([...completedTaskIds, ...allTaskIds]));
+    setCompletedTaskIds(nextCompleted);
+    try {
+      localStorage.setItem(tasksDoneStorageKey, JSON.stringify(nextCompleted));
+    } catch {}
+    setTaskMemory(markManyReadInMemory(workshopId, [...allTaskIds, ...allApptIds]));
+  };
+
+  const handleDismissAllTasks = () => {
+    playButtonClickSound();
+    const allIds = [...visibleDailyTasks.map((t) => t.id), ...visibleAppointments.map((a) => a.id)];
+    setTaskMemory(dismissManyInMemory(workshopId, allIds));
+  };
+
+  const handleDismissSingleTaskOrAppt = (id: string) => {
+    playButtonClickSound();
+    setTaskMemory(dismissItemInMemory(workshopId, id));
+  };
+
+  const handleRestoreTasksAndAppts = () => {
+    playButtonClickSound();
+    const allIds = [...dailyTasks.map((t) => t.id), ...appointments.map((a) => a.id)];
+    setTaskMemory(restoreDismissedInMemory(workshopId, allIds));
+  };
+
   const toggleHeaderSection = (target: 'tasks_agenda' | 'results' | 'or360') => {
     playButtonClickSound();
-    setActiveTab((prev) => (prev === target ? 'chat' : target));
+    setActiveTab((prev) => {
+      const next = prev === target ? 'chat' : target;
+      if (next !== 'chat') {
+        triggerTopQuestionHint();
+      } else {
+        setShowQuestionHint(false);
+      }
+      return next;
+    });
   };
 
   const renderRaisedSilverBtn = (
@@ -2033,16 +2171,24 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         </DraggableShamosa>
       )}
 
-      {/* Full-Screen Unified Shamousa Workspace — Royal Dark Blue (Dark) & Warm Sandy Beige (Light) */}
+      {/* Full-Screen Unified Shamousa Workspace — VisualViewport Pinned (Header Never Disappears on Keyboard!) */}
       {isOpen && (
         <div
           dir="rtl"
           role="dialog"
           aria-label={aiCfg.shamousaLauncherName}
-          className="fixed inset-0 z-[70] w-screen h-[100dvh] flex flex-col overflow-hidden bg-[#F4ECE0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] animate-in fade-in duration-200"
+          style={
+            vp.height > 200
+              ? {
+                  top: `${vp.offsetTop}px`,
+                  height: `${vp.height}px`,
+                }
+              : undefined
+          }
+          className="fixed inset-x-0 top-0 z-[70] w-screen h-[100dvh] flex flex-col overflow-hidden bg-[#F4ECE0] dark:bg-[#091533] text-[#1C2434] dark:text-[#F1F5F9] animate-in fade-in duration-200"
         >
           {/* Ultra-Clean Header: Shamousa Logo + 3 Raised 3D Silver Moon-Glow Buttons + Close */}
-          <header className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2.5 sm:py-3 bg-[#EAE0CE] dark:bg-[#0C1D47] border-b border-[#D5C7B0] dark:border-[#223B78] shrink-0 shadow-xs">
+          <header className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2.5 sm:py-3 bg-[#EAE0CE] dark:bg-[#0C1D47] border-b border-[#D5C7B0] dark:border-[#223B78] shrink-0 shadow-xs z-20">
             {/* Shamousa Luminous Mascot Logo */}
             <button
               type="button"
@@ -2078,6 +2224,13 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               <X className="w-5 h-5" />
             </button>
           </header>
+
+          {/* شريط تلميح رفيع من سطر واحد يظهر لثانيتين فقط بدون حجب الشاشة */}
+          {showQuestionHint && (
+            <div className="px-3 py-1 bg-[#142A5C] dark:bg-[#DCE4F0] text-white dark:text-[#091533] text-[11px] font-black text-center truncate shrink-0 animate-in fade-in slide-in-from-top-1 duration-200">
+              💡 أي حاجة مش واضحة؟ اضغط على علامة (؟) وشموسة هتشرحهالك فوراً
+            </div>
+          )}
 
           {/* 2-Way Split Bar Under Header: المحادثة الذكية | يومي كان ماشي إزاي */}
           <div className="px-3 sm:px-5 py-2 bg-[#EFE6D7] dark:bg-[#0B1A3F] border-b border-[#D5C7B0] dark:border-[#1E356B] shrink-0">
@@ -2517,15 +2670,58 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   } catch {}
                 }}
                 onTestOrbitDemo={handleTestOrbitDemo}
+                onAskShamousaAboutItem={handleAskShamousaAboutItem}
                 injectedFollowupMessage={injectedDailyFollowup}
               />
             </div>
           )}
 
-          {/* VIEW 5: Daily Tasks & Delivery Agenda View (Royal Blue / Sandy Beige — Zero Orange) */}
+          {/* VIEW 5: Daily Tasks & Delivery Agenda View (Royal Blue / Sandy Beige — Unified ?, ✓✓, ✕ Controls) */}
           {activeTab === 'tasks_agenda' && (
             <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-[#F4ECE0] dark:bg-[#091533]">
               <div className="max-w-3xl mx-auto space-y-4">
+                {/* شريط الإجراءات الجماعية لقسم المهام والأجندة */}
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                  <span className="text-[11px] font-black text-[#475569] dark:text-[#94A3B8]">
+                    {visibleDailyTasks.length + visibleAppointments.length} عنصر ظاهر
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {visibleDailyTasks.length + visibleAppointments.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleMarkAllTasksRead}
+                          className="px-2.5 py-1 rounded-xl bg-[#FBF7F0] dark:bg-[#132960] border border-[#D5C7B0] dark:border-[#2C4A91] text-[#142A5C] dark:text-[#E2E8F0] hover:border-emerald-500 text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>الكل مقروء</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDismissAllTasks}
+                          className="px-2.5 py-1 rounded-xl bg-[#FBF7F0] dark:bg-[#132960] border border-[#D5C7B0] dark:border-[#2C4A91] text-rose-700 dark:text-rose-300 hover:border-rose-400 text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>مسح الكل</span>
+                        </button>
+                      </>
+                    )}
+                    {dailyTasks.length - visibleDailyTasks.length + (appointments.length - visibleAppointments.length) > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleRestoreTasksAndAppts}
+                        className="px-2.5 py-1 rounded-xl bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#CBD5E1] text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>
+                          استعادة (
+                          {dailyTasks.length - visibleDailyTasks.length + (appointments.length - visibleAppointments.length)})
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 {/* قسم 1: توجيهات ومهام اليوم من شموسة */}
                 <div className="p-4 rounded-2xl bg-[#FBF7F0] dark:bg-[#0F204D] border border-[#D5C7B0] dark:border-[#243C78] shadow-xs space-y-3">
                   <div className="flex items-center justify-between border-b border-[#E3D8C5] dark:border-[#1E356B] pb-2.5">
@@ -2536,83 +2732,175 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                       </h3>
                     </div>
                     <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#CBD5E1] font-black">
-                      {completedTaskIds.filter((id) => dailyTasks.some((t) => t.id === id)).length} / {dailyTasks.length} منجز
+                      {completedTaskIds.filter((id) => visibleDailyTasks.some((t) => t.id === id)).length} / {visibleDailyTasks.length} مقروء
                     </span>
                   </div>
 
-                  <div className="space-y-2.5">
-                    {dailyTasks.map((task) => {
-                      const isDone = completedTaskIds.includes(task.id);
-                      return (
-                        <div
-                          key={task.id}
-                          className={`p-3 rounded-xl border transition-all flex flex-col gap-2 ${
-                            isDone
-                              ? 'bg-emerald-500/10 border-emerald-500/30 opacity-75'
-                              : task.urgency === 'high'
-                              ? 'bg-[#EFE6D7] dark:bg-[#152B62] border-[#B8A586] dark:border-[#395AA8]'
-                              : 'bg-[#F4ECE0] dark:bg-[#102250] border-[#D5C7B0] dark:border-[#243C78]'
-                          }`}
-                        >
-                          <div className="flex items-start gap-2.5">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleTask(task.id)}
-                              className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border transition-all cursor-pointer mt-0.5 active:scale-90 ${
-                                isDone
-                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                                  : 'bg-[#FBF7F0] dark:bg-[#091533] text-transparent hover:text-emerald-600 border-[#C4B395] dark:border-[#35539E] hover:border-emerald-500'
-                              }`}
-                              title={isDone ? 'إلغاء الإنجاز' : 'تم الإنجاز بنجاح'}
-                            >
-                              <Check className="w-3.5 h-3.5 stroke-[3]" />
-                            </button>
-
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span
-                                  className={`text-xs sm:text-sm font-black transition-all ${
+                  {visibleDailyTasks.length === 0 ? (
+                    <div className="text-center py-4 text-xs font-bold text-[#64748B] dark:text-[#94A3B8]">
+                      تمت مراجعة وتفريغ مهام اليوم بنجاح ✨
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {visibleDailyTasks.map((task) => {
+                        const isDone =
+                          completedTaskIds.includes(task.id) || taskMemory.readIds.includes(task.id);
+                        const isExpanded = Boolean(expandedTaskIds[task.id]);
+                        return (
+                          <div
+                            key={task.id}
+                            className={`p-3 rounded-xl border transition-all flex flex-col gap-2 ${
+                              isDone
+                                ? 'bg-emerald-500/10 border-emerald-500/35 opacity-75'
+                                : task.urgency === 'high'
+                                ? 'bg-[#EFE6D7] dark:bg-[#152B62] border-[#B8A586] dark:border-[#395AA8]'
+                                : 'bg-[#F4ECE0] dark:bg-[#102250] border-[#D5C7B0] dark:border-[#243C78]'
+                            }`}
+                          >
+                            {/* رأس البطاقة مع أزرار (؟) و (✓✓) و (✕) */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => {
+                                  if (task.view && isExpanded) {
+                                    openScreen(task.view);
+                                  } else {
+                                    setExpandedTaskIds((prev) => ({ ...prev, [task.id]: !prev[task.id] }));
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setExpandedTaskIds((prev) => ({ ...prev, [task.id]: !prev[task.id] }));
+                                  }
+                                }}
+                                className="min-w-0 flex-1 cursor-pointer group"
+                              >
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span
+                                    className={`text-xs sm:text-sm font-black transition-all group-hover:underline ${
+                                      isDone
+                                        ? 'line-through text-[#64748B]'
+                                        : 'text-[#1C2434] dark:text-[#F1F5F9]'
+                                    }`}
+                                  >
+                                    {task.title}
+                                  </span>
+                                  {task.urgency === 'high' && !isDone && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-700 dark:text-rose-300 font-black">
+                                      عاجل
+                                    </span>
+                                  )}
+                                  {isDone && (
+                                    <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400">
+                                      مقروء
+                                    </span>
+                                  )}
+                                </div>
+                                <p
+                                  className={`text-xs mt-1 leading-relaxed transition-all ${
                                     isDone
                                       ? 'line-through text-[#64748B]'
-                                      : 'text-[#1C2434] dark:text-[#F1F5F9]'
+                                      : 'text-[#475569] dark:text-[#CBD5E1]'
                                   }`}
                                 >
-                                  {task.title}
-                                </span>
-                                {task.urgency === 'high' && !isDone && (
-                                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-700 dark:text-rose-300 font-black">
-                                    عاجل
-                                  </span>
-                                )}
+                                  {task.detail}
+                                </p>
                               </div>
-                              <p
-                                className={`text-xs mt-1 leading-relaxed transition-all ${
-                                  isDone
-                                    ? 'line-through text-[#64748B]'
-                                    : 'text-[#475569] dark:text-[#CBD5E1]'
-                                }`}
-                              >
-                                {task.detail}
-                              </p>
-                            </div>
-                          </div>
 
-                          {task.view && !isDone && (
-                            <div className="flex justify-end">
-                              <button
-                                type="button"
-                                onClick={() => openScreen(task.view!)}
-                                className="px-3 py-1 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] text-white text-[11px] font-black transition cursor-pointer flex items-center gap-1 active:scale-95"
-                              >
-                                <span>{task.actionLabel}</span>
-                                <ChevronLeft className="w-3 h-3" />
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAskShamousaAboutItem({
+                                      id: task.id,
+                                      source: 'task',
+                                      category: task.urgency === 'high' ? 'operational' : 'task',
+                                      title: task.title,
+                                      detail: task.detail,
+                                      targetView: task.view,
+                                      actionLabel: task.actionLabel,
+                                    });
+                                  }}
+                                  title="اسأل شموسة تشرحلي المهمة دي"
+                                  aria-label="اسأل شموسة"
+                                  className="w-7 h-7 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#091533] flex items-center justify-center shadow-xs transition active:scale-90 cursor-pointer"
+                                >
+                                  <HelpCircle className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleTask(task.id);
+                                  }}
+                                  title={isDone ? 'مقروء ومنجز' : 'تحديد كمقروء ومنجز (✓✓)'}
+                                  aria-label="تحديد كمقروء"
+                                  className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-all cursor-pointer active:scale-90 ${
+                                    isDone
+                                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                      : 'bg-[#FBF7F0] dark:bg-[#091533] text-[#475569] dark:text-[#CBD5E1] hover:text-emerald-600 border-[#C4B395] dark:border-[#35539E] hover:border-emerald-500'
+                                  }`}
+                                >
+                                  <CheckCheck className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDismissSingleTaskOrAppt(task.id);
+                                  }}
+                                  title="عرفت خلاص — إزالة"
+                                  aria-label="إزالة المهمة"
+                                  className="w-7 h-7 rounded-lg bg-[#FBF7F0] dark:bg-[#091533] border border-[#C4B395] dark:border-[#35539E] text-[#64748B] hover:text-rose-600 hover:border-rose-400 flex items-center justify-center transition active:scale-90 cursor-pointer"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+
+                            {isExpanded && (
+                              <div className="p-2.5 rounded-lg bg-[#FBF7F0] dark:bg-[#091533]/70 border border-[#D5C7B0] dark:border-[#243C78] text-[11px] text-[#334155] dark:text-[#CBD5E1] flex flex-wrap items-center justify-between gap-2">
+                                <span>💡 محتاج تفاصيل أكتر أو خطة تنفيذ؟ ابعتها لشموسة بعلامة (؟) أو افتح الشاشة مباشرة.</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleAskShamousaAboutItem({
+                                      id: task.id,
+                                      source: 'task',
+                                      category: 'operational',
+                                      title: task.title,
+                                      detail: task.detail,
+                                      targetView: task.view,
+                                      actionLabel: task.actionLabel,
+                                    })
+                                  }
+                                  className="px-2.5 py-1 rounded-lg bg-[#142A5C] text-white font-black cursor-pointer"
+                                >
+                                  اسأل شموسة
+                                </button>
+                              </div>
+                            )}
+
+                            {task.view && !isDone && (
+                              <div className="flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => openScreen(task.view!)}
+                                  className="px-3 py-1 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] text-white text-[11px] font-black transition cursor-pointer flex items-center gap-1 active:scale-95"
+                                >
+                                  <span>{task.actionLabel}</span>
+                                  <ChevronLeft className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* قسم 2: مواعيد وأجندة تسليم الطلبيات والربط مع تقويم جوجل */}
@@ -2737,13 +3025,14 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   )}
 
                   <div className="space-y-2.5">
-                    {appointments.length === 0 ? (
+                    {visibleAppointments.length === 0 ? (
                       <div className="text-center py-4 text-xs text-[#64748B] dark:text-[#94A3B8]">
-                        لا توجد مواعيد تسليم مسجلة حالياً. اضغط "موعد جديد" لتسجيل موعد تسليم للعميل.
+                        لا توجد مواعيد تسليم ظاهرة حالياً. اضغط "موعد جديد" لتسجيل موعد تسليم للعميل.
                       </div>
                     ) : (
-                      appointments.map((appt) => {
-                        const isDone = appt.status === 'completed';
+                      visibleAppointments.map((appt) => {
+                        const isDone =
+                          appt.status === 'completed' || taskMemory.readIds.includes(appt.id);
                         const gcalUrl = createGoogleCalendarUrl({
                           title: appt.title,
                           date: appt.date,
@@ -2759,14 +3048,37 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                             key={appt.id}
                             className={`p-3.5 rounded-2xl border transition-all space-y-2 ${
                               isDone
-                                ? 'bg-[#EFE6D7]/50 dark:bg-[#0C1D47]/50 border-[#D5C7B0] dark:border-[#1E356B] opacity-70'
+                                ? 'bg-[#EFE6D7]/50 dark:bg-[#0C1D47]/50 border-emerald-500/35 opacity-75'
                                 : 'bg-[#F4ECE0] dark:bg-[#102350] border-[#D5C7B0] dark:border-[#243C78] shadow-2xs'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                onClick={() =>
+                                  openScreen(
+                                    appt.orderNumber
+                                      ? isSupplierAccount
+                                        ? 'supplier_orders'
+                                        : 'my_orders'
+                                      : appt.clientName
+                                      ? isSupplierAccount
+                                        ? 'supplier_customers'
+                                        : 'customers'
+                                      : 'work_orders'
+                                  )
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    openScreen(appt.orderNumber ? 'my_orders' : 'customers');
+                                  }
+                                }}
+                                title="اضغط للانتقال مباشرة للأوردر أو صفحة العميل"
+                                className="min-w-0 flex-1 cursor-pointer group"
+                              >
                                 <h4
-                                  className={`text-xs sm:text-sm font-black ${
+                                  className={`text-xs sm:text-sm font-black group-hover:underline ${
                                     isDone
                                       ? 'line-through text-[#64748B]'
                                       : 'text-[#1C2434] dark:text-[#F1F5F9]'
@@ -2785,15 +3097,66 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                                 )}
                               </div>
 
-                              <div className="text-left shrink-0">
-                                <span className="text-[11px] font-mono font-black text-[#142A5C] dark:text-[#93C5FD] block">
-                                  {appt.date}
-                                </span>
-                                {appt.time && (
-                                  <span className="text-[10px] font-mono text-[#64748B] dark:text-[#94A3B8] block">
-                                    {appt.time}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <div className="text-left ml-1">
+                                  <span className="text-[11px] font-mono font-black text-[#142A5C] dark:text-[#93C5FD] block">
+                                    {appt.date}
                                   </span>
-                                )}
+                                  {appt.time && (
+                                    <span className="text-[10px] font-mono text-[#64748B] dark:text-[#94A3B8] block">
+                                      {appt.time}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAskShamousaAboutItem({
+                                      id: appt.id,
+                                      source: 'appointment',
+                                      category: 'crm_retarget',
+                                      title: appt.title,
+                                      detail: `موعد تسليم بتاريخ ${appt.date}${appt.time ? ` الساعة ${appt.time}` : ''}${appt.clientName ? ` للعميل ${appt.clientName}` : ''}${appt.notes ? ` — ملاحظات: ${appt.notes}` : ''}`,
+                                      targetView: appt.orderNumber ? 'my_orders' : 'customers',
+                                      actionLabel: appt.orderNumber ? 'فتح الأوردر' : 'فتح صفحة العميل',
+                                    });
+                                  }}
+                                  title="اسأل شموسة عن الموعد ده"
+                                  aria-label="اسأل شموسة عن الموعد"
+                                  className="w-7 h-7 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#091533] flex items-center justify-center shadow-xs transition active:scale-90 cursor-pointer"
+                                >
+                                  <HelpCircle className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleAppointment(appt.id);
+                                  }}
+                                  title={isDone ? 'تم التسليم والقراءة' : 'تأكيد التسليم والقراءة (✓✓)'}
+                                  aria-label="تأكيد التسليم"
+                                  className={`w-7 h-7 rounded-lg border flex items-center justify-center transition active:scale-90 cursor-pointer ${
+                                    isDone
+                                      ? 'bg-emerald-600 border-emerald-500 text-white'
+                                      : 'bg-[#FBF7F0] dark:bg-[#091533] border-[#C4B395] dark:border-[#35539E] text-[#475569] dark:text-[#CBD5E1] hover:text-emerald-600'
+                                  }`}
+                                >
+                                  <CheckCheck className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDismissSingleTaskOrAppt(appt.id);
+                                  }}
+                                  title="عرفت خلاص — إزالة"
+                                  aria-label="إزالة الموعد"
+                                  className="w-7 h-7 rounded-lg bg-[#FBF7F0] dark:bg-[#091533] border border-[#C4B395] dark:border-[#35539E] text-[#64748B] hover:text-rose-600 hover:border-rose-400 flex items-center justify-center transition active:scale-90 cursor-pointer"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
                               </div>
                             </div>
 
@@ -2846,7 +3209,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                                     : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
                                 }`}
                               >
-                                {isDone ? 'تم التسليم ✔️' : 'تأكيد التسليم'}
+                                {isDone ? 'تم التسليم ✓✓' : 'تأكيد التسليم'}
                               </button>
                             </div>
                           </div>

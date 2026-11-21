@@ -4,6 +4,7 @@ import { UserProfile, CraftCategory, AIVisionAnalysis, ChatMessage } from '../..
 import { authedFetch } from '../../lib/apiClient';
 import { buildSmartCalculatorExport } from '../../utils/falconCalculatorExport';
 import { useUiLayoutConfig, DEFAULT_AI_ASSISTANTS_UI_CONFIG } from '../../types/uiLayoutConfig';
+import { useVisualViewportHeight } from '../../hooks/useVisualViewportHeight';
 import {
   Sparkles,
   Camera,
@@ -785,10 +786,30 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
 
   const uiLayout = useUiLayoutConfig();
   const aiCfg = uiLayout.aiAssistantsConfig || DEFAULT_AI_ASSISTANTS_UI_CONFIG;
+  const vp = useVisualViewportHeight(true);
+  const isMobileKeyboardLocked = vp.isKeyboardOpen && vp.height > 200;
 
   return (
-    <div className="bg-[#F7F3EA] dark:bg-[#0D162E] rounded-2xl sm:rounded-3xl border border-[#D4CCBC] dark:border-[#22355E] shadow-xl overflow-hidden flex flex-col h-[calc(100dvh-5.5rem)] sm:h-[750px] max-h-[100dvh] relative transition-colors duration-200">
-      {/* Compact Slim Header for Mobile & Desktop */}
+    <div
+      style={
+        isMobileKeyboardLocked
+          ? {
+              position: 'fixed',
+              top: `${vp.offsetTop}px`,
+              left: 0,
+              right: 0,
+              height: `${vp.height}px`,
+              zIndex: 68,
+            }
+          : undefined
+      }
+      className={`bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-xl overflow-hidden flex flex-col transition-colors duration-200 ${
+        isMobileKeyboardLocked
+          ? 'rounded-none'
+          : 'rounded-2xl sm:rounded-3xl h-[calc(100dvh-5.5rem)] sm:h-[750px] max-h-[100dvh] relative'
+      }`}
+    >
+      {/* Compact Slim Header for Mobile & Desktop — Always pinned at top */}
       <div className="px-3 py-2 sm:px-4 sm:py-2.5 bg-gradient-to-r from-stone-950 via-amber-950 to-stone-900 text-white flex items-center justify-between border-b border-amber-500/30 shadow-md flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <div className="relative shrink-0">

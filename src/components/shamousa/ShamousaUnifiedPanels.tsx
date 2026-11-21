@@ -22,6 +22,11 @@ import {
   Filter,
   Bell,
   Timer,
+  CheckCheck,
+  HelpCircle,
+  X,
+  RotateCcw,
+  ChevronDown,
 } from 'lucide-react';
 import type { UserProfile } from '../../types';
 import {
@@ -50,7 +55,19 @@ import {
   type ORRecommendation,
   type ORRecommendationType,
 } from '../../services/orEngine';
-import { useUiLayoutConfig, DEFAULT_AI_ASSISTANTS_UI_CONFIG } from '../../types/uiLayoutConfig';
+import {
+  useUiLayoutConfig,
+  DEFAULT_AI_ASSISTANTS_UI_CONFIG,
+} from '../../types/uiLayoutConfig';
+import {
+  loadShamousaOrMemory,
+  toggleItemReadInMemory,
+  markManyReadInMemory,
+  dismissItemInMemory,
+  dismissManyInMemory,
+  restoreDismissedInMemory,
+  type ShamousaExplainPayload,
+} from '../../services/shamousaOrMemory';
 
 export type ShamousaUnifiedPanelMode = 'daily' | 'results' | 'or360';
 type ORFilter = 'all' | ORRecommendationType;
@@ -216,6 +233,7 @@ export interface ShamousaUnifiedPanelsProps {
   onScheduleSnooze?: (wakeAtMs: number, labelAr: string, durationSummary: string) => void;
   onDailyTimeChanged?: (timeHHmm: string) => void;
   onTestOrbitDemo?: () => void;
+  onAskShamousaAboutItem?: (payload: ShamousaExplainPayload) => void;
   injectedFollowupMessage?: { id: string; text: string } | null;
 }
 
@@ -228,6 +246,7 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
   onScheduleSnooze,
   onDailyTimeChanged,
   onTestOrbitDemo,
+  onAskShamousaAboutItem,
   injectedFollowupMessage,
 }) => {
   const tenantId = useMemo(() => resolveTenantId(profile), [profile]);
@@ -253,6 +272,54 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
   const [loadingOR, setLoadingOR] = useState(false);
   const [orFilter, setOrFilter] = useState<ORFilter>('all');
   const [showScheduleBar, setShowScheduleBar] = useState(false);
+  const [memoryState, setMemoryState] = useState(() => loadShamousaOrMemory(tenantId));
+  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setMemoryState(loadShamousaOrMemory(tenantId));
+  }, [tenantId]);
+
+  const toggleExpandCard = (id: string) => {
+    setExpandedCardIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleMarkRead = (id: string) => {
+    setMemoryState(toggleItemReadInMemory(tenantId, id));
+  };
+
+  const handleDismissRec = (id: string) => {
+    setMemoryState(dismissItemInMemory(tenantId, id));
+    void updateRecommendationStatus(tenantId, id, 'dismissed');
+  };
+
+  const handleMarkAllRead = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setMemoryState(markManyReadInMemory(tenantId, ids));
+  };
+
+  const handleClearAll = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setMemoryState(dismissManyInMemory(tenantId, ids));
+    ids.forEach((id) => void updateRecommendationStatus(tenantId, id, 'dismissed'));
+  };
+
+  const handleRestoreDismissed = (ids: string[]) => {
+    setMemoryState(restoreDismissedInMemory(tenantId, ids));
+    ids.forEach((id) => void updateRecommendationStatus(tenantId, id, 'pending'));
+  };
+
+  const askAboutRecommendation = (rec: ORRecommendation, source: 'result' | 'or360') => {
+    onAskShamousaAboutItem?.({
+      id: rec.id,
+      source,
+      category: rec.recommendation_type || rec.categoryBadge,
+      title: rec.title,
+      detail: rec.description,
+      metricsSummary: rec.metricsSummary || `تأثير متوقع: ${rec.impact_score}%`,
+      targetView: rec.action_payload?.targetView,
+      actionLabel: rec.action_payload?.buttonLabel,
+    });
+  };
 
   const [inputText, setInputText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -878,256 +945,654 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
 
   // =================== PANEL 2: نتائج (قعدة النتائج الأسبوعية) ===================
   if (mode === 'results') {
+    const allWeeklyRecs = orReport?.weeklyTopThreeDecisions || [];
+    const visibleWeeklyRecs = allWeeklyRecs.filter(
+      (r) => !memoryState.dismissedIds.includes(r.id) && r.status !== 'dismissed'
+    );
+    const dismissedWeeklyIds = allWeeklyRecs
+      .filter((r) => memoryState.dismissedIds.includes(r.id) || r.status === 'dismissed')
+      .map((r) => r.id);
+    const visibleWeeklyIds = visibleWeeklyRecs.map((r) => r.id);
+
     return (
-      <div className="flex-1 min-h-0 overflow-y-auto px-3.5 sm:px-5 py-4 space-y-4">
-        <div className="rounded-2xl bg-[#142A5C] dark:bg-[#12275A] border border-[#2C4B94] text-white p-4 sm:p-5 shadow-md">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <div className="inline-flex items-center gap-1.5 text-[11px] font-black text-[#CBD5E1] mb-1">
-                <Award className="w-4 h-4 text-[#F8FAFC]" />
-                <span>قعدة النتائج وتظبيط الشغل والبيع</span>
+      <div className="flex-1 min-h-0 overflow-y-auto px-3.5 sm:px-5 py-4 space-y-3.5">
+        <div className="max-w-3xl mx-auto space-y-3.5">
+          <div className="rounded-2xl bg-[#142A5C] dark:bg-[#12275A] border border-[#2C4B94] text-white p-4 sm:p-5 shadow-md">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div className="inline-flex items-center gap-1.5 text-[11px] font-black text-[#CBD5E1] mb-1">
+                  <Award className="w-4 h-4 text-[#F8FAFC]" />
+                  <span>قعدة النتائج وتظبيط الشغل والبيع</span>
+                </div>
+                <h3 className="text-base sm:text-lg font-black text-white">
+                  خلاصة أسبوعك في قرارات جاهزة للتنفيذ الفوري
+                </h3>
+                <p className="text-xs text-[#CBD5E1] mt-1">
+                  دمجنا يوميات الأسبوع ({weeklyFadfadaSummary.count} تدوينات · مؤشر راحة{' '}
+                  {weeklyFadfadaSummary.avgScore}%) مع حسابات بحوث العمليات وذاكرة شموسة.
+                </p>
               </div>
-              <h3 className="text-base sm:text-lg font-black text-white">
-                خلاصة أسبوعك في 3 قرارات جاهزة للتنفيذ الفوري
-              </h3>
-              <p className="text-xs text-[#CBD5E1] mt-1">
-                دمجنا يوميات الأسبوع ({weeklyFadfadaSummary.count} تدوينات · مؤشر راحة{' '}
-                {weeklyFadfadaSummary.avgScore}%) مع حسابات بحوث العمليات بدون أي زحام أرقام.
-              </p>
+              <button
+                type="button"
+                onClick={() => void refreshOR()}
+                disabled={loadingOR}
+                className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingOR ? 'animate-spin' : ''}`} />
+                <span>تحديث</span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void refreshOR()}
-              disabled={loadingOR}
-              className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingOR ? 'animate-spin' : ''}`} />
-              <span>تحديث</span>
-            </button>
+
+            {weeklyFadfadaSummary.topTags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {weeklyFadfadaSummary.topTags.map((t) => (
+                  <span
+                    key={t}
+                    className="px-2.5 py-0.5 rounded-lg bg-white/10 text-[10px] font-bold text-[#E2E8F0]"
+                  >
+                    #{t}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
-          {weeklyFadfadaSummary.topTags.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {weeklyFadfadaSummary.topTags.map((t) => (
-                <span
-                  key={t}
-                  className="px-2.5 py-0.5 rounded-lg bg-white/10 text-[10px] font-bold text-[#E2E8F0]"
-                >
-                  #{t}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-3">
-          {(orReport?.weeklyTopThreeDecisions || []).map((rec, index) => (
-            <div
-              key={rec.id}
-              className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-4 shadow-xs"
-            >
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-xl bg-[#142A5C] dark:bg-[#DCE4F0] text-white dark:text-[#0B1838] font-black text-sm flex items-center justify-center shrink-0">
-                  {index + 1}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2 py-0.5 rounded-md bg-[#EAE0CE] dark:bg-[#1C3573] text-[#142A5C] dark:text-[#E2E8F0] text-[10px] font-black">
-                      {rec.categoryBadge}
-                    </span>
-                    {rec.status === 'applied' && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-700 dark:text-emerald-400">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        تم التنفيذ
-                      </span>
-                    )}
-                  </div>
-                  <h4 className="text-sm font-black text-[#12244D] dark:text-[#F8FAFC] mt-1">
-                    {rec.title}
-                  </h4>
-                  <p className="text-xs text-[#475569] dark:text-[#CBD5E1] mt-1 leading-relaxed">
-                    {rec.description}
-                  </p>
-                </div>
-              </div>
-
-              {rec.suggested_whatsapp_msg && (
-                <div className="mt-3 p-2.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/60 text-[11px] text-emerald-950 dark:text-emerald-200 leading-relaxed">
-                  <span className="font-black block mb-0.5">رسالة الواتساب الجاهزة:</span>
-                  {rec.suggested_whatsapp_msg}
-                </div>
-              )}
-
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] font-bold text-[#64748B] dark:text-[#94A3B8]">
-                  {rec.metricsSummary || `تأثير متوقع: ${rec.impact_score}/100`}
-                </span>
-                {rec.whatsapp_url ? (
-                  <a
-                    href={rec.whatsapp_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => void updateRecommendationStatus(tenantId, rec.id, 'applied')}
-                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 transition"
-                  >
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    <span>{rec.action_payload.buttonLabel}</span>
-                  </a>
-                ) : (
+          {/* شريط الإجراءات الجماعية السريعة: تعليم الكل كمقروء / مسح الكل / استعادة */}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+            <span className="text-[11px] font-black text-[#475569] dark:text-[#94A3B8]">
+              {visibleWeeklyRecs.length} قرارات ظاهرة
+            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {visibleWeeklyRecs.length > 0 && (
+                <>
                   <button
                     type="button"
-                    onClick={() => void handleExecuteRecommendation(rec)}
-                    className="px-3.5 py-2 rounded-xl bg-[#142A5C] hover:bg-[#1E3B7D] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#0B1838] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
+                    onClick={() => handleMarkAllRead(visibleWeeklyIds)}
+                    className="px-2.5 py-1 rounded-xl bg-[#FBF7F0] dark:bg-[#132960] border border-[#D5C7B0] dark:border-[#2C4A91] text-[#142A5C] dark:text-[#E2E8F0] hover:border-emerald-500 text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition"
                   >
-                    <span>{rec.action_payload.buttonLabel}</span>
-                    <ArrowUpLeft className="w-3.5 h-3.5" />
+                    <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>الكل مقروء</span>
                   </button>
-                )}
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => handleClearAll(visibleWeeklyIds)}
+                    className="px-2.5 py-1 rounded-xl bg-[#FBF7F0] dark:bg-[#132960] border border-[#D5C7B0] dark:border-[#2C4A91] text-rose-700 dark:text-rose-300 hover:border-rose-400 text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>مسح الكل</span>
+                  </button>
+                </>
+              )}
+              {dismissedWeeklyIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleRestoreDismissed(dismissedWeeklyIds)}
+                  className="px-2.5 py-1 rounded-xl bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#CBD5E1] text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>استعادة ({dismissedWeeklyIds.length})</span>
+                </button>
+              )}
             </div>
-          ))}
+          </div>
+
+          {visibleWeeklyRecs.length === 0 ? (
+            <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-6 text-center space-y-2">
+              <p className="text-sm font-black text-[#12244D] dark:text-[#F8FAFC]">
+                تمت مراجعة وتفريغ كل نتائج الأسبوع بنجاح ✨
+              </p>
+              <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
+                اضغط "تحديث" لتوليد قراءة جديدة أو "استعادة" لإظهار البطاقات السابقة.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {visibleWeeklyRecs.map((rec, index) => {
+                const isRead = memoryState.readIds.includes(rec.id) || rec.status === 'applied';
+                const isExpanded = Boolean(expandedCardIds[rec.id]);
+                return (
+                  <div
+                    key={rec.id}
+                    className={`rounded-2xl border p-4 shadow-xs transition-all ${
+                      isRead
+                        ? 'bg-[#EFE6D7]/70 dark:bg-[#0D1C42]/75 border-emerald-500/40 opacity-80'
+                        : 'bg-[#FBF7F0] dark:bg-[#10224E] border-[#D8CBB4] dark:border-[#284486]'
+                    }`}
+                  >
+                    {/* شريط التحكم العلوي للبطاقة: الفئة + أزرار (؟) و (✓✓) و (✕) */}
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <span className="w-6 h-6 rounded-lg bg-[#142A5C] dark:bg-[#DCE4F0] text-white dark:text-[#0B1838] font-black text-xs flex items-center justify-center shrink-0">
+                          {index + 1}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-[#EAE0CE] dark:bg-[#1C3573] text-[#142A5C] dark:text-[#E2E8F0] text-[10px] font-black">
+                          {rec.categoryBadge}
+                        </span>
+                        {isRead && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-black text-emerald-700 dark:text-emerald-400">
+                            <CheckCheck className="w-3.5 h-3.5" />
+                            <span>مقروء</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            askAboutRecommendation(rec, 'result');
+                          }}
+                          title="اسأل شموسة تشرحهالي وتفهمهالي"
+                          aria-label="اسأل شموسة تشرحهالي"
+                          className="w-7 h-7 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#091533] flex items-center justify-center shadow-xs transition active:scale-90 cursor-pointer"
+                        >
+                          <HelpCircle className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMarkRead(rec.id);
+                          }}
+                          title={isRead ? 'تمت القراءة' : 'تحديد كمقروء'}
+                          aria-label="تحديد كمقروء"
+                          className={`w-7 h-7 rounded-lg border flex items-center justify-center transition active:scale-90 cursor-pointer ${
+                            isRead
+                              ? 'bg-emerald-600 border-emerald-500 text-white'
+                              : 'bg-[#F4ECE0] dark:bg-[#152B5E] border-[#CDBEA3] dark:border-[#2E4C94] text-[#475569] dark:text-[#CBD5E1] hover:text-emerald-600'
+                          }`}
+                        >
+                          <CheckCheck className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDismissRec(rec.id);
+                          }}
+                          title="عرفت خلاص — إزالة من القائمة"
+                          aria-label="إزالة البطاقة"
+                          className="w-7 h-7 rounded-lg bg-[#F4ECE0] dark:bg-[#152B5E] border border-[#CDBEA3] dark:border-[#2E4C94] text-[#64748B] hover:text-rose-600 hover:border-rose-400 flex items-center justify-center transition active:scale-90 cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* جسم البطاقة القابل للضغط: يفتح تفاصيل أكثر أو يودّي للمكان المختص */}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => toggleExpandCard(rec.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleExpandCard(rec.id);
+                        }
+                      }}
+                      className="cursor-pointer group"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-sm font-black text-[#12244D] dark:text-[#F8FAFC] group-hover:underline">
+                          {rec.title}
+                        </h4>
+                        <ChevronDown
+                          className={`w-4 h-4 text-[#64748B] shrink-0 mt-0.5 transition-transform ${
+                            isExpanded ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </div>
+                      <p className="text-xs text-[#475569] dark:text-[#CBD5E1] mt-1 leading-relaxed">
+                        {rec.description}
+                      </p>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="mt-2.5 p-3 rounded-xl bg-[#EFE6D7] dark:bg-[#0C1D47] border border-[#D5C7B0] dark:border-[#243C78] space-y-2 text-xs">
+                        <div className="font-bold text-[#142A5C] dark:text-[#CBD5E1]">
+                          📊 تفاصيل الأثر: {rec.metricsSummary || `تأثير متوقع ${rec.impact_score}/100`}
+                        </div>
+                        {rec.target_customer_name && (
+                          <div className="text-[#475569] dark:text-[#94A3B8]">
+                            👤 العميل المعني: <strong className="text-[#12244D] dark:text-white">{rec.target_customer_name}</strong>
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => askAboutRecommendation(rec, 'result')}
+                            className="px-3 py-1.5 rounded-xl bg-[#142A5C] hover:bg-[#1E3F8A] text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <HelpCircle className="w-3.5 h-3.5" />
+                            <span>اشرحيهالي يا شموسة في الشات</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {rec.suggested_whatsapp_msg && (
+                      <div className="mt-3 p-2.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/60 text-[11px] text-emerald-950 dark:text-emerald-200 leading-relaxed">
+                        <span className="font-black block mb-0.5">رسالة الواتساب الجاهزة:</span>
+                        {rec.suggested_whatsapp_msg}
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-[#64748B] dark:text-[#94A3B8]">
+                        {rec.metricsSummary || `تأثير متوقع: ${rec.impact_score}/100`}
+                      </span>
+                      {rec.whatsapp_url ? (
+                        <a
+                          href={rec.whatsapp_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            handleMarkRead(rec.id);
+                            void updateRecommendationStatus(tenantId, rec.id, 'applied');
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 transition"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>{rec.action_payload.buttonLabel}</span>
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleMarkRead(rec.id);
+                            void handleExecuteRecommendation(rec);
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-[#142A5C] hover:bg-[#1E3B7D] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#0B1838] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
+                        >
+                          <span>{rec.action_payload.buttonLabel}</span>
+                          <ArrowUpLeft className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
   // =================== PANEL 3: بحوث (بحوث العمليات 360°) ===================
+  const visibleOrRecs = filteredOrRecs.filter(
+    (r) => !memoryState.dismissedIds.includes(r.id) && r.status !== 'dismissed'
+  );
+  const dismissedOrIds = filteredOrRecs
+    .filter((r) => memoryState.dismissedIds.includes(r.id) || r.status === 'dismissed')
+    .map((r) => r.id);
+  const visibleOrIds = visibleOrRecs.map((r) => r.id);
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-3.5 sm:px-5 py-4 space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3">
-          <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">الربح الأسبوعي الأمثل</div>
-          <div className="text-base font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-400 mt-1">
-            {(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')}{' '}
-            <span className="text-xs">{orReport?.currencySymbol || 'ج.م'}</span>
-          </div>
-        </div>
-        <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3">
-          <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">خامات قرب النفاد</div>
-          <div className="text-base font-black font-mono tabular-nums text-[#142A5C] dark:text-[#E2E8F0] mt-1">
-            {orReport?.stats.lowStockCount || 0} خامات
-          </div>
-        </div>
-        <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3">
-          <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">عملاء VIP غائبون</div>
-          <div className="text-base font-black font-mono tabular-nums text-indigo-700 dark:text-sky-300 mt-1">
-            {orReport?.stats.dormantVipCount || 0} عملاء
-          </div>
-        </div>
-        <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3">
-          <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">المنتج البطل</div>
-          <div className="text-xs font-black text-[#142A5C] dark:text-[#F8FAFC] mt-1.5 truncate">
-            {orReport?.heroProduct?.name || 'أضف منتجاتك'}
-          </div>
-        </div>
-      </div>
-
-      {orReport && orReport.productMixPlan.length > 0 && (
-        <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3.5">
-          <div className="flex items-center gap-1.5 text-xs font-black text-[#12244D] dark:text-[#F8FAFC] mb-2.5">
-            <Layers className="w-4 h-4 text-[#1E3A8A] dark:text-[#CBD5E1]" />
-            <span>مزيج الإنتاج الأسبوعي الأعلى ربحية ({orReport.weeklyCapacityHours} ساعة)</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead>
-                <tr className="border-b border-[#DFD3BF] dark:border-[#253F7E] text-[11px] text-[#64748B] dark:text-[#94A3B8]">
-                  <th className="py-1.5 font-bold">المنتج</th>
-                  <th className="py-1.5 font-bold">الكمية المقترحة</th>
-                  <th className="py-1.5 font-bold">ربح القطعة</th>
-                  <th className="py-1.5 font-bold">إجمالي الربح</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orReport.productMixPlan.map((row) => (
-                  <tr
-                    key={row.productId}
-                    className="border-b border-[#EAE0CE]/70 dark:border-[#1E356B] last:border-0"
-                  >
-                    <td className="py-2 font-black text-[#12244D] dark:text-[#F8FAFC]">{row.productName}</td>
-                    <td className="py-2 font-bold font-mono tabular-nums">{row.recommendedQty} قطعة</td>
-                    <td className="py-2 font-mono tabular-nums">
-                      {row.unitProfit.toLocaleString('ar-EG')} {orReport.currencySymbol}
-                    </td>
-                    <td className="py-2 font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
-                      {row.projectedProfit.toLocaleString('ar-EG')} {orReport.currencySymbol}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <Filter className="w-3.5 h-3.5 text-[#64748B]" />
-        {(
-          [
-            { id: 'all', label: 'الكل', icon: Sparkles },
-            { id: 'operational', label: 'تشغيلي وهدر', icon: Package },
-            { id: 'crm_retarget', label: 'عملاء VIP', icon: Users },
-            { id: 'churn_diagnosis', label: 'تشخيص المبيعات', icon: TrendingUp },
-            { id: 'marketing', label: 'تسويق وباقات', icon: Award },
-          ] as const
-        ).map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => setOrFilter(f.id)}
-            className={`px-3 py-1.5 rounded-xl text-[11px] font-black border transition cursor-pointer ${
-              orFilter === f.id
-                ? 'bg-[#142A5C] dark:bg-[#DCE4F0] text-white dark:text-[#0B1838] border-transparent'
-                : 'bg-[#FBF7F0] dark:bg-[#10224E] text-[#475569] dark:text-[#CBD5E1] border-[#D8CBB4] dark:border-[#284486]'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="space-y-3">
-        {filteredOrRecs.map((rec) => (
-          <div
-            key={rec.id}
-            className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3.5 sm:p-4"
-          >
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="px-2.5 py-0.5 rounded-md bg-[#EAE0CE] dark:bg-[#1B3573] text-[#142A5C] dark:text-[#E2E8F0] text-[10px] font-black">
-                {rec.categoryBadge}
-              </span>
-              <span className="text-[10px] font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
-                أثر متوقع {rec.impact_score}%
-              </span>
+      <div className="max-w-3xl mx-auto space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3 relative">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">الربح الأسبوعي الأمثل</span>
+              <button
+                type="button"
+                onClick={() =>
+                  onAskShamousaAboutItem?.({
+                    id: 'or_kpi_weekly_profit',
+                    source: 'or360',
+                    category: 'operational',
+                    title: 'الربح الأسبوعي الأمثل من بحوث العمليات',
+                    detail: `محرك بحوث العمليات حسب إن الربح الأسبوعي الأمثل لورشتك هو ${(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')} ${orReport?.currencySymbol || 'ج.م'} بناءً على ساعات التشغيل المتاحة (${orReport?.weeklyCapacityHours || 40} ساعة).`,
+                    metricsSummary: `${(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')} ${orReport?.currencySymbol || 'ج.م'}`,
+                  })
+                }
+                title="اسأل شموسة عن الرقم ده"
+                className="w-5 h-5 rounded-md bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#E2E8F0] flex items-center justify-center cursor-pointer"
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <h4 className="text-sm font-black text-[#12244D] dark:text-[#F8FAFC] mt-1.5">{rec.title}</h4>
-            <p className="text-xs text-[#475569] dark:text-[#CBD5E1] mt-1 leading-relaxed">{rec.description}</p>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[11px] font-bold text-[#64748B] dark:text-[#94A3B8]">{rec.metricsSummary}</span>
-              {rec.whatsapp_url ? (
-                <a
-                  href={rec.whatsapp_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => void updateRecommendationStatus(tenantId, rec.id, 'applied')}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 transition"
-                >
-                  <MessageCircle className="w-3.5 h-3.5" />
-                  <span>{rec.action_payload.buttonLabel}</span>
-                </a>
-              ) : (
+            <div className="text-base font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-400 mt-1">
+              {(orReport?.projectedWeeklyProfit || 0).toLocaleString('ar-EG')}{' '}
+              <span className="text-xs">{orReport?.currencySymbol || 'ج.م'}</span>
+            </div>
+          </div>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onNavigateView?.(isSupplier ? 'supplier_warehouse_erp' : 'materials')}
+            onKeyDown={(e) => e.key === 'Enter' && onNavigateView?.(isSupplier ? 'supplier_warehouse_erp' : 'materials')}
+            className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] hover:border-[#142A5C] p-3 cursor-pointer transition"
+          >
+            <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">خامات قرب النفاد</div>
+            <div className="text-base font-black font-mono tabular-nums text-[#142A5C] dark:text-[#E2E8F0] mt-1">
+              {orReport?.stats.lowStockCount || 0} خامات
+            </div>
+          </div>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onNavigateView?.(isSupplier ? 'supplier_customers' : 'customers')}
+            onKeyDown={(e) => e.key === 'Enter' && onNavigateView?.(isSupplier ? 'supplier_customers' : 'customers')}
+            className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] hover:border-[#142A5C] p-3 cursor-pointer transition"
+          >
+            <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">عملاء VIP غائبون</div>
+            <div className="text-base font-black font-mono tabular-nums text-indigo-700 dark:text-sky-300 mt-1">
+              {orReport?.stats.dormantVipCount || 0} عملاء
+            </div>
+          </div>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onNavigateView?.('calculator')}
+            onKeyDown={(e) => e.key === 'Enter' && onNavigateView?.('calculator')}
+            className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] hover:border-[#142A5C] p-3 cursor-pointer transition"
+          >
+            <div className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">المنتج البطل</div>
+            <div className="text-xs font-black text-[#142A5C] dark:text-[#F8FAFC] mt-1.5 truncate">
+              {orReport?.heroProduct?.name || 'أضف منتجاتك'}
+            </div>
+          </div>
+        </div>
+
+        {orReport && orReport.productMixPlan.length > 0 && (
+          <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3.5">
+            <div className="flex items-center justify-between gap-2 mb-2.5">
+              <div className="flex items-center gap-1.5 text-xs font-black text-[#12244D] dark:text-[#F8FAFC]">
+                <Layers className="w-4 h-4 text-[#1E3A8A] dark:text-[#CBD5E1]" />
+                <span>مزيج الإنتاج الأسبوعي الأعلى ربحية ({orReport.weeklyCapacityHours} ساعة)</span>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  onAskShamousaAboutItem?.({
+                    id: 'or_product_mix_lp',
+                    source: 'or360',
+                    category: 'operational',
+                    title: 'مزيج الإنتاج الأسبوعي الأعلى ربحية',
+                    detail: `بحوث العمليات تقترح إنتاج: ${orReport.productMixPlan
+                      .map((r) => `${r.productName} (${r.recommendedQty} قطعة بربح ${r.projectedProfit} ${orReport.currencySymbol})`)
+                      .join(' + ')} خلال ${orReport.weeklyCapacityHours} ساعة عمل أسبوعياً.`,
+                    metricsSummary: `إجمالي الربح المتوقع: ${orReport.projectedWeeklyProfit} ${orReport.currencySymbol}`,
+                    targetView: 'work_orders',
+                  })
+                }
+                title="اسأل شموسة تشرح جدول المزيج ده"
+                className="px-2 py-1 rounded-lg bg-[#142A5C] dark:bg-[#DCE4F0] text-white dark:text-[#091533] text-[10px] font-black inline-flex items-center gap-1 cursor-pointer"
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+                <span>اشرحيهولي</span>
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs">
+                <thead>
+                  <tr className="border-b border-[#DFD3BF] dark:border-[#253F7E] text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                    <th className="py-1.5 font-bold">المنتج</th>
+                    <th className="py-1.5 font-bold">الكمية المقترحة</th>
+                    <th className="py-1.5 font-bold">ربح القطعة</th>
+                    <th className="py-1.5 font-bold">إجمالي الربح</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orReport.productMixPlan.map((row) => (
+                    <tr
+                      key={row.productId}
+                      className="border-b border-[#EAE0CE]/70 dark:border-[#1E356B] last:border-0"
+                    >
+                      <td className="py-2 font-black text-[#12244D] dark:text-[#F8FAFC]">{row.productName}</td>
+                      <td className="py-2 font-bold font-mono tabular-nums">{row.recommendedQty} قطعة</td>
+                      <td className="py-2 font-mono tabular-nums">
+                        {row.unitProfit.toLocaleString('ar-EG')} {orReport.currencySymbol}
+                      </td>
+                      <td className="py-2 font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                        {row.projectedProfit.toLocaleString('ar-EG')} {orReport.currencySymbol}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* فلاتر بحوث العمليات + الإجراءات الجماعية (تحديد الكل كمقروء / مسح الكل / تحديث) */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Filter className="w-3.5 h-3.5 text-[#64748B]" />
+            {(
+              [
+                { id: 'all', label: 'الكل', icon: Sparkles },
+                { id: 'operational', label: 'تشغيلي وهدر', icon: Package },
+                { id: 'crm_retarget', label: 'عملاء VIP', icon: Users },
+                { id: 'churn_diagnosis', label: 'تشخيص المبيعات', icon: TrendingUp },
+                { id: 'marketing', label: 'تسويق وباقات', icon: Award },
+              ] as const
+            ).map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setOrFilter(f.id)}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-black border transition cursor-pointer ${
+                  orFilter === f.id
+                    ? 'bg-[#142A5C] dark:bg-[#DCE4F0] text-white dark:text-[#0B1838] border-transparent'
+                    : 'bg-[#FBF7F0] dark:bg-[#10224E] text-[#475569] dark:text-[#CBD5E1] border-[#D8CBB4] dark:border-[#284486]'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => void refreshOR()}
+              disabled={loadingOR}
+              className="px-2.5 py-1 rounded-xl bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#E2E8F0] text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+            >
+              <RefreshCw className={`w-3 h-3 ${loadingOR ? 'animate-spin' : ''}`} />
+              <span>تحديث</span>
+            </button>
+            {visibleOrRecs.length > 0 && (
+              <>
                 <button
                   type="button"
-                  onClick={() => void handleExecuteRecommendation(rec)}
-                  className="px-3 py-1.5 rounded-xl bg-[#142A5C] hover:bg-[#1E3B7D] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#0B1838] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
+                  onClick={() => handleMarkAllRead(visibleOrIds)}
+                  className="px-2.5 py-1 rounded-xl bg-[#FBF7F0] dark:bg-[#132960] border border-[#D5C7B0] dark:border-[#2C4A91] text-[#142A5C] dark:text-[#E2E8F0] text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
                 >
-                  <span>{rec.action_payload.buttonLabel}</span>
-                  <ArrowUpLeft className="w-3.5 h-3.5" />
+                  <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>الكل مقروء</span>
                 </button>
-              )}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => handleClearAll(visibleOrIds)}
+                  className="px-2.5 py-1 rounded-xl bg-[#FBF7F0] dark:bg-[#132960] border border-[#D5C7B0] dark:border-[#2C4A91] text-rose-700 dark:text-rose-300 text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>مسح الكل</span>
+                </button>
+              </>
+            )}
+            {dismissedOrIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => handleRestoreDismissed(dismissedOrIds)}
+                className="px-2.5 py-1 rounded-xl bg-[#EAE0CE] dark:bg-[#19326E] text-[#142A5C] dark:text-[#CBD5E1] text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>استعادة ({dismissedOrIds.length})</span>
+              </button>
+            )}
           </div>
-        ))}
+        </div>
+
+        {visibleOrRecs.length === 0 ? (
+          <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-6 text-center space-y-2">
+            <p className="text-sm font-black text-[#12244D] dark:text-[#F8FAFC]">
+              القائمة نظيفة تماماً ومفيش توصيات متراكمة ✨
+            </p>
+            <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
+              كل ما تضيف شغل جديد أو تسأل شموسة، بحوث العمليات هتطلعلك توصيات أحدث وأعلى ذكاءً.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {visibleOrRecs.map((rec) => {
+              const isRead = memoryState.readIds.includes(rec.id) || rec.status === 'applied';
+              const isExpanded = Boolean(expandedCardIds[rec.id]);
+              return (
+                <div
+                  key={rec.id}
+                  className={`rounded-2xl border p-3.5 sm:p-4 transition-all ${
+                    isRead
+                      ? 'bg-[#EFE6D7]/70 dark:bg-[#0D1C42]/75 border-emerald-500/40 opacity-80'
+                      : 'bg-[#FBF7F0] dark:bg-[#10224E] border-[#D8CBB4] dark:border-[#284486]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-md bg-[#EAE0CE] dark:bg-[#1B3573] text-[#142A5C] dark:text-[#E2E8F0] text-[10px] font-black">
+                        {rec.categoryBadge}
+                      </span>
+                      <span className="text-[10px] font-black font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                        أثر {rec.impact_score}%
+                      </span>
+                      {isRead && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-black text-emerald-700 dark:text-emerald-400">
+                          <CheckCheck className="w-3.5 h-3.5" />
+                          <span>مقروء</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          askAboutRecommendation(rec, 'or360');
+                        }}
+                        title="اسأل شموسة تشرحهالي وتفهمهالي"
+                        aria-label="اسأل شموسة تشرحهالي"
+                        className="w-7 h-7 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#091533] flex items-center justify-center shadow-xs transition active:scale-90 cursor-pointer"
+                      >
+                        <HelpCircle className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMarkRead(rec.id);
+                        }}
+                        title={isRead ? 'تمت القراءة' : 'تحديد كمقروء'}
+                        aria-label="تحديد كمقروء"
+                        className={`w-7 h-7 rounded-lg border flex items-center justify-center transition active:scale-90 cursor-pointer ${
+                          isRead
+                            ? 'bg-emerald-600 border-emerald-500 text-white'
+                            : 'bg-[#F4ECE0] dark:bg-[#152B5E] border-[#CDBEA3] dark:border-[#2E4C94] text-[#475569] dark:text-[#CBD5E1] hover:text-emerald-600'
+                        }`}
+                      >
+                        <CheckCheck className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDismissRec(rec.id);
+                        }}
+                        title="عرفت خلاص — إزالة من القائمة"
+                        aria-label="إزالة التوصية"
+                        className="w-7 h-7 rounded-lg bg-[#F4ECE0] dark:bg-[#152B5E] border border-[#CDBEA3] dark:border-[#2E4C94] text-[#64748B] hover:text-rose-600 hover:border-rose-400 flex items-center justify-center transition active:scale-90 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* الضغط على البطاقة نفسها: يفتح تفاصيل أعمق أو يأخذك للشاشة المختصة */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleExpandCard(rec.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleExpandCard(rec.id);
+                      }
+                    }}
+                    className="cursor-pointer group"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="text-sm font-black text-[#12244D] dark:text-[#F8FAFC] group-hover:underline">
+                        {rec.title}
+                      </h4>
+                      <ChevronDown
+                        className={`w-4 h-4 text-[#64748B] shrink-0 mt-0.5 transition-transform ${
+                          isExpanded ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </div>
+                    <p className="text-xs text-[#475569] dark:text-[#CBD5E1] mt-1 leading-relaxed">
+                      {rec.description}
+                    </p>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="mt-2.5 p-3 rounded-xl bg-[#EFE6D7] dark:bg-[#0C1D47] border border-[#D5C7B0] dark:border-[#243C78] space-y-2 text-xs">
+                      <div className="font-bold text-[#142A5C] dark:text-[#CBD5E1]">
+                        🧠 كل ما تضغط «اشرحيهالي» شموسة بتتعلم اهتماماتك وبتحدث توصيات بحوث العمليات الجاية بدقة أعلى!
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => askAboutRecommendation(rec, 'or360')}
+                        className="px-3 py-1.5 rounded-xl bg-[#142A5C] hover:bg-[#1E3F8A] text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <HelpCircle className="w-3.5 h-3.5" />
+                        <span>بعتها لشموسة تشرحهالي بالتفصيل</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-[#64748B] dark:text-[#94A3B8]">
+                      {rec.metricsSummary}
+                    </span>
+                    {rec.whatsapp_url ? (
+                      <a
+                        href={rec.whatsapp_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => {
+                          handleMarkRead(rec.id);
+                          void updateRecommendationStatus(tenantId, rec.id, 'applied');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-1.5 transition"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>{rec.action_payload.buttonLabel}</span>
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleMarkRead(rec.id);
+                          void handleExecuteRecommendation(rec);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-[#142A5C] hover:bg-[#1E3B7D] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#0B1838] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <span>{rec.action_payload.buttonLabel}</span>
+                        <ArrowUpLeft className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
