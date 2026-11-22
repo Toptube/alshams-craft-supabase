@@ -1117,11 +1117,20 @@ export interface SavedProductRecord {
   sourceCurrency?: string;
   productDiscount?: {
     enabled: boolean;
-    type: 'percent' | 'fixed' | 'free_shipping';
+    type: 'percent' | 'fixed' | 'free_shipping' | 'before_after' | 'bogo' | 'special_offer';
     value: number;
+    applyMode?: 'automatic' | 'coupon';
+    linkedCouponCode?: string;
+    originalPrice?: number;
+    offerPrice?: number;
+    buyQty?: number;
+    freeQty?: number;
     isLimitedTime: boolean;
+    startsAt?: string;
     endsAt?: string;
     badgeText?: string;
+    isBestSeller?: boolean;
+    isSpecialOffer?: boolean;
   };
   isCustomOrderAvailable?: boolean;
   decorCategory?: string;

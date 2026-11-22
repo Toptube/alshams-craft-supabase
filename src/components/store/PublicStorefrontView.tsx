@@ -33,6 +33,8 @@ import {
   Gift,
   Trash2,
   User,
+  Flame,
+  Tag,
 } from 'lucide-react';
 import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
@@ -84,6 +86,7 @@ import {
   toEgpAmount,
 } from '../../lib/currency';
 import { ContactBubbleDock, ArtisanFooterContacts } from './ContactBubbleDock';
+import { StorePromoBannerDisplay } from './StorePromoBannerDisplay';
 
 interface PublicStorefrontViewProps {
   slug: string;
@@ -165,7 +168,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   );
   const [localArtisanConfigOverride, setLocalArtisanConfigOverride] =
     useState<ArtisanStoreConfig | null>(null);
-  const [promoRemainingMs, setPromoRemainingMs] = useState<number>(0);
+  // Countdown handled inside StorePromoBannerDisplay
   const [fxTick, setFxTick] = useState<number>(0);
   const [wishlistItems, setWishlistItems] = useState<WishlistItem[]>(() => getWishlistItems());
   const [isWishlistOpen, setIsWishlistOpen] = useState<boolean>(false);
@@ -565,6 +568,18 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
     };
   }, [slug, isOwnerPreview]);
 
+  const { specialOfferProducts, bestSellerProducts } = useMemo(() => {
+    const allProds = storeData?.products || [];
+    const offers: CloudMarketplaceProduct[] = [];
+    const bests: CloudMarketplaceProduct[] = [];
+    allProds.forEach((p) => {
+      const pr = resolveProductOfferPricing(p, p.size_variants?.[0]?.label, customerCurrency, true);
+      if (pr.isSpecialOffer || pr.hasDiscount || Boolean(pr.bogoLabel)) offers.push(p);
+      if (pr.isBestSeller) bests.push(p);
+    });
+    return { specialOfferProducts: offers, bestSellerProducts: bests };
+  }, [storeData?.products, customerCurrency]);
+
   const categories = useMemo(() => {
     if (!storeData?.products || storeData.products.length === 0) {
       return [{ id: 'all', name: 'كافة المعروضات' }];
@@ -574,11 +589,21 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       if (p.craft_name) cats.add(p.craft_name);
       else if (p.category) cats.add(p.category);
     });
-    return [{ id: 'all', name: 'كافة المعروضات' }, ...Array.from(cats).map((c) => ({ id: c, name: c }))];
-  }, [storeData]);
+    const base = [{ id: 'all', name: 'كافة المعروضات' }];
+    if (specialOfferProducts.length > 0) {
+      base.push({ id: '__offers__', name: `🔥 العروض الخاصة (${specialOfferProducts.length})` });
+    }
+    if (bestSellerProducts.length > 0) {
+      base.push({ id: '__bestsellers__', name: `⭐ الأكثر طلباً (${bestSellerProducts.length})` });
+    }
+    return [...base, ...Array.from(cats).map((c) => ({ id: c, name: c }))];
+  }, [storeData, specialOfferProducts.length, bestSellerProducts.length]);
 
   const filteredProducts = useMemo(() => {
     if (!storeData?.products) return [];
+    const offerIds = new Set(specialOfferProducts.map((p) => p.id));
+    const bestIds = new Set(bestSellerProducts.map((p) => p.id));
+
     const list = storeData.products.filter((p) => {
       const q = searchQuery.toLowerCase().trim();
       const matchSearch =
@@ -589,6 +614,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
       const matchCat =
         selectedCategory === 'all' ||
+        (selectedCategory === '__offers__' && offerIds.has(p.id)) ||
+        (selectedCategory === '__bestsellers__' && bestIds.has(p.id)) ||
         p.craft_name === selectedCategory ||
         p.category === selectedCategory;
 
@@ -616,7 +643,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       });
     }
     return list;
-  }, [storeData, searchQuery, selectedCategory, sortBy, productOrder]);
+  }, [storeData, searchQuery, selectedCategory, sortBy, productOrder, specialOfferProducts, bestSellerProducts]);
 
   const activeWorkshopId =
     storeData?.workshop?.id || ownerProfile?.tenantId || ownerProfile?.workshopId || ownerProfile?.id || '';
@@ -652,32 +679,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
     return seedArtisanSocialDefaults(normalizeArtisanStoreConfig(null), fallbackTel);
   }, [localArtisanConfigOverride, storeData?.workshop?.storeConfig, storeData?.workshop?.phoneNumber, ownerProfile?.phoneNumber, activeWorkshopId]);
 
-  useEffect(() => {
-    const pb = artisanConfig.promoBanner;
-    if (!pb?.enabled || pb.triggerType !== 'limited_time' || !pb.endsAt) {
-      setPromoRemainingMs(0);
-      return;
-    }
-    const targetMs = new Date(pb.endsAt).getTime();
-    if (!Number.isFinite(targetMs)) {
-      setPromoRemainingMs(0);
-      return;
-    }
-    const tick = () => {
-      const diff = targetMs - Date.now();
-      if (diff <= 0) {
-        setPromoRemainingMs(0);
-        return false;
-      }
-      setPromoRemainingMs(diff);
-      return true;
-    };
-    if (!tick()) return;
-    const id = window.setInterval(() => {
-      if (!tick()) window.clearInterval(id);
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [artisanConfig.promoBanner]);
+  // Promo banner countdown is self-managed inside <StorePromoBannerDisplay />
 
   const effectiveConfig = localConfigOverride || artisanConfig;
   const themeSpec = useMemo(
@@ -1062,48 +1064,17 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         </div>
       </header>
 
-      {/* Artisan Store Promotional Banner (Optional Limited-Time Countdown or Min-Order Trigger) */}
-      {artisanConfig.promoBanner?.enabled && artisanConfig.promoBanner.text?.trim() && (
-        <div
-          style={{
-            backgroundColor: artisanConfig.promoBanner.bgColor || '#C2410C',
-          }}
-          className="text-white border-b border-black/15 px-4 py-2.5"
-        >
-          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex flex-wrap items-center gap-2 min-w-0">
-              {artisanConfig.promoBanner.showDiscountLabel && artisanConfig.promoBanner.discountLabel && (
-                <span className="px-2 py-0.5 rounded-md bg-black/25 font-black text-[11px] shrink-0">
-                  {artisanConfig.promoBanner.discountLabel}
-                </span>
-              )}
-              <span className="font-black">{artisanConfig.promoBanner.text}</span>
-              {artisanConfig.promoBanner.showSubText && artisanConfig.promoBanner.subText && (
-                <span className="opacity-90 text-[11px]">· {artisanConfig.promoBanner.subText}</span>
-              )}
-            </div>
-
-            {artisanConfig.promoBanner.triggerType === 'limited_time' && promoRemainingMs > 0 && (
-              <div className="flex items-center gap-1.5 font-mono tabular-nums text-[11px] font-black bg-black/25 px-2.5 py-1 rounded-lg shrink-0" dir="ltr">
-                <Clock className="w-3.5 h-3.5" />
-                <span>
-                  {String(Math.floor(promoRemainingMs / 86400000)).padStart(2, '0')}d :{' '}
-                  {String(Math.floor((promoRemainingMs % 86400000) / 3600000)).padStart(2, '0')}h :{' '}
-                  {String(Math.floor((promoRemainingMs % 3600000) / 60000)).padStart(2, '0')}m :{' '}
-                  {String(Math.floor((promoRemainingMs % 60000) / 1000)).padStart(2, '0')}s
-                </span>
-              </div>
-            )}
-
-            {artisanConfig.promoBanner.triggerType === 'min_order' &&
-              Number(artisanConfig.promoBanner.minOrderAmount) > 0 && (
-                <span className="px-2.5 py-1 rounded-lg bg-black/25 text-[11px] font-black shrink-0 tabular-nums">
-                  متاح للطلبات فوق {Number(artisanConfig.promoBanner.minOrderAmount).toLocaleString('ar-EG')} ج.م
-                </span>
-              )}
-          </div>
-        </div>
-      )}
+      {/* Artisan Store Promotional Banner (Static / Animated Marquee / Slide / Vertical + Clickable Coupons) */}
+      <StorePromoBannerDisplay
+        banner={artisanConfig.promoBanner}
+        currencySymbol={getCurrencyInfo(customerCurrency).symbol}
+        coupons={artisanConfig.coupons}
+        onSelectCouponCode={(code) => {
+          navigator.clipboard?.writeText(code).catch(() => {});
+          setAddedToast(`تم نسخ كود الخصم "${code}" — ألصقه عند الدفع في السلة`);
+          setTimeout(() => setAddedToast(null), 3200);
+        }}
+      />
 
       {/* Optional Editable Cover Photo */}
       {artisanConfig.showCover && artisanConfig.coverUrl && (
@@ -1909,6 +1880,143 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
         )}
 
+        {/* Storefront Discovery Spotlights: Special Offers & Best Sellers */}
+        {!loading && selectedCategory === 'all' && !searchQuery.trim() && (specialOfferProducts.length > 0 || bestSellerProducts.length > 0) && (
+          <div className="space-y-4">
+            {specialOfferProducts.length > 0 && (
+              <section
+                style={{ backgroundColor: themeSpec.surfaceBg, borderColor: themeSpec.borderColor }}
+                className={`${themeSpec.cardRadiusClass} border p-3.5 sm:p-4 space-y-3`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-xs sm:text-sm font-black flex items-center gap-1.5" style={{ color: themeSpec.inkColor }}>
+                    <Flame className="w-4 h-4 text-rose-500 shrink-0" />
+                    <span>العروض الخاصة والتخفيضات</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-rose-500/15 text-rose-600 dark:text-rose-300">
+                      {specialOfferProducts.length}
+                    </span>
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategory('__offers__')}
+                    style={{ color: themeSpec.accentText }}
+                    className="text-[11px] font-black hover:underline cursor-pointer"
+                  >
+                    عرض الكل ←
+                  </button>
+                </div>
+                <div className="flex items-stretch gap-2.5 overflow-x-auto pb-1 scrollbar-none">
+                  {specialOfferProducts.slice(0, 8).map((p) => {
+                    const pr = resolveProductOfferPricing(p, p.size_variants?.[0]?.label, customerCurrency, true);
+                    return (
+                      <button
+                        key={`offer-${p.id}`}
+                        type="button"
+                        onClick={() => handleOpenProduct(p)}
+                        style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                        className="w-36 sm:w-44 shrink-0 rounded-xl border overflow-hidden text-right hover:-translate-y-0.5 transition cursor-pointer flex flex-col"
+                      >
+                        <div className="relative h-24 sm:h-28 w-full overflow-hidden">
+                          {pr.badgeText && (
+                            <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-black shadow-xs">
+                              {pr.badgeText}
+                            </span>
+                          )}
+                          <img
+                            src={p.image_url || '/alshams_falcon_emblem.png'}
+                            alt={p.product_name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="p-2 space-y-1">
+                          <p className="text-[11px] font-black truncate" style={{ color: themeSpec.inkColor }}>
+                            {p.product_name}
+                          </p>
+                          <div className="flex items-baseline gap-1 font-mono tabular-nums">
+                            <span className="text-xs font-black" style={{ color: themeSpec.priceColor }}>
+                              {pr.finalPrice.toLocaleString('ar-EG')} {pr.displaySymbol}
+                            </span>
+                            {pr.hasDiscount && (
+                              <span className="text-[10px] line-through opacity-65" style={{ color: themeSpec.mutedColor }}>
+                                {pr.originalPrice.toLocaleString('ar-EG')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {bestSellerProducts.length > 0 && (
+              <section
+                style={{ backgroundColor: themeSpec.surfaceBg, borderColor: themeSpec.borderColor }}
+                className={`${themeSpec.cardRadiusClass} border p-3.5 sm:p-4 space-y-3`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-xs sm:text-sm font-black flex items-center gap-1.5" style={{ color: themeSpec.inkColor }}>
+                    <Star className="w-4 h-4 text-amber-500 fill-amber-400 shrink-0" />
+                    <span>الأكثر طلباً ومبيعاً</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                      {bestSellerProducts.length}
+                    </span>
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategory('__bestsellers__')}
+                    style={{ color: themeSpec.accentText }}
+                    className="text-[11px] font-black hover:underline cursor-pointer"
+                  >
+                    عرض الكل ←
+                  </button>
+                </div>
+                <div className="flex items-stretch gap-2.5 overflow-x-auto pb-1 scrollbar-none">
+                  {bestSellerProducts.slice(0, 8).map((p) => {
+                    const pr = resolveProductOfferPricing(p, p.size_variants?.[0]?.label, customerCurrency, true);
+                    return (
+                      <button
+                        key={`best-${p.id}`}
+                        type="button"
+                        onClick={() => handleOpenProduct(p)}
+                        style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                        className="w-36 sm:w-44 shrink-0 rounded-xl border overflow-hidden text-right hover:-translate-y-0.5 transition cursor-pointer flex flex-col"
+                      >
+                        <div className="relative h-24 sm:h-28 w-full overflow-hidden">
+                          <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded-md bg-amber-500 text-slate-950 text-[9px] font-black shadow-xs">
+                            ⭐ الأكثر طلباً
+                          </span>
+                          <img
+                            src={p.image_url || '/alshams_falcon_emblem.png'}
+                            alt={p.product_name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="p-2 space-y-1">
+                          <p className="text-[11px] font-black truncate" style={{ color: themeSpec.inkColor }}>
+                            {p.product_name}
+                          </p>
+                          <div className="flex items-baseline gap-1 font-mono tabular-nums">
+                            <span className="text-xs font-black" style={{ color: themeSpec.priceColor }}>
+                              {pr.finalPrice.toLocaleString('ar-EG')} {pr.displaySymbol}
+                            </span>
+                            {pr.hasDiscount && (
+                              <span className="text-[10px] line-through opacity-65" style={{ color: themeSpec.mutedColor }}>
+                                {pr.originalPrice.toLocaleString('ar-EG')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+
         {/* Clean Products Grid — Dynamically Adapts Architecture to Selected Theme */}
         {!loading && filteredProducts.length > 0 && (
           <div
@@ -2067,6 +2175,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           {pricing.badgeText}
                         </span>
                       )}
+                      {pricing.isBestSeller && (
+                        <span className="absolute bottom-2 left-2 z-10 px-2 py-0.5 rounded-md bg-amber-400/95 text-slate-950 text-[9px] font-black shadow-xs pointer-events-none flex items-center gap-0.5">
+                          <Star className="w-2.5 h-2.5 fill-slate-950" />
+                          الأكثر طلباً
+                        </span>
+                      )}
                       {isBentoHeroCard && !pricing.badgeText && (
                         <span
                           style={{ backgroundColor: themeSpec.accentBg, color: themeSpec.accentInk }}
@@ -2219,6 +2333,22 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           </span>
                         )}
                       </div>
+
+                      {(pricing.bogoLabel || pricing.couponRequiredCode) && (
+                        <div className={`flex flex-wrap items-center gap-1 ${isArchCard ? 'justify-center' : ''}`}>
+                          {pricing.bogoLabel && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[9px] font-black">
+                              🎁 {pricing.bogoLabel}
+                            </span>
+                          )}
+                          {pricing.couponRequiredCode && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[9px] font-black font-mono">
+                              <Tag className="w-2.5 h-2.5" />
+                              بكود: {pricing.couponRequiredCode}
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       <button
                         type="button"

@@ -2,7 +2,7 @@ import { compressImageFile } from '../utils/imageCompressor';
 
 export type MarketBlockId = 'promo' | 'hero' | 'categories' | 'featured_matrices' | 'catalog_grid';
 
-export type MarketCouponType = 'percent' | 'fixed' | 'free_shipping';
+export type MarketCouponType = 'percent' | 'fixed' | 'free_shipping' | 'bogo';
 
 export type MarketThemePresetId =
   | 'shams_sand'
@@ -269,8 +269,14 @@ export interface MarketCouponConfig {
   id: string;
   code: string;
   type: MarketCouponType;
-  value: number; // percent (1-90), fixed EGP, or 0 for free_shipping
+  value: number; // percent (1-90), fixed amount in store currency, or 0 for free_shipping/bogo
   minOrder?: number;
+  buyQty?: number; // for 'bogo' (e.g., buy 2)
+  freeQty?: number; // for 'bogo' (e.g., get 1 free)
+  currencyCode?: string; // store currency code
+  startsAt?: string;
+  endsAt?: string;
+  showInBanner?: boolean;
   active: boolean; // whether redeemable in checkout
   visible: boolean; // whether shown in active vs archived/hidden list
   description?: string;

@@ -86,13 +86,40 @@
   animation: pulse-subtle 3s infinite ease-in-out;
 }
 
-/* الشريط الإخباري/العروض المتحرك (GPU Composited Marquee) */
+/* الشريط الإخباري/العروض المتحرك (GPU Composited Marquee - متعدد الاتجاهات) */
 @keyframes alshams-marquee-rtl {
   0% {
     transform: translate3d(-100%, 0, 0);
   }
   100% {
     transform: translate3d(100%, 0, 0);
+  }
+}
+
+@keyframes alshams-marquee-ltr {
+  0% {
+    transform: translate3d(100%, 0, 0);
+  }
+  100% {
+    transform: translate3d(-100%, 0, 0);
+  }
+}
+
+@keyframes alshams-marquee-up {
+  0% {
+    transform: translate3d(0, 100%, 0);
+  }
+  100% {
+    transform: translate3d(0, -100%, 0);
+  }
+}
+
+@keyframes alshams-marquee-down {
+  0% {
+    transform: translate3d(0, -100%, 0);
+  }
+  100% {
+    transform: translate3d(0, 100%, 0);
   }
 }
 
@@ -111,12 +138,38 @@
   animation: alshams-marquee-rtl var(--marquee-duration, 24s) linear infinite;
 }
 
-.alshams-marquee-viewport:hover .alshams-marquee-track {
+.alshams-marquee-track-ltr {
+  animation-name: alshams-marquee-ltr;
+}
+
+.alshams-marquee-track-up {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  white-space: normal;
+  will-change: transform;
+  animation: alshams-marquee-up var(--marquee-duration, 18s) linear infinite;
+}
+
+.alshams-marquee-track-down {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  white-space: normal;
+  will-change: transform;
+  animation: alshams-marquee-down var(--marquee-duration, 18s) linear infinite;
+}
+
+.alshams-marquee-viewport:hover .alshams-marquee-track,
+.alshams-marquee-viewport:hover .alshams-marquee-track-up,
+.alshams-marquee-viewport:hover .alshams-marquee-track-down {
   animation-play-state: paused;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .alshams-marquee-track {
+  .alshams-marquee-track,
+  .alshams-marquee-track-up,
+  .alshams-marquee-track-down {
     animation: none !important;
     transform: none !important;
     white-space: normal;

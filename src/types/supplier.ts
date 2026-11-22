@@ -1,5 +1,7 @@
 import { MainSectionId } from '../registry/craftsRegistry';
 import { UserProfile, Gender } from './index';
+import { ArtisanStorePromoBanner, ProductDiscountConfig } from './artisanStoreBuilder';
+import { MarketCouponConfig } from './marketplaceBuilder';
 
 export type SupplierBusinessType = 'online' | 'shop' | 'factory';
 export type SupplierPricingMode = 'retail' | 'wholesale' | 'both';
@@ -12,6 +14,15 @@ export interface SupplierStoreCoupon {
   code: string;
   discountPercent: number;
   active: boolean;
+  type?: 'percent' | 'fixed' | 'free_shipping' | 'bogo';
+  value?: number;
+  minOrder?: number;
+  buyQty?: number;
+  freeQty?: number;
+  description?: string;
+  startsAt?: string;
+  endsAt?: string;
+  showInBanner?: boolean;
 }
 
 export interface SupplierStoreConfig {
@@ -39,6 +50,9 @@ export interface SupplierStoreConfig {
   shippingNote?: string;
   freeShippingAbove?: number;
   coupons?: SupplierStoreCoupon[];
+  richCoupons?: MarketCouponConfig[];
+  promoBanner?: ArtisanStorePromoBanner;
+  productOrderIds?: string[];
   acceptedCurrencies?: string[];
   showWholesalePricesPublicly?: boolean;
 }
@@ -172,6 +186,8 @@ export interface SupplierCatalogItem {
   minWholesaleQty: number;
   discountType: 'none' | 'percent' | 'fixed';
   discountValue: number;
+  productDiscount?: ProductDiscountConfig;
+  sortOrder?: number;
   inStore: boolean;
   inMarket: boolean;
   isApproved: boolean;

@@ -1,6 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { UserProfile } from '../../types';
 import { MainSectionId } from '../../registry/craftsRegistry';
+import { ProductDiscountConfig } from '../../types/artisanStoreBuilder';
+import {
+  DEFAULT_PRODUCT_OFFER,
+  ProductOfferEditorSection,
+} from '../store/ProductOfferEditorSection';
 import {
   SupplierCatalogItem,
   SupplierCatalogVariant,
@@ -94,6 +99,18 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   const [stockQty, setStockQty] = useState<number>(0);
   const [discountType, setDiscountType] = useState<'none' | 'percent' | 'fixed'>('none');
   const [discountValue, setDiscountValue] = useState<number>(0);
+  const [productDiscount, setProductDiscount] = useState<ProductDiscountConfig>({
+    ...DEFAULT_PRODUCT_OFFER,
+  });
+  const supplierCouponCodes = useMemo(() => {
+    const rich = ((profile.storeConfig?.richCoupons || []) as any[])
+      .filter((c: any) => c?.active && c?.code)
+      .map((c: any) => String(c.code));
+    const legacy = ((profile.storeConfig?.coupons || []) as any[])
+      .filter((c: any) => c?.active && c?.code)
+      .map((c: any) => String(c.code));
+    return Array.from(new Set([...rich, ...legacy]));
+  }, [profile.storeConfig]);
   const [inStore, setInStore] = useState(true);
   const [inMarket, setInMarket] = useState(true);
   const [images, setImages] = useState<string[]>([]);
@@ -159,6 +176,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setStockQty(10);
     setDiscountType('none');
     setDiscountValue(0);
+    setProductDiscount({ ...DEFAULT_PRODUCT_OFFER });
     setInStore(true);
     setInMarket(false);
     setImages([]);
@@ -186,6 +204,16 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setStockQty(Number(item.stockQty || 0));
     setDiscountType(item.discountType || 'none');
     setDiscountValue(Number(item.discountValue || 0));
+    setProductDiscount(
+      item.productDiscount
+        ? { ...DEFAULT_PRODUCT_OFFER, ...item.productDiscount }
+        : {
+            ...DEFAULT_PRODUCT_OFFER,
+            enabled: item.discountType !== 'none' && Number(item.discountValue || 0) > 0,
+            type: item.discountType === 'fixed' ? 'fixed' : 'percent',
+            value: Number(item.discountValue || 0),
+          }
+    );
     setInStore(item.inStore);
     setInMarket(Boolean(item.inMarket));
     setImages(Array.isArray(item.images) ? item.images.slice(0, maxAllowedImages) : []);
@@ -261,8 +289,20 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
       wholesalePrice: Number(wholesalePrice || retailPrice),
       minWholesaleQty: Math.max(1, Number(minWholesaleQty || 1)),
       stockQty: Math.max(0, Number(stockQty || 0)),
-      discountType,
-      discountValue: Number(discountValue || 0),
+      discountType:
+        productDiscount.enabled && productDiscount.type === 'percent' && productDiscount.applyMode !== 'coupon'
+          ? 'percent'
+          : productDiscount.enabled && productDiscount.type === 'fixed' && productDiscount.applyMode !== 'coupon'
+          ? 'fixed'
+          : discountType,
+      discountValue:
+        productDiscount.enabled &&
+        (productDiscount.type === 'percent' || productDiscount.type === 'fixed') &&
+        productDiscount.applyMode !== 'coupon'
+          ? Number(productDiscount.value || 0)
+          : Number(discountValue || 0),
+      productDiscount:
+        productDiscount.enabled || productDiscount.isBestSeller ? productDiscount : undefined,
       inStore,
       inMarket: targetInMarket,
       reSubmitForApproval: targetInMarket && shouldReSubmit,
@@ -964,7 +1004,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <div>
                   <label className="block font-bold mb-1">الرصيد المتاح بالمخزن</label>
                   <input
@@ -975,29 +1015,23 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                     className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-mono font-bold outline-none"
                   />
                 </div>
-                <div>
-                  <label className="block font-bold mb-1">نوع الخصم</label>
-                  <select
-                    value={discountType}
-                    onChange={(e) => setDiscountType(e.target.value as any)}
-                    className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-bold outline-none"
-                  >
-                    <option value="none">بدون خصم</option>
-                    <option value="percent">نسبة مئوية (%)</option>
-                    <option value="fixed">مبلغ ثابت ({currencySymbol})</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold mb-1">قيمة الخصم</label>
-                  <input
-                    type="number"
-                    min={0}
-                    disabled={discountType === 'none'}
-                    value={discountValue}
-                    onChange={(e) => setDiscountValue(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-mono font-bold outline-none disabled:opacity-50"
-                  />
-                </div>
+                <ProductOfferEditorSection
+                  value={productDiscount}
+                  onChange={(next) => {
+                    setProductDiscount(next);
+                    if (next.enabled && (next.type === 'percent' || next.type === 'fixed') && next.applyMode !== 'coupon') {
+                      setDiscountType(next.type);
+                      setDiscountValue(Number(next.value || 0));
+                    } else {
+                      setDiscountType('none');
+                      setDiscountValue(0);
+                    }
+                  }}
+                  basePrice={Number(retailPrice || 0)}
+                  currencySymbol={currencySymbol}
+                  availableCouponCodes={supplierCouponCodes}
+                  sectionTitle="عروض وخصومات الخامة في متجر المورد (قبل/بعد · اشتري X+Y · لفترة محدودة)"
+                />
               </div>
 
               <div>

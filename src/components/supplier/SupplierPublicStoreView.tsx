@@ -13,6 +13,9 @@ import {
   User,
   X,
   Plus,
+  Flame,
+  Tag,
+  Ticket,
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import {
@@ -33,6 +36,9 @@ import { playButtonClickSound, playErrorSound, playSuccessSound } from '../../li
 import { resolveStorefrontTheme, StorefrontThemeId } from '../../lib/storefrontThemes';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
 import { ProductMediaCarousel } from '../common/ProductMediaCarousel';
+import { StorePromoBannerDisplay } from '../store/StorePromoBannerDisplay';
+import { isLimitedOfferCurrentlyActive } from '../../types/artisanStoreBuilder';
+import { MarketCouponConfig } from '../../types/marketplaceBuilder';
 
 interface SupplierPublicStoreViewProps {
   slug: string;
@@ -51,8 +57,93 @@ interface CartLine {
   quantity: number;
 }
 
+function getSupplierItemOfferMeta(item: SupplierCatalogItem) {
+  const pd = item.productDiscount;
+  const activePd = pd && pd.enabled && isLimitedOfferCurrentlyActive(pd) ? pd : undefined;
+  const retailBase = Number(item.retailPrice || 0);
+  let originalRetail = retailBase;
+  let finalRetail = retailBase;
+  let hasDiscount = false;
+  let badgeText: string | undefined;
+  let bogoLabel: string | undefined;
+  let couponRequiredCode: string | undefined;
+  let isFreeShipping = false;
+
+  if (activePd) {
+    const isCouponOnly = activePd.applyMode === 'coupon' && Boolean(activePd.linkedCouponCode?.trim());
+    if (isCouponOnly) couponRequiredCode = activePd.linkedCouponCode!.trim().toUpperCase();
+
+    if (activePd.type === 'before_after') {
+      const orig = Number(activePd.originalPrice || retailBase);
+      const after = Number(activePd.offerPrice || retailBase);
+      if (orig > after && after > 0) {
+        originalRetail = orig;
+        if (!isCouponOnly) {
+          finalRetail = after;
+          hasDiscount = true;
+        }
+        const pct = Math.round(((orig - after) / orig) * 100);
+        badgeText = activePd.badgeText?.trim() || (pct > 0 ? `خصم ${pct}%` : 'عرض خاص');
+      }
+    } else if (activePd.type === 'percent' && Number(activePd.value) > 0) {
+      const pct = Math.min(90, Math.max(1, Number(activePd.value)));
+      if (!isCouponOnly) {
+        finalRetail = Math.max(0, Number((retailBase * (1 - pct / 100)).toFixed(2)));
+        hasDiscount = finalRetail < originalRetail;
+      }
+      badgeText = activePd.badgeText?.trim() || `خصم ${pct}%`;
+    } else if (activePd.type === 'fixed' && Number(activePd.value) > 0) {
+      const val = Number(activePd.value);
+      if (!isCouponOnly) {
+        finalRetail = Math.max(0, Number((retailBase - val).toFixed(2)));
+        hasDiscount = finalRetail < originalRetail;
+      }
+      badgeText = activePd.badgeText?.trim() || `وفر ${val}`;
+    } else if (activePd.type === 'bogo') {
+      const buyQ = Math.max(1, Number(activePd.buyQty) || 2);
+      const freeQ = Math.max(1, Number(activePd.freeQty) || 1);
+      bogoLabel = `اشتري ${buyQ} + ${freeQ} مجاناً`;
+      badgeText = activePd.badgeText?.trim() || bogoLabel;
+    } else if (activePd.type === 'free_shipping') {
+      isFreeShipping = true;
+      badgeText = activePd.badgeText?.trim() || 'شحن مجاني';
+    } else if (activePd.type === 'special_offer') {
+      badgeText = activePd.badgeText?.trim() || 'عرض خاص';
+    }
+  } else if (item.discountType === 'percent' && item.discountValue > 0) {
+    finalRetail = Math.max(0, Number((retailBase * (1 - item.discountValue / 100)).toFixed(2)));
+    hasDiscount = finalRetail < originalRetail;
+    badgeText = `خصم ${item.discountValue}%`;
+  } else if (item.discountType === 'fixed' && item.discountValue > 0) {
+    finalRetail = Math.max(0, Number((retailBase - item.discountValue).toFixed(2)));
+    hasDiscount = finalRetail < originalRetail;
+    badgeText = `وفر ${item.discountValue}`;
+  }
+
+  return {
+    originalRetail,
+    finalRetail,
+    hasDiscount,
+    badgeText,
+    bogoLabel,
+    couponRequiredCode,
+    isFreeShipping,
+    isBestSeller: Boolean(pd?.isBestSeller),
+    isSpecialOffer: Boolean(pd?.isSpecialOffer || hasDiscount || bogoLabel || activePd),
+  };
+}
+
 function calcPrice(item: SupplierCatalogItem, qty: number) {
-  return resolveSupplierItemPricing(item, qty);
+  const base = resolveSupplierItemPricing(item, qty);
+  const meta = getSupplierItemOfferMeta(item);
+  if (base.appliedMode === 'retail' && meta.hasDiscount && meta.finalRetail < base.unitPrice) {
+    return {
+      ...base,
+      unitPrice: meta.finalRetail,
+      lineTotal: Number((meta.finalRetail * Math.max(0.01, Number(qty || 1))).toFixed(2)),
+    };
+  }
+  return base;
 }
 
 export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = ({
@@ -88,6 +179,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [catalogFilter, setCatalogFilter] = useState<'all' | 'offers' | 'bestsellers'>('all');
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<MarketCouponConfig | null>(null);
+  const [couponErr, setCouponErr] = useState('');
 
   const hasAuthSession = Boolean(profile && profile.id);
 
@@ -147,16 +242,73 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
     }
   };
 
+  const storeCoupons = useMemo<MarketCouponConfig[]>(() => {
+    const cfg = localSupplierOverride?.storeConfig || supplier?.storeConfig;
+    const rich = Array.isArray(cfg?.richCoupons) ? cfg!.richCoupons! : [];
+    if (rich.length > 0) return rich;
+    const legacy = Array.isArray(cfg?.coupons) ? cfg!.coupons! : [];
+    return legacy.map((c, idx) => ({
+      id: `sup-cpn-${idx}-${c.code}`,
+      code: c.code,
+      type: c.type || 'percent',
+      value: Number(c.discountPercent ?? c.value ?? 0),
+      minOrder: c.minOrder,
+      description: c.description,
+      active: c.active,
+      visible: true,
+      createdAt: new Date().toISOString(),
+      buyQty: c.buyQty,
+      freeQty: c.freeQty,
+      endsAt: c.endsAt,
+      showInBanner: c.showInBanner,
+    }));
+  }, [localSupplierOverride?.storeConfig, supplier?.storeConfig]);
+
+  const orderedItems = useMemo(() => {
+    const orderIds =
+      localSupplierOverride?.storeConfig?.productOrderIds ||
+      supplier?.storeConfig?.productOrderIds ||
+      [];
+    if (orderIds.length === 0) {
+      return [...items].sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999));
+    }
+    const rank = new Map(orderIds.map((id, idx) => [id, idx]));
+    return [...items].sort((a, b) => {
+      const ra = rank.has(a.id) ? rank.get(a.id)! : 9999 + (a.sortOrder ?? 0);
+      const rb = rank.has(b.id) ? rank.get(b.id)! : 9999 + (b.sortOrder ?? 0);
+      return ra - rb;
+    });
+  }, [items, localSupplierOverride?.storeConfig?.productOrderIds, supplier?.storeConfig?.productOrderIds]);
+
+  const { specialOfferItems, bestSellerItems } = useMemo(() => {
+    const offers: SupplierCatalogItem[] = [];
+    const bests: SupplierCatalogItem[] = [];
+    orderedItems.forEach((it) => {
+      const meta = getSupplierItemOfferMeta(it);
+      if (meta.isSpecialOffer) offers.push(it);
+      if (meta.isBestSeller) bests.push(it);
+    });
+    return { specialOfferItems: offers, bestSellerItems: bests };
+  }, [orderedItems]);
+
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
-      (i) =>
+    const offerSet = new Set(specialOfferItems.map((i) => i.id));
+    const bestSet = new Set(bestSellerItems.map((i) => i.id));
+    return orderedItems.filter((i) => {
+      const matchFilter =
+        catalogFilter === 'all' ||
+        (catalogFilter === 'offers' && offerSet.has(i.id)) ||
+        (catalogFilter === 'bestsellers' && bestSet.has(i.id));
+      if (!matchFilter) return false;
+      if (!q) return true;
+      return (
         i.name.toLowerCase().includes(q) ||
         (i.description || '').toLowerCase().includes(q) ||
         i.unit.toLowerCase().includes(q)
-    );
-  }, [items, searchQuery]);
+      );
+    });
+  }, [orderedItems, searchQuery, catalogFilter, specialOfferItems, bestSellerItems]);
 
   const addToCart = (item: SupplierCatalogItem, qty = 1) => {
     playButtonClickSound();
@@ -173,13 +325,88 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
     setTimeout(() => setToast(null), 2500);
   };
 
-  const cartTotal = useMemo(() => {
+  const cartSubtotal = useMemo(() => {
     return cart.reduce((sum, line) => sum + calcPrice(line.item, line.quantity).lineTotal, 0);
   }, [cart]);
+
+  const cartCouponDiscount = useMemo(() => {
+    if (!appliedCoupon || cartSubtotal <= 0) return 0;
+    if (appliedCoupon.minOrder && cartSubtotal < appliedCoupon.minOrder) return 0;
+    if (appliedCoupon.type === 'percent') {
+      return Number(((cartSubtotal * Math.max(0, appliedCoupon.value)) / 100).toFixed(2));
+    }
+    if (appliedCoupon.type === 'fixed') {
+      return Math.min(cartSubtotal, Math.max(0, Number(appliedCoupon.value)));
+    }
+    if (appliedCoupon.type === 'bogo') {
+      const buyQ = Math.max(1, Number(appliedCoupon.buyQty) || 2);
+      const freeQ = Math.max(1, Number(appliedCoupon.freeQty) || 1);
+      const groupSize = buyQ + freeQ;
+      const units: number[] = [];
+      cart.forEach((line) => {
+        const pr = calcPrice(line.item, line.quantity);
+        for (let k = 0; k < Math.floor(line.quantity); k += 1) units.push(pr.unitPrice);
+      });
+      units.sort((a, b) => a - b);
+      const freeCount = Math.floor(units.length / groupSize) * freeQ;
+      return freeCount > 0 ? Number(units.slice(0, freeCount).reduce((s, p) => s + p, 0).toFixed(2)) : 0;
+    }
+    return 0;
+  }, [appliedCoupon, cartSubtotal, cart]);
+
+  const cartTotal = useMemo(() => Math.max(0, Number((cartSubtotal - cartCouponDiscount).toFixed(2))), [cartSubtotal, cartCouponDiscount]);
+
+  const handleApplySupplierCoupon = () => {
+    setCouponErr('');
+    const code = couponInput.trim().toUpperCase();
+    if (!code) {
+      setCouponErr('أدخل كود الخصم أولاً');
+      return;
+    }
+    const found = storeCoupons.find((c) => c.active && c.code.trim().toUpperCase() === code);
+    if (!found) {
+      setAppliedCoupon(null);
+      setCouponErr('كود الخصم غير صحيح أو غير مفعل لدى المورد.');
+      playErrorSound();
+      return;
+    }
+    if (found.endsAt && new Date(found.endsAt).getTime() < Date.now()) {
+      setAppliedCoupon(null);
+      setCouponErr('انتهت صلاحية هذا الكود.');
+      playErrorSound();
+      return;
+    }
+    if (found.minOrder && cartSubtotal < found.minOrder) {
+      setAppliedCoupon(null);
+      setCouponErr(`الحد الأدنى لهذا الكود ${found.minOrder.toLocaleString('ar-EG')} ${supplier?.currencySymbol || 'ج.م'}`);
+      playErrorSound();
+      return;
+    }
+    if (found.type === 'bogo') {
+      const need = Math.max(1, Number(found.buyQty) || 2) + Math.max(1, Number(found.freeQty) || 1);
+      const totalQty = cart.reduce((s, l) => s + Math.floor(l.quantity), 0);
+      if (totalQty < need) {
+        setAppliedCoupon(null);
+        setCouponErr(`عرض اشتري وخذ مجاناً يتطلب ${need} وحدات على الأقل بالسلة.`);
+        playErrorSound();
+        return;
+      }
+    }
+    setAppliedCoupon(found);
+    playSuccessSound();
+  };
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supplier || cart.length === 0) return;
+
+    const couponNote = appliedCoupon
+      ? `\nكود الخصم المطبق: ${appliedCoupon.code} (${
+          appliedCoupon.type === 'free_shipping'
+            ? 'شحن مجاني'
+            : `خصم ${cartCouponDiscount.toLocaleString('ar-EG')} ${supplier.currencySymbol}`
+        })`
+      : '';
 
     if (!hasAuthSession) {
       const digits = String(supplier.phone || '').replace(/\D/g, '');
@@ -190,12 +417,14 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
           return `- ${c.item.name} × ${c.quantity} ${c.item.unit} (${pr.lineTotal} ${supplier.currencySymbol})`;
         })
         .join('\n');
-      const msg = `مرحباً "${supplier.brandName}"، أرغب في طلب الخامات التالية:\n${lines}\nالإجمالي: ${cartTotal} ${supplier.currencySymbol}\nالاسم: ${buyerName}\nالهاتف: ${buyerPhone}\n${notes}`;
+      const msg = `مرحباً "${supplier.brandName}"، أرغب في طلب الخامات التالية:\n${lines}${couponNote}\nالإجمالي النهائي: ${cartTotal} ${supplier.currencySymbol}\nالاسم: ${buyerName}\nالهاتف: ${buyerPhone}\n${notes}`;
       if (waPhone) {
         window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener,noreferrer');
       }
       setToast('تم تجهيز تفاصيل الطلب عبر الواتساب!');
       setCart([]);
+      setAppliedCoupon(null);
+      setCouponInput('');
       setIsCartOpen(false);
       return;
     }
@@ -219,7 +448,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
           discountType: c.item.discountType,
           discountValue: c.item.discountValue,
         })),
-        notes: notes.trim(),
+        notes: `${notes.trim()}${couponNote}`.trim(),
         buyerInfo: {
           workshopBrand: profile?.brandName || 'ورشة بالمنظومة',
           name: buyerName.trim() || profile?.artistName || 'فنان',
@@ -230,6 +459,8 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
       if (res.success) {
         playSuccessSound();
         setCart([]);
+        setAppliedCoupon(null);
+        setCouponInput('');
         setNotes('');
         setIsCartOpen(false);
         setToast(`تم إرسال طلبك المباشر إلى "${supplier.brandName}" بنجاح!`);
@@ -464,6 +695,19 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         </div>
       </header>
 
+      {/* Supplier Animated/Static Promotional Banner + Active Coupons */}
+      <StorePromoBannerDisplay
+        banner={activeSupplier.storeConfig?.promoBanner}
+        currencySymbol={activeSupplier.currencySymbol}
+        coupons={storeCoupons}
+        onSelectCouponCode={(code) => {
+          navigator.clipboard?.writeText(code).catch(() => {});
+          setCouponInput(code);
+          setToast(`تم نسخ وتجهيز كود الخصم "${code}" للسلة`);
+          setTimeout(() => setToast(null), 3000);
+        }}
+      />
+
       {themeSpec.showKineticTicker && (
         <div
           style={{
@@ -618,6 +862,39 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               className={`w-full h-9 pr-9 pl-3 ${themeSpec.inputRadiusClass} border text-xs font-bold outline-none`}
             />
           </div>
+
+          {activeTab === 'catalog' && (specialOfferItems.length > 0 || bestSellerItems.length > 0) && (
+            <div className="w-full flex flex-wrap items-center gap-1.5 pt-2 border-t" style={{ borderColor: themeSpec.borderColor }}>
+              <button
+                type="button"
+                onClick={() => setCatalogFilter('all')}
+                style={catalogFilter === 'all' ? accentBtnStyle : softBtnStyle}
+                className={`px-3 py-1.5 ${themeSpec.buttonRadiusClass} border text-[11px] font-black cursor-pointer`}
+              >
+                كافة الخامات ({orderedItems.length})
+              </button>
+              {specialOfferItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCatalogFilter('offers')}
+                  style={catalogFilter === 'offers' ? accentBtnStyle : softBtnStyle}
+                  className={`px-3 py-1.5 ${themeSpec.buttonRadiusClass} border text-[11px] font-black cursor-pointer`}
+                >
+                  🔥 العروض الخاصة ({specialOfferItems.length})
+                </button>
+              )}
+              {bestSellerItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCatalogFilter('bestsellers')}
+                  style={catalogFilter === 'bestsellers' ? accentBtnStyle : softBtnStyle}
+                  className={`px-3 py-1.5 ${themeSpec.buttonRadiusClass} border text-[11px] font-black cursor-pointer`}
+                >
+                  ⭐ الأكثر طلباً ({bestSellerItems.length})
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {activeTab === 'reviews' ? (
@@ -778,6 +1055,120 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
             </p>
           </div>
         ) : (
+          <div className="space-y-4">
+            {/* Supplier Discovery Spotlights */}
+            {catalogFilter === 'all' && !searchQuery.trim() && (specialOfferItems.length > 0 || bestSellerItems.length > 0) && (
+              <div className="space-y-3">
+                {specialOfferItems.length > 0 && (
+                  <section style={surfaceStyle} className={`${themeSpec.cardRadiusClass} border p-3.5 space-y-2.5`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-xs sm:text-sm font-black flex items-center gap-1.5">
+                        <Flame className="w-4 h-4 text-rose-500" />
+                        <span>العروض الخاصة والتخفيضات</span>
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setCatalogFilter('offers')}
+                        style={{ color: themeSpec.accentText }}
+                        className="text-[11px] font-black hover:underline cursor-pointer"
+                      >
+                        عرض الكل ←
+                      </button>
+                    </div>
+                    <div className="flex items-stretch gap-2.5 overflow-x-auto pb-1 scrollbar-none">
+                      {specialOfferItems.slice(0, 8).map((it) => {
+                        const meta = getSupplierItemOfferMeta(it);
+                        return (
+                          <button
+                            key={`sup-offer-${it.id}`}
+                            type="button"
+                            onClick={() => setSelectedItem(it)}
+                            style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                            className="w-36 sm:w-44 shrink-0 rounded-xl border overflow-hidden text-right cursor-pointer flex flex-col"
+                          >
+                            <div className="relative h-24 w-full overflow-hidden">
+                              {meta.badgeText && (
+                                <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-black">
+                                  {meta.badgeText}
+                                </span>
+                              )}
+                              <img src={it.images?.[0] || '/alshams_falcon_emblem.png'} alt={it.name} className="w-full h-full object-cover" />
+                            </div>
+                            <div className="p-2 space-y-0.5">
+                              <p className="text-[11px] font-black truncate">{it.name}</p>
+                              <div className="flex items-baseline gap-1 font-mono text-xs">
+                                <span className="font-black" style={{ color: themeSpec.priceColor }}>
+                                  {meta.finalRetail.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                                </span>
+                                {meta.hasDiscount && (
+                                  <span className="text-[10px] line-through opacity-65">
+                                    {meta.originalRetail.toLocaleString('ar-EG')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {bestSellerItems.length > 0 && (
+                  <section style={surfaceStyle} className={`${themeSpec.cardRadiusClass} border p-3.5 space-y-2.5`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-xs sm:text-sm font-black flex items-center gap-1.5">
+                        <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
+                        <span>الأكثر طلباً من الورش</span>
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setCatalogFilter('bestsellers')}
+                        style={{ color: themeSpec.accentText }}
+                        className="text-[11px] font-black hover:underline cursor-pointer"
+                      >
+                        عرض الكل ←
+                      </button>
+                    </div>
+                    <div className="flex items-stretch gap-2.5 overflow-x-auto pb-1 scrollbar-none">
+                      {bestSellerItems.slice(0, 8).map((it) => {
+                        const meta = getSupplierItemOfferMeta(it);
+                        return (
+                          <button
+                            key={`sup-best-${it.id}`}
+                            type="button"
+                            onClick={() => setSelectedItem(it)}
+                            style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                            className="w-36 sm:w-44 shrink-0 rounded-xl border overflow-hidden text-right cursor-pointer flex flex-col"
+                          >
+                            <div className="relative h-24 w-full overflow-hidden">
+                              <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded-md bg-amber-400 text-slate-950 text-[9px] font-black">
+                                ⭐ الأكثر طلباً
+                              </span>
+                              <img src={it.images?.[0] || '/alshams_falcon_emblem.png'} alt={it.name} className="w-full h-full object-cover" />
+                            </div>
+                            <div className="p-2 space-y-0.5">
+                              <p className="text-[11px] font-black truncate">{it.name}</p>
+                              <div className="flex items-baseline gap-1 font-mono text-xs">
+                                <span className="font-black" style={{ color: themeSpec.priceColor }}>
+                                  {meta.finalRetail.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                                </span>
+                                {meta.hasDiscount && (
+                                  <span className="text-[10px] line-through opacity-65">
+                                    {meta.originalRetail.toLocaleString('ar-EG')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+              </div>
+            )}
+
           <div
             className={`grid gap-4 ${
               themeSpec.cardLayout === 'horizontal_split'
@@ -790,6 +1181,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               const isHorizontal = themeSpec.cardLayout === 'horizontal_split' || isBentoHero;
               const isArch = themeSpec.cardLayout === 'arch_dome';
               const isPolaroid = themeSpec.cardLayout === 'polaroid_pop';
+              const offerMeta = getSupplierItemOfferMeta(it);
 
               return (
                 <article
@@ -821,6 +1213,20 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                           : 'border-b'
                       }`}
                     >
+                      {offerMeta.badgeText && (
+                        <span
+                          style={{ backgroundColor: themeSpec.badgeBg, color: themeSpec.badgeInk }}
+                          className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-md text-[10px] font-black shadow-xs"
+                        >
+                          {offerMeta.badgeText}
+                        </span>
+                      )}
+                      {offerMeta.isBestSeller && (
+                        <span className="absolute bottom-2 left-2 z-10 px-2 py-0.5 rounded-md bg-amber-400/95 text-slate-950 text-[9px] font-black shadow-xs flex items-center gap-0.5">
+                          <Star className="w-2.5 h-2.5 fill-slate-950" />
+                          الأكثر طلباً
+                        </span>
+                      )}
                       {it.videoUrl && (
                         <div className="absolute bottom-2 right-2 z-10">
                           <ProductVideoThumbnail
@@ -855,9 +1261,16 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                           <span style={{ color: themeSpec.mutedColor }} className="block text-[10px] font-sans">
                             القطاعي
                           </span>
-                          <span style={{ color: themeSpec.priceColor }} className="font-black">
-                            {it.retailPrice.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
-                          </span>
+                          <div className="flex items-baseline gap-1 flex-wrap">
+                            <span style={{ color: themeSpec.priceColor }} className="font-black">
+                              {offerMeta.finalRetail.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                            </span>
+                            {offerMeta.hasDiscount && (
+                              <span style={{ color: themeSpec.mutedColor }} className="text-[10px] line-through opacity-70">
+                                {offerMeta.originalRetail.toLocaleString('ar-EG')}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div
                           style={{
@@ -876,6 +1289,21 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                           </span>
                         </div>
                       </div>
+                      {(offerMeta.bogoLabel || offerMeta.couponRequiredCode) && (
+                        <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                          {offerMeta.bogoLabel && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[9px] font-black">
+                              🎁 {offerMeta.bogoLabel}
+                            </span>
+                          )}
+                          {offerMeta.couponRequiredCode && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[9px] font-black font-mono">
+                              <Tag className="w-2.5 h-2.5" />
+                              بكود: {offerMeta.couponRequiredCode}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="px-4 pb-4">
                       <button
@@ -894,6 +1322,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 </article>
               );
             })}
+          </div>
           </div>
         )}
 
@@ -1011,6 +1440,55 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 );
               })}
 
+              {cart.length > 0 && storeCoupons.some((c) => c.active) && (
+                <div
+                  style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                  className={`p-3 ${themeSpec.buttonRadiusClass} border space-y-2`}
+                >
+                  <label className="text-[11px] font-black flex items-center gap-1.5">
+                    <Ticket className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+                    كود خصم المورد
+                  </label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                      placeholder="أدخل الكود..."
+                      dir="ltr"
+                      style={{ backgroundColor: themeSpec.surfaceBg, borderColor: themeSpec.borderColor, color: themeSpec.inkColor }}
+                      className={`flex-1 h-9 px-2.5 ${themeSpec.inputRadiusClass} border text-xs font-mono font-bold uppercase`}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplySupplierCoupon}
+                      style={accentBtnStyle}
+                      className={`px-3 h-9 ${themeSpec.buttonRadiusClass} text-xs font-black cursor-pointer`}
+                    >
+                      تطبيق
+                    </button>
+                  </div>
+                  {couponErr && <p className="text-[10px] font-bold text-rose-500">{couponErr}</p>}
+                  {appliedCoupon && (
+                    <div className="flex items-center justify-between text-[11px] font-black text-emerald-600 dark:text-emerald-400">
+                      <span>
+                        ✓ كود {appliedCoupon.code} ({appliedCoupon.type === 'free_shipping' ? 'شحن مجاني' : `خصم ${cartCouponDiscount.toLocaleString('ar-EG')} ${activeSupplier.currencySymbol}`})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppliedCoupon(null);
+                          setCouponInput('');
+                        }}
+                        className="text-rose-500 text-[10px] underline cursor-pointer"
+                      >
+                        إلغاء
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {cart.length > 0 && (
                 <form id="sup-store-checkout" onSubmit={handleCheckout} className="space-y-2 pt-2">
                   <input
@@ -1059,6 +1537,14 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 style={{ borderColor: themeSpec.borderColor }}
                 className="p-4 border-t space-y-2"
               >
+                {cartCouponDiscount > 0 && (
+                  <div className="flex justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                    <span>خصم الكود ({appliedCoupon?.code}):</span>
+                    <span className="font-mono tabular-nums">
+                      -{cartCouponDiscount.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm font-black">
                   <span>الإجمالي:</span>
                   <span style={{ color: themeSpec.priceColor }} className="font-mono tabular-nums">

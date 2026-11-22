@@ -13,13 +13,30 @@ export interface ProductSizeVariant {
   egpPrice?: number; // Auto-normalized EGP price for central marketplace
 }
 
+export type ProductOfferType =
+  | 'percent'
+  | 'fixed'
+  | 'free_shipping'
+  | 'before_after'
+  | 'bogo'
+  | 'special_offer';
+
 export interface ProductDiscountConfig {
   enabled: boolean;
-  type: 'percent' | 'fixed' | 'free_shipping';
+  type: ProductOfferType;
   value: number;
+  applyMode?: 'automatic' | 'coupon';
+  linkedCouponCode?: string;
+  originalPrice?: number;
+  offerPrice?: number;
+  buyQty?: number;
+  freeQty?: number;
   isLimitedTime: boolean;
+  startsAt?: string;
   endsAt?: string;
   badgeText?: string;
+  isBestSeller?: boolean;
+  isSpecialOffer?: boolean;
 }
 
 export interface ArtisanPortfolioGalleryItem {
@@ -29,6 +46,11 @@ export interface ArtisanPortfolioGalleryItem {
   beforeImageUrl?: string;
   caption?: string;
 }
+
+export type BannerMotionMode = 'static' | 'marquee' | 'slide' | 'vertical_ticker';
+export type BannerOrientation = 'horizontal' | 'vertical';
+export type BannerDirection = 'rtl' | 'ltr' | 'up' | 'down';
+export type BannerSpeed = 'slow' | 'normal' | 'fast';
 
 export interface ArtisanStorePromoBanner {
   enabled: boolean;
@@ -41,6 +63,12 @@ export interface ArtisanStorePromoBanner {
   discountLabel: string;
   showDiscountLabel: boolean;
   bgColor: string;
+  motionMode?: BannerMotionMode;
+  orientation?: BannerOrientation;
+  direction?: BannerDirection;
+  speed?: BannerSpeed;
+  extraMessages?: string[];
+  showActiveCouponsInBanner?: boolean;
 }
 
 export type ArtisanContactDisplayMode = 'both' | 'footer' | 'floating_bubble';
@@ -143,6 +171,12 @@ export const DEFAULT_ARTISAN_STORE_CONFIG: ArtisanStoreConfig = {
     discountLabel: 'خصم حصري',
     showDiscountLabel: true,
     bgColor: '#C2410C',
+    motionMode: 'marquee',
+    orientation: 'horizontal',
+    direction: 'rtl',
+    speed: 'normal',
+    extraMessages: [],
+    showActiveCouponsInBanner: true,
   },
   couponsEnabled: true,
   coupons: [],
@@ -364,14 +398,24 @@ export interface ResolvedOfferPricing {
   isFreeShipping: boolean;
   isLimitedTimeActive: boolean;
   badgeText: string | null;
+  bogoLabel: string | null;
+  couponRequiredCode: string | null;
+  isBestSeller: boolean;
+  isSpecialOffer: boolean;
+  endsAt?: string;
 }
 
 export function isLimitedOfferCurrentlyActive(discount?: ProductDiscountConfig | null): boolean {
   if (!discount || !discount.enabled || !discount.isLimitedTime) return false;
+  const now = Date.now();
+  if (discount.startsAt) {
+    const startMs = new Date(discount.startsAt).getTime();
+    if (Number.isFinite(startMs) && startMs > now) return false;
+  }
   if (!discount.endsAt) return true;
   const endMs = new Date(discount.endsAt).getTime();
   if (!Number.isFinite(endMs)) return true;
-  return endMs > Date.now();
+  return endMs > now;
 }
 
 export function resolveProductOfferPricing(
@@ -418,13 +462,15 @@ export function resolveProductOfferPricing(
   }
 
   const effectiveSourceCode = priceAlreadyNormalizedToEgp ? 'EGP' : sourceCurrency;
-  const egpOriginal = Math.max(0, toEgpAmount(baseRawPrice, effectiveSourceCode));
+  let egpOriginal = Math.max(0, toEgpAmount(baseRawPrice, effectiveSourceCode));
 
   const discount = product.product_discount || product.productDiscount;
   let egpAfterDiscount = egpOriginal;
   let isFreeShipping = false;
   let hasDiscount = false;
   let discountPercent = 0;
+  let bogoLabel: string | null = null;
+  let couponRequiredCode: string | null = null;
 
   const isLimitedActive = isLimitedOfferCurrentlyActive(discount);
   const discountValid = Boolean(
@@ -432,21 +478,47 @@ export function resolveProductOfferPricing(
       discount.enabled &&
       (!discount.isLimitedTime || isLimitedActive)
   );
+  const isCouponOnly = discountValid && discount?.applyMode === 'coupon' && Boolean(discount?.linkedCouponCode?.trim());
+  if (isCouponOnly && discount?.linkedCouponCode) {
+    couponRequiredCode = discount.linkedCouponCode.trim().toUpperCase();
+  }
 
   if (discountValid && discount) {
     if (discount.type === 'free_shipping') {
       isFreeShipping = true;
+    } else if (discount.type === 'bogo') {
+      const buyQty = Math.max(1, Number(discount.buyQty) || 2);
+      const freeQty = Math.max(1, Number(discount.freeQty) || 1);
+      bogoLabel = `اشتري ${buyQty} + ${freeQty} مجاناً`;
+    } else if (discount.type === 'before_after') {
+      const customBefore = Number(discount.originalPrice || 0);
+      const customAfter = Number(discount.offerPrice || 0);
+      const beforeEgp = customBefore > 0 ? toEgpAmount(customBefore, sourceCurrency) : egpOriginal;
+      const afterEgp = customAfter > 0 ? toEgpAmount(customAfter, sourceCurrency) : egpOriginal;
+      if (beforeEgp > afterEgp && afterEgp > 0) {
+        egpOriginal = beforeEgp;
+        if (!isCouponOnly) {
+          egpAfterDiscount = afterEgp;
+          hasDiscount = true;
+        }
+        discountPercent = Math.max(1, Math.round(((beforeEgp - afterEgp) / beforeEgp) * 100));
+      }
     } else if (discount.type === 'percent' && discount.value > 0) {
       const pct = Math.min(90, Math.max(1, Number(discount.value) || 0));
-      egpAfterDiscount = Math.max(1, Math.round(egpOriginal * (1 - pct / 100)));
       discountPercent = Math.round(pct);
-      hasDiscount = egpAfterDiscount < egpOriginal;
+      if (!isCouponOnly) {
+        egpAfterDiscount = Math.max(1, Math.round(egpOriginal * (1 - pct / 100)));
+        hasDiscount = egpAfterDiscount < egpOriginal;
+      }
     } else if (discount.type === 'fixed' && discount.value > 0) {
       const fixedInEgp = toEgpAmount(Number(discount.value) || 0, sourceCurrency);
-      egpAfterDiscount = Math.max(1, Math.round(egpOriginal - fixedInEgp));
-      if (egpOriginal > 0 && egpAfterDiscount < egpOriginal) {
-        discountPercent = Math.max(1, Math.round(((egpOriginal - egpAfterDiscount) / egpOriginal) * 100));
-        hasDiscount = true;
+      const computedAfter = Math.max(1, Math.round(egpOriginal - fixedInEgp));
+      if (egpOriginal > 0 && computedAfter < egpOriginal) {
+        discountPercent = Math.max(1, Math.round(((egpOriginal - computedAfter) / egpOriginal) * 100));
+        if (!isCouponOnly) {
+          egpAfterDiscount = computedAfter;
+          hasDiscount = true;
+        }
       }
     }
   }
@@ -456,12 +528,20 @@ export function resolveProductOfferPricing(
 
   let badgeText: string | null = null;
   if (discountValid && discount) {
-    if (discount.isLimitedTime && isLimitedActive) {
-      badgeText = discount.badgeText?.trim() || 'عرض لفترة محدودة';
+    if (discount.badgeText?.trim()) {
+      badgeText = discount.badgeText.trim();
+    } else if (bogoLabel) {
+      badgeText = bogoLabel;
+    } else if (couponRequiredCode) {
+      badgeText = discountPercent > 0 ? `خصم ${discountPercent}% بكود ${couponRequiredCode}` : `عرض بكود ${couponRequiredCode}`;
+    } else if (discount.isLimitedTime && isLimitedActive) {
+      badgeText = discountPercent > 0 ? `عرض لفترة محدودة -${discountPercent}%` : 'سعر خاص لفترة محدودة';
     } else if (discount.type === 'free_shipping') {
-      badgeText = discount.badgeText?.trim() || 'شحن مجاني';
+      badgeText = 'شحن مجاني';
+    } else if (discount.type === 'special_offer') {
+      badgeText = 'عرض خاص';
     } else if (hasDiscount && discountPercent > 0) {
-      badgeText = discount.badgeText?.trim() || `خصم ${discountPercent}%`;
+      badgeText = `خصم ${discountPercent}%`;
     }
   }
 
@@ -478,5 +558,10 @@ export function resolveProductOfferPricing(
     isFreeShipping,
     isLimitedTimeActive: isLimitedActive,
     badgeText,
+    bogoLabel,
+    couponRequiredCode,
+    isBestSeller: Boolean(discount?.isBestSeller),
+    isSpecialOffer: Boolean(discountValid && (discount?.isSpecialOffer || hasDiscount || bogoLabel || isFreeShipping || discount?.type === 'special_offer')),
+    endsAt: discount?.isLimitedTime ? discount.endsAt : undefined,
   };
 }

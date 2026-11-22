@@ -28,10 +28,15 @@ import {
 } from 'lucide-react';
 import { ProductMediaCarousel } from '../common/ProductMediaCarousel';
 import { isValidHttpVideoUrl } from '../../lib/catalogStatus';
+import {
+  DEFAULT_PRODUCT_OFFER,
+  ProductOfferEditorSection,
+} from './ProductOfferEditorSection';
 
 interface ArtisanProductEditorModalProps {
   product: SavedProductRecord;
   storeCurrency: string;
+  availableCouponCodes?: string[];
   onClose: () => void;
   onSave: (
     updated: SavedProductRecord,
@@ -42,6 +47,7 @@ interface ArtisanProductEditorModalProps {
 export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps> = ({
   product,
   storeCurrency,
+  availableCouponCodes = [],
   onClose,
   onSave,
 }) => {
@@ -105,14 +111,16 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
   const [newSizeLabel, setNewSizeLabel] = useState('');
   const [newSizePrice, setNewSizePrice] = useState<string>('');
 
-  // Product Discount & Limited Time Offer
+  // Product Discount, Before/After Price, BOGO & Limited Time Offer
   const [discount, setDiscount] = useState<ProductDiscountConfig>(() => ({
+    ...DEFAULT_PRODUCT_OFFER,
+    ...(product.productDiscount || {}),
     enabled: Boolean(product.productDiscount?.enabled),
     type: product.productDiscount?.type || 'percent',
     value: Number(product.productDiscount?.value ?? 10),
     isLimitedTime: Boolean(product.productDiscount?.isLimitedTime),
     endsAt: product.productDiscount?.endsAt || '',
-    badgeText: product.productDiscount?.badgeText || 'عرض لفترة محدودة',
+    badgeText: product.productDiscount?.badgeText || '',
   }));
 
   const [saving, setSaving] = useState(false);
@@ -522,103 +530,15 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
             </div>
           </div>
 
-          {/* 3. Product Discount & Limited-Time Offer */}
-          <div className="p-4 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <h4 className="font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5">
-                <Tag className="w-4 h-4" />
-                <span>خصم وعرض خاص على هذا المنتج</span>
-              </h4>
-              <button
-                type="button"
-                onClick={() => setDiscount((prev) => ({ ...prev, enabled: !prev.enabled }))}
-                className={`px-3 py-1 rounded-xl font-black text-[11px] border cursor-pointer transition ${
-                  discount.enabled
-                    ? 'bg-emerald-600 border-emerald-500 text-white'
-                    : 'bg-white dark:bg-[#060B18] border-[#D4CCBC] dark:border-[#22355E]'
-                }`}
-              >
-                {discount.enabled ? 'الخصم مفعل ✓' : 'تفعيل خصم'}
-              </button>
-            </div>
-
-            {discount.enabled && (
-              <div className="space-y-3 pt-1">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <div>
-                    <label className="block font-bold mb-1">نوع العرض</label>
-                    <select
-                      value={discount.type}
-                      onChange={(e) => setDiscount((prev) => ({ ...prev, type: e.target.value as any }))}
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-                    >
-                      <option value="percent">نسبة مئوية (%)</option>
-                      <option value="fixed">مبلغ ثابت ({activeCurrency.symbol})</option>
-                      <option value="free_shipping">شحن مجاني للمنتج</option>
-                    </select>
-                  </div>
-
-                  {discount.type !== 'free_shipping' && (
-                    <div>
-                      <label className="block font-bold mb-1">
-                        {discount.type === 'percent' ? 'نسبة الخصم (%)' : `قيمة الخصم (${activeCurrency.symbol})`}
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={discount.type === 'percent' ? 90 : undefined}
-                        value={discount.value}
-                        onChange={(e) =>
-                          setDiscount((prev) => ({ ...prev, value: parseFloat(e.target.value) || 0 }))
-                        }
-                        className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black"
-                      />
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block font-bold mb-1">نص الشارة على المنتج</label>
-                    <input
-                      type="text"
-                      value={discount.badgeText || ''}
-                      onChange={(e) => setDiscount((prev) => ({ ...prev, badgeText: e.target.value }))}
-                      placeholder="عرض لفترة محدودة"
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3 p-2.5 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E]">
-                  <label className="inline-flex items-center gap-2 font-black cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={discount.isLimitedTime}
-                      onChange={(e) =>
-                        setDiscount((prev) => ({ ...prev, isLimitedTime: e.target.checked }))
-                      }
-                      className="w-4 h-4 accent-[#EA580C]"
-                    />
-                    <Clock className="w-3.5 h-3.5 text-[#EA580C]" />
-                    <span>تحديد كعرض لفترة محدودة (يظهر بشارة مميزة في سوق الشمساوية)</span>
-                  </label>
-
-                  {discount.isLimitedTime && (
-                    <input
-                      type="datetime-local"
-                      value={discount.endsAt ? discount.endsAt.slice(0, 16) : ''}
-                      onChange={(e) =>
-                        setDiscount((prev) => ({
-                          ...prev,
-                          endsAt: e.target.value ? new Date(e.target.value).toISOString() : '',
-                        }))
-                      }
-                      className="px-2.5 py-1.5 rounded-lg bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono text-[11px]"
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* 3. Product Offer, Before/After Pricing, BOGO, Coupon-Linked & Best-Seller */}
+          <ProductOfferEditorSection
+            value={discount}
+            onChange={setDiscount}
+            basePrice={Number(storePrice || 0)}
+            currencySymbol={activeCurrency.symbol}
+            availableCouponCodes={availableCouponCodes}
+            sectionTitle="العروض والخصومات والتمييز على هذا المنتج"
+          />
 
           {/* 4. Colors Manager */}
           <div className="p-4 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] space-y-2.5">

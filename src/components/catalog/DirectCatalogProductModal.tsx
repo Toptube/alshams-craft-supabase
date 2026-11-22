@@ -32,7 +32,12 @@ import { compressImageFile } from '../../utils/imageCompressor';
 import { ProductMediaCarousel } from '../common/ProductMediaCarousel';
 import { isValidHttpVideoUrl } from '../../lib/catalogStatus';
 import { toEgpAmount } from '../../lib/currency';
-import type { ProductSizeVariant } from '../../types/artisanStoreBuilder';
+import type { ProductDiscountConfig, ProductSizeVariant } from '../../types/artisanStoreBuilder';
+import { getStoredArtisanStoreConfig } from '../../types/artisanStoreBuilder';
+import {
+  DEFAULT_PRODUCT_OFFER,
+  ProductOfferEditorSection,
+} from '../store/ProductOfferEditorSection';
 
 interface DirectCatalogProductPageProps {
   isOpen?: boolean;
@@ -185,6 +190,13 @@ export const DirectCatalogProductPage: React.FC<DirectCatalogProductPageProps> =
   const [storeDescription, setStoreDescription] = useState('');
   const [personalNotes, setPersonalNotes] = useState('');
   const [isCustomOrderAvailable, setIsCustomOrderAvailable] = useState(true);
+  const [productDiscount, setProductDiscount] = useState<ProductDiscountConfig>({
+    ...DEFAULT_PRODUCT_OFFER,
+  });
+  const availableStoreCouponCodes = useMemo(() => {
+    const cfg = getStoredArtisanStoreConfig(tenantId);
+    return (cfg.coupons || []).filter((c) => c.active && c.code).map((c) => c.code);
+  }, [tenantId]);
 
   // Sizes linked to Prices (المقاسات المرتبطة بالأسعار)
   const [sizeVariants, setSizeVariants] = useState<ProductSizeVariant[]>([]);
@@ -410,6 +422,8 @@ export const DirectCatalogProductPage: React.FC<DirectCatalogProductPageProps> =
         currentStock: Math.max(0, Number(currentStock || 0)),
         isCustomOrderAvailable,
         sourceCurrency: currencyCode,
+        productDiscount:
+          productDiscount.enabled || productDiscount.isBestSeller ? productDiscount : undefined,
         isActive: true,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -802,6 +816,16 @@ export const DirectCatalogProductPage: React.FC<DirectCatalogProductPageProps> =
             )}
           </div>
         </section>
+
+        {/* STEP 3.5: Product Offers, Discounts, Before/After Price, BOGO & Best-Seller Highlights */}
+        <ProductOfferEditorSection
+          value={productDiscount}
+          onChange={setProductDiscount}
+          basePrice={Number(storePrice || 0) || Number(sizeVariants[0]?.price || 0)}
+          currencySymbol={currencySymbol}
+          availableCouponCodes={availableStoreCouponCodes}
+          sectionTitle="عروض وخصومات وتمييز المنتج داخل المتجر (قبل/بعد · اشتري X+Y · لفترة محدودة)"
+        />
 
         {/* STEP 4: Media (Photos + Lightweight Video Link in Unified Carousel) */}
         <section className="p-4 rounded-2xl bg-white/80 dark:bg-[#101C38] border border-[#D4CCBC] dark:border-[#22355E] space-y-4">

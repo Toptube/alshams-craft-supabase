@@ -36,6 +36,7 @@ import {
 import { ArtisanContactDisplayMode } from '../../types/artisanStoreBuilder';
 import { StorefrontThemeGrid } from './StorefrontThemeStudio';
 import { StorefrontThemeId } from '../../lib/storefrontThemes';
+import { StorePromoBannerDisplay } from './StorePromoBannerDisplay';
 
 interface ArtisanStorefrontBuilderPanelProps {
   mode: 'appearance' | 'promotions';
@@ -76,7 +77,12 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
   const [newCouponType, setNewCouponType] = useState<MarketCouponType>('percent');
   const [newCouponVal, setNewCouponVal] = useState('10');
   const [newCouponMin, setNewCouponMin] = useState('0');
+  const [newCouponBuyQty, setNewCouponBuyQty] = useState('2');
+  const [newCouponFreeQty, setNewCouponFreeQty] = useState('1');
   const [newCouponDesc, setNewCouponDesc] = useState('');
+  const [newCouponEndsAt, setNewCouponEndsAt] = useState('');
+  const [newCouponShowInBanner, setNewCouponShowInBanner] = useState(true);
+  const [newExtraBannerMsg, setNewExtraBannerMsg] = useState('');
 
   const handleUploadCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -133,13 +139,21 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
     const exists = config.coupons.some((c) => c.code.toUpperCase() === cleanCode);
     if (exists) return;
 
-    const val = newCouponType === 'free_shipping' ? 0 : Math.max(1, Number(newCouponVal) || 10);
+    const val =
+      newCouponType === 'free_shipping' || newCouponType === 'bogo'
+        ? 0
+        : Math.max(1, Number(newCouponVal) || 10);
     const created: MarketCouponConfig = {
       id: `wcpn_${Date.now()}`,
       code: cleanCode,
       type: newCouponType,
       value: val,
       minOrder: Math.max(0, Number(newCouponMin) || 0),
+      buyQty: newCouponType === 'bogo' ? Math.max(1, parseInt(newCouponBuyQty, 10) || 2) : undefined,
+      freeQty: newCouponType === 'bogo' ? Math.max(1, parseInt(newCouponFreeQty, 10) || 1) : undefined,
+      currencyCode: activeCurr.code,
+      endsAt: newCouponEndsAt ? new Date(newCouponEndsAt).toISOString() : undefined,
+      showInBanner: newCouponShowInBanner,
       active: true,
       visible: true,
       description: newCouponDesc.trim() || undefined,
@@ -154,6 +168,7 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
     onSaveCloud(next);
     setNewCouponCode('');
     setNewCouponDesc('');
+    setNewCouponEndsAt('');
   };
 
   const renderToggleChip = (checked: boolean, onToggle: () => void, onText = 'ظاهر', offText = 'مخفي') => (
@@ -706,12 +721,12 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
         </button>
       </div>
 
-      {/* 1. Store Promo Banner */}
+      {/* 1. Store Promo Banner Studio (Animated Marquee, Slide, Vertical, Direction, Speed, Multi-Messages & Live Preview) */}
       <div className="p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3.5">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h5 className="font-black flex items-center gap-2">
             <Megaphone className="w-4 h-4 text-[#EA580C]" />
-            <span>بانر العرض الترويجي داخل متجرك</span>
+            <span>استوديو البانر الإعلاني المتحرك والثابت لمتجرك</span>
           </h5>
           {renderToggleChip(
             config.promoBanner.enabled,
@@ -723,6 +738,102 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
             'البانر ظاهر',
             'البانر مخفي'
           )}
+        </div>
+
+        {/* Live Banner Preview */}
+        {config.promoBanner.text?.trim() && (
+          <div className="space-y-1">
+            <span className="text-[10px] font-black text-[#475569] dark:text-[#94A3B8]">
+              معاينة حية لشكل وحركة البانر كما يراه عميلك الآن:
+            </span>
+            <StorePromoBannerDisplay
+              banner={{ ...config.promoBanner, enabled: true }}
+              currencySymbol={activeCurr.symbol}
+              coupons={config.coupons}
+              compactPreview={true}
+            />
+          </div>
+        )}
+
+        {/* Motion, Orientation, Direction & Speed Controls */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 p-3 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E]">
+          <div>
+            <label className="block font-bold mb-1">حركة البانر</label>
+            <select
+              value={config.promoBanner.motionMode || 'marquee'}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  promoBanner: { ...config.promoBanner, motionMode: e.target.value as any },
+                })
+              }
+              className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+            >
+              <option value="marquee">شريط متحرك مستمر 🎞️</option>
+              <option value="slide">شرائح منزلقة متتابعة ↔️</option>
+              <option value="vertical_ticker">تبديل طولي متتابع ↕️</option>
+              <option value="static">ثابت (يلف النص بالكامل) 📌</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-bold mb-1">شكل العرض</label>
+            <select
+              value={config.promoBanner.orientation || 'horizontal'}
+              onChange={(e) => {
+                const orient = e.target.value as 'horizontal' | 'vertical';
+                onChange({
+                  ...config,
+                  promoBanner: {
+                    ...config.promoBanner,
+                    orientation: orient,
+                    direction: orient === 'vertical' ? 'up' : 'rtl',
+                  },
+                });
+              }}
+              className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+            >
+              <option value="horizontal">عرضي (شريط أفقي)</option>
+              <option value="vertical">طولي (بطاقة رأسية)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-bold mb-1">اتجاه الدخول / الحركة</label>
+            <select
+              value={config.promoBanner.direction || 'rtl'}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  promoBanner: { ...config.promoBanner, direction: e.target.value as any },
+                })
+              }
+              className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+            >
+              <option value="rtl">من اليمين لليسار ←</option>
+              <option value="ltr">من الشمال لليمين →</option>
+              <option value="up">من أسفل لأعلى ↑</option>
+              <option value="down">من أعلى لأسفل ↓</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-bold mb-1">سرعة الحركة</label>
+            <select
+              value={config.promoBanner.speed || 'normal'}
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  promoBanner: { ...config.promoBanner, speed: e.target.value as any },
+                })
+              }
+              className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+            >
+              <option value="slow">هادئة / بطيئة</option>
+              <option value="normal">متوسطة (موصى به)</option>
+              <option value="fast">سريعة</option>
+            </select>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -790,8 +901,8 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
 
           <div>
             <label className="block font-bold mb-1">لون البانر</label>
-            <div className="flex items-center gap-2 pt-1">
-              {['#C2410C', '#0C1427', '#065F46', '#7C2D12'].map((hex) => (
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
+              {['#C2410C', '#0C1427', '#065F46', '#7C2D12', '#BE123C', '#1E3A8A'].map((hex) => (
                 <button
                   key={hex}
                   type="button"
@@ -825,6 +936,99 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
               }
               className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
             />
+          </div>
+
+          {/* Multiple Extra Rotating Banner Messages */}
+          <div className="p-3 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="font-black text-[11px]">رسائل عروض إضافية في نفس البانر (تظهر بالتتابع):</label>
+              <label className="inline-flex items-center gap-1.5 text-[11px] font-black cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.promoBanner.showActiveCouponsInBanner !== false}
+                  onChange={(e) =>
+                    onChange({
+                      ...config,
+                      promoBanner: {
+                        ...config.promoBanner,
+                        showActiveCouponsInBanner: e.target.checked,
+                      },
+                    })
+                  }
+                  className="w-3.5 h-3.5 accent-[#EA580C]"
+                />
+                <span>إظهار الأكواد المفعلة داخل البانر (نسخ بضغطة)</span>
+              </label>
+            </div>
+            {(config.promoBanner.extraMessages || []).length > 0 && (
+              <div className="space-y-1.5">
+                {(config.promoBanner.extraMessages || []).map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E]"
+                  >
+                    <span className="font-bold text-[11px] truncate">{msg}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onChange({
+                          ...config,
+                          promoBanner: {
+                            ...config.promoBanner,
+                            extraMessages: (config.promoBanner.extraMessages || []).filter((_, i) => i !== idx),
+                          },
+                        })
+                      }
+                      className="text-rose-600 cursor-pointer shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newExtraBannerMsg}
+                onChange={(e) => setNewExtraBannerMsg(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const clean = newExtraBannerMsg.trim();
+                    if (!clean) return;
+                    onChange({
+                      ...config,
+                      promoBanner: {
+                        ...config.promoBanner,
+                        extraMessages: [...(config.promoBanner.extraMessages || []), clean],
+                      },
+                    });
+                    setNewExtraBannerMsg('');
+                  }
+                }}
+                placeholder="أضف جملة عرض إضافية (مثال: شحن مجاني للطلبات فوق 1000 ج.م)..."
+                className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const clean = newExtraBannerMsg.trim();
+                  if (!clean) return;
+                  onChange({
+                    ...config,
+                    promoBanner: {
+                      ...config.promoBanner,
+                      extraMessages: [...(config.promoBanner.extraMessages || []), clean],
+                    },
+                  });
+                  setNewExtraBannerMsg('');
+                }}
+                className="px-3 py-1.5 rounded-lg bg-[#EA580C] text-white font-black text-[11px] cursor-pointer shrink-0"
+              >
+                + إضافة سطر
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -996,13 +1200,18 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
         </div>
       </div>
 
-      {/* 2. Store Coupons */}
+      {/* 2. Multi-Coupon & Multi-Offer Studio (Unlimited Codes with Full Options & Store Currency) */}
       <div className="p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3.5">
-        <div className="flex items-center justify-between gap-2">
-          <h5 className="font-black flex items-center gap-2">
-            <Tag className="w-4 h-4 text-[#EA580C]" />
-            <span>أكواد خصم متجرك الخاصة</span>
-          </h5>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h5 className="font-black flex items-center gap-2">
+              <Tag className="w-4 h-4 text-[#EA580C]" />
+              <span>أكواد وعروض متجرك المتعددة ({config.coupons.length} كود · عملة المتجر: {activeCurr.symbol})</span>
+            </h5>
+            <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
+              أضف أكثر من كود بوظائف مختلفة (خصم % · مبلغ ثابت بعملتك · شحن مجاني · اشتري X+Y مجاناً) وحدد شروط كل كود.
+            </p>
+          </div>
           {renderToggleChip(
             config.couponsEnabled,
             () => onChange({ ...config, couponsEnabled: !config.couponsEnabled }),
@@ -1011,57 +1220,128 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
           )}
         </div>
 
-        <form onSubmit={handleAddCoupon} className="grid grid-cols-1 sm:grid-cols-5 gap-2 items-end">
-          <div>
-            <label className="block font-bold mb-1">الكود *</label>
-            <input
-              type="text"
-              value={newCouponCode}
-              onChange={(e) => setNewCouponCode(e.target.value.toUpperCase())}
-              placeholder="ART10"
-              className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black uppercase"
-            />
+        <form onSubmit={handleAddCoupon} className="p-3 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] space-y-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            <div>
+              <label className="block font-bold mb-1">كود الخصم *</label>
+              <input
+                type="text"
+                value={newCouponCode}
+                onChange={(e) => setNewCouponCode(e.target.value.toUpperCase())}
+                placeholder="مثال: SHAMS15"
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black uppercase"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">نوع العرض / الكود</label>
+              <select
+                value={newCouponType}
+                onChange={(e) => setNewCouponType(e.target.value as MarketCouponType)}
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+              >
+                <option value="percent">خصم نسبة مئوية (%)</option>
+                <option value="fixed">مبلغ ثابت ({activeCurr.symbol})</option>
+                <option value="free_shipping">شحن مجاني 🚚</option>
+                <option value="bogo">اشتري X وخد Y مجاناً 🎁</option>
+              </select>
+            </div>
+
+            {newCouponType === 'bogo' ? (
+              <div className="grid grid-cols-2 gap-1.5">
+                <div>
+                  <label className="block font-bold mb-1">اشتري (عدد)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={newCouponBuyQty}
+                    onChange={(e) => setNewCouponBuyQty(e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold mb-1">مجاناً (عدد)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={newCouponFreeQty}
+                    onChange={(e) => setNewCouponFreeQty(e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block font-bold mb-1">
+                  القيمة ({newCouponType === 'percent' ? '%' : newCouponType === 'fixed' ? activeCurr.symbol : 'شحن مجاني'})
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  disabled={newCouponType === 'free_shipping'}
+                  value={newCouponType === 'free_shipping' ? '0' : newCouponVal}
+                  onChange={(e) => setNewCouponVal(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black disabled:opacity-50"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block font-bold mb-1">حد أدنى للطلب ({activeCurr.symbol})</label>
+              <input
+                type="number"
+                min={0}
+                value={newCouponMin}
+                onChange={(e) => setNewCouponMin(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-bold"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block font-bold mb-1">نوع الخصم</label>
-            <select
-              value={newCouponType}
-              onChange={(e) => setNewCouponType(e.target.value as MarketCouponType)}
-              className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
-            >
-              <option value="percent">نسبة %</option>
-              <option value="fixed">مبلغ بالجنيه (ج.م)</option>
-              <option value="free_shipping">شحن مجاني 🚚</option>
-            </select>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+            <div>
+              <label className="block font-bold mb-1">وصف وظيفة الكود (اختياري)</label>
+              <input
+                type="text"
+                value={newCouponDesc}
+                onChange={(e) => setNewCouponDesc(e.target.value)}
+                placeholder="مثال: خصم لعملاء الافتتاح أو للطلبات الجملة"
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-bold"
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">تاريخ انتهاء الكود (اتركه فارغاً لمفتوح)</label>
+              <input
+                type="datetime-local"
+                value={newCouponEndsAt}
+                onChange={(e) => setNewCouponEndsAt(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] font-mono text-[11px]"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <label className="inline-flex items-center gap-1.5 text-[11px] font-black cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newCouponShowInBanner}
+                  onChange={(e) => setNewCouponShowInBanner(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-[#EA580C]"
+                />
+                <span>إظهار بالبانر</span>
+              </label>
+
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-black flex items-center justify-center gap-1 cursor-pointer h-[38px] shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>إضافة كود</span>
+              </button>
+            </div>
           </div>
-          <div>
-            <label className="block font-bold mb-1">القيمة</label>
-            <input
-              type="number"
-              min={0}
-              disabled={newCouponType === 'free_shipping'}
-              value={newCouponType === 'free_shipping' ? '0' : newCouponVal}
-              onChange={(e) => setNewCouponVal(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-black disabled:opacity-50"
-            />
-          </div>
-          <div>
-            <label className="block font-bold mb-1">حد أدنى للطلب (ج.م)</label>
-            <input
-              type="number"
-              min={0}
-              value={newCouponMin}
-              onChange={(e) => setNewCouponMin(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] font-mono font-bold"
-            />
-          </div>
-          <button
-            type="submit"
-            className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white font-black flex items-center justify-center gap-1 cursor-pointer h-[38px]"
-          >
-            <Plus className="w-4 h-4" />
-            <span>إضافة كود</span>
-          </button>
         </form>
 
         {config.coupons.length === 0 ? (
@@ -1075,25 +1355,58 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
                 key={cpn.id}
                 className="p-3 rounded-xl bg-[#F2ECE1] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2"
               >
-                <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="px-2.5 py-1 rounded-lg bg-[#0C1427] text-[#FBBF24] font-mono font-black">
                     {cpn.code}
                   </span>
                   <span className="font-black text-[#C2410C] dark:text-[#FBBF24]">
                     {cpn.type === 'free_shipping'
-                      ? 'شحن مجاني'
+                      ? 'شحن مجاني 🚚'
+                      : cpn.type === 'bogo'
+                      ? `اشتري ${cpn.buyQty || 2} + ${cpn.freeQty || 1} مجاناً 🎁`
                       : cpn.type === 'percent'
                       ? `خصم ${cpn.value}%`
-                      : `خصم ${cpn.value} ج.م`}
+                      : `خصم ${cpn.value} ${activeCurr.symbol}`}
                   </span>
                   {cpn.minOrder && cpn.minOrder > 0 ? (
                     <span className="text-[11px] text-[#475569] dark:text-[#94A3B8] font-bold">
-                      (حد أدنى {cpn.minOrder} ج.م)
+                      (حد أدنى {cpn.minOrder} {activeCurr.symbol})
                     </span>
                   ) : null}
+                  {cpn.description && (
+                    <span className="text-[11px] text-[#334155] dark:text-[#CBD5E1] font-bold">
+                      · {cpn.description}
+                    </span>
+                  )}
+                  {cpn.endsAt && (
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-300 font-bold">
+                      حتى {new Date(cpn.endsAt).toLocaleDateString('ar-EG')}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = {
+                        ...config,
+                        coupons: config.coupons.map((c) =>
+                          c.id === cpn.id ? { ...c, showInBanner: c.showInBanner === false } : c
+                        ),
+                      };
+                      onChange(next);
+                      onSaveCloud(next);
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-black border cursor-pointer ${
+                      cpn.showInBanner !== false
+                        ? 'bg-emerald-600/15 text-emerald-800 dark:text-emerald-300 border-emerald-500/40'
+                        : 'bg-white dark:bg-[#060B18] text-[#64748B] border-[#D4CCBC] dark:border-[#22355E]'
+                    }`}
+                    title="إظهار أو إخفاء الكود داخل البانر"
+                  >
+                    {cpn.showInBanner !== false ? 'بالبانر ✓' : 'مخفي بالبانر'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => navigator.clipboard?.writeText(cpn.code)}

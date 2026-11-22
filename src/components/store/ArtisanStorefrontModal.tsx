@@ -45,6 +45,9 @@ import {
   Radio,
   Plus,
   Calculator,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import {
   addToCart,
@@ -843,22 +846,69 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
     }
   };
 
-  // Filtered products & orders (only products exported to Store OR legacy store items)
+  // Drag-and-Drop product reordering state (synced to sortOrder so public storefront reflects exact order)
+  const [draggedProdId, setDraggedProdId] = useState<string | null>(null);
+  const [dragOverProdId, setDragOverProdId] = useState<string | null>(null);
+
+  // Filtered products (sorted by artisan's custom sortOrder)
   const filteredProducts = useMemo(() => {
     const q = prodSearch.toLowerCase().trim();
-    return products.filter((p) => {
-      if (!p.inStore && !p.inMarket) return false;
-      const visible = p.inStore !== false && p.isPublishedInStore !== false;
-      if (prodVisibilityFilter === 'visible' && !visible) return false;
-      if (prodVisibilityFilter === 'hidden' && visible) return false;
-      if (!q) return true;
-      return (
-        p.productName.toLowerCase().includes(q) ||
-        (p.category || '').toLowerCase().includes(q) ||
-        (p.storeDescription || '').toLowerCase().includes(q)
-      );
-    });
+    return [...products]
+      .sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999))
+      .filter((p) => {
+        if (!p.inStore && !p.inMarket) return false;
+        const visible = p.inStore !== false && p.isPublishedInStore !== false;
+        if (prodVisibilityFilter === 'visible' && !visible) return false;
+        if (prodVisibilityFilter === 'hidden' && visible) return false;
+        if (!q) return true;
+        return (
+          p.productName.toLowerCase().includes(q) ||
+          (p.category || '').toLowerCase().includes(q) ||
+          (p.storeDescription || '').toLowerCase().includes(q)
+        );
+      });
   }, [products, prodSearch, prodVisibilityFilter]);
+
+  const persistProductOrder = async (reorderedFiltered: SavedProductRecord[]) => {
+    const rankMap = new Map<string, number>();
+    reorderedFiltered.forEach((item, idx) => rankMap.set(item.id, idx + 1));
+
+    const updatedAll = products.map((item) =>
+      rankMap.has(item.id)
+        ? { ...item, sortOrder: rankMap.get(item.id)!, updatedAt: Date.now() }
+        : item
+    );
+    setProducts(updatedAll);
+    playTapSound();
+    showNotice('✓ تم تحديث ترتيب المنتجات في متجرك بنجاح!');
+
+    try {
+      const changed = updatedAll.filter((item) => rankMap.has(item.id));
+      await Promise.all(changed.map((item) => tenantStorage.mutateProduct(item)));
+      window.dispatchEvent(new CustomEvent('alshams_products_changed'));
+    } catch {}
+  };
+
+  const handleReorderProducts = (sourceId: string, targetId: string) => {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    const list = [...filteredProducts];
+    const fromIdx = list.findIndex((p) => p.id === sourceId);
+    const toIdx = list.findIndex((p) => p.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    persistProductOrder(list);
+  };
+
+  const handleMoveProductStep = (productId: string, delta: -1 | 1) => {
+    const list = [...filteredProducts];
+    const idx = list.findIndex((p) => p.id === productId);
+    const targetIdx = idx + delta;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= list.length) return;
+    const [moved] = list.splice(idx, 1);
+    list.splice(targetIdx, 0, moved);
+    persistProductOrder(list);
+  };
 
   const orderSourceCounts = useMemo(() => {
     const counts = { all: orders.length, direct_store: 0, marketplace: 0, manual: 0 };
@@ -975,65 +1025,42 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             : 'bg-[#F2ECE1] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] w-full max-w-6xl max-h-[94vh] rounded-3xl border-2 border-[#D4CCBC] dark:border-[#EA580C]/45 shadow-2xl flex flex-col overflow-hidden text-right'
         }
       >
-        {/* Clean Compact Page Top Bar */}
+        {/* Ultra-Slim Compact Top Bar: Store Name + Sleek Inline "معاينة" Icon Button */}
         {!isOrdersOnlyPage && (
-          <div className="px-4 sm:px-5 py-3 bg-[#F7F3EA] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-[#E9E2D4] to-[#F5DFC6] dark:from-[#EA580C]/20 dark:to-[#F59E0B]/10 border border-[#EA580C]/35 text-[#C2410C] dark:text-amber-300 flex items-center justify-center shrink-0">
+          <div className="px-4 sm:px-5 py-2.5 bg-[#F7F3EA] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#E9E2D4] to-[#F5DFC6] dark:from-[#EA580C]/20 dark:to-[#F59E0B]/10 border border-[#EA580C]/35 text-[#C2410C] dark:text-amber-300 flex items-center justify-center shrink-0">
                 <Store className="w-4 h-4" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex flex-wrap items-center gap-x-2.5 gap-y-1">
                 <h3 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-amber-300 truncate">
                   متجر {profile.brandName || profile.artistName}
                 </h3>
-                <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
-                  متصل ومفعل · {products.length} منتج
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsOwnerPreviewOpen(true)}
+                  title="معاينة المتجر العام كما يراه العميل"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#0C1427] dark:bg-[#132040] hover:bg-[#EA580C] text-[#FBBF24] hover:text-white border border-[#22355E] text-[11px] font-black transition cursor-pointer shrink-0 active:scale-95"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>معاينة</span>
+                </button>
+                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 shrink-0">
+                  · مفعل ({products.length} منتج)
+                </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {!isInlinePage && (
               <button
                 type="button"
-                onClick={() => setIsOwnerPreviewOpen(true)}
-                className="px-3.5 py-2 rounded-xl bg-[#0C1427] dark:bg-[#132040] hover:bg-[#EA580C] text-[#FBBF24] hover:text-white border border-[#22355E] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
+                onClick={onClose}
+                aria-label="إغلاق"
+                className="w-8 h-8 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] flex items-center justify-center transition cursor-pointer shrink-0"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>معاينة المتجر العام</span>
+                <X className="w-4 h-4" />
               </button>
-
-              {onOpenOrdersPage && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    playTapSound();
-                    onOpenOrdersPage();
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <Package className="w-3.5 h-3.5 text-[#EA580C] dark:text-amber-400" />
-                  <span>أوردراتي</span>
-                  {pendingOrdersCount > 0 ? (
-                    <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-mono text-[10px] font-black">
-                      {pendingOrdersCount}
-                    </span>
-                  ) : (
-                    <span className="font-mono text-[11px] opacity-70">({orders.length})</span>
-                  )}
-                </button>
-              )}
-
-              {!isInlinePage && (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  aria-label="إغلاق"
-                  className="w-9 h-9 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] flex items-center justify-center transition cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
-            </div>
+            )}
           </div>
         )}
 
@@ -1321,8 +1348,15 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 </button>
               </div>
             ) : (
+              <div className="space-y-2.5">
+                {filteredProducts.length > 1 && (
+                  <div className="px-3 py-1.5 rounded-xl bg-[#E9E2D4]/60 dark:bg-[#132040]/60 border border-[#D4CCBC] dark:border-[#22355E] text-[11px] font-bold text-[#475569] dark:text-[#CBD5E1] flex items-center gap-1.5">
+                    <GripVertical className="w-3.5 h-3.5 text-[#EA580C] shrink-0" />
+                    <span>اسحب أي منتج وأفلته لترتيب ظهوره في متجرك، أو استخدم أسهم التقديم والتأخير على الموبايل.</span>
+                  </div>
+                )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                {filteredProducts.map((p) => {
+                {filteredProducts.map((p, idx) => {
                   const isVisible = p.inStore !== false && p.isPublishedInStore !== false;
                   const pricing = resolveProductOfferPricing(
                     p,
@@ -1340,12 +1374,46 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                   );
                   const isRejectedInMarket = Boolean(p.inMarket && p.marketStatus === 'rejected');
                   const storeStatus = getStoreProductStatus(p);
+                  const isDragging = draggedProdId === p.id;
+                  const isDragOver = dragOverProdId === p.id && draggedProdId !== p.id;
 
                   return (
                     <div
                       key={p.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedProdId(p.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                        try {
+                          e.dataTransfer.setData('text/plain', p.id);
+                        } catch {}
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (dragOverProdId !== p.id) setDragOverProdId(p.id);
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverProdId === p.id) setDragOverProdId(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const srcId = draggedProdId || e.dataTransfer.getData('text/plain');
+                        setDraggedProdId(null);
+                        setDragOverProdId(null);
+                        if (srcId && srcId !== p.id) {
+                          handleReorderProducts(srcId, p.id);
+                        }
+                      }}
+                      onDragEnd={() => {
+                        setDraggedProdId(null);
+                        setDragOverProdId(null);
+                      }}
                       className={`rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border p-3 flex flex-col justify-between transition shadow-sm ${storeStatus.borderAccentClass} ${
-                        isChecked
+                        isDragging
+                          ? 'opacity-60 scale-[0.98] ring-2 ring-[#EA580C]'
+                          : isDragOver
+                          ? 'border-[#EA580C] ring-2 ring-[#EA580C]/60 bg-[#F5DFC6]/35 dark:bg-[#132040]'
+                          : isChecked
                           ? 'border-[#EA580C] ring-2 ring-[#EA580C]/40'
                           : isVisible
                           ? 'border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
@@ -1353,6 +1421,41 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                       }`}
                     >
                       <div>
+                        {/* Drag & Reorder Mini Header */}
+                        <div className="flex items-center justify-between gap-1.5 mb-2">
+                          <div className="inline-flex items-center gap-1 text-[10px] font-black text-[#475569] dark:text-[#94A3B8] cursor-grab active:cursor-grabbing select-none">
+                            <GripVertical className="w-3.5 h-3.5 text-[#EA580C]" />
+                            <span className="font-mono">#{idx + 1}</span>
+                            {pricing.isBestSeller && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-400/25 text-amber-800 dark:text-amber-300">
+                                ⭐ الأكثر طلباً
+                              </span>
+                            )}
+                          </div>
+                          {filteredProducts.length > 1 && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMoveProductStep(p.id, -1)}
+                                title="تقديم للأمام"
+                                className="w-6 h-6 rounded-lg bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center disabled:opacity-35 cursor-pointer"
+                              >
+                                <ArrowUp className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === filteredProducts.length - 1}
+                                onClick={() => handleMoveProductStep(p.id, 1)}
+                                title="تأخير للخلف"
+                                className="w-6 h-6 rounded-lg bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center disabled:opacity-35 cursor-pointer"
+                              >
+                                <ArrowDown className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
                         <div className="relative w-full h-36 rounded-xl overflow-hidden bg-[#E9E2D4] dark:bg-[#132040] mb-2.5 border border-[#D4CCBC] dark:border-[#22355E]">
                           {p.imageUrl ? (
                             <img src={p.imageUrl} alt={p.productName} className="w-full h-full object-cover" loading="lazy" />
@@ -1543,6 +1646,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                     </div>
                   );
                 })}
+              </div>
               </div>
             )}
 
@@ -2054,6 +2158,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
           <ArtisanProductEditorModal
             product={editingProduct}
             storeCurrency={storeConfig.storeCurrency}
+            availableCouponCodes={(storeConfig.coupons || []).filter((c) => c.active).map((c) => c.code)}
             onClose={() => setEditingProduct(null)}
             onSave={handleSaveEditedProduct}
           />

@@ -257,6 +257,27 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
     if (appliedCoupon.type === 'fixed') {
       return Math.min(eligibleSubtotal, Math.max(0, Math.round(appliedCoupon.value)));
     }
+    if (appliedCoupon.type === 'bogo') {
+      const buyQ = Math.max(1, Number(appliedCoupon.buyQty) || 2);
+      const freeQ = Math.max(1, Number(appliedCoupon.freeQty) || 1);
+      const groupSize = buyQ + freeQ;
+      const scopedItems = appliedWorkshopScope
+        ? cartItems.filter((i) => (i.workshopId || 'central') === appliedWorkshopScope)
+        : cartItems;
+      const unitPrices: number[] = [];
+      scopedItems.forEach((i: any) => {
+        const p = Number(i?.price ?? 0);
+        const q = Math.max(1, Number(i?.quantity) || 1);
+        if (!isNaN(p) && p > 0) {
+          for (let k = 0; k < q; k += 1) unitPrices.push(p);
+        }
+      });
+      unitPrices.sort((a, b) => a - b);
+      const freeCount = Math.floor(unitPrices.length / groupSize) * freeQ;
+      if (freeCount <= 0) return 0;
+      const bogoDiscount = unitPrices.slice(0, freeCount).reduce((sum, p) => sum + p, 0);
+      return Math.min(eligibleSubtotal, Math.round(bogoDiscount));
+    }
     return 0;
   }, [appliedCoupon, appliedWorkshopScope, cartItems, subtotal]);
 
@@ -356,6 +377,13 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
     );
 
     if (centralMatched) {
+      if (centralMatched.endsAt && new Date(centralMatched.endsAt).getTime() < Date.now()) {
+        setAppliedCoupon(null);
+        setAppliedWorkshopScope(null);
+        setCouponError('انتهت صلاحية هذا الكود.');
+        playAlertSound();
+        return;
+      }
       if (centralMatched.minOrder && subtotal < centralMatched.minOrder) {
         setAppliedCoupon(null);
         setAppliedWorkshopScope(null);
@@ -364,6 +392,17 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
         );
         playAlertSound();
         return;
+      }
+      if (centralMatched.type === 'bogo') {
+        const need = Math.max(1, Number(centralMatched.buyQty) || 2) + Math.max(1, Number(centralMatched.freeQty) || 1);
+        const totalQty = cartItems.reduce((acc, i) => acc + Math.max(1, Number(i.quantity) || 1), 0);
+        if (totalQty < need) {
+          setAppliedCoupon(null);
+          setAppliedWorkshopScope(null);
+          setCouponError(`عرض اشتري وخذ مجاناً يتطلب وجود ${need} قطع على الأقل بالسلة.`);
+          playAlertSound();
+          return;
+        }
       }
       setAppliedCoupon(centralMatched);
       setAppliedWorkshopScope(null);
@@ -396,9 +435,19 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
       return;
     }
 
-    const workshopSub = cartItems
-      .filter((i) => (i.workshopId || 'central') === matchedWorkshopId)
-      .reduce((acc, i: any) => acc + (Number(i?.price) || 0) * Math.max(1, Number(i?.quantity) || 1), 0);
+    if (workshopMatched.endsAt && new Date(workshopMatched.endsAt).getTime() < Date.now()) {
+      setAppliedCoupon(null);
+      setAppliedWorkshopScope(null);
+      setCouponError('انتهت صلاحية كوبون الورشة.');
+      playAlertSound();
+      return;
+    }
+
+    const workshopScopedItems = cartItems.filter((i) => (i.workshopId || 'central') === matchedWorkshopId);
+    const workshopSub = workshopScopedItems.reduce(
+      (acc, i: any) => acc + (Number(i?.price) || 0) * Math.max(1, Number(i?.quantity) || 1),
+      0
+    );
 
     if (workshopMatched.minOrder && workshopSub < workshopMatched.minOrder) {
       setAppliedCoupon(null);
@@ -408,6 +457,18 @@ export const MarketplaceCartModal: React.FC<MarketplaceCartModalProps> = ({
       );
       playAlertSound();
       return;
+    }
+
+    if (workshopMatched.type === 'bogo') {
+      const need = Math.max(1, Number(workshopMatched.buyQty) || 2) + Math.max(1, Number(workshopMatched.freeQty) || 1);
+      const totalQty = workshopScopedItems.reduce((acc, i) => acc + Math.max(1, Number(i.quantity) || 1), 0);
+      if (totalQty < need) {
+        setAppliedCoupon(null);
+        setAppliedWorkshopScope(null);
+        setCouponError(`عرض اشتري وخذ مجاناً يتطلب ${need} قطع على الأقل من منتجات هذه الورشة.`);
+        playAlertSound();
+        return;
+      }
     }
 
     setAppliedCoupon(workshopMatched);
