@@ -70,10 +70,11 @@ import { pendingCount, PRODUCTS_PULLED_EVENT } from '../../db/productSyncQueue';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
 import { PublicStorefrontView } from '../store/PublicStorefrontView';
 import { getWorkshopCleanSlug, getWorkshopStoreUrl } from '../../utils/slugify';
-import { DirectCatalogProductModal } from './DirectCatalogProductModal';
+import { DirectCatalogProductPage } from './DirectCatalogProductModal';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
 import {
   getProductCatalogStatus,
+  getStoreProductStatus,
   CatalogStatusColor,
 } from '../../lib/catalogStatus';
 
@@ -1248,6 +1249,27 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     setTimeout(() => setNotice(''), 4500);
   };
 
+  if (isDirectAddOpen) {
+    return (
+      <DirectCatalogProductPage
+        isOpen={true}
+        onClose={() => setIsDirectAddOpen(false)}
+        profile={profile}
+        defaultPublishToStore={activeTab === 'store'}
+        onSaved={(newRecord) => {
+          setAllProducts((prev) => [newRecord, ...prev.filter((x) => x.id !== newRecord.id)]);
+          playSuccessSound();
+          setNotice(
+            newRecord.inStore
+              ? `تم إضافة "${newRecord.productName}" وعرضه بمتجرك فوراً!`
+              : `تم حفظ "${newRecord.productName}" في الكتالوج بنجاح!`
+          );
+          setTimeout(() => setNotice(''), 4500);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* 0. Tab Switcher between Reference Catalog and My Store */}
@@ -1716,60 +1738,6 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
             <span>تصدير إلى متجري 🏪 ({selectedIds.size > 0 ? selectedIds.size : filteredProducts.length})</span>
           </button>
         </div>
-      </div>
-
-      {/* 3-Color Catalog Status Filter Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {[
-          {
-            id: 'all' as const,
-            label: 'كل المنتجات',
-            count: catalogVisibleProducts.length,
-            dot: 'bg-stone-500',
-            activeCls: 'bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 border-stone-900',
-          },
-          {
-            id: 'red' as const,
-            label: 'بالكتالوج فقط',
-            count: statusColorCounts.red,
-            dot: 'bg-rose-500',
-            activeCls: 'bg-rose-600 text-white border-rose-600',
-          },
-          {
-            id: 'yellow' as const,
-            label: 'بالمتجر بدون تكلفة',
-            count: statusColorCounts.yellow,
-            dot: 'bg-amber-400',
-            activeCls: 'bg-amber-500 text-stone-950 border-amber-500',
-          },
-          {
-            id: 'green' as const,
-            label: 'مكتمل (مسعّر وبالمتجر)',
-            count: statusColorCounts.green,
-            dot: 'bg-emerald-500',
-            activeCls: 'bg-emerald-600 text-white border-emerald-600',
-          },
-        ].map((chip) => {
-          const active = statusColorFilter === chip.id;
-          return (
-            <button
-              key={chip.id}
-              type="button"
-              onClick={() => setStatusColorFilter(chip.id)}
-              className={`px-3 py-2 rounded-2xl border text-xs font-black flex items-center justify-between gap-2 transition cursor-pointer ${
-                active
-                  ? chip.activeCls
-                  : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 hover:border-amber-400'
-              }`}
-            >
-              <span className="flex items-center gap-2 truncate">
-                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${active ? 'bg-current opacity-85' : chip.dot}`} />
-                <span className="truncate">{chip.label}</span>
-              </span>
-              <span className="font-mono text-[11px] font-black">{chip.count}</span>
-            </button>
-          );
-        })}
       </div>
 
       {/* 3. Catalog Content: Responsive Table on Desktop, Cards on Mobile */}
@@ -2370,6 +2338,63 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
           </div>
         </>
       )}
+
+      {/* تذييل الكتالوج: دليل الألوان الـ 3 والتصفية السريعة */}
+      <footer className="mt-4 px-4 py-3 rounded-2xl bg-stone-50 dark:bg-stone-900/70 border border-stone-200 dark:border-stone-800 flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-stone-500 dark:text-stone-400 font-black">دليل ألوان الكتالوج:</span>
+          <button
+            type="button"
+            onClick={() => setStatusColorFilter('all')}
+            className={`px-2.5 py-1 rounded-xl border transition cursor-pointer ${
+              statusColorFilter === 'all'
+                ? 'bg-stone-900 text-white border-stone-900 dark:bg-amber-500 dark:text-stone-950 dark:border-amber-500'
+                : 'bg-white dark:bg-stone-950 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+            }`}
+          >
+            الكل ({allProducts.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusColorFilter(statusColorFilter === 'red' ? 'all' : 'red')}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border transition cursor-pointer ${
+              statusColorFilter === 'red'
+                ? 'bg-red-600 text-white border-red-600'
+                : 'bg-red-50/80 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800/50'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-red-500" />
+            <span>بالكتالوج فقط ({allProducts.filter((p) => getProductCatalogStatus(p).color === 'red').length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusColorFilter(statusColorFilter === 'yellow' ? 'all' : 'yellow')}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border transition cursor-pointer ${
+              statusColorFilter === 'yellow'
+                ? 'bg-amber-500 text-stone-950 border-amber-500'
+                : 'bg-amber-50/80 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/50'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400" />
+            <span>بمتجري بدون حاسبة ({allProducts.filter((p) => getProductCatalogStatus(p).color === 'yellow').length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusColorFilter(statusColorFilter === 'green' ? 'all' : 'green')}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border transition cursor-pointer ${
+              statusColorFilter === 'green'
+                ? 'bg-emerald-600 text-white border-emerald-600'
+                : 'bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/50'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span>مسعّر وبمتجري ({allProducts.filter((p) => getProductCatalogStatus(p).color === 'green').length})</span>
+          </button>
+        </div>
+        <span className="text-[10px] text-stone-400 dark:text-stone-500">
+          اضغط على أي لون لتصفية القائمة
+        </span>
+      </footer>
     </>
   )}
 
@@ -2586,6 +2611,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                 const isMarketSelected = selectedStoreMarketIds.has(p.id);
                 const isDragging = draggedProductId === p.id;
                 const isDragOver = dragOverProductId === p.id && draggedProductId !== p.id;
+                const storeStatus = getStoreProductStatus(p);
 
                 return (
                   <div
@@ -2618,7 +2644,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                       setDraggedProductId(null);
                       setDragOverProductId(null);
                     }}
-                    className={`bg-white dark:bg-stone-900 rounded-3xl border shadow-sm overflow-hidden flex flex-col justify-between transition artisan-card-hover ${
+                    className={`bg-white dark:bg-stone-900 rounded-3xl border shadow-sm overflow-hidden flex flex-col justify-between transition artisan-card-hover ${storeStatus.borderAccentClass} ${
                       isDragOver
                         ? 'border-amber-500 ring-2 ring-amber-500 scale-[1.01]'
                         : isDragging
@@ -2651,41 +2677,37 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                           <span>تحديد للسوق</span>
                         </button>
 
-                        {marketSt === 'approved' ? (
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-400/60 text-[10px] font-black shadow-[0_0_12px_rgba(16,185,129,0.45)]"
-                            title="هذا المنتج معتمد ومنشور في سوق الشمساوية"
-                          >
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
-                            <span>بسوق الشمساوية ✓</span>
-                          </span>
-                        ) : marketSt === 'pending_approval' ? (
+                        {storeStatus.color === 'red' ? (
                           <button
                             type="button"
-                            onClick={() => triggerPendingAdminBanner(p.productName)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse shadow-[0_0_12px_rgba(225,29,72,0.55)] cursor-pointer"
-                            title="اضغط لمعرفة حالة المراجعة"
+                            onClick={() => handleTogglePublishInStore(p)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/40 text-[10px] font-black cursor-pointer"
+                            title="الظهور مغلق مؤقتاً — اضغط لإعادة الظهور"
                           >
-                            <span className="w-2 h-2 rounded-full bg-white" />
-                            <span>بانتظار الأدمن</span>
+                            <span className="w-2 h-2 rounded-full bg-rose-500" />
+                            <span>مخفي مؤقتاً</span>
                           </button>
-                        ) : marketSt === 'rejected' ? (
+                        ) : storeStatus.color === 'green' ? (
                           <button
                             type="button"
-                            onClick={() => handleExportProductToMarket(p)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-black cursor-pointer hover:bg-amber-200"
+                            onClick={() => {
+                              if (storeStatus.isPendingInMarket) triggerPendingAdminBanner(p.productName);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-400/60 text-[10px] font-black cursor-pointer"
+                            title={storeStatus.actionHint}
                           >
-                            <RefreshCw className="w-3 h-3" />
-                            <span>إعادة إرسال للسوق</span>
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            <span>{storeStatus.shortLabel}</span>
                           </button>
                         ) : (
                           <button
                             type="button"
                             onClick={() => handleExportProductToMarket(p)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-emerald-600 hover:text-white text-[10px] font-black transition cursor-pointer"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-400/15 text-amber-800 dark:text-amber-300 border border-amber-500/40 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 text-[10px] font-black transition cursor-pointer"
+                            title="معروض في متجري فقط — اضغط للتصدير لسوق الشمساوية"
                           >
-                            <Send className="w-3 h-3" />
-                            <span>تصدير لسوق الشمساوية</span>
+                            <span className="w-2 h-2 rounded-full bg-amber-400" />
+                            <span>في متجري فقط · تصدير للسوق</span>
                           </button>
                         )}
                       </div>
@@ -2751,11 +2773,11 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                         </div>
                       </div>
 
-                      {/* مفتاح نشر في المتجر */}
+                      {/* مفتاح إظهار / إخفاء بالعين (خضراء = ظاهر / رصاصي = مخفي مؤقتاً) */}
                       <div className="flex items-center justify-between p-2.5 rounded-2xl bg-stone-50 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700">
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-bold text-stone-700 dark:text-stone-200">
-                            حالة النشر:
+                            الظهور بالمتجر:
                           </span>
                           <span
                             className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
@@ -2764,22 +2786,25 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                                 : 'bg-stone-200 text-stone-600 dark:bg-stone-700 dark:text-stone-300'
                             }`}
                           >
-                            {isPublished ? 'منشور في المتجر' : 'مسودة غير منشورة'}
+                            {isPublished ? 'ظاهر للعملاء' : 'مخفي مؤقتاً'}
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleTogglePublishInStore(p)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-                            isPublished ? 'bg-emerald-600' : 'bg-stone-300 dark:bg-stone-600'
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl border text-[11px] font-black transition cursor-pointer ${
+                            isPublished
+                              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-stone-200/80 dark:bg-stone-700 border-stone-300 dark:border-stone-600 text-stone-500 dark:text-stone-300'
                           }`}
-                          title={isPublished ? 'إيقاف النشر مؤقتاً' : 'تفعيل النشر للعملاء'}
+                          title={isPublished ? 'إخفاء مؤقت عن العملاء' : 'إظهار للعملاء'}
                         >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              isPublished ? 'translate-x-1' : 'translate-x-6'
-                            }`}
-                          />
+                          {isPublished ? (
+                            <Eye className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <EyeOff className="w-4 h-4 text-stone-400" />
+                          )}
+                          <span>{isPublished ? 'مفعّل' : 'مغلق'}</span>
                         </button>
                       </div>
 
@@ -2951,6 +2976,25 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                     <Copy className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
                   )}
                 </button>
+              </div>
+            </div>
+
+            {/* Slim Store 3-Color Guidance Legend in the Footer */}
+            <div className="mt-2.5 pt-2 border-t border-[#D4CCBC]/70 dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold text-stone-500 dark:text-stone-400">
+              <span>دليل ألوان متجري:</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span>أخضر: مصدّر لسوق الشمساوية</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  <span>أصفر: في متجري فقط</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  <span>أحمر: مخفي مؤقتاً (العين رصاصي)</span>
+                </span>
               </div>
             </div>
           </footer>
@@ -3466,24 +3510,6 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Direct Add Product Modal ("+ منتج مباشر") */}
-      <DirectCatalogProductModal
-        isOpen={isDirectAddOpen}
-        onClose={() => setIsDirectAddOpen(false)}
-        profile={profile}
-        defaultPublishToStore={activeTab === 'store'}
-        onSaved={(newRecord) => {
-          setAllProducts((prev) => [newRecord, ...prev.filter((x) => x.id !== newRecord.id)]);
-          playSuccessSound();
-          setNotice(
-            newRecord.inStore
-              ? `🟡 تم إضافة "${newRecord.productName}" وعرضه في متجرك فوراً! اضغط على الشارة الصفراء متى أردت لحساب تكلفته وتحويله للأخضر.`
-              : `🔴 تم حفظ "${newRecord.productName}" في الكتالوج! اضغط على الشارة الحمراء لعرضه في متجرك متى شئت.`
-          );
-          setTimeout(() => setNotice(''), 4500);
-        }}
-      />
     </div>
   );
 };

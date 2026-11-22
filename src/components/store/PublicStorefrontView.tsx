@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
+import { ProductMediaCarousel } from '../common/ProductMediaCarousel';
 import { buildProductLandingUrl } from '../../lib/appRoutes';
 import {
   fetchPublicStorefrontBySlug,
@@ -416,6 +417,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           current_stock: p.currentStock ?? 1,
                           image_url: p.imageUrl || p.input?.productImageUrl || '/alshams_falcon_emblem.png',
                           gallery_urls: p.galleryUrls || [],
+                          video_url: p.videoUrl || '',
                           size_variants: variants,
                           source_currency: srcCurr,
                           product_discount: p.productDiscount,
@@ -516,6 +518,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   current_stock: p.currentStock ?? 1,
                   image_url: p.imageUrl || p.input?.productImageUrl || '/alshams_falcon_emblem.png',
                   gallery_urls: p.galleryUrls || [],
+                  video_url: p.videoUrl || '',
                   size_variants: variants,
                   source_currency: srcCurr,
                   product_discount: p.productDiscount,
@@ -2032,13 +2035,18 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             </button>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-start pt-1">
-              <div className="space-y-2.5">
-                <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
-                  {selectedModalPricing.badgeText && (
-                    <span className="absolute top-2.5 right-2.5 z-10 px-2.5 py-1 rounded-md bg-[#0C1427]/90 text-[#FBBF24] text-[11px] font-black shadow-xs">
+              <ProductMediaCarousel
+                images={selectedModalGallery}
+                videoUrl={selectedProduct.video_url || selectedProduct.videoUrl}
+                title={selectedProduct.product_name}
+                topRightOverlay={
+                  selectedModalPricing.badgeText ? (
+                    <span className="px-2.5 py-1 rounded-md bg-[#0C1427]/90 text-[#FBBF24] text-[11px] font-black shadow-xs">
                       {selectedModalPricing.badgeText}
                     </span>
-                  )}
+                  ) : undefined
+                }
+                topLeftOverlay={
                   <button
                     type="button"
                     onClick={() =>
@@ -2049,7 +2057,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       )
                     }
                     aria-label={wishlistIds.has(selectedProduct.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
-                    className="absolute top-2.5 left-2.5 z-10 w-9 h-9 rounded-full bg-[#F7F3EA]/90 dark:bg-[#0C1427]/85 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 transition cursor-pointer"
+                    className="w-9 h-9 rounded-full bg-[#F7F3EA]/90 dark:bg-[#0C1427]/85 border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 transition cursor-pointer"
                   >
                     <Heart
                       className={`w-4 h-4 ${
@@ -2059,39 +2067,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       }`}
                     />
                   </button>
-                  <img
-                    src={modalActiveImage || selectedProduct.image_url || '/alshams_falcon_emblem.png'}
-                    alt={selectedProduct.product_name}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                {selectedModalGallery.length > 1 && (
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                    {selectedModalGallery.map((imgUrl, gi) => (
-                      <button
-                        key={gi}
-                        type="button"
-                        onClick={() => setModalActiveImage(imgUrl)}
-                        className={`w-14 h-14 rounded-xl overflow-hidden border-2 shrink-0 cursor-pointer transition ${
-                          (modalActiveImage || selectedProduct.image_url) === imgUrl
-                            ? 'border-[#EA580C]'
-                            : 'border-[#D4CCBC] dark:border-[#22355E] opacity-75 hover:opacity-100'
-                        }`}
-                      >
-                        <img src={imgUrl} alt="" className="w-full h-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {(selectedProduct.video_url || selectedProduct.videoUrl) && (
-                  <ProductVideoThumbnail
-                    videoUrl={selectedProduct.video_url || selectedProduct.videoUrl}
-                    fallbackImage={modalActiveImage || selectedProduct.image_url}
-                    title={selectedProduct.product_name}
-                  />
-                )}
-              </div>
+                }
+              />
 
               <div className="space-y-3 pl-8 sm:pl-0">
                 <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">

@@ -74,9 +74,9 @@ import { ArtisanStorefrontBuilderPanel } from './ArtisanStorefrontBuilderPanel';
 import { PublicStorefrontView } from './PublicStorefrontView';
 import { ThemePreviewDecisionBar } from './StorefrontThemeStudio';
 import { StorefrontThemeId, normalizeStorefrontThemeId } from '../../lib/storefrontThemes';
-import { DirectCatalogProductModal } from '../catalog/DirectCatalogProductModal';
+import { DirectCatalogProductPage } from '../catalog/DirectCatalogProductModal';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
-import { getProductCatalogStatus } from '../../lib/catalogStatus';
+import { getStoreProductStatus } from '../../lib/catalogStatus';
 
 interface TreasuryAccountOption {
   id: string;
@@ -1078,6 +1078,24 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
         {/* TAB 1: Products Studio, Currency, Sizes & Discounts */}
         {activeTab === 'products' && (
           <div className="p-3 sm:p-5 flex-1 overflow-y-auto space-y-4">
+            {isDirectAddOpen ? (
+              <DirectCatalogProductPage
+                isOpen={true}
+                onClose={() => setIsDirectAddOpen(false)}
+                profile={profile}
+                defaultPublishToStore={true}
+                onSaved={(newRecord) => {
+                  setProducts((prev) => [newRecord, ...prev.filter((x) => x.id !== newRecord.id)]);
+                  playSuccessSound();
+                  showNotice(
+                    newRecord.inStore
+                      ? `تم إضافة "${newRecord.productName}" وعرضه بمتجرك فوراً!`
+                      : `تم حفظ "${newRecord.productName}" في الكتالوج فقط.`
+                  );
+                }}
+              />
+            ) : (
+            <>
             {/* Compact Store Performance Strip */}
             <div className="grid grid-cols-3 gap-2.5">
               <div className="p-3 rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
@@ -1279,12 +1297,12 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                     p.inMarket && !isApprovedInMarket && p.marketStatus !== 'rejected'
                   );
                   const isRejectedInMarket = Boolean(p.inMarket && p.marketStatus === 'rejected');
-                  const catalogStatus = getProductCatalogStatus(p);
+                  const storeStatus = getStoreProductStatus(p);
 
                   return (
                     <div
                       key={p.id}
-                      className={`rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border p-3 flex flex-col justify-between transition shadow-sm ${catalogStatus.borderAccentClass} ${
+                      className={`rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border p-3 flex flex-col justify-between transition shadow-sm ${storeStatus.borderAccentClass} ${
                         isChecked
                           ? 'border-[#EA580C] ring-2 ring-[#EA580C]/40'
                           : isVisible
@@ -1373,62 +1391,37 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                           )}
                         </div>
 
-                        {/* 3-Color Costing & Store Status Strip */}
-                        <div className="mb-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (catalogStatus.color === 'red') {
-                                handleToggleProductVisibility(p);
-                              } else if (catalogStatus.color === 'yellow') {
-                                onOpenCalculatorForRecord?.(p);
-                              }
-                            }}
-                            title={catalogStatus.actionHint}
-                            className={`w-full px-2.5 py-1.5 rounded-xl border flex items-center justify-between gap-2 text-[11px] font-black transition ${
-                              catalogStatus.color !== 'green' ? 'cursor-pointer' : 'cursor-default'
-                            } ${catalogStatus.badgeClass}`}
-                          >
-                            <span className="flex items-center gap-1.5 truncate">
-                              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${catalogStatus.dotClass}`} />
-                              <span className="truncate">
-                                {catalogStatus.color === 'red'
-                                  ? 'أحمر: مخفي — اضغط للعرض بالمتجر'
-                                  : catalogStatus.color === 'yellow'
-                                  ? 'أصفر: بدون حاسبة تكاليف'
-                                  : 'أخضر: مسعّر ومعروض بالمتجر ✓'}
-                              </span>
-                            </span>
-                            {catalogStatus.color === 'yellow' && (
-                              <span className="inline-flex items-center gap-1 text-[10px] underline shrink-0">
-                                <Calculator className="w-3 h-3" />
-                                <span>احسب التكلفة</span>
-                              </span>
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Marketplace Status Lamp Strip */}
+                        {/* Store 3-Color Status Strip (Green = Market, Yellow = My Store Only, Red = Hidden) */}
                         <div className="mb-2.5">
-                          {isApprovedInMarket ? (
-                            <div className="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-400/60 flex items-center justify-between text-[11px] font-black text-emerald-800 dark:text-emerald-200">
-                              <span className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.9)]" />
-                                <span>معروض في سوق الشمساوية</span>
-                              </span>
-                              <span className="text-[10px]">معتمد ✓</span>
-                            </div>
-                          ) : isPendingInMarket ? (
+                          {storeStatus.color === 'red' ? (
                             <button
                               type="button"
-                              onClick={triggerPendingAdminBanner}
-                              className="w-full px-2.5 py-1.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 border border-rose-500 text-rose-700 dark:text-rose-300 flex items-center justify-between text-[11px] font-black cursor-pointer animate-pulse"
+                              onClick={() => handleToggleProductVisibility(p)}
+                              className="w-full px-2.5 py-1.5 rounded-xl bg-rose-500/12 hover:bg-rose-500/20 border border-rose-500/40 text-rose-700 dark:text-rose-300 flex items-center justify-between text-[11px] font-black cursor-pointer transition"
                             >
                               <span className="flex items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shadow-[0_0_10px_rgba(225,29,72,0.95)]" />
-                                <span>قيد مراجعة الأدمن</span>
+                                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${storeStatus.dotClass}`} />
+                                <span>مخفي مؤقتاً عن العملاء</span>
                               </span>
-                              <span className="text-[10px] underline">اضغط للتفاصيل</span>
+                              <span className="text-[10px] underline">إظهار</span>
+                            </button>
+                          ) : storeStatus.color === 'green' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (storeStatus.isPendingInMarket) triggerPendingAdminBanner();
+                              }}
+                              className={`w-full px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-400/60 flex items-center justify-between text-[11px] font-black text-emerald-800 dark:text-emerald-200 ${
+                                storeStatus.isPendingInMarket ? 'cursor-pointer' : 'cursor-default'
+                              }`}
+                            >
+                              <span className="flex items-center gap-2">
+                                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${storeStatus.dotClass}`} />
+                                <span>{storeStatus.shortLabel}</span>
+                              </span>
+                              <span className="text-[10px]">
+                                {storeStatus.isApprovedInMarket ? 'معتمد ✓' : 'قيد المراجعة'}
+                              </span>
                             </button>
                           ) : isRejectedInMarket ? (
                             <div className="px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-400 text-[10px] font-bold text-rose-800 dark:text-rose-200">
@@ -1438,10 +1431,16 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handleBulkExportToMarket([p])}
-                              className="w-full px-2.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] hover:border-[#EA580C] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center gap-1.5 text-[11px] font-black cursor-pointer transition"
+                              className="w-full px-2.5 py-1.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 border border-amber-500/40 text-amber-900 dark:text-amber-300 flex items-center justify-between text-[11px] font-black cursor-pointer transition"
                             >
-                              <Send className="w-3 h-3 text-[#EA580C]" />
-                              <span>تصدير لسوق الشمساوية</span>
+                              <span className="flex items-center gap-2">
+                                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${storeStatus.dotClass}`} />
+                                <span>في متجري فقط</span>
+                              </span>
+                              <span className="inline-flex items-center gap-1 text-[10px] underline">
+                                <Send className="w-3 h-3" />
+                                <span>تصدير للسوق</span>
+                              </span>
                             </button>
                           )}
                         </div>
@@ -1461,14 +1460,19 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                           <button
                             type="button"
                             onClick={() => handleToggleProductVisibility(p)}
-                            className={`py-1.5 px-2 rounded-xl font-black text-[11px] flex items-center justify-center gap-1 border cursor-pointer transition ${
+                            title={isVisible ? 'العين خضراء: ظاهر للعملاء — اضغط للإخفاء المؤقت' : 'العين رصاصي: مخفي مؤقتاً — اضغط للإظهار'}
+                            className={`py-1.5 px-2 rounded-xl font-black text-[11px] flex items-center justify-center gap-1.5 border cursor-pointer transition ${
                               isVisible
-                                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200'
-                                : 'bg-[#E9E2D4] dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1]'
+                                ? 'bg-emerald-500/12 border-emerald-500/45 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-stone-200/80 dark:bg-stone-800 border-stone-300 dark:border-stone-700 text-stone-500 dark:text-stone-400'
                             }`}
                           >
-                            {isVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                            <span>{isVisible ? 'ظاهر بمتجري' : 'إظهار بمتجري'}</span>
+                            {isVisible ? (
+                              <Eye className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            ) : (
+                              <EyeOff className="w-3.5 h-3.5 text-stone-400" />
+                            )}
+                            <span>{isVisible ? 'ظاهر بمتجري' : 'مخفي مؤقتاً'}</span>
                           </button>
                         </div>
 
@@ -1498,6 +1502,27 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                   );
                 })}
               </div>
+            )}
+
+            {/* Slim Store 3-Color Guidance Legend in the FOOTER */}
+            <footer className="mt-4 px-3.5 py-2.5 rounded-2xl bg-[#EFE9DC]/70 dark:bg-[#0A1124]/80 border border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold text-[#475569] dark:text-[#94A3B8]">
+              <span>دليل ألوان متجري:</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span>أخضر: مصدّر لسوق الشمساوية</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  <span>أصفر: في متجري فقط</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  <span>أحمر: مخفي مؤقتاً (العين رصاصي)</span>
+                </span>
+              </div>
+            </footer>
+            </>
             )}
           </div>
         )}
@@ -2204,23 +2229,6 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             </div>
           </div>
         )}
-
-        {/* Direct Add Product Modal ("+ منتج مباشر") */}
-        <DirectCatalogProductModal
-          isOpen={isDirectAddOpen}
-          onClose={() => setIsDirectAddOpen(false)}
-          profile={profile}
-          defaultPublishToStore={true}
-          onSaved={(newRecord) => {
-            setProducts((prev) => [newRecord, ...prev.filter((x) => x.id !== newRecord.id)]);
-            playSuccessSound();
-            showNotice(
-              newRecord.inStore
-                ? `🟡 تم إضافة "${newRecord.productName}" وعرضه بمتجرك فوراً! اضغط على الشارة الصفراء لحساب تكلفته لاحقاً.`
-                : `🔴 تم حفظ "${newRecord.productName}" في الكتالوج فقط.`
-            );
-          }}
-        />
       </div>
     </div>
   );

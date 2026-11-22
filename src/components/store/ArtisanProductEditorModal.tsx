@@ -26,7 +26,7 @@ import {
   Star,
   Video,
 } from 'lucide-react';
-import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
+import { ProductMediaCarousel } from '../common/ProductMediaCarousel';
 import { isValidHttpVideoUrl } from '../../lib/catalogStatus';
 
 interface ArtisanProductEditorModalProps {
@@ -785,7 +785,7 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
               </h4>
             </div>
             <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
-              يوتيوب، تيك توك، إنستجرام ريلز أو فيسبوك — يظهر كصورة مصغرة خفيفة ويفتح المشغل عند الضغط فقط.
+              يوتيوب، تيك توك، إنستجرام ريلز أو فيسبوك — يظهر تلقائياً كآخر شريحة في معرض صور المنتج ويشتغل عند الضغط فقط.
             </p>
             <input
               type="url"
@@ -796,11 +796,13 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
               className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-mono text-right"
             />
             {isValidHttpVideoUrl(videoUrl) && (
-              <ProductVideoThumbnail
-                videoUrl={videoUrl}
-                fallbackImage={primaryImage}
-                title={productName || product.productName}
-              />
+              <div className="pt-1">
+                <ProductMediaCarousel
+                  images={[primaryImage, ...galleryUrls].filter(Boolean)}
+                  videoUrl={videoUrl}
+                  title={productName || product.productName}
+                />
+              </div>
             )}
           </div>
         </div>

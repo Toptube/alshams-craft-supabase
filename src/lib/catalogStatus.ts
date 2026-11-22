@@ -14,6 +14,20 @@ export interface ProductCatalogStatusInfo {
   borderAccentClass: string;
 }
 
+export interface StoreProductStatusInfo {
+  color: CatalogStatusColor;
+  shortLabel: string;
+  subNote?: string;
+  actionHint: string;
+  isVisible: boolean;
+  isExportedToMarket: boolean;
+  isApprovedInMarket: boolean;
+  isPendingInMarket: boolean;
+  dotClass: string;
+  badgeClass: string;
+  borderAccentClass: string;
+}
+
 /**
  * Determines whether a product has real calculated production cost from the Cost Calculator.
  */
@@ -39,12 +53,12 @@ export function isProductInStore(p: SavedProductRecord): boolean {
 }
 
 /**
- * Unified 3-Color Catalog Status System:
- * - RED (أحمر): Added to Catalog only, NOT yet displayed in the Store.
- *   Click action -> Publish/display in the Store immediately (turns Yellow if uncosted, or Green if already costed).
- * - YELLOW (أصفر): Displayed in the Store, added directly WITHOUT Cost Calculator pricing.
+ * CATALOG 3-Color Status System (الكتالوج):
+ * - RED (أحمر): Added to Catalog only, NOT yet displayed in My Store.
+ *   Click action -> Export/display in My Store immediately (turns Yellow if uncosted, or Green if already costed).
+ * - YELLOW (أصفر): Displayed in My Store, added directly WITHOUT Cost Calculator costing.
  *   Click action -> True import into the Cost Calculator (saving turns it Green automatically).
- * - GREEN (أخضر): Complete — calculated in Cost Calculator AND live in the Store.
+ * - GREEN (أخضر): Complete — calculated in Cost Calculator AND live in My Store.
  */
 export function getProductCatalogStatus(p: SavedProductRecord): ProductCatalogStatusInfo {
   const inStore = isProductInStore(p);
@@ -91,6 +105,74 @@ export function getProductCatalogStatus(p: SavedProductRecord): ProductCatalogSt
     badgeClass:
       'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/35',
     borderAccentClass: 'border-r-4 border-r-emerald-500',
+  };
+}
+
+/**
+ * STOREFRONT 3-Color Status System (متجري):
+ * - GREEN (أخضر): Exported to Al-Shamsawya Central Market (سوق الشمساوية).
+ * - YELLOW (أصفر): Visible in My Store ONLY (في متجري فقط — غير مصدّر لسوق الشمساوية بعد).
+ * - RED (أحمر): Temporarily hidden from customers (قافل عليه الظهور مؤقتاً — العين رصاصي).
+ */
+export function getStoreProductStatus(p: SavedProductRecord): StoreProductStatusInfo {
+  const isVisible = p.inStore !== false && p.isPublishedInStore !== false;
+  const isExportedToMarket = Boolean(p.inMarket && p.marketStatus !== 'rejected');
+  const isApprovedInMarket = Boolean(
+    p.inMarket && (p.marketStatus === 'approved' || p.isMarketplaceApproved)
+  );
+  const isPendingInMarket = Boolean(
+    p.inMarket && !isApprovedInMarket && p.marketStatus !== 'rejected'
+  );
+
+  if (!isVisible) {
+    return {
+      color: 'red',
+      shortLabel: 'مخفي مؤقتاً',
+      subNote: 'الظهور مغلق عن العملاء',
+      actionHint: 'اضغط على العين لإعادة إظهار المنتج في متجرك',
+      isVisible: false,
+      isExportedToMarket,
+      isApprovedInMarket,
+      isPendingInMarket,
+      dotClass: 'bg-rose-500 shadow-[0_0_0_3px_rgba(244,63,94,0.22)]',
+      badgeClass:
+        'bg-rose-500/12 text-rose-700 dark:text-rose-300 border-rose-500/35',
+      borderAccentClass: 'border-r-4 border-r-rose-500',
+    };
+  }
+
+  if (isExportedToMarket) {
+    return {
+      color: 'green',
+      shortLabel: isApprovedInMarket ? 'بسوق الشمساوية ✓' : 'مصدّر لسوق الشمساوية',
+      subNote: isPendingInMarket ? 'بانتظار مراجعة الأدمن' : 'معروض بالمتجر والسوق',
+      actionHint: isPendingInMarket
+        ? 'تم التصدير لسوق الشمساوية وبانتظار اعتماد الأدمن'
+        : 'مصدّر ومعروض في متجر الشمساوية',
+      isVisible: true,
+      isExportedToMarket: true,
+      isApprovedInMarket,
+      isPendingInMarket,
+      dotClass: 'bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.22)]',
+      badgeClass:
+        'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border-emerald-500/35',
+      borderAccentClass: 'border-r-4 border-r-emerald-500',
+    };
+  }
+
+  return {
+    color: 'yellow',
+    shortLabel: 'في متجري فقط',
+    subNote: 'غير مصدّر لسوق الشمساوية',
+    actionHint: 'معروض في متجرك الخاص فقط — يمكنك تصديره لسوق الشمساوية',
+    isVisible: true,
+    isExportedToMarket: false,
+    isApprovedInMarket: false,
+    isPendingInMarket: false,
+    dotClass: 'bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.25)]',
+    badgeClass:
+      'bg-amber-400/15 text-amber-800 dark:text-amber-300 border-amber-500/40',
+    borderAccentClass: 'border-r-4 border-r-amber-400',
   };
 }
 

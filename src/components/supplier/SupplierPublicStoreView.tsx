@@ -32,6 +32,7 @@ import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView'
 import { playButtonClickSound, playErrorSound, playSuccessSound } from '../../lib/sounds';
 import { resolveStorefrontTheme, StorefrontThemeId } from '../../lib/storefrontThemes';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
+import { ProductMediaCarousel } from '../common/ProductMediaCarousel';
 
 interface SupplierPublicStoreViewProps {
   slug: string;
@@ -69,6 +70,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
   const [supplier, setSupplier] = useState<SupplierProfile | null>(null);
   const [memberProfile, setMemberProfile] = useState<MemberPersonalProfile | null>(null);
   const [items, setItems] = useState<SupplierCatalogItem[]>([]);
+  const [selectedItem, setSelectedItem] = useState<SupplierCatalogItem | null>(null);
   const [reviews, setReviews] = useState<SupplierReview[]>([]);
   const [ratingAvg, setRatingAvg] = useState(5);
   const [revRating, setRevRating] = useState(5);
@@ -755,7 +757,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 style={surfaceStyle}
                 className={`${themeSpec.cardRadiusClass} ${themeSpec.cardShadowClass} border overflow-hidden flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5`}
               >
-                <div>
+                <div
+                  onClick={() => setSelectedItem(it)}
+                  className="cursor-pointer"
+                >
                   <div
                     style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
                     className={`relative w-full ${themeSpec.imageFrameClass} overflow-hidden border-b`}
@@ -1009,6 +1014,120 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {selectedItem && (
+        <div
+          className="fixed inset-0 z-[130] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setSelectedItem(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={surfaceStyle}
+            className={`w-full sm:max-w-lg max-h-[92vh] overflow-y-auto ${themeSpec.cardRadiusClass} border shadow-2xl`}
+          >
+            {/* معرض الصور والفيديو الموحد (الفيديو آخر شريحة بدون تقسيم) */}
+            <ProductMediaCarousel
+              images={selectedItem.images || []}
+              videoUrl={selectedItem.videoUrl}
+              title={selectedItem.name}
+              topRightOverlay={
+                <button
+                  type="button"
+                  onClick={() => setSelectedItem(null)}
+                  className="p-2 rounded-full bg-black/60 text-white hover:bg-black/80 cursor-pointer"
+                  aria-label="إغلاق"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              }
+              topLeftOverlay={
+                selectedItem.unit ? (
+                  <span className="px-2.5 py-1 rounded-full bg-black/60 text-white text-[10px] font-bold">
+                    {selectedItem.unit}
+                  </span>
+                ) : undefined
+              }
+            />
+
+            <div className="p-4 sm:p-5 space-y-4">
+              <div>
+                <h3 className={`text-lg ${themeSpec.titleWeightClass}`}>{selectedItem.name}</h3>
+                {selectedItem.unit && (
+                  <span style={{ color: themeSpec.mutedColor }} className="text-[11px] font-bold">
+                    الوحدة: {selectedItem.unit}
+                  </span>
+                )}
+              </div>
+
+              {selectedItem.description && (
+                <p
+                  style={{ color: themeSpec.mutedColor }}
+                  className="text-xs leading-relaxed whitespace-pre-line"
+                >
+                  {selectedItem.description}
+                </p>
+              )}
+
+              <div className="grid grid-cols-2 gap-2.5 font-mono tabular-nums text-xs">
+                <div
+                  style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                  className={`p-3 ${themeSpec.buttonRadiusClass} border`}
+                >
+                  <span style={{ color: themeSpec.mutedColor }} className="block text-[10px] font-sans">
+                    سعر القطاعي
+                  </span>
+                  <span style={{ color: themeSpec.priceColor }} className="text-base font-black">
+                    {selectedItem.retailPrice.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    backgroundColor: themeSpec.heroSubtleTint,
+                    borderColor: themeSpec.heroBorder,
+                  }}
+                  className={`p-3 ${themeSpec.buttonRadiusClass} border`}
+                >
+                  <span style={{ color: themeSpec.accentText }} className="block text-[10px] font-sans font-bold">
+                    سعر الجملة (×{selectedItem.minWholesaleQty})
+                  </span>
+                  <span style={{ color: themeSpec.accentText }} className="text-base font-black">
+                    {selectedItem.wholesalePrice > 0
+                      ? `${selectedItem.wholesalePrice.toLocaleString('ar-EG')} ${activeSupplier.currencySymbol}`
+                      : '—'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    addToCart(selectedItem, 1);
+                    setSelectedItem(null);
+                  }}
+                  style={accentBtnStyle}
+                  className={`flex-1 py-3 ${themeSpec.buttonRadiusClass} text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-90 transition`}
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>إضافة للسلة</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedItem(null)}
+                  style={{
+                    backgroundColor: themeSpec.softBg,
+                    borderColor: themeSpec.borderColor,
+                    color: themeSpec.inkColor,
+                  }}
+                  className={`px-4 py-3 ${themeSpec.buttonRadiusClass} border text-xs font-bold cursor-pointer`}
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
