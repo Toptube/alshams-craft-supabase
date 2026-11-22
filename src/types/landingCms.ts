@@ -52,6 +52,16 @@ export interface LandingHeroMetricItem {
 }
 
 export type LandingLayoutPreset =
+  | 'ivory_editorial'
+  | 'obsidian_atelier'
+  | 'emerald_maison'
+  | 'midnight_saas'
+  | 'swiss_architect'
+  | 'sand_heritage'
+  | 'royal_sapphire'
+  | 'rose_terracotta'
+  | 'nordic_slate'
+  | 'kinetic_bento'
   | 'editorial_craft'
   | 'executive_obsidian'
   | 'gallery_minimal'
@@ -260,9 +270,9 @@ export interface LandingCmsConfig {
 }
 
 export const DEFAULT_LANDING_MEDIA = {
-  heroImageUrl: '/assets/images/landing_hero_atelier_1795095267133.jpg',
-  materialsImageUrl: '/assets/images/landing_materials_flatlay_1795095266471.jpg',
-  supplierImageUrl: '/assets/images/landing_supplier_showroom_1795095266526.jpg',
+  heroImageUrl: '/src/assets/images/landing_hero_artisan_studio_1795374648503.jpg',
+  materialsImageUrl: '/src/assets/images/landing_craft_gallery_1795374648333.jpg',
+  supplierImageUrl: '/src/assets/images/landing_suppliers_warehouse_1795374647537.jpg',
 };
 
 export const DEFAULT_BRAND_ASSETS = {
@@ -285,7 +295,7 @@ export const DEFAULT_BRAND_ASSETS = {
 };
 
 export const DEFAULT_DESIGN_CONFIG: LandingDesignConfig = {
-  activePreset: 'editorial_craft',
+  activePreset: 'ivory_editorial',
   accentTheme: 'solar_orange',
   heroImageUrl: DEFAULT_LANDING_MEDIA.heroImageUrl,
   materialsImageUrl: DEFAULT_LANDING_MEDIA.materialsImageUrl,

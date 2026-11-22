@@ -43,7 +43,11 @@ import {
 import { StorefrontThemeGrid, ThemePreviewDecisionBar } from '../store/StorefrontThemeStudio';
 import { StorePromoBannerDisplay } from '../store/StorePromoBannerDisplay';
 import { SupplierPublicStoreView } from './SupplierPublicStoreView';
-import { StorefrontThemeId, normalizeStorefrontThemeId } from '../../lib/storefrontThemes';
+import {
+  StorefrontThemeId,
+  WORLD_STOREFRONT_THEMES_LIST,
+  normalizeStorefrontThemeId,
+} from '../../lib/storefrontThemes';
 
 interface SupplierStorefrontModalProps {
   isOpen: boolean;
@@ -464,7 +468,7 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
         <div className="p-3 bg-[#E9E2D4]/70 dark:bg-[#060B18] border-b border-[#D4CCBC] dark:border-[#22355E]">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
-              { id: 'appearance' as const, label: 'الهوية والسمات (10)', icon: Palette },
+              { id: 'appearance' as const, label: `الهوية والسمات (${WORLD_STOREFRONT_THEMES_LIST.length})`, icon: Palette },
               { id: 'promotions' as const, label: 'البانر والأكواد', icon: Megaphone },
               { id: 'order' as const, label: `ترتيب الخامات (${catalogItems.length})`, icon: GripVertical },
               { id: 'qr' as const, label: 'الرابط و QR', icon: QrCode },

@@ -13,6 +13,10 @@ import {
   UiHomeCardConfig,
   useUiLayoutConfig,
 } from '../../types/uiLayoutConfig';
+import {
+  useUserSubscription,
+  isModuleUnlockedBySubscription,
+} from '../../types/subscriptions';
 import { useExperienceMode } from '../../types/experienceMode';
 import {
   deduplicateMaterialsByName,
@@ -194,6 +198,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const { t: tr, lang } = useTranslation();
   const flags = useFeatureFlags();
   const uiLayout = useUiLayoutConfig();
+  const userSub = useUserSubscription(profile);
   const artisanHomeCfg = uiLayout.artisan.home;
   const {
     isCraft,
@@ -847,12 +852,35 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     });
   };
 
+  const ARTISAN_CARD_SUB_MODULE_MAP: Record<string, string[]> = {
+    my_platform: ['store', 'catalog', 'marketplace'],
+    catalog: ['catalog'],
+    inventory: ['materials', 'inventory_materials', 'finished_products'],
+    pricing: ['calculator', 'archive'],
+    purchases: ['purchases', 'suppliers'],
+    suppliers: ['suppliers'],
+    work_orders: ['work_orders'],
+    customers: ['customers', 'sales', 'invoices'],
+    workforce: ['hr'],
+    treasuries: ['treasuries'],
+    expenses: ['expenses', 'treasuries'],
+    accounts: ['accounts', 'reports'],
+    ai_helpers: ['ai_agent'],
+  };
+
   const visibleArtisanCards = useMemo<UiHomeCardConfig[]>(() => {
     return (artisanHomeCfg.cards || []).filter((card) => {
       if (card.visible === false) return false;
       // إخفاء بطاقة الحسابات المحاسبية الثقيلة في الوضع الحرفي (وتبقى متاحة بالكامل في الوضع المحاسبي)
       if (card.id === 'accounts' && !isModeVisible('card_accounts')) return false;
       if (isAdminUser) return true;
+      const mappedMods = ARTISAN_CARD_SUB_MODULE_MAP[card.id];
+      if (
+        mappedMods &&
+        !mappedMods.some((m) => isModuleUnlockedBySubscription(m, userSub, 'artisan', isAdminUser))
+      ) {
+        return false;
+      }
       if (card.id === 'ai_helpers' && !flags.aiAssistantsEnabled) return false;
       if (
         card.id === 'my_platform' &&
@@ -878,7 +906,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       }
       return true;
     });
-  }, [artisanHomeCfg.cards, isAdminUser, flags, isModeVisible]);
+  }, [artisanHomeCfg.cards, isAdminUser, flags, userSub, isModeVisible]);
 
   const activeDynamicCard = useMemo(() => {
     if (!activeSubSection) return null;

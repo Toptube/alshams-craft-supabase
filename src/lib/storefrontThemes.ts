@@ -448,6 +448,8 @@ export const WORLD_STOREFRONT_THEME_LIST: StorefrontThemeSpec[] = [
   WORLD_STOREFRONT_THEMES.clean_alabaster,
 ];
 
+export const WORLD_STOREFRONT_THEMES_LIST = WORLD_STOREFRONT_THEME_LIST;
+
 const LEGACY_THEME_MAP: Record<string, StorefrontThemeId> = {
   warm_atelier: 'shams_sand',
   deep_navy: 'royal_navy',

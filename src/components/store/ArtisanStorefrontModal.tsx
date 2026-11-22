@@ -76,7 +76,11 @@ import { ArtisanProductEditorModal } from './ArtisanProductEditorModal';
 import { ArtisanStorefrontBuilderPanel } from './ArtisanStorefrontBuilderPanel';
 import { PublicStorefrontView } from './PublicStorefrontView';
 import { ThemePreviewDecisionBar } from './StorefrontThemeStudio';
-import { StorefrontThemeId, normalizeStorefrontThemeId } from '../../lib/storefrontThemes';
+import {
+  StorefrontThemeId,
+  WORLD_STOREFRONT_THEMES_LIST,
+  normalizeStorefrontThemeId,
+} from '../../lib/storefrontThemes';
 import { DirectCatalogProductPage } from '../catalog/DirectCatalogProductModal';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
 import { getStoreProductStatus } from '../../lib/catalogStatus';
@@ -1085,7 +1089,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 {
                   id: 'appearance' as BuilderTabId,
                   label: 'المظهر والسمات والهوية',
-                  meta: '10 سمات معمارية',
+                  meta: `${WORLD_STOREFRONT_THEMES_LIST.length} سمة معمارية`,
                   icon: Palette,
                 },
                 {

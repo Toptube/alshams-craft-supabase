@@ -25,6 +25,14 @@ export const APP_PAGE_ROUTES: AppPageRouteDefinition[] = [
     customizable: false,
   },
   {
+    viewId: 'my_subscriptions',
+    path: '/subscriptions',
+    defaultTitle: 'اشتراكاتي وباقات المنظومة',
+    defaultSubtitle: 'اختر وفعّل الباقات التي تناسب ورشتك أو تجارتك',
+    audience: 'shared',
+    customizable: false,
+  },
+  {
     viewId: 'executive_brief',
     path: '/brief',
     defaultTitle: 'هلخصهالك',

@@ -1,0 +1,435 @@
+import React, { useMemo, useState } from 'react';
+import {
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Crown,
+  Gift,
+  Layers,
+  Lock,
+  Sparkles,
+  User,
+  X,
+} from 'lucide-react';
+import { UserProfile } from '../../types';
+import {
+  ALL_PACKAGE_IDS,
+  SubscriptionPackageId,
+  getSubscriptionPackages,
+  saveUserSubscription,
+  useUserSubscription,
+} from '../../types/subscriptions';
+import { WORLD_STOREFRONT_THEMES_LIST } from '../../lib/storefrontThemes';
+import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
+
+interface MySubscriptionsPageProps {
+  profile: UserProfile;
+  onGoBack?: () => void;
+  onGoHome?: () => void;
+  onSaved?: (activeIds: SubscriptionPackageId[]) => void;
+}
+
+export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
+  profile,
+  onGoBack,
+  onGoHome,
+  onSaved,
+}) => {
+  const userId = profile.workshopId || profile.id || profile.email || '';
+  const isSupplier = (profile as any)?.accountRole === 'supplier';
+  const currentSub = useUserSubscription(profile);
+  const packages = useMemo(() => getSubscriptionPackages(), []);
+  const themesCount = WORLD_STOREFRONT_THEMES_LIST.length;
+
+  const [selectedIds, setSelectedIds] = useState<SubscriptionPackageId[]>(() =>
+    currentSub.activePackageIds.length > 0 ? currentSub.activePackageIds : ['core_free']
+  );
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
+
+  const togglePkg = (id: SubscriptionPackageId) => {
+    if (id === 'core_free') return;
+    playButtonClickSound();
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllFreePromo = () => {
+    playSuccessSound();
+    setSelectedIds([...ALL_PACKAGE_IDS]);
+  };
+
+  const handleSave = () => {
+    const saved = saveUserSubscription(userId, {
+      activePackageIds: selectedIds,
+      hasSelectedPackages: true,
+      promoClaimed: true,
+    });
+    playSuccessSound();
+    setSavedNotice(
+      `تم حفظ وتفعيل ${saved.activePackageIds.length} باقات لحسابك بنجاح — استمتع بالعرض المجاني!`
+    );
+    setTimeout(() => setSavedNotice(null), 4000);
+    onSaved?.(saved.activePackageIds);
+  };
+
+  const regularTotalMonthly = useMemo(() => {
+    return packages
+      .filter((p) => selectedIds.includes(p.id) && !p.isAlwaysFree)
+      .reduce((sum, p) => sum + p.monthlyPriceEgp, 0);
+  }, [packages, selectedIds]);
+
+  return (
+    <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5" dir="rtl">
+      {/* Header Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          {onGoBack && (
+            <button
+              type="button"
+              onClick={onGoBack}
+              className="p-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C] cursor-pointer"
+              aria-label="رجوع"
+            >
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          )}
+          <div>
+            <h1 className="text-lg sm:text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
+              <Crown className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
+              <span>اشتراكاتي وباقات المنظومة</span>
+            </h1>
+            <p className="text-xs text-[#475569] dark:text-[#94A3B8] mt-0.5">
+              فعّل الباقات التي تناسب حجم {isSupplier ? 'تجارتك ومخازنك' : 'ورشتك وفنك'} — وكل شيء يظهر في لوحتك فوراً.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleSelectAllFreePromo}
+          className="px-4 py-2.5 rounded-xl bg-[#0C1427] dark:bg-[#FBBF24] text-[#FBBF24] dark:text-[#0C1427] text-xs font-black flex items-center gap-1.5 hover:opacity-90 cursor-pointer"
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>تفعيل الباقة الشاملة (الكل مجاناً الآن)</span>
+        </button>
+      </div>
+
+      {/* Limited-Time Launch Promo Banner */}
+      <div className="rounded-2xl border border-[#EA580C]/40 bg-gradient-to-l from-[#EA580C] via-[#C2410C] to-[#9A3412] text-white p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
+        <div className="space-y-1.5">
+          <div className="inline-flex items-center gap-1.5 text-xs font-black text-amber-200">
+            <Gift className="w-4 h-4" />
+            <span>عرض الإطلاق الحصري لفترة محدودة</span>
+          </div>
+          <h2 className="text-base sm:text-xl font-black leading-snug">
+            اشترك الآن في أي باقة — مجاناً بالكامل (0 ج.م) لفترة محدودة!
+          </h2>
+          <p className="text-xs text-white/90 leading-relaxed max-w-2xl">
+            الباقة الأساسية مجانية للأبد وتشمل «صفحتي الشخصية» لتحديد مستواك وعرض أعمالك وتدريباتك. وبقية الباقات الاحترافية (بما فيها كل سمات المتجر — {themesCount} سمة حالياً وتزيد تلقائياً) مفتوحة لك مجاناً الآن لتجربة المنظومة كاملة.
+          </p>
+        </div>
+
+        <div className="shrink-0 rounded-xl bg-black/25 border border-white/20 p-3.5 text-center min-w-[165px]">
+          <p className="text-[11px] text-amber-200 font-bold">إجمالي اشتراكك الآن</p>
+          <div className="flex items-baseline justify-center gap-1.5 mt-1 font-mono tabular-nums">
+            <span className="text-2xl font-black text-white">0 ج.م</span>
+            {regularTotalMonthly > 0 && (
+              <span className="text-xs line-through text-white/65">
+                {regularTotalMonthly.toLocaleString('ar-EG')} ج.م
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-emerald-200 font-bold mt-1">
+            {selectedIds.length} من {packages.length} باقات محددة
+          </p>
+        </div>
+      </div>
+
+      {savedNotice && (
+        <div className="p-3.5 rounded-xl bg-emerald-600/15 border border-emerald-500/40 text-emerald-800 dark:text-emerald-200 text-xs font-black flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{savedNotice}</span>
+        </div>
+      )}
+
+      {/* Packages Cards Grid (Mobile-First, Zero Tables) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {packages.map((pkg) => {
+          const isSelected = selectedIds.includes(pkg.id);
+          const title = isSupplier && pkg.supplierTitleAr ? pkg.supplierTitleAr : pkg.titleAr;
+          const tagline = isSupplier && pkg.supplierTaglineAr ? pkg.supplierTaglineAr : pkg.taglineAr;
+          const highlights = isSupplier ? pkg.highlightsSupplier : pkg.highlightsArtisan;
+
+          return (
+            <div
+              key={pkg.id}
+              onClick={() => togglePkg(pkg.id)}
+              className={`rounded-2xl border p-4 sm:p-5 flex flex-col justify-between gap-4 transition-all ${
+                pkg.isAlwaysFree ? 'cursor-default' : 'cursor-pointer hover:-translate-y-0.5'
+              } ${
+                isSelected
+                  ? 'bg-[#FFFDF8] dark:bg-[#0D162E] border-[#EA580C] dark:border-[#FBBF24] ring-1 ring-[#EA580C]/30 dark:ring-[#FBBF24]/30'
+                  : 'bg-[#F7F3EA]/70 dark:bg-[#0A1124] border-[#D4CCBC] dark:border-[#22355E] opacity-85 hover:opacity-100'
+              }`}
+            >
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
+                      <span>
+                        {pkg.order === 0 ? 'الباقة 0 · الأساس' : `الباقة ${pkg.order}`}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span
+                        className={
+                          pkg.isAlwaysFree
+                            ? 'text-emerald-700 dark:text-emerald-400 font-black'
+                            : 'text-[#C2410C] dark:text-[#FBBF24] font-black'
+                        }
+                      >
+                        {pkg.isAlwaysFree ? 'مجانية للأبد' : 'مجاناً لفترة محدودة'}
+                      </span>
+                    </div>
+                    <h3 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA] leading-snug">
+                      {title}
+                    </h3>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={pkg.isAlwaysFree}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePkg(pkg.id);
+                    }}
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition ${
+                      isSelected
+                        ? 'bg-[#EA580C] text-white'
+                        : 'border border-[#D4CCBC] dark:border-[#2D4475] bg-white dark:bg-[#132040] text-transparent'
+                    }`}
+                    aria-label={isSelected ? 'مفعّلة' : 'تفعيل الباقة'}
+                  >
+                    {pkg.isAlwaysFree ? <Lock className="w-3.5 h-3.5" /> : <Check className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                <p className="text-xs text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+                  {tagline}
+                </p>
+
+                <ul className="space-y-1.5 pt-1 border-t border-[#E5DEC9] dark:border-[#1E2E52]">
+                  {highlights.map((h, i) => (
+                    <li
+                      key={i}
+                      className="text-xs text-[#0C1427] dark:text-[#E2E8F0] flex items-start gap-2 leading-relaxed"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <span>{h}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="pt-3 border-t border-[#E5DEC9] dark:border-[#1E2E52] flex items-center justify-between gap-2">
+                <div className="font-mono tabular-nums text-xs">
+                  {pkg.isAlwaysFree ? (
+                    <span className="font-black text-emerald-700 dark:text-emerald-400">
+                      0 ج.م / للأبد
+                    </span>
+                  ) : (
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="font-black text-[#C2410C] dark:text-[#FBBF24]">0 ج.م الآن</span>
+                      <span className="text-[11px] line-through text-[#64748B]">
+                        {pkg.monthlyPriceEgp} ج.م/شهر
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <span
+                  className={`text-[11px] font-black ${
+                    isSelected
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-[#64748B] dark:text-[#94A3B8]'
+                  }`}
+                >
+                  {pkg.isAlwaysFree
+                    ? 'مفعّلة تلقائياً دائماً'
+                    : isSelected
+                    ? 'مختارة للتفعيل ✓'
+                    : 'اضغط للإضافة +'}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Bottom Sticky Action Bar */}
+      <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#0D162E] p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="text-xs text-[#475569] dark:text-[#94A3B8] text-center sm:text-right">
+          <span className="font-black text-[#0C1427] dark:text-[#F7F3EA]">
+            محدد حالياً: {selectedIds.length} باقات
+          </span>{' '}
+          · يمكنك تعديل باقاتك في أي وقت من «اشتراكاتي» بالقائمة الجانبية.
+        </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {onGoHome && (
+            <button
+              type="button"
+              onClick={onGoHome}
+              className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] cursor-pointer"
+            >
+              الرئيسية
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleSave}
+            className="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-black shadow-sm cursor-pointer transition"
+          >
+            حفظ وتفعيل باقاتي المختارة مجاناً
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface PackageSelectionOnboardingModalProps {
+  profile: UserProfile;
+  isOpen: boolean;
+  onComplete: (activeIds: SubscriptionPackageId[]) => void;
+}
+
+export const PackageSelectionOnboardingModal: React.FC<PackageSelectionOnboardingModalProps> = ({
+  profile,
+  isOpen,
+  onComplete,
+}) => {
+  const userId = profile.workshopId || profile.id || profile.email || '';
+  const isSupplier = (profile as any)?.accountRole === 'supplier';
+  const packages = useMemo(() => getSubscriptionPackages(), []);
+  const themesCount = WORLD_STOREFRONT_THEMES_LIST.length;
+
+  const [selectedIds, setSelectedIds] = useState<SubscriptionPackageId[]>([...ALL_PACKAGE_IDS]);
+
+  if (!isOpen) return null;
+
+  const togglePkg = (id: SubscriptionPackageId) => {
+    if (id === 'core_free') return;
+    playButtonClickSound();
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleConfirm = (idsToSave: SubscriptionPackageId[]) => {
+    const saved = saveUserSubscription(userId, {
+      activePackageIds: idsToSave,
+      hasSelectedPackages: true,
+      promoClaimed: true,
+    });
+    playSuccessSound();
+    onComplete(saved.activePackageIds);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[120] bg-[#060B18]/80 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-5"
+      dir="rtl"
+    >
+      <div className="w-full max-w-3xl max-h-[92vh] rounded-3xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#FAF7F0] dark:bg-[#0A1124] shadow-2xl flex flex-col overflow-hidden">
+        {/* Top Welcome Banner */}
+        <div className="p-4 sm:p-6 bg-gradient-to-l from-[#EA580C] to-[#9A3412] text-white flex items-start justify-between gap-3 shrink-0">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-1.5 text-[11px] font-black text-amber-200">
+              <Gift className="w-3.5 h-3.5" />
+              <span>أهلاً بك من جديد في الشمساوية · عرض الإطلاق مجاناً لفترة محدودة</span>
+            </div>
+            <h2 className="text-base sm:text-xl font-black">
+              اختر الباقات التي تريد ظهورها في {isSupplier ? 'لوحة المورد' : 'ورشتك'} الآن
+            </h2>
+            <p className="text-xs text-white/90 leading-relaxed">
+              رتّبنا المنظومة في باقات واضحة (تبدأ بالأساسية المجانية شاملة «صفحتي الشخصية» + {themesCount} سمة متجر). اختر ما يناسبك — وكلها مجانية بالكامل لفترة محدودة!
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleConfirm([...ALL_PACKAGE_IDS])}
+            className="p-1.5 rounded-lg bg-black/20 hover:bg-black/35 text-white cursor-pointer shrink-0"
+            title="تفعيل الكل والدخول مباشرة"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Selectable Packages List */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-2.5">
+          {packages.map((pkg) => {
+            const checked = selectedIds.includes(pkg.id);
+            const title = isSupplier && pkg.supplierTitleAr ? pkg.supplierTitleAr : pkg.titleAr;
+            const tagline = isSupplier && pkg.supplierTaglineAr ? pkg.supplierTaglineAr : pkg.taglineAr;
+
+            return (
+              <button
+                key={pkg.id}
+                type="button"
+                onClick={() => togglePkg(pkg.id)}
+                className={`w-full text-right p-3.5 rounded-2xl border flex items-start gap-3 transition cursor-pointer ${
+                  checked
+                    ? 'bg-white dark:bg-[#0F1A36] border-[#EA580C] dark:border-[#FBBF24]'
+                    : 'bg-[#F2ECE1]/70 dark:bg-[#0D162E]/60 border-[#D4CCBC] dark:border-[#22355E] opacity-75'
+                }`}
+              >
+                <div
+                  className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
+                    checked
+                      ? 'bg-[#EA580C] text-white'
+                      : 'border border-[#94A3B8] text-transparent'
+                  }`}
+                >
+                  {pkg.isAlwaysFree ? <User className="w-3.5 h-3.5" /> : <Check className="w-4 h-4" />}
+                </div>
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                      {title}
+                    </span>
+                    <span className="text-[11px] font-black text-emerald-700 dark:text-emerald-400">
+                      {pkg.isAlwaysFree ? 'مجانية للأبد' : '0 ج.م (مجاناً لفترة محدودة)'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+                    {tagline}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-4 border-t border-[#D4CCBC] dark:border-[#22355E] bg-[#F2ECE1] dark:bg-[#0D162E] flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setSelectedIds([...ALL_PACKAGE_IDS])}
+            className="w-full sm:w-auto px-4 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C] flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Layers className="w-3.5 h-3.5 text-[#EA580C]" />
+            <span>تحديد الكل ({packages.length} باقات مجاناً)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleConfirm(selectedIds)}
+            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-black shadow-sm cursor-pointer"
+          >
+            تفعيل باقاتي ({selectedIds.length}) والدخول الآن
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

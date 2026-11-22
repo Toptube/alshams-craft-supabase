@@ -260,6 +260,16 @@ const FamilyCommunityView = lazy(() =>
     default: m.FamilyCommunityView,
   }))
 );
+const MySubscriptionsPage = lazy(() =>
+  import('./components/subscriptions/MySubscriptionsPage').then((m) => ({
+    default: m.MySubscriptionsPage,
+  }))
+);
+import { PackageSelectionOnboardingModal } from './components/subscriptions/MySubscriptionsPage';
+import {
+  useUserSubscription,
+  shouldPromptExistingUserForPackages,
+} from './types/subscriptions';
 const SupplierHomeScreen = lazy(() =>
   import('./components/supplier/SupplierHomeScreen').then((m) => ({
     default: m.SupplierHomeScreen,
@@ -405,7 +415,8 @@ export type ActiveView =
   | 'inventory_audit'
   | 'finished_products'
   | 'my_store'
-  | 'my_orders';
+  | 'my_orders'
+  | 'my_subscriptions';
 
 const processedRecoveryTokens = new Set<string>();
 
@@ -470,6 +481,7 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   finished_products: 'مخزن المنتجات الجاهزة',
   my_store: 'لوحة تحكم متجري',
   my_orders: 'أوردراتي والطلبات',
+  my_subscriptions: 'اشتراكاتي وباقات المنظومة',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -574,6 +586,8 @@ export const App: React.FC = () => {
   }, [profile, showWelcomeBanner]);
 
   const uiLayoutConfig = useUiLayoutConfig();
+  const userSubscription = useUserSubscription(profile);
+  const [dismissedPackageOnboarding, setDismissedPackageOnboarding] = useState(false);
 
   // Navigation & View state (clean URL per page: /treasuries, /materials, /purchases, /family, etc.)
   const [activeView, setActiveView] = useState<ActiveView>(() => {
@@ -3181,6 +3195,17 @@ export const App: React.FC = () => {
           />
         )}
 
+        {activeView === 'my_subscriptions' && (
+          <MySubscriptionsPage
+            profile={profile}
+            onGoBack={navigateBack}
+            onGoHome={goHome}
+            onSaved={() => {
+              setDismissedPackageOnboarding(true);
+            }}
+          />
+        )}
+
         {activeView === 'executive_brief' && (
           <ArtisanExecutiveBriefView
             profile={profile}
@@ -3539,6 +3564,16 @@ export const App: React.FC = () => {
           onTogglePerformanceMode={handleTogglePerformanceMode}
           onLogout={handleLogout}
         />
+
+      {/* نافذة اختيار الباقات للأعضاء القدام عند أول دخول (عرض الإطلاق المجاني لفترة محدودة) */}
+      {!dismissedPackageOnboarding &&
+        shouldPromptExistingUserForPackages(profile, userSubscription) && (
+          <PackageSelectionOnboardingModal
+            profile={profile}
+            isOpen={true}
+            onComplete={() => setDismissedPackageOnboarding(true)}
+          />
+        )}
 
       {/* Global Search Modal */}
       {isSearchOpen && (

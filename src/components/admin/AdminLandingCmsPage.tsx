@@ -47,6 +47,7 @@ import {
   LandingTokenInfo,
 } from '../../utils/landingTemplateHydrator';
 import { LandingPage } from '../landing/LandingPage';
+import { LANDING_THEMES_LIST } from '../../lib/landingThemes';
 import { syncPlatformSettingsFromCloud } from '../../services/marketplaceCartService';
 import { processBrandAssetUpload } from '../../utils/imageTransparentProcessor';
 import { playSuccessSound, playErrorSound } from '../../lib/sounds';
@@ -111,27 +112,16 @@ const LAYOUT_PRESETS: {
   id: LandingLayoutPreset;
   name: string;
   desc: string;
+  swatches?: [string, string, string];
+  isDark?: boolean;
 }[] = [
-  {
-    id: 'editorial_craft',
-    name: 'الأتيليه التحريري الدافئ (القياسي)',
-    desc: 'ورق كرافت دافئ + تصوير مشغل حرفي + تدرج معماري أنيق في النهاري والليلي.',
-  },
-  {
-    id: 'executive_obsidian',
-    name: 'الأوبسيديان التنفيذي الليلي',
-    desc: 'خلفية كحلية عميقة عالية الفخامة مع إبراز الأرقام الهندسية والموردين.',
-  },
-  {
-    id: 'gallery_minimal',
-    name: 'المعرض العاجي الهادئ',
-    desc: 'مساحات بيضاء واسعة وأسطر دقيقة تضع الصور والمنتجات في مركز الانتباه.',
-  },
-  {
-    id: 'conversion_split',
-    name: 'التحويل السريع للورش والموردين',
-    desc: 'تركيز بصري حاد على قرار التسجيل المزدوج وبطاقة «هلخصهالك» الحية.',
-  },
+  ...LANDING_THEMES_LIST.map((t) => ({
+    id: t.id as LandingLayoutPreset,
+    name: t.nameAr,
+    desc: t.taglineAr,
+    swatches: t.swatchColors,
+    isDark: t.isDarkTheme,
+  })),
   {
     id: 'custom_injected',
     name: 'تصميم محقون مخصص (HTML / CSS)',
@@ -743,7 +733,7 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
                   <span>1. اختيار نمط القالب المعماري ولوحة الألوان</span>
                 </h2>
                 <p className="text-xs text-[#475569] dark:text-[#94A3B8] mt-0.5">
-                  تستطيع التبديل بين 4 قوالب مدمجة احترافية أو تفعيل «تصميم محقون مخصص» أدناه — وكلها تستورد نفس بياناتك الحالية فوراً.
+                  اختر من بين {LANDING_THEMES_LIST.length} سمات عالمية معمارية لصفحة الهبوط (تغيّر التصميم والهوية بالكامل بضغطة زر دون الحاجة لتغيير المحتوى) أو فعّل «تصميم محقون مخصص» أدناه.
                 </p>
               </div>
               <button
@@ -756,7 +746,7 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {LAYOUT_PRESETS.map((preset) => {
                 const isSelected = design.activePreset === preset.id;
                 return (
@@ -769,23 +759,41 @@ export const AdminLandingCmsPage: React.FC<AdminLandingCmsPageProps> = ({
                         activePreset: preset.id,
                         injectedTemplate: {
                           ...d.injectedTemplate,
-                          enabled: preset.id === 'custom_injected' ? true : d.injectedTemplate.enabled,
+                          enabled: preset.id === 'custom_injected' ? true : false,
                         },
                       }))
                     }
-                    className={`p-3.5 rounded-xl border text-right space-y-1.5 transition cursor-pointer ${
+                    className={`p-3.5 rounded-xl border text-right space-y-2 transition cursor-pointer flex flex-col justify-between ${
                       isSelected
-                        ? 'bg-[#EA580C]/10 dark:bg-[#FBBF24]/15 border-[#EA580C] dark:border-[#FBBF24]'
+                        ? 'bg-[#EA580C]/10 dark:bg-[#FBBF24]/15 border-[#EA580C] dark:border-[#FBBF24] ring-1 ring-[#EA580C]/30'
                         : 'bg-[#EFE9DC]/70 dark:bg-[#132040]/70 border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-black">{preset.name}</span>
-                      {isSelected && <CheckCircle2 className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />}
+                    <div className="space-y-1.5">
+                      {preset.swatches && (
+                        <div className="flex items-center justify-between gap-2 pb-1">
+                          <div className="flex items-center gap-1">
+                            {preset.swatches.map((hex, i) => (
+                              <span
+                                key={i}
+                                className="w-5 h-3.5 rounded border border-black/15"
+                                style={{ backgroundColor: hex }}
+                              />
+                            ))}
+                          </div>
+                          <span className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">
+                            {preset.isDark ? 'طابع ليلي' : 'طابع نهاري'}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black">{preset.name}</span>
+                        {isSelected && <CheckCircle2 className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />}
+                      </div>
+                      <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+                        {preset.desc}
+                      </p>
                     </div>
-                    <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-relaxed">
-                      {preset.desc}
-                    </p>
                   </button>
                 );
               })}

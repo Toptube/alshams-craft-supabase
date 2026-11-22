@@ -23,6 +23,10 @@ import {
   UiHomeCardConfig,
   useUiLayoutConfig,
 } from '../../types/uiLayoutConfig';
+import {
+  useUserSubscription,
+  isModuleUnlockedBySubscription,
+} from '../../types/subscriptions';
 import { useExperienceMode } from '../../types/experienceMode';
 import {
   AlertTriangle,
@@ -81,6 +85,8 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
 }) => {
   const flags = useFeatureFlags();
   const uiLayout = useUiLayoutConfig();
+  const userSub = useUserSubscription(profile);
+  const isAdminUser = isUserAdmin(profile);
   const homeCfg = uiLayout.supplier.home;
   const {
     isCraft,
@@ -306,9 +312,31 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
     sup_finance: 'sup_finance_title',
   };
 
+  const SUPPLIER_CARD_SUB_MODULE_MAP: Record<string, string[]> = {
+    catalog: ['supplier_catalog'],
+    store: ['supplier_store'],
+    orders: ['supplier_orders'],
+    customers: ['supplier_customers'],
+    finance: ['supplier_finance'],
+    erp_hub: ['supplier_erp_hub'],
+    pos_cashier: ['supplier_pos'],
+    warehouse_erp: ['supplier_warehouse_erp'],
+    hr_terminal: ['supplier_hr_terminal'],
+    suppliers_market: ['suppliers_market'],
+  };
+
   const visibleCards = useMemo(() => {
     return homeCfg.cards.filter((card) => {
       if (!card.visible) return false;
+      if (!isAdminUser) {
+        const mappedMods = SUPPLIER_CARD_SUB_MODULE_MAP[card.id];
+        if (
+          mappedMods &&
+          !mappedMods.some((m) => isModuleUnlockedBySubscription(m, userSub, 'supplier', isAdminUser))
+        ) {
+          return false;
+        }
+      }
       if (!showErpModules && ['erp_hub', 'pos_cashier', 'warehouse_erp', 'hr_terminal'].includes(card.id)) {
         return false;
       }
@@ -326,6 +354,8 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   }, [
     homeCfg.cards,
     showErpModules,
+    isAdminUser,
+    userSub,
     isModeVisible,
     onNavigateToPersonalProfile,
     onNavigateToFamily,

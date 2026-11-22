@@ -16,10 +16,12 @@ import {
   Sparkles,
   RefreshCw,
   User,
+  Crown,
 } from 'lucide-react';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { useFeatureFlags } from '../../types/featureFlags';
 import { getUiIcon, useUiLayoutConfig } from '../../types/uiLayoutConfig';
+import { useUserSubscription, isModuleUnlockedBySubscription } from '../../types/subscriptions';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -82,6 +84,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 }) => {
   const flags = useFeatureFlags();
   const uiLayout = useUiLayoutConfig();
+  const userSub = useUserSubscription(profile);
   const isAdmin = isUserAdmin(profile);
   const isSupplier = (profile as any)?.accountRole === 'supplier';
   const sidebarLayout = isSupplier ? uiLayout.supplier.sidebar : uiLayout.artisan.sidebar;
@@ -126,6 +129,9 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           .filter((it) => it.visible !== false)
           .filter((item) => {
             if (isAdmin) return true;
+            if (!isModuleUnlockedBySubscription(item.id, userSub, isSupplier ? 'supplier' : 'artisan', isAdmin)) {
+              return false;
+            }
             if (isSupplier) {
               if (
                 ['supplier_erp_hub', 'supplier_pos', 'supplier_warehouse_erp', 'supplier_hr_terminal'].includes(
@@ -161,7 +167,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       .filter((g) => g.items.length > 0);
 
     return dynamicGroups;
-  }, [isAdmin, isSupplier, flags, sidebarLayout, onNavigateToCatalog, onOpenArtisanStore, onSelectView]);
+  }, [isAdmin, isSupplier, flags, userSub, sidebarLayout, onNavigateToCatalog, onOpenArtisanStore, onSelectView]);
 
   // جميع القوائم المنسدلة تبدأ مغلقة عند فتح القائمة الجانبية ليظهر كل تبويب بوضوح
   const [openGroups, setOpenGroups] = useState<Record<SectionKey, boolean>>({
@@ -341,6 +347,39 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               <span className="truncate">صفحتي الشخصية</span>
             </button>
           </div>
+
+          {/* زر اشتراكاتي وباقات المنظومة (متاح لكل الأعضاء المسجلين) */}
+          <button
+            type="button"
+            onClick={() => {
+              onSelectView('my_subscriptions');
+              onClose();
+            }}
+            className={`w-full min-h-[44px] px-3.5 py-2.5 rounded-2xl border flex items-center justify-between gap-2 text-right transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] ${
+              activeView === 'my_subscriptions'
+                ? 'bg-[#EA580C] text-white border-[#FBBF24]'
+                : 'bg-gradient-to-l from-[#EA580C]/10 via-[#F7F3EA] to-[#F7F3EA] dark:from-[#FBBF24]/15 dark:via-[#0D162E] dark:to-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border-[#EA580C]/45 dark:border-[#FBBF24]/45 hover:border-[#EA580C]'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Crown
+                className={`w-4 h-4 shrink-0 ${
+                  activeView === 'my_subscriptions' ? 'text-white' : 'text-[#EA580C] dark:text-[#FBBF24]'
+                }`}
+              />
+              <div className="min-w-0">
+                <span className="text-xs font-black block truncate">اشتراكاتي وباقاتي</span>
+                <span
+                  className={`text-[10px] font-bold block truncate ${
+                    activeView === 'my_subscriptions' ? 'text-white/90' : 'text-emerald-700 dark:text-emerald-400'
+                  }`}
+                >
+                  {userSub.activePackageIds.length} باقات مفعلة · عرض مجاني
+                </span>
+              </div>
+            </div>
+            <ChevronLeft className="w-4 h-4 shrink-0 opacity-75" />
+          </button>
 
           <div className="h-px bg-[#D4CCBC] dark:bg-[#22355E] my-1" />
 
