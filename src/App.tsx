@@ -23,6 +23,8 @@ import { startQuietBackgroundSync, hydrateWorkshopIntoDexie } from './services/p
 import { syncPlatformSettingsFromCloud } from './services/marketplaceCartService';
 import { getStoredLandingCmsConfig, syncBrandFaviconFromCms } from './types/landingCms';
 import { useFeatureFlags } from './types/featureFlags';
+import { useUiLayoutConfig } from './types/uiLayoutConfig';
+import { getPathForView, resolveViewFromPath } from './lib/appRoutes';
 import { getCurrentSupplierFromSupabase } from './db/supplierService';
 import { getMainSectionForCraft } from './registry/craftsRegistry';
 import type { StructuredCalculatorExport } from './components/ai/FalconAIAgent';
@@ -236,6 +238,11 @@ const ArtisanStorefrontModal = lazy(() =>
 const PublicStorefrontView = lazy(() =>
   import('./components/store/PublicStorefrontView').then((m) => ({
     default: m.PublicStorefrontView,
+  }))
+);
+const PublicProductLandingView = lazy(() =>
+  import('./components/store/PublicProductLandingView').then((m) => ({
+    default: m.PublicProductLandingView,
   }))
 );
 const FamilyCommunityView = lazy(() =>
@@ -542,21 +549,18 @@ export const App: React.FC = () => {
     }
   }, [profile, showWelcomeBanner]);
 
-  // Navigation & View state (supports direct deep-link to /family, /#/family, and PWA shortcuts)
+  const uiLayoutConfig = useUiLayoutConfig();
+
+  // Navigation & View state (clean URL per page: /treasuries, /materials, /purchases, /family, etc.)
   const [activeView, setActiveView] = useState<ActiveView>(() => {
     if (typeof window !== 'undefined') {
-      const p = window.location.pathname || '';
-      const h = window.location.hash || '';
-      const s = window.location.search || '';
-      if (
-        /^\/family(?:\/|$)/i.test(p) ||
-        /^#\/?family(?:\/|$)/i.test(h) ||
-        /[?&]view=family(?:&|$)/i.test(s)
-      ) {
-        return 'family';
-      }
-      if (/[?&]view=catalog(?:&|$)/i.test(s)) {
-        return 'catalog';
+      const resolved = resolveViewFromPath(
+        window.location.pathname || '/',
+        window.location.search || '',
+        window.location.hash || ''
+      );
+      if (resolved && VIEW_TITLES[resolved as ActiveView]) {
+        return resolved as ActiveView;
       }
     }
     return 'home';
@@ -882,24 +886,28 @@ export const App: React.FC = () => {
     };
   }, [profile?.tenantId, profile?.workshopId, profile?.id, loadSearchCacheAndNotifications]);
 
-  // آلية المزامنة الدورية الهادئة في الخلفية ومزامنة الكتالوج والمتجر والترطيب السحابي الفوري تلقائياً
+  // آلية المزامنة الدورية الهادئة في الخلفية ومزامنة الكتالوج والمتجر (مؤجلة 1.8 ثانية لتجنب الضغط اللحظي عند الفتح)
   useEffect(() => {
     if (!profile) return;
     const tid = profile.tenantId || profile.workshopId || profile.id;
+    let hydrateTimer: ReturnType<typeof setTimeout> | null = null;
     if (
       tid &&
       tid !== 'workshop_demo' &&
       tid !== '00000000-0000-0000-0000-000000000000' &&
       profile.accountRole !== 'supplier'
     ) {
-      hydrateWorkshopIntoDexie(tid, {
-        asSuperAdmin: isUserAdmin(profile) && !switchedWorkshopContext,
-        userEmail: profile.email,
-      }).catch(() => {});
+      hydrateTimer = setTimeout(() => {
+        hydrateWorkshopIntoDexie(tid, {
+          asSuperAdmin: isUserAdmin(profile) && !switchedWorkshopContext,
+          userEmail: profile.email,
+        }).catch(() => {});
+      }, 1800);
     }
     const cleanupQuiet = startQuietBackgroundSync(profile);
     const cleanupProducts = tid ? startProductSync(tid) : () => {};
     return () => {
+      if (hydrateTimer) clearTimeout(hydrateTimer);
       cleanupQuiet();
       cleanupProducts();
     };
@@ -1633,30 +1641,38 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Navigation handlers with history tracking (يدعم الرجوع للصفحة السابقة)
-  const syncFamilyUrl = (targetView: ActiveView) => {
+  // Navigation handlers with real clean URL per page + browser history support
+  const syncViewUrl = useCallback((targetView: ActiveView, push = true) => {
     if (typeof window === 'undefined') return;
-    if (targetView === 'family') {
-      if (window.location.hash !== '#/family') {
-        window.history.replaceState({}, '', '/#/family');
-      }
-    } else if (
-      /^#\/?family/i.test(window.location.hash || '') ||
-      /^\/family/i.test(window.location.pathname || '')
-    ) {
-      window.history.replaceState({}, '', '/');
+    const nextPath = getPathForView(targetView);
+    const currentFull = `${window.location.pathname || '/'}${window.location.hash || ''}`;
+    if (currentFull !== nextPath) {
+      try {
+        if (push) {
+          window.history.pushState({ alshamsView: targetView }, '', nextPath);
+        } else {
+          window.history.replaceState({ alshamsView: targetView }, '', nextPath);
+        }
+      } catch {}
     }
-  };
+    const customTitle = uiLayoutConfig.pageOverrides?.[targetView]?.title || VIEW_TITLES[targetView];
+    if (customTitle && typeof document !== 'undefined') {
+      document.title =
+        targetView === 'home'
+          ? 'منظومة الشمساوية | منظومة سحابية متكاملة'
+          : `${customTitle} | منظومة الشمساوية`;
+    }
+  }, [uiLayoutConfig.pageOverrides]);
 
   const navigateTo = useCallback(
     (view: ActiveView) => {
       if (view === activeView) return;
       setHistoryStack((prev) => [...prev, activeView]);
       setActiveView(view);
-      syncFamilyUrl(view);
+      syncViewUrl(view, true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
-    [activeView]
+    [activeView, syncViewUrl]
   );
 
   const handleNavigateToCatalog = useCallback(
@@ -1760,21 +1776,21 @@ export const App: React.FC = () => {
       const previous = historyStack[historyStack.length - 1];
       setHistoryStack((prev) => prev.slice(0, -1));
       setActiveView(previous);
-      syncFamilyUrl(previous);
+      syncViewUrl(previous, true);
       window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
     } else {
       window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
       if (activeView !== 'home') {
         setActiveView('home');
-        syncFamilyUrl('home');
+        syncViewUrl('home', true);
       }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [historyStack, activeView]);
+  }, [historyStack, activeView, syncViewUrl]);
 
   const goHome = useCallback(() => {
     window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
-    syncFamilyUrl('home');
+    syncViewUrl('home', true);
     if (isSuperAdminMode) {
       setAdminInitialTab('home');
       setAdminNavNonce((n) => n + 1);
@@ -1786,7 +1802,7 @@ export const App: React.FC = () => {
     setHistoryStack((prev) => [...prev, activeView]);
     setActiveView('home');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [activeView, isSuperAdminMode]);
+  }, [activeView, isSuperAdminMode, syncViewUrl]);
 
   // Handlers for exporting to calculator from Falcon AI or Archive
   const handleSelectRecordToLoad = (record: SavedProductRecord) => {
@@ -1954,14 +1970,33 @@ export const App: React.FC = () => {
     setIsSidebarOpen(false);
   };
 
-  // Comprehensive Hash and Path routing for Public Storefronts and Central Marketplaces
+  // Comprehensive Hash and Path routing for Public Storefronts, Shareable Product Landings, and Central Marketplaces
   const parseAppRoute = (): {
-    type: 'app' | 'market' | 'store' | 'suppliers_market' | 'supplier_store';
+    type: 'app' | 'market' | 'store' | 'product' | 'suppliers_market' | 'supplier_store';
     slug?: string;
+    productId?: string;
   } => {
     if (typeof window === 'undefined') return { type: 'app' };
     const pathname = window.location.pathname || '';
     const hash = window.location.hash || '';
+
+    // 0a. Standalone Shareable Product Landing Page (/product/:id, /p/:id, #/product/:id)
+    const prodPathMatch = pathname.match(/^\/(?:product|p)\/([^/?#]+)/i);
+    if (prodPathMatch) {
+      try {
+        return { type: 'product', productId: decodeURIComponent(prodPathMatch[1]) };
+      } catch {
+        return { type: 'product', productId: prodPathMatch[1] };
+      }
+    }
+    const prodHashMatch = hash.match(/^#\/?(?:product|p)\/([^/?#]+)/i);
+    if (prodHashMatch) {
+      try {
+        return { type: 'product', productId: decodeURIComponent(prodHashMatch[1]) };
+      } catch {
+        return { type: 'product', productId: prodHashMatch[1] };
+      }
+    }
 
     // 0. Suppliers B2B Marketplace (/suppliers-market, /#/suppliers-market)
     if (
@@ -2017,11 +2052,19 @@ export const App: React.FC = () => {
       }
     }
 
-    // 4. Query Params Support (?market=1, ?tab=market, ?store=..., ?supplier=...)
+    // 4. Query Params Support (?product=..., ?market=1, ?tab=market, ?store=..., ?supplier=...)
     const search = window.location.search || '';
     if (search) {
       try {
         const params = new URLSearchParams(search);
+        const productParam = params.get('product');
+        if (productParam) {
+          try {
+            return { type: 'product', productId: decodeURIComponent(productParam) };
+          } catch {
+            return { type: 'product', productId: productParam };
+          }
+        }
         if (
           params.get('suppliers_market') === '1' ||
           params.get('view') === 'suppliers-market'
@@ -2060,15 +2103,15 @@ export const App: React.FC = () => {
       const parsed = parseAppRoute();
       setActiveRoute(parsed);
       if (parsed.type === 'app' && typeof window !== 'undefined') {
-        const p = window.location.pathname || '';
-        const h = window.location.hash || '';
-        const s = window.location.search || '';
-        if (
-          /^\/family(?:\/|$)/i.test(p) ||
-          /^#\/?family(?:\/|$)/i.test(h) ||
-          /[?&]view=family(?:&|$)/i.test(s)
-        ) {
-          setActiveView('family');
+        const resolved = resolveViewFromPath(
+          window.location.pathname || '/',
+          window.location.search || '',
+          window.location.hash || ''
+        );
+        if (resolved && VIEW_TITLES[resolved as ActiveView]) {
+          setActiveView(resolved as ActiveView);
+        } else {
+          setActiveView('home');
         }
       }
     };
@@ -2080,32 +2123,35 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // حماية الشاشة من الإغلاق المفاجئ عند السحب الأفقي بالخطأ (يمين/شمال على الموبايل أو التاتش باد)
-  useEffect(() => {
-    if (!profile || activeRoute.type !== 'app' || typeof window === 'undefined') return;
-    try {
-      if (!window.history.state?.alshamsSwipeGuard) {
-        window.history.pushState({ alshamsSwipeGuard: true }, '', window.location.href);
-      }
-    } catch {}
-
-    const handleSwipeBackGuard = () => {
-      const parsed = parseAppRoute();
-      if (parsed.type !== 'app') return;
-      // منع خروج المتصفح أو إغلاق البرنامج كله بسبب سحبة عرضية بالخطأ
-      try {
-        window.history.pushState({ alshamsSwipeGuard: true }, '', window.location.href);
-      } catch {}
-      setIsSidebarOpen((wasOpen) => {
-        if (wasOpen) return false;
-        setActiveView((curr) => (curr !== 'home' ? 'home' : curr));
-        return false;
-      });
-    };
-
-    window.addEventListener('popstate', handleSwipeBackGuard);
-    return () => window.removeEventListener('popstate', handleSwipeBackGuard);
-  }, [Boolean(profile), activeRoute.type]);
+  // Render Standalone Shareable Product Landing Page (/product/:id or /p/:id)
+  if (activeRoute.type === 'product' && activeRoute.productId) {
+    return (
+      <Suspense fallback={<AppScreenFallback />}>
+        <PublicProductLandingView
+          productId={activeRoute.productId}
+          onOpenStore={(slug) => {
+            try {
+              window.history.pushState({}, '', `/store/${encodeURIComponent(slug)}`);
+            } catch {}
+            setActiveRoute({ type: 'store', slug });
+          }}
+          onOpenMarketplace={() => {
+            try {
+              window.history.pushState({}, '', '/market');
+            } catch {}
+            setActiveRoute({ type: 'market' });
+          }}
+          onGoHome={() => {
+            try {
+              window.history.pushState({}, '', '/');
+            } catch {}
+            setActiveRoute({ type: 'app' });
+            setActiveView('home');
+          }}
+        />
+      </Suspense>
+    );
+  }
 
   // Render Suppliers Market if requested via direct link or hash
   if (activeRoute.type === 'suppliers_market') {
@@ -2566,11 +2612,19 @@ export const App: React.FC = () => {
             </button>
           </div>
 
-          {/* Current Page Title + Close button */}
+          {/* Current Page Title (with Super Admin UI Studio per-page override) + Close button */}
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] truncate max-w-[140px] sm:max-w-[320px] md:max-w-none px-2.5 sm:px-3 py-1 rounded-xl bg-[#E9E2D4]/90 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
-              {VIEW_TITLES[activeView]}
-            </span>
+            <div className="min-w-0 flex flex-col items-end">
+              <span className="text-[11px] sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] truncate max-w-[160px] sm:max-w-[340px] md:max-w-none px-2.5 sm:px-3 py-1 rounded-xl bg-[#E9E2D4]/90 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+                {uiLayoutConfig.pageOverrides?.[activeView]?.title || VIEW_TITLES[activeView]}
+              </span>
+              {!uiLayoutConfig.pageOverrides?.[activeView]?.hideSubtitle &&
+                uiLayoutConfig.pageOverrides?.[activeView]?.subtitle && (
+                  <span className="hidden md:block text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8] truncate max-w-[360px] mt-0.5 px-1">
+                    {uiLayoutConfig.pageOverrides[activeView].subtitle}
+                  </span>
+                )}
+            </div>
             <button
               type="button"
               onClick={goHome}

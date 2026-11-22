@@ -1896,50 +1896,93 @@ export interface SupabaseTreasuryCategory {
   created_at?: string;
 }
 
+const treasuryBalancesCache = new Map<
+  string,
+  { expiresAt: number; result: { data: SupabaseTreasuryBalance[]; error: SupabaseErrorResult | null } }
+>();
+const treasuryBalancesInFlight = new Map<
+  string,
+  Promise<{ data: SupabaseTreasuryBalance[]; error: SupabaseErrorResult | null }>
+>();
+
+export function invalidateTreasuryBalancesCache(workshopId?: string): void {
+  if (workshopId) {
+    treasuryBalancesCache.delete(workshopId);
+  } else {
+    treasuryBalancesCache.clear();
+  }
+}
+
 export async function getTreasuryBalancesFromSupabase(
-  workshopId: string
+  workshopId: string,
+  forceRefresh = false
 ): Promise<{ data: SupabaseTreasuryBalance[]; error: SupabaseErrorResult | null }> {
-  try {
-    const { data, error } = await supabase
-      .from('treasury_balances')
-      .select('*')
-      .eq('workshop_id', workshopId);
+  if (!workshopId) return { data: [], error: null };
 
-    if (error) {
-      return { data: [], error: getArabicSupabaseError(error) };
+  if (!forceRefresh) {
+    const cached = treasuryBalancesCache.get(workshopId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.result;
     }
+    const pending = treasuryBalancesInFlight.get(workshopId);
+    if (pending) {
+      return pending;
+    }
+  }
 
-    const balances: SupabaseTreasuryBalance[] = (data as SupabaseTreasuryBalance[]) || [];
-
-    // Attempt to enrich with min_balance from treasuries table if column exists
+  const run = (async () => {
     try {
-      const { data: treasuriesData } = await supabase
-        .from('treasuries')
-        .select('id, min_balance')
+      const { data, error } = await supabase
+        .from('treasury_balances')
+        .select('*')
         .eq('workshop_id', workshopId);
 
-      if (treasuriesData && treasuriesData.length > 0) {
-        const minMap = new Map<string, number>();
-        treasuriesData.forEach((row: any) => {
-          if (row.id && row.min_balance !== undefined && row.min_balance !== null) {
-            minMap.set(row.id, Number(row.min_balance));
-          }
-        });
-
-        balances.forEach((b) => {
-          if (minMap.has(b.id)) {
-            b.min_balance = minMap.get(b.id);
-          }
-        });
+      if (error) {
+        return { data: [], error: getArabicSupabaseError(error) };
       }
-    } catch (e) {
-      // Column might not exist yet; gracefully ignore
-    }
 
-    return { data: balances, error: null };
-  } catch (err: any) {
-    return { data: [], error: getArabicSupabaseError(err) };
-  }
+      const balances: SupabaseTreasuryBalance[] = (data as SupabaseTreasuryBalance[]) || [];
+
+      // Attempt to enrich with min_balance from treasuries table if column exists
+      try {
+        const { data: treasuriesData } = await supabase
+          .from('treasuries')
+          .select('id, min_balance')
+          .eq('workshop_id', workshopId);
+
+        if (treasuriesData && treasuriesData.length > 0) {
+          const minMap = new Map<string, number>();
+          treasuriesData.forEach((row: any) => {
+            if (row.id && row.min_balance !== undefined && row.min_balance !== null) {
+              minMap.set(row.id, Number(row.min_balance));
+            }
+          });
+
+          balances.forEach((b) => {
+            if (minMap.has(b.id)) {
+              b.min_balance = minMap.get(b.id);
+            }
+          });
+        }
+      } catch {
+        // Column might not exist yet; gracefully ignore
+      }
+
+      const result = { data: balances, error: null };
+      treasuryBalancesCache.set(workshopId, {
+        expiresAt: Date.now() + 12_000,
+        result,
+      });
+      return result;
+    } catch (err: any) {
+      return { data: [], error: getArabicSupabaseError(err) };
+    } finally {
+      treasuryBalancesInFlight.delete(workshopId);
+    }
+  })();
+
+  treasuryBalancesInFlight.set(workshopId, run);
+  return run;
 }
 
 export async function getTreasuryChannelBalancesFromSupabase(

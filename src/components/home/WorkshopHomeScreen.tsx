@@ -84,6 +84,7 @@ import {
 } from 'lucide-react';
 import { checkUpcomingRecurringExpenses } from '../../services/recurringExpensesService';
 import { WorkshopGrowthToolsModal } from '../growth/WorkshopGrowthToolsModal';
+import { WorkshopGuidanceModal, GuidanceMode } from './WorkshopGuidanceModal';
 import { GrowthHubConfig, getStoredGrowthHubConfig } from '../../types/artisanGrowth';
 import { syncGrowthHubConfigFromCloud } from '../../db/memberProfileService';
 
@@ -244,6 +245,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const [isAgendaModalOpen, setIsAgendaModalOpen] = useState<boolean>(false);
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState<boolean>(false);
   const [growthModalOpen, setGrowthModalOpen] = useState<boolean>(false);
+  const [guidanceModalOpen, setGuidanceModalOpen] = useState<boolean>(false);
+  const [guidanceMode, setGuidanceMode] = useState<GuidanceMode>('start');
   const [growthInitialTab, setGrowthInitialTab] = useState<
     'calendar' | 'corporate' | 'passport' | 'group_buy' | 'social_ai'
   >('calendar');
@@ -674,6 +677,14 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         } else {
           window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'executive_brief' } }));
         }
+        return;
+      case 'open_guide_start':
+        setGuidanceMode('start');
+        setGuidanceModalOpen(true);
+        return;
+      case 'open_guide_daily':
+        setGuidanceMode('daily');
+        setGuidanceModalOpen(true);
         return;
       case 'modal_new_material':
         onOpenNewMaterialModal();
@@ -1900,6 +1911,15 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         productsList={productsList}
         workOrdersList={workOrdersList}
         initialTab={growthInitialTab}
+      />
+
+      {/* نافذة دليل البداية والروتين اليومي (نبدأ ورشتنا / يومك في الورشة) */}
+      <WorkshopGuidanceModal
+        isOpen={guidanceModalOpen}
+        onClose={() => setGuidanceModalOpen(false)}
+        audience="artisan"
+        initialMode={guidanceMode}
+        onExecuteAction={executeArtisanAction}
       />
     </div>
   );

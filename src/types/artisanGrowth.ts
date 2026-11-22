@@ -441,6 +441,7 @@ export interface ParsedSocialEmbed {
   embedUrl: string;
   isVertical: boolean;
   isEmbeddable: boolean;
+  needsResolve?: boolean;
 }
 
 export function parseSocialEmbedUrl(
@@ -467,25 +468,33 @@ export function parseSocialEmbedUrl(
         embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1`,
         isVertical: isShort,
         isEmbeddable: true,
+        needsResolve: false,
       };
     }
   }
 
-  // 2. Facebook (videos, reel, watch, posts, photo, share)
+  // 2. Facebook (videos, reel, watch, share/r, share/v, fb.watch, m.facebook.com, posts)
   if (platform === 'facebook') {
+    const cleanFbUrl = normalizedUrl.replace(
+      /^https?:\/\/(?:m|mbasic|web)\.facebook\.com/i,
+      'https://www.facebook.com'
+    );
+    const isShortShare = /fb\.watch|facebook\.com\/share\//i.test(cleanFbUrl);
+    const isReel = /\/reel\/|\/share\/r\//i.test(cleanFbUrl);
     const isVideo =
-      /\/videos\/|\/reel\/|fb\.watch|\/watch\/?\?v=/i.test(normalizedUrl);
-    const isReel = /\/reel\//i.test(normalizedUrl);
-    const encoded = encodeURIComponent(normalizedUrl);
+      isReel ||
+      /\/videos\/|fb\.watch|\/watch\/?\?v=|\/share\/v\/|story_fbid/i.test(cleanFbUrl);
+    const encoded = encodeURIComponent(cleanFbUrl);
     const embedUrl = isVideo
-      ? `https://www.facebook.com/plugins/video.php?href=${encoded}&show_text=true&width=560`
+      ? `https://www.facebook.com/plugins/video.php?href=${encoded}&show_text=false&t=0`
       : `https://www.facebook.com/plugins/post.php?href=${encoded}&show_text=true&width=500`;
     return {
       platform: 'facebook',
-      originalUrl: normalizedUrl,
+      originalUrl: cleanFbUrl,
       embedUrl,
       isVertical: isReel,
       isEmbeddable: true,
+      needsResolve: isShortShare,
     };
   }
 
@@ -501,22 +510,33 @@ export function parseSocialEmbedUrl(
         embedUrl: `https://www.instagram.com/${kind}/${code}/embed/captioned/`,
         isVertical: kind === 'reel' || kind === 'tv',
         isEmbeddable: true,
+        needsResolve: false,
       };
     }
   }
 
-  // 4. TikTok
+  // 4. TikTok (full /video/ID, /photo/ID, and short mobile links vm.tiktok.com / vt.tiktok.com / /t/)
   if (platform === 'tiktok') {
-    const ttMatch = normalizedUrl.match(/\/video\/(\d+)/i);
+    const ttMatch = normalizedUrl.match(/\/(?:video|photo)\/(\d+)/i);
     if (ttMatch) {
       return {
         platform: 'tiktok',
         originalUrl: normalizedUrl,
-        embedUrl: `https://www.tiktok.com/embed/v2/${ttMatch[1]}`,
+        embedUrl: `https://www.tiktok.com/player/v1/${ttMatch[1]}?music_info=1&description=1&rel=0`,
         isVertical: true,
         isEmbeddable: true,
+        needsResolve: false,
       };
     }
+    // Mobile short link — requires server-side redirect/oEmbed resolution before mounting iframe
+    return {
+      platform: 'tiktok',
+      originalUrl: normalizedUrl,
+      embedUrl: '',
+      isVertical: true,
+      isEmbeddable: false,
+      needsResolve: true,
+    };
   }
 
   // 5. Vimeo
@@ -529,6 +549,7 @@ export function parseSocialEmbedUrl(
         embedUrl: `https://player.vimeo.com/video/${vmMatch[1]}?title=0&byline=0`,
         isVertical: false,
         isEmbeddable: true,
+        needsResolve: false,
       };
     }
   }
@@ -543,6 +564,7 @@ export function parseSocialEmbedUrl(
         embedUrl: `https://www.dailymotion.com/embed/video/${dmMatch[1]}`,
         isVertical: false,
         isEmbeddable: true,
+        needsResolve: false,
       };
     }
   }
@@ -557,6 +579,7 @@ export function parseSocialEmbedUrl(
         embedUrl: `https://assets.pinterest.com/ext/embed.html?id=${pinMatch[1]}`,
         isVertical: true,
         isEmbeddable: true,
+        needsResolve: false,
       };
     }
   }
@@ -568,6 +591,7 @@ export function parseSocialEmbedUrl(
     embedUrl: normalizedUrl,
     isVertical: false,
     isEmbeddable: /^https:\/\//i.test(normalizedUrl),
+    needsResolve: false,
   };
 }
 

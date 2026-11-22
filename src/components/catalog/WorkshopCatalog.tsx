@@ -6,6 +6,7 @@ import {
 } from '../../registry/craftsRegistry';
 import { tenantStorage } from '../../db/dexieDB';
 import { useTranslation } from '../../lib/i18n';
+import { buildProductLandingUrl, buildStoreUrl } from '../../lib/appRoutes';
 import {
   BookOpen,
   Search,
@@ -1136,38 +1137,47 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     window.open(url, '_blank');
   };
 
-  // Facebook & Social Share
+  // Facebook & Social Share (uses dedicated /product/:id landing URL or workshop store URL)
   const handleShareFacebook = async () => {
     const items = targetProductsForExport;
     if (items.length === 0) return;
 
-    const shareTitle = `كتالوج منتجات ورشة ${profile.brandName || 'الحرفية'}`;
-    const shareText = `تفضلوا بالاطلاع على تشكيلة المشغولات اليدوية الحصرية من ورشة ${profile.brandName || ''} (${items.length} منتج)`;
+    const singleProduct = items.length === 1 ? items[0] : null;
+    const storeSlug =
+      profile.storeSlug ||
+      profile.store_slug ||
+      profile.brandName?.toLowerCase().replace(/\s+/g, '-') ||
+      profile.id;
+    const shareUrl = singleProduct
+      ? buildProductLandingUrl(singleProduct.id)
+      : buildStoreUrl(storeSlug);
+    const shareTitle = singleProduct
+      ? `${singleProduct.productName} | ${profile.brandName || 'ورشة الشمساوية'}`
+      : `كتالوج منتجات ورشة ${profile.brandName || 'الحرفية'}`;
+    const shareText = singleProduct
+      ? `${singleProduct.productName} — ${getRetailPrice(singleProduct)} ${profile.currencySymbol || 'ج.م'} من ${profile.brandName || 'ورشة الشمساوية'}`
+      : `تفضلوا بالاطلاع على تشكيلة المشغولات اليدوية الحصرية من ورشة ${profile.brandName || ''} (${items.length} منتج)`;
 
     if (navigator.share) {
       try {
         await navigator.share({
           title: shareTitle,
           text: shareText,
-          url: window.location.href,
+          url: shareUrl,
         });
         return;
-      } catch (e) {
-        // Fallback to clipboard or dialog
+      } catch {
+        // Fallback to clipboard
       }
     }
 
-    // Fallback: Copy summary to clipboard & open FB sharer
     try {
-      await navigator.clipboard.writeText(shareText + '\n' + window.location.href);
-      setNotice('تم نسخ تفاصيل الكتالوج إلى الحافظة وجاري فتح نافذة فيسبوك...');
+      await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
+      setNotice('تم نسخ رابط المشاركة المباشر (يظهر بصورة المنتج وسعره عند لصقه في فيسبوك وواتساب).');
     } catch {
-      setNotice('جاري فتح نافذة المشاركة...');
+      setNotice(`رابط المشاركة: ${shareUrl}`);
     }
-
-    const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(shareText)}`;
-    window.open(fbUrl, '_blank', 'width=600,height=500');
-    setTimeout(() => setNotice(''), 4000);
+    setTimeout(() => setNotice(''), 4500);
   };
 
   return (

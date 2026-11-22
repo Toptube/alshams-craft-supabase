@@ -21,6 +21,7 @@ import { supabase } from '../../lib/supabase';
 import { MAIN_SECTIONS, SUB_CRAFTS_REGISTRY } from '../../registry/craftsRegistry';
 import { CustomerAuthModal } from './CustomerAuthModal';
 import { MarketplaceCartModal } from './MarketplaceCartModal';
+import { buildProductLandingUrl } from '../../lib/appRoutes';
 import { AlShamsBrandIcon } from '../brand/BrandAssets';
 import { playSuccessSound, playAlertSound } from '../../lib/sounds';
 import {
@@ -1785,6 +1786,41 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         selectedProductDetails.input?.personalNotes ||
                         'مشغولة يدوية مصنوعة بإتقان وجودة عالية.'}
                     </p>
+
+                    {/* Direct Shareable Product Landing Link (/product/:id) */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(buildProductLandingUrl(selectedProductDetails.id));
+                          } catch {}
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[11px] font-black text-[#0C1427] dark:text-[#F7F3EA] inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-[#EA580C]" />
+                        <span>نسخ رابط المنتج المباشر</span>
+                      </button>
+                      <a
+                        href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(buildProductLandingUrl(selectedProductDetails.id))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1.5 rounded-xl bg-[#1877F2]/10 hover:bg-[#1877F2]/20 text-[#1877F2] dark:text-sky-300 border border-[#1877F2]/30 text-[11px] font-black inline-flex items-center gap-1"
+                      >
+                        <span>فيسبوك</span>
+                      </a>
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent(
+                          `${selectedProductDetails.productName} — ${modalPricing.finalPrice.toLocaleString('ar-EG')} ${modalPricing.displaySymbol}\n${buildProductLandingUrl(selectedProductDetails.id)}`
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1.5 rounded-xl bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 border border-emerald-600/30 text-[11px] font-black inline-flex items-center gap-1"
+                      >
+                        <MessageCircle className="w-3 h-3" />
+                        <span>واتساب</span>
+                      </a>
+                    </div>
 
                     {selectedProductDetails.availableColors &&
                       selectedProductDetails.availableColors.length > 0 && (

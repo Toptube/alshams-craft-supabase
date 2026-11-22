@@ -42,6 +42,7 @@ import {
   deleteMemberShowcasePost,
   deleteTrainerEmbeddedPost,
   fetchMemberPersonalProfile,
+  getCachedMemberPersonalProfile,
   resolveAudienceRoleFromUser,
   saveMemberPersonalProfile,
   syncGrowthHubConfigFromCloud,
@@ -188,33 +189,50 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
 
   useEffect(() => {
     let active = true;
-    syncGrowthHubConfigFromCloud().catch(() => {});
-    setLoading(true);
+    const applyLoadedProfile = (p: MemberPersonalProfile, ownerFlag: boolean) => {
+      setRawProfile(p);
+      setIsOwner(ownerFlag);
+      setPreviewAs(ownerFlag ? 'owner' : callerAudience);
+      setPersonalAvatarDraft(p.personalAvatar ?? null);
+      setBioHeadlineDraft(p.bioHeadline || '');
+      setStoryDraft(p.storyText || '');
+      setPhoneDraft(p.phone || '');
+      setGovDraft(p.governorate || '');
+      setGenderDraft(
+        p.gender === 'male' || p.gender === 'female'
+          ? p.gender
+          : currentUserProfile?.gender === 'male'
+          ? 'male'
+          : 'female'
+      );
+      setSkillLevelDraft(p.skillLevel || 'intermediate');
+      setAssessmentScoreDraft(p.assessmentScore);
+      setVisibilityDraft(normalizeVisibilityMatrix(p.visibility));
+    };
+
+    // 1. Instant paint from cache if available (0ms perceived lag)
+    const cached = getCachedMemberPersonalProfile(targetMemberId, 'owner');
+    if (cached?.profile) {
+      applyLoadedProfile(cached.profile, cached.isOwner);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     setErrorMsg(null);
+    syncGrowthHubConfigFromCloud().catch(() => {});
+
+    // 2. Quiet background refresh
     fetchMemberPersonalProfile(targetMemberId, 'owner').then((res) => {
       if (!active) return;
       if (!res.success || !res.profile) {
-        setErrorMsg(res.error || 'تعذر تحميل الصفحة الشخصية');
-        setRawProfile(null);
-        setIsOwner(false);
+        if (!cached?.profile) {
+          setErrorMsg(res.error || 'تعذر تحميل الصفحة الشخصية');
+          setRawProfile(null);
+          setIsOwner(false);
+        }
       } else {
-        const p = res.profile;
-        setRawProfile(p);
-        setIsOwner(Boolean(res.isOwner));
-        setPreviewAs(res.isOwner ? 'owner' : callerAudience);
-        setPersonalAvatarDraft(p.personalAvatar ?? null);
-        setBioHeadlineDraft(p.bioHeadline || '');
-        setStoryDraft(p.storyText || '');
-        setPhoneDraft(p.phone || '');
-        setGovDraft(p.governorate || '');
-        setGenderDraft(
-          p.gender === 'male' || p.gender === 'female'
-            ? p.gender
-            : (currentUserProfile?.gender === 'male' ? 'male' : 'female')
-        );
-        setSkillLevelDraft(p.skillLevel || 'intermediate');
-        setAssessmentScoreDraft(p.assessmentScore);
-        setVisibilityDraft(normalizeVisibilityMatrix(p.visibility));
+        applyLoadedProfile(res.profile, Boolean(res.isOwner));
       }
       setLoading(false);
     });

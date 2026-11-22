@@ -91,17 +91,44 @@ function mapCloudCatalogRowToLocal(row: any, workshopId: string): SavedProductRe
   } as SavedProductRecord;
 }
 
+const HYDRATION_COOLDOWN_MS = 10 * 60 * 1000; // 10 دقائق
+const hydrationInFlight = new Map<string, Promise<{ productsCount: number; materialsCount: number; ordersCount: number }>>();
+
 /**
- * سحب وحقن كافة بيانات الورشة السحابية داخل Dexie المحلي (يُستخدم عند الدخول للورشة كسوبر أدمن أو فتح جهاز جديد)
+ * سحب وحقن بيانات الورشة السحابية داخل Dexie المحلي بشكل متدرج وهادئ (بدون ضغط على قاعدة البيانات)
  */
 export async function hydrateWorkshopIntoDexie(
   workshopId: string,
-  options?: { asSuperAdmin?: boolean; userEmail?: string }
+  options?: { asSuperAdmin?: boolean; userEmail?: string; force?: boolean }
 ): Promise<{ productsCount: number; materialsCount: number; ordersCount: number }> {
   if (!workshopId || workshopId === 'workshop_demo' || workshopId === '00000000-0000-0000-0000-000000000000') {
     return { productsCount: 0, materialsCount: 0, ordersCount: 0 };
   }
 
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return { productsCount: 0, materialsCount: 0, ordersCount: 0 };
+  }
+
+  const existingPromise = hydrationInFlight.get(workshopId);
+  if (existingPromise) return existingPromise;
+
+  // تخطي إعادة السحب الكامل لو اتعمل خلال آخر 10 دقائق والمحلي فيه بيانات بالفعل
+  if (!options?.force && typeof window !== 'undefined') {
+    try {
+      const lastTs = Number(sessionStorage.getItem(`alshams_hydrated_ts_${workshopId}`) || 0);
+      if (lastTs > 0 && Date.now() - lastTs < HYDRATION_COOLDOWN_MS) {
+        const [localProds, localMats] = await Promise.all([
+          db.products.where('tenantId').equals(workshopId).count().catch(() => 0),
+          db.rawMaterials.where('tenantId').equals(workshopId).count().catch(() => 0),
+        ]);
+        if (localProds > 0 || localMats > 0) {
+          return { productsCount: localProds, materialsCount: localMats, ordersCount: 0 };
+        }
+      }
+    } catch {}
+  }
+
+  const runPromise = (async () => {
   let productsRows: any[] = [];
   let marketplaceRows: any[] = [];
   let materialsRows: any[] = [];
@@ -136,15 +163,19 @@ export async function hydrateWorkshopIntoDexie(
     } catch {}
   }
 
-  // Fallback / supplement from direct Supabase queries
+  // Fallback / supplement from direct Supabase queries in gentle staggered batches (max 3 concurrent)
   try {
-    const [pRes, mktRes, matRes, ordRes, mktOrdRes, custRes, supRes, empRes, woRes] = await Promise.all([
+    const [pRes, mktRes, matRes] = await Promise.all([
       supabase.from('products').select('*').eq('workshop_id', workshopId),
       fetchWorkshopMarketplaceProducts(workshopId).catch(() => []),
       supabase.from('materials').select('*').eq('workshop_id', workshopId),
+    ]);
+    const [ordRes, mktOrdRes, custRes] = await Promise.all([
       supabase.from('orders').select('*').eq('workshop_id', workshopId),
       supabase.from('marketplace_orders').select('*').eq('workshop_id', workshopId),
       supabase.from('customers').select('*').eq('workshop_id', workshopId),
+    ]);
+    const [supRes, empRes, woRes] = await Promise.all([
       supabase.from('suppliers').select('*').eq('workshop_id', workshopId),
       supabase.from('employees').select('*').eq('workshop_id', workshopId),
       supabase.from('work_orders').select('*').eq('workshop_id', workshopId),
@@ -403,6 +434,9 @@ export async function hydrateWorkshopIntoDexie(
   }
 
   if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem(`alshams_hydrated_ts_${workshopId}`, String(Date.now()));
+    } catch {}
     window.dispatchEvent(new CustomEvent(PRODUCTS_PULLED_EVENT, { detail: { workshopId, changed: savedProducts } }));
     window.dispatchEvent(new CustomEvent('alshams_products_changed', { detail: { tenantId: workshopId, workshopId } }));
     window.dispatchEvent(new CustomEvent('alshams_materials_changed', { detail: { tenantId: workshopId } }));
@@ -410,6 +444,12 @@ export async function hydrateWorkshopIntoDexie(
   }
 
   return { productsCount: savedProducts, materialsCount: savedMaterials, ordersCount: savedOrders };
+  })().finally(() => {
+    hydrationInFlight.delete(workshopId);
+  });
+
+  hydrationInFlight.set(workshopId, runPromise);
+  return runPromise;
 }
 
 /**
@@ -698,30 +738,33 @@ export async function performQuietSync(profile: UserProfile): Promise<void> {
 }
 
 /**
- * بدء دورة المزامنة الدورية كل 30 دقيقة مع مستمع فوري لعودة الإنترنت
+ * بدء دورة المزامنة الدورية الهادئة كل 30 دقيقة مع مستمع فوري لعودة الإنترنت
  */
 export function startQuietBackgroundSync(profile: UserProfile): () => void {
   stopQuietBackgroundSync();
 
-  // تشغيل أولي هادئ بعد 5 ثوانٍ من استقرار تشغيل التطبيق
+  // تأجيل أول مزامنة خلفية لمدة 5 دقائق حتى لا تضغط على قاعدة البيانات أثناء فتح الصفحات الأولى
   const initialTimeout = setTimeout(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
     performQuietSync(profile);
-  }, 5000);
+  }, 5 * 60 * 1000);
 
-  // تكرار دوري كل 30 دقيقة
+  // تكرار دوري كل 30 دقيقة (فقط إذا كان المتصفح أونلاين والصفحة نشطة)
   syncTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
     performQuietSync(profile);
   }, QUIET_SYNC_INTERVAL_MS);
 
-  // مستمع فوري لعودة الإنترنت: تشغيل مزامنة تلقائية لحظية دون انتظار الدورة
+  // مستمع فوري لعودة الإنترنت: تشغيل مزامنة تلقائية هادئة بعد 3 ثوانٍ
   let onlineTimeout: any = null;
   const handleOnline = () => {
-    // تفريغ فوري للطابور المحلي عند عودة الإنترنت
     flushOfflineMutations().catch(() => {});
     if (onlineTimeout) clearTimeout(onlineTimeout);
     onlineTimeout = setTimeout(() => {
       performQuietSync(profile).catch(() => {});
-    }, 1000);
+    }, 3000);
   };
 
   if (typeof window !== 'undefined') {

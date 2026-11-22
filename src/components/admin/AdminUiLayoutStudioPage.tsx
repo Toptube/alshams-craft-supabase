@@ -30,6 +30,10 @@ import {
   Users,
   FileText,
   X,
+  Link2,
+  Copy,
+  Globe,
+  Search,
 } from 'lucide-react';
 import {
   ARTISAN_ACTION_CATALOG,
@@ -50,7 +54,9 @@ import {
   UiHomeCardConfig,
   UiIconShape,
   UiLayoutAudience,
+  PageUiOverrideConfig,
 } from '../../types/uiLayoutConfig';
+import { APP_PAGE_ROUTES, buildPageUrl } from '../../lib/appRoutes';
 import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
 import { AdminExperienceModePanel } from './AdminExperienceModePanel';
 import { AdminAiAssistantsPanel } from './AdminAiAssistantsPanel';
@@ -63,6 +69,7 @@ interface AdminUiLayoutStudioPageProps {
 
 type StudioSectionTab =
   | 'cards'
+  | 'pages'
   | 'navbar'
   | 'sidebar'
   | 'global_elements'
@@ -127,6 +134,9 @@ export const AdminUiLayoutStudioPage: React.FC<AdminUiLayoutStudioPageProps> = (
   const [previewClickNotice, setPreviewClickNotice] = useState<string | null>(null);
 
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
+  const [pagesSearch, setPagesSearch] = useState('');
+  const [pagesFilter, setPagesFilter] = useState<'all' | 'artisan' | 'supplier' | 'shared'>('all');
+  const [copiedRouteId, setCopiedRouteId] = useState<string | null>(null);
 
   const roleConfig: RoleUiLayoutConfig = draft[audience];
   const actionCatalog = audience === 'artisan' ? ARTISAN_ACTION_CATALOG : SUPPLIER_ACTION_CATALOG;
@@ -893,6 +903,7 @@ export const AdminUiLayoutStudioPage: React.FC<AdminUiLayoutStudioPageProps> = (
           {(
             [
               { id: 'cards', label: 'البطاقات والأزرار الداخلية', icon: LayoutGrid },
+              { id: 'pages', label: 'الصفحات والروابط', icon: Link2 },
               { id: 'navbar', label: 'القائمة العلوية (Navbar)', icon: Menu },
               { id: 'sidebar', label: 'القائمة الجانبية (Sidebar)', icon: PanelRight },
               { id: 'experience_modes', label: 'مقارنة الوضع الحرفي والمحاسبي', icon: FileText },
@@ -1932,6 +1943,226 @@ export const AdminUiLayoutStudioPage: React.FC<AdminUiLayoutStudioPageProps> = (
             }))
           }
         />
+      )}
+
+      {/* ================= TAB 7: PAGES & CLEAN LINKS CUSTOMIZER ================= */}
+      {studioTab === 'pages' && (
+        <div className="rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 sm:p-6 space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base sm:text-lg font-black flex items-center gap-2 text-[#0C1427] dark:text-[#F7F3EA]">
+                <Globe className="w-5 h-5 text-[#EA580C]" />
+                <span>إدارة صفحات المنظومة والروابط المباشرة</span>
+              </h2>
+              <p className="text-xs font-bold text-[#475569] dark:text-[#94A3B8] mt-1">
+                كل صفحة لها رابط نظيف ومستقل. تقدر تغيّر عنوان أي صفحة، تعدل أو تخفي الهيدلاين والديباجة بضغطة واحدة، وتخصص مسمى الزر الرئيسي.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  { id: 'all', label: 'الكل' },
+                  { id: 'artisan', label: 'صفحات الفنانين' },
+                  { id: 'supplier', label: 'صفحات الموردين' },
+                  { id: 'shared', label: 'المشتركة' },
+                ] as const
+              ).map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setPagesFilter(f.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer ${
+                    pagesFilter === f.id
+                      ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                      : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E]'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="relative">
+            <Search className="w-4 h-4 text-[#64748B] absolute right-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={pagesSearch}
+              onChange={(e) => setPagesSearch(e.target.value)}
+              placeholder="ابحث باسم الصفحة أو الرابط (مثل: الخزائن، الخامات، /treasuries)..."
+              className="w-full h-10 pr-10 pl-3 rounded-xl bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+            {APP_PAGE_ROUTES.filter((r) => {
+              if (pagesFilter !== 'all' && r.audience !== pagesFilter) return false;
+              if (!pagesSearch.trim()) return true;
+              const q = pagesSearch.trim().toLowerCase();
+              return (
+                r.defaultTitle.toLowerCase().includes(q) ||
+                r.path.toLowerCase().includes(q) ||
+                r.viewId.toLowerCase().includes(q)
+              );
+            }).map((route) => {
+              const ov: PageUiOverrideConfig = draft.pageOverrides?.[route.viewId] || {};
+              const updatePageOverride = (patch: Partial<PageUiOverrideConfig>) => {
+                setDraft((prev) => {
+                  const nextMap = { ...(prev.pageOverrides || {}) };
+                  const merged: PageUiOverrideConfig = {
+                    ...(nextMap[route.viewId] || {}),
+                    ...patch,
+                  };
+                  if (
+                    !merged.title?.trim() &&
+                    !merged.subtitle?.trim() &&
+                    !merged.hideSubtitle &&
+                    !merged.primaryButtonLabel?.trim()
+                  ) {
+                    delete nextMap[route.viewId];
+                  } else {
+                    nextMap[route.viewId] = merged;
+                  }
+                  return {
+                    ...prev,
+                    pageOverrides: nextMap,
+                    updatedAt: new Date().toISOString(),
+                  };
+                });
+              };
+
+              const fullUrl = buildPageUrl(route.viewId);
+
+              return (
+                <div
+                  key={route.viewId}
+                  className="rounded-2xl bg-white dark:bg-[#101B36] border border-[#D4CCBC] dark:border-[#22355E] p-4 space-y-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                          {ov.title || route.defaultTitle}
+                        </span>
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-[#EFE9DC] dark:bg-[#1C2A4A] text-[#475569] dark:text-[#CBD5E1]">
+                          {route.audience === 'artisan'
+                            ? 'فنانين'
+                            : route.audience === 'supplier'
+                              ? 'موردين'
+                              : route.audience === 'admin'
+                                ? 'إدارة'
+                                : 'مشتركة'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-1" dir="ltr">
+                        <code className="text-[11px] font-mono font-bold text-[#EA580C] dark:text-[#FBBF24] bg-[#EA580C]/10 px-2 py-0.5 rounded-md">
+                          {route.path}
+                        </code>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(fullUrl);
+                            setCopiedRouteId(route.viewId);
+                            setTimeout(() => setCopiedRouteId(null), 1800);
+                          } catch {}
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#1C2A4A] hover:border-[#EA580C] border border-transparent text-[11px] font-black inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiedRouteId === route.viewId ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                        <span>{copiedRouteId === route.viewId ? 'تم النسخ' : 'نسخ الرابط'}</span>
+                      </button>
+
+                      {(ov.title || ov.subtitle || ov.hideSubtitle || ov.primaryButtonLabel) && (
+                        <button
+                          type="button"
+                          title="استعادة افتراضي الصفحة"
+                          onClick={() =>
+                            updatePageOverride({
+                              title: '',
+                              subtitle: '',
+                              hideSubtitle: false,
+                              primaryButtonLabel: '',
+                            })
+                          }
+                          className="p-1.5 rounded-xl text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 border border-[#D4CCBC] dark:border-[#22355E] cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-black text-[#475569] dark:text-[#94A3B8]">
+                        عنوان الصفحة
+                      </label>
+                      <input
+                        type="text"
+                        value={ov.title || ''}
+                        placeholder={route.defaultTitle}
+                        onChange={(e) => updatePageOverride({ title: e.target.value })}
+                        className="w-full h-9 px-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-black text-[#475569] dark:text-[#94A3B8]">
+                        تسمية الزر الرئيسي (اختياري)
+                      </label>
+                      <input
+                        type="text"
+                        value={ov.primaryButtonLabel || ''}
+                        placeholder="مثل: إضافة جديد / تسجيل حركة"
+                        onChange={(e) => updatePageOverride({ primaryButtonLabel: e.target.value })}
+                        className="w-full h-9 px-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-[11px] font-black text-[#475569] dark:text-[#94A3B8]">
+                        الوصف / الهيدلاين تحت العنوان
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => updatePageOverride({ hideSubtitle: !ov.hideSubtitle })}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black inline-flex items-center gap-1 cursor-pointer border ${
+                          ov.hideSubtitle
+                            ? 'bg-rose-600 text-white border-rose-600'
+                            : 'bg-[#EFE9DC] dark:bg-[#1C2A4A] text-[#334155] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E]'
+                        }`}
+                      >
+                        {ov.hideSubtitle ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <span>{ov.hideSubtitle ? 'مخفي (بدون ديباجة)' : 'إخفاء الهيدلاين والديباجة'}</span>
+                      </button>
+                    </div>
+                    {!ov.hideSubtitle && (
+                      <input
+                        type="text"
+                        value={ov.subtitle || ''}
+                        placeholder={route.defaultSubtitle || 'وصف مختصر للصفحة...'}
+                        onChange={(e) => updatePageOverride({ subtitle: e.target.value })}
+                        className="w-full h-9 px-3 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );

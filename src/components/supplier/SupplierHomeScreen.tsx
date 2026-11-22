@@ -39,6 +39,7 @@ import {
   Truck,
 } from 'lucide-react';
 import { SupplierGrowthToolsPanel } from '../growth/SupplierGrowthToolsPanel';
+import { WorkshopGuidanceModal, GuidanceMode } from '../home/WorkshopGuidanceModal';
 import { GrowthHubConfig, getStoredGrowthHubConfig } from '../../types/artisanGrowth';
 import { syncGrowthHubConfigFromCloud } from '../../db/memberProfileService';
 
@@ -99,6 +100,8 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeSubCard, setActiveSubCard] = useState<UiHomeCardConfig | null>(null);
   const [supplierGrowthOpen, setSupplierGrowthOpen] = useState(false);
+  const [guidanceOpen, setGuidanceOpen] = useState(false);
+  const [guidanceMode, setGuidanceMode] = useState<GuidanceMode>('start');
   const [growthConfig, setGrowthConfig] = useState<GrowthHubConfig>(() => getStoredGrowthHubConfig());
 
   useEffect(() => {
@@ -182,6 +185,14 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
       case 'sup_executive_brief':
         onNavigateToExecutiveBrief?.();
         break;
+      case 'sup_guide_start':
+        setGuidanceMode('start');
+        setGuidanceOpen(true);
+        break;
+      case 'sup_guide_daily':
+        setGuidanceMode('daily');
+        setGuidanceOpen(true);
+        break;
       case 'sup_erp_hub':
         onNavigateToErpHub?.();
         break;
@@ -238,6 +249,12 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
         return erpOverview
           ? `${Number(erpOverview.kpis.totalCashOnHand).toLocaleString()} ${currencySymbol}`
           : 'ملخص فوري';
+      case 'sup_guide_start':
+      case 'supplier_start_guide':
+        return '4 خطوات سهلة';
+      case 'sup_guide_daily':
+      case 'supplier_daily_guide':
+        return 'روتين اليوم';
       case 'sup_erp_hub':
       case 'erp_hub':
         return `${erpOverview?.branches?.length || 1} فرع نشط`;
@@ -789,6 +806,15 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
         catalog={catalog}
         customers={customers}
         orders={orders}
+      />
+
+      {/* نافذة دليل البداية والروتين اليومي للموردين */}
+      <WorkshopGuidanceModal
+        isOpen={guidanceOpen}
+        onClose={() => setGuidanceOpen(false)}
+        audience="supplier"
+        initialMode={guidanceMode}
+        onExecuteAction={executeSupplierAction}
       />
     </div>
   );

@@ -25,9 +25,68 @@ export function resolveAudienceRoleFromUser(profile?: UserProfile | null): Audie
   return 'customers';
 }
 
-export async function fetchMemberPersonalProfile(
+const PROFILE_CACHE_TTL_MS = 2 * 60 * 1000;
+const memberProfileMemCache = new Map<
+  string,
+  { expiresAt: number; profile: MemberPersonalProfile; isOwner: boolean }
+>();
+const memberProfileInFlight = new Map<
+  string,
+  Promise<{
+    success: boolean;
+    profile?: MemberPersonalProfile;
+    isOwner?: boolean;
+    error?: string;
+  }>
+>();
+
+function makeProfileCacheKey(memberId: string, viewerRole: string): string {
+  return `${memberId.trim().toLowerCase()}::${viewerRole}`;
+}
+
+export function getCachedMemberPersonalProfile(
   memberId: string,
   viewerRole: AudienceRole | 'owner' = 'customers'
+): { profile: MemberPersonalProfile; isOwner: boolean } | null {
+  if (!memberId) return null;
+  const key = makeProfileCacheKey(memberId, viewerRole);
+  const mem = memberProfileMemCache.get(key);
+  if (mem) return { profile: mem.profile, isOwner: mem.isOwner };
+
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = sessionStorage.getItem(`alshams_mp_cache_${key}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.profile) {
+          return { profile: parsed.profile, isOwner: Boolean(parsed.isOwner) };
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+export function invalidateMemberProfileCache(memberId?: string): void {
+  if (!memberId) {
+    memberProfileMemCache.clear();
+    return;
+  }
+  const prefix = `${memberId.trim().toLowerCase()}::`;
+  for (const k of Array.from(memberProfileMemCache.keys())) {
+    if (k.startsWith(prefix)) {
+      memberProfileMemCache.delete(k);
+      try {
+        sessionStorage.removeItem(`alshams_mp_cache_${k}`);
+      } catch {}
+    }
+  }
+}
+
+export async function fetchMemberPersonalProfile(
+  memberId: string,
+  viewerRole: AudienceRole | 'owner' = 'customers',
+  options?: { force?: boolean }
 ): Promise<{
   success: boolean;
   profile?: MemberPersonalProfile;
@@ -35,15 +94,25 @@ export async function fetchMemberPersonalProfile(
   error?: string;
 }> {
   if (!memberId) return { success: false, error: 'معرف العضو غير متوفر' };
-  try {
-    const res = await authedFetch(
-      `/api/member-profile/${encodeURIComponent(memberId)}?viewerRole=${encodeURIComponent(viewerRole)}`
-    );
-    const json = await res.json().catch(() => ({}));
-    if (res.ok && json?.profile) {
-      return {
-        success: true,
-        profile: {
+  const key = makeProfileCacheKey(memberId, viewerRole);
+
+  if (!options?.force) {
+    const mem = memberProfileMemCache.get(key);
+    if (mem && mem.expiresAt > Date.now()) {
+      return { success: true, profile: mem.profile, isOwner: mem.isOwner };
+    }
+    const existing = memberProfileInFlight.get(key);
+    if (existing) return existing;
+  }
+
+  const reqPromise = (async () => {
+    try {
+      const res = await authedFetch(
+        `/api/member-profile/${encodeURIComponent(memberId)}?viewerRole=${encodeURIComponent(viewerRole)}`
+      );
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json?.profile) {
+        const normalizedProfile: MemberPersonalProfile = {
           ...json.profile,
           visibility: normalizeVisibilityMatrix(json.profile.visibility),
           showcasePosts: Array.isArray(json.profile.showcasePosts)
@@ -51,14 +120,37 @@ export async function fetchMemberPersonalProfile(
             : [],
           trainerPosts: Array.isArray(json.profile.trainerPosts) ? json.profile.trainerPosts : [],
           craftsLabels: Array.isArray(json.profile.craftsLabels) ? json.profile.craftsLabels : [],
-        },
-        isOwner: Boolean(json.isOwner),
-      };
+        };
+        const isOwnerFlag = Boolean(json.isOwner);
+        memberProfileMemCache.set(key, {
+          expiresAt: Date.now() + PROFILE_CACHE_TTL_MS,
+          profile: normalizedProfile,
+          isOwner: isOwnerFlag,
+        });
+        if (typeof window !== 'undefined') {
+          try {
+            sessionStorage.setItem(
+              `alshams_mp_cache_${key}`,
+              JSON.stringify({ profile: normalizedProfile, isOwner: isOwnerFlag })
+            );
+          } catch {}
+        }
+        return {
+          success: true,
+          profile: normalizedProfile,
+          isOwner: isOwnerFlag,
+        };
+      }
+      return { success: false, error: json?.error || 'تعذر تحميل الملف الشخصي' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'حدث خطأ في الاتصال' };
+    } finally {
+      memberProfileInFlight.delete(key);
     }
-    return { success: false, error: json?.error || 'تعذر تحميل الملف الشخصي' };
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'حدث خطأ في الاتصال' };
-  }
+  })();
+
+  memberProfileInFlight.set(key, reqPromise);
+  return reqPromise;
 }
 
 export async function saveMemberPersonalProfile(payload: {
@@ -85,6 +177,7 @@ export async function saveMemberPersonalProfile(payload: {
     });
     const json = await res.json().catch(() => ({}));
     if (res.ok && json?.success && json?.profile) {
+      invalidateMemberProfileCache();
       return {
         success: true,
         profile: {

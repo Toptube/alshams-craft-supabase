@@ -9,6 +9,8 @@ import {
   Trash2,
   Users,
   MessageSquare,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
 import {
   LessonLayoutBlockConfig,
@@ -25,6 +27,10 @@ import { playButtonClickSound, playSuccessSound } from '../../lib/sounds';
 interface DetectedVideoMeta {
   orientation: 'portrait' | 'landscape' | 'square';
   aspectRatio: number;
+  embedUrl?: string;
+  resolvedUrl?: string;
+  thumbnailUrl?: string;
+  title?: string;
 }
 
 const videoMetaClientCache = new Map<string, DetectedVideoMeta>();
@@ -69,6 +75,8 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
   const [cinemaOpen, setCinemaOpen] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [playerActivated, setPlayerActivated] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [layoutBlocks, setLayoutBlocks] = useState<LessonLayoutBlockConfig[]>(() =>
     layoutBlocksOverride || getEffectiveLessonLayoutBlocks()
   );
@@ -82,6 +90,10 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
   });
 
   useEffect(() => {
+    setIframeLoaded(false);
+  }, [url]);
+
+  useEffect(() => {
     if (layoutBlocksOverride) {
       setLayoutBlocks(layoutBlocksOverride);
       return;
@@ -92,11 +104,8 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
     return () => window.removeEventListener('alshams_growth_config_updated', syncLayout);
   }, [layoutBlocksOverride]);
 
-  // Auto-detect real natural orientation & aspect ratio for YouTube/Vimeo/etc. (even long vertical watch?v= videos!)
+  // Resolve short TikTok/Facebook URLs + detect true aspect ratio & thumbnail via /api/utils/video-meta
   useEffect(() => {
-    if (videoOrientation && videoOrientation !== 'auto') {
-      return;
-    }
     const target = parsed.originalUrl;
     if (!target || !/^https?:\/\//i.test(target)) return;
 
@@ -107,16 +116,24 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
       return;
     }
 
-    // If URL is already obviously vertical (Shorts/TikTok/Reels/Pinterest), set immediately
-    if (parsed.isVertical) {
+    const mustResolve =
+      Boolean(parsed.needsResolve) ||
+      parsed.platform === 'tiktok' ||
+      parsed.platform === 'facebook';
+
+    if (!mustResolve && videoOrientation && videoOrientation !== 'auto') {
+      return;
+    }
+
+    if (!mustResolve && parsed.isVertical) {
       const immediate: DetectedVideoMeta = { orientation: 'portrait', aspectRatio: 9 / 16 };
       videoMetaClientCache.set(cacheKey, immediate);
       setDetectedMeta(immediate);
       return;
     }
 
-    // Fetch true dimensions from our free server-side video-meta endpoint
     let cancelled = false;
+    setResolving(true);
     fetch(`/api/utils/video-meta?url=${encodeURIComponent(target)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -124,6 +141,8 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
         const orient =
           data.orientation === 'portrait' || data.orientation === 'square' || data.orientation === 'landscape'
             ? data.orientation
+            : parsed.isVertical
+            ? 'portrait'
             : 'landscape';
         const ratio =
           typeof data.aspectRatio === 'number' && data.aspectRatio > 0.25 && data.aspectRatio < 4
@@ -133,16 +152,29 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
             : orient === 'square'
             ? 1
             : 16 / 9;
-        const next: DetectedVideoMeta = { orientation: orient, aspectRatio: ratio };
+        const next: DetectedVideoMeta = {
+          orientation: orient,
+          aspectRatio: ratio,
+          embedUrl: typeof data.embedUrl === 'string' && data.embedUrl ? data.embedUrl : undefined,
+          resolvedUrl: typeof data.resolvedUrl === 'string' && data.resolvedUrl ? data.resolvedUrl : undefined,
+          thumbnailUrl: typeof data.thumbnailUrl === 'string' && data.thumbnailUrl ? data.thumbnailUrl : undefined,
+          title: typeof data.title === 'string' && data.title ? data.title : undefined,
+        };
         videoMetaClientCache.set(cacheKey, next);
         setDetectedMeta(next);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setResolving(false);
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [parsed.originalUrl, parsed.isVertical, videoOrientation]);
+  }, [parsed.originalUrl, parsed.isVertical, parsed.needsResolve, parsed.platform, videoOrientation]);
+
+  const effectiveEmbedUrl = detectedMeta?.embedUrl || parsed.embedUrl || '';
+  const effectiveOpenUrl = detectedMeta?.resolvedUrl || parsed.originalUrl;
 
   const effectiveOrientation: 'portrait' | 'landscape' | 'square' = useMemo(() => {
     if (videoOrientation && videoOrientation !== 'auto') return videoOrientation;
@@ -228,6 +260,18 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
       ? undefined
       : { aspectRatio: String(effectiveAspectRatio) };
 
+  // Lightweight preview thumbnail (YouTube auto-thumb or TikTok oEmbed thumb) so profile scrolls at 60fps
+  const previewThumb = useMemo(() => {
+    if (detectedMeta?.thumbnailUrl) return detectedMeta.thumbnailUrl;
+    if (parsed.platform === 'youtube') {
+      const m =
+        parsed.originalUrl.match(/(?:v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/) ||
+        parsed.originalUrl.match(/([A-Za-z0-9_-]{11})/);
+      if (m?.[1]) return `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`;
+    }
+    return '';
+  }, [detectedMeta?.thumbnailUrl, parsed.platform, parsed.originalUrl]);
+
   const renderBlock = (blockId: LessonLayoutBlockConfig['id']) => {
     switch (blockId) {
       case 'header_bar':
@@ -253,11 +297,6 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
                   </span>
                 </span>
               )}
-              {isPortrait && (
-                <span className="hidden sm:inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-black/10 dark:bg-white/10 text-[#475569] dark:text-[#CBD5E1]">
-                  طولي 9:16
-                </span>
-              )}
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
@@ -268,18 +307,32 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
                 </span>
               )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  playButtonClickSound();
-                  setCinemaOpen(true);
-                }}
-                title="عرض ملء الشاشة داخل المنظومة"
-                className="px-2.5 py-1.5 rounded-lg bg-[#0C1427] hover:bg-[#1E293B] dark:bg-[#1A2B54] dark:hover:bg-[#22355E] text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition"
+              {effectiveEmbedUrl && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    setPlayerActivated(true);
+                    setCinemaOpen(true);
+                  }}
+                  title="عرض ملء الشاشة داخل المنظومة"
+                  className="px-2.5 py-1.5 rounded-lg bg-[#0C1427] hover:bg-[#1E293B] dark:bg-[#1A2B54] dark:hover:bg-[#22355E] text-white text-[11px] font-black inline-flex items-center gap-1 cursor-pointer transition"
+                >
+                  <Maximize2 className="w-3 h-3 text-[#FBBF24]" />
+                  <span>ملء الشاشة</span>
+                </button>
+              )}
+
+              <a
+                href={effectiveOpenUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="فتح الفيديو على المنصة الأصلية"
+                className="px-2.5 py-1.5 rounded-lg bg-[#E9E2D4] hover:bg-[#DDD4C2] dark:bg-[#1A2B54] dark:hover:bg-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-[11px] font-black inline-flex items-center gap-1 transition"
               >
-                <Maximize2 className="w-3 h-3 text-[#FBBF24]" />
-                <span>ملء الشاشة</span>
-              </button>
+                <ExternalLink className="w-3 h-3" />
+                <span className="hidden sm:inline">المصدر</span>
+              </a>
 
               <button
                 type="button"
@@ -308,36 +361,108 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
       case 'media':
         return (
           <div key="media" className="bg-[#060B18] relative w-full overflow-hidden flex justify-center">
-            {!iframeLoaded && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[#CBD5E1] pointer-events-none z-10">
-                <div className="w-11 h-11 rounded-full bg-[#EA580C]/20 border border-[#EA580C]/50 flex items-center justify-center">
-                  <Play className="w-5 h-5 text-[#FBBF24] fill-current" />
+            {!playerActivated ? (
+              <div
+                className={`${frameBoxClass} relative flex flex-col items-center justify-center cursor-pointer group overflow-hidden`}
+                style={frameInlineStyle || { minHeight: '280px' }}
+                onClick={() => {
+                  playButtonClickSound();
+                  setPlayerActivated(true);
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setPlayerActivated(true);
+                  }
+                }}
+              >
+                {previewThumb ? (
+                  <img
+                    src={previewThumb}
+                    alt={title || meta.label}
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-300"
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#0D162E] via-[#132040] to-[#060B18]" />
+                )}
+                <div className="absolute inset-0 bg-black/35 group-hover:bg-black/25 transition-colors" />
+                <div className="relative z-10 flex flex-col items-center gap-2.5 text-center px-4">
+                  <div
+                    className="w-14 h-14 rounded-full flex items-center justify-center shadow-xl border-2 border-white/80 group-hover:scale-110 transition-transform"
+                    style={{ backgroundColor: meta.color }}
+                  >
+                    {resolving ? (
+                      <Loader2 className="w-6 h-6 text-white animate-spin" />
+                    ) : (
+                      <Play className="w-6 h-6 text-white fill-current mr-[-2px]" />
+                    )}
+                  </div>
+                  <span className="text-xs font-black text-white bg-black/60 px-3 py-1 rounded-full">
+                    {resolving ? 'جاري تجهيز رابط الفيديو...' : `اضغط لتشغيل فيديو ${meta.label}`}
+                  </span>
                 </div>
-                <span className="text-xs font-bold">جاري استدعاء المشغل داخل المنظومة...</span>
               </div>
-            )}
+            ) : resolving && !effectiveEmbedUrl ? (
+              <div
+                className={`${frameBoxClass} flex flex-col items-center justify-center gap-2 text-[#CBD5E1] py-16`}
+                style={frameInlineStyle}
+              >
+                <Loader2 className="w-7 h-7 text-[#FBBF24] animate-spin" />
+                <span className="text-xs font-bold">جاري استدعاء الفيديو من {meta.label}...</span>
+              </div>
+            ) : !effectiveEmbedUrl ? (
+              <div
+                className={`${frameBoxClass} flex flex-col items-center justify-center gap-3 text-center p-6 text-[#CBD5E1]`}
+                style={{ minHeight: '220px' }}
+              >
+                <p className="text-xs font-bold leading-relaxed max-w-xs">
+                  هذا الرابط من {meta.label} مختصر أو مقيد العرض داخل المتصفح — يمكنك فتحه مباشرة في التطبيق الأصلي.
+                </p>
+                <a
+                  href={effectiveOpenUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center gap-1.5 transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>فتح الفيديو الآن</span>
+                </a>
+              </div>
+            ) : (
+              <>
+                {!iframeLoaded && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[#CBD5E1] pointer-events-none z-10">
+                    <Loader2 className="w-6 h-6 text-[#FBBF24] animate-spin" />
+                    <span className="text-xs font-bold">جاري تشغيل المشغل...</span>
+                  </div>
+                )}
 
-            <div className={frameBoxClass} style={frameInlineStyle}>
-              <iframe
-                src={parsed.embedUrl}
-                title={title || meta.label}
-                onLoad={() => setIframeLoaded(true)}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-                allowFullScreen
-                loading="lazy"
-                referrerPolicy="strict-origin-when-cross-origin"
-                className="w-full h-full border-0 bg-[#060B18]"
-              />
-            </div>
+                <div className={frameBoxClass} style={frameInlineStyle}>
+                  <iframe
+                    src={effectiveEmbedUrl}
+                    title={title || detectedMeta?.title || meta.label}
+                    onLoad={() => setIframeLoaded(true)}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+                    allowFullScreen
+                    loading="lazy"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    className="w-full h-full border-0 bg-[#060B18]"
+                  />
+                </div>
+              </>
+            )}
           </div>
         );
 
       case 'title':
-        if (!title) return null;
+        if (!title && !detectedMeta?.title) return null;
         return (
           <div key="title" className={`px-4 ${compact ? 'pt-2.5 pb-1' : 'pt-3.5 pb-1'}`}>
             <h4 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA] leading-snug">
-              {title}
+              {title || detectedMeta?.title}
             </h4>
           </div>
         );
@@ -359,9 +484,15 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
             key="footer_actions"
             className="px-4 py-2.5 border-t border-[#D4CCBC]/70 dark:border-[#22355E] flex items-center justify-between gap-2 bg-[#EFE9DC]/40 dark:bg-[#132040]/40"
           >
-            <span className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
-              يعمل بالكامل داخل شاشات منظومة الشمساوية بأبعاده الطبيعية وبملء الشاشة
-            </span>
+            <a
+              href={effectiveOpenUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8] hover:text-[#EA580C] inline-flex items-center gap-1"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>لو الفيديو لم يعمل اضغط لفتحه مباشرة</span>
+            </a>
             <button
               type="button"
               onClick={onShareToFamily}
@@ -428,8 +559,8 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
               style={{ aspectRatio: String(effectiveAspectRatio) }}
             >
               <iframe
-                src={parsed.embedUrl}
-                title={title || meta.label}
+                src={effectiveEmbedUrl}
+                title={title || detectedMeta?.title || meta.label}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
                 allowFullScreen
                 referrerPolicy="strict-origin-when-cross-origin"

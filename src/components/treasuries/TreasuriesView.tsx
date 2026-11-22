@@ -284,7 +284,7 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
 
       setSuccessNotice(`تم تحصيل ${val.toLocaleString()} ${currency} وإيداعها في الخزينة بنجاح!`);
       setCollectingOrder(null);
-      await loadTreasuryData(true);
+      await loadTreasuryData(true, true);
       const orders = await tenantStorage.getOrders(workshopId);
       const unpaid = orders.filter((o) => (o.remainingAmount || 0) > 0 && o.status !== 'cancelled');
       setCustomerReceivables(unpaid);
@@ -297,35 +297,71 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
     }
   };
 
-  // Broadcast treasury updates to Trial Balance and all reports immediately
+  // Refs to prevent concurrent request storms and self-triggered event loops
+  const isFetchingRef = useRef<boolean>(false);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastBroadcastTsRef = useRef<number>(0);
+
+  // Broadcast treasury updates to Trial Balance and other views ONLY after actual mutations
   const broadcastTreasuryUpdate = (balances: SupabaseTreasuryBalance[]) => {
     if (!workshopId) return;
+    lastBroadcastTsRef.current = Date.now();
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('alshams_treasury_updated', {
-          detail: { workshopId, balances, timestamp: Date.now() },
+          detail: { workshopId, balances, source: 'treasuries_view', timestamp: Date.now() },
         })
       );
       window.dispatchEvent(
         new CustomEvent('alshams_financials_updated', {
-          detail: { workshopId, balances, timestamp: Date.now() },
+          detail: { workshopId, balances, source: 'treasuries_view', timestamp: Date.now() },
         })
       );
     }
   };
 
-  // Load balances from Supabase & local alerts/categories
-  const loadTreasuryData = async (isManualRefresh = false) => {
+  // Load balances from Supabase with instant local Dexie hydration + single-flight guard
+  const loadTreasuryData = async (isManualRefresh = false, shouldBroadcast = false) => {
     if (!workshopId) return;
+    if (isFetchingRef.current && !isManualRefresh) return;
+    isFetchingRef.current = true;
+
     if (isManualRefresh) setRefreshing(true);
     else setLoading(true);
     setErrorNotice(null);
 
+    // 1. Instant local fallback so the screen never gets stuck on a spinner if cloud is slow/offline
+    if (!isManualRefresh && treasuryBalances.length === 0) {
+      try {
+        const localSafe = await tenantStorage.getSafeBalances(workshopId);
+        if (localSafe && (localSafe.mainSafe || localSafe.subSafe)) {
+          setTreasuryBalances([
+            {
+              id: 'local_main_preview',
+              workshop_id: workshopId,
+              name: 'الخزينة الرئيسية',
+              kind: 'main',
+              is_main: true,
+              status: 'open',
+              balance: Number(localSafe.mainSafe || 0),
+              cash: Number(localSafe.mainSafe || 0),
+              wallet: 0,
+              instapay: 0,
+            } as SupabaseTreasuryBalance,
+          ]);
+          setLoading(false);
+        }
+      } catch {}
+    }
+
     try {
-      const { data, error } = await getTreasuryBalancesFromSupabase(workshopId);
+      const { data, error } = await getTreasuryBalancesFromSupabase(workshopId, isManualRefresh || shouldBroadcast);
       if (error) {
-        setErrorNotice(error.arabicMessage);
+        // Show calm notice only if we truly have no balances to display or user manually refreshed
+        if (isManualRefresh || treasuryBalances.length === 0) {
+          setErrorNotice(error.arabicMessage);
+        }
       } else {
         const balances = data || [];
         setTreasuryBalances(balances);
@@ -340,15 +376,31 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
           setMinAlerts((prev) => ({ ...prev, ...dbAlerts }));
         }
 
-        // Broadcast to Trial Balance and all reports immediately
-        broadcastTreasuryUpdate(balances);
+        // Only broadcast outward when a mutation occurred — NEVER on passive read (prevents infinite loops!)
+        if (shouldBroadcast) {
+          broadcastTreasuryUpdate(balances);
+        }
       }
     } catch (err: any) {
-      setErrorNotice(err?.message || 'تعذر تحميل بيانات الخزن');
+      if (isManualRefresh || treasuryBalances.length === 0) {
+        setErrorNotice(err?.message || 'تعذر تحميل بيانات الخزن');
+      }
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
       setRefreshing(false);
     }
+  };
+
+  const scheduleExternalRefresh = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(async () => {
+      try {
+        const txs = await tenantStorage.getSafeTransactions(workshopId);
+        setSafeTransactions(txs);
+      } catch {}
+      loadTreasuryData(true, false);
+    }, 700);
   };
 
   const loadLocalSettings = async () => {
@@ -356,28 +408,29 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
     setMinAlerts(getAllMinBalanceAlerts(workshopId));
     setCategories(getTreasuryCategories(workshopId));
     try {
-      const synced = await fetchAndSyncSupabaseCategories(workshopId);
-      if (synced && synced.length > 0) {
-        setCategories(synced);
-      }
-    } catch (e) {}
-
-    // Load payment reminders and safe transactions for 30-day analytics
-    try {
-      const rems = await tenantStorage.getPaymentReminders(workshopId);
+      const [rems, txs] = await Promise.all([
+        tenantStorage.getPaymentReminders(workshopId).catch(() => []),
+        tenantStorage.getSafeTransactions(workshopId).catch(() => []),
+      ]);
       setPaymentReminders(rems);
-      const txs = await tenantStorage.getSafeTransactions(workshopId);
       setSafeTransactions(txs);
-    } catch (e) {}
+    } catch {}
+
+    // Quiet background categories sync without blocking UI
+    fetchAndSyncSupabaseCategories(workshopId)
+      .then((synced) => {
+        if (synced && synced.length > 0) setCategories(synced);
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
     if (!workshopId) return;
 
-    loadTreasuryData();
+    loadTreasuryData(false, false);
     loadLocalSettings();
 
-    // Attach Supabase real-time listener for instant multi-tab & multi-device balance updates
+    // Attach Supabase real-time listener (debounced to prevent bursts)
     const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const realtimeChannel = supabase
       .channel(`treasuries_realtime_${workshopId}_${uniqueSuffix}`)
@@ -385,14 +438,14 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
         'postgres_changes',
         { event: '*', schema: 'public', table: 'treasuries', filter: `workshop_id=eq.${workshopId}` },
         () => {
-          loadTreasuryData(true);
+          scheduleExternalRefresh();
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'safe_transactions', filter: `workshop_id=eq.${workshopId}` },
         () => {
-          loadTreasuryData(true);
+          scheduleExternalRefresh();
         }
       )
       .subscribe();
@@ -403,29 +456,30 @@ export const TreasuriesView: React.FC<TreasuriesViewProps> = ({
       try {
         const rems = await tenantStorage.getPaymentReminders(workshopId);
         setPaymentReminders(rems);
-      } catch (e) {}
+      } catch {}
     };
-    const handleFinancialsUpdated = async () => {
-      try {
-        const txs = await tenantStorage.getSafeTransactions(workshopId);
-        setSafeTransactions(txs);
-        loadTreasuryData(true);
-      } catch (e) {}
+    const handleExternalFinancialsUpdated = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      // Ignore our own broadcasts or bursts within 1s of our own broadcast
+      if (detail?.source === 'treasuries_view') return;
+      if (Date.now() - lastBroadcastTsRef.current < 1000) return;
+      scheduleExternalRefresh();
     };
 
     window.addEventListener('alshams_treasury_categories_updated', handleCatsUpdated);
     window.addEventListener('alshams_treasury_alerts_updated', handleAlertsUpdated);
     window.addEventListener('alshams_payment_reminders_changed', handleRemindersUpdated);
-    window.addEventListener('alshams_financials_updated', handleFinancialsUpdated);
-    window.addEventListener('alshams_treasury_updated', handleFinancialsUpdated);
+    window.addEventListener('alshams_financials_updated', handleExternalFinancialsUpdated);
+    window.addEventListener('alshams_treasury_updated', handleExternalFinancialsUpdated);
 
     return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       supabase.removeChannel(realtimeChannel).catch(() => {});
       window.removeEventListener('alshams_treasury_categories_updated', handleCatsUpdated);
       window.removeEventListener('alshams_treasury_alerts_updated', handleAlertsUpdated);
       window.removeEventListener('alshams_payment_reminders_changed', handleRemindersUpdated);
-      window.removeEventListener('alshams_financials_updated', handleFinancialsUpdated);
-      window.removeEventListener('alshams_treasury_updated', handleFinancialsUpdated);
+      window.removeEventListener('alshams_financials_updated', handleExternalFinancialsUpdated);
+      window.removeEventListener('alshams_treasury_updated', handleExternalFinancialsUpdated);
     };
   }, [workshopId]);
 

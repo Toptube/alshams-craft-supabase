@@ -47,6 +47,7 @@ import {
   Briefcase,
   ShieldCheck,
   HeartHandshake,
+  Rocket,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { PlatformExperienceModeConfig } from './experienceMode';
@@ -109,6 +110,7 @@ export const UI_ICON_OPTIONS: UiIconOption[] = [
   { key: 'Briefcase', label: 'إدارة', Icon: Briefcase },
   { key: 'ShieldCheck', label: 'اعتماد', Icon: ShieldCheck },
   { key: 'HeartHandshake', label: 'شراكة', Icon: HeartHandshake },
+  { key: 'Rocket', label: 'ابدأ / انطلاق', Icon: Rocket },
 ];
 
 export const UI_ICON_MAP: Record<string, LucideIcon> = UI_ICON_OPTIONS.reduce(
@@ -261,6 +263,8 @@ export interface UiActionCatalogEntry {
 
 export const ARTISAN_ACTION_CATALOG: UiActionCatalogEntry[] = [
   { actionKey: 'open_executive_brief', defaultLabel: 'هلخصهالك 📋', defaultIcon: 'FileText', audience: 'artisan', description: 'شاشة هلخصهالك (المدير المالي والمخزني)' },
+  { actionKey: 'open_guide_start', defaultLabel: 'نبدأ ورشتنا', defaultIcon: 'Rocket', audience: 'artisan', description: 'دليل البداية السريعة للورشة في 4 خطوات سهلة' },
+  { actionKey: 'open_guide_daily', defaultLabel: 'يومك في الورشة', defaultIcon: 'Sun', audience: 'artisan', description: 'دليل الشغل اليومي: مشتريات، مصروفات، إنتاج، مبيعات' },
   { actionKey: 'nav_unified_materials', defaultLabel: 'منظومة الخامات الموحدة (الذكية)', defaultIcon: 'Sparkles', audience: 'artisan', description: 'دليل الأكواد الموحدة والبحث والاستيراد وإضافة الأصناف الجديدة' },
   { actionKey: 'modal_new_material', defaultLabel: 'إضافة خامة جديدة', defaultIcon: 'PlusCircle', audience: 'artisan', description: 'نافذة إضافة خامة جديدة' },
   { actionKey: 'nav_materials', defaultLabel: 'أرصدة وبطاقات الخامات', defaultIcon: 'Layers', audience: 'artisan', description: 'صفحة الخامات والمخزون' },
@@ -304,6 +308,8 @@ export const ARTISAN_ACTION_CATALOG: UiActionCatalogEntry[] = [
 
 export const SUPPLIER_ACTION_CATALOG: UiActionCatalogEntry[] = [
   { actionKey: 'sup_executive_brief', defaultLabel: 'هلخصهالك للموردين 📋', defaultIcon: 'FileText', audience: 'supplier', description: 'ملخص السيولة والفروع والمديونيات والمخزون' },
+  { actionKey: 'sup_guide_start', defaultLabel: 'نبدأ متجرنا', defaultIcon: 'Rocket', audience: 'supplier', description: 'دليل البداية السريعة للمورد في 4 خطوات' },
+  { actionKey: 'sup_guide_daily', defaultLabel: 'يومك في التوريد', defaultIcon: 'Sun', audience: 'supplier', description: 'دليل الشغل اليومي للكاشير والطلبات والمخازن' },
   { actionKey: 'sup_erp_hub', defaultLabel: 'مركز قيادة الفروع والخزينة (ERP)', defaultIcon: 'GitBranch', audience: 'supplier', description: 'شجرة الفروع والمخزن المركزي والتوريدات' },
   { actionKey: 'sup_pos', defaultLabel: 'كاشير نقاط البيع (POS)', defaultIcon: 'ShoppingCart', audience: 'supplier', description: 'شاشة البيع والكاشير بالكسور' },
   { actionKey: 'sup_warehouse_erp', defaultLabel: 'المخازن وكارت الصنف والمصانع', defaultIcon: 'Warehouse', audience: 'supplier', description: 'جرد بدون صور والتحويلات والمصانع' },
@@ -462,10 +468,18 @@ export function normalizeAiAssistantsUiConfig(
   };
 }
 
+export interface PageUiOverrideConfig {
+  title?: string;
+  subtitle?: string;
+  hideSubtitle?: boolean;
+  primaryButtonLabel?: string;
+}
+
 export interface PlatformUiLayoutConfig {
   artisan: RoleUiLayoutConfig;
   supplier: RoleUiLayoutConfig;
   globalElementOverrides?: Record<string, UiGlobalElementOverride>;
+  pageOverrides?: Record<string, PageUiOverrideConfig>;
   experienceModeConfig?: PlatformExperienceModeConfig;
   aiAssistantsConfig?: AiAssistantsUiConfig;
   updatedAt?: string;
@@ -487,6 +501,26 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
         colorPreset: 'orange_strong',
         visible: true,
         directActionKey: 'open_executive_brief',
+        items: [],
+      },
+      {
+        id: 'workshop_start_guide',
+        label: 'نبدأ ورشتنا',
+        subtitle: '4 خطوات سهلة لبداية شغلك',
+        iconKey: 'Rocket',
+        colorPreset: 'emerald',
+        visible: true,
+        directActionKey: 'open_guide_start',
+        items: [],
+      },
+      {
+        id: 'workshop_daily_guide',
+        label: 'يومك في الورشة',
+        subtitle: 'اشترى، اصرف، صنّع، وبِع بسهولة',
+        iconKey: 'Sun',
+        colorPreset: 'amber',
+        visible: true,
+        directActionKey: 'open_guide_daily',
         items: [],
       },
       {
@@ -759,6 +793,26 @@ export const DEFAULT_SUPPLIER_UI_LAYOUT: RoleUiLayoutConfig = {
         colorPreset: 'orange_strong',
         visible: true,
         directActionKey: 'sup_executive_brief',
+        items: [],
+      },
+      {
+        id: 'supplier_start_guide',
+        label: 'نبدأ متجرنا',
+        subtitle: '4 خطوات سهلة لبدء الكتالوج والمتجر والخزينة',
+        iconKey: 'Rocket',
+        colorPreset: 'emerald',
+        visible: true,
+        directActionKey: 'sup_guide_start',
+        items: [],
+      },
+      {
+        id: 'supplier_daily_guide',
+        label: 'يومك في التوريد',
+        subtitle: 'الكاشير والأوردرات والمخزن وتقفيل اليوم',
+        iconKey: 'Sun',
+        colorPreset: 'amber',
+        visible: true,
+        directActionKey: 'sup_guide_daily',
         items: [],
       },
       {
@@ -1159,10 +1213,32 @@ export function normalizeUiLayoutConfig(raw?: Partial<PlatformUiLayoutConfig> | 
     }
   }
 
+  const safePageOverrides: Record<string, PageUiOverrideConfig> = {};
+  if (raw?.pageOverrides && typeof raw.pageOverrides === 'object') {
+    for (const [pageKey, val] of Object.entries(raw.pageOverrides)) {
+      if (!pageKey || !val || typeof val !== 'object') continue;
+      const title = typeof val.title === 'string' && val.title.trim() ? val.title.trim() : undefined;
+      const subtitle = typeof val.subtitle === 'string' && val.subtitle.trim() ? val.subtitle.trim() : undefined;
+      const hideSubtitle = Boolean(val.hideSubtitle);
+      const primaryButtonLabel =
+        typeof val.primaryButtonLabel === 'string' && val.primaryButtonLabel.trim()
+          ? val.primaryButtonLabel.trim()
+          : undefined;
+      if (!title && !subtitle && !hideSubtitle && !primaryButtonLabel) continue;
+      safePageOverrides[pageKey] = {
+        ...(title ? { title } : {}),
+        ...(subtitle ? { subtitle } : {}),
+        ...(hideSubtitle ? { hideSubtitle: true } : {}),
+        ...(primaryButtonLabel ? { primaryButtonLabel } : {}),
+      };
+    }
+  }
+
   return {
     artisan: mergeRoleLayout(raw?.artisan, DEFAULT_ARTISAN_UI_LAYOUT),
     supplier: mergeRoleLayout(raw?.supplier, DEFAULT_SUPPLIER_UI_LAYOUT),
     globalElementOverrides: safeOverrides,
+    pageOverrides: safePageOverrides,
     ...(raw?.experienceModeConfig ? { experienceModeConfig: raw.experienceModeConfig } : {}),
     aiAssistantsConfig: normalizeAiAssistantsUiConfig(raw?.aiAssistantsConfig),
     updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : undefined,
@@ -1240,3 +1316,18 @@ export function useUiLayoutConfig(): PlatformUiLayoutConfig {
 
   return layout;
 }
+
+export function usePageUiOverride(
+  viewId: string,
+  defaults: { title: string; subtitle?: string; primaryButtonLabel?: string }
+): { title: string; subtitle: string; hideSubtitle: boolean; primaryButtonLabel?: string } {
+  const layout = useUiLayoutConfig();
+  const ov = layout.pageOverrides?.[viewId];
+  return {
+    title: ov?.title || defaults.title,
+    subtitle: ov?.hideSubtitle ? '' : ov?.subtitle || defaults.subtitle || '',
+    hideSubtitle: Boolean(ov?.hideSubtitle),
+    primaryButtonLabel: ov?.primaryButtonLabel || defaults.primaryButtonLabel,
+  };
+}
+

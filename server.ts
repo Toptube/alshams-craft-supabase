@@ -3326,53 +3326,77 @@ function writeLocalMemberProfiles(list: any[]): void {
   writeJsonData(MEMBER_PROFILES_FILE, list);
 }
 
-async function loadMemberProfilesMap(): Promise<Map<string, any>> {
-  const map = new Map<string, any>();
-  const register = (r: any) => {
-    const mid = String(r.member_id || r.memberId || '').trim();
-    if (!mid) return;
-    const ownerUid = String(r.owner_uid || r.ownerUid || '').trim();
-    const email = String(r.email || '').trim().toLowerCase();
-    const norm = {
-      memberId: mid,
-      ownerUid,
-      email,
-      accountRole: r.account_role || r.accountRole || 'artisan',
-      displayName: r.display_name || r.displayName || '',
-      brandName: r.brand_name || r.brandName || '',
-      familyNickname: r.family_nickname || r.familyNickname || '',
-      personalAvatar: r.personal_avatar ?? r.personalAvatar ?? null,
-      brandLogo: r.brand_logo ?? r.brandLogo ?? null,
-      bioHeadline: r.bio_headline || r.bioHeadline || '',
-      storyText: r.story_text || r.storyText || '',
-      phone: r.phone || '',
-      country: r.country || 'مصر',
-      governorate: r.governorate || '',
-      storeSlug: r.store_slug || r.storeSlug || '',
-      craftsLabels: Array.isArray(r.crafts_labels || r.craftsLabels)
-        ? (r.crafts_labels || r.craftsLabels)
-        : [],
-      showcasePosts: Array.isArray(r.showcase_posts || r.showcasePosts)
-        ? (r.showcase_posts || r.showcasePosts).slice(0, MAX_SHOWCASE_POSTS)
-        : [],
-      visibility: normalizeMemberVisibility(r.profile_visibility || r.visibility),
-      updatedAt: r.updated_at || r.updatedAt || '',
+let memberProfilesMapCache: { expiresAt: number; map: Map<string, any> } | null = null;
+let memberProfilesMapInFlight: Promise<Map<string, any>> | null = null;
+
+function invalidateMemberProfilesMapCache(): void {
+  memberProfilesMapCache = null;
+}
+
+async function loadMemberProfilesMap(forceRefresh = false): Promise<Map<string, any>> {
+  if (!forceRefresh && memberProfilesMapCache && memberProfilesMapCache.expiresAt > Date.now()) {
+    return memberProfilesMapCache.map;
+  }
+  if (!forceRefresh && memberProfilesMapInFlight) {
+    return memberProfilesMapInFlight;
+  }
+
+  memberProfilesMapInFlight = (async () => {
+    const map = new Map<string, any>();
+    const register = (r: any) => {
+      const mid = String(r.member_id || r.memberId || '').trim();
+      if (!mid) return;
+      const ownerUid = String(r.owner_uid || r.ownerUid || '').trim();
+      const email = String(r.email || '').trim().toLowerCase();
+      const norm = {
+        memberId: mid,
+        ownerUid,
+        email,
+        accountRole: r.account_role || r.accountRole || 'artisan',
+        displayName: r.display_name || r.displayName || '',
+        brandName: r.brand_name || r.brandName || '',
+        familyNickname: r.family_nickname || r.familyNickname || '',
+        personalAvatar: r.personal_avatar ?? r.personalAvatar ?? null,
+        brandLogo: r.brand_logo ?? r.brandLogo ?? null,
+        bioHeadline: r.bio_headline || r.bioHeadline || '',
+        storyText: r.story_text || r.storyText || '',
+        phone: r.phone || '',
+        country: r.country || 'مصر',
+        governorate: r.governorate || '',
+        storeSlug: r.store_slug || r.storeSlug || '',
+        craftsLabels: Array.isArray(r.crafts_labels || r.craftsLabels)
+          ? (r.crafts_labels || r.craftsLabels)
+          : [],
+        showcasePosts: Array.isArray(r.showcase_posts || r.showcasePosts)
+          ? (r.showcase_posts || r.showcasePosts).slice(0, MAX_SHOWCASE_POSTS)
+          : [],
+        visibility: normalizeMemberVisibility(r.profile_visibility || r.visibility),
+        updatedAt: r.updated_at || r.updatedAt || '',
+      };
+      map.set(`id:${mid}`, norm);
+      if (ownerUid) map.set(`owner:${ownerUid}`, norm);
+      if (email) map.set(`email:${email}`, norm);
     };
-    map.set(`id:${mid}`, norm);
-    if (ownerUid) map.set(`owner:${ownerUid}`, norm);
-    if (email) map.set(`email:${email}`, norm);
-  };
 
-  for (const r of readLocalMemberProfiles()) register(r);
+    for (const r of readLocalMemberProfiles()) register(r);
 
-  try {
-    const { data, error } = await supabaseAdminClient.from('member_profiles').select('*');
-    if (!error && Array.isArray(data)) {
-      for (const r of data) register(r);
-    }
-  } catch {}
+    try {
+      const { data, error } = await supabaseAdminClient.from('member_profiles').select('*');
+      if (!error && Array.isArray(data)) {
+        for (const r of data) register(r);
+      }
+    } catch {}
 
-  return map;
+    memberProfilesMapCache = {
+      expiresAt: Date.now() + 45_000,
+      map,
+    };
+    return map;
+  })().finally(() => {
+    memberProfilesMapInFlight = null;
+  });
+
+  return memberProfilesMapInFlight;
 }
 
 async function getWorkshopDirectoryMap(_client?: SupabaseClient): Promise<Map<string, any>> {
@@ -7055,6 +7079,202 @@ app.get(['/store/:slug', '/s/:slug'], async (req: Request, res: Response, next: 
   next();
 });
 
+// Helper: resolve a public product by ID across local JSON + Supabase marketplace_products + products
+async function findPublicProductById(productId: string): Promise<{ product: any; workshop: any } | null> {
+  const cleanId = decodeURIComponent(String(productId || '')).trim();
+  if (!cleanId) return null;
+
+  const localProducts = loadPersistentMarketplaceProducts();
+  let prod: any = localProducts.find(
+    (p: any) => String(p.id || '') === cleanId || String(p.product_code || p.productCode || '') === cleanId
+  );
+
+  if (!prod) {
+    try {
+      const { data } = await supabaseAdminClient
+        .from('marketplace_products')
+        .select('*')
+        .eq('id', cleanId)
+        .maybeSingle();
+      if (data) prod = data;
+    } catch {}
+  }
+
+  if (!prod) {
+    try {
+      const { data } = await supabaseAdminClient
+        .from('products')
+        .select('*')
+        .eq('id', cleanId)
+        .maybeSingle();
+      if (data) prod = data;
+    } catch {}
+  }
+
+  if (!prod) return null;
+
+  const wid = String(prod.workshop_id || prod.workshopId || prod.tenantId || '').trim();
+  let ws: any = null;
+  if (wid) {
+    ws = loadPersistentWorkshops().find((w: any) => String(w.id || w.workshopId || '') === wid);
+    if (!ws) {
+      try {
+        const { data } = await supabaseAdminClient
+          .from('workshops')
+          .select('id, brand_name, artist_name, logo_url, logo_data, store_slug, phone_number, governorate, country')
+          .eq('id', wid)
+          .maybeSingle();
+        if (data) ws = data;
+      } catch {}
+    }
+  }
+
+  return { product: prod, workshop: ws };
+}
+
+// Public API for dedicated shareable Product Landing Page
+app.get('/api/public/product/:id', async (req: Request, res: Response) => {
+  try {
+    const found = await findPublicProductById(req.params.id);
+    if (!found) {
+      return res.status(404).json({ success: false, error: 'المنتج غير موجود أو غير متاح للعرض العام' });
+    }
+    const { product: p, workshop: ws } = found;
+    const brandName = ws?.brand_name || ws?.brandName || p.workshop_name || p.brand_name || 'ورشة الشمساوية';
+    const artistName = ws?.artist_name || ws?.artistName || p.artist_name || '';
+    const storeSlug =
+      ws?.store_slug ||
+      ws?.storeSlug ||
+      (brandName ? brandName.toLowerCase().replace(/\s+/g, '-') : '') ||
+      ws?.id ||
+      p.workshop_id ||
+      '';
+    const price = Number(p.store_price ?? p.retail_price ?? p.storePrice ?? p.retailPrice ?? 0);
+    const originalPrice = Number(p.original_price ?? p.originalPrice ?? 0);
+    const imageUrl = p.image_url || p.imageUrl || '/brand_icon_light.png';
+    const galleryUrls = Array.isArray(p.gallery_urls || p.galleryUrls)
+      ? (p.gallery_urls || p.galleryUrls)
+      : [];
+
+    return res.json({
+      success: true,
+      product: {
+        id: p.id,
+        productName: p.product_name || p.productName || p.name || 'منتج حرفي مميز',
+        craftName: p.craft_name || p.craftName || p.category || 'مشغولات يدوية',
+        price,
+        originalPrice: originalPrice > price ? originalPrice : undefined,
+        currencySymbol: p.currency_symbol || 'ج.م',
+        description: p.store_description || p.storeDescription || p.description || 'مشغولة يدوية أصلية مصنوعة بعناية داخل ورش منظومة الشمساوية.',
+        imageUrl,
+        galleryUrls,
+        availableColors: Array.isArray(p.available_colors || p.availableColors) ? (p.available_colors || p.availableColors) : [],
+        availableSizes: Array.isArray(p.available_sizes || p.availableSizes) ? (p.available_sizes || p.availableSizes) : [],
+        sizeVariants: Array.isArray(p.size_variants || p.sizeVariants) ? (p.size_variants || p.sizeVariants) : [],
+        currentStock: Number(p.current_stock ?? p.currentStock ?? 1),
+        isCustomOrderAvailable: Boolean(p.is_custom_order_available ?? p.isCustomOrderAvailable),
+        workshopId: ws?.id || p.workshop_id || p.workshopId || '',
+        brandName,
+        artistName,
+        workshopLogo: ws?.logo_url || ws?.logoUrl || ws?.logo_data || '/brand_icon_light.png',
+        workshopGovernorate: ws?.governorate || '',
+        workshopPhone: ws?.phone_number || ws?.phoneNumber || ws?.phone || '',
+        storeSlug,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'تعذر تحميل بيانات المنتج' });
+  }
+});
+
+// Server-Side OpenGraph & Product Schema.org Injection for Shareable Product Landing Pages (/product/:id & /p/:id)
+app.get(['/product/:id', '/p/:id'], async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const found = await findPublicProductById(req.params.id);
+    const esc = (s: string) =>
+      String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    const p = found?.product;
+    const ws = found?.workshop;
+    const brandName = ws?.brand_name || ws?.brandName || p?.workshop_name || 'منظومة الشمساوية';
+    const prodTitle = p?.product_name || p?.productName || p?.name || 'منتج حرفي مميز';
+    const price = Number(p?.store_price ?? p?.retail_price ?? p?.storePrice ?? p?.retailPrice ?? 0);
+    const priceText = price > 0 ? ` — ${price.toLocaleString('ar-EG')} ج.م` : '';
+    const pageTitle = esc(`${prodTitle}${priceText} | ${brandName}`);
+    const rawDesc =
+      p?.store_description ||
+      p?.storeDescription ||
+      p?.description ||
+      `مشغولة يدوية أصلية من ${brandName} على منظومة الشمساوية للفنون والأعمال اليدوية.`;
+    const pageDesc = esc(String(rawDesc).slice(0, 160));
+    const rawImg = p?.image_url || p?.imageUrl || ws?.logo_url || '/brand_icon_light.png';
+    // Facebook/WhatsApp OG crawlers require an http(s) URL (skip huge inline base64 in og:image)
+    const origin = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const pageImage =
+      typeof rawImg === 'string' && /^https?:\/\//i.test(rawImg)
+        ? rawImg
+        : typeof rawImg === 'string' && rawImg.startsWith('/')
+        ? `${origin}${rawImg}`
+        : `${origin}/brand_icon_light.png`;
+    const canonicalUrl = `${origin}/product/${encodeURIComponent(req.params.id)}`;
+
+    const indexPath = isProduction
+      ? path.resolve(__dirname, 'dist/index.html')
+      : path.resolve(__dirname, 'index.html');
+
+    if (fs.existsSync(indexPath)) {
+      let html = fs.readFileSync(indexPath, 'utf-8');
+      html = html.replace(/<title>.*?<\/title>/, `<title>${pageTitle}</title>`);
+      html = html.replace(/<meta name="description" content=".*?" \/>/, `<meta name="description" content="${pageDesc}" />`);
+      html = html.replace(/<meta property="og:title" content=".*?" \/>/, `<meta property="og:title" content="${pageTitle}" />`);
+      html = html.replace(/<meta property="og:description" content=".*?" \/>/, `<meta property="og:description" content="${pageDesc}" />`);
+      html = html.replace(/<meta property="og:image" content=".*?" \/>/, `<meta property="og:image" content="${esc(pageImage)}" />`);
+      html = html.replace(/<meta name="twitter:title" content=".*?" \/>/, `<meta name="twitter:title" content="${pageTitle}" />`);
+      html = html.replace(/<meta name="twitter:description" content=".*?" \/>/, `<meta name="twitter:description" content="${pageDesc}" />`);
+      html = html.replace(/<meta name="twitter:image" content=".*?" \/>/, `<meta name="twitter:image" content="${esc(pageImage)}" />`);
+
+      const productLd = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        name: prodTitle,
+        description: String(rawDesc).slice(0, 200),
+        image: pageImage,
+        brand: { '@type': 'Brand', name: brandName },
+        offers: {
+          '@type': 'Offer',
+          priceCurrency: 'EGP',
+          price: price > 0 ? String(price) : '0',
+          availability: 'https://schema.org/InStock',
+          url: canonicalUrl,
+        },
+      });
+      const extraMeta = [
+        `<meta property="og:type" content="product" />`,
+        `<meta property="og:url" content="${esc(canonicalUrl)}" />`,
+        price > 0 ? `<meta property="product:price:amount" content="${price}" />` : '',
+        price > 0 ? `<meta property="product:price:currency" content="EGP" />` : '',
+        `<link rel="canonical" href="${esc(canonicalUrl)}" />`,
+        `<script type="application/ld+json">${productLd}</script>`,
+      ]
+        .filter(Boolean)
+        .join('\n    ');
+      html = html.replace('</head>', `    ${extraMeta}\n  </head>`);
+
+      if (!isProduction && viteDevServer) {
+        html = await viteDevServer.transformIndexHtml(req.originalUrl, html);
+      }
+      return res.status(200).set({ 'Content-Type': 'text/html' }).send(html);
+    }
+  } catch (err) {
+    console.warn('[Product OG Render Error]:', err);
+  }
+  next();
+});
+
 // -------------------------------------------------------------
 // Phase 2: Platform Suppliers (B2B/B2C Materials Vendors) API
 // -------------------------------------------------------------
@@ -8738,6 +8958,7 @@ async function resolveOwnerMemberKeyForReq(req: AuthenticatedRequest): Promise<s
 }
 
 async function persistMemberProfileRow(record: any) {
+  invalidateMemberProfilesMapCache();
   const list = readLocalMemberProfiles().filter((r: any) => String(r.member_id || r.memberId) !== record.member_id);
   list.unshift(record);
   writeLocalMemberProfiles(list);
@@ -8747,6 +8968,7 @@ async function persistMemberProfileRow(record: any) {
       .from('member_profiles')
       .upsert(record, { onConflict: 'member_id' });
   } catch {}
+  invalidateMemberProfilesMapCache();
 }
 
 app.get('/api/member-profile/:memberId', async (req: Request, res: Response) => {
@@ -9988,17 +10210,136 @@ app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
       } catch {}
     }
 
-    // 3. TikTok / Reels / Pinterest vertical heuristics
+    // Helper: safely follow redirects ONLY across whitelisted hosts (SSRF-safe)
+    const resolveAllowedRedirectUrl = async (startUrl: string): Promise<string> => {
+      let current = startUrl;
+      for (let hop = 0; hop < 5; hop++) {
+        try {
+          const r = await fetch(current, {
+            method: 'GET',
+            redirect: 'manual',
+            signal: AbortSignal.timeout(4500),
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
+            },
+          });
+          const loc = r.headers.get('location');
+          if (!loc || r.status < 300 || r.status >= 400) break;
+          const nextUrl = new URL(loc, current).toString();
+          const nextHost = new URL(nextUrl).hostname.toLowerCase().replace(/^www\./, '');
+          const allowed = ALLOWED_VIDEO_HOSTS.some((h) => nextHost === h || nextHost.endsWith('.' + h));
+          if (!allowed) break;
+          current = nextUrl;
+        } catch {
+          break;
+        }
+      }
+      return current;
+    };
+
+    // 3. TikTok (full URLs + mobile short links vm.tiktok.com / vt.tiktok.com / /t/ + keyless oEmbed)
+    if (lower.includes('tiktok.com')) {
+      const resolvedUrl = await resolveAllowedRedirectUrl(rawUrl);
+      let videoId =
+        resolvedUrl.match(/\/(?:video|photo)\/(\d+)/i)?.[1] ||
+        rawUrl.match(/\/(?:video|photo)\/(\d+)/i)?.[1] ||
+        '';
+      let title = '';
+      let thumbnailUrl = '';
+      let width = 1080;
+      let height = 1920;
+
+      // Keyless official TikTok oEmbed (returns title, thumbnail, dimensions, and canonical embed ID)
+      try {
+        const oeRes = await fetch(
+          `https://www.tiktok.com/oembed?url=${encodeURIComponent(resolvedUrl)}`,
+          {
+            signal: AbortSignal.timeout(4500),
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            },
+          }
+        );
+        if (oeRes.ok) {
+          const oj: any = await oeRes.json().catch(() => null);
+          if (oj) {
+            title = String(oj.title || '');
+            thumbnailUrl = String(oj.thumbnail_url || '');
+            if (!videoId && oj.embed_product_id) {
+              videoId = String(oj.embed_product_id);
+            }
+            if (!videoId && typeof oj.html === 'string') {
+              const fromHtml = oj.html.match(/data-video-id="(\d+)"/i) || oj.html.match(/\/video\/(\d+)/i);
+              if (fromHtml?.[1]) videoId = fromHtml[1];
+            }
+            if (Number(oj.thumbnail_width) > 0 && Number(oj.thumbnail_height) > 0) {
+              width = Number(oj.thumbnail_width);
+              height = Number(oj.thumbnail_height);
+            }
+          }
+        }
+      } catch {}
+
+      const cls = classify(width, height);
+      const embedUrl = videoId
+        ? `https://www.tiktok.com/player/v1/${videoId}?music_info=1&description=1&rel=0`
+        : '';
+
+      return saveAndReturn({
+        success: true,
+        platform: 'tiktok',
+        resolvedUrl,
+        videoId: videoId || undefined,
+        embedUrl: embedUrl || undefined,
+        thumbnailUrl: thumbnailUrl || undefined,
+        title,
+        orientation: cls.orientation,
+        width,
+        height,
+        aspectRatio: cls.aspectRatio,
+        source: videoId ? 'tiktok_resolved' : 'tiktok_fallback',
+      });
+    }
+
+    // 4. Facebook (fb.watch, /share/r/, /share/v/, /reel/, /videos/, m.facebook.com -> canonical plugin embed)
+    if (lower.includes('facebook.com') || lower.includes('fb.watch') || lower.includes('fb.com')) {
+      const resolvedUrl = await resolveAllowedRedirectUrl(rawUrl);
+      const cleanCanonical = resolvedUrl.replace(/^https?:\/\/(?:m|mbasic|web)\.facebook\.com/i, 'https://www.facebook.com');
+      const isReel = /\/reel\/|\/share\/r\//i.test(cleanCanonical) || /\/reel\/|\/share\/r\//i.test(rawUrl);
+      const isVideo =
+        isReel ||
+        /\/videos\/|\/watch\/?\?v=|fb\.watch|\/share\/v\/|story_fbid/i.test(cleanCanonical) ||
+        /\/videos\/|\/watch\/?\?v=|fb\.watch|\/share\/v\//i.test(rawUrl);
+
+      const embedUrl = isVideo
+        ? `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(cleanCanonical)}&show_text=false&t=0`
+        : `https://www.facebook.com/plugins/post.php?href=${encodeURIComponent(cleanCanonical)}&show_text=true&width=500`;
+
+      return saveAndReturn({
+        success: true,
+        platform: 'facebook',
+        resolvedUrl: cleanCanonical,
+        embedUrl,
+        orientation: isReel ? 'portrait' : 'landscape',
+        width: isReel ? 1080 : 1280,
+        height: isReel ? 1920 : 720,
+        aspectRatio: isReel ? 9 / 16 : 16 / 9,
+        source: 'facebook_resolved',
+      });
+    }
+
+    // 5. Instagram / Pinterest vertical heuristics
     if (
-      lower.includes('tiktok.com') ||
       /instagram\.com\/(reel|reels|tv)\//i.test(rawUrl) ||
-      /facebook\.com\/reel\//i.test(rawUrl) ||
       lower.includes('pinterest.') ||
       lower.includes('pin.it')
     ) {
       return saveAndReturn({
         success: true,
-        platform: lower.includes('tiktok') ? 'tiktok' : lower.includes('instagram') ? 'instagram' : lower.includes('facebook') ? 'facebook' : 'pinterest',
+        platform: lower.includes('instagram') ? 'instagram' : 'pinterest',
         orientation: 'portrait',
         width: 1080,
         height: 1920,
