@@ -36,6 +36,7 @@ import {
 import {
   performGoogleSearch,
   getAgentSecretStatus,
+  getLiveSearchHealthStatus,
   runFullApiHealthAudit,
 } from './server/googleSearchService.js';
 import { synthesizePersonaSpeech } from './server/neuralTtsService.js';
@@ -5064,6 +5065,29 @@ app.post('/api/tts/free', requireAuth, async (req: AuthenticatedRequest, res: Re
     console.warn('[Neural TTS Notice]:', err?.message || err);
     res.status(500).json({ error: 'تعذر تشغيل النطق الصوتي' });
   }
+});
+
+// -------------------------------------------------------------
+// حالة الاتصال الفعلي بمحركات البحث المباشر (جوجل سيرش أساسي + بديل مجاني)
+// -------------------------------------------------------------
+app.get('/api/ai/search-health', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  const superAdmin = isSuperAdmin(email);
+  const status = getLiveSearchHealthStatus();
+  if (superAdmin) {
+    res.json({
+      online: true,
+      liveSearchAvailable: status.liveSearchAvailable,
+      primaryEngine: status.primaryEngine,
+      googleSearchReady: status.googleSearchReady,
+      groqSearchReady: status.groqSearchReady,
+    });
+    return;
+  }
+  res.json({
+    online: true,
+    liveSearchAvailable: status.liveSearchAvailable,
+  });
 });
 
 // -------------------------------------------------------------

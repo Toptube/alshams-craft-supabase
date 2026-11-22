@@ -7,6 +7,7 @@ import { useUiLayoutConfig, DEFAULT_AI_ASSISTANTS_UI_CONFIG } from '../../types/
 import { useVisualViewportHeight } from '../../hooks/useVisualViewportHeight';
 import { useInstantVoiceDictation } from '../../hooks/useInstantVoiceDictation';
 import { usePersonaSpeech } from '../../hooks/usePersonaSpeech';
+import { useLiveConnectionStatus } from '../../hooks/useLiveConnectionStatus';
 import {
   Sparkles,
   Camera,
@@ -162,6 +163,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const [dailyRemaining, setDailyRemaining] = useState<number | null>(null);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [useGoogleSearch, setUseGoogleSearch] = useState(false);
+  const falconConn = useLiveConnectionStatus(useGoogleSearch, true);
 
   // Modern Chat UX additions: Auto-expanding, Instant Voice, Free TTS, Attachments, Saved sessions & Menu
   const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
@@ -674,6 +676,9 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
       if (typeof chatRem === 'number') {
         setDailyRemaining(chatRem);
       }
+      if (useGoogleSearch) {
+        falconConn.reportSearchOutcome(Boolean(data.searchUsed));
+      }
 
       // إضافة الرد داخل المحادثة مباشرة دون أي تحويل تلقائي للحاسبة
       setMessages((prev) => [
@@ -690,6 +695,10 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         },
       ]);
     } catch (err: any) {
+      if (useGoogleSearch) {
+        falconConn.reportSearchOutcome(false, typeof navigator !== 'undefined' && navigator.onLine === false);
+        void falconConn.refreshSearchHealth();
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -762,13 +771,23 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         <div className="flex items-center gap-2 min-w-0">
           <div className="relative shrink-0">
             <FalconMascotAvatar size="sm" fit="top" statusDot={false} />
-            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-[#060B18] shadow-xs" />
+            <span
+              title={falconConn.isInternetOnline ? 'متصل بالإنترنت' : 'لا يوجد اتصال بالإنترنت'}
+              className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-[#060B18] shadow-xs transition-colors ${
+                falconConn.isInternetOnline ? 'bg-emerald-400' : 'bg-slate-400'
+              }`}
+            />
           </div>
           <div className="flex items-center gap-1.5 min-w-0">
             <h3 className="font-black text-sm sm:text-base text-amber-300 truncate">
               {aiCfg.falconTitle}
             </h3>
-            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse" title="متصل الآن" />
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 transition-colors ${
+                falconConn.isInternetOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'
+              }`}
+              title={falconConn.isInternetOnline ? 'متصل بالإنترنت' : 'لا يوجد اتصال بالإنترنت'}
+            />
           </div>
         </div>
 
@@ -1390,29 +1409,38 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                 {isRecordingVoice ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
 
-              {/* زر البحث الذكي المباشر بأيقونة صقر */}
+              {/* زر البحث الذكي المباشر بأيقونة صقر — 3 حالات حقيقية (مغلق / متصل أخضر / منقطع رصاصي) */}
               <button
                 type="button"
                 onClick={() => {
                   setUseGoogleSearch((prev) => {
                     const next = !prev;
-                    showFeedback(
-                      next
-                        ? '🟢 تم تفعيل البحث الذكي المباشر لصقر'
-                        : 'تم إيقاف البحث الذكي المباشر'
-                    );
+                    if (next) {
+                      void falconConn.refreshSearchHealth();
+                      showFeedback(
+                        falconConn.isInternetOnline && falconConn.isSearchApiLive
+                          ? '🟢 تم تفعيل البحث الذكي المباشر لصقر'
+                          : '⚪ البحث المباشر مُفعّل لكن الخدمة غير متصلة حالياً'
+                      );
+                    } else {
+                      showFeedback('تم إيقاف البحث الذكي المباشر');
+                    }
                     return next;
                   });
                 }}
                 title={
-                  useGoogleSearch
-                    ? 'البحث الذكي المباشر مُفعّل — اضغط للإيقاف'
+                  falconConn.searchButtonState === 'live'
+                    ? 'البحث الذكي المباشر مُفعّل ومتصل الآن — اضغط للإيقاف'
+                    : falconConn.searchButtonState === 'disconnected'
+                    ? 'البحث المباشر مُفعّل لكن الخدمة غير متصلة حالياً — اضغط للإيقاف'
                     : 'تفعيل البحث الذكي المباشر للأسعار والسوق'
                 }
                 aria-pressed={useGoogleSearch}
                 className={`relative w-8 h-8 rounded-xl transition-all duration-200 cursor-pointer shrink-0 flex items-center justify-center ${
-                  useGoogleSearch
+                  falconConn.searchButtonState === 'live'
                     ? 'bg-emerald-500/95 ring-2 ring-emerald-300 shadow-[0_0_14px_2px_rgba(16,185,129,0.75)]'
+                    : falconConn.searchButtonState === 'disconnected'
+                    ? 'bg-slate-500/85 ring-2 ring-slate-300 dark:ring-slate-500 grayscale opacity-90 shadow-none'
                     : 'bg-transparent hover:bg-stone-200/70 dark:hover:bg-stone-700/70 shadow-none ring-0'
                 }`}
               >
@@ -1422,13 +1450,17 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                   referrerPolicy="no-referrer"
                   draggable={false}
                   className={`relative z-10 w-5 h-5 object-contain select-none pointer-events-none transition-transform duration-200 ${
-                    useGoogleSearch ? 'scale-105 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]' : ''
+                    falconConn.searchButtonState === 'live'
+                      ? 'scale-105 drop-shadow-[0_0_6px_rgba(16,185,129,0.9)]'
+                      : ''
                   }`}
                 />
-                {useGoogleSearch && (
+                {falconConn.searchButtonState !== 'off' && (
                   <span
                     aria-hidden="true"
-                    className="absolute -top-0.5 -right-0.5 z-20 w-2 h-2 rounded-full bg-emerald-300 border border-white dark:border-stone-900 shadow-sm pointer-events-none"
+                    className={`absolute -top-0.5 -right-0.5 z-20 w-2 h-2 rounded-full border border-white dark:border-stone-900 shadow-sm pointer-events-none ${
+                      falconConn.searchButtonState === 'live' ? 'bg-emerald-300' : 'bg-slate-300'
+                    }`}
                   />
                 )}
               </button>

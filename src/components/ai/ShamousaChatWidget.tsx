@@ -81,6 +81,7 @@ import {
 } from '../../services/shamousaOrMemory';
 import { useInstantVoiceDictation } from '../../hooks/useInstantVoiceDictation';
 import { usePersonaSpeech } from '../../hooks/usePersonaSpeech';
+import { useLiveConnectionStatus } from '../../hooks/useLiveConnectionStatus';
 
 export interface ShamousaActionLink {
   label: string;
@@ -876,6 +877,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [useGoogleSearch, setUseGoogleSearch] = useState(false);
+  const shamousaConn = useLiveConnectionStatus(useGoogleSearch, isOpen);
 
   const adjustTextareaHeight = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
@@ -1678,7 +1680,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       setUseGoogleSearch(true);
       const prevUserMsg = [...messages.slice(0, messageIdx)].reverse().find((m) => m.role === 'user');
       const queryForAI = prevUserMsg?.content || 'ساعديني في آخر استفسار';
-      await send(queryForAI, { forceAI: true });
+      await send(queryForAI, { forceAI: true, forceSearch: true });
       return;
     }
     if (opt.queryText) {
@@ -1688,7 +1690,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
   const send = async (
     text: string,
-    sendOptions?: { forceAI?: boolean; explainPayload?: ShamousaExplainPayload }
+    sendOptions?: { forceAI?: boolean; forceSearch?: boolean; explainPayload?: ShamousaExplainPayload }
   ) => {
     if (isRecordingVoice) {
       stopVoiceRecording();
@@ -1708,9 +1710,9 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
     const shouldUseLocalFirst = !currentAttachment && !useGoogleSearch && !sendOptions?.forceAI;
 
-    // 0. فحص هل السؤال ملتبس/عام أو طلب مباشر لفرع من "هلخصهالك" (بدون صور مرفقة أو طلب AI صريح)
+    // 0. فحص هل السؤال ملتبس/عام أو طلب مباشر لفرع من "هلخصهالك" — يُتجاوز تماماً عند تفعيل البحث الحي (الأخضر)
     const preIntent =
-      !currentAttachment && !sendOptions?.forceAI
+      !currentAttachment && !useGoogleSearch && !sendOptions?.forceAI
         ? detectSummaryOrAmbiguousIntent(message, isSupplierAccount)
         : null;
 
@@ -1724,8 +1726,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
 
-    // فحص طلبات التأجيل ("استني ساعة" / "كلميني الساعة 10") حتى داخل المحادثة الرئيسية
-    if (!currentAttachment && message) {
+    // فحص طلبات التأجيل ("استني ساعة" / "كلميني الساعة 10") — لا يتداخل مع وضع البحث الحي
+    if (!currentAttachment && !useGoogleSearch && message) {
       const snoozeParsed = parseArabicSnoozeRequest(message);
       if (snoozeParsed) {
         handleScheduleSnooze(
@@ -1914,7 +1916,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             name: currentAttachment.name,
           }] : [],
           history,
-          useSearch: useGoogleSearch,
+          useSearch: useGoogleSearch || Boolean(sendOptions?.forceSearch),
           artistName: firstName,
           brandName: profile.brandName || (isSupplierAccount ? 'بوابة المورد' : 'الورشة الحرفية'),
           workshopId,
@@ -1957,6 +1959,9 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       if (!res.ok) throw new Error(data?.error || 'حصل خطأ في الاتصال، حاولي تاني.');
 
       if (typeof data.remaining === 'number') setRemaining(data.remaining);
+      if (useGoogleSearch || Boolean(sendOptions?.forceSearch)) {
+        shamousaConn.reportSearchOutcome(Boolean(data.searchUsed));
+      }
 
       const isInternalData = /هلخصهالك|خزن|خزينة|خزينه|سيول|سيولة|رصيد|عهدة|عهده|فلوس|خامات|مخزن|أوردر|اوردر|طلب|مبيعات|عميل|عملاء|مورد|موردين|موظف|عمال|دفاتر|حسابات|صفحتي|عيلة|شرائح/i.test(message + ' ' + (data.reply || ''));
       const isFalconExplicitlyRequested = /صقر|تحليل صوره|تحليل صورة|حلل الصورة|دراسة سوق|دراسة السوق|المنافسين/i.test(message);
@@ -1982,6 +1987,10 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         },
       ]);
     } catch (err: any) {
+      if (useGoogleSearch || Boolean(sendOptions?.forceSearch)) {
+        shamousaConn.reportSearchOutcome(false, typeof navigator !== 'undefined' && navigator.onLine === false);
+        void shamousaConn.refreshSearchHealth();
+      }
       const diplomaticFallback = sendOptions?.explainPayload
         ? buildInstantFallbackExplanation(sendOptions.explainPayload, firstName, isSupplierAccount)
         : `معلش يا **${firstName}**، في زحمة بسيطة على خط البحث الحي دلوقتي.. جرّب تاني بعد لحظة، أو اكتبلي سؤالك عن ورشتك وخاماتك وأنا هرد عليك فوراً ☀️`;
@@ -2136,7 +2145,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                     : 'drop-shadow-[0_6px_12px_rgba(9,21,51,0.45)] group-hover:brightness-105'
                 }`}
               />
-              <span className="absolute top-0.5 right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#091533] shadow-sm z-10" />
+              <span
+                title={shamousaConn.isInternetOnline ? 'متصل بالإنترنت' : 'لا يوجد اتصال بالإنترنت'}
+                className={`absolute top-0.5 right-1 w-2.5 h-2.5 rounded-full border-2 border-[#091533] shadow-sm z-10 transition-colors ${
+                  shamousaConn.isInternetOnline ? 'bg-emerald-400' : 'bg-slate-400'
+                }`}
+              />
 
               {totalPendingBadge > 0 && (
                 <span className="absolute -top-0.5 -left-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 border-[1.5px] border-white text-white font-mono text-[10px] font-black flex items-center justify-center shadow-md z-20">
@@ -2183,7 +2197,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#FBF7F0] dark:bg-[#132960] border-2 border-[#D4C3A3] dark:border-[#395AA8] flex items-center justify-center shrink-0 shadow-[0_0_16px_rgba(251,191,36,0.35)] cursor-pointer transition-transform active:scale-95 p-0.5"
             >
               <ShamousaMascotAvatar size="md" statusDot={false} className="w-full h-full" />
-              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#EAE0CE] dark:border-[#0C1D47]" />
+              <span
+                title={shamousaConn.isInternetOnline ? 'متصل بالإنترنت' : 'لا يوجد اتصال بالإنترنت'}
+                className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#EAE0CE] dark:border-[#0C1D47] transition-colors ${
+                  shamousaConn.isInternetOnline ? 'bg-emerald-400' : 'bg-slate-400'
+                }`}
+              />
             </button>
 
             {/* 3 Raised 3D Buttons: مهام / نتائج / بحوث */}
@@ -2625,19 +2644,29 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                         {isRecordingVoice ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                       </button>
 
-                      {/* زر البحث الذكي المباشر بأيقونة شموسة */}
+                      {/* زر البحث الذكي المباشر بأيقونة شموسة — 3 حالات حقيقية (مغلق / متصل أخضر / منقطع رصاصي) */}
                       <button
                         type="button"
-                        onClick={() => setUseGoogleSearch((v) => !v)}
+                        onClick={() => {
+                          setUseGoogleSearch((prev) => {
+                            const next = !prev;
+                            if (next) void shamousaConn.refreshSearchHealth();
+                            return next;
+                          });
+                        }}
                         title={
-                          useGoogleSearch
-                            ? 'البحث الذكي المباشر مُفعّل'
+                          shamousaConn.searchButtonState === 'live'
+                            ? 'البحث الذكي المباشر مُفعّل ومتصل الآن'
+                            : shamousaConn.searchButtonState === 'disconnected'
+                            ? 'البحث المباشر مُفعّل لكن الخدمة غير متصلة حالياً'
                             : 'تفعيل البحث الذكي المباشر للأسعار والسوق'
                         }
                         aria-pressed={useGoogleSearch}
-                        className={`w-8 h-8 rounded-xl border transition-all cursor-pointer shrink-0 flex items-center justify-center ${
-                          useGoogleSearch
+                        className={`relative w-8 h-8 rounded-xl border transition-all cursor-pointer shrink-0 flex items-center justify-center ${
+                          shamousaConn.searchButtonState === 'live'
                             ? 'bg-emerald-500 border-emerald-400 text-white shadow-[0_0_12px_rgba(16,185,129,0.65)]'
+                            : shamousaConn.searchButtonState === 'disconnected'
+                            ? 'bg-slate-500/85 border-slate-400 text-white grayscale opacity-90 shadow-none'
                             : 'bg-[#EFE6D7] dark:bg-[#122657] border-[#D5C7B0] dark:border-[#2A468B] hover:border-[#142A5C]'
                         }`}
                       >
@@ -2647,6 +2676,14 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                           draggable={false}
                           className="w-5 h-5 object-contain select-none pointer-events-none"
                         />
+                        {shamousaConn.searchButtonState !== 'off' && (
+                          <span
+                            aria-hidden="true"
+                            className={`absolute -top-0.5 -right-0.5 z-20 w-2 h-2 rounded-full border border-white dark:border-[#0C1D47] shadow-sm pointer-events-none ${
+                              shamousaConn.searchButtonState === 'live' ? 'bg-emerald-300' : 'bg-slate-300'
+                            }`}
+                          />
+                        )}
                       </button>
                     </div>
 

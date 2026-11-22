@@ -172,14 +172,27 @@ async function synthesizeWithGeminiTts(
     }
   }
 
-  // If every pair is temporarily cooling down, try the earliest-expiring pair as a last-chance attempt
+  // If every pair is temporarily cooling down, wait briefly (up to 4s) if one is about to unlock,
+  // then try the earliest-expiring pair so speech does not silently drop!
   if (attempts.length === 0) {
+    let earliestReadyAt = Infinity;
+    const candidates: Array<{ apiKey: string; keyTag: string; model: TtsModelSpec; readyAt: number }> = [];
     for (const model of models) {
       for (const apiKey of keys) {
         const keyTag = apiKey.slice(-6);
         if (now < (invalidKeyUntil.get(keyTag) || 0)) continue;
-        attempts.push({ apiKey, keyTag, model });
+        const readyAt = modelKeyCooldownUntil.get(`${keyTag}:${model.id}`) || 0;
+        if (readyAt < earliestReadyAt) earliestReadyAt = readyAt;
+        candidates.push({ apiKey, keyTag, model, readyAt });
       }
+    }
+    candidates.sort((a, b) => a.readyAt - b.readyAt);
+    const waitMs = earliestReadyAt > now ? Math.min(earliestReadyAt - now + 200, 4200) : 0;
+    if (waitMs > 0) {
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+    for (const c of candidates) {
+      attempts.push({ apiKey: c.apiKey, keyTag: c.keyTag, model: c.model });
     }
   }
 
@@ -269,7 +282,7 @@ async function synthesizeWithGeminiTts(
       if (status === 429 || /RESOURCE_EXHAUSTED|quota|429/i.test(msg)) {
         // ONLY cool down THIS exact (key, model) pair — NEVER block the other Gemini models on this key!
         const isDailyOrPlanZero = /limit:\s*0|PerDay|daily/i.test(msg);
-        const cooldownMs = isDailyOrPlanZero ? 10 * 60 * 1000 : 45 * 1000;
+        const cooldownMs = isDailyOrPlanZero ? 8 * 60 * 1000 : 25 * 1000;
         modelKeyCooldownUntil.set(`${keyTag}:${model.id}`, Date.now() + cooldownMs);
         continue;
       }
@@ -289,7 +302,7 @@ export async function synthesizePersonaSpeech(
   rawText: string,
   persona: NeuralTtsPersona
 ): Promise<NeuralTtsAudioResult | null> {
-  const text = String(rawText || '').trim().slice(0, 750);
+  const text = String(rawText || '').trim().slice(0, 900);
   if (!text) return null;
 
   const cacheKey = `${persona}:${text}`;

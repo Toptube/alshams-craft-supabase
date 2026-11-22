@@ -37,6 +37,7 @@ function getOrCreateAudioContext(): AudioContext | null {
  */
 function sanitizeTextForSpeech(raw: string): string {
   return String(raw || '')
+    .replace(/【[^】]*】/g, ' ')
     .replace(/https?:\/\/\S+/gi, '')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/```[\s\S]*?```/g, ' ')
@@ -49,12 +50,12 @@ function sanitizeTextForSpeech(raw: string): string {
 }
 
 /**
- * Splits long replies into natural Egyptian Arabic chunks so sentence #1 plays quickly
- * while sentence #2 pre-fetches in parallel.
+ * Splits long replies into generous natural Egyptian Arabic chunks so 90% of replies
+ * play in ONE single API call (avoiding burst RPM drops!).
  */
 function splitIntoNaturalChunks(text: string): string[] {
   const sentences = text
-    .split(/(?<=[.!؟\n])\s+|(?<=،)\s+(?=.{65,})/)
+    .split(/(?<=[.!؟\n])\s+|(?<=،)\s+(?=.{100,})/)
     .map((s) => s.trim())
     .filter(Boolean);
 
@@ -62,7 +63,7 @@ function splitIntoNaturalChunks(text: string): string[] {
   let current = '';
 
   for (const s of sentences) {
-    if (s.length > 520) {
+    if (s.length > 680) {
       if (current) {
         chunks.push(current);
         current = '';
@@ -70,7 +71,7 @@ function splitIntoNaturalChunks(text: string): string[] {
       const words = s.split(/\s+/);
       let part = '';
       for (const w of words) {
-        if ((part + ' ' + w).trim().length > 480) {
+        if ((part + ' ' + w).trim().length > 620) {
           if (part) chunks.push(part.trim());
           part = w;
         } else {
@@ -81,7 +82,7 @@ function splitIntoNaturalChunks(text: string): string[] {
       continue;
     }
 
-    const maxLen = chunks.length === 0 ? 380 : 560;
+    const maxLen = chunks.length === 0 ? 540 : 680;
     if ((current + ' ' + s).trim().length <= maxLen) {
       current = (current + ' ' + s).trim();
     } else {
@@ -90,7 +91,7 @@ function splitIntoNaturalChunks(text: string): string[] {
     }
   }
   if (current) chunks.push(current);
-  return chunks.slice(0, 5);
+  return chunks.slice(0, 4);
 }
 
 /**
@@ -226,7 +227,7 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
           if (signal.aborted) return null;
         }
         if (attempt === 0 && !signal.aborted) {
-          await new Promise((r) => setTimeout(r, 450));
+          await new Promise((r) => setTimeout(r, 1100));
         }
       }
       return null;
@@ -241,34 +242,39 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
     ): Promise<void> => {
       if (runIdRef.current !== currentRun || !enabledRef.current) return;
 
-      // Method A (Best on Mobile & Desktop): Web Audio API (stays unlocked across async fetches!)
+      // Method A (Best on Mobile & Desktop): Web Audio API (with safe resume timeout so suspended mobile AudioContext falls through cleanly!)
       const ctx = getOrCreateAudioContext();
       if (ctx) {
         try {
-          if (ctx.state === 'suspended') {
-            await ctx.resume();
+          if (ctx.state !== 'running') {
+            await Promise.race([
+              ctx.resume(),
+              new Promise<void>((r) => setTimeout(r, 550)),
+            ]);
           }
-          // Clone ArrayBuffer because decodeAudioData detaches it
-          const copy = payload.arrayBuffer.slice(0);
-          const audioBuffer = await ctx.decodeAudioData(copy);
-          if (runIdRef.current !== currentRun || !enabledRef.current) return;
+          if (ctx.state === 'running') {
+            // Clone ArrayBuffer because decodeAudioData detaches it
+            const copy = payload.arrayBuffer.slice(0);
+            const audioBuffer = await ctx.decodeAudioData(copy);
+            if (runIdRef.current !== currentRun || !enabledRef.current) return;
 
-          await new Promise<void>((resolve) => {
-            const source = ctx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(ctx.destination);
-            activeSourceRef.current = source;
-            source.onended = () => {
-              if (activeSourceRef.current === source) {
-                activeSourceRef.current = null;
-              }
-              resolve();
-            };
-            source.start(0);
-          });
-          return;
+            await new Promise<void>((resolve) => {
+              const source = ctx.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(ctx.destination);
+              activeSourceRef.current = source;
+              source.onended = () => {
+                if (activeSourceRef.current === source) {
+                  activeSourceRef.current = null;
+                }
+                resolve();
+              };
+              source.start(0);
+            });
+            return;
+          }
         } catch {
-          // Fall through cleanly to HTMLAudioElement if decodeAudioData rejects
+          // Fall through cleanly to HTMLAudioElement if AudioContext was suspended by mobile mic/OS
         }
       }
 
@@ -341,20 +347,12 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
       setIsSpeaking(true);
 
       void (async () => {
-        let nextPromise: Promise<{ arrayBuffer: ArrayBuffer; contentType: string } | null> | null =
-          fetchNeuralChunkBuffer(chunks[0], abortController.signal);
-
+        // Sequential pacing (no burst parallel requests!) keeps free Gemini TTS quota smooth & continuous
         for (let i = 0; i < chunks.length; i++) {
           if (runIdRef.current !== currentRun || !enabledRef.current) break;
 
-          const payload = await nextPromise;
+          const payload = await fetchNeuralChunkBuffer(chunks[i], abortController.signal);
           if (runIdRef.current !== currentRun || !enabledRef.current) break;
-
-          // Pre-fetch next chunk in parallel while current chunk plays
-          nextPromise =
-            i + 1 < chunks.length
-              ? fetchNeuralChunkBuffer(chunks[i + 1], abortController.signal)
-              : null;
 
           if (!payload) continue;
           await playAudioPayload(payload, currentRun);

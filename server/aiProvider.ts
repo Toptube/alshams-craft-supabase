@@ -18,6 +18,10 @@ import {
   cleanSecretValue,
   isGeminiKeyCircuitOpen,
   tripGeminiKeyCircuit,
+  isGeminiSearchCircuitOpen,
+  tripGeminiSearchCircuit,
+  executeGroqBrowserSearch,
+  stripRawSearchCitations,
   GroundedSource,
 } from './googleSearchService.js';
 
@@ -705,7 +709,7 @@ export class GeminiAIProvider {
         }
         contents.push({ role: 'user', parts: userParts });
 
-        // تفعيل بحث جوجل الحي عند طلب السوق/الأسعار/الموردين أو تفعيل البحث صراحةً من الواجهة
+        // تفعيل البحث الحي عند طلب السوق/الأسعار/الموردين أو تفعيل الزر الأخضر من الواجهة
         const needsSearch = wantsLiveSearch;
 
         let response: any = null;
@@ -713,22 +717,53 @@ export class GeminiAIProvider {
         let extraWebSources: GroundedSource[] = [];
 
         if (needsSearch) {
-          try {
-            response = await this.generate(
-              {
-                contents,
-                config: {
-                  systemInstruction,
-                  tools: [{ googleSearch: {} }],
+          // 1) Try Gemini Google Search only if not currently in 429 cooldown
+          let geminiSearchDone = false;
+          if (!isGeminiSearchCircuitOpen()) {
+            try {
+              response = await this.generate(
+                {
+                  contents,
+                  config: {
+                    systemInstruction,
+                    tools: [{ googleSearch: {} }],
+                  },
                 },
-              },
-              { label: 'falcon-google-search', timeoutMs: 11_000, role: 'falcon_chat' }
-            );
-            searchUsed = true;
-          } catch (searchErr: any) {
-            if (searchErr?.kind === 'bad_key') throw searchErr;
-            console.warn('[Falcon] Google Search grounding fallback notice:', searchErr?.message);
-            // Fetch live free web search results so Saqr still answers with real, cited market sources
+                { label: 'falcon-google-search', timeoutMs: 10_000, role: 'falcon_chat' }
+              );
+              searchUsed = true;
+              geminiSearchDone = true;
+            } catch (searchErr: any) {
+              if (searchErr?.kind === 'bad_key') throw searchErr;
+              tripGeminiSearchCircuit(searchErr);
+              console.warn('[Falcon] Gemini Search grounding notice:', searchErr?.message);
+            }
+          }
+
+          // 2) Instant Live Real-Time Web Search via Groq `browser_search` (zero CAPTCHA, real 2026 prices & facts in ~2.5s!)
+          if (!geminiSearchDone && groqKeys.length > 0) {
+            console.log('[Falcon] Executing direct real-time live web search via Groq browser_search...');
+            const directLive = await executeGroqBrowserSearch(userPromptText, {
+              systemInstruction,
+              history: chatHistory.slice(-6).map((h: any) => ({
+                role: h.role === 'model' || h.role === 'assistant' || h.sender === 'falcon' ? 'assistant' : 'user',
+                content: h.content || h.parts?.[0]?.text || h.text || '',
+              })),
+              country: safeCountry,
+              isSuperAdmin: superAdmin,
+            });
+            if (directLive?.answer) {
+              console.log(`[AI Service: Falcon] Direct Live Web Search succeeded (${directLive.model}, sources=${directLive.sources.length})`);
+              return {
+                reply: directLive.answer,
+                sources: directLive.sources,
+                searchUsed: true,
+              };
+            }
+          }
+
+          // 3) Secondary fallback: Google News RSS + Gemini chat
+          if (!geminiSearchDone) {
             extraWebSources = await fetchFreeWebSearchResults(userPromptText, 5).catch(() => []);
             const enrichedContents = [...contents];
             if (extraWebSources.length > 0 && enrichedContents.length > 0) {
@@ -770,7 +805,7 @@ export class GeminiAIProvider {
         if (needsSearch && searchSources.length === 0) {
           searchSources = await fetchFreeWebSearchResults(userPromptText, 5).catch(() => []);
         }
-        const reply = response?.text?.trim();
+        const reply = stripRawSearchCitations(response?.text?.trim() || '');
         if (reply) {
           console.log('[AI Service: Falcon] Provider 1 (Gemini) succeeded.', searchUsed ? `Sources: ${searchSources.length}` : '');
           const visionAnalysis = hasImages ? this.extractStructuredPricingFromReply(reply, safeCategory, hourlyRate) : undefined;

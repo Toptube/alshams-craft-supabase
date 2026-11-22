@@ -19,6 +19,10 @@ import {
   cleanSecretValue,
   isGeminiKeyCircuitOpen,
   tripGeminiKeyCircuit,
+  isGeminiSearchCircuitOpen,
+  tripGeminiSearchCircuit,
+  executeGroqBrowserSearch,
+  stripRawSearchCitations,
   GroundedSource,
 } from './googleSearchService.js';
 
@@ -509,8 +513,13 @@ async function callGeminiChatForShamousa(
           }`
         );
 
-        // If hybrid search+tools failed with 400 or 429, ground with free live web search + Gemini tools!
-        if (enableSearch && !isTransient503) {
+        if (isQuota429 && enableSearch) {
+          tripGeminiSearchCircuit(err);
+          throw err;
+        }
+
+        // If hybrid search+tools failed with 400, ground with real live web search!
+        if (enableSearch && !isTransient503 && !isQuota429) {
           try {
             const liveWebSources = await getFallbackWebSources();
             const enrichedContents = [...baseContents];
@@ -537,7 +546,7 @@ async function callGeminiChatForShamousa(
                 tools: [{ functionDeclarations }],
               },
             });
-            const txt = toolsOnlyRes?.text?.trim();
+            const txt = stripRawSearchCitations(toolsOnlyRes?.text?.trim() || '');
             if (txt) {
               return {
                 reply: txt,
@@ -965,11 +974,36 @@ export async function handleShamousaChat(
   const wantsGoogleSearch = shouldTriggerGoogleSearch(userMessage, Boolean(ctx.useSearch));
 
   // -------------------------------------------------------------
+  // Fast-Path Live Web Search when user enabled Green Search & Gemini Search is in 429 cooldown
+  // -------------------------------------------------------------
+  if (!hasImages && wantsGoogleSearch && isGeminiSearchCircuitOpen() && groqKeys.length > 0) {
+    console.log('[AI Service: Shamousa] Live Web Search active -> executing real-time Groq browser_search directly...');
+    const directLive = await executeGroqBrowserSearch(userMessage, {
+      systemInstruction,
+      history: history.slice(-6).map((m: any) => ({
+        role: m.role === 'assistant' || m.sender === 'assistant' ? 'assistant' : 'user',
+        content: m.content || m.text || '',
+      })),
+      isSuperAdmin: superAdmin,
+    });
+    if (directLive?.answer) {
+      return {
+        reply: directLive.answer,
+        handoffToFalcon: false,
+        provider: 'groq_web_search',
+        sources: directLive.sources,
+        searchUsed: true,
+      };
+    }
+  }
+
+  // -------------------------------------------------------------
   // Provider 1 (Primary): Google Gemini + Workshop Tools + Google Search Grounding
   // -------------------------------------------------------------
   let shamousaGeminiKey = resolveAgentGeminiKey('shamousa');
   for (let keyAttempt = 0; keyAttempt < 2; keyAttempt++) {
     if (!shamousaGeminiKey || isGeminiKeyCircuitOpen(shamousaGeminiKey)) break;
+    if (!hasImages && wantsGoogleSearch && isGeminiSearchCircuitOpen()) break;
     console.log(`[AI Service: Shamousa] Attempting Provider 1 (Gemini key #${keyAttempt + 1} + Tools + Google Search)...`);
     try {
       const geminiResult = await callGeminiChatForShamousa(systemInstruction, promptMessages, toolCtx, {
@@ -982,7 +1016,7 @@ export async function handleShamousaChat(
           geminiResult.searchUsed ? `[Google Search Sources: ${geminiResult.sources.length}]` : ''
         );
         return {
-          reply: geminiResult.reply,
+          reply: stripRawSearchCitations(geminiResult.reply),
           handoffToFalcon: false,
           provider: hasImages ? 'gemini_vision' : geminiResult.searchUsed ? 'gemini_google_search' : 'gemini',
           sources: geminiResult.sources,
@@ -994,6 +1028,27 @@ export async function handleShamousaChat(
       break;
     } catch (geminiErr: any) {
       geminiFailReason = geminiErr?.message || 'فشل الاتصال بـ Gemini';
+      // If Gemini Search hit 429, immediately serve REAL LIVE web search via Groq browser_search!
+      if (!hasImages && wantsGoogleSearch && isGeminiSearchCircuitOpen() && groqKeys.length > 0) {
+        console.log('[AI Service: Shamousa] Gemini Search hit 429 -> executing real-time Groq browser_search now...');
+        const directLive = await executeGroqBrowserSearch(userMessage, {
+          systemInstruction,
+          history: history.slice(-6).map((m: any) => ({
+            role: m.role === 'assistant' || m.sender === 'assistant' ? 'assistant' : 'user',
+            content: m.content || m.text || '',
+          })),
+          isSuperAdmin: superAdmin,
+        });
+        if (directLive?.answer) {
+          return {
+            reply: directLive.answer,
+            handoffToFalcon: false,
+            provider: 'groq_web_search',
+            sources: directLive.sources,
+            searchUsed: true,
+          };
+        }
+      }
       const nextKey = resolveAgentGeminiKey('shamousa');
       if (nextKey && nextKey !== shamousaGeminiKey && !isGeminiKeyCircuitOpen(nextKey)) {
         console.warn('[AI Service: Shamousa] Switching to next healthy Gemini key immediately...');

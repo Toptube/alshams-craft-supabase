@@ -301,11 +301,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           : 'gap-1 sm:gap-2 px-1.5 sm:px-3.5 md:px-5 py-1.5 sm:py-2'
       }`}
     >
-      {/* اليمين: شعار المنظومة/الورشة + وسم SUPER ADMIN عند السوبر أدمن */}
+      {/* اليمين: شعار المنظومة/الصورة الشخصية — من الرئيسية يفتح صفحتي الشخصية، ومن أي صفحة أخرى يرجع للرئيسية */}
       <div
         className={`flex items-center cursor-pointer min-w-0 shrink-0 ${isSuperAdminMode ? 'gap-1 sm:gap-1.5' : 'gap-1.5 sm:gap-2'}`}
-        onClick={onGoHome}
-        title={isSuperAdminMode ? 'منظومة الشمساوية — Super Admin' : profile?.brandName || 'منظومة الشمساوية'}
+        onClick={() => {
+          if (!isSuperAdminMode && activeView === 'home' && onOpenPersonalProfile) {
+            onOpenPersonalProfile();
+            return;
+          }
+          onGoHome();
+        }}
+        title={
+          isSuperAdminMode
+            ? 'منظومة الشمساوية — Super Admin'
+            : activeView === 'home'
+            ? 'افتح صفحتك الشخصية'
+            : 'العودة للصفحة الرئيسية'
+        }
       >
         {isSuperAdminMode ? (
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">

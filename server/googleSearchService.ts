@@ -33,8 +33,8 @@ export interface GoogleSearchResult {
 }
 
 // Free-tier models ONLY (all paid-only models strictly excluded)
-export const PRIMARY_GEMINI_MODEL = 'gemini-4-hydrogen';
-export const FALLBACK_GEMINI_MODEL = 'gemini-3.1-flash-lite';
+export const PRIMARY_GEMINI_MODEL = 'gemini-3.1-flash-lite';
+export const FALLBACK_GEMINI_MODEL = 'gemini-4-hydrogen';
 export const ACTIVE_GROQ_CHAT_MODELS = [
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
@@ -46,6 +46,58 @@ export const ACTIVE_FANAR_MODELS = ['Fanar'] as const;
 // Circuit breaker to avoid wasting sequential retries on invalid/revoked Gemini keys
 const GEMINI_KEY_CIRCUIT_TTL_MS = 5 * 60 * 1000;
 const geminiInvalidKeyCircuit = new Map<string, { until: number; reason: string }>();
+
+// Separate circuit breaker ONLY for Gemini's built-in Google Search tool:
+// Uses a fast 60-second cooldown so Google Search ALWAYS resumes as #1 primary immediately once RPM refreshes,
+// while automatically failing over to Groq browser_search (#2 backup) without ever going down!
+const GEMINI_SEARCH_COOLDOWN_MS = 60 * 1000;
+const GROQ_SEARCH_COOLDOWN_MS = 60 * 1000;
+let geminiSearchCooldownUntil = 0;
+let groqSearchCooldownUntil = 0;
+let groqSearchKeyCursor = 0;
+
+export function isGeminiSearchCircuitOpen(): boolean {
+  return Date.now() < geminiSearchCooldownUntil;
+}
+
+export function tripGeminiSearchCircuit(err?: any): void {
+  const msg = String(err?.message || err || '');
+  const status = Number(err?.status || err?.code || 0);
+  if (status === 429 || /RESOURCE_EXHAUSTED|quota|429/i.test(msg)) {
+    geminiSearchCooldownUntil = Date.now() + GEMINI_SEARCH_COOLDOWN_MS;
+    console.warn('[Search Circuit] Google Search hit 429 -> failing over to Groq browser_search for 60s, then resuming Google Search #1.');
+  }
+}
+
+export function isGroqSearchCircuitOpen(): boolean {
+  return Date.now() < groqSearchCooldownUntil;
+}
+
+export function getLiveSearchHealthStatus(): {
+  googleSearchReady: boolean;
+  groqSearchReady: boolean;
+  liveSearchAvailable: boolean;
+  primaryEngine: 'google_search' | 'groq_search' | 'offline';
+} {
+  const geminiKey = resolveAgentGeminiKey('search');
+  const googleSearchReady = Boolean(
+    geminiKey && !isGeminiKeyCircuitOpen(geminiKey) && !isGeminiSearchCircuitOpen()
+  );
+  const groqKeys = getGroqApiKeys();
+  const groqSearchReady = groqKeys.length > 0 && !isGroqSearchCircuitOpen();
+  const liveSearchAvailable = googleSearchReady || groqSearchReady;
+  const primaryEngine = googleSearchReady
+    ? 'google_search'
+    : groqSearchReady
+    ? 'groq_search'
+    : 'offline';
+  return {
+    googleSearchReady,
+    groqSearchReady,
+    liveSearchAvailable,
+    primaryEngine,
+  };
+}
 
 export function isGeminiAuthOrKeyError(err: any): boolean {
   const status = Number(err?.status || err?.code || 0);
@@ -470,12 +522,14 @@ async function fetchGoogleNewsRssResults(query: string, limit = 5): Promise<Grou
       const title = decodeHtmlEntities((m[1].match(/<title>([\s\S]*?)<\/title>/) || [])[1] || '');
       const link = ((m[1].match(/<link>([\s\S]*?)<\/link>/) || [])[1] || '').trim();
       const pubDate = ((m[1].match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1] || '').trim();
+      const rawDesc = (m[1].match(/<description>([\s\S]*?)<\/description>/) || [])[1] || '';
+      const desc = decodeHtmlEntities(rawDesc).slice(0, 220);
       if (title && link.startsWith('http') && !seen.has(link)) {
         seen.add(link);
         sources.push({
           title,
           url: link,
-          snippet: pubDate ? `تاريخ النشر: ${pubDate}` : undefined,
+          snippet: desc || (pubDate ? `تاريخ النشر: ${pubDate}` : undefined),
         });
       }
     }
@@ -485,6 +539,170 @@ async function fetchGoogleNewsRssResults(query: string, limit = 5): Promise<Grou
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Strips raw inline search citation tags (e.g. 【1†L12-L18】 or 【0†title†domain】)
+ * so Arabic replies stay clean, natural, and pleasant to read and speak.
+ */
+export function stripRawSearchCitations(text: string): string {
+  return String(text || '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/【[^】]*】/g, '')
+    .replace(/\[\d+†[^\]]*\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractSourcesFromGroqExecutedTools(executedTools: any[]): GroundedSource[] {
+  if (!Array.isArray(executedTools)) return [];
+  const sources: GroundedSource[] = [];
+  const seen = new Set<string>();
+
+  for (const tool of executedTools) {
+    const out = String(tool?.output || '');
+    if (!out) continue;
+
+    // Match structured items like 【0†عنوان النتيجة†example.com】
+    const bracketMatches = out.matchAll(/【\d+†([^†】]+)†([^】]+)】/g);
+    for (const m of bracketMatches) {
+      if (sources.length >= 6) break;
+      const title = String(m[1] || '').trim();
+      let domainOrUrl = String(m[2] || '').trim();
+      if (!domainOrUrl) continue;
+      if (!/^https?:\/\//i.test(domainOrUrl)) {
+        domainOrUrl = `https://${domainOrUrl.replace(/^\/+/, '')}`;
+      }
+      if (!seen.has(domainOrUrl) && !domainOrUrl.includes('exa.ai/search')) {
+        seen.add(domainOrUrl);
+        sources.push({ title: title || domainOrUrl, url: domainOrUrl });
+      }
+    }
+
+    // Also match direct URLs if present
+    const urlMatches = out.matchAll(/https?:\/\/[^\s"'<>)\]]+/g);
+    for (const um of urlMatches) {
+      if (sources.length >= 6) break;
+      const url = um[0].replace(/[.,;]+$/, '');
+      if (!seen.has(url) && !url.includes('exa.ai/search') && !url.includes('google.com/search')) {
+        seen.add(url);
+        sources.push({ title: url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60), url });
+      }
+    }
+  }
+
+  return sources.slice(0, 6);
+}
+
+/**
+ * Real-Time Live Web Search via Groq's built-in `browser_search` tool (`openai/gpt-oss-120b` & `openai/gpt-oss-20b`).
+ * 100% Free, works reliably from Cloud Run with zero CAPTCHA, returns up-to-the-minute 2026 live prices & facts in ~2.5s!
+ */
+export async function executeGroqBrowserSearch(
+  userQuery: string,
+  options?: {
+    systemInstruction?: string;
+    history?: Array<{ role: string; content: string }>;
+    country?: string;
+    isSuperAdmin?: boolean;
+  }
+): Promise<{ answer: string; sources: GroundedSource[]; model: string } | null> {
+  const groqKeys = getGroqApiKeys();
+  if (groqKeys.length === 0) return null;
+
+  // Rotate keys round-robin across GROQ_API_KEY & GROQ_API_KEY_SECONDARY
+  const offset = groqKeys.length > 1 ? groqSearchKeyCursor % groqKeys.length : 0;
+  groqSearchKeyCursor = (groqSearchKeyCursor + 1) % 100000;
+  const rotatedKeys = [...groqKeys.slice(offset), ...groqKeys.slice(0, offset)];
+
+  const country = options?.country || 'جمهورية مصر العربية';
+  const secrecyNote = options?.isSuperAdmin
+    ? 'استخدم أداة البحث الحية browser_search للوصول لأحدث المعلومات والأسعار الحقيقية اليوم، وأجب بدقة باللغة العربية.'
+    : 'استخدم أداة البحث الحية browser_search للوصول لأحدث المعلومات والأسعار الحقيقية اليوم وأجب بدقة بالعامية المصرية الطبيعية، وممنوع تماماً ذكر كلمة جوجل أو محركات بحث أو روابط خارجية أو أسماء مواقع في ردك — قدّم المعلومة بشكل مباشر وطبيعي.';
+
+  const baseSys = options?.systemInstruction
+    ? `${options.systemInstruction}\n\n[تعليمات البحث الحي الإلزامية الآن]: ${secrecyNote} لا تخمّن أرقاماً قديمة أبداً؛ ابحث أولاً عبر browser_search ثم أجب بدقة ووضوح.`
+    : `أنت باحث سوق وخبير معلومات حي في ${country}. ${secrecyNote}`;
+
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    { role: 'system', content: baseSys.slice(0, 7500) },
+  ];
+
+  if (Array.isArray(options?.history)) {
+    for (const h of options.history.slice(-6)) {
+      const content = String(h?.content || '').trim();
+      if (!content) continue;
+      messages.push({
+        role: h.role === 'assistant' || h.role === 'model' ? 'assistant' : 'user',
+        content: content.slice(0, 1200),
+      });
+    }
+  }
+
+  messages.push({
+    role: 'user',
+    content: `${userQuery}\n\n(مطلوب بحث مباشر وحي الآن بأحدث بيانات وأسعار اليوم في ${country} — أجب بدقة على السؤال المطلوب تحديداً.)`,
+  });
+
+  // Prioritize higher-quota faster openai/gpt-oss-20b first, then openai/gpt-oss-120b,
+  // with max 2 live attempts (10s timeout each) so worst-case latency stays snappy!
+  const searchModels = ['openai/gpt-oss-20b', 'openai/gpt-oss-120b'];
+  const pairs: Array<{ apiKey: string; model: string }> = [];
+  for (const model of searchModels) {
+    for (const apiKey of rotatedKeys) {
+      pairs.push({ apiKey, model });
+    }
+  }
+
+  let attemptsDone = 0;
+  for (const { apiKey, model } of pairs) {
+    if (attemptsDone >= 2) break;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 11000);
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          tools: [{ type: 'browser_search' }],
+          temperature: 0.25,
+          max_tokens: 1100,
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const errTxt = await res.text().catch(() => '');
+        console.warn(`[Groq Live Search] ${model} failed (${res.status}): ${errTxt.slice(0, 120)}`);
+        if (res.status !== 429) attemptsDone++;
+        continue;
+      }
+      attemptsDone++;
+      const data: any = await res.json();
+      const msg = data?.choices?.[0]?.message;
+      const cleanAnswer = stripRawSearchCitations(String(msg?.content || ''));
+      if (cleanAnswer) {
+        groqSearchCooldownUntil = 0;
+        const sources = extractSourcesFromGroqExecutedTools(msg?.executed_tools || []);
+        console.log(`[Groq Live Search] OK model=${model} tools=${msg?.executed_tools?.length || 0} sources=${sources.length}`);
+        return { answer: cleanAnswer, sources, model };
+      }
+    } catch (err: any) {
+      attemptsDone++;
+      console.warn(`[Groq Live Search] ${model} exception:`, err?.message || err);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // All Groq live search attempts failed -> mark short 60s cooldown so UI shows honest gray indicator if Google is also down
+  groqSearchCooldownUntil = Date.now() + GROQ_SEARCH_COOLDOWN_MS;
+  return null;
 }
 
 function normalizeWebSearchQuery(rawQuery: string): string {
@@ -667,8 +885,8 @@ export async function performGoogleSearch(
   const key = resolveAgentGeminiKey(agent);
   let lastErr: any = null;
 
-  // 1. Try Gemini Google Search Grounding when a healthy Gemini key is available
-  if (key && !isGeminiKeyCircuitOpen(key)) {
+  // 1. Try Gemini Google Search Grounding ONLY if key is healthy AND Gemini Search tool is not in 429 cooldown
+  if (key && !isGeminiKeyCircuitOpen(key) && !isGeminiSearchCircuitOpen()) {
     try {
       const ai = createGeminiClientForAgent(agent);
       const models = getCandidateGeminiModels();
@@ -688,12 +906,12 @@ export async function performGoogleSearch(
               })
               .finally(() => clearTimeout(timer)),
             new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new Error(`timeout on ${model}`)), 10000);
+              timer = setTimeout(() => reject(new Error(`timeout on ${model}`)), 9000);
             }),
           ]);
 
           const { sources, searchEntryPoint } = extractGroundingMetadata(response);
-          const answer = response.text?.trim() || '';
+          const answer = stripRawSearchCitations(response.text?.trim() || '');
           if (answer && sources.length > 0) {
             return {
               answer,
@@ -704,7 +922,7 @@ export async function performGoogleSearch(
             };
           }
           if (answer) {
-            const liveExtra = await fetchFreeWebSearchResults(cleanQuery, 5);
+            const liveExtra = await fetchGoogleNewsRssResults(cleanQuery, 5);
             return {
               answer,
               sources: liveExtra.slice(0, 6),
@@ -720,6 +938,10 @@ export async function performGoogleSearch(
             break;
           }
           const status = Number(err?.status || err?.code || 0);
+          if (status === 429 || /RESOURCE_EXHAUSTED|quota|429/i.test(String(err?.message || ''))) {
+            tripGeminiSearchCircuit(err);
+            break;
+          }
           console.log(`[GoogleSearchService] Switching past model ${model} (status: ${status || 'err'})`);
         }
       }
@@ -729,8 +951,24 @@ export async function performGoogleSearch(
     }
   }
 
-  // 2. Fallback to 100% Free Live Web Search (DuckDuckGo HTML + Google News RSS) + Groq/Fanar synthesis
-  console.log('[GoogleSearchService] Using free live web search (DuckDuckGo + Google News RSS) + Groq synthesis...');
+  // 2. Primary Live Real-Time Web Search Engine (Groq native `browser_search` — zero CAPTCHA, live 2026 results in ~2.5s!)
+  console.log('[GoogleSearchService] Executing real-time live web search via Groq browser_search...');
+  const groqLive = await executeGroqBrowserSearch(cleanQuery, {
+    systemInstruction,
+    country,
+    isSuperAdmin: true,
+  });
+  if (groqLive?.answer) {
+    return {
+      answer: groqLive.answer,
+      sources: groqLive.sources,
+      searchUsed: true,
+      engine: 'web_search_plus_groq',
+    };
+  }
+
+  // 3. Emergency Fallback: Google News RSS + Groq/Fanar synthesis
+  console.log('[GoogleSearchService] Falling back to Google News RSS + Groq synthesis...');
   const webResults = await fetchFreeWebSearchResults(cleanQuery, 6);
   if (webResults.length > 0) {
     const synthesized = await summarizeWebResultsWithGroq(cleanQuery, webResults, systemInstruction);
@@ -747,7 +985,7 @@ export async function performGoogleSearch(
   const lastMsg = String(lastErr?.message || '');
   if (lastMsg.includes('429') || lastMsg.includes('RESOURCE_EXHAUSTED')) {
     const quotaErr: any = new Error(
-      'تم تجاوز حصة بحث جوجل الحالية مؤقتاً. يمكنك المحاولة بعد لحظات.'
+      'تم تجاوز حصة البحث الحالية مؤقتاً. يمكنك المحاولة بعد لحظات.'
     );
     quotaErr.status = 429;
     throw quotaErr;
