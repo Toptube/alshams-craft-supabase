@@ -39,7 +39,6 @@ import {
   Truck,
 } from 'lucide-react';
 import { SupplierGrowthToolsPanel } from '../growth/SupplierGrowthToolsPanel';
-import { WorkshopGuidanceModal, GuidanceMode } from '../home/WorkshopGuidanceModal';
 import { GrowthHubConfig, getStoredGrowthHubConfig } from '../../types/artisanGrowth';
 import { syncGrowthHubConfigFromCloud } from '../../db/memberProfileService';
 
@@ -100,8 +99,6 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeSubCard, setActiveSubCard] = useState<UiHomeCardConfig | null>(null);
   const [supplierGrowthOpen, setSupplierGrowthOpen] = useState(false);
-  const [guidanceOpen, setGuidanceOpen] = useState(false);
-  const [guidanceMode, setGuidanceMode] = useState<GuidanceMode>('start');
   const [growthConfig, setGrowthConfig] = useState<GrowthHubConfig>(() => getStoredGrowthHubConfig());
 
   useEffect(() => {
@@ -186,12 +183,10 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
         onNavigateToExecutiveBrief?.();
         break;
       case 'sup_guide_start':
-        setGuidanceMode('start');
-        setGuidanceOpen(true);
+        window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'guide_start' } }));
         break;
       case 'sup_guide_daily':
-        setGuidanceMode('daily');
-        setGuidanceOpen(true);
+        window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'guide_daily' } }));
         break;
       case 'sup_erp_hub':
         onNavigateToErpHub?.();
@@ -806,15 +801,6 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
         catalog={catalog}
         customers={customers}
         orders={orders}
-      />
-
-      {/* نافذة دليل البداية والروتين اليومي للموردين */}
-      <WorkshopGuidanceModal
-        isOpen={guidanceOpen}
-        onClose={() => setGuidanceOpen(false)}
-        audience="supplier"
-        initialMode={guidanceMode}
-        onExecuteAction={executeSupplierAction}
       />
     </div>
   );

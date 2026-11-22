@@ -17,7 +17,17 @@ export interface SupplierStoreCoupon {
 export interface SupplierStoreConfig {
   tagline?: string;
   description?: string;
-  themePreset?: 'warm_atelier' | 'deep_navy' | 'emerald_craft' | 'minimal_stone';
+  themePreset?:
+    | 'shams_sand'
+    | 'royal_navy'
+    | 'emerald_linen'
+    | 'rose_clay'
+    | 'midnight_gallery'
+    | 'clean_alabaster'
+    | 'warm_atelier'
+    | 'deep_navy'
+    | 'emerald_craft'
+    | 'minimal_stone';
   whatsappNumber?: string;
   instagramUrl?: string;
   facebookUrl?: string;

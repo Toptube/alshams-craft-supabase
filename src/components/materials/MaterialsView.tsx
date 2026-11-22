@@ -322,6 +322,7 @@ export const MaterialsView: React.FC<MaterialsViewProps> = ({
       }
 
       try {
+        await tenantStorage.purgeAutoSeededFakeMaterialStock(workshopId).catch(() => 0);
         const dexieItems = await tenantStorage.getRawMaterials(workshopId);
         for (const it of dexieItems) {
           if (!stocks[it.id]) {

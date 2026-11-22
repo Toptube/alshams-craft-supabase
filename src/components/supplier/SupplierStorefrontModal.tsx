@@ -22,6 +22,10 @@ import {
   ExternalLink,
 } from 'lucide-react';
 
+import { StorefrontThemeGrid, ThemePreviewDecisionBar } from '../store/StorefrontThemeStudio';
+import { SupplierPublicStoreView } from './SupplierPublicStoreView';
+import { StorefrontThemeId, normalizeStorefrontThemeId } from '../../lib/storefrontThemes';
+
 interface SupplierStorefrontModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -30,13 +34,6 @@ interface SupplierStorefrontModalProps {
   onOpenPersonalProfile?: () => void;
   onPreviewPublicStore?: (slug: string) => void;
 }
-
-const THEME_PRESETS: { id: NonNullable<SupplierStoreConfig['themePreset']>; label: string }[] = [
-  { id: 'warm_atelier', label: 'دافئ حرفي (الرملي والبرتقالي)' },
-  { id: 'deep_navy', label: 'كحلي تنفيذي (كحلي وذهبي)' },
-  { id: 'emerald_craft', label: 'زمردي (أخضر وعاجي)' },
-  { id: 'minimal_stone', label: 'حجري هادئ (أبيض ورمادي)' },
-];
 
 export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = ({
   isOpen,
@@ -55,9 +52,10 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
 
   const [tagline, setTagline] = useState(initialCfg.tagline || '');
   const [description, setDescription] = useState(initialCfg.description || '');
-  const [themePreset, setThemePreset] = useState<NonNullable<SupplierStoreConfig['themePreset']>>(
-    initialCfg.themePreset || 'warm_atelier'
+  const [themePreset, setThemePreset] = useState<StorefrontThemeId>(
+    normalizeStorefrontThemeId(initialCfg.themePreset)
   );
+  const [previewThemeId, setPreviewThemeId] = useState<StorefrontThemeId | null>(null);
   const [whatsappNumber, setWhatsappNumber] = useState(
     initialCfg.whatsappNumber || profile.phoneNumber || ''
   );
@@ -88,7 +86,7 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
     setGovernorate(profile.governorate || '');
     setTagline(cfg.tagline || '');
     setDescription(cfg.description || '');
-    setThemePreset(cfg.themePreset || 'warm_atelier');
+    setThemePreset(normalizeStorefrontThemeId(cfg.themePreset));
     setWhatsappNumber(cfg.whatsappNumber || profile.phoneNumber || '');
     setInstagramUrl(cfg.instagramUrl || '');
     setFacebookUrl(cfg.facebookUrl || '');
@@ -132,13 +130,14 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
       ? `${window.location.origin}/#/supplier/${encodeURIComponent(effectiveSlug)}`
       : `/#/supplier/${encodeURIComponent(effectiveSlug)}`;
 
-  const handleSave = async () => {
+  const handleSave = async (themeOverride?: StorefrontThemeId): Promise<boolean> => {
+    const resolvedTheme = themeOverride || themePreset;
     setSaving(true);
     setFeedback(null);
     const nextConfig: SupplierStoreConfig = {
       tagline: tagline.trim(),
       description: description.trim(),
-      themePreset,
+      themePreset: resolvedTheme,
       whatsappNumber: whatsappNumber.trim(),
       instagramUrl: instagramUrl.trim(),
       facebookUrl: facebookUrl.trim(),
@@ -158,7 +157,11 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
 
     if (!res.success || !res.supplier) {
       setFeedback({ text: res.error || 'تعذر حفظ إعدادات المتجر', isError: true });
-      return;
+      return false;
+    }
+
+    if (themeOverride) {
+      setThemePreset(themeOverride);
     }
 
     const updatedProfile: UserProfile = {
@@ -182,7 +185,8 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
         },
       })
     );
-    setFeedback({ text: 'تم حفظ إعدادات متجر المورد ونبذة المتجر بنجاح!' });
+    setFeedback({ text: 'تم حفظ إعدادات متجر المورد واعتماد السمة بنجاح!' });
+    return true;
   };
 
   const handleAddCoupon = () => {
@@ -205,9 +209,60 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
     a.click();
   };
 
+  if (previewThemeId) {
+    return (
+      <div className="fixed inset-0 z-50 bg-[#060B18] overflow-y-auto flex flex-col">
+        <ThemePreviewDecisionBar
+          previewThemeId={previewThemeId}
+          savedThemeId={themePreset}
+          saving={saving}
+          onChangePreviewTheme={(id) => setPreviewThemeId(id)}
+          onConfirmApply={async (chosenId) => {
+            const ok = await handleSave(chosenId);
+            if (ok) {
+              setPreviewThemeId(null);
+            }
+          }}
+          onCancel={() => setPreviewThemeId(null)}
+        />
+        <div className="flex-1">
+          <SupplierPublicStoreView
+            slug={effectiveSlug}
+            profile={profile}
+            isOwnerPreview={true}
+            previewThemeOverride={previewThemeId}
+            onClosePreview={() => setPreviewThemeId(null)}
+            onNavigateToSuppliersMarket={() => setPreviewThemeId(null)}
+            onNavigateToCentralMarket={() => setPreviewThemeId(null)}
+            onNavigateToApp={() => setPreviewThemeId(null)}
+            localSupplierOverride={{
+              brandName: brandName.trim() || profile.brandName || 'متجر المورد',
+              storeSlug: effectiveSlug,
+              phone: phone.trim(),
+              governorate: governorate.trim(),
+              storeConfig: {
+                ...initialCfg,
+                tagline: tagline.trim(),
+                description: description.trim(),
+                themePreset: previewThemeId,
+                whatsappNumber: whatsappNumber.trim(),
+                instagramUrl: instagramUrl.trim(),
+                facebookUrl: facebookUrl.trim(),
+                shippingNote: shippingNote.trim(),
+                freeShippingAbove: Number(freeShippingAbove || 0),
+                showWholesalePricesPublicly,
+                coupons,
+              },
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5" dir="rtl">
-      <div className="w-full max-w-3xl bg-[#F7F3EA] dark:bg-[#0D162E] rounded-3xl border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl max-h-[92vh] flex flex-col overflow-hidden text-right">
+      <div className="w-full max-w-4xl bg-[#F7F3EA] dark:bg-[#0D162E] rounded-3xl border border-[#D4CCBC] dark:border-[#22355E] shadow-2xl max-h-[92vh] flex flex-col overflow-hidden text-right">
         {/* Header with Back & Close */}
         <div className="p-4 sm:p-5 border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-2">
           <button
@@ -371,24 +426,13 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
                 />
               </div>
 
-              <div>
-                <label className="block font-bold mb-1.5">طابع مظهر المتجر</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {THEME_PRESETS.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setThemePreset(p.id)}
-                      className={`p-2.5 rounded-xl border text-right font-bold cursor-pointer ${
-                        themePreset === p.id
-                          ? 'bg-[#EA580C]/15 border-[#EA580C] text-[#C2410C] dark:text-amber-300'
-                          : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E]'
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
+              <div className="p-3.5 rounded-2xl bg-[#EFE9DC]/60 dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E]">
+                <StorefrontThemeGrid
+                  activeThemeId={themePreset}
+                  audience="supplier"
+                  onSelectTheme={(id) => setThemePreset(id)}
+                  onPreviewTheme={(id) => setPreviewThemeId(id)}
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -591,7 +635,7 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
           <button
             type="button"
             disabled={saving}
-            onClick={handleSave}
+            onClick={() => handleSave()}
             className="px-5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black cursor-pointer disabled:opacity-50"
           >
             {saving ? 'جاري الحفظ...' : 'حفظ التغييرات'}

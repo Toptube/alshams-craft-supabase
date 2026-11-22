@@ -551,6 +551,7 @@ export interface RawMaterialItem {
   lastPurchaseDate?: string;
   minAlertThreshold: number; // حد الطلب الأدنى
   reorderLevel?: number;
+  warehouseTracked?: boolean;
   isActive: boolean;
   createdAt?: number;
   updatedAt?: number;

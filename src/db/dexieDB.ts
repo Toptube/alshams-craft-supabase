@@ -1230,7 +1230,10 @@ export const tenantStorage = {
       createdBy: cleanEmail,
     };
     await db.profiles.put(profile);
-    await this.seedDemoDataIfEmpty(tenantId);
+    // Do NOT dump fake stock/suppliers/employees into brand-new real workshops
+    if (tenantId === 'workshop_demo') {
+      await this.seedDemoDataIfEmpty(tenantId);
+    }
     return profile;
   },
 
@@ -1800,8 +1803,63 @@ export const tenantStorage = {
     return db.aiKnowledgeBase.where('tenantId').equals(tenantId).reverse().sortBy('timestamp');
   },
 
-  // DEMO SEED
+  // AUTO-CLEANUP: Zero out legacy auto-seeded fake stock (e.g. mat_yarn_* 15kg) when workshop has zero real warehouse transactions
+  async purgeAutoSeededFakeMaterialStock(tenantId: string): Promise<number> {
+    if (!tenantId || tenantId === 'workshop_demo') return 0;
+    const sessionKey = `alshams_purged_fake_stock_v1_${tenantId}`;
+    try {
+      if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(sessionKey) === '1') {
+        return 0;
+      }
+    } catch {}
+
+    try {
+      const [mats, txs, invoices] = await Promise.all([
+        db.rawMaterials.where('tenantId').equals(tenantId).toArray(),
+        db.inventoryTransactions.where('tenantId').equals(tenantId).count(),
+        db.supplierInvoices.where('tenantId').equals(tenantId).count(),
+      ]);
+
+      // Read explicitly user-adjusted stock map so we NEVER touch real user entries
+      let userStockMap: Record<string, any> = {};
+      try {
+        const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('alshams_mat_stock_' + tenantId) : null;
+        if (raw) userStockMap = JSON.parse(raw) || {};
+      } catch {}
+
+      const hasRealMovements = txs > 0 || invoices > 0;
+      let cleanedCount = 0;
+
+      for (const m of mats) {
+        const isAutoSeededId =
+          typeof m.id === 'string' &&
+          (m.id.startsWith('mat_yarn_') ||
+            /^mat_(1|2|3|4|5|crochet_\d+|zigzag_\d+|supp_\d+|tuft_\d+|kilim_\d+)$/.test(m.id));
+        const userExplicitlySet = Boolean(userStockMap[m.id]);
+
+        if (isAutoSeededId && !userExplicitlySet && !hasRealMovements && (Number(m.currentStock) > 0 || Number(m.minAlertThreshold) > 0)) {
+          await db.rawMaterials.update(m.id, {
+            currentStock: 0,
+            minAlertThreshold: 0,
+            warehouseTracked: false,
+            updatedAt: Date.now(),
+          });
+          cleanedCount++;
+        }
+      }
+
+      try {
+        if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(sessionKey, '1');
+      } catch {}
+      return cleanedCount;
+    } catch {
+      return 0;
+    }
+  },
+
+  // DEMO SEED (only for explicit workshop_demo, and ALWAYS with 0 fake stock on materials)
   async seedDemoDataIfEmpty(tenantId: string): Promise<void> {
+    if (tenantId !== 'workshop_demo') return;
     const existing = await db.rawMaterials.where('tenantId').equals(tenantId).count();
     if (existing > 0) return;
 
@@ -2203,7 +2261,11 @@ export const tenantStorage = {
     ];
 
     for (const m of sampleMaterials) {
-      await db.rawMaterials.put(m);
+      await db.rawMaterials.put({
+        ...m,
+        currentStock: 0,
+        minAlertThreshold: 0,
+      });
     }
 
     // Seed supplier

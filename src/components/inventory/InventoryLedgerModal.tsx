@@ -9,6 +9,12 @@ import {
   resolveMaterialStockValues,
 } from '../../lib/materialStockUtils';
 import {
+  getMaterialsFromSupabase,
+  createMaterialInSupabase,
+  ensureDefaultUnitsInSupabase,
+  generateUuid,
+} from '../../db/supabaseService';
+import {
   X,
   Boxes,
   Plus,
@@ -29,6 +35,7 @@ interface InventoryLedgerModalProps {
   onClose: () => void;
   profile: UserProfile;
   onOpenMaterialsView?: () => void;
+  asPage?: boolean;
 }
 
 export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
@@ -36,9 +43,8 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
   onClose,
   profile,
   onOpenMaterialsView,
+  asPage = false,
 }) => {
-  if (!isOpen) return null;
-
   const { isCraft } = useExperienceMode('artisan', profile);
   const [items, setItems] = useState<InventoryStockItem[]>([]);
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
@@ -47,30 +53,30 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
   const [stockSearch, setStockSearch] = useState('');
   const [alertBannerDismissed, setAlertBannerDismissed] = useState(false);
 
-  // Purchase modal form state
+  // Purchase form state — always starts cleanly at 0
   const [selectedItemId, setSelectedItemId] = useState<string>('');
-  const [purchaseQuantity, setPurchaseQuantity] = useState<number>(5);
-  const [purchaseUnitCost, setPurchaseUnitCost] = useState<number>(180);
+  const [purchaseQuantity, setPurchaseQuantity] = useState<number>(0);
+  const [purchaseUnitCost, setPurchaseUnitCost] = useState<number>(0);
   const [supplierName, setSupplierName] = useState<string>('');
   const [purchaseNotes, setPurchaseNotes] = useState<string>('');
 
-  // Adjustment / Consumption form state
+  // Adjustment / Consumption form state — starts cleanly at 0
   const [adjustItemId, setAdjustItemId] = useState<string>('');
   const [adjustType, setAdjustType] = useState<'consume' | 'audit'>('consume');
-  const [adjustQuantity, setAdjustQuantity] = useState<number>(2);
+  const [adjustQuantity, setAdjustQuantity] = useState<number>(0);
   const [adjustNotes, setAdjustNotes] = useState<string>('');
 
   // Quick edit reorder threshold modal state
   const [editingThresholdItem, setEditingThresholdItem] = useState<InventoryStockItem | null>(null);
   const [tempThresholdValue, setTempThresholdValue] = useState<number>(0);
 
-  // New item modal form state
+  // New item modal form state — ALWAYS 0 (never fake 10 / 180 / 5)
   const [isAddingNewItem, setIsAddingNewItem] = useState(false);
   const [newItemName, setNewItemName] = useState('');
   const [newItemCategory, setNewItemCategory] = useState<any>('خيوط');
   const [newItemUnit, setNewItemUnit] = useState<any>('كيلو');
-  const [newItemInitialStock, setNewItemInitialStock] = useState(10);
-  const [newItemCost, setNewItemCost] = useState(180);
+  const [newItemInitialStock, setNewItemInitialStock] = useState(0);
+  const [newItemCost, setNewItemCost] = useState(0);
   const [newItemMinThreshold, setNewItemMinThreshold] = useState(0);
   const [newItemSupplier, setNewItemSupplier] = useState('');
   const [newItemLocation, setNewItemLocation] = useState('المخزن الرئيسي');
@@ -80,22 +86,77 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
   const tenantId = profile.tenantId || profile.workshopId || profile.id || '';
 
   const loadData = async () => {
+    if (!tenantId) return;
     try {
-      const [rawStock, txs] = await Promise.all([
+      // Purge any legacy auto-seeded fake 15kg balances on real workshops with zero real purchases/movements
+      await tenantStorage.purgeAutoSeededFakeMaterialStock(tenantId);
+
+      const [sbMats, unts, dexieStock, txs] = await Promise.all([
+        getMaterialsFromSupabase(tenantId).catch(() => ({ data: [], error: null })),
+        ensureDefaultUnitsInSupabase(tenantId).catch(() => []),
         tenantStorage.getInventory(tenantId),
         tenantStorage.getInventoryTransactions(tenantId),
       ]);
+
       const localMap = readLocalMaterialStockMap(tenantId);
-      const uniqueStock = deduplicateMaterialsByName(rawStock, localMap).map((it) => {
+      const dexieLookup = new Map<string, any>();
+      dexieStock.forEach((m) => {
+        if (m.id) dexieLookup.set(m.id, m);
+        if (m.materialName) dexieLookup.set(m.materialName.trim().toLowerCase(), m);
+      });
+
+      const combined: any[] = [];
+      (sbMats?.data || []).forEach((sm: any) => {
+        const safeName = String(sm.name || '').trim();
+        if (!safeName) return;
+        const local = dexieLookup.get(sm.id) || dexieLookup.get(safeName.toLowerCase());
+        const unitObj = unts.find((u: any) => u.id === sm.unit_id);
+        const unitName = unitObj?.name || local?.unit || 'كيلو';
+        const resolved = resolveMaterialStockValues(
+          {
+            id: sm.id,
+            currentStock: local?.currentStock ?? sm.current_stock ?? 0,
+            minAlertThreshold: local?.minAlertThreshold ?? sm.min_limit ?? 0,
+            warehouseTracked: local?.warehouseTracked,
+          },
+          localMap
+        );
+        combined.push({
+          id: sm.id,
+          tenantId,
+          materialName: safeName,
+          category: local?.category || sm.market_name || (sm.kind === 'extra' ? 'إكسسوارات ومعادن' : 'خيوط'),
+          unit: unitName,
+          currentStock: resolved.currentStock,
+          costPerUnit: Number(sm.purchase_price || local?.costPerUnit || 0),
+          costPerGram:
+            unitName === 'كيلو'
+              ? Number(sm.purchase_price || local?.costPerUnit || 0) / 1000
+              : Number(sm.purchase_price || local?.costPerUnit || 0),
+          supplierName: local?.supplierName || 'مورد عام',
+          warehouseLocation: local?.warehouseLocation || 'المخزن الرئيسي',
+          lastPurchaseDate: local?.lastPurchaseDate || '',
+          minAlertThreshold: resolved.minThreshold,
+          reorderLevel: resolved.minThreshold,
+          warehouseTracked: resolved.isTracked,
+          isActive: true,
+        });
+      });
+
+      dexieStock.forEach((it) => {
         const resolved = resolveMaterialStockValues(it, localMap);
-        return {
+        combined.push({
           ...it,
           currentStock: resolved.currentStock,
           minAlertThreshold: resolved.minThreshold,
           reorderLevel: resolved.minThreshold,
           warehouseTracked: resolved.isTracked,
-        } as InventoryStockItem & { warehouseTracked?: boolean };
+        });
       });
+
+      const uniqueStock = deduplicateMaterialsByName(combined, localMap) as (InventoryStockItem & {
+        warehouseTracked?: boolean;
+      })[];
       setItems(uniqueStock);
       setTransactions(txs);
       const hasAnyStocked = uniqueStock.some((i: any) => i.currentStock > 0 || i.warehouseTracked);
@@ -114,8 +175,10 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
   };
 
   useEffect(() => {
-    loadData();
-  }, [tenantId]);
+    if (isOpen || asPage) {
+      loadData();
+    }
+  }, [tenantId, isOpen, asPage]);
 
   // Handle Recording New Purchase (Adds Stock)
   const handleRecordPurchase = async (e: React.FormEvent) => {
@@ -217,34 +280,72 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
     setActiveTab('adjustment');
   };
 
-  // Handle Defining Brand-New Item
+  // Handle Defining Brand-New Item (unified across Supabase + Dexie, zero fake defaults)
   const handleCreateNewItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newItemName.trim()) return;
+    const trimmedName = newItemName.trim();
+    if (!trimmedName) return;
 
     try {
-      const newItem: InventoryStockItem = {
-        id: 'inv_' + Date.now(),
-        tenantId: profile.tenantId,
-        materialName: newItemName.trim(),
+      const initialStockVal = Math.max(0, Number(newItemInitialStock) || 0);
+      const costVal = Math.max(0, Number(newItemCost) || 0);
+      const thresholdVal = Math.max(0, Number(newItemMinThreshold) || 0);
+      const newId = generateUuid();
+
+      // 1. Sync to Supabase so خاماتي + جرد الأرصدة + حركة المخزن share one source of truth
+      let savedId = newId;
+      let resolvedUnitId: string | undefined;
+      try {
+        const unts = await ensureDefaultUnitsInSupabase(tenantId);
+        const unitObj = unts.find((u) => u.name === newItemUnit) || unts[0];
+        resolvedUnitId = unitObj?.id;
+        if (resolvedUnitId) {
+          const sbRes = await createMaterialInSupabase(tenantId, {
+            id: newId,
+            name: trimmedName,
+            kind: newItemCategory === 'خيوط' ? 'primary' : 'extra',
+            purchase_price: costVal,
+            market_name: newItemCategory,
+            unit_id: resolvedUnitId,
+          });
+          if (sbRes?.data?.id) savedId = sbRes.data.id;
+        }
+      } catch (sbErr) {
+        console.warn('[InventoryLedger] Cloud create deferred:', sbErr);
+      }
+
+      // 2. Save in local Dexie
+      const newItem: InventoryStockItem & { warehouseTracked?: boolean; workshopId?: string; unitId?: string } = {
+        id: savedId,
+        tenantId,
+        workshopId: tenantId,
+        materialName: trimmedName,
         category: newItemCategory,
         unit: newItemUnit,
-        currentStock: Number(newItemInitialStock) || 0,
-        costPerUnit: Number(newItemCost) || 0,
-        costPerGram: newItemUnit === 'كيلو' ? (Number(newItemCost) || 0) / 1000 : Number(newItemCost) || 0,
+        unitId: resolvedUnitId,
+        currentStock: initialStockVal,
+        costPerUnit: costVal,
+        costPerGram: newItemUnit === 'كيلو' ? costVal / 1000 : costVal,
         supplierName: newItemSupplier.trim() || 'مورد عام',
         warehouseLocation: newItemLocation.trim() || 'المخزن الرئيسي',
-        lastPurchaseDate: new Date().toISOString().split('T')[0],
-        minAlertThreshold: Number(newItemMinThreshold) || 5,
-        reorderLevel: Number(newItemMinThreshold) || 5,
+        lastPurchaseDate: initialStockVal > 0 ? new Date().toISOString().split('T')[0] : '',
+        minAlertThreshold: thresholdVal,
+        reorderLevel: thresholdVal,
+        warehouseTracked: initialStockVal > 0 || thresholdVal > 0,
         isActive: true,
       };
 
-      await tenantStorage.addInventoryItem(newItem);
+      await tenantStorage.saveRawMaterial(newItem as any, { skipCloudQueue: true });
       setIsAddingNewItem(false);
       setNewItemName('');
+      setNewItemInitialStock(0);
+      setNewItemCost(0);
+      setNewItemMinThreshold(0);
+      window.dispatchEvent(new CustomEvent('alshams_materials_changed'));
       await loadData();
-      setActionNotice({ text: `تم تعريف صنف الخامة "${newItem.materialName}" في أصول المخزن بنجاح مع حد طلب أدنى (${newItem.minAlertThreshold} ${newItem.unit})!` });
+      setActionNotice({
+        text: `تم إضافة الخامة "${trimmedName}" بنجاح ومزامنتها مع قائمة خاماتك ومخزنك.`,
+      });
       setTimeout(() => setActionNotice(null), 3500);
     } catch (err: any) {
       setActionNotice({ text: err.message || 'فشل إضافة الصنف', isError: true });
@@ -290,29 +391,42 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
     });
   }, [items, stockFilter, stockSearch]);
 
+  if (!isOpen && !asPage) return null;
+
+  const outerClass = asPage
+    ? 'max-w-6xl mx-auto px-3 sm:px-6 py-5'
+    : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200';
+
+  const cardClass = asPage
+    ? 'bg-white dark:bg-[#132040] w-full rounded-3xl shadow-sm border border-[#D4CCBC] dark:border-[#22355E] text-stone-900 dark:text-stone-100 p-4 sm:p-6 relative text-right'
+    : 'bg-white dark:bg-stone-900 w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl border border-amber-200 dark:border-stone-800 text-stone-900 dark:text-stone-100 p-5 sm:p-7 relative text-right';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-stone-900 w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl border border-amber-200 dark:border-stone-800 text-stone-900 dark:text-stone-100 p-5 sm:p-7 relative text-right">
+    <div className={outerClass} dir="rtl">
+      <div className={cardClass}>
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-stone-200 dark:border-stone-800">
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+        <div className="flex items-center justify-between pb-4 border-b border-stone-200 dark:border-[#22355E]">
           <div>
             <h2 className="text-lg font-black text-amber-900 dark:text-amber-300 flex items-center gap-2">
               <Boxes className="w-5 h-5 text-amber-600" />
               <span>{isCraft ? 'حركة المخزن والجرد' : 'دفتر حركة المخزن والتسويات والأرصدة'}</span>
             </h2>
-            <p className="text-xs text-stone-500 dark:text-stone-400">
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
               {isCraft
                 ? 'تابع الكميات الفعلية اللي في مخزنك، وسجّل أي توريد أو صرف أو جرد بسهولة'
                 : 'تسجيل أصول الخامات وتتبع مستويات إعادة الطلب وحركات التوريد والصرف والتسوية الجردية'}
             </p>
           </div>
+          {!asPage && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+              aria-label="إغلاق"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Action Notice */}

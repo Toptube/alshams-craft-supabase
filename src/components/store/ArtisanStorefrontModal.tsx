@@ -70,6 +70,8 @@ import {
 import { ArtisanProductEditorModal } from './ArtisanProductEditorModal';
 import { ArtisanStorefrontBuilderPanel } from './ArtisanStorefrontBuilderPanel';
 import { PublicStorefrontView } from './PublicStorefrontView';
+import { ThemePreviewDecisionBar } from './StorefrontThemeStudio';
+import { StorefrontThemeId, normalizeStorefrontThemeId } from '../../lib/storefrontThemes';
 
 interface TreasuryAccountOption {
   id: string;
@@ -116,6 +118,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   );
   const [savingConfig, setSavingConfig] = useState(false);
   const [isOwnerPreviewOpen, setIsOwnerPreviewOpen] = useState(false);
+  const [previewThemeId, setPreviewThemeId] = useState<StorefrontThemeId | null>(null);
 
   // Products filtering & editing
   const [prodSearch, setProdSearch] = useState('');
@@ -893,15 +896,45 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   if (!isOpen) return null;
 
   if (isOwnerPreviewOpen) {
+    const savedThemeId = normalizeStorefrontThemeId(storeConfig.themePreset);
+    const activePreviewTheme = previewThemeId || savedThemeId;
     return (
-      <div className="fixed inset-0 z-50 bg-[#F2ECE1] dark:bg-[#060B18] overflow-y-auto">
-        <PublicStorefrontView
-          slug={artisanSlug || tenantId}
-          isOwnerPreview={true}
-          onClosePreview={() => setIsOwnerPreviewOpen(false)}
-          localFallbackProducts={products}
-          ownerProfile={profile}
+      <div className="fixed inset-0 z-50 bg-[#060B18] overflow-y-auto flex flex-col">
+        <ThemePreviewDecisionBar
+          previewThemeId={activePreviewTheme}
+          savedThemeId={savedThemeId}
+          saving={savingConfig}
+          onChangePreviewTheme={(id) => setPreviewThemeId(id)}
+          onConfirmApply={async (chosenId) => {
+            const nextCfg: ArtisanStoreConfig = {
+              ...storeConfig,
+              themePreset: chosenId,
+            };
+            setStoreConfig(nextCfg);
+            saveStoredArtisanStoreConfig(tenantId, nextCfg);
+            await handleSaveStoreConfigCloud(nextCfg);
+            setPreviewThemeId(null);
+            setIsOwnerPreviewOpen(false);
+          }}
+          onCancel={() => {
+            setPreviewThemeId(null);
+            setIsOwnerPreviewOpen(false);
+          }}
         />
+        <div className="flex-1">
+          <PublicStorefrontView
+            slug={artisanSlug || tenantId}
+            isOwnerPreview={true}
+            onClosePreview={() => {
+              setPreviewThemeId(null);
+              setIsOwnerPreviewOpen(false);
+            }}
+            localFallbackProducts={products}
+            ownerProfile={profile}
+            previewThemeOverride={activePreviewTheme}
+            localConfigOverride={storeConfig}
+          />
+        </div>
       </div>
     );
   }
@@ -1411,7 +1444,14 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
               saveStoredArtisanStoreConfig(tenantId, next);
             }}
             onSaveCloud={handleSaveStoreConfigCloud}
-            onOpenPreview={() => setIsOwnerPreviewOpen(true)}
+            onOpenPreview={() => {
+              setPreviewThemeId(normalizeStorefrontThemeId(storeConfig.themePreset));
+              setIsOwnerPreviewOpen(true);
+            }}
+            onPreviewTheme={(id) => {
+              setPreviewThemeId(id);
+              setIsOwnerPreviewOpen(true);
+            }}
             onOpenPersonalProfile={onOpenPersonalProfile}
           />
         )}

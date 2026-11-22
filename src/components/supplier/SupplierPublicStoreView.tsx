@@ -30,6 +30,7 @@ import {
 } from '../../db/supplierService';
 import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
 import { playButtonClickSound, playErrorSound, playSuccessSound } from '../../lib/sounds';
+import { resolveStorefrontTheme, StorefrontThemeId } from '../../lib/storefrontThemes';
 
 interface SupplierPublicStoreViewProps {
   slug: string;
@@ -37,6 +38,10 @@ interface SupplierPublicStoreViewProps {
   onNavigateToSuppliersMarket: () => void;
   onNavigateToCentralMarket: () => void;
   onNavigateToApp?: () => void;
+  previewThemeOverride?: StorefrontThemeId | string | null;
+  isOwnerPreview?: boolean;
+  onClosePreview?: () => void;
+  localSupplierOverride?: Partial<SupplierProfile> | null;
 }
 
 interface CartLine {
@@ -54,6 +59,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
   onNavigateToSuppliersMarket,
   onNavigateToCentralMarket,
   onNavigateToApp,
+  previewThemeOverride,
+  isOwnerPreview = false,
+  onClosePreview,
+  localSupplierOverride,
 }) => {
   const [loading, setLoading] = useState(true);
   const [supplier, setSupplier] = useState<SupplierProfile | null>(null);
@@ -230,15 +239,64 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
     }
   };
 
-  if (loading) {
+  const effectiveSupplier: SupplierProfile | null = useMemo(() => {
+    if (!supplier && !localSupplierOverride) return null;
+    if (!supplier && localSupplierOverride) {
+      return {
+        id: profile?.supplierId || profile?.id || 'preview',
+        brandName: localSupplierOverride.brandName || profile?.brandName || 'متجر المورد',
+        ownerName: profile?.artistName || 'المورد',
+        storeSlug: localSupplierOverride.storeSlug || slug,
+        phone: localSupplierOverride.phone || profile?.phoneNumber || '',
+        country: profile?.country || 'مصر',
+        governorate: localSupplierOverride.governorate || profile?.governorate || '',
+        currencyCode: profile?.currency || 'EGP',
+        currencySymbol: profile?.currencySymbol || 'ج.م',
+        supplySections: (profile as any)?.supplySections || [],
+        ratingStars: 5,
+        logoUrl: profile?.logoUrl || '',
+        storeConfig: localSupplierOverride.storeConfig || profile?.storeConfig || {},
+        ...localSupplierOverride,
+      } as SupplierProfile;
+    }
+    if (supplier && localSupplierOverride) {
+      return {
+        ...supplier,
+        ...localSupplierOverride,
+        storeConfig: {
+          ...(supplier.storeConfig || {}),
+          ...(localSupplierOverride.storeConfig || {}),
+        },
+      };
+    }
+    return supplier;
+  }, [supplier, localSupplierOverride, profile, slug]);
+
+  const themeSpec = useMemo(
+    () => resolveStorefrontTheme(previewThemeOverride || effectiveSupplier?.storeConfig?.themePreset),
+    [previewThemeOverride, effectiveSupplier?.storeConfig?.themePreset]
+  );
+  const isCenteredHero =
+    themeSpec.heroLayout === 'centered_maison' ||
+    themeSpec.heroLayout === 'noir_spotlight' ||
+    themeSpec.heroLayout === 'swiss_minimal';
+
+  if (loading && !localSupplierOverride) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F2ECE1] dark:bg-[#060B18]" dir="rtl">
-        <div className="w-10 h-10 border-4 border-[#EA580C] border-t-transparent rounded-full animate-spin" />
+      <div
+        style={{ backgroundColor: themeSpec.pageBg, color: themeSpec.inkColor }}
+        className="min-h-screen flex items-center justify-center"
+        dir="rtl"
+      >
+        <div
+          style={{ borderColor: themeSpec.accentBg, borderTopColor: 'transparent' }}
+          className="w-10 h-10 border-4 rounded-full animate-spin"
+        />
       </div>
     );
   }
 
-  if (!supplier || suspendedMsg) {
+  if (!effectiveSupplier || (suspendedMsg && !isOwnerPreview)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F2ECE1] dark:bg-[#060B18] p-4" dir="rtl">
         <div className="max-w-md w-full rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-8 text-center space-y-4">
@@ -272,44 +330,82 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
     );
   }
 
-  const sectionNames = supplier.supplySections
+  const activeSupplier = effectiveSupplier;
+  const sectionNames = (activeSupplier.supplySections || [])
     .map((id) => SUPPLIER_SUPPLY_SECTIONS.find((s) => s.id === id)?.titleAr)
     .filter(Boolean);
 
+  const softBtnStyle: React.CSSProperties = {
+    backgroundColor: themeSpec.softBg,
+    borderColor: themeSpec.borderColor,
+    color: themeSpec.inkColor,
+  };
+  const accentBtnStyle: React.CSSProperties = {
+    backgroundColor: themeSpec.accentBg,
+    color: themeSpec.accentInk,
+  };
+  const surfaceStyle: React.CSSProperties = {
+    backgroundColor: themeSpec.surfaceBg,
+    borderColor: themeSpec.borderColor,
+    color: themeSpec.inkColor,
+  };
+
   return (
-    <div className="min-h-screen bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] pb-20" dir="rtl">
+    <div
+      style={{ backgroundColor: themeSpec.pageBg, color: themeSpec.inkColor }}
+      className="min-h-screen pb-20 transition-colors duration-300"
+      dir="rtl"
+    >
       {toast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl bg-emerald-700 text-white text-xs font-black shadow-xl">
           {toast}
         </div>
       )}
 
-      <header className="sticky top-0 z-30 bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] px-3 sm:px-6 py-3">
+      <header
+        style={surfaceStyle}
+        className="sticky top-0 z-30 backdrop-blur-md border-b px-3 sm:px-6 py-3 transition-colors duration-300"
+      >
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
-              onClick={hasAuthSession && onNavigateToApp ? onNavigateToApp : onNavigateToSuppliersMarket}
-              className="px-3 py-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0"
+              onClick={
+                isOwnerPreview && onClosePreview
+                  ? onClosePreview
+                  : hasAuthSession && onNavigateToApp
+                  ? onNavigateToApp
+                  : onNavigateToSuppliersMarket
+              }
+              style={softBtnStyle}
+              className={`px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0`}
             >
-              <ArrowRight className="w-3.5 h-3.5 text-[#EA580C]" />
-              <span>{hasAuthSession ? 'رجوع' : 'سوق الموردين'}</span>
+              <ArrowRight className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+              <span>{isOwnerPreview ? 'عودة للوحة المتجر' : hasAuthSession ? 'رجوع' : 'سوق الموردين'}</span>
             </button>
             <img
-              src={supplier.logoUrl || '/alshams_falcon_emblem.png'}
-              alt={supplier.brandName}
-              className="w-10 h-10 rounded-xl object-contain bg-[#EFE9DC] dark:bg-[#132040] p-0.5 shrink-0"
+              src={activeSupplier.logoUrl || '/alshams_falcon_emblem.png'}
+              alt={activeSupplier.brandName}
+              style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+              className={`w-10 h-10 ${themeSpec.buttonRadiusClass} border object-contain p-0.5 shrink-0`}
             />
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-base font-black truncate flex items-center gap-2">
-                <span>{supplier.brandName}</span>
-                <span className="inline-flex items-center gap-0.5 text-[11px] font-mono tabular-nums text-amber-600 dark:text-amber-300">
+              <h1
+                style={{ color: themeSpec.inkColor }}
+                className={`text-sm sm:text-base ${themeSpec.titleWeightClass} truncate flex items-center gap-2`}
+              >
+                <span>{activeSupplier.brandName}</span>
+                <span
+                  style={{ color: themeSpec.accentText }}
+                  className="inline-flex items-center gap-0.5 text-[11px] font-mono tabular-nums"
+                >
                   <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
                   {ratingAvg.toFixed(1)}
                 </span>
               </h1>
-              <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] truncate">
-                {supplier.governorate || supplier.country} · {sectionNames.join('، ')}
+              <p style={{ color: themeSpec.mutedColor }} className="text-[11px] truncate">
+                {activeSupplier.governorate || activeSupplier.country}
+                {sectionNames.length > 0 ? ` · ${sectionNames.join('، ')}` : ''}
               </p>
             </div>
           </div>
@@ -318,9 +414,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
             <button
               type="button"
               onClick={() => setIsProfileModalOpen(true)}
-              className="px-3 py-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-black flex items-center gap-1.5 cursor-pointer"
+              style={softBtnStyle}
+              className={`px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black flex items-center gap-1.5 cursor-pointer`}
             >
-              <User className="w-3.5 h-3.5 text-[#EA580C]" />
+              <User className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
               <span className="hidden sm:inline">الصفحة الشخصية</span>
             </button>
 
@@ -331,21 +428,30 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2500);
               }}
-              className="px-3 py-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold flex items-center gap-1 cursor-pointer"
+              style={softBtnStyle}
+              className={`px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-bold flex items-center gap-1 cursor-pointer`}
             >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5 text-[#EA580C]" />}
+              {copied ? (
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+              ) : (
+                <Share2 className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+              )}
               <span className="hidden sm:inline">{copied ? 'تم النسخ' : 'مشاركة'}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer"
+              style={accentBtnStyle}
+              className={`px-3.5 py-2 ${themeSpec.buttonRadiusClass} text-xs font-black flex items-center gap-1.5 cursor-pointer hover:opacity-90`}
             >
               <ShoppingCart className="w-4 h-4" />
               <span>السلة</span>
               {cart.length > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-[#0C1427] text-[#FBBF24] font-mono text-[10px]">
+                <span
+                  style={{ backgroundColor: themeSpec.badgeBg, color: themeSpec.badgeInk }}
+                  className="px-1.5 py-0.5 rounded-full font-mono text-[10px]"
+                >
                   {cart.length}
                 </span>
               )}
@@ -354,87 +460,155 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-5 space-y-5">
-        {(supplier.storeConfig?.tagline || memberProfile?.storyText || supplier.storeConfig?.description) && (
-          <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 sm:p-5 space-y-1.5">
-            {supplier.storeConfig?.tagline && (
-              <p className="text-xs sm:text-sm font-black text-[#C2410C] dark:text-[#FBBF24]">
-                {supplier.storeConfig.tagline}
-              </p>
-            )}
-            {(memberProfile?.storyText || supplier.storeConfig?.description) && (
-              <p className="text-xs sm:text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed whitespace-pre-wrap">
-                {memberProfile?.storyText || supplier.storeConfig?.description}
-              </p>
-            )}
-          </section>
+      {/* World-Class Architectural Supplier Hero Banner */}
+      <section
+        style={{
+          backgroundColor: themeSpec.heroBg,
+          borderColor: themeSpec.heroBorder,
+          color: themeSpec.inkColor,
+        }}
+        className={`relative border-b transition-colors duration-300 ${
+          themeSpec.heroLayout === 'swiss_minimal'
+            ? 'py-10 sm:py-12 px-3 sm:px-6'
+            : themeSpec.heroLayout === 'centered_maison' || themeSpec.heroLayout === 'noir_spotlight'
+            ? 'py-8 sm:py-10 px-3 sm:px-6'
+            : 'py-6 sm:py-8 px-3 sm:px-6'
+        }`}
+      >
+        {themeSpec.heroLayout === 'noir_spotlight' && (
+          <div
+            className="absolute top-0 inset-x-0 h-[2px]"
+            style={{
+              background: `linear-gradient(90deg, transparent 5%, ${themeSpec.accentBg} 50%, transparent 95%)`,
+            }}
+          />
         )}
+        <div
+          className={`max-w-7xl mx-auto flex flex-col gap-3 ${
+            isCenteredHero ? 'items-center text-center' : 'items-start text-right'
+          } ${
+            themeSpec.heroLayout === 'centered_maison'
+              ? 'p-5 sm:p-7 border rounded-2xl'
+              : themeSpec.heroLayout === 'gallery_magazine'
+              ? 'border-r-4 pr-4 sm:pr-6'
+              : ''
+          }`}
+          style={
+            themeSpec.heroLayout === 'centered_maison'
+              ? { borderColor: themeSpec.heroBorder, backgroundColor: themeSpec.heroSubtleTint }
+              : themeSpec.heroLayout === 'gallery_magazine'
+              ? { borderColor: themeSpec.accentBg }
+              : undefined
+          }
+        >
+          <span
+            style={{ color: themeSpec.accentText }}
+            className="text-[11px] font-black tracking-wider"
+          >
+            {themeSpec.englishSignature} · متجر توريد خامات معتمد
+          </span>
+          <h2
+            style={{ color: themeSpec.inkColor }}
+            className={`text-2xl sm:text-3xl ${themeSpec.titleWeightClass} leading-tight`}
+          >
+            {activeSupplier.brandName}
+          </h2>
+          {activeSupplier.storeConfig?.tagline && (
+            <p
+              style={{ color: themeSpec.accentText }}
+              className="text-xs sm:text-sm font-black max-w-2xl"
+            >
+              {activeSupplier.storeConfig.tagline}
+            </p>
+          )}
+          {(memberProfile?.storyText || activeSupplier.storeConfig?.description) && (
+            <p
+              style={{ color: themeSpec.mutedColor }}
+              className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap max-w-3xl"
+            >
+              {memberProfile?.storyText || activeSupplier.storeConfig?.description}
+            </p>
+          )}
+          {activeSupplier.storeConfig?.shippingNote && (
+            <p style={{ color: themeSpec.inkColor }} className="text-[11px] font-bold opacity-85">
+              الشحن والتسليم: {activeSupplier.storeConfig.shippingNote}
+            </p>
+          )}
+        </div>
+      </section>
 
-        <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 flex flex-wrap items-center justify-between gap-3">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-5 space-y-5">
+        <div
+          style={surfaceStyle}
+          className={`${themeSpec.cardRadiusClass} border p-4 flex flex-wrap items-center justify-between gap-3`}
+        >
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab('catalog')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-black cursor-pointer flex items-center gap-1.5 ${
-                activeTab === 'catalog'
-                  ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#F7F3EA] dark:text-[#0C1427]'
-                  : 'bg-[#EFE9DC] dark:bg-[#132040]'
-              }`}
-            >
-              <Boxes className="w-3.5 h-3.5" />
-              <span>كتالوج الخامات ({items.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('price_table')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-black cursor-pointer flex items-center gap-1.5 ${
-                activeTab === 'price_table'
-                  ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#F7F3EA] dark:text-[#0C1427]'
-                  : 'bg-[#EFE9DC] dark:bg-[#132040]'
-              }`}
-            >
-              <Table2 className="w-3.5 h-3.5" />
-              <span>جدول الأسعار والشرائح</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('reviews')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-black cursor-pointer flex items-center gap-1.5 ${
-                activeTab === 'reviews'
-                  ? 'bg-[#0C1427] text-[#F7F3EA] dark:bg-[#F7F3EA] dark:text-[#0C1427]'
-                  : 'bg-[#EFE9DC] dark:bg-[#132040]'
-              }`}
-            >
-              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
-              <span>تقييمات الورش ({reviews.length})</span>
-            </button>
+            {[
+              { id: 'catalog' as const, label: `كتالوج الخامات (${items.length})`, icon: Boxes },
+              { id: 'price_table' as const, label: 'جدول الأسعار والشرائح', icon: Table2 },
+              { id: 'reviews' as const, label: `تقييمات الورش (${reviews.length})`, icon: Star },
+            ].map((tabItem) => {
+              const IconComp = tabItem.icon;
+              const isSelected = activeTab === tabItem.id;
+              return (
+                <button
+                  key={tabItem.id}
+                  type="button"
+                  onClick={() => setActiveTab(tabItem.id)}
+                  style={isSelected ? accentBtnStyle : softBtnStyle}
+                  className={`px-3.5 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black cursor-pointer flex items-center gap-1.5 transition hover:opacity-90`}
+                >
+                  <IconComp
+                    className={`w-3.5 h-3.5 ${
+                      tabItem.id === 'reviews' && !isSelected ? 'fill-amber-400 text-amber-500' : ''
+                    }`}
+                  />
+                  <span>{tabItem.label}</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-[#475569] absolute right-3 top-1/2 -translate-y-1/2" />
+            <Search
+              className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2"
+              style={{ color: themeSpec.mutedColor }}
+            />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="بحث في أصناف المورد..."
-              className="w-full h-9 pr-9 pl-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+              style={{
+                backgroundColor: themeSpec.softBg,
+                borderColor: themeSpec.borderColor,
+                color: themeSpec.inkColor,
+              }}
+              className={`w-full h-9 pr-9 pl-3 ${themeSpec.inputRadiusClass} border text-xs font-bold outline-none`}
             />
           </div>
         </div>
 
         {activeTab === 'reviews' ? (
-          <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 sm:p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-[#D4CCBC]/70 dark:border-[#22355E] pb-3">
+          <section
+            style={surfaceStyle}
+            className={`${themeSpec.cardRadiusClass} border p-4 sm:p-5 space-y-4`}
+          >
+            <div
+              style={{ borderColor: themeSpec.borderColor }}
+              className="flex items-center justify-between border-b pb-3"
+            >
               <h2 className="text-sm sm:text-base font-black flex items-center gap-2">
                 <Star className="w-4 h-4 fill-amber-400 text-amber-500" />
                 <span>تقييمات ومراجعات الورش ({reviews.length}) · متوسط {ratingAvg.toFixed(1)} / 5</span>
               </h2>
             </div>
 
-            {hasAuthSession && (
+            {hasAuthSession && !isOwnerPreview && (
               <form
                 onSubmit={handleSubmitReview}
-                className="p-4 rounded-2xl bg-[#EFE9DC]/70 dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] space-y-2.5"
+                style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                className={`p-4 ${themeSpec.cardRadiusClass} border space-y-2.5`}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black">أضف تقييم ورشتك لهذا المورد:</span>
@@ -452,12 +626,18 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   value={revComment}
                   onChange={(e) => setRevComment(e.target.value)}
                   placeholder="اكتب رأيك في جودة الخامات والأسعار ومواعيد التسليم..."
-                  className="w-full p-2.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                  style={{
+                    backgroundColor: themeSpec.surfaceBg,
+                    borderColor: themeSpec.borderColor,
+                    color: themeSpec.inkColor,
+                  }}
+                  className={`w-full p-2.5 ${themeSpec.inputRadiusClass} border text-xs font-bold outline-none`}
                 />
                 <button
                   type="submit"
                   disabled={revSubmitting}
-                  className="px-4 py-2 rounded-xl bg-[#EA580C] text-white text-xs font-black cursor-pointer disabled:opacity-50"
+                  style={accentBtnStyle}
+                  className={`px-4 py-2 ${themeSpec.buttonRadiusClass} text-xs font-black cursor-pointer disabled:opacity-50`}
                 >
                   {revSubmitting ? 'جاري النشر...' : 'إرسال التقييم'}
                 </button>
@@ -465,13 +645,17 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
             )}
 
             {reviews.length === 0 ? (
-              <p className="text-center py-8 text-xs font-bold text-[#475569]">
+              <p style={{ color: themeSpec.mutedColor }} className="text-center py-8 text-xs font-bold">
                 لا توجد تقييمات مسجلة لهذا المورد بعد.
               </p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {reviews.map((rev) => (
-                  <div key={rev.id} className="p-3.5 rounded-2xl bg-[#EFE9DC]/50 dark:bg-[#132040]/50 border border-[#D4CCBC] dark:border-[#22355E] space-y-1.5">
+                  <div
+                    key={rev.id}
+                    style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                    className={`p-3.5 ${themeSpec.cardRadiusClass} border space-y-1.5`}
+                  >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black">{rev.reviewerBrand || rev.reviewerName}</span>
                       <span className="inline-flex items-center gap-0.5">
@@ -480,16 +664,22 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                         ))}
                       </span>
                     </div>
-                    <p className="text-xs text-[#334155] dark:text-[#CBD5E1]">{rev.comment}</p>
+                    <p style={{ color: themeSpec.mutedColor }} className="text-xs">{rev.comment}</p>
                   </div>
                 ))}
               </div>
             )}
           </section>
         ) : activeTab === 'price_table' ? (
-          <div className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-x-auto">
+          <div
+            style={surfaceStyle}
+            className={`${themeSpec.cardRadiusClass} border overflow-x-auto`}
+          >
             <table className="w-full text-right text-xs">
-              <thead className="bg-[#EFE9DC] dark:bg-[#132040] border-b border-[#D4CCBC] dark:border-[#22355E]">
+              <thead
+                style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                className="border-b"
+              >
                 <tr>
                   <th className="p-3 font-black">الخامة</th>
                   <th className="p-3 font-black">الوحدة</th>
@@ -499,20 +689,33 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   <th className="p-3 font-black">إجراء</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#D4CCBC]/60 dark:divide-[#22355E]">
+              <tbody>
                 {filteredItems.map((it) => (
-                  <tr key={it.id}>
+                  <tr
+                    key={it.id}
+                    style={{ borderColor: themeSpec.borderColor }}
+                    className="border-t"
+                  >
                     <td className="p-3 font-black">{it.name}</td>
                     <td className="p-3">{it.unit}</td>
-                    <td className="p-3 font-mono tabular-nums font-bold">
-                      {it.retailPrice.toLocaleString('ar-EG')} {supplier.currencySymbol}
+                    <td
+                      style={{ color: themeSpec.priceColor }}
+                      className="p-3 font-mono tabular-nums font-bold"
+                    >
+                      {it.retailPrice.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
                     </td>
-                    <td className="p-3 font-mono tabular-nums font-black text-emerald-700 dark:text-emerald-400">
+                    <td
+                      style={{ color: themeSpec.accentText }}
+                      className="p-3 font-mono tabular-nums font-black"
+                    >
                       {it.wholesalePrice > 0
-                        ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${supplier.currencySymbol} (≥${it.minWholesaleQty})`
+                        ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${activeSupplier.currencySymbol} (≥${it.minWholesaleQty})`
                         : '—'}
                     </td>
-                    <td className="p-3 font-mono tabular-nums text-[11px]">
+                    <td
+                      style={{ color: themeSpec.mutedColor }}
+                      className="p-3 font-mono tabular-nums text-[11px]"
+                    >
                       {it.tierPricing && it.tierPricing.length > 0
                         ? it.tierPricing.map((t) => `≥${t.minQty}: ${t.unitPrice}`).join(' · ')
                         : '—'}
@@ -521,7 +724,8 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                       <button
                         type="button"
                         onClick={() => addToCart(it, 1)}
-                        className="px-3 py-1 rounded-lg bg-[#EA580C] text-white text-[11px] font-black cursor-pointer"
+                        style={accentBtnStyle}
+                        className={`px-3 py-1 ${themeSpec.buttonRadiusClass} text-[11px] font-black cursor-pointer`}
                       >
                         + للسلة
                       </button>
@@ -531,36 +735,68 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               </tbody>
             </table>
           </div>
+        ) : filteredItems.length === 0 ? (
+          <div
+            style={surfaceStyle}
+            className={`${themeSpec.cardRadiusClass} border p-10 text-center space-y-2`}
+          >
+            <Boxes className="w-8 h-8 mx-auto opacity-60" style={{ color: themeSpec.accentText }} />
+            <p className="text-sm font-black">لا توجد خامات مضافة في الكتالوج العام بعد</p>
+            <p style={{ color: themeSpec.mutedColor }} className="text-xs">
+              بمجرد إضافة أصنافك في كتالوج الخامات ستظهر هنا تلقائياً بنفس تصميم سمة {themeSpec.nameAr}.
+            </p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredItems.map((it) => (
               <article
                 key={it.id}
-                className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden flex flex-col justify-between"
+                style={surfaceStyle}
+                className={`${themeSpec.cardRadiusClass} ${themeSpec.cardShadowClass} border overflow-hidden flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5`}
               >
                 <div>
-                  <img
-                    src={it.images?.[0] || '/alshams_falcon_emblem.png'}
-                    alt={it.name}
-                    className="w-full aspect-[4/3] object-cover border-b border-[#D4CCBC] dark:border-[#22355E]"
-                  />
+                  <div
+                    style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                    className={`w-full ${themeSpec.imageFrameClass} overflow-hidden border-b`}
+                  >
+                    <img
+                      src={it.images?.[0] || '/alshams_falcon_emblem.png'}
+                      alt={it.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
                   <div className="p-4 space-y-2">
-                    <h3 className="text-sm font-black">{it.name}</h3>
+                    <h3 className={`text-sm ${themeSpec.titleWeightClass}`}>{it.name}</h3>
                     {it.description && (
-                      <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] line-clamp-2">{it.description}</p>
+                      <p style={{ color: themeSpec.mutedColor }} className="text-[11px] line-clamp-2">
+                        {it.description}
+                      </p>
                     )}
                     <div className="grid grid-cols-2 gap-2 font-mono tabular-nums text-xs pt-1">
-                      <div className="p-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040]">
-                        <span className="block text-[10px] font-sans text-[#475569]">القطاعي</span>
-                        <span className="font-black">
-                          {it.retailPrice.toLocaleString('ar-EG')} {supplier.currencySymbol}
+                      <div
+                        style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                        className={`p-2 ${themeSpec.buttonRadiusClass} border`}
+                      >
+                        <span style={{ color: themeSpec.mutedColor }} className="block text-[10px] font-sans">
+                          القطاعي
+                        </span>
+                        <span style={{ color: themeSpec.priceColor }} className="font-black">
+                          {it.retailPrice.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
                         </span>
                       </div>
-                      <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
-                        <span className="block text-[10px] font-sans text-emerald-700">جملة (×{it.minWholesaleQty})</span>
-                        <span className="font-black text-emerald-700 dark:text-emerald-400">
+                      <div
+                        style={{
+                          backgroundColor: themeSpec.heroSubtleTint,
+                          borderColor: themeSpec.heroBorder,
+                        }}
+                        className={`p-2 ${themeSpec.buttonRadiusClass} border`}
+                      >
+                        <span style={{ color: themeSpec.accentText }} className="block text-[10px] font-sans font-bold">
+                          جملة (×{it.minWholesaleQty})
+                        </span>
+                        <span style={{ color: themeSpec.accentText }} className="font-black">
                           {it.wholesalePrice > 0
-                            ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${supplier.currencySymbol}`
+                            ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${activeSupplier.currencySymbol}`
                             : '—'}
                         </span>
                       </div>
@@ -571,7 +807,8 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   <button
                     type="button"
                     onClick={() => addToCart(it, 1)}
-                    className="w-full py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                    style={accentBtnStyle}
+                    className={`w-full py-2.5 ${themeSpec.buttonRadiusClass} text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-90 transition`}
                   >
                     <Plus className="w-4 h-4" />
                     <span>إضافة للسلة</span>
@@ -583,26 +820,33 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         )}
 
         {/* Synced Supplier Story & Showcase Gallery (Max 6) */}
-        {(Boolean((memberProfile?.storyText || supplier.storeConfig?.description || '').trim()) ||
+        {(Boolean((memberProfile?.storyText || activeSupplier.storeConfig?.description || '').trim()) ||
           (memberProfile?.showcasePosts && memberProfile.showcasePosts.length > 0)) && (
-          <section className="rounded-2xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] p-4 sm:p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#D4CCBC]/70 dark:border-[#22355E] pb-2.5">
-              <h2 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
+          <section
+            style={surfaceStyle}
+            className={`${themeSpec.cardRadiusClass} border p-4 sm:p-5 space-y-4`}
+          >
+            <div
+              style={{ borderColor: themeSpec.borderColor }}
+              className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5"
+            >
+              <h2 className="text-sm sm:text-base font-black">
                 نبذة عن المورد ومعرض التوريدات المميزة
               </h2>
               <button
                 type="button"
                 onClick={() => setIsProfileModalOpen(true)}
-                className="text-xs font-black text-[#C2410C] dark:text-amber-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                style={{ color: themeSpec.accentText }}
+                className="text-xs font-black hover:underline inline-flex items-center gap-1 cursor-pointer"
               >
                 <User className="w-3.5 h-3.5" />
                 <span>عرض الصفحة الشخصية</span>
               </button>
             </div>
 
-            {(memberProfile?.storyText || supplier.storeConfig?.description) && (
-              <p className="text-xs sm:text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
-                {memberProfile?.storyText || supplier.storeConfig?.description}
+            {(memberProfile?.storyText || activeSupplier.storeConfig?.description) && (
+              <p style={{ color: themeSpec.mutedColor }} className="text-xs sm:text-sm leading-relaxed">
+                {memberProfile?.storyText || activeSupplier.storeConfig?.description}
               </p>
             )}
 
@@ -613,9 +857,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                     key={post.id}
                     type="button"
                     onClick={() => setIsProfileModalOpen(true)}
-                    className="group text-right rounded-2xl bg-[#F2ECE1] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] overflow-hidden hover:border-[#EA580C] transition cursor-pointer flex flex-col"
+                    style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                    className={`group text-right ${themeSpec.cardRadiusClass} border overflow-hidden transition cursor-pointer flex flex-col`}
                   >
-                    <div className="aspect-[4/3] w-full bg-[#E9E2D4] dark:bg-[#060B18] overflow-hidden">
+                    <div className={`${themeSpec.imageFrameClass} w-full overflow-hidden`}>
                       <img
                         src={post.imageUrl}
                         alt={post.caption || 'صورة من معرض المورد'}
@@ -624,7 +869,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                       />
                     </div>
                     {post.caption && (
-                      <p className="p-2.5 text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] line-clamp-2">
+                      <p className="p-2.5 text-xs font-bold line-clamp-2">
                         {post.caption}
                       </p>
                     )}
@@ -644,9 +889,15 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
             if (e.target === e.currentTarget) setIsCartOpen(false);
           }}
         >
-          <div className="w-full max-w-md h-full bg-[#F7F3EA] dark:bg-[#0D162E] border-r border-[#D4CCBC] dark:border-[#22355E] flex flex-col">
-            <div className="p-4 border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between">
-              <h2 className="text-sm font-black">سلة المشتريات من {supplier.brandName}</h2>
+          <div
+            style={surfaceStyle}
+            className="w-full max-w-md h-full border-r flex flex-col"
+          >
+            <div
+              style={{ borderColor: themeSpec.borderColor }}
+              className="p-4 border-b flex items-center justify-between"
+            >
+              <h2 className="text-sm font-black">سلة المشتريات من {activeSupplier.brandName}</h2>
               <button type="button" onClick={() => setIsCartOpen(false)} className="p-1.5 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
@@ -655,13 +906,17 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               {cart.map((line) => {
                 const pr = calcPrice(line.item, line.quantity);
                 return (
-                  <div key={line.item.id} className="p-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] space-y-1.5">
+                  <div
+                    key={line.item.id}
+                    style={{ backgroundColor: themeSpec.softBg }}
+                    className={`p-3 ${themeSpec.buttonRadiusClass} space-y-1.5`}
+                  >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black">{line.item.name}</span>
                       <button
                         type="button"
                         onClick={() => setCart((p) => p.filter((c) => c.item.id !== line.item.id))}
-                        className="text-rose-600 cursor-pointer"
+                        className="text-rose-500 cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -671,7 +926,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                         {pr.unitPrice} × {line.quantity} ({pr.isWholesale ? 'جملة' : 'قطاعي'})
                       </span>
                       <span className="font-black">
-                        {pr.lineTotal.toLocaleString('ar-EG')} {supplier.currencySymbol}
+                        {pr.lineTotal.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
                       </span>
                     </div>
                   </div>
@@ -686,7 +941,12 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                     value={buyerName}
                     onChange={(e) => setBuyerName(e.target.value)}
                     placeholder="الاسم أو اسم الورشة *"
-                    className="w-full h-9 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                    style={{
+                      backgroundColor: themeSpec.softBg,
+                      borderColor: themeSpec.borderColor,
+                      color: themeSpec.inkColor,
+                    }}
+                    className={`w-full h-9 px-3 ${themeSpec.inputRadiusClass} border text-xs font-bold`}
                   />
                   <input
                     type="text"
@@ -694,31 +954,45 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                     value={buyerPhone}
                     onChange={(e) => setBuyerPhone(e.target.value)}
                     placeholder="رقم الهاتف / واتساب *"
-                    className="w-full h-9 px-3 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                    style={{
+                      backgroundColor: themeSpec.softBg,
+                      borderColor: themeSpec.borderColor,
+                      color: themeSpec.inkColor,
+                    }}
+                    className={`w-full h-9 px-3 ${themeSpec.inputRadiusClass} border text-xs font-bold`}
                   />
                   <textarea
                     rows={2}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="ملاحظات إضافية..."
-                    className="w-full p-2.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+                    style={{
+                      backgroundColor: themeSpec.softBg,
+                      borderColor: themeSpec.borderColor,
+                      color: themeSpec.inkColor,
+                    }}
+                    className={`w-full p-2.5 ${themeSpec.inputRadiusClass} border text-xs font-bold`}
                   />
                 </form>
               )}
             </div>
             {cart.length > 0 && (
-              <div className="p-4 border-t border-[#D4CCBC] dark:border-[#22355E] space-y-2">
+              <div
+                style={{ borderColor: themeSpec.borderColor }}
+                className="p-4 border-t space-y-2"
+              >
                 <div className="flex justify-between text-sm font-black">
                   <span>الإجمالي:</span>
-                  <span className="font-mono tabular-nums text-[#EA580C]">
-                    {cartTotal.toLocaleString('ar-EG')} {supplier.currencySymbol}
+                  <span style={{ color: themeSpec.priceColor }} className="font-mono tabular-nums">
+                    {cartTotal.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
                   </span>
                 </div>
                 <button
                   type="submit"
                   form="sup-store-checkout"
                   disabled={submitting}
-                  className="w-full py-3 rounded-xl bg-[#EA580C] text-white text-xs font-black cursor-pointer"
+                  style={accentBtnStyle}
+                  className={`w-full py-3 ${themeSpec.buttonRadiusClass} text-xs font-black cursor-pointer`}
                 >
                   {hasAuthSession ? 'إرسال طلب التوريد للورشة' : 'إرسال الطلب عبر الواتساب'}
                 </button>
@@ -728,10 +1002,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         </div>
       )}
 
-      {isProfileModalOpen && supplier?.id && (
+      {isProfileModalOpen && activeSupplier?.id && (
         <MemberPersonalProfileView
           mode="modal"
-          targetMemberId={supplier.id}
+          targetMemberId={activeSupplier.id}
           currentUserProfile={profile || null}
           onClose={() => setIsProfileModalOpen(false)}
           onOpenStore={() => setIsProfileModalOpen(false)}

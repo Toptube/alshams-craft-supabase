@@ -42,6 +42,7 @@ interface MaterialsInventoryModalProps {
   onClose: () => void;
   profile: UserProfile;
   onOpenPurchaseForMaterial?: (item: any) => void;
+  asPage?: boolean;
 }
 
 export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = ({
@@ -49,6 +50,7 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   onClose,
   profile,
   onOpenPurchaseForMaterial,
+  asPage = false,
 }) => {
   const { isCraft } = useExperienceMode('artisan', profile);
   const workshopId = profile?.tenantId || profile?.workshopId || profile?.id || '';
@@ -62,14 +64,14 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   const [stockViewFilter, setStockViewFilter] = useState<'stocked' | 'low' | 'all'>('stocked');
   const [notice, setNotice] = useState<{ text: string; isError?: boolean } | null>(null);
 
-  // Add / Edit Modal State
+  // Add / Edit Modal State — always starts at 0, NEVER fake 10 / 150!
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any | null>(null);
   const [formName, setFormName] = useState('');
   const [formCategory, setFormCategory] = useState('خيوط');
-  const [formQuantity, setFormQuantity] = useState(10);
+  const [formQuantity, setFormQuantity] = useState(0);
   const [formMinThreshold, setFormMinThreshold] = useState(0);
-  const [formCostPrice, setFormCostPrice] = useState(150);
+  const [formCostPrice, setFormCostPrice] = useState(0);
   const [formUnit, setFormUnit] = useState('كيلو');
   const [saving, setSaving] = useState(false);
 
@@ -77,12 +79,18 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   const [adjustingItem, setAdjustingItem] = useState<any | null>(null);
   const [adjustNewStock, setAdjustNewStock] = useState(0);
 
+  // Inline Delete Confirmation State (replaces window.confirm)
+  const [deletingItem, setDeletingItem] = useState<any | null>(null);
+
   const categories = ['خيوط', 'أخشاب', 'إكسسوارات ومعادن', 'أقمشة وبطانات', 'خرز ومكملات', 'ريزن', 'تغليف', 'أخرى'];
 
   const loadData = async () => {
     if (!workshopId) return;
     setLoading(true);
     try {
+      // Purge any legacy auto-seeded fake 15kg balances on real workshops with zero real purchases/movements
+      await tenantStorage.purgeAutoSeededFakeMaterialStock(workshopId);
+
       const [sbMats, unts, dexieMats] = await Promise.all([
         getMaterialsFromSupabase(workshopId),
         ensureDefaultUnitsInSupabase(workshopId),
@@ -171,18 +179,18 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   };
 
   useEffect(() => {
-    if (isOpen && workshopId) {
+    if ((isOpen || asPage) && workshopId) {
       loadData();
     }
-  }, [workshopId, isOpen]);
+  }, [workshopId, isOpen, asPage]);
 
   const handleOpenAdd = () => {
     setEditingItem(null);
     setFormName('');
     setFormCategory('خيوط');
-    setFormQuantity(10);
-    setFormMinThreshold(5);
-    setFormCostPrice(150);
+    setFormQuantity(0);
+    setFormMinThreshold(0);
+    setFormCostPrice(0);
     setFormUnit(units[0]?.name || 'كيلو');
     setIsFormOpen(true);
   };
@@ -303,13 +311,19 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
     }
   };
 
-  const handleDeleteItem = async (item: any) => {
-    if (!window.confirm(`هل أنت متأكد من حذف الخامة "${item.name}" من مخزن الخامات؟`)) return;
+  const handleDeleteItem = (item: any) => {
+    setDeletingItem(item);
+  };
 
+  const confirmDeleteItem = async () => {
+    if (!deletingItem) return;
+    const item = deletingItem;
+    setDeletingItem(null);
     try {
       await deleteMaterialFromSupabase(item.id, workshopId);
       await tenantStorage.deactivateRawMaterial(workshopId, item.id, 'حذف من المخزن', profile.email || 'artisan');
       setNotice({ text: `تم حذف الخامة "${item.name}" بنجاح.` });
+      window.dispatchEvent(new CustomEvent('alshams_materials_changed'));
       await loadData();
       setTimeout(() => setNotice(null), 3500);
     } catch (err: any) {
@@ -354,13 +368,21 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
     });
   }, [materials, selectedCategoryFilter, searchQuery, stockViewFilter]);
 
-  if (!isOpen) return null;
+  if (!isOpen && !asPage) return null;
+
+  const outerClass = asPage
+    ? 'max-w-6xl mx-auto px-3 sm:px-6 py-5'
+    : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200';
+
+  const cardClass = asPage
+    ? 'bg-white dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] rounded-3xl w-full flex flex-col shadow-sm overflow-hidden'
+    : 'bg-white dark:bg-stone-900 border border-amber-300 dark:border-amber-900/50 rounded-3xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200" dir="rtl">
-      <div className="bg-white dark:bg-stone-900 border border-amber-300 dark:border-amber-900/50 rounded-3xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+    <div className={outerClass} dir="rtl">
+      <div className={cardClass}>
         {/* Header */}
-        <header className="p-4 sm:p-5 border-b border-stone-200 dark:border-stone-800 flex items-center justify-between bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent">
+        <header className="p-4 sm:p-5 border-b border-stone-200 dark:border-[#22355E] flex items-center justify-between bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-xs">
               <Layers size={22} />
@@ -387,14 +409,16 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
               <span>خامة جديدة</span>
             </button>
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-9 h-9 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 flex items-center justify-center transition cursor-pointer"
-              aria-label="إغلاق"
-            >
-              <X size={20} />
-            </button>
+            {!asPage && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-9 h-9 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 flex items-center justify-center transition cursor-pointer"
+                aria-label="إغلاق"
+              >
+                <X size={20} />
+              </button>
+            )}
           </div>
         </header>
 
@@ -644,7 +668,7 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
         </div>
 
         {/* Footer Summary */}
-        <footer className="p-3.5 border-t border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-850 flex flex-wrap items-center justify-between text-xs text-stone-600 dark:text-stone-300 gap-2">
+        <footer className="p-3.5 border-t border-stone-200 dark:border-[#22355E] bg-stone-50 dark:bg-[#0D162E]/60 flex flex-wrap items-center justify-between text-xs text-stone-600 dark:text-stone-300 gap-2">
           <div className="flex flex-wrap items-center gap-4">
             <span>المعروض: <strong className="font-mono tabular-nums">{filteredMaterials.length}</strong></span>
             <span>النواقص الفعلية: <strong className="font-mono tabular-nums text-rose-600">{lowStockCount}</strong></span>
@@ -654,13 +678,15 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
               </strong>
             </span>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 text-stone-800 dark:text-stone-200 font-bold transition cursor-pointer"
-          >
-            إغلاق
-          </button>
+          {!asPage && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 rounded-xl bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 text-stone-800 dark:text-stone-200 font-bold transition cursor-pointer"
+            >
+              إغلاق
+            </button>
+          )}
         </footer>
       </div>
 
@@ -824,6 +850,36 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
                 className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-xs cursor-pointer"
               >
                 تأكيد الرصيد
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline Delete Confirm Modal */}
+      {deletingItem && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-[#132040] border border-rose-300 dark:border-rose-800 rounded-3xl w-full max-w-sm p-5 shadow-2xl space-y-3.5 text-xs">
+            <h4 className="font-black text-sm text-rose-700 dark:text-rose-300">
+              تأكيد حذف الخامة
+            </h4>
+            <p className="text-stone-600 dark:text-stone-300 leading-relaxed">
+              هل أنت متأكد من حذف الخامة <strong>"{deletingItem.name}"</strong> من مخزن الخامات؟
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingItem(null)}
+                className="px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteItem}
+                className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold shadow-xs cursor-pointer"
+              >
+                تأكيد الحذف
               </button>
             </div>
           </div>

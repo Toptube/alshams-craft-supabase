@@ -1036,9 +1036,9 @@ export const NewSupplierModal: React.FC<{
   const [invoiceNumber, setInvoiceNumber] = useState('INV-' + Math.floor(1000 + Math.random() * 9000));
   const [rawMaterialsList, setRawMaterialsList] = useState<RawMaterialItem[]>([]);
   const [selectedMaterialId, setSelectedMaterialId] = useState('');
-  const [quantity, setQuantity] = useState(10);
-  const [unitCost, setUnitCost] = useState(180);
-  const [paidAmount, setPaidAmount] = useState(1800);
+  const [quantity, setQuantity] = useState(0);
+  const [unitCost, setUnitCost] = useState(0);
+  const [paidAmount, setPaidAmount] = useState(0);
   const [selectedDisbursementSource, setSelectedDisbursementSource] = useState<SelectedDisbursementSource>({
     id: 'main',
     name: 'الخزينة الرئيسية (النقدية)',
@@ -1084,11 +1084,18 @@ export const NewSupplierModal: React.FC<{
       if (list.length > 0 && !selectedSupplierId) setSelectedSupplierId(list[0].id);
     });
 
+    // Always reset purchase amounts to 0 on open so no false treasury warning appears before user enters a real purchase
+    setQuantity(0);
+    setPaidAmount(0);
+    tenantStorage.purgeAutoSeededFakeMaterialStock(tenantId).catch(() => {});
     tenantStorage.getRawMaterials(tenantId).then((mats) => {
       setRawMaterialsList(mats);
       if (mats.length > 0) {
         setSelectedMaterialId(mats[0].id);
-        if (mats[0].costPerUnit) setUnitCost(mats[0].costPerUnit);
+        setUnitCost(Number(mats[0].costPerUnit) || 0);
+      } else {
+        setSelectedMaterialId('');
+        setUnitCost(0);
       }
     });
     tenantStorage.getSupplierInvoices(tenantId).then(setInvoicesList);
@@ -1234,54 +1241,68 @@ export const NewSupplierModal: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-blue-300 dark:border-stone-700 w-full max-w-lg space-y-4 text-right">
-        <div className="flex items-center justify-between border-b pb-3">
-          <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-700">
-            <X className="w-5 h-5" />
-          </button>
-          {lockMode ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-black text-blue-800 dark:text-blue-300">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm"
+      dir="rtl"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-stone-900 rounded-2xl sm:rounded-3xl border border-blue-300 dark:border-stone-700 w-full max-w-xl max-h-[92dvh] flex flex-col overflow-hidden text-right shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="shrink-0 flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 border-b border-stone-200 dark:border-stone-800 bg-stone-50/80 dark:bg-stone-900">
+          <div className="min-w-0 flex-1">
+            {lockMode ? (
+              <span className="text-sm font-black text-blue-800 dark:text-blue-300">
                 {mode === 'create_supplier'
                   ? 'تسجيل مورد جديد'
                   : mode === 'record_invoice'
-                  ? 'إنشاء فاتورة مشتريات مورد'
+                  ? 'إثبات فاتورة مشتريات خامات'
                   : 'كشف حساب مورد'}
               </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 p-1 bg-stone-100 dark:bg-stone-800 rounded-xl text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setMode('create_supplier')}
-                className={`px-3 py-1 rounded-lg transition ${
-                  mode === 'create_supplier' ? 'bg-blue-600 text-white shadow-sm' : 'text-stone-500'
-                }`}
-              >
-                تعريف مورد جديد
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('record_invoice')}
-                className={`px-3 py-1 rounded-lg transition ${
-                  mode === 'record_invoice' ? 'bg-blue-600 text-white shadow-sm' : 'text-stone-500'
-                }`}
-              >
-                إثبات فاتورة مشتريات
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('statement')}
-                className={`px-3 py-1 rounded-lg transition ${
-                  mode === 'statement' ? 'bg-blue-600 text-white shadow-sm' : 'text-stone-500'
-                }`}
-              >
-                كشف حساب مورد (طباعة)
-              </button>
-            </div>
-          )}
+            ) : (
+              <div className="flex items-center gap-1 p-1 bg-stone-200/70 dark:bg-stone-800 rounded-xl text-[11px] sm:text-xs font-bold overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setMode('create_supplier')}
+                  className={`px-2.5 py-1.5 rounded-lg transition whitespace-nowrap cursor-pointer ${
+                    mode === 'create_supplier' ? 'bg-blue-600 text-white shadow-sm' : 'text-stone-600 dark:text-stone-300'
+                  }`}
+                >
+                  تعريف مورد
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('record_invoice')}
+                  className={`px-2.5 py-1.5 rounded-lg transition whitespace-nowrap cursor-pointer ${
+                    mode === 'record_invoice' ? 'bg-blue-600 text-white shadow-sm' : 'text-stone-600 dark:text-stone-300'
+                  }`}
+                >
+                  فاتورة مشتريات
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('statement')}
+                  className={`px-2.5 py-1.5 rounded-lg transition whitespace-nowrap cursor-pointer ${
+                    mode === 'statement' ? 'bg-blue-600 text-white shadow-sm' : 'text-stone-600 dark:text-stone-300'
+                  }`}
+                >
+                  كشف حساب
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="إغلاق"
+            className="w-9 h-9 rounded-xl bg-stone-200/70 dark:bg-stone-800 hover:bg-rose-500 hover:text-white text-stone-600 dark:text-stone-300 flex items-center justify-center transition cursor-pointer shrink-0"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
+
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
 
         {mode === 'create_supplier' ? (
           <form onSubmit={handleCreateSupplier} className="space-y-3">
@@ -1482,8 +1503,8 @@ export const NewSupplierModal: React.FC<{
               </div>
             </div>
 
-            {/* Disbursement Source Selector if paidAmount > 0 */}
-            {paidAmount > 0 && (
+            {/* Disbursement Source Selector ONLY when user actually enters a positive paid amount on a positive invoice */}
+            {quantity > 0 && paidAmount > 0 && (
               <DisbursementSourceSelector
                 workshopId={tenantId}
                 currencySymbol={profile.currencySymbol}
@@ -1530,6 +1551,7 @@ export const NewSupplierModal: React.FC<{
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

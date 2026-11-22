@@ -193,6 +193,16 @@ const ProductsInventoryModal = lazy(() =>
     default: m.ProductsInventoryModal,
   }))
 );
+const StartWorkshopGuidePage = lazy(() =>
+  import('./components/home/WorkshopGuidancePage').then((m) => ({
+    default: m.StartWorkshopGuidePage,
+  }))
+);
+const DailyRoutineGuidePage = lazy(() =>
+  import('./components/home/WorkshopGuidancePage').then((m) => ({
+    default: m.DailyRoutineGuidePage,
+  }))
+);
 const AdminExpensesModal = lazy(() =>
   import('./components/adminCosts/AdminExpensesModal').then((m) => ({
     default: m.AdminExpensesModal,
@@ -388,7 +398,12 @@ export type ActiveView =
   | 'supplier_hr_terminal'
   | 'personal_profile'
   | 'executive_brief'
-  | 'supplier_executive_brief';
+  | 'supplier_executive_brief'
+  | 'guide_start'
+  | 'guide_daily'
+  | 'inventory_materials'
+  | 'inventory_audit'
+  | 'finished_products';
 
 const processedRecoveryTokens = new Set<string>();
 
@@ -446,6 +461,11 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   personal_profile: 'صفحتي الشخصية ومعرض الأعمال',
   executive_brief: 'هلخصهالك — الملخص البسيط لورشتك',
   supplier_executive_brief: 'هلخصهالك للموردين — الملخص البسيط لمتجرك وفروعك',
+  guide_start: 'نبدأ ورشتنا',
+  guide_daily: 'يومك في الورشة',
+  inventory_materials: 'جرد أرصدة الخامات',
+  inventory_audit: 'حركة المخزن والجرد',
+  finished_products: 'مخزن المنتجات الجاهزة',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -2771,11 +2791,11 @@ export const App: React.FC = () => {
               onOpenExchangeRatesModal={() => setIsExchangeRatesOpen(true)}
               onOpenInventoryModal={(tab?: string) => {
                 if (tab === 'products') {
-                  setIsProductsModalOpen(true);
+                  navigateTo('finished_products');
                 } else if (tab === 'audit') {
-                  setIsInventoryLedgerOpen(true);
+                  navigateTo('inventory_audit');
                 } else {
-                  setIsMaterialsModalOpen(true);
+                  navigateTo('inventory_materials');
                 }
               }}
               onOpenAdminCostsModal={() => setIsAdminExpensesOpen(true)}
@@ -3126,6 +3146,95 @@ export const App: React.FC = () => {
             onGoBack={navigateBack}
             onGoHome={goHome}
             onNavigateToView={(v) => navigateTo(v as ActiveView)}
+          />
+        )}
+
+        {activeView === 'guide_start' && (
+          <StartWorkshopGuidePage
+            audience={profile.accountRole === 'supplier' ? 'supplier' : 'artisan'}
+            onExecuteAction={(actionKey) => {
+              switch (actionKey) {
+                case 'nav_materials': navigateTo('materials'); break;
+                case 'nav_unified_materials': handleNavigateToUnifiedMaterials(); break;
+                case 'nav_calculator': navigateTo('calculator'); break;
+                case 'nav_archive': navigateTo('archive'); break;
+                case 'nav_suppliers': navigateTo('suppliers'); break;
+                case 'nav_customers': navigateTo('customers'); break;
+                case 'nav_treasuries': navigateTo('treasuries'); break;
+                case 'open_artisan_store_products': handleOpenArtisanStore('products'); break;
+                case 'sup_catalog': navigateTo('supplier_catalog'); break;
+                case 'sup_unified_materials': handleNavigateToUnifiedMaterials(); break;
+                case 'sup_storefront': setIsSupplierStoreModalOpen(true); break;
+                case 'sup_customers': navigateTo('supplier_customers'); break;
+                case 'sup_warehouse_erp': navigateTo('supplier_warehouse_erp'); break;
+                case 'sup_finance': navigateTo('supplier_finance'); break;
+                case 'sup_erp_hub': navigateTo('supplier_erp_hub'); break;
+                default: break;
+              }
+            }}
+          />
+        )}
+
+        {activeView === 'guide_daily' && (
+          <DailyRoutineGuidePage
+            audience={profile.accountRole === 'supplier' ? 'supplier' : 'artisan'}
+            onExecuteAction={(actionKey) => {
+              switch (actionKey) {
+                case 'modal_supplier_invoice': setIsNewSupplierOpen(true); break;
+                case 'nav_purchases': navigateTo('purchases'); break;
+                case 'modal_admin_costs': setIsAdminExpensesOpen(true); break;
+                case 'nav_work_orders': handleNavigateToWorkOrders(); break;
+                case 'modal_inv_products': navigateTo('finished_products'); break;
+                case 'nav_sales': navigateTo('sales'); break;
+                case 'open_artisan_store_orders': handleOpenArtisanStore('orders'); break;
+                case 'sup_pos': navigateTo('supplier_pos'); break;
+                case 'sup_orders': navigateTo('supplier_orders'); break;
+                case 'sup_warehouse_erp': navigateTo('supplier_warehouse_erp'); break;
+                case 'sup_catalog': navigateTo('supplier_catalog'); break;
+                case 'sup_finance': navigateTo('supplier_finance'); break;
+                case 'sup_executive_brief': navigateTo('supplier_executive_brief'); break;
+                default: break;
+              }
+            }}
+          />
+        )}
+
+        {activeView === 'inventory_materials' && profile && (
+          <MaterialsInventoryModal
+            isOpen={true}
+            asPage={true}
+            onClose={goHome}
+            profile={profile}
+            onOpenPurchaseForMaterial={(item) =>
+              handleOpenPurchaseForMaterial({
+                materialId: item.id,
+                materialName: item.name,
+                supplierId: item.supplier_id,
+                unitCost: item.costPrice || item.purchase_price,
+                unitName: item.unit,
+              })
+            }
+          />
+        )}
+
+        {activeView === 'inventory_audit' && profile && (
+          <InventoryLedgerModal
+            isOpen={true}
+            asPage={true}
+            onClose={goHome}
+            profile={profile}
+            onOpenMaterialsView={() => navigateTo('materials')}
+          />
+        )}
+
+        {activeView === 'finished_products' && profile && (
+          <ProductsInventoryModal
+            isOpen={true}
+            asPage={true}
+            onClose={goHome}
+            profile={profile}
+            onNavigateToCalculator={() => navigateTo('calculator')}
+            onNavigateToWorkOrders={() => handleNavigateToWorkOrders()}
           />
         )}
 
@@ -3532,12 +3641,20 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Dedicated Products Inventory Modal (جدول products) */}
+      {/* Dedicated Products Inventory Modal */}
       {isProductsModalOpen && profile && (
         <ProductsInventoryModal
           isOpen={isProductsModalOpen}
           onClose={() => setIsProductsModalOpen(false)}
           profile={profile}
+          onNavigateToCalculator={() => {
+            setIsProductsModalOpen(false);
+            navigateTo('calculator');
+          }}
+          onNavigateToWorkOrders={() => {
+            setIsProductsModalOpen(false);
+            handleNavigateToWorkOrders();
+          }}
         />
       )}
 

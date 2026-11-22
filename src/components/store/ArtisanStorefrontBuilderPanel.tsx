@@ -4,8 +4,6 @@ import {
   ArtisanPortfolioGalleryItem,
 } from '../../types/artisanStoreBuilder';
 import {
-  MARKET_THEME_PRESETS,
-  MarketThemePresetId,
   MarketCouponConfig,
   MarketCouponType,
   compressImageFileToDataUrl,
@@ -36,6 +34,8 @@ import {
   User,
 } from 'lucide-react';
 import { ArtisanContactDisplayMode } from '../../types/artisanStoreBuilder';
+import { StorefrontThemeGrid } from './StorefrontThemeStudio';
+import { StorefrontThemeId } from '../../lib/storefrontThemes';
 
 interface ArtisanStorefrontBuilderPanelProps {
   mode: 'appearance' | 'promotions';
@@ -46,6 +46,7 @@ interface ArtisanStorefrontBuilderPanelProps {
   onChange: (next: ArtisanStoreConfig) => void;
   onSaveCloud: (next: ArtisanStoreConfig) => Promise<void> | void;
   onOpenPreview?: () => void;
+  onPreviewTheme?: (themeId: StorefrontThemeId) => void;
   onOpenPersonalProfile?: () => void;
 }
 
@@ -58,11 +59,10 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
   onChange,
   onSaveCloud,
   onOpenPreview,
+  onPreviewTheme,
   onOpenPersonalProfile,
 }) => {
   const activeCurr = getCurrencyInfo(config.storeCurrency);
-  const previewTheme =
-    MARKET_THEME_PRESETS[config.themePreset || 'shams_sand'] || MARKET_THEME_PRESETS.shams_sand;
 
   // Portfolio uploader temp state
   const [portTitle, setPortTitle] = useState('');
@@ -207,148 +207,20 @@ export const ArtisanStorefrontBuilderPanel: React.FC<ArtisanStorefrontBuilderPan
           </div>
         </div>
 
-        {/* 0. Instant Live Mini-Preview Card */}
-        <div
-          className="p-4 rounded-2xl border-2 space-y-3 transition-colors"
-          style={{
-            backgroundColor: previewTheme.pageBgLight,
-            borderColor: previewTheme.borderLight,
-            color: previewTheme.inkLight,
-          }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-black text-xs flex items-center gap-1.5">
-              <Eye className="w-4 h-4" style={{ color: previewTheme.accentBg }} />
-              <span>معاينة فورية مصغرة لواجهة متجرك ({previewTheme.nameAr})</span>
-            </span>
-            <span
-              className="px-2 py-0.5 rounded-md text-[10px] font-black text-white"
-              style={{ backgroundColor: previewTheme.accentBg }}
-            >
-              تحديث مباشر
-            </span>
-          </div>
-
-          <div
-            className="rounded-xl border overflow-hidden"
-            style={{
-              backgroundColor: previewTheme.surfaceLight,
-              borderColor: previewTheme.borderLight,
+        {/* 1. World-Class Architectural Themes Grid with Live Store Preview */}
+        <div className="p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E]">
+          <StorefrontThemeGrid
+            activeThemeId={config.themePreset}
+            audience="artisan"
+            onSelectTheme={(id) => onChange({ ...config, themePreset: id })}
+            onPreviewTheme={(id) => {
+              if (onPreviewTheme) onPreviewTheme(id);
+              else {
+                onChange({ ...config, themePreset: id });
+                onOpenPreview?.();
+              }
             }}
-          >
-            {config.showCover && config.coverUrl && (
-              <div className="h-20 w-full overflow-hidden border-b" style={{ borderColor: previewTheme.borderLight }}>
-                <img src={config.coverUrl} alt="" className="w-full h-full object-cover" />
-              </div>
-            )}
-            {config.promoBanner.enabled && (
-              <div
-                className="px-3 py-1 text-[10px] font-black text-white flex items-center justify-between"
-                style={{ backgroundColor: config.promoBanner.bgColor || '#C2410C' }}
-              >
-                <span className="truncate">{config.promoBanner.text}</span>
-                {config.promoBanner.showDiscountLabel && config.promoBanner.discountLabel && (
-                  <span className="px-1.5 py-0.5 rounded bg-black/25 shrink-0">
-                    {config.promoBanner.discountLabel}
-                  </span>
-                )}
-              </div>
-            )}
-            <div className="p-3 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
-              <div className="sm:col-span-8 space-y-1">
-                {config.showArtistSubtitle && (
-                  <p className="text-[10px] font-bold" style={{ color: previewTheme.accentTextLight }}>
-                    بأنامل: {artistName}
-                    {config.showCraftBadge && config.craftBadge ? ` · ${config.craftBadge}` : ''}
-                  </p>
-                )}
-                {config.showBrandTitle && (
-                  <h6 className="font-black text-sm">{brandName}</h6>
-                )}
-                {config.showWelcomeMessage && (
-                  <p className="text-[11px] opacity-85 line-clamp-1">{config.welcomeMessage}</p>
-                )}
-                <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px]">
-                  <span
-                    className="px-2 py-0.5 rounded-lg text-white font-bold"
-                    style={{ backgroundColor: previewTheme.accentBg }}
-                  >
-                    {config.socialLinks?.displayMode === 'footer'
-                      ? 'أيقونات التواصل بالتذييل'
-                      : config.socialLinks?.displayMode === 'floating_bubble'
-                      ? `فقاعة عائمة: ${config.socialLinks.bubbleLabel || 'تواصل معي'}`
-                      : `التذييل + فقاعة (${config.socialLinks?.bubbleLabel || 'تواصل معي'})`}
-                  </span>
-                </div>
-              </div>
-              <div
-                className="sm:col-span-4 rounded-xl border p-2 flex items-center justify-between gap-2"
-                style={{
-                  backgroundColor: previewTheme.pageBgLight,
-                  borderColor: previewTheme.borderLight,
-                }}
-              >
-                <div className="min-w-0">
-                  <p className="font-black text-[11px] truncate">مشغولة يدوية مميزة</p>
-                  <p className="font-mono font-black text-xs" style={{ color: previewTheme.accentTextLight }}>
-                    450 {activeCurr.symbol}
-                  </p>
-                </div>
-                <span
-                  className="px-2 py-1 rounded-lg text-[10px] font-black text-white shrink-0"
-                  style={{ backgroundColor: previewTheme.accentBg }}
-                >
-                  أضف للسلة
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 1. Lightweight Themes */}
-        <div className="p-4 rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] space-y-3">
-          <h5 className="font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
-            <Palette className="w-4 h-4 text-[#EA580C]" />
-            <span>الثيمات الخفيفة الجميلة لمتجرك</span>
-          </h5>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-            {(Object.keys(MARKET_THEME_PRESETS) as MarketThemePresetId[]).map((pid) => {
-              const preset = MARKET_THEME_PRESETS[pid];
-              const active = config.themePreset === pid;
-              return (
-                <button
-                  key={pid}
-                  type="button"
-                  onClick={() => onChange({ ...config, themePreset: pid })}
-                  className={`p-3 rounded-2xl border-2 text-right transition cursor-pointer flex items-center justify-between gap-2.5 ${
-                    active
-                      ? 'border-[#EA580C] bg-[#FFEDD5]/60 dark:bg-[#EA580C]/15 shadow-sm'
-                      : 'border-[#D4CCBC] dark:border-[#22355E] bg-[#F2ECE1] dark:bg-[#0D162E] hover:border-[#EA580C]/50'
-                  }`}
-                >
-                  <div className="min-w-0 space-y-0.5">
-                    <p className="font-black text-xs text-[#0C1427] dark:text-[#F7F3EA] truncate">
-                      {preset.nameAr}
-                    </p>
-                    <p className="text-[10px] text-[#475569] dark:text-[#94A3B8] line-clamp-1">
-                      {preset.subtitleAr}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span
-                      className="w-5 h-5 rounded-lg border border-black/15"
-                      style={{ backgroundColor: preset.pageBgLight }}
-                    />
-                    <span
-                      className="w-5 h-5 rounded-lg border border-black/15"
-                      style={{ backgroundColor: preset.accentBg }}
-                    />
-                    {active && <Check className="w-4 h-4 text-[#EA580C] shrink-0" />}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          />
         </div>
 
         {/* 2. Cover Image Upload */}

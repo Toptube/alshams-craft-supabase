@@ -730,8 +730,20 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   // STORE MANAGEMENT LOGIC (قسم متجري ثم التصدير الصريح لسوق الشمساوية)
   // =========================================================================
 
-  // Export product to My Store ONLY (does NOT auto-publish to Central Market)
+  // Export product to My Store ONLY (does NOT auto-publish to Central Market, strictly prevents duplicates)
   const handleExportToStore = async (p: SavedProductRecord) => {
+    const normName = String(p.productName || '').trim().toLowerCase();
+    const alreadyDuplicateInStore = allProducts.some(
+      (item) =>
+        item.inStore &&
+        (item.id === p.id || (normName && String(item.productName || '').trim().toLowerCase() === normName))
+    );
+    if (p.inStore || alreadyDuplicateInStore) {
+      setNotice(`المشغولة "${p.productName}" موجودة بالفعل في متجرك الخاص (تم منع التكرار تلقائياً).`);
+      setTimeout(() => setNotice(''), 3500);
+      return;
+    }
+
     try {
       const defaultPrice = p.storePrice || getRetailPrice(p);
       const defaultDesc =
@@ -763,13 +775,35 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
     }
   };
 
-  // Bulk Export selected products or filtered catalog items to My Store ONLY
+  // Bulk Export selected products or filtered catalog items to My Store ONLY (skips duplicates)
   const handleBulkExportToStore = async () => {
-    const targets = selectedIds.size > 0
+    const rawTargets = selectedIds.size > 0
       ? catalogVisibleProducts.filter((p) => selectedIds.has(p.id))
       : filteredProducts;
 
-    if (targets.length === 0) return;
+    if (rawTargets.length === 0) return;
+
+    const existingStoreNames = new Set(
+      allProducts
+        .filter((x) => x.inStore)
+        .map((x) => String(x.productName || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const seenBatchNames = new Set<string>();
+    const targets = rawTargets.filter((p) => {
+      if (p.inStore) return false;
+      const n = String(p.productName || '').trim().toLowerCase();
+      if (n && (existingStoreNames.has(n) || seenBatchNames.has(n))) return false;
+      if (n) seenBatchNames.add(n);
+      return true;
+    });
+
+    if (targets.length === 0) {
+      setNotice('كل المنتجات المختارة معروضة بالفعل في متجرك الخاص (لم يتم إنشاء أي تكرار).');
+      setTimeout(() => setNotice(''), 3500);
+      setSelectedIds(new Set());
+      return;
+    }
 
     try {
       const updatedRecords: SavedProductRecord[] = [];
@@ -799,7 +833,12 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
         prev.map((item) => updatedMap.get(item.id) || item)
       );
       playSuccessSound();
-      setNotice(`✓ تم نقل (${targets.length}) مشغولة إلى متجرك الخاص 🏪 (جاهزة للتصدير لسوق الشمساوية من تبويب متجري)`);
+      const skipped = rawTargets.length - targets.length;
+      setNotice(
+        skipped > 0
+          ? `✓ تم نقل (${targets.length}) منتج جديد لمتجرك، وتم تخطي (${skipped}) موجود مسبقاً لمنع التكرار.`
+          : `✓ تم نقل (${targets.length}) مشغولة إلى متجرك الخاص 🏪 (جاهزة للتصدير لسوق الشمساوية من تبويب متجري)`
+      );
       setTimeout(() => setNotice(''), 4500);
       setSelectedIds(new Set());
     } catch (err: any) {
