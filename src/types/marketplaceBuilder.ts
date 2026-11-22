@@ -10,7 +10,11 @@ export type MarketThemePresetId =
   | 'emerald_linen'
   | 'rose_clay'
   | 'midnight_gallery'
-  | 'clean_alabaster';
+  | 'clean_alabaster'
+  | 'arch_boutique'
+  | 'bento_studio'
+  | 'cinema_lookbook'
+  | 'pop_atelier';
 
 export interface MarketThemePresetMeta {
   id: MarketThemePresetId;
@@ -153,6 +157,86 @@ export const MARKET_THEME_PRESETS: Record<MarketThemePresetId, MarketThemePreset
     softDark: '#1D2432',
     borderDark: '#2C364A',
     inkDark: '#F4F4F5',
+  },
+  arch_boutique: {
+    id: 'arch_boutique',
+    nameAr: 'أقواس البوتيك (أشكال دائرية وأقواس)',
+    subtitleAr: 'إطارات مقوّسة فاخرة وتصنيفات دائرية بهوية البوتيكات العالمية',
+    pageBgLight: '#FAF6F0',
+    surfaceLight: '#FFFFFF',
+    softLight: '#F1E9DD',
+    borderLight: '#DFD2C0',
+    inkLight: '#2A2118',
+    mutedLight: '#6F5E4C',
+    accentBg: '#8B5E34',
+    accentHover: '#6E4826',
+    accentTextLight: '#8B5E34',
+    accentTextDark: '#E5B887',
+    pageBgDark: '#14100C',
+    surfaceDark: '#1E1812',
+    softDark: '#2A2119',
+    borderDark: '#443527',
+    inkDark: '#FAF6F0',
+  },
+  bento_studio: {
+    id: 'bento_studio',
+    nameAr: 'بنتو التفاعلي (توزيع معماري حديث)',
+    subtitleAr: 'واجهة بطاقات بنتو تفاعلية ومنتج رئيسي عريض بستايل الاستوديوهات الحديثة',
+    pageBgLight: '#F3F5F9',
+    surfaceLight: '#FFFFFF',
+    softLight: '#E7ECF4',
+    borderLight: '#D0D9E8',
+    inkLight: '#0E172A',
+    mutedLight: '#475569',
+    accentBg: '#2563EB',
+    accentHover: '#1D4ED8',
+    accentTextLight: '#2563EB',
+    accentTextDark: '#60A5FA',
+    pageBgDark: '#070D19',
+    surfaceDark: '#0F182B',
+    softDark: '#182540',
+    borderDark: '#26385E',
+    inkDark: '#F8FAFC',
+  },
+  cinema_lookbook: {
+    id: 'cinema_lookbook',
+    nameAr: 'لوك بوك العرض الجانبي (سينمائي)',
+    subtitleAr: 'شريط عرض أفقي متدرج + بطاقات منتجات أفقية (صورة جنب التفاصيل)',
+    pageBgLight: '#16110E',
+    surfaceLight: '#211915',
+    softLight: '#2E231D',
+    borderLight: '#433329',
+    inkLight: '#FAF3EB',
+    mutedLight: '#C6B3A4',
+    accentBg: '#E09F3E',
+    accentHover: '#C8892B',
+    accentTextLight: '#E09F3E',
+    accentTextDark: '#F4C46D',
+    pageBgDark: '#120E0B',
+    surfaceDark: '#1C1511',
+    softDark: '#271E18',
+    borderDark: '#3E2F26',
+    inkDark: '#FAF3EB',
+  },
+  pop_atelier: {
+    id: 'pop_atelier',
+    nameAr: 'ستوديو البولارويد الحر (تفاعلي جريء)',
+    subtitleAr: 'إطارات بولارويد بظلال هندسية جريئة وشريط إعلاني متحرك وأزرار دائرية',
+    pageBgLight: '#FFF8EB',
+    surfaceLight: '#FFFFFF',
+    softLight: '#FEEFD2',
+    borderLight: '#18181B',
+    inkLight: '#18181B',
+    mutedLight: '#52525B',
+    accentBg: '#E11D48',
+    accentHover: '#BE123C',
+    accentTextLight: '#E11D48',
+    accentTextDark: '#FB7185',
+    pageBgDark: '#141210',
+    surfaceDark: '#1E1B18',
+    softDark: '#2C2621',
+    borderDark: '#F59E0B',
+    inkDark: '#FFF8EB',
   },
 };
 

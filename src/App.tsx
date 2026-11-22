@@ -403,7 +403,9 @@ export type ActiveView =
   | 'guide_daily'
   | 'inventory_materials'
   | 'inventory_audit'
-  | 'finished_products';
+  | 'finished_products'
+  | 'my_store'
+  | 'my_orders';
 
 const processedRecoveryTokens = new Set<string>();
 
@@ -466,6 +468,8 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   inventory_materials: 'جرد أرصدة الخامات',
   inventory_audit: 'حركة المخزن والجرد',
   finished_products: 'مخزن المنتجات الجاهزة',
+  my_store: 'لوحة تحكم متجري',
+  my_orders: 'أوردراتي والطلبات',
 };
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -665,8 +669,12 @@ export const App: React.FC = () => {
       return;
     }
     setSelectedStoreOrderId(undefined);
+    if (tab === 'orders') {
+      navigateTo('my_orders');
+      return;
+    }
     setArtisanStoreInitialTab(tab);
-    setIsArtisanStoreModalOpen(true);
+    navigateTo('my_store');
   };
 
   // Calculator interaction state
@@ -1551,31 +1559,6 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('alshams_open_permissions_modal', handleOpenPermissions);
   }, []);
 
-  // Listen to store opening events (with optional targeted order ID / tab)
-  useEffect(() => {
-    const handleOpenStore = (e: Event) => {
-      if (profile?.accountRole === 'supplier') {
-        setIsSupplierStoreModalOpen(true);
-        return;
-      }
-      const customEvent = e as CustomEvent<{
-        orderId?: string;
-        tab?: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr';
-      }>;
-      if (customEvent.detail?.orderId) {
-        setSelectedStoreOrderId(customEvent.detail.orderId);
-        setArtisanStoreInitialTab('orders');
-      } else {
-        setSelectedStoreOrderId(undefined);
-        setArtisanStoreInitialTab(customEvent.detail?.tab || 'products');
-      }
-      setIsArtisanStoreModalOpen(true);
-    };
-
-    window.addEventListener('alshams_open_store', handleOpenStore);
-    return () => window.removeEventListener('alshams_open_store', handleOpenStore);
-  }, [profile?.accountRole]);
-
   useEffect(() => {
     const handleProfileSynced = (e: Event) => {
       const detail = (e as CustomEvent<{
@@ -1697,7 +1680,12 @@ export const App: React.FC = () => {
 
   const handleNavigateToCatalog = useCallback(
     (tab?: 'catalog' | 'store') => {
-      setCatalogInitialTab(tab || 'catalog');
+      if (tab === 'store') {
+        setArtisanStoreInitialTab('products');
+        navigateTo('my_store');
+        return;
+      }
+      setCatalogInitialTab('catalog');
       navigateTo('catalog');
     },
     [navigateTo]
@@ -1807,6 +1795,34 @@ export const App: React.FC = () => {
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [historyStack, activeView, syncViewUrl]);
+
+  // Listen to store opening events (with optional targeted order ID / tab)
+  useEffect(() => {
+    const handleOpenStore = (e: Event) => {
+      if (profile?.accountRole === 'supplier') {
+        setIsSupplierStoreModalOpen(true);
+        return;
+      }
+      const customEvent = e as CustomEvent<{
+        orderId?: string;
+        tab?: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr';
+      }>;
+      if (customEvent.detail?.orderId) {
+        setSelectedStoreOrderId(customEvent.detail.orderId);
+        navigateTo('my_orders');
+      } else if (customEvent.detail?.tab === 'orders') {
+        setSelectedStoreOrderId(undefined);
+        navigateTo('my_orders');
+      } else {
+        setSelectedStoreOrderId(undefined);
+        setArtisanStoreInitialTab(customEvent.detail?.tab || 'products');
+        navigateTo('my_store');
+      }
+    };
+
+    window.addEventListener('alshams_open_store', handleOpenStore);
+    return () => window.removeEventListener('alshams_open_store', handleOpenStore);
+  }, [profile?.accountRole, navigateTo]);
 
   const goHome = useCallback(() => {
     window.dispatchEvent(new CustomEvent('alshams_reset_subview'));
@@ -2244,8 +2260,8 @@ export const App: React.FC = () => {
             setActiveRoute({ type: 'app' });
           }}
           onOpenStoreModal={() => {
-            setCatalogInitialTab('store');
-            setActiveView('catalog');
+            setArtisanStoreInitialTab('products');
+            setActiveView('my_store');
             if (window.location.hash) window.location.hash = '';
             setActiveRoute({ type: 'app' });
           }}
@@ -2858,13 +2874,46 @@ export const App: React.FC = () => {
         {activeView === 'catalog' && (
           <WorkshopCatalog
             profile={profile}
-            initialTab={catalogInitialTab}
+            initialTab="catalog"
             onSelectRecordToLoad={handleSelectRecordToLoad}
             onOpenWhatsAppShare={handleOpenWhatsAppShare}
+            onOpenMyStore={() => handleOpenArtisanStore('products')}
             onOpenMarketplace={() => {
               window.location.hash = '#/market';
               setActiveRoute({ type: 'market' });
             }}
+          />
+        )}
+
+        {activeView === 'my_store' && (
+          <ArtisanStorefrontModal
+            isOpen={true}
+            displayMode="page_store"
+            onClose={navigateBack}
+            profile={profile}
+            initialTab={artisanStoreInitialTab === 'orders' ? 'products' : artisanStoreInitialTab}
+            onOpenOrdersPage={() => navigateTo('my_orders')}
+            onOpenCalculatorForRecord={(rec: any) => {
+              setCalculatorInitialRecord(rec);
+              navigateTo('calculator');
+            }}
+            onOpenPersonalProfile={() => navigateTo('personal_profile')}
+          />
+        )}
+
+        {activeView === 'my_orders' && (
+          <ArtisanStorefrontModal
+            isOpen={true}
+            displayMode="page_orders"
+            onClose={navigateBack}
+            profile={profile}
+            initialOrderId={selectedStoreOrderId}
+            initialTab="orders"
+            onOpenCalculatorForRecord={(rec: any) => {
+              setCalculatorInitialRecord(rec);
+              navigateTo('calculator');
+            }}
+            onOpenPersonalProfile={() => navigateTo('personal_profile')}
           />
         )}
 
@@ -3733,10 +3782,11 @@ export const App: React.FC = () => {
       )}
 
 
-      {/* Artisan Storefront Modal & Order Lifecycle */}
+      {/* Legacy fallback kept inactive: My Store & My Orders now open as full pages via activeView */}
       {isArtisanStoreModalOpen && (
         <ArtisanStorefrontModal
           isOpen={isArtisanStoreModalOpen}
+          displayMode="page_store"
           onClose={() => {
             setIsArtisanStoreModalOpen(false);
             setSelectedStoreOrderId(undefined);
@@ -3744,6 +3794,10 @@ export const App: React.FC = () => {
           profile={profile}
           initialOrderId={selectedStoreOrderId}
           initialTab={artisanStoreInitialTab}
+          onOpenOrdersPage={() => {
+            setIsArtisanStoreModalOpen(false);
+            navigateTo('my_orders');
+          }}
           onOpenCalculatorForRecord={(rec: any) => {
             setCalculatorInitialRecord(rec);
             navigateTo('calculator');

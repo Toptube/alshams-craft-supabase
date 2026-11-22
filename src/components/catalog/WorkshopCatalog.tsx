@@ -84,25 +84,20 @@ interface WorkshopCatalogProps {
   onSelectRecordToLoad: (record: SavedProductRecord) => void;
   onOpenWhatsAppShare: (record: SavedProductRecord) => void;
   onOpenMarketplace?: () => void;
+  onOpenMyStore?: () => void;
 }
 
 export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   profile,
-  initialTab,
   onSelectRecordToLoad,
   onOpenWhatsAppShare,
   onOpenMarketplace,
+  onOpenMyStore,
 }) => {
   const { t: tr } = useTranslation();
 
-  // Tab switching: 'catalog' (الكتالوج المرجعي) vs 'store' (متجري)
-  const [activeTab, setActiveTab] = useState<'catalog' | 'store'>(initialTab || 'catalog');
-
-  useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
-    }
-  }, [initialTab]);
+  // Dedicated Catalog page (My Store now has its own dedicated full page)
+  const [activeTab] = useState<'catalog' | 'store'>('catalog');
 
   // All loaded products stored in memory
   const [allProducts, setAllProducts] = useState<SavedProductRecord[]>([]);
@@ -1271,78 +1266,43 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   }
 
   return (
-    <div className="space-y-6">
-      {/* 0. Tab Switcher between Reference Catalog and My Store */}
-      <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700/80 max-w-xl">
-        <button
-          type="button"
-          onClick={() => setActiveTab('catalog')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition cursor-pointer ${
-            activeTab === 'catalog'
-              ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
-              : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100'
-          }`}
-        >
-          <BookOpen className="w-4 h-4" />
-          <span>الكتالوج</span>
-          <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
-            {catalogVisibleProducts.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('store')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition cursor-pointer ${
-            activeTab === 'store'
-              ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-400 shadow-sm'
-              : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100'
-          }`}
-        >
-          <Store className="w-4 h-4" />
-          <span>متجري</span>
-          <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-500 text-white">
-            {allProducts.filter((p) => p.inStore).length}
-          </span>
-        </button>
-      </div>
-
-      {/* 1. Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-300/40 dark:border-amber-800/40 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-bold text-amber-700 dark:text-amber-400">
-            {activeTab === 'catalog' ? <BookOpen className="w-4 h-4" /> : <Store className="w-4 h-4" />}
-            <span>{activeTab === 'catalog' ? 'الكتالوج' : 'متجري'}</span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 mt-1">
-            {activeTab === 'catalog'
-              ? profile.brandName
-                ? `كتالوج ${profile.brandName}`
-                : 'الكتالوج'
-              : profile.brandName
-              ? `متجر ${profile.brandName}`
-              : 'متجري'}
-          </h2>
-          <p className="text-xs text-stone-500 mt-1">
-            {activeTab === 'catalog'
-              ? 'أرشيف المشغولات الحرفية، حساب التكاليف، وحماية المواصفات محلياً وسحابياً'
-              : 'إدارة عرض وتسويق المشغولات الحرفية للعملاء برابط متجرك المباشر'}
-          </p>
-        </div>
-
+    <div className="space-y-4">
+      {/* Compact Dedicated Catalog Action Bar (No duplicate My Store tab, no giant intro banner) */}
+      <div className="p-3 sm:p-3.5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Direct Add Product Button — "+ منتج مباشر" */}
           <button
             type="button"
             onClick={() => setIsDirectAddOpen(true)}
-            className="px-4 py-2 rounded-2xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95"
+            className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
             title="إضافة منتج مباشر للكتالوج أو المتجر فوراً"
           >
             <Plus className="w-4 h-4" />
             <span>منتج مباشر</span>
           </button>
 
-          {/* Manual Cloud Sync Button [ مزامنة الآن 🔄 ] */}
+          <button
+            type="button"
+            onClick={handleExportPDF}
+            disabled={isExportingPdf || targetProductsForExport.length === 0}
+            className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-45"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>{isExportingPdf ? 'جاري التجهيز...' : 'PDF'}</span>
+          </button>
+
+          {onOpenMyStore && (
+            <button
+              type="button"
+              onClick={onOpenMyStore}
+              className="px-3.5 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-100 border border-stone-200 dark:border-stone-700 text-xs font-black transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Store className="w-3.5 h-3.5 text-[#EA580C]" />
+              <span>لوحة متجري</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={async () => {
@@ -1357,8 +1317,8 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
                 playSuccessSound();
                 setNotice(
                   summary.pendingRemaining === 0
-                    ? `تمت المزامنة الشاملة بنجاح! كافة مشغولات الكتالوج (${catalogVisibleProducts.length}) ومعروضات المتجر (${summary.pushedStore > 0 ? `+${summary.pushedStore} مرفوعة حديثاً` : 'محدثة'}) متطابقة سحابياً ومحلياً ✨`
-                    : `تم الحفظ محلياً مع بقاء (${summary.pendingRemaining}) عملية بالانتظار لحين استقرار الاتصال بالسحابة.`
+                    ? `تمت المزامنة بنجاح (${catalogVisibleProducts.length} منتج)`
+                    : `تم الحفظ محلياً مع بقاء (${summary.pendingRemaining}) عملية بالانتظار.`
                 );
                 setTimeout(() => setNotice(''), 4000);
               } catch {
@@ -1368,70 +1328,46 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               }
             }}
             disabled={isSyncing}
-            className="px-3 py-2 rounded-2xl border border-amber-400 dark:border-amber-700 bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 text-xs font-black transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs active:scale-95"
-            title="مزامنة فورية للمشغولات مع السحابة"
+            className="px-2.5 py-2 rounded-xl border border-amber-400/70 dark:border-amber-700 bg-amber-500/10 hover:bg-amber-500/20 text-amber-900 dark:text-amber-200 text-xs font-black transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="مزامنة مع السحابة"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-amber-600 dark:text-amber-400 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'جاري المزامنة...' : 'مزامنة الآن 🔄'}</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-600 text-white font-black">
-              {pendingSyncCount} معلق
-            </span>
+            <span>مزامنة</span>
+            {pendingSyncCount > 0 && (
+              <span className="px-1.5 rounded-full text-[10px] font-mono bg-amber-600 text-white font-black">
+                {pendingSyncCount}
+              </span>
+            )}
           </button>
 
-          {/* Refresh data */}
+          <button
+            type="button"
+            onClick={handleShareWhatsApp}
+            disabled={targetProductsForExport.length === 0}
+            className="p-2 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 transition cursor-pointer disabled:opacity-45"
+            title="مشاركة عبر واتساب"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleShareFacebook}
+            disabled={targetProductsForExport.length === 0}
+            className="p-2 rounded-xl border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition cursor-pointer disabled:opacity-45"
+            title="مشاركة على فيسبوك"
+          >
+            <Facebook className="w-4 h-4" />
+          </button>
+
           <button
             type="button"
             onClick={loadCatalogData}
-            title="تحديث البيانات"
-            className="p-2.5 rounded-2xl border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+            title="تحديث"
+            className="p-2 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-100 transition cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-600' : ''}`} />
           </button>
-
-          {activeTab === 'catalog' ? (
-            <>
-              {/* WhatsApp Share Button */}
-              <button
-                type="button"
-                onClick={handleShareWhatsApp}
-                disabled={targetProductsForExport.length === 0}
-                className="px-3.5 py-2.5 rounded-2xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                title="مشاركة الأصناف المحددة عبر واتساب"
-              >
-                <Share2 className="w-4 h-4 text-emerald-600" />
-                <span className="hidden sm:inline">{tr('catalog_share_whatsapp')}</span>
-              </button>
-
-              {/* Facebook Share Button */}
-              <button
-                type="button"
-                onClick={handleShareFacebook}
-                disabled={targetProductsForExport.length === 0}
-                className="px-3.5 py-2.5 rounded-2xl border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 hover:bg-blue-100 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                title="مشاركة الكتالوج على فيسبوك"
-              >
-                <Facebook className="w-4 h-4 text-blue-600" />
-                <span className="hidden sm:inline">{tr('catalog_share_facebook')}</span>
-              </button>
-
-              {/* Export PDF Button */}
-              <button
-                type="button"
-                onClick={handleExportPDF}
-                disabled={isExportingPdf || targetProductsForExport.length === 0}
-                className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white font-black text-xs shadow-md shadow-amber-600/20 active:scale-[0.98] transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <Download className="w-4 h-4" />
-                <span>{isExportingPdf ? 'جاري تجهيز PDF...' : tr('catalog_export_pdf')}</span>
-              </button>
-            </>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300">
-                المعروض في المتجر: {allProducts.filter((p) => p.inStore).length} مشغولة
-              </span>
-            </div>
-          )}
         </div>
       </div>
 
@@ -2582,7 +2518,7 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
               {allProducts.filter((p) => p.inStore).length === 0 && (
                 <button
                   type="button"
-                  onClick={() => setActiveTab('catalog')}
+                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                   className="px-6 py-2.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition cursor-pointer"
                 >
                   الذهاب للكتالوج وتصدير أول مشغولة

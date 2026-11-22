@@ -282,7 +282,8 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
   const isCenteredHero =
     themeSpec.heroLayout === 'centered_maison' ||
     themeSpec.heroLayout === 'noir_spotlight' ||
-    themeSpec.heroLayout === 'swiss_minimal';
+    themeSpec.heroLayout === 'swiss_minimal' ||
+    themeSpec.heroLayout === 'arch_crest';
 
   if (loading && !localSupplierOverride) {
     return (
@@ -463,6 +464,25 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         </div>
       </header>
 
+      {themeSpec.showKineticTicker && (
+        <div
+          style={{
+            backgroundColor: themeSpec.accentBg,
+            color: themeSpec.accentInk,
+            borderColor: themeSpec.borderColor,
+          }}
+          className="border-b-2 py-2 px-4 overflow-hidden select-none"
+        >
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-6 text-[11px] sm:text-xs font-black whitespace-nowrap overflow-x-auto scrollbar-none">
+            <span>★ {activeSupplier.brandName}</span>
+            <span>·</span>
+            <span>توريد خامات جملة وقطاعي</span>
+            <span>·</span>
+            <span>{items.length} صنف متاح للتوريد الفوري ★</span>
+          </div>
+        </div>
+      )}
+
       {/* World-Class Architectural Supplier Hero Banner */}
       <section
         style={{
@@ -473,7 +493,9 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         className={`relative border-b transition-colors duration-300 ${
           themeSpec.heroLayout === 'swiss_minimal'
             ? 'py-10 sm:py-12 px-3 sm:px-6'
-            : themeSpec.heroLayout === 'centered_maison' || themeSpec.heroLayout === 'noir_spotlight'
+            : themeSpec.heroLayout === 'centered_maison' ||
+              themeSpec.heroLayout === 'noir_spotlight' ||
+              themeSpec.heroLayout === 'arch_crest'
             ? 'py-8 sm:py-10 px-3 sm:px-6'
             : 'py-6 sm:py-8 px-3 sm:px-6'
         }`}
@@ -492,13 +514,19 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
           } ${
             themeSpec.heroLayout === 'centered_maison'
               ? 'p-5 sm:p-7 border rounded-2xl'
+              : themeSpec.heroLayout === 'arch_crest'
+              ? 'p-6 sm:p-8 border-2 rounded-t-[120px] rounded-b-3xl'
+              : themeSpec.heroLayout === 'pop_kinetic'
+              ? 'p-5 sm:p-7 border-2 rounded-3xl shadow-[5px_5px_0px_#18181B]'
               : themeSpec.heroLayout === 'gallery_magazine'
               ? 'border-r-4 pr-4 sm:pr-6'
               : ''
           }`}
           style={
-            themeSpec.heroLayout === 'centered_maison'
-              ? { borderColor: themeSpec.heroBorder, backgroundColor: themeSpec.heroSubtleTint }
+            themeSpec.heroLayout === 'centered_maison' ||
+            themeSpec.heroLayout === 'arch_crest' ||
+            themeSpec.heroLayout === 'pop_kinetic'
+              ? { borderColor: themeSpec.heroBorder, backgroundColor: themeSpec.surfaceBg }
               : themeSpec.heroLayout === 'gallery_magazine'
               ? { borderColor: themeSpec.accentBg }
               : undefined
@@ -508,7 +536,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
             style={{ color: themeSpec.accentText }}
             className="text-[11px] font-black tracking-wider"
           >
-            {themeSpec.englishSignature} · متجر توريد خامات معتمد
+            {themeSpec.architectureTagAr} · متجر توريد خامات معتمد
           </span>
           <h2
             style={{ color: themeSpec.inkColor }}
@@ -750,88 +778,122 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredItems.map((it) => (
-              <article
-                key={it.id}
-                style={surfaceStyle}
-                className={`${themeSpec.cardRadiusClass} ${themeSpec.cardShadowClass} border overflow-hidden flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5`}
-              >
-                <div
-                  onClick={() => setSelectedItem(it)}
-                  className="cursor-pointer"
+          <div
+            className={`grid gap-4 ${
+              themeSpec.cardLayout === 'horizontal_split'
+                ? 'grid-cols-1 md:grid-cols-2'
+                : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+            }`}
+          >
+            {filteredItems.map((it, idx) => {
+              const isBentoHero = themeSpec.cardLayout === 'bento_featured' && idx === 0;
+              const isHorizontal = themeSpec.cardLayout === 'horizontal_split' || isBentoHero;
+              const isArch = themeSpec.cardLayout === 'arch_dome';
+              const isPolaroid = themeSpec.cardLayout === 'polaroid_pop';
+
+              return (
+                <article
+                  key={it.id}
+                  style={surfaceStyle}
+                  className={`${themeSpec.cardRadiusClass} ${themeSpec.cardShadowClass} ${
+                    isPolaroid ? 'border-2 p-2.5' : 'border'
+                  } ${isBentoHero ? 'sm:col-span-2' : ''} overflow-hidden flex ${
+                    isHorizontal ? 'flex-row items-stretch' : 'flex-col justify-between'
+                  } transition-all duration-200 hover:-translate-y-0.5`}
                 >
                   <div
-                    style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
-                    className={`relative w-full ${themeSpec.imageFrameClass} overflow-hidden border-b`}
+                    onClick={() => setSelectedItem(it)}
+                    className={`cursor-pointer ${
+                      isHorizontal ? 'w-32 sm:w-44 shrink-0' : 'w-full'
+                    }`}
                   >
-                    {it.videoUrl && (
-                      <div className="absolute bottom-2 right-2 z-10">
-                        <ProductVideoThumbnail
-                          videoUrl={it.videoUrl}
-                          fallbackImage={it.images?.[0]}
-                          title={it.name}
-                          compact
-                        />
-                      </div>
-                    )}
-                    <img
-                      src={it.images?.[0] || '/alshams_falcon_emblem.png'}
-                      alt={it.name}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="p-4 space-y-2">
-                    <h3 className={`text-sm ${themeSpec.titleWeightClass}`}>{it.name}</h3>
-                    {it.description && (
-                      <p style={{ color: themeSpec.mutedColor }} className="text-[11px] line-clamp-2">
-                        {it.description}
-                      </p>
-                    )}
-                    <div className="grid grid-cols-2 gap-2 font-mono tabular-nums text-xs pt-1">
-                      <div
-                        style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
-                        className={`p-2 ${themeSpec.buttonRadiusClass} border`}
-                      >
-                        <span style={{ color: themeSpec.mutedColor }} className="block text-[10px] font-sans">
-                          القطاعي
-                        </span>
-                        <span style={{ color: themeSpec.priceColor }} className="font-black">
-                          {it.retailPrice.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          backgroundColor: themeSpec.heroSubtleTint,
-                          borderColor: themeSpec.heroBorder,
-                        }}
-                        className={`p-2 ${themeSpec.buttonRadiusClass} border`}
-                      >
-                        <span style={{ color: themeSpec.accentText }} className="block text-[10px] font-sans font-bold">
-                          جملة (×{it.minWholesaleQty})
-                        </span>
-                        <span style={{ color: themeSpec.accentText }} className="font-black">
-                          {it.wholesalePrice > 0
-                            ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${activeSupplier.currencySymbol}`
-                            : '—'}
-                        </span>
-                      </div>
+                    <div
+                      style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                      className={`relative w-full ${
+                        isHorizontal ? 'h-full min-h-[140px]' : themeSpec.imageFrameClass
+                      } overflow-hidden ${
+                        isArch
+                          ? 'rounded-t-[999px] rounded-b-xl mx-auto mt-2 w-[calc(100%-16px)] border'
+                          : isPolaroid
+                          ? 'rounded-xl border-2'
+                          : isHorizontal
+                          ? 'border-l'
+                          : 'border-b'
+                      }`}
+                    >
+                      {it.videoUrl && (
+                        <div className="absolute bottom-2 right-2 z-10">
+                          <ProductVideoThumbnail
+                            videoUrl={it.videoUrl}
+                            fallbackImage={it.images?.[0]}
+                            title={it.name}
+                            compact
+                          />
+                        </div>
+                      )}
+                      <img
+                        src={it.images?.[0] || '/alshams_falcon_emblem.png'}
+                        alt={it.name}
+                        className="w-full h-full object-cover"
+                      />
                     </div>
                   </div>
-                </div>
-                <div className="px-4 pb-4">
-                  <button
-                    type="button"
-                    onClick={() => addToCart(it, 1)}
-                    style={accentBtnStyle}
-                    className={`w-full py-2.5 ${themeSpec.buttonRadiusClass} text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-90 transition`}
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>إضافة للسلة</span>
-                  </button>
-                </div>
-              </article>
-            ))}
+
+                  <div className={`flex-1 flex flex-col justify-between min-w-0 ${isArch ? 'text-center' : ''}`}>
+                    <div onClick={() => setSelectedItem(it)} className="p-4 space-y-2 cursor-pointer">
+                      <h3 className={`text-sm ${themeSpec.titleWeightClass}`}>{it.name}</h3>
+                      {it.description && (
+                        <p style={{ color: themeSpec.mutedColor }} className="text-[11px] line-clamp-2">
+                          {it.description}
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 gap-2 font-mono tabular-nums text-xs pt-1">
+                        <div
+                          style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
+                          className={`p-2 ${themeSpec.buttonRadiusClass} border`}
+                        >
+                          <span style={{ color: themeSpec.mutedColor }} className="block text-[10px] font-sans">
+                            القطاعي
+                          </span>
+                          <span style={{ color: themeSpec.priceColor }} className="font-black">
+                            {it.retailPrice.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            backgroundColor: themeSpec.heroSubtleTint,
+                            borderColor: themeSpec.heroBorder,
+                          }}
+                          className={`p-2 ${themeSpec.buttonRadiusClass} border`}
+                        >
+                          <span style={{ color: themeSpec.accentText }} className="block text-[10px] font-sans font-bold">
+                            جملة (×{it.minWholesaleQty})
+                          </span>
+                          <span style={{ color: themeSpec.accentText }} className="font-black">
+                            {it.wholesalePrice > 0
+                              ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${activeSupplier.currencySymbol}`
+                              : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="px-4 pb-4">
+                      <button
+                        type="button"
+                        onClick={() => addToCart(it, 1)}
+                        style={accentBtnStyle}
+                        className={`w-full py-2.5 ${themeSpec.buttonRadiusClass} ${
+                          isPolaroid ? 'border-2 border-[#18181B]' : ''
+                        } text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-90 transition`}
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>إضافة للسلة</span>
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
 

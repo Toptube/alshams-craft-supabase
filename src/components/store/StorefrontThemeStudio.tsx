@@ -15,8 +15,8 @@ interface StorefrontThemeGridProps {
 }
 
 /**
- * شبكة اختيار السمات العالمية الـ 6 مع معاينة معمارية مصغّرة لكل سمة
- * وزر "معاينة على متجري" لرؤية المتجر الحقيقي قبل الاعتماد.
+ * شبكة اختيار السمات العالمية الـ 10 (تخطيطات وأشكال معمارية مختلفة فعلياً)
+ * مع معاينة معمارية مصغّرة توضح شكل الأقواس / البنتو / العرض الجانبي / البولارويد قبل الاعتماد.
  */
 export const StorefrontThemeGrid: React.FC<StorefrontThemeGridProps> = ({
   activeThemeId,
@@ -32,11 +32,11 @@ export const StorefrontThemeGrid: React.FC<StorefrontThemeGridProps> = ({
         <div className="flex items-center gap-2">
           <Palette className="w-4 h-4 text-[#EA580C]" />
           <h5 className="font-black text-xs sm:text-sm text-[#0C1427] dark:text-[#F7F3EA]">
-            سمات المتجر العالمية (6 تصميمات احترافية بدون أي تغيير في بياناتك)
+            سمات المتجر المعمارية العالمية ({WORLD_STOREFRONT_THEME_LIST.length} أشكال وتخطيطات تفاعلية)
           </h5>
         </div>
         <span className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
-          اضغط «معاينة» لتجربة السمة على {audience === 'supplier' ? 'متجر التوريد' : 'متجرك'} الحقيقي قبل الاعتماد
+          اضغط «معاينة» لمشاهدة الشكل الجديد على {audience === 'supplier' ? 'متجر التوريد' : 'متجرك'} الحقيقي قبل الاعتماد
         </span>
       </div>
 
@@ -67,7 +67,13 @@ const ThemePreviewCard: React.FC<{
   const isCentered =
     theme.heroLayout === 'centered_maison' ||
     theme.heroLayout === 'noir_spotlight' ||
-    theme.heroLayout === 'swiss_minimal';
+    theme.heroLayout === 'swiss_minimal' ||
+    theme.heroLayout === 'arch_crest';
+
+  const isArch = theme.cardLayout === 'arch_dome';
+  const isBento = theme.cardLayout === 'bento_featured';
+  const isHorizontal = theme.cardLayout === 'horizontal_split';
+  const isPolaroid = theme.cardLayout === 'polaroid_pop';
 
   return (
     <div
@@ -77,7 +83,7 @@ const ThemePreviewCard: React.FC<{
           : 'border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60'
       }`}
     >
-      {/* Miniature Architectural Store Wireframe */}
+      {/* Miniature Architectural Store Wireframe — reflects REAL layout geometry */}
       <button
         type="button"
         onClick={onPreview}
@@ -85,109 +91,206 @@ const ThemePreviewCard: React.FC<{
         style={{ backgroundColor: theme.pageBg, color: theme.inkColor }}
         title={`معاينة سمة ${theme.nameAr} على متجرك الحقيقي`}
       >
+        {/* Kinetic Ticker bar for Pop Atelier */}
+        {theme.showKineticTicker && (
+          <div
+            className="mb-1.5 px-2 py-0.5 text-[7px] font-black text-center rounded-md truncate"
+            style={{ backgroundColor: theme.accentBg, color: theme.accentInk }}
+          >
+            ★ شريط إعلاني متحرك · صنع يدوي أصيل ★
+          </div>
+        )}
+
         {/* Mini Header Bar */}
         <div
           className="px-2.5 py-1.5 mb-2 flex items-center justify-between border"
           style={{
             backgroundColor: theme.surfaceBg,
             borderColor: theme.borderColor,
-            borderRadius: theme.cardRadiusClass === 'rounded-md' ? '2px' : '8px',
+            borderRadius: isArch || isPolaroid ? '999px' : theme.cardRadiusClass === 'rounded-md' ? '2px' : '8px',
+            boxShadow: isPolaroid ? '2px 2px 0px #18181B' : undefined,
           }}
         >
           <div className="flex items-center gap-1.5">
             <span
-              className="w-3 h-3 rounded-sm inline-block"
+              className={`w-3 h-3 inline-block ${isArch || isPolaroid ? 'rounded-full' : 'rounded-sm'}`}
               style={{ backgroundColor: theme.accentBg }}
             />
-            <span className="text-[9px] font-black opacity-90">{theme.nameAr}</span>
+            <span className="text-[9px] font-black opacity-90 truncate max-w-[110px]">{theme.nameAr}</span>
           </div>
           <span
             className="px-1.5 py-0.5 text-[8px] font-black"
             style={{
               backgroundColor: theme.accentBg,
               color: theme.accentInk,
-              borderRadius: theme.buttonRadiusClass === 'rounded-none' ? '0px' : '4px',
+              borderRadius: isArch || isPolaroid ? '999px' : theme.buttonRadiusClass === 'rounded-none' ? '0px' : '4px',
             }}
           >
             السلة
           </span>
         </div>
 
-        {/* Mini Hero Section */}
-        <div
-          className={`px-2.5 py-2 mb-2 border flex flex-col gap-1 ${
-            isCentered ? 'items-center text-center' : 'items-start text-right'
-          }`}
-          style={{
-            backgroundColor: theme.heroBg,
-            borderColor: theme.heroBorder,
-            borderRadius: theme.cardRadiusClass === 'rounded-md' ? '2px' : '10px',
-          }}
-        >
-          <span
-            className="text-[8px] font-bold tracking-wider"
-            style={{ color: theme.accentText }}
-          >
-            {theme.englishSignature}
-          </span>
-          <div
-            className="h-1.5 w-24 rounded-full"
-            style={{ backgroundColor: theme.inkColor, opacity: 0.85 }}
-          />
-          <div
-            className="h-1 w-16 rounded-full"
-            style={{ backgroundColor: theme.mutedColor, opacity: 0.55 }}
-          />
-        </div>
-
-        {/* Mini 2-Card Grid Preview */}
-        <div className="grid grid-cols-2 gap-1.5">
-          {[0, 1].map((idx) => (
+        {/* Mini Hero Section — Distinct Architecture */}
+        {isBento ? (
+          <div className="grid grid-cols-3 gap-1.5 mb-2">
             <div
-              key={idx}
-              className="overflow-hidden border"
-              style={{
-                backgroundColor: theme.surfaceBg,
-                borderColor: theme.borderColor,
-                borderRadius:
-                  theme.cardRadiusClass === 'rounded-md'
-                    ? '2px'
-                    : theme.cardRadiusClass === 'rounded-3xl'
-                      ? '12px'
-                      : '8px',
-              }}
+              className="col-span-2 p-2 border rounded-xl flex flex-col gap-1"
+              style={{ backgroundColor: theme.surfaceBg, borderColor: theme.borderColor }}
             >
-              <div
-                className="h-7 w-full"
-                style={{
-                  backgroundColor: theme.softBg,
-                  borderBottom: `1px solid ${theme.borderColor}`,
-                }}
+              <span className="text-[7px] font-black" style={{ color: theme.accentText }}>BENTO GRID</span>
+              <div className="h-1.5 w-20 rounded-full" style={{ backgroundColor: theme.inkColor, opacity: 0.85 }} />
+              <div className="h-1 w-14 rounded-full" style={{ backgroundColor: theme.mutedColor, opacity: 0.55 }} />
+            </div>
+            <div
+              className="p-2 border rounded-xl flex flex-col items-center justify-center gap-1"
+              style={{ backgroundColor: theme.accentBg, borderColor: theme.accentBg, color: theme.accentInk }}
+            >
+              <span className="text-[9px] font-black">★ 5.0</span>
+              <span className="text-[6px] opacity-90">متجر مميز</span>
+            </div>
+          </div>
+        ) : (
+          <div
+            className={`px-2.5 py-2 mb-2 border flex flex-col gap-1 ${
+              isCentered ? 'items-center text-center' : 'items-start text-right'
+            }`}
+            style={{
+              backgroundColor: theme.heroBg,
+              borderColor: theme.heroBorder,
+              borderRadius: isArch ? '22px 22px 10px 10px' : theme.cardRadiusClass === 'rounded-md' ? '2px' : '10px',
+              boxShadow: isPolaroid ? '3px 3px 0px #18181B' : undefined,
+            }}
+          >
+            {isArch && (
+              <span
+                className="w-5 h-5 rounded-full border-2 mb-0.5"
+                style={{ borderColor: theme.accentBg, backgroundColor: theme.surfaceBg }}
               />
-              <div className="p-1.5 space-y-1">
-                <div
-                  className="h-1.5 w-12 rounded-full"
-                  style={{ backgroundColor: theme.inkColor, opacity: 0.75 }}
-                />
-                <div className="flex items-center justify-between gap-1">
+            )}
+            <span
+              className="text-[8px] font-bold tracking-wider"
+              style={{ color: theme.accentText }}
+            >
+              {theme.architectureTagAr}
+            </span>
+            <div
+              className="h-1.5 w-24 rounded-full"
+              style={{ backgroundColor: theme.inkColor, opacity: 0.85 }}
+            />
+            {isArch && (
+              <div className="flex items-center gap-1 pt-0.5">
+                {[0, 1, 2, 3].map((dot) => (
                   <span
-                    className="text-[8px] font-mono font-black"
-                    style={{ color: theme.priceColor }}
-                  >
-                    450
-                  </span>
-                  <span
-                    className="h-2.5 w-7 inline-block"
+                    key={dot}
+                    className="w-3 h-3 rounded-full border"
                     style={{
-                      backgroundColor: theme.accentBg,
-                      borderRadius: theme.buttonRadiusClass === 'rounded-none' ? '0px' : '3px',
+                      backgroundColor: dot === 0 ? theme.accentBg : theme.surfaceBg,
+                      borderColor: theme.borderColor,
                     }}
                   />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Mini Product Layout Preview — Distinct Geometry per Engine */}
+        {isHorizontal ? (
+          <div className="space-y-1.5">
+            {[0, 1].map((idx) => (
+              <div
+                key={idx}
+                className="flex items-center gap-2 p-1.5 border rounded-xl"
+                style={{ backgroundColor: theme.surfaceBg, borderColor: theme.borderColor }}
+              >
+                <div
+                  className="w-9 h-8 rounded-lg shrink-0"
+                  style={{ backgroundColor: theme.softBg, border: `1px solid ${theme.borderColor}` }}
+                />
+                <div className="flex-1 space-y-1">
+                  <div className="h-1.5 w-16 rounded-full" style={{ backgroundColor: theme.inkColor, opacity: 0.8 }} />
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8px] font-mono font-black" style={{ color: theme.priceColor }}>450</span>
+                    <span className="h-2.5 w-8 rounded-md" style={{ backgroundColor: theme.accentBg }} />
+                  </div>
                 </div>
               </div>
+            ))}
+          </div>
+        ) : isBento ? (
+          <div className="grid grid-cols-2 gap-1.5">
+            <div
+              className="col-span-2 flex items-center gap-2 p-1.5 border rounded-xl"
+              style={{ backgroundColor: theme.surfaceBg, borderColor: theme.borderColor }}
+            >
+              <div className="w-12 h-8 rounded-lg shrink-0" style={{ backgroundColor: theme.softBg }} />
+              <div className="flex-1 space-y-1">
+                <div className="h-1.5 w-20 rounded-full" style={{ backgroundColor: theme.inkColor, opacity: 0.8 }} />
+                <span className="inline-block h-2 w-10 rounded-full" style={{ backgroundColor: theme.accentBg }} />
+              </div>
             </div>
-          ))}
-        </div>
+            {[0, 1].map((idx) => (
+              <div
+                key={idx}
+                className="p-1.5 border rounded-xl space-y-1"
+                style={{ backgroundColor: theme.surfaceBg, borderColor: theme.borderColor }}
+              >
+                <div className="h-5 rounded-lg" style={{ backgroundColor: theme.softBg }} />
+                <div className="h-1 w-10 rounded-full" style={{ backgroundColor: theme.inkColor, opacity: 0.7 }} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-1.5">
+            {[0, 1].map((idx) => (
+              <div
+                key={idx}
+                className={`overflow-hidden border ${isPolaroid ? 'p-1' : ''}`}
+                style={{
+                  backgroundColor: theme.surfaceBg,
+                  borderColor: theme.borderColor,
+                  borderRadius: isArch
+                    ? '28px 28px 10px 10px'
+                    : theme.cardRadiusClass === 'rounded-md'
+                      ? '2px'
+                      : theme.cardRadiusClass === 'rounded-3xl'
+                        ? '12px'
+                        : '8px',
+                  boxShadow: isPolaroid ? '2px 2px 0px #18181B' : undefined,
+                }}
+              >
+                <div
+                  className={`${isArch ? 'h-9 rounded-t-[26px] m-1 mb-0' : isPolaroid ? 'h-7 rounded-lg' : 'h-7'} w-auto`}
+                  style={{
+                    backgroundColor: theme.softBg,
+                    borderBottom: isArch || isPolaroid ? undefined : `1px solid ${theme.borderColor}`,
+                  }}
+                />
+                <div className={`p-1.5 space-y-1 ${isArch ? 'text-center' : ''}`}>
+                  <div
+                    className={`h-1.5 w-12 rounded-full ${isArch ? 'mx-auto' : ''}`}
+                    style={{ backgroundColor: theme.inkColor, opacity: 0.75 }}
+                  />
+                  <div className="flex items-center justify-between gap-1">
+                    <span
+                      className="text-[8px] font-mono font-black"
+                      style={{ color: theme.priceColor }}
+                    >
+                      450
+                    </span>
+                    <span
+                      className="h-2.5 w-7 inline-block"
+                      style={{
+                        backgroundColor: theme.accentBg,
+                        borderRadius: isArch || isPolaroid ? '999px' : theme.buttonRadiusClass === 'rounded-none' ? '0px' : '3px',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </button>
 
       {/* Theme Metadata & Actions */}
@@ -204,6 +307,9 @@ const ThemePreviewCard: React.FC<{
               </span>
             )}
           </div>
+          <p className="text-[10px] font-black text-[#C2410C] dark:text-[#FBBF24]">
+            الشكل المعماري: {theme.architectureTagAr}
+          </p>
           <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-snug line-clamp-2">
             {theme.taglineAr}
           </p>
@@ -248,7 +354,7 @@ interface ThemePreviewDecisionBarProps {
 
 /**
  * شريط اتخاذ القرار العلوي أثناء المعاينة الحية للمتجر الحقيقي:
- * يسمح بالتبديل الفوري بين الـ 6 سمات العالمية ثم الضغط على "موافق — اعتمد السمة".
+ * يسمح بالتبديل الفوري بين الـ 10 سمات العالمية ثم الضغط على "موافق — اعتمد السمة".
  */
 export const ThemePreviewDecisionBar: React.FC<ThemePreviewDecisionBarProps> = ({
   previewThemeId,
@@ -275,12 +381,12 @@ export const ThemePreviewDecisionBar: React.FC<ThemePreviewDecisionBarProps> = (
               معاينة حية: <span className="text-[#FBBF24]">{currentTheme?.nameAr}</span>
             </p>
             <p className="text-[10px] text-[#94A3B8] truncate">
-              جرّب أي سمة تحت على متجرك الحقيقي، ولما يعجبك الشكل اضغط «موافق»
+              {currentTheme?.architectureTagAr} · جرّب أي شكل تحت ولما يعجبك اضغط «موافق»
             </p>
           </div>
         </div>
 
-        {/* Instant 6-Theme Switcher Strip */}
+        {/* Instant 10-Theme Switcher Strip */}
         <div className="flex items-center gap-1.5 overflow-x-auto max-w-full py-0.5">
           {WORLD_STOREFRONT_THEME_LIST.map((t) => {
             const active = t.id === previewThemeId;

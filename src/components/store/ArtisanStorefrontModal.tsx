@@ -92,6 +92,8 @@ interface ArtisanStorefrontModalProps {
   profile: UserProfile;
   initialOrderId?: string;
   initialTab?: BuilderTabId;
+  displayMode?: 'modal' | 'page_store' | 'page_orders';
+  onOpenOrdersPage?: () => void;
   onOpenCalculatorForRecord?: (record: SavedProductRecord) => void;
   onOpenPersonalProfile?: () => void;
 }
@@ -102,6 +104,8 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   profile,
   initialOrderId,
   initialTab = 'products',
+  displayMode = 'page_store',
+  onOpenOrdersPage,
   onOpenCalculatorForRecord,
   onOpenPersonalProfile,
 }) => {
@@ -110,7 +114,11 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   const storeUrl = getWorkshopStoreUrl(profile);
   const brandAssets = useLandingBrandAssets();
 
-  const [activeTab, setActiveTab] = useState<BuilderTabId>(initialOrderId ? 'orders' : initialTab);
+  const isInlinePage = displayMode === 'page_store' || displayMode === 'page_orders';
+  const isOrdersOnlyPage = displayMode === 'page_orders';
+  const [activeTab, setActiveTab] = useState<BuilderTabId>(
+    isOrdersOnlyPage || initialOrderId ? 'orders' : initialTab === 'orders' ? 'products' : initialTab
+  );
   const [products, setProducts] = useState<SavedProductRecord[]>([]);
   const [orders, setOrders] = useState<InvoiceRecord[]>([]);
   const [treasuries, setTreasuries] = useState<TreasuryAccountOption[]>([]);
@@ -158,12 +166,14 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (initialOrderId) {
+    if (isOrdersOnlyPage || initialOrderId) {
       setActiveTab('orders');
-    } else if (initialTab) {
+    } else if (initialTab && initialTab !== 'orders') {
       setActiveTab(initialTab);
+    } else {
+      setActiveTab('products');
     }
-  }, [isOpen, initialTab, initialOrderId]);
+  }, [isOpen, initialTab, initialOrderId, isOrdersOnlyPage]);
 
   useEffect(() => {
     if (!isOpen || !tenantId) return;
@@ -951,63 +961,81 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   ).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[#060B18]/75 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-[#F2ECE1] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] w-full max-w-6xl max-h-[94vh] rounded-3xl border-2 border-[#D4CCBC] dark:border-[#EA580C]/45 shadow-2xl flex flex-col overflow-hidden text-right">
-        {/* Header */}
-        <div className="px-4 sm:px-5 py-3.5 bg-[#F7F3EA] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#E9E2D4] to-[#F5DFC6] dark:from-[#EA580C]/20 dark:to-[#F59E0B]/10 border border-[#EA580C]/35 text-[#C2410C] dark:text-amber-300 flex items-center justify-center shadow-md shrink-0">
-              <Store className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-amber-300 truncate">
-                  لوحة متجر ورشة {profile.brandName || profile.artistName}
-                </h3>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-400/30 text-[10px] font-black shrink-0">
-                  متصل ومفعل
-                </span>
+    <div
+      className={
+        isInlinePage
+          ? 'w-full space-y-4 animate-in fade-in duration-200 text-right'
+          : 'fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[#060B18]/75 backdrop-blur-sm animate-in fade-in duration-200'
+      }
+    >
+      <div
+        className={
+          isInlinePage
+            ? 'bg-[#F2ECE1] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] w-full rounded-3xl border border-[#D4CCBC] dark:border-[#22355E] shadow-sm flex flex-col overflow-hidden text-right'
+            : 'bg-[#F2ECE1] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] w-full max-w-6xl max-h-[94vh] rounded-3xl border-2 border-[#D4CCBC] dark:border-[#EA580C]/45 shadow-2xl flex flex-col overflow-hidden text-right'
+        }
+      >
+        {/* Clean Compact Page Top Bar */}
+        {!isOrdersOnlyPage && (
+          <div className="px-4 sm:px-5 py-3 bg-[#F7F3EA] dark:bg-[#0D162E] border-b border-[#D4CCBC] dark:border-[#22355E] flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-[#E9E2D4] to-[#F5DFC6] dark:from-[#EA580C]/20 dark:to-[#F59E0B]/10 border border-[#EA580C]/35 text-[#C2410C] dark:text-amber-300 flex items-center justify-center shrink-0">
+                <Store className="w-4 h-4" />
               </div>
-              <p className="text-[11px] text-[#334155] dark:text-[#CBD5E1] font-medium truncate">
-                تحكم في منتجاتك، مقاساتها وأسعارها، الثيمات، البانر، أكواد الخصم ودورة الطلبات
-              </p>
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-amber-300 truncate">
+                  متجر {profile.brandName || profile.artistName}
+                </h3>
+                <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                  متصل ومفعل · {products.length} منتج
+                </p>
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setIsOwnerPreviewOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-[#0C1427] dark:bg-[#132040] hover:bg-[#EA580C] text-[#FBBF24] hover:text-white border border-[#22355E] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">معاينة المتجر العام</span>
-            </button>
-            <div className="hidden md:block dark:hidden">
-              <AlShamsBrandLogo maxWidth={110} maxHeight={40} isDark={false} />
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setIsOwnerPreviewOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-[#0C1427] dark:bg-[#132040] hover:bg-[#EA580C] text-[#FBBF24] hover:text-white border border-[#22355E] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>معاينة المتجر العام</span>
+              </button>
+
+              {onOpenOrdersPage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playTapSound();
+                    onOpenOrdersPage();
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Package className="w-3.5 h-3.5 text-[#EA580C] dark:text-amber-400" />
+                  <span>أوردراتي</span>
+                  {pendingOrdersCount > 0 ? (
+                    <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-mono text-[10px] font-black">
+                      {pendingOrdersCount}
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[11px] opacity-70">({orders.length})</span>
+                  )}
+                </button>
+              )}
+
+              {!isInlinePage && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="إغلاق"
+                  className="w-9 h-9 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] flex items-center justify-center transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
             </div>
-            <div className="hidden dark:md:block">
-              <AlShamsBrandLogo maxWidth={110} maxHeight={40} isDark={true} />
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-black transition cursor-pointer shrink-0"
-              title="رجوع"
-            >
-              <ArrowRight className="w-3.5 h-3.5 text-[#EA580C]" />
-              <span>رجوع</span>
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="إغلاق"
-              className="w-9 h-9 rounded-xl bg-[#E9E2D4] hover:bg-[#DFD7C6] dark:bg-[#132040] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#334155] dark:text-[#CBD5E1] flex items-center justify-center transition cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
           </div>
-        </div>
+        )}
 
         {/* Feedback Alert */}
         {feedback && (
@@ -1016,64 +1044,78 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
           </div>
         )}
 
-        {/* Navigation Tabs */}
-        <div className="px-3 sm:px-5 pt-2.5 bg-[#E9E2D4] dark:bg-[#060B18] border-b border-[#D4CCBC] dark:border-[#22355E] flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {[
-            {
-              id: 'products' as BuilderTabId,
-              label: `المنتجات والأسعار (${products.length})`,
-              icon: ShoppingBag,
-            },
-            {
-              id: 'appearance' as BuilderTabId,
-              label: 'المظهر والهوية والمعرض',
-              icon: Palette,
-            },
-            {
-              id: 'promotions' as BuilderTabId,
-              label: `البانر وأكواد الخصم (${storeConfig.coupons.length})`,
-              icon: Megaphone,
-            },
-            {
-              id: 'orders' as BuilderTabId,
-              label: `أوردراتي والطلبات (${orders.length})`,
-              icon: Package,
-              badge: pendingOrdersCount,
-            },
-            {
-              id: 'qr' as BuilderTabId,
-              label: 'رابط المتجر و QR',
-              icon: QrCode,
-            },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
-              <motion.button
-                key={tab.id}
-                whileTap={{ scale: 0.96 }}
-                type="button"
-                onClick={() => {
-                  playTapSound();
-                  setActiveTab(tab.id);
-                }}
-                className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-t-2xl font-black text-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                  active
-                    ? 'bg-[#F2ECE1] dark:bg-[#0D162E] text-[#C2410C] dark:text-amber-300 border-t-2 border-x-2 border-[#EA580C]/60 dark:border-amber-500/50 shadow-sm'
-                    : 'text-[#334155] dark:text-[#CBD5E1] hover:text-[#0C1427] dark:hover:text-[#F7F3EA]'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5 text-[#EA580C] dark:text-amber-400 shrink-0" />
-                <span>{tab.label}</span>
-                {tab.badge && tab.badge > 0 ? (
-                  <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white font-mono text-[10px] font-black">
-                    {tab.badge}
-                  </span>
-                ) : null}
-              </motion.button>
-            );
-          })}
-        </div>
+        {/* Visible Store Control Button Grid (All 4 Tools Immediately Visible — Zero Hidden Horizontal Tabs!) */}
+        {!isOrdersOnlyPage && (
+          <div className="p-3 sm:p-4 bg-[#E9E2D4]/70 dark:bg-[#060B18] border-b border-[#D4CCBC] dark:border-[#22355E]">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+              {[
+                {
+                  id: 'products' as BuilderTabId,
+                  label: 'المنتجات والأسعار',
+                  meta: `${products.length} منتج`,
+                  icon: ShoppingBag,
+                },
+                {
+                  id: 'appearance' as BuilderTabId,
+                  label: 'المظهر والسمات والهوية',
+                  meta: '10 سمات معمارية',
+                  icon: Palette,
+                },
+                {
+                  id: 'promotions' as BuilderTabId,
+                  label: 'البانر وأكواد الخصم',
+                  meta: `${storeConfig.coupons.length} كوبون`,
+                  icon: Megaphone,
+                },
+                {
+                  id: 'qr' as BuilderTabId,
+                  label: 'رابط المتجر و QR',
+                  meta: 'مشاركة وطباعة',
+                  icon: QrCode,
+                },
+              ].map((btn) => {
+                const Icon = btn.icon;
+                const active = activeTab === btn.id;
+                return (
+                  <motion.button
+                    key={btn.id}
+                    whileTap={{ scale: 0.97 }}
+                    type="button"
+                    onClick={() => {
+                      playTapSound();
+                      setActiveTab(btn.id);
+                    }}
+                    className={`p-3 rounded-2xl border-2 text-right transition flex items-center gap-2.5 cursor-pointer ${
+                      active
+                        ? 'bg-[#EA580C] text-white border-[#EA580C] shadow-md'
+                        : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]'
+                    }`}
+                  >
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        active
+                          ? 'bg-white/20 text-white'
+                          : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#EA580C] dark:text-amber-400'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="block text-xs font-black truncate">{btn.label}</span>
+                      <span
+                        className={`block text-[10px] font-bold truncate ${
+                          active ? 'text-white/85' : 'text-[#475569] dark:text-[#94A3B8]'
+                        }`}
+                      >
+                        {btn.meta}
+                      </span>
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* TAB 1: Products Studio, Currency, Sizes & Discounts */}
         {activeTab === 'products' && (

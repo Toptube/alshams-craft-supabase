@@ -687,7 +687,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const isCenteredHero =
     themeSpec.heroLayout === 'centered_maison' ||
     themeSpec.heroLayout === 'noir_spotlight' ||
-    themeSpec.heroLayout === 'swiss_minimal';
+    themeSpec.heroLayout === 'swiss_minimal' ||
+    themeSpec.heroLayout === 'arch_crest';
 
   const persistStorefrontPreferences = async (nextCols: 1 | 2 | 3, nextOrder: string[], toastMsg: string) => {
     setLayoutCols(nextCols);
@@ -1117,7 +1118,29 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         </div>
       )}
 
-      {/* 2. Architectural World-Class Store Identity Hero (Distinct Layout per Theme) */}
+      {/* Kinetic Announcement Ticker (Pop Atelier Kinetic Engine) */}
+      {themeSpec.showKineticTicker && (
+        <div
+          style={{
+            backgroundColor: themeSpec.accentBg,
+            color: themeSpec.accentInk,
+            borderColor: themeSpec.borderColor,
+          }}
+          className="border-b-2 py-2 px-4 overflow-hidden select-none"
+        >
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-6 text-[11px] sm:text-xs font-black whitespace-nowrap overflow-x-auto scrollbar-none">
+            <span>★ {brandName}</span>
+            <span>·</span>
+            <span>{effectiveConfig.craftBadge || 'صناعة يدوية أصلية 100%'}</span>
+            <span>·</span>
+            <span>توصيل لكافة المحافظات</span>
+            <span>·</span>
+            <span>{storeData?.products?.length || 0} قطعة فنية متاحة الآن ★</span>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Architectural World-Class Store Identity Hero (Distinct Structural Layout per Theme) */}
       <section
         style={{
           backgroundColor: themeSpec.heroBg,
@@ -1127,7 +1150,9 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         className={`relative border-b transition-colors duration-300 ${
           themeSpec.heroLayout === 'swiss_minimal'
             ? 'py-10 sm:py-14 px-4 sm:px-6'
-            : themeSpec.heroLayout === 'centered_maison' || themeSpec.heroLayout === 'noir_spotlight'
+            : themeSpec.heroLayout === 'centered_maison' ||
+              themeSpec.heroLayout === 'noir_spotlight' ||
+              themeSpec.heroLayout === 'arch_crest'
             ? 'py-8 sm:py-12 px-4 sm:px-6'
             : 'py-6 sm:py-9 px-4 sm:px-6'
         }`}
@@ -1140,191 +1165,449 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             }}
           />
         )}
-        <div
-          className={`max-w-7xl mx-auto flex flex-col gap-6 ${
-            isCenteredHero
-              ? 'items-center text-center'
-              : 'md:flex-row items-start md:items-center justify-between'
-          } ${
-            themeSpec.heroLayout === 'centered_maison'
-              ? 'p-6 sm:p-8 border rounded-2xl'
-              : themeSpec.heroLayout === 'gallery_magazine'
-              ? 'border-r-4 pr-4 sm:pr-6'
-              : ''
-          }`}
-          style={
-            themeSpec.heroLayout === 'centered_maison'
-              ? { borderColor: themeSpec.heroBorder, backgroundColor: themeSpec.heroSubtleTint }
-              : themeSpec.heroLayout === 'gallery_magazine'
-              ? { borderColor: themeSpec.accentBg }
-              : undefined
-          }
-        >
-          <div className={`space-y-3 ${isCenteredHero ? 'max-w-3xl flex flex-col items-center' : 'text-right max-w-2xl'}`}>
-            {effectiveConfig.showArtistSubtitle && (
-              <p
-                style={{ color: themeSpec.accentText }}
-                className="text-xs font-black tracking-wide"
-              >
-                بأنامل الفنان: {artistName} · {workshop?.country || 'مصر'}
-                {effectiveConfig.showCraftBadge && effectiveConfig.craftBadge ? ` · ${effectiveConfig.craftBadge}` : ''}
-              </p>
-            )}
 
-            {effectiveConfig.showBrandTitle && (
-              <h2
-                style={{ color: themeSpec.inkColor }}
-                className={`${
-                  themeSpec.heroLayout === 'swiss_minimal' || themeSpec.heroLayout === 'centered_maison'
-                    ? 'text-3xl sm:text-4xl'
-                    : 'text-2xl sm:text-3xl'
-                } ${themeSpec.titleWeightClass} leading-tight text-balance`}
-              >
-                {brandName}
-              </h2>
-            )}
-
-            {themeSpec.heroLayout === 'centered_maison' && (
-              <div className="w-16 h-0.5 rounded-full" style={{ backgroundColor: themeSpec.accentBg }} />
-            )}
-
-            {effectiveConfig.showWelcomeMessage && effectiveConfig.welcomeMessage && (
-              <p
-                style={{ color: themeSpec.inkColor }}
-                className="text-xs sm:text-sm font-bold opacity-90 leading-relaxed"
-              >
-                {effectiveConfig.welcomeMessage}
-              </p>
-            )}
-
-            {effectiveConfig.showArtistStory && resolvedArtistStory && (
-              <p
-                style={{ color: themeSpec.mutedColor }}
-                className="text-xs sm:text-sm leading-relaxed"
-              >
-                {resolvedArtistStory}
-              </p>
-            )}
-
-            {(effectiveConfig.showWorkingHours ||
-              effectiveConfig.showProductionTurnaround ||
-              effectiveConfig.showCustomOrderBadge) && (
-              <div
-                style={{ color: themeSpec.mutedColor }}
-                className={`flex flex-wrap items-center gap-3 pt-0.5 text-[11px] font-bold ${
-                  isCenteredHero ? 'justify-center' : ''
-                }`}
-              >
-                {effectiveConfig.showWorkingHours && effectiveConfig.workingHours && (
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
-                    <span>{effectiveConfig.workingHours}</span>
-                  </span>
+        {/* ENGINE A: BENTO MOSAIC HERO (Asymmetric Interactive 3-Tile Studio Grid) */}
+        {themeSpec.heroLayout === 'bento_mosaic' ? (
+          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {/* Tile 1: Main Brand Story & Direct CTAs (7 cols) */}
+            <div
+              style={{
+                backgroundColor: themeSpec.surfaceBg,
+                borderColor: themeSpec.borderColor,
+              }}
+              className="lg:col-span-7 p-6 sm:p-7 rounded-3xl border shadow-sm flex flex-col justify-between gap-5"
+            >
+              <div className="space-y-3">
+                {effectiveConfig.showArtistSubtitle && (
+                  <p style={{ color: themeSpec.accentText }} className="text-xs font-black">
+                    بأنامل الفنان: {artistName} · {workshop?.country || 'مصر'}
+                    {effectiveConfig.showCraftBadge && effectiveConfig.craftBadge ? ` · ${effectiveConfig.craftBadge}` : ''}
+                  </p>
                 )}
-                {effectiveConfig.showProductionTurnaround && effectiveConfig.productionTurnaround && (
-                  <span className="inline-flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
-                    <span>{effectiveConfig.productionTurnaround}</span>
-                  </span>
+                {effectiveConfig.showBrandTitle && (
+                  <h2 style={{ color: themeSpec.inkColor }} className="text-2xl sm:text-4xl font-black leading-tight text-balance">
+                    {brandName}
+                  </h2>
                 )}
-                {effectiveConfig.showCustomOrderBadge && effectiveConfig.customOrderBadgeText && (
-                  <span className="inline-flex items-center gap-1" style={{ color: themeSpec.accentText }}>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{effectiveConfig.customOrderBadgeText}</span>
-                  </span>
+                {effectiveConfig.showWelcomeMessage && effectiveConfig.welcomeMessage && (
+                  <p style={{ color: themeSpec.mutedColor }} className="text-xs sm:text-sm font-bold leading-relaxed">
+                    {effectiveConfig.welcomeMessage}
+                  </p>
+                )}
+                {effectiveConfig.showArtistStory && resolvedArtistStory && (
+                  <p style={{ color: themeSpec.mutedColor }} className="text-xs leading-relaxed">
+                    {resolvedArtistStory}
+                  </p>
                 )}
               </div>
-            )}
 
-            {/* Direct Contact with the Artisan */}
-            {(effectiveConfig.showPhoneButtons || effectiveConfig.showDeliveryBadge) && (
-              <div
-                className={`pt-1 flex flex-wrap items-center gap-3 text-xs ${
-                  isCenteredHero ? 'justify-center' : ''
-                }`}
-              >
+              <div className="flex flex-wrap items-center gap-2.5">
                 {effectiveConfig.showPhoneButtons && (
                   <>
                     <a
                       href={`tel:${phone}`}
                       style={accentBtnStyle}
-                      className={`inline-flex items-center gap-2 px-4 py-2 ${themeSpec.buttonRadiusClass} font-black transition hover:opacity-90 cursor-pointer whitespace-nowrap`}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black transition hover:opacity-90"
                     >
                       <Phone className="w-3.5 h-3.5" />
                       <span dir="ltr">{phone}</span>
                     </a>
-
                     <a
                       href={`https://wa.me/${whatsappNumber}`}
                       target="_blank"
                       rel="noreferrer"
-                      className={`inline-flex items-center gap-2 px-4 py-2 ${themeSpec.buttonRadiusClass} bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition cursor-pointer whitespace-nowrap`}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition"
                     >
                       <MessageCircle className="w-3.5 h-3.5" />
-                      <span>واتساب الفنان</span>
+                      <span>واتساب</span>
                     </a>
                   </>
                 )}
-
-                {effectiveConfig.showDeliveryBadge && (
-                  <span
-                    style={{ color: themeSpec.mutedColor }}
-                    className="inline-flex items-center gap-1.5 font-medium"
+                {workshop?.id && (
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileModalOpen(true)}
+                    style={softBtnStyle}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl border text-xs font-black cursor-pointer"
                   >
-                    <Truck className="w-4 h-4" style={{ color: themeSpec.accentText }} />
-                    <span>توصيل لجميع المحافظات</span>
-                  </span>
+                    <User className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+                    <span>معرض الأعمال</span>
+                  </button>
                 )}
               </div>
-            )}
+            </div>
 
-            {workshop?.id && (
-              <div className={`pt-1 flex flex-wrap items-center gap-2 ${isCenteredHero ? 'justify-center' : ''}`}>
+            {/* Tile 2 & 3: Featured Piece Spotlight + Live Stats Bento Stack (5 cols) */}
+            <div className="lg:col-span-5 grid grid-cols-2 gap-4">
+              {filteredProducts[0] ? (
                 <button
                   type="button"
-                  onClick={() => setIsProfileModalOpen(true)}
-                  style={softBtnStyle}
-                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black transition hover:opacity-90 cursor-pointer`}
+                  onClick={() => handleOpenProduct(filteredProducts[0])}
+                  style={{
+                    backgroundColor: themeSpec.surfaceBg,
+                    borderColor: themeSpec.borderColor,
+                  }}
+                  className="col-span-2 group relative rounded-3xl border overflow-hidden shadow-sm text-right cursor-pointer min-h-[175px] flex items-end"
                 >
-                  <User className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
-                  <span>الصفحة الشخصية ومعرض الأعمال</span>
+                  <img
+                    src={filteredProducts[0].image_url || '/alshams_falcon_emblem.png'}
+                    alt={filteredProducts[0].product_name}
+                    referrerPolicy="no-referrer"
+                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+                  <div className="relative z-10 p-4 w-full flex items-end justify-between gap-2 text-white">
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-black text-amber-300 block">قطعة مختارة من المتجر</span>
+                      <span className="text-sm font-black truncate block">{filteredProducts[0].product_name}</span>
+                    </div>
+                    <span
+                      style={{ backgroundColor: themeSpec.accentBg, color: themeSpec.accentInk }}
+                      className="px-3 py-1.5 rounded-xl text-xs font-black shrink-0"
+                    >
+                      استعراض
+                    </span>
+                  </div>
                 </button>
+              ) : null}
+
+              <div
+                style={{ backgroundColor: themeSpec.accentBg, color: themeSpec.accentInk }}
+                className="p-4 rounded-3xl flex flex-col justify-between shadow-sm"
+              >
+                <div className="flex items-center gap-0.5 text-amber-300">
+                  {Array.from({ length: Math.min(5, Math.max(1, Number(workshop?.ratingStars) || 5)) }).map((_, i) => (
+                    <Star key={i} className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
+                  ))}
+                </div>
+                <div className="pt-2">
+                  <p className="text-2xl font-black tabular-nums">{workshop?.ratingStars || 5}.0</p>
+                  <p className="text-[11px] font-bold opacity-90">تقييم العملاء</p>
+                </div>
+              </div>
+
+              <div
+                style={{ backgroundColor: themeSpec.surfaceBg, borderColor: themeSpec.borderColor }}
+                className="p-4 rounded-3xl border flex flex-col justify-between shadow-sm"
+              >
+                <ShoppingBag className="w-5 h-5" style={{ color: themeSpec.accentText }} />
+                <div className="pt-2">
+                  <p style={{ color: themeSpec.inkColor }} className="text-2xl font-black tabular-nums">
+                    {storeData?.products?.length || 0}
+                  </p>
+                  <p style={{ color: themeSpec.mutedColor }} className="text-[11px] font-bold">
+                    مشغولة متاحة
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : themeSpec.heroLayout === 'cinema_carousel' ? (
+          /* ENGINE B: CINEMATIC LOOKBOOK HERO + INTERACTIVE HORIZONTAL SHOWCASE STRIP */
+          <div className="max-w-7xl mx-auto space-y-6">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div className="space-y-2 max-w-2xl">
+                {effectiveConfig.showArtistSubtitle && (
+                  <p style={{ color: themeSpec.accentText }} className="text-xs font-black tracking-wide">
+                    {artistName} · {workshop?.country || 'مصر'}
+                    {effectiveConfig.showCraftBadge && effectiveConfig.craftBadge ? ` · ${effectiveConfig.craftBadge}` : ''}
+                  </p>
+                )}
+                {effectiveConfig.showBrandTitle && (
+                  <h2 style={{ color: themeSpec.inkColor }} className="text-3xl sm:text-4xl font-black leading-tight text-balance">
+                    {brandName}
+                  </h2>
+                )}
+                {effectiveConfig.showWelcomeMessage && effectiveConfig.welcomeMessage && (
+                  <p style={{ color: themeSpec.mutedColor }} className="text-xs sm:text-sm leading-relaxed">
+                    {effectiveConfig.welcomeMessage}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {effectiveConfig.showPhoneButtons && (
+                  <a
+                    href={`https://wa.me/${whatsappNumber}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={accentBtnStyle}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black transition hover:opacity-90"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    <span>تواصل مباشر</span>
+                  </a>
+                )}
+                {workshop?.id && (
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileModalOpen(true)}
+                    style={softBtnStyle}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border text-xs font-black cursor-pointer"
+                  >
+                    <User className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+                    <span>قصة الفنان</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Interactive Horizontal Lookbook Reel */}
+            {filteredProducts.length > 0 && (
+              <div className="flex items-stretch gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scrollbar-none">
+                {filteredProducts.slice(0, 6).map((item) => {
+                  const pr = resolveProductOfferPricing(item, item.size_variants?.[0]?.label, customerCurrency, true);
+                  return (
+                    <button
+                      key={`reel_${item.id}`}
+                      type="button"
+                      onClick={() => handleOpenProduct(item)}
+                      style={{ backgroundColor: themeSpec.surfaceBg, borderColor: themeSpec.borderColor }}
+                      className="snap-start shrink-0 w-56 sm:w-64 rounded-2xl border overflow-hidden group text-right cursor-pointer hover:-translate-y-1 transition-all duration-300"
+                    >
+                      <div className="relative h-36 overflow-hidden" style={{ backgroundColor: themeSpec.softBg }}>
+                        <img
+                          src={item.image_url || '/alshams_falcon_emblem.png'}
+                          alt={item.product_name}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-110 transition duration-500"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent" />
+                        <span
+                          style={{ backgroundColor: themeSpec.accentBg, color: themeSpec.accentInk }}
+                          className="absolute bottom-2 left-2 px-2 py-0.5 rounded-lg text-[11px] font-mono font-black tabular-nums"
+                        >
+                          {pr.finalPrice.toLocaleString('ar-EG')} {pr.displaySymbol}
+                        </span>
+                      </div>
+                      <div className="p-2.5">
+                        <p style={{ color: themeSpec.inkColor }} className="text-xs font-black truncate">
+                          {item.product_name}
+                        </p>
+                        <p style={{ color: themeSpec.mutedColor }} className="text-[10px] truncate">
+                          {item.craft_name || item.category}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
-
-          {/* Clean Rating & Catalog Summary */}
+        ) : (
+          /* ENGINE C: ARCH CREST / POP KINETIC / CLASSIC ARCHITECTURAL HEROES */
           <div
-            style={{
-              backgroundColor: themeSpec.softBg,
-              borderColor: themeSpec.borderColor,
-              color: themeSpec.inkColor,
-            }}
-            className={`flex items-center gap-6 px-5 py-3.5 ${themeSpec.cardRadiusClass} border shrink-0`}
+            className={`max-w-7xl mx-auto flex flex-col gap-6 ${
+              isCenteredHero
+                ? 'items-center text-center'
+                : 'md:flex-row items-start md:items-center justify-between'
+            } ${
+              themeSpec.heroLayout === 'centered_maison'
+                ? 'p-6 sm:p-8 border rounded-2xl'
+                : themeSpec.heroLayout === 'arch_crest'
+                ? 'p-6 sm:p-10 border-2 rounded-t-[140px] rounded-b-3xl'
+                : themeSpec.heroLayout === 'pop_kinetic'
+                ? 'p-6 sm:p-8 border-2 rounded-3xl shadow-[5px_5px_0px_#18181B]'
+                : themeSpec.heroLayout === 'gallery_magazine'
+                ? 'border-r-4 pr-4 sm:pr-6'
+                : ''
+            }`}
+            style={
+              themeSpec.heroLayout === 'centered_maison' ||
+              themeSpec.heroLayout === 'arch_crest' ||
+              themeSpec.heroLayout === 'pop_kinetic'
+                ? { borderColor: themeSpec.heroBorder, backgroundColor: themeSpec.surfaceBg }
+                : themeSpec.heroLayout === 'gallery_magazine'
+                ? { borderColor: themeSpec.accentBg }
+                : undefined
+            }
           >
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-1 text-[#F59E0B] mb-0.5">
-                {Array.from({ length: Math.min(5, Math.max(1, Number(workshop?.ratingStars) || 5)) }).map(
-                  (_, i) => (
-                    <Star key={i} className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
-                  )
-                )}
-              </div>
-              <p style={{ color: themeSpec.mutedColor }} className="text-[11px] font-bold">
-                تقييم المتجر
-              </p>
+            <div className={`space-y-3 ${isCenteredHero ? 'max-w-3xl flex flex-col items-center' : 'text-right max-w-2xl'}`}>
+              {themeSpec.heroLayout === 'arch_crest' && (
+                <div
+                  style={{ borderColor: themeSpec.accentBg, backgroundColor: themeSpec.softBg }}
+                  className="w-16 h-16 rounded-full border-2 p-1 overflow-hidden shadow-sm"
+                >
+                  <img
+                    src={(workshop as any)?.logo_url || workshop?.logoUrl || '/default-store-icon.png'}
+                    alt={brandName}
+                    className="w-full h-full object-cover rounded-full"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = '/default-store-icon.png';
+                    }}
+                  />
+                </div>
+              )}
+
+              {effectiveConfig.showArtistSubtitle && (
+                <p
+                  style={{ color: themeSpec.accentText }}
+                  className="text-xs font-black tracking-wide"
+                >
+                  بأنامل الفنان: {artistName} · {workshop?.country || 'مصر'}
+                  {effectiveConfig.showCraftBadge && effectiveConfig.craftBadge ? ` · ${effectiveConfig.craftBadge}` : ''}
+                </p>
+              )}
+
+              {effectiveConfig.showBrandTitle && (
+                <h2
+                  style={{ color: themeSpec.inkColor }}
+                  className={`${
+                    themeSpec.heroLayout === 'swiss_minimal' ||
+                    themeSpec.heroLayout === 'centered_maison' ||
+                    themeSpec.heroLayout === 'arch_crest'
+                      ? 'text-3xl sm:text-4xl'
+                      : 'text-2xl sm:text-3xl'
+                  } ${themeSpec.titleWeightClass} leading-tight text-balance`}
+                >
+                  {brandName}
+                </h2>
+              )}
+
+              {(themeSpec.heroLayout === 'centered_maison' || themeSpec.heroLayout === 'arch_crest') && (
+                <div className="w-16 h-0.5 rounded-full" style={{ backgroundColor: themeSpec.accentBg }} />
+              )}
+
+              {effectiveConfig.showWelcomeMessage && effectiveConfig.welcomeMessage && (
+                <p
+                  style={{ color: themeSpec.inkColor }}
+                  className="text-xs sm:text-sm font-bold opacity-90 leading-relaxed"
+                >
+                  {effectiveConfig.welcomeMessage}
+                </p>
+              )}
+
+              {effectiveConfig.showArtistStory && resolvedArtistStory && (
+                <p
+                  style={{ color: themeSpec.mutedColor }}
+                  className="text-xs sm:text-sm leading-relaxed"
+                >
+                  {resolvedArtistStory}
+                </p>
+              )}
+
+              {(effectiveConfig.showWorkingHours ||
+                effectiveConfig.showProductionTurnaround ||
+                effectiveConfig.showCustomOrderBadge) && (
+                <div
+                  style={{ color: themeSpec.mutedColor }}
+                  className={`flex flex-wrap items-center gap-3 pt-0.5 text-[11px] font-bold ${
+                    isCenteredHero ? 'justify-center' : ''
+                  }`}
+                >
+                  {effectiveConfig.showWorkingHours && effectiveConfig.workingHours && (
+                    <span className="inline-flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+                      <span>{effectiveConfig.workingHours}</span>
+                    </span>
+                  )}
+                  {effectiveConfig.showProductionTurnaround && effectiveConfig.productionTurnaround && (
+                    <span className="inline-flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+                      <span>{effectiveConfig.productionTurnaround}</span>
+                    </span>
+                  )}
+                  {effectiveConfig.showCustomOrderBadge && effectiveConfig.customOrderBadgeText && (
+                    <span className="inline-flex items-center gap-1" style={{ color: themeSpec.accentText }}>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>{effectiveConfig.customOrderBadgeText}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Direct Contact with the Artisan */}
+              {(effectiveConfig.showPhoneButtons || effectiveConfig.showDeliveryBadge) && (
+                <div
+                  className={`pt-1 flex flex-wrap items-center gap-3 text-xs ${
+                    isCenteredHero ? 'justify-center' : ''
+                  }`}
+                >
+                  {effectiveConfig.showPhoneButtons && (
+                    <>
+                      <a
+                        href={`tel:${phone}`}
+                        style={accentBtnStyle}
+                        className={`inline-flex items-center gap-2 px-4 py-2 ${themeSpec.buttonRadiusClass} font-black transition hover:opacity-90 cursor-pointer whitespace-nowrap`}
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        <span dir="ltr">{phone}</span>
+                      </a>
+
+                      <a
+                        href={`https://wa.me/${whatsappNumber}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`inline-flex items-center gap-2 px-4 py-2 ${themeSpec.buttonRadiusClass} bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition cursor-pointer whitespace-nowrap`}
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>واتساب الفنان</span>
+                      </a>
+                    </>
+                  )}
+
+                  {effectiveConfig.showDeliveryBadge && (
+                    <span
+                      style={{ color: themeSpec.mutedColor }}
+                      className="inline-flex items-center gap-1.5 font-medium"
+                    >
+                      <Truck className="w-4 h-4" style={{ color: themeSpec.accentText }} />
+                      <span>توصيل لجميع المحافظات</span>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {workshop?.id && (
+                <div className={`pt-1 flex flex-wrap items-center gap-2 ${isCenteredHero ? 'justify-center' : ''}`}>
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileModalOpen(true)}
+                    style={softBtnStyle}
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black transition hover:opacity-90 cursor-pointer`}
+                  >
+                    <User className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+                    <span>الصفحة الشخصية ومعرض الأعمال</span>
+                  </button>
+                </div>
+              )}
             </div>
-            <div className="w-px h-8" style={{ backgroundColor: themeSpec.borderColor }} />
-            <div className="text-center">
-              <p style={{ color: themeSpec.inkColor }} className="text-lg font-black tabular-nums">
-                {storeData?.products?.length || 0}
-              </p>
-              <p style={{ color: themeSpec.mutedColor }} className="text-[11px] font-bold">
-                منتج متاح
-              </p>
+
+            {/* Clean Rating & Catalog Summary */}
+            <div
+              style={{
+                backgroundColor: themeSpec.softBg,
+                borderColor: themeSpec.borderColor,
+                color: themeSpec.inkColor,
+              }}
+              className={`flex items-center gap-6 px-5 py-3.5 ${
+                themeSpec.heroLayout === 'arch_crest' ? 'rounded-full' : themeSpec.cardRadiusClass
+              } border shrink-0`}
+            >
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1 text-[#F59E0B] mb-0.5">
+                  {Array.from({ length: Math.min(5, Math.max(1, Number(workshop?.ratingStars) || 5)) }).map(
+                    (_, i) => (
+                      <Star key={i} className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
+                    )
+                  )}
+                </div>
+                <p style={{ color: themeSpec.mutedColor }} className="text-[11px] font-bold">
+                  تقييم المتجر
+                </p>
+              </div>
+              <div className="w-px h-8" style={{ backgroundColor: themeSpec.borderColor }} />
+              <div className="text-center">
+                <p style={{ color: themeSpec.inkColor }} className="text-lg font-black tabular-nums">
+                  {storeData?.products?.length || 0}
+                </p>
+                <p style={{ color: themeSpec.mutedColor }} className="text-[11px] font-bold">
+                  منتج متاح
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </section>
 
       {/* 3. Main Storefront Catalog */}
@@ -1460,6 +1743,34 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
               {categories.map((c) => {
                 const isSelected = selectedCategory === c.id;
+                if (themeSpec.categoryLayout === 'circular_medallions') {
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setSelectedCategory(c.id)}
+                      className="flex flex-col items-center gap-1 shrink-0 cursor-pointer group px-1"
+                    >
+                      <span
+                        style={
+                          isSelected
+                            ? { backgroundColor: themeSpec.accentBg, color: themeSpec.accentInk, borderColor: themeSpec.accentBg }
+                            : { backgroundColor: themeSpec.surfaceBg, color: themeSpec.inkColor, borderColor: themeSpec.borderColor }
+                        }
+                        className="w-11 h-11 rounded-full border-2 flex items-center justify-center text-xs font-black shadow-xs group-hover:scale-105 transition"
+                      >
+                        {c.name.slice(0, 2)}
+                      </span>
+                      <span
+                        style={{ color: isSelected ? themeSpec.accentText : themeSpec.mutedColor }}
+                        className="text-[10px] font-black whitespace-nowrap max-w-[74px] truncate"
+                      >
+                        {c.name}
+                      </span>
+                    </button>
+                  );
+                }
+
                 return (
                   <button
                     key={c.id}
@@ -1470,7 +1781,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         ? {
                             backgroundColor: themeSpec.accentBg,
                             color: themeSpec.accentInk,
-                            borderColor: themeSpec.accentBg,
+                            borderColor: themeSpec.categoryLayout === 'brutalist_tabs' ? '#18181B' : themeSpec.accentBg,
                           }
                         : {
                             backgroundColor: themeSpec.surfaceBg,
@@ -1478,7 +1789,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                             borderColor: themeSpec.borderColor,
                           }
                     }
-                    className={`px-3.5 py-2 ${themeSpec.buttonRadiusClass} text-xs font-bold whitespace-nowrap transition cursor-pointer border shrink-0 hover:opacity-90`}
+                    className={`px-3.5 py-2 ${themeSpec.buttonRadiusClass} text-xs font-bold whitespace-nowrap transition cursor-pointer shrink-0 ${
+                      themeSpec.categoryLayout === 'brutalist_tabs'
+                        ? 'border-2 shadow-[2px_2px_0px_#18181B] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+                        : 'border hover:opacity-90'
+                    }`}
                   >
                     {c.name}
                   </button>
@@ -1594,11 +1909,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           </div>
         )}
 
-        {/* Clean Products Grid (1, 2, or 3 Columns Selected by Artist) */}
+        {/* Clean Products Grid — Dynamically Adapts Architecture to Selected Theme */}
         {!loading && filteredProducts.length > 0 && (
           <div
             className={`grid ${
-              layoutCols === 1
+              themeSpec.cardLayout === 'horizontal_split'
+                ? 'grid-cols-1 md:grid-cols-2 gap-4'
+                : layoutCols === 1
                 ? 'grid-cols-1 max-w-2xl mx-auto gap-4 sm:gap-5'
                 : layoutCols === 2
                 ? 'grid-cols-2 gap-2.5 sm:gap-5'
@@ -1615,7 +1932,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               const hasColors = p.available_colors && p.available_colors.length > 0;
               const isDragging = draggedProductId === p.id;
               const isDragOver = dragOverProductId === p.id && draggedProductId !== p.id;
-              const isCompact3Col = layoutCols === 3;
+              const isCompact3Col = layoutCols === 3 && themeSpec.cardLayout !== 'horizontal_split';
+              const isBentoHeroCard = themeSpec.cardLayout === 'bento_featured' && idx === 0 && layoutCols >= 2;
+              const isHorizontalCard = themeSpec.cardLayout === 'horizontal_split' || isBentoHeroCard;
+              const isArchCard = themeSpec.cardLayout === 'arch_dome';
+              const isPolaroidCard = themeSpec.cardLayout === 'polaroid_pop';
 
               return (
                 <article
@@ -1657,17 +1978,24 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                     borderColor: isDragOver || isDragging ? themeSpec.accentBg : themeSpec.borderColor,
                     color: themeSpec.inkColor,
                   }}
-                  className={`group ${themeSpec.cardRadiusClass} ${themeSpec.cardShadowClass} border transition-all duration-200 flex flex-col justify-between overflow-hidden cursor-pointer ${
+                  className={`group ${themeSpec.cardRadiusClass} ${themeSpec.cardShadowClass} ${
+                    isPolaroidCard ? 'border-2 p-2 sm:p-2.5' : 'border'
+                  } transition-all duration-200 flex ${
+                    isHorizontalCard ? 'flex-row items-stretch' : 'flex-col justify-between'
+                  } ${isBentoHeroCard ? 'col-span-2' : ''} overflow-hidden cursor-pointer ${
                     isDragOver
                       ? 'ring-2 scale-[1.02] shadow-lg'
                       : isDragging
                       ? 'opacity-50 border-dashed'
+                      : isPolaroidCard
+                      ? 'hover:translate-x-[2px] hover:translate-y-[2px]'
                       : 'hover:-translate-y-0.5'
                   }`}
                 >
-                  <div>
+                  {/* Image Container */}
+                  <div className={isHorizontalCard ? 'w-32 sm:w-48 shrink-0 flex flex-col' : 'w-full'}>
                     {/* Owner Drag & Reorder Control Strip */}
-                    {isOwnerPreview && (
+                    {isOwnerPreview && !isHorizontalCard && (
                       <div
                         onClick={(e) => e.stopPropagation()}
                         style={{
@@ -1704,24 +2032,47 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       </div>
                     )}
 
-                    {/* Clean Photography with single optional limited-time/discount badge */}
                     <div
                       style={{
                         backgroundColor: themeSpec.softBg,
                         borderColor: themeSpec.borderColor,
                       }}
                       className={`relative w-full ${
-                        isCompact3Col ? 'aspect-square sm:' + themeSpec.imageFrameClass : themeSpec.imageFrameClass
-                      } overflow-hidden border-b`}
+                        isHorizontalCard
+                          ? 'h-full min-h-[135px]'
+                          : isCompact3Col
+                          ? 'aspect-square sm:' + themeSpec.imageFrameClass
+                          : themeSpec.imageFrameClass
+                      } overflow-hidden ${
+                        isArchCard
+                          ? 'rounded-t-[999px] rounded-b-xl mx-auto mt-2 w-[calc(100%-16px)] border'
+                          : isPolaroidCard
+                          ? 'rounded-xl border-2'
+                          : isHorizontalCard
+                          ? 'border-l'
+                          : 'border-b'
+                      }`}
                     >
                       {pricing.badgeText && (
                         <span
                           style={{ backgroundColor: themeSpec.badgeBg, color: themeSpec.badgeInk }}
                           className={`absolute top-2 right-2 z-10 px-2 py-0.5 ${
-                            themeSpec.buttonRadiusClass === 'rounded-none' ? 'rounded-none' : 'rounded-md'
+                            isPolaroidCard
+                              ? 'rounded-full border border-[#18181B] -rotate-2'
+                              : themeSpec.buttonRadiusClass === 'rounded-none'
+                              ? 'rounded-none'
+                              : 'rounded-md'
                           } text-[10px] font-black shadow-xs pointer-events-none`}
                         >
                           {pricing.badgeText}
+                        </span>
+                      )}
+                      {isBentoHeroCard && !pricing.badgeText && (
+                        <span
+                          style={{ backgroundColor: themeSpec.accentBg, color: themeSpec.accentInk }}
+                          className="absolute top-2 right-2 z-10 px-2.5 py-0.5 rounded-full text-[10px] font-black"
+                        >
+                          الأبرز في المتجر
                         </span>
                       )}
                       <button
@@ -1766,8 +2117,19 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         }}
                       />
                     </div>
+                  </div>
 
-                    <div className={`${isCompact3Col ? 'p-1.5 sm:p-3.5 space-y-1 sm:space-y-1.5' : layoutCols === 2 ? 'p-2.5 sm:p-4 space-y-1.5 sm:space-y-2' : 'p-4 space-y-2'}`}>
+                  {/* Body + Price + CTA Container */}
+                  <div className={`flex-1 flex flex-col justify-between min-w-0 ${isArchCard ? 'text-center' : ''}`}>
+                    <div
+                      className={`${
+                        isCompact3Col
+                          ? 'p-1.5 sm:p-3.5 space-y-1 sm:space-y-1.5'
+                          : layoutCols === 2 && !isHorizontalCard
+                          ? 'p-2.5 sm:p-4 space-y-1.5 sm:space-y-2'
+                          : 'p-3.5 sm:p-4 space-y-1.5'
+                      }`}
+                    >
                       <p
                         style={{ color: themeSpec.mutedColor }}
                         className={`${
@@ -1782,9 +2144,9 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         className={`${themeSpec.titleWeightClass} ${
                           isCompact3Col
                             ? 'text-[11px] sm:text-sm md:text-base'
-                            : layoutCols === 2
+                            : layoutCols === 2 && !isHorizontalCard
                             ? 'text-xs sm:text-base'
-                            : 'text-base sm:text-lg'
+                            : 'text-sm sm:text-lg'
                         } line-clamp-2 leading-snug transition-colors`}
                       >
                         {p.product_name}
@@ -1812,61 +2174,71 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         </p>
                       )}
                     </div>
-                  </div>
 
-                  {/* Price & CTA Baseline */}
-                  <div
-                    className={`${
-                      isCompact3Col
-                        ? 'px-1.5 pb-2 pt-0.5 space-y-1.5 sm:px-3.5 sm:pb-3.5 sm:space-y-2.5'
-                        : layoutCols === 2
-                        ? 'px-2.5 pb-2.5 pt-1 space-y-2 sm:px-4 sm:pb-4 sm:space-y-3'
-                        : 'px-4 pb-4 pt-1 space-y-3'
-                    }`}
-                  >
-                    <div className="flex items-baseline gap-1.5 font-mono tabular-nums flex-wrap">
-                      <span
-                        style={{ color: themeSpec.priceColor }}
-                        className={`${
-                          isCompact3Col ? 'text-xs sm:text-lg' : layoutCols === 2 ? 'text-sm sm:text-lg' : 'text-lg sm:text-xl'
-                        } font-black`}
+                    {/* Price & CTA Baseline */}
+                    <div
+                      className={`${
+                        isCompact3Col
+                          ? 'px-1.5 pb-2 pt-0.5 space-y-1.5 sm:px-3.5 sm:pb-3.5 sm:space-y-2.5'
+                          : layoutCols === 2 && !isHorizontalCard
+                          ? 'px-2.5 pb-2.5 pt-1 space-y-2 sm:px-4 sm:pb-4 sm:space-y-3'
+                          : 'px-3.5 pb-3.5 sm:px-4 sm:pb-4 pt-1 space-y-2.5'
+                      }`}
+                    >
+                      <div
+                        className={`flex items-baseline gap-1.5 font-mono tabular-nums flex-wrap ${
+                          isArchCard ? 'justify-center' : ''
+                        }`}
                       >
-                        {pricing.finalPrice.toLocaleString('ar-EG')}
-                      </span>
-                      <span
-                        style={{ color: themeSpec.mutedColor }}
-                        className={`${
-                          isCompact3Col ? 'text-[9px] sm:text-xs' : 'text-[10px] sm:text-xs'
-                        } font-bold`}
-                      >
-                        {pricing.displaySymbol}
-                      </span>
-                      {pricing.hasDiscount && (
+                        <span
+                          style={{ color: themeSpec.priceColor }}
+                          className={`${
+                            isCompact3Col
+                              ? 'text-xs sm:text-lg'
+                              : layoutCols === 2 && !isHorizontalCard
+                              ? 'text-sm sm:text-lg'
+                              : 'text-base sm:text-xl'
+                          } font-black`}
+                        >
+                          {pricing.finalPrice.toLocaleString('ar-EG')}
+                        </span>
                         <span
                           style={{ color: themeSpec.mutedColor }}
-                          className="text-[10px] sm:text-xs line-through opacity-75"
+                          className={`${
+                            isCompact3Col ? 'text-[9px] sm:text-xs' : 'text-[10px] sm:text-xs'
+                          } font-bold`}
                         >
-                          {pricing.originalPrice.toLocaleString('ar-EG')}
+                          {pricing.displaySymbol}
                         </span>
-                      )}
-                    </div>
+                        {pricing.hasDiscount && (
+                          <span
+                            style={{ color: themeSpec.mutedColor }}
+                            className="text-[10px] sm:text-xs line-through opacity-75"
+                          >
+                            {pricing.originalPrice.toLocaleString('ar-EG')}
+                          </span>
+                        )}
+                      </div>
 
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddToCart(p, 1);
-                      }}
-                      style={accentBtnStyle}
-                      className={`w-full ${
-                        isCompact3Col
-                          ? 'py-1.5 px-1.5 text-[10px] sm:py-2 sm:px-3 sm:text-xs'
-                          : 'py-2 px-3 text-[11px] sm:py-2.5 sm:px-4 sm:text-xs'
-                      } ${themeSpec.buttonRadiusClass} font-black flex items-center justify-center gap-1 sm:gap-2 transition hover:opacity-90 active:scale-95 cursor-pointer`}
-                    >
-                      <ShoppingBag className={`${isCompact3Col ? 'w-3 h-3 sm:w-4 sm:h-4' : 'w-3.5 h-3.5 sm:w-4 sm:h-4'} shrink-0`} />
-                      <span className="truncate">أضف للسلة</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddToCart(p, 1);
+                        }}
+                        style={accentBtnStyle}
+                        className={`w-full ${
+                          isCompact3Col
+                            ? 'py-1.5 px-1.5 text-[10px] sm:py-2 sm:px-3 sm:text-xs'
+                            : 'py-2 px-3 text-[11px] sm:py-2.5 sm:px-4 sm:text-xs'
+                        } ${themeSpec.buttonRadiusClass} ${
+                          isPolaroidCard ? 'border-2 border-[#18181B]' : ''
+                        } font-black flex items-center justify-center gap-1 sm:gap-2 transition hover:opacity-90 active:scale-95 cursor-pointer`}
+                      >
+                        <ShoppingBag className={`${isCompact3Col ? 'w-3 h-3 sm:w-4 sm:h-4' : 'w-3.5 h-3.5 sm:w-4 sm:h-4'} shrink-0`} />
+                        <span className="truncate">أضف للسلة</span>
+                      </button>
+                    </div>
                   </div>
                 </article>
               );
