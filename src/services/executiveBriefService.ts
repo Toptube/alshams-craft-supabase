@@ -1,5 +1,10 @@
 import { tenantStorage } from '../db/dexieDB';
 import {
+  deduplicateMaterialsByName,
+  readLocalMaterialStockMap,
+  resolveMaterialStockValues,
+} from '../lib/materialStockUtils';
+import {
   getTreasuryBalancesFromSupabase,
   getTreasuryChannelBalancesFromSupabase,
 } from '../db/supabaseService';
@@ -506,30 +511,37 @@ export async function buildArtisanExecutiveBrief(
     }
   }
 
-  const materialVelocities: MaterialVelocityItem[] = activeMaterials.map((m) => {
-    const stock = Number(m.currentStock || 0);
-    const cost = Number(m.costPerUnit || 0);
-    const minT = Number(m.minAlertThreshold ?? m.reorderLevel ?? 5);
-    const name = String(m.materialName || 'خامة');
-    const consumed =
-      pulledByMaterialKey.get(String(m.id || '')) ||
-      pulledByMaterialKey.get(normalizeText(name)) ||
-      0;
+  const localMatStockMap = readLocalMaterialStockMap(workshopId);
+  const uniqueActiveMaterials = deduplicateMaterialsByName(activeMaterials, localMatStockMap);
 
-    return {
-      id: String(m.id || name),
-      name,
-      unit: String(m.unit || 'وحدة'),
-      currentStock: Number(stock.toFixed(2)),
-      minThreshold: minT,
-      stockValue: Math.round(stock * cost),
-      consumedQty: Number(consumed.toFixed(2)),
-    };
-  });
+  const materialVelocities: Array<MaterialVelocityItem & { isTracked: boolean; isLowStock: boolean }> =
+    uniqueActiveMaterials.map((m) => {
+      const resolved = resolveMaterialStockValues(m, localMatStockMap);
+      const stock = resolved.currentStock;
+      const cost = Number(m.costPerUnit || 0);
+      const minT = resolved.minThreshold;
+      const name = String(m.materialName || 'خامة');
+      const consumed =
+        pulledByMaterialKey.get(String(m.id || '')) ||
+        pulledByMaterialKey.get(normalizeText(name)) ||
+        0;
+
+      return {
+        id: String(m.id || name),
+        name,
+        unit: String(m.unit || 'وحدة'),
+        currentStock: Number(stock.toFixed(2)),
+        minThreshold: minT,
+        stockValue: Math.round(stock * cost),
+        consumedQty: Number(consumed.toFixed(2)),
+        isTracked: resolved.isTracked,
+        isLowStock: resolved.isLowStock,
+      };
+    });
 
   const materialsTotalValue = materialVelocities.reduce((s, m) => s + m.stockValue, 0);
   const lowStockMaterials = materialVelocities
-    .filter((m) => m.currentStock <= m.minThreshold)
+    .filter((m) => m.isLowStock)
     .sort((a, b) => a.currentStock - b.currentStock);
 
   const fastMovingMaterials = [...materialVelocities]

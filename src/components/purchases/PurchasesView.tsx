@@ -14,6 +14,7 @@ import {
   recordDisbursementExitTransaction,
 } from '../treasuries/DisbursementSourceSelector';
 import { isDateInLockedMonth } from '../../lib/monthClosure';
+import { useExperienceMode } from '../../types/experienceMode';
 import {
   PackagePlus,
   Plus,
@@ -63,6 +64,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
 }) => {
   const workshopId = (workshop as any).tenantId || (workshop as any).workshopId || workshop.id || '';
   const currencySymbol = (workshop as any).currencySymbol || 'ج.م';
+  const { isCraft } = useExperienceMode('artisan', workshop as any);
 
   const [invoices, setInvoices] = useState<SupplierPurchaseInvoice[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierProfile[]>([]);
@@ -313,6 +315,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
             raw.currentStock = Math.round(((raw.currentStock || 0) + item.quantity) * 1000) / 1000;
             raw.costPerUnit = item.unitCost;
             raw.lastPurchaseDate = invoiceDate;
+            (raw as any).warehouseTracked = true;
             await tenantStorage.saveRawMaterial(raw);
           }
         } catch (matErr) {
@@ -483,7 +486,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
           <div>
             <div className="flex items-center gap-2 text-xs font-bold text-rose-700 dark:text-rose-400">
               <PackagePlus className="w-4 h-4 text-rose-600" />
-              <span>إدارة مشتريات خامات الورشة وفواتير الموردين</span>
+              <span>{isCraft ? 'مشتريات الورشة' : 'إدارة مشتريات خامات الورشة وفواتير الموردين'}</span>
               {onOpenHelp && (
                 <button
                   type="button"
@@ -496,10 +499,12 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
               )}
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 mt-1">
-              سجل المشتريات وتوريد الخامات
+              {isCraft ? 'فواتير الشراء' : 'سجل المشتريات وتوريد الخامات'}
             </h2>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              تسجيل فواتير شراء مستلزمات الإنتاج مع خصم المدفوع فورياً من الخزينة وتغذية رصيد المخزن ومتابعة الآجل.
+              {isCraft
+                ? 'سجّل اللي اشتريته للورشة عشان رصيد المخزن يزيد وحساب الموردين يبقى مظبوط.'
+                : 'تسجيل فواتير شراء مستلزمات الإنتاج مع خصم المدفوع فورياً من الخزينة وتغذية رصيد المخزن ومتابعة الآجل.'}
             </p>
           </div>
 
@@ -509,12 +514,12 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
             className="px-5 py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black flex items-center gap-2 shadow-md cursor-pointer transition active:scale-95 self-start sm:self-auto"
           >
             <Plus className="w-4 h-4" />
-            <span>تسجيل فاتورة شراء خامات جديدة</span>
+            <span>{isCraft ? 'تسجيل فاتورة شراء' : 'تسجيل فاتورة شراء خامات جديدة'}</span>
           </button>
         </div>
 
-        {/* 4 Summary Metric Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+        {/* Summary Metric Cards */}
+        <div className={`grid ${isCraft ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'} gap-3 pt-1`}>
           <div className="p-3.5 rounded-2xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50">
             <span className="text-[11px] font-bold text-rose-800 dark:text-rose-300 block">
               إجمالي المشتريات
@@ -523,63 +528,75 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({
               {totalPurchasesSum.toLocaleString()} {currencySymbol}
             </span>
             <span className="text-[10px] text-stone-400 font-mono">
-              {invoices.length} فواتير توريد
+              {invoices.length} {isCraft ? 'فاتورة' : 'فواتير توريد'}
             </span>
           </div>
 
           <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50">
             <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 block">
-              المسدد من الخزائن
+              {isCraft ? 'اللي دفعته' : 'المسدد من الخزائن'}
             </span>
             <span className="text-lg font-black font-mono text-emerald-700 dark:text-emerald-400 mt-1 block">
               {totalPaidSum.toLocaleString()} {currencySymbol}
             </span>
             <span className="text-[10px] text-emerald-600 font-bold">
-              نقداً وإلكترونياً
+              {isCraft ? 'كاش وتحويل' : 'نقداً وإلكترونياً'}
             </span>
           </div>
 
           <div className="p-3.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50">
             <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 block">
-              المتبقي الآجل للموردين
+              {isCraft ? 'اللي عليك للموردين' : 'المتبقي الآجل للموردين'}
             </span>
             <span className="text-lg font-black font-mono text-amber-700 dark:text-amber-400 mt-1 block">
               {totalRemainingSum.toLocaleString()} {currencySymbol}
             </span>
             <span className="text-[10px] text-amber-600 font-bold">
-              مستحقات واجبة السداد
+              {isCraft ? 'باقي آجل' : 'مستحقات واجبة السداد'}
             </span>
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50">
-            <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300 block">
-              شبكة الموردين
-            </span>
-            <span className="text-lg font-black font-mono text-blue-700 dark:text-blue-400 mt-1 block">
-              {suppliers.length} موردين
-            </span>
-            <span className="text-[10px] text-blue-600 font-bold">
-              جهات توريد معتمدة
-            </span>
-          </div>
+          {!isCraft && (
+            <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50">
+              <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300 block">
+                شبكة الموردين
+              </span>
+              <span className="text-lg font-black font-mono text-blue-700 dark:text-blue-400 mt-1 block">
+                {suppliers.length} موردين
+              </span>
+              <span className="text-[10px] text-blue-600 font-bold">
+                جهات توريد معتمدة
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Notice Toast */}
       {notice && (
         <div
-          className={`p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+          className={`p-3.5 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 ${
             notice.isError
               ? 'bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-800 dark:text-rose-200'
               : 'bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200'
           }`}
         >
-          {notice.isError ? (
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          ) : (
-            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-          )}
-          <span>{notice.text}</span>
+          <div className="flex items-center gap-2 min-w-0">
+            {notice.isError ? (
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            )}
+            <span>{notice.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer shrink-0"
+            title="إغلاق"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 

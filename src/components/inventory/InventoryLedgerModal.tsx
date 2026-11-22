@@ -1,22 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { InventoryStockItem, InventoryTransaction, UserProfile } from '../../types';
 import { tenantStorage } from '../../db/dexieDB';
 import { NumberInput } from '../ui/NumberInput';
+import { useExperienceMode } from '../../types/experienceMode';
+import {
+  deduplicateMaterialsByName,
+  readLocalMaterialStockMap,
+  resolveMaterialStockValues,
+} from '../../lib/materialStockUtils';
 import {
   X,
   Boxes,
   Plus,
   ArrowDownLeft,
   ArrowUpRight,
-  ShieldAlert,
   AlertTriangle,
   History,
-  Building,
   CheckCircle,
   Bell,
   Edit2,
   SlidersHorizontal,
   ShoppingCart,
+  Search,
 } from 'lucide-react';
 
 interface InventoryLedgerModalProps {
@@ -34,26 +39,30 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const { isCraft } = useExperienceMode('artisan', profile);
   const [items, setItems] = useState<InventoryStockItem[]>([]);
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [activeTab, setActiveTab] = useState<'stock' | 'purchase' | 'adjustment' | 'history'>('stock');
+  const [stockFilter, setStockFilter] = useState<'stocked' | 'low' | 'all'>('stocked');
+  const [stockSearch, setStockSearch] = useState('');
+  const [alertBannerDismissed, setAlertBannerDismissed] = useState(false);
 
   // Purchase modal form state
   const [selectedItemId, setSelectedItemId] = useState<string>('');
   const [purchaseQuantity, setPurchaseQuantity] = useState<number>(5);
   const [purchaseUnitCost, setPurchaseUnitCost] = useState<number>(180);
-  const [supplierName, setSupplierName] = useState<string>('مغزل المحلة');
-  const [purchaseNotes, setPurchaseNotes] = useState<string>('توريد أصول خامات للمخزن');
+  const [supplierName, setSupplierName] = useState<string>('');
+  const [purchaseNotes, setPurchaseNotes] = useState<string>('');
 
   // Adjustment / Consumption form state
   const [adjustItemId, setAdjustItemId] = useState<string>('');
   const [adjustType, setAdjustType] = useState<'consume' | 'audit'>('consume');
   const [adjustQuantity, setAdjustQuantity] = useState<number>(2);
-  const [adjustNotes, setAdjustNotes] = useState<string>('صرف خامات لتنفيذ طلبية بالورشة');
+  const [adjustNotes, setAdjustNotes] = useState<string>('');
 
   // Quick edit reorder threshold modal state
   const [editingThresholdItem, setEditingThresholdItem] = useState<InventoryStockItem | null>(null);
-  const [tempThresholdValue, setTempThresholdValue] = useState<number>(5);
+  const [tempThresholdValue, setTempThresholdValue] = useState<number>(0);
 
   // New item modal form state
   const [isAddingNewItem, setIsAddingNewItem] = useState(false);
@@ -62,7 +71,7 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
   const [newItemUnit, setNewItemUnit] = useState<any>('كيلو');
   const [newItemInitialStock, setNewItemInitialStock] = useState(10);
   const [newItemCost, setNewItemCost] = useState(180);
-  const [newItemMinThreshold, setNewItemMinThreshold] = useState(5);
+  const [newItemMinThreshold, setNewItemMinThreshold] = useState(0);
   const [newItemSupplier, setNewItemSupplier] = useState('');
   const [newItemLocation, setNewItemLocation] = useState('المخزن الرئيسي');
 
@@ -72,15 +81,32 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
 
   const loadData = async () => {
     try {
-      const stock = await tenantStorage.getInventory(tenantId);
-      const txs = await tenantStorage.getInventoryTransactions(tenantId);
-      setItems(stock);
+      const [rawStock, txs] = await Promise.all([
+        tenantStorage.getInventory(tenantId),
+        tenantStorage.getInventoryTransactions(tenantId),
+      ]);
+      const localMap = readLocalMaterialStockMap(tenantId);
+      const uniqueStock = deduplicateMaterialsByName(rawStock, localMap).map((it) => {
+        const resolved = resolveMaterialStockValues(it, localMap);
+        return {
+          ...it,
+          currentStock: resolved.currentStock,
+          minAlertThreshold: resolved.minThreshold,
+          reorderLevel: resolved.minThreshold,
+          warehouseTracked: resolved.isTracked,
+        } as InventoryStockItem & { warehouseTracked?: boolean };
+      });
+      setItems(uniqueStock);
       setTransactions(txs);
-      if (stock.length > 0 && !selectedItemId) {
-        setSelectedItemId(stock[0].id);
+      const hasAnyStocked = uniqueStock.some((i: any) => i.currentStock > 0 || i.warehouseTracked);
+      if (!hasAnyStocked) {
+        setStockFilter('all');
       }
-      if (stock.length > 0 && !adjustItemId) {
-        setAdjustItemId(stock[0].id);
+      if (uniqueStock.length > 0 && !selectedItemId) {
+        setSelectedItemId(uniqueStock[0].id);
+      }
+      if (uniqueStock.length > 0 && !adjustItemId) {
+        setAdjustItemId(uniqueStock[0].id);
       }
     } catch (err: any) {
       console.error('Error loading inventory:', err);
@@ -225,15 +251,44 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
     }
   };
 
-  // Calculate total inventory asset value & low stock count
-  const totalInventoryValue = items.reduce(
-    (sum, i) => sum + (i.currentStock * i.costPerUnit),
-    0
+  // Calculate total inventory value, stocked items & ONLY genuinely tracked low-stock items
+  const totalInventoryValue = useMemo(
+    () => items.reduce((sum, i) => sum + (Number(i.currentStock) || 0) * (Number(i.costPerUnit) || 0), 0),
+    [items]
   );
 
-  const lowStockItems = items.filter(
-    (i) => i.currentStock <= (Number(i.minAlertThreshold ?? i.reorderLevel) || 5)
+  const stockedItems = useMemo(
+    () => items.filter((i: any) => Number(i.currentStock) > 0 || i.warehouseTracked === true),
+    [items]
   );
+
+  const lowStockItems = useMemo(
+    () =>
+      items.filter((i: any) => {
+        const isTracked = Number(i.currentStock) > 0 || i.warehouseTracked === true;
+        const threshold = Number(i.minAlertThreshold ?? i.reorderLevel ?? 0);
+        return isTracked && threshold > 0 && Number(i.currentStock) <= threshold;
+      }),
+    [items]
+  );
+
+  const filteredStockItems = useMemo(() => {
+    const q = stockSearch.trim().toLowerCase();
+    return items.filter((i: any) => {
+      const isTracked = Number(i.currentStock) > 0 || i.warehouseTracked === true;
+      const threshold = Number(i.minAlertThreshold ?? i.reorderLevel ?? 0);
+      const isLow = isTracked && threshold > 0 && Number(i.currentStock) <= threshold;
+
+      if (stockFilter === 'stocked' && !isTracked) return false;
+      if (stockFilter === 'low' && !isLow) return false;
+      if (q) {
+        const nameMatch = String(i.materialName || '').toLowerCase().includes(q);
+        const catMatch = String(i.category || '').toLowerCase().includes(q);
+        if (!nameMatch && !catMatch) return false;
+      }
+      return true;
+    });
+  }, [items, stockFilter, stockSearch]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -250,10 +305,12 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
           <div>
             <h2 className="text-lg font-black text-amber-900 dark:text-amber-300 flex items-center gap-2">
               <Boxes className="w-5 h-5 text-amber-600" />
-              <span>إدارة الموردين والمخازن ونظام تنبيهات حد الطلب الأدنى</span>
+              <span>{isCraft ? 'حركة المخزن والجرد' : 'دفتر حركة المخزن والتسويات والأرصدة'}</span>
             </h2>
             <p className="text-xs text-stone-500 dark:text-stone-400">
-              تسجيل أصول الخامات وتتبع مستويات الأمان مع نظام تنبيهات تلقائي في الجرس عند انخفاض الرصيد
+              {isCraft
+                ? 'تابع الكميات الفعلية اللي في مخزنك، وسجّل أي توريد أو صرف أو جرد بسهولة'
+                : 'تسجيل أصول الخامات وتتبع مستويات إعادة الطلب وحركات التوريد والصرف والتسوية الجردية'}
             </p>
           </div>
         </div>
@@ -261,59 +318,84 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
         {/* Action Notice */}
         {actionNotice && (
           <div
-            className={`mt-4 p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+            className={`mt-4 p-3 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 ${
               actionNotice.isError
                 ? 'bg-rose-50 dark:bg-rose-950/60 border border-rose-300 text-rose-800 dark:text-rose-200'
                 : 'bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 text-emerald-800 dark:text-emerald-200'
             }`}
           >
-            {actionNotice.isError ? (
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-            ) : (
-              <CheckCircle className="w-4 h-4 flex-shrink-0" />
-            )}
-            <span>{actionNotice.text}</span>
-          </div>
-        )}
-
-        {/* Low Stock Auto Alert Banner */}
-        {lowStockItems.length > 0 && (
-          <div className="mt-4 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200 flex items-center justify-between gap-3 shadow-xs">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-rose-500 text-white flex items-center justify-center flex-shrink-0 animate-pulse">
-                <Bell className="w-4 h-4" />
-              </div>
-              <div className="text-right">
-                <span className="font-extrabold text-xs block">
-                  تنبيه تلقائي: يوجد ({lowStockItems.length}) خامات وصلت لحد الطلب الأدنى أو أقل!
-                </span>
-                <span className="text-[11px] text-rose-700 dark:text-rose-300 block">
-                  {lowStockItems.map((m) => `"${m.materialName}" (${m.currentStock} من ${m.minAlertThreshold} ${m.unit})`).join(' ، ')}
-                </span>
-              </div>
+            <div className="flex items-center gap-2">
+              {actionNotice.isError ? (
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              ) : (
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+              )}
+              <span>{actionNotice.text}</span>
             </div>
             <button
               type="button"
-              onClick={() => setActiveTab('stock')}
-              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold flex-shrink-0 cursor-pointer shadow-xs transition"
+              onClick={() => setActionNotice(null)}
+              className="p-1 rounded-lg hover:bg-black/10 cursor-pointer"
+              aria-label="إغلاق الرسالة"
             >
-              مراجعة وتوريد
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
-        {/* Asset Value Highlight Bar */}
-        <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 text-white flex flex-col sm:flex-row items-center justify-between gap-3 shadow-md">
+        {/* Compact, Dismissible Low-Stock Summary Bar (ONLY genuinely tracked items — never a wall of 130 catalog items!) */}
+        {lowStockItems.length > 0 && !alertBannerDismissed && (
+          <div className="mt-4 px-3.5 py-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/70 text-rose-900 dark:text-rose-200 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-bold">
+              <Bell className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+              <span>
+                يوجد <strong className="font-mono tabular-nums">{lowStockItems.length}</strong> خامة بالمخزن قربت تخلص (أقل من حد الأمان).
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('stock');
+                  setStockFilter('low');
+                }}
+                className="px-3 py-1 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold cursor-pointer transition"
+              >
+                عرض النواقص
+              </button>
+              <button
+                type="button"
+                onClick={() => setAlertBannerDismissed(true)}
+                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-900/50 cursor-pointer transition"
+                title="إخفاء التنبيه"
+                aria-label="إخفاء التنبيه"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Clean Summary Bar */}
+        <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-amber-600 to-amber-700 text-white flex flex-wrap items-center justify-between gap-3 shadow-sm">
           <div className="text-right">
             <span className="text-[11px] text-amber-100 block font-bold">
-              إجمالي القيمة المالية لأصول الخامات بالمخزن:
+              {isCraft ? 'قيمة الخامات اللي في مخزنك دلوقتي' : 'إجمالي القيمة المالية لأصول الخامات بالمخزن'}
             </span>
-            <span className="text-2xl font-black font-mono">
-              {Math.round(totalInventoryValue)} {profile.currencySymbol}
+            <span className="text-2xl font-black font-mono tabular-nums">
+              {Math.round(totalInventoryValue).toLocaleString('ar-EG')} {profile.currencySymbol}
             </span>
           </div>
-          <div className="text-[11px] text-amber-100/90 bg-white/10 px-3 py-1.5 rounded-xl border border-white/15">
-            * شراء الخامات يسجل كأصل متداول مانع للخسائر مع فحص دوري لمستويات إعادة الطلب
+          <div className="flex items-center gap-4 text-xs text-amber-100">
+            <div>
+              <span className="block text-[10px] opacity-80">خامات لها رصيد بالمخزن</span>
+              <strong className="font-mono tabular-nums text-base text-white">{stockedItems.length}</strong>
+            </div>
+            <div className="h-7 w-px bg-white/25" />
+            <div>
+              <span className="block text-[10px] opacity-80">نواقص فعلية</span>
+              <strong className="font-mono tabular-nums text-base text-white">{lowStockItems.length}</strong>
+            </div>
           </div>
         </div>
 
@@ -322,15 +404,15 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('stock')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'stock'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700'
             }`}
           >
-            <span>الأرصدة ومستويات الطلب ({items.length})</span>
+            <span>{isCraft ? `أرصدة المخزن (${stockedItems.length})` : `الأرصدة ومستويات الطلب (${stockedItems.length})`}</span>
             {lowStockItems.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-mono">
+              <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-mono tabular-nums">
                 {lowStockItems.length}
               </span>
             )}
@@ -339,40 +421,40 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('purchase')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'purchase'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700'
             }`}
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>تسجيل شراء وتوريد خامات</span>
+            <span>{isCraft ? 'إضافة كمية مشتراة' : 'تسجيل شراء وتوريد خامات'}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('adjustment')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'adjustment'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700'
             }`}
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span>صرف تشغيل / تسوية جردية</span>
+            <span>{isCraft ? 'صرف أو تعديل رصيد' : 'صرف تشغيل / تسوية جردية'}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('history')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'history'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700'
             }`}
           >
             <History className="w-3.5 h-3.5" />
-            <span>سجل حركات المخزن ({transactions.length})</span>
+            <span>{isCraft ? `سجل الحركة (${transactions.length})` : `سجل حركات المخزن (${transactions.length})`}</span>
           </button>
 
           <div className="mr-auto flex items-center gap-2">
@@ -383,74 +465,139 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
                   onClose();
                   onOpenMaterialsView();
                 }}
-                className="px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition cursor-pointer flex items-center gap-1.5"
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition cursor-pointer whitespace-nowrap"
               >
-                <span>صفحة الخامات والوحدات ➔</span>
+                فتح خاماتي
               </button>
             )}
 
             <button
               type="button"
               onClick={() => setIsAddingNewItem(true)}
-              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-100 dark:bg-amber-950/60 hover:bg-amber-200 text-amber-900 dark:text-amber-200 transition cursor-pointer"
+              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-100 dark:bg-amber-950/60 hover:bg-amber-200 text-amber-900 dark:text-amber-200 transition cursor-pointer whitespace-nowrap"
             >
-              + تعريف صنف جديد
+              + خامة جديدة
             </button>
           </div>
         </div>
 
-        {/* TAB 1: Stock List with Reorder Points & Quick Actions */}
+        {/* TAB 1: Stock List with Smart Filters & Zero False Alarms */}
         {activeTab === 'stock' && (
           <div className="mt-4 space-y-3">
-            {items.length === 0 ? (
-              <div className="text-center py-12 text-stone-400 text-xs">
-                لا توجد خامات مسجلة حالياً في المخزن. انقر على "+ تعريف صنف جديد" للبدء.
+            {/* Search & Segmented Filter Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-stone-100 dark:bg-stone-800">
+                <button
+                  type="button"
+                  onClick={() => setStockFilter('stocked')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                    stockFilter === 'stocked'
+                      ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-300 shadow-xs'
+                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                  }`}
+                >
+                  المتوفر بالمخزن ({stockedItems.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStockFilter('low')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                    stockFilter === 'low'
+                      ? 'bg-white dark:bg-stone-900 text-rose-700 dark:text-rose-300 shadow-xs'
+                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                  }`}
+                >
+                  النواقص ({lowStockItems.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStockFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                    stockFilter === 'all'
+                      ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
+                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                  }`}
+                >
+                  كل الخامات ({items.length})
+                </button>
+              </div>
+
+              <div className="relative flex-1 min-w-[180px] max-w-xs">
+                <Search className="w-3.5 h-3.5 absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={stockSearch}
+                  onChange={(e) => setStockSearch(e.target.value)}
+                  placeholder="ابحث باسم الخامة..."
+                  className="w-full pr-8 pl-3 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-xs outline-none"
+                />
+              </div>
+            </div>
+
+            {filteredStockItems.length === 0 ? (
+              <div className="text-center py-10 text-stone-500 dark:text-stone-400 text-xs space-y-2 rounded-2xl border border-dashed border-stone-200 dark:border-stone-800">
+                <p>
+                  {stockFilter === 'low'
+                    ? 'مفيش نواقص حالياً — أرصدة المخزن في الأمان.'
+                    : stockFilter === 'stocked'
+                    ? 'لسه مفيش خامات مسجّل لها رصيد فعلي في المخزن. اعرض "كل الخامات" وسجّل رصيد أي خامة بتشتغل بيها.'
+                    : 'لا توجد خامات مطابقة للبحث.'}
+                </p>
+                {stockFilter === 'stocked' && items.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setStockFilter('all')}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold cursor-pointer"
+                  >
+                    عرض كل خاماتي ({items.length}) لتسجيل رصيدها
+                  </button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto rounded-2xl border border-stone-200 dark:border-stone-800">
                 <table className="w-full text-right text-xs">
                   <thead className="bg-stone-50 dark:bg-stone-800/60 text-stone-600 dark:text-stone-300 font-bold">
                     <tr className="border-b border-stone-200 dark:border-stone-800">
-                      <th className="py-3 px-3">اسم الخامة</th>
-                      <th className="py-3 px-3">التصنيف</th>
-                      <th className="py-3 px-3">الرصيد الفعلي</th>
-                      <th className="py-3 px-3">حد الطلب الأدنى</th>
-                      <th className="py-3 px-3">الحالة والتنبيه</th>
-                      <th className="py-3 px-3">تكلفة الوحدة</th>
-                      <th className="py-3 px-3">قيمة الأصل</th>
-                      <th className="py-3 px-3 text-center">إجراءات سريعة</th>
+                      <th className="py-2.5 px-3">اسم الخامة</th>
+                      <th className="py-2.5 px-3">الرصيد الفعلي</th>
+                      <th className="py-2.5 px-3">{isCraft ? 'حد التنبيه' : 'حد الطلب الأدنى'}</th>
+                      <th className="py-2.5 px-3">الحالة</th>
+                      <th className="py-2.5 px-3">سعر الوحدة</th>
+                      {!isCraft && <th className="py-2.5 px-3">قيمة الأصل</th>}
+                      <th className="py-2.5 px-3 text-center">إجراء</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
-                    {items.map((item) => {
-                      const threshold = Number(item.minAlertThreshold ?? item.reorderLevel) || 5;
-                      const isLowStock = item.currentStock <= threshold;
+                    {filteredStockItems.map((item: any) => {
+                      const isTracked = Number(item.currentStock) > 0 || item.warehouseTracked === true;
+                      const threshold = isTracked ? Number(item.minAlertThreshold ?? item.reorderLevel ?? 0) : 0;
+                      const isLowStock = isTracked && threshold > 0 && Number(item.currentStock) <= threshold;
 
                       return (
                         <tr
                           key={item.id}
                           className={`transition ${
                             isLowStock
-                              ? 'bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100/40 dark:hover:bg-rose-950/40'
+                              ? 'bg-rose-50/40 dark:bg-rose-950/15 hover:bg-rose-100/30 dark:hover:bg-rose-950/30'
                               : 'hover:bg-stone-50 dark:hover:bg-stone-800/40'
                           }`}
                         >
-                          <td className="py-3 px-3 font-bold text-stone-900 dark:text-stone-100">
+                          <td className="py-2.5 px-3 font-bold text-stone-900 dark:text-stone-100">
                             {item.materialName}
                             <span className="text-[10px] text-stone-400 block font-normal">
-                              {item.warehouseLocation || 'المخزن الرئيسي'}
+                              {item.category}
                             </span>
                           </td>
 
-                          <td className="py-3 px-3 text-stone-500">{item.category}</td>
-
                           {/* Current Stock */}
-                          <td className="py-3 px-3 font-mono font-bold">
+                          <td className="py-2.5 px-3 font-mono tabular-nums font-bold">
                             <span
                               className={`text-sm ${
                                 isLowStock
                                   ? 'text-rose-600 font-black'
-                                  : 'text-stone-800 dark:text-stone-200'
+                                  : isTracked
+                                  ? 'text-stone-900 dark:text-stone-100'
+                                  : 'text-stone-400'
                               }`}
                             >
                               {item.currentStock}
@@ -459,19 +606,18 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
                           </td>
 
                           {/* Reorder Threshold with Quick Edit */}
-                          <td className="py-3 px-3 font-mono">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-amber-700 dark:text-amber-400">
-                                {threshold}
+                          <td className="py-2.5 px-3 font-mono tabular-nums">
+                            <div className="flex items-center gap-1">
+                              <span className={threshold > 0 ? 'font-bold text-amber-700 dark:text-amber-400' : 'text-stone-400'}>
+                                {threshold > 0 ? `${threshold} ${item.unit}` : 'غير محدد'}
                               </span>
-                              <span className="text-[10px] text-stone-400">{item.unit}</span>
                               <button
                                 type="button"
                                 onClick={() => {
                                   setEditingThresholdItem(item);
                                   setTempThresholdValue(threshold);
                                 }}
-                                title="تعديل حد الطلب الأدنى"
+                                title="تعديل حد التنبيه"
                                 className="p-1 rounded-lg hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-400 hover:text-amber-600 transition cursor-pointer"
                               >
                                 <Edit2 className="w-3 h-3" />
@@ -479,48 +625,54 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
                             </div>
                           </td>
 
-                          {/* Alert Badge Status */}
-                          <td className="py-3 px-3">
-                            {isLowStock ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 font-extrabold text-[10px] ring-1 ring-rose-400/50">
+                          {/* Honest Status Text (no false red alarms on unstocked catalog items!) */}
+                          <td className="py-2.5 px-3">
+                            {!isTracked ? (
+                              <span className="text-[11px] font-medium text-stone-400">
+                                لم يبدأ جردها بعد
+                              </span>
+                            ) : isLowStock ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400">
                                 <AlertTriangle className="w-3 h-3" />
-                                <span>أقل من حد الطلب!</span>
+                                <span>قربت تخلص</span>
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 font-bold text-[10px]">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
                                 <CheckCircle className="w-3 h-3" />
-                                <span>رصيد آمن</span>
+                                <span>رصيد متوفر</span>
                               </span>
                             )}
                           </td>
 
-                          <td className="py-3 px-3 font-mono">
-                            {item.costPerUnit} {profile.currencySymbol}
+                          <td className="py-2.5 px-3 font-mono tabular-nums">
+                            {Number(item.costPerUnit || 0).toLocaleString('ar-EG')} {profile.currencySymbol}
                           </td>
 
-                          <td className="py-3 px-3 font-mono font-bold text-amber-700 dark:text-amber-400">
-                            {Math.round(item.currentStock * item.costPerUnit)} {profile.currencySymbol}
-                          </td>
+                          {!isCraft && (
+                            <td className="py-2.5 px-3 font-mono tabular-nums font-bold text-amber-700 dark:text-amber-400">
+                              {Math.round(item.currentStock * item.costPerUnit).toLocaleString('ar-EG')} {profile.currencySymbol}
+                            </td>
+                          )}
 
                           {/* Quick Actions */}
-                          <td className="py-3 px-3 text-center">
+                          <td className="py-2.5 px-3 text-center">
                             <div className="flex items-center justify-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => handleQuickReorder(item)}
-                                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer transition shadow-xs"
-                                title="إصدار أمر توريد / شراء خامات"
+                                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer transition whitespace-nowrap"
+                                title="تسجيل شراء / إضافة رصيد"
                               >
                                 <ShoppingCart className="w-3 h-3" />
-                                <span>شراء</span>
+                                <span>{isTracked ? 'شراء' : 'إضافة رصيد'}</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleQuickConsume(item)}
-                                className="px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 font-bold text-[10px] cursor-pointer transition"
-                                title="صرف تشغيل أو تسوية جردية"
+                                className="px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 font-bold text-[10px] cursor-pointer transition whitespace-nowrap"
+                                title="صرف أو جرد"
                               >
-                                صرف/تسوية
+                                صرف / جرد
                               </button>
                             </div>
                           </td>
@@ -537,13 +689,15 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
         {/* TAB 2: Record Purchase (Add Stock) */}
         {activeTab === 'purchase' && (
           <form onSubmit={handleRecordPurchase} className="mt-4 space-y-4 max-w-xl mx-auto">
-            <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
-              💡 <strong>تسجيل شراء خامات كأصل مالي:</strong> يضيف كميات الخامات فورياً لرصيد الورشة كأصول مخزنية مالية، ويرفع الرصيد فوق حد الطلب الأدنى مما يُغلق التنبيه تلقائياً.
-            </div>
+            {!isCraft && (
+              <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+                <strong>تسجيل شراء خامات كأصل مالي:</strong> يضيف الكمية المشتراة فوراً لرصيد المخزن ويحدّث متوسط التكلفة.
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
-                اختيار الخامة المشتراة *
+                اختيار الخامة *
               </label>
               <select
                 value={selectedItemId}
@@ -623,9 +777,11 @@ export const InventoryLedgerModal: React.FC<InventoryLedgerModalProps> = ({
         {/* TAB 3: Stock Consumption & Audit Adjustment */}
         {activeTab === 'adjustment' && (
           <form onSubmit={handleRecordAdjustment} className="mt-4 space-y-4 max-w-xl mx-auto">
-            <div className="p-4 rounded-2xl bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-xs text-stone-800 dark:text-stone-200 leading-relaxed">
-              ⚙️ <strong>صرف تشغيل أو تسوية جردية:</strong> يمكنك هنا صرف خامات مستهلكة في الإنتاج، أو تعديل الرصيد الفعلي بعد الجرد. إذا انخفض الرصيد إلى ما دون حد الطلب الأدنى المحدد، سيصدر النظام فورياً إشعاراً في الجرس!
-            </div>
+            {!isCraft && (
+              <div className="p-3.5 rounded-2xl bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-xs text-stone-800 dark:text-stone-200 leading-relaxed">
+                <strong>صرف تشغيل أو تسوية جردية:</strong> يمكنك صرف خامات مستهلكة في الإنتاج أو ضبط الرصيد الفعلي بعد الجرد.
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">

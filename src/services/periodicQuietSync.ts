@@ -221,8 +221,8 @@ export async function hydrateWorkshopIntoDexie(
           unit: localMat?.unit || rm.unit_name || 'كيلو',
           costPerUnit: Number(rm.purchase_price ?? rm.unit_cost ?? localMat?.costPerUnit ?? 0),
           currentStock: Number(rm.current_stock ?? localMat?.currentStock ?? 0),
-          minAlertThreshold: Number(rm.min_limit ?? localMat?.minAlertThreshold ?? 5),
-          reorderLevel: Number(rm.min_limit ?? localMat?.reorderLevel ?? 5),
+          minAlertThreshold: Number(rm.min_limit ?? localMat?.minAlertThreshold ?? 0),
+          reorderLevel: Number(rm.min_limit ?? localMat?.reorderLevel ?? 0),
           isActive: rm.is_active !== false,
           createdAt: localMat?.createdAt || Date.parse(rm.created_at || '') || Date.now(),
           updatedAt: Date.now(),
@@ -478,11 +478,11 @@ export async function performQuietSync(profile: UserProfile): Promise<void> {
               minAlertThreshold:
                 rm.min_limit !== undefined && rm.min_limit !== null
                   ? Number(rm.min_limit)
-                  : localMat?.minAlertThreshold ?? 5,
+                  : localMat?.minAlertThreshold ?? 0,
               reorderLevel:
                 rm.min_limit !== undefined && rm.min_limit !== null
                   ? Number(rm.min_limit)
-                  : localMat?.reorderLevel ?? 5,
+                  : localMat?.reorderLevel ?? 0,
               isActive: rm.is_active !== false,
               createdAt: localMat?.createdAt || Date.parse(rm.created_at || '') || Date.now(),
               updatedAt: Date.now(),

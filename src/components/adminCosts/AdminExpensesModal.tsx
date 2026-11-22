@@ -50,6 +50,7 @@ import {
   checkUpcomingRecurringExpenses,
   DueRecurringExpenseStatus,
 } from '../../services/recurringExpensesService';
+import { useExperienceMode } from '../../types/experienceMode';
 
 interface AdminExpensesModalProps {
   isOpen: boolean;
@@ -65,6 +66,7 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
   if (!isOpen) return null;
 
   const { t: tr, lang } = useTranslation();
+  const { isCraft } = useExperienceMode('artisan', profile);
   const baseCurrency = profile.currencySymbol || 'EGP';
 
   // Navigation tab: actual vs recurring
@@ -161,7 +163,7 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
   const handleAddCost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLocked) {
-      alert('لا يمكن إضافة مصروف في شهر مالي معتمد ومقفل رقابياً.');
+      showToast('لا يمكن إضافة مصروف في شهر مالي مقفل للمراجعة فقط.');
       return;
     }
     if (!title.trim() || amount <= 0) return;
@@ -222,7 +224,7 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
 
   const handleDelete = async (id: string) => {
     if (isLocked) {
-      alert('لا يمكن حذف مصروف من شهر مالي معتمد ومقفل رقابياً.');
+      showToast('لا يمكن حذف مصروف من شهر مالي مقفل للمراجعة فقط.');
       return;
     }
     if (!window.confirm('هل أنت متأكد من حذف هذا المصروف؟')) return;
@@ -252,9 +254,9 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
       setRecNotes('');
       setIsAddingRecurring(false);
       await loadRecurringData();
-      showToast('تمت إضافة بند المصروف الدوري بنجاح! 🔁');
+      showToast('تمت إضافة بند المصروف الدوري بنجاح.');
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء حفظ المصروف الدوري');
+      showToast(err.message || 'حدث خطأ أثناء حفظ المصروف الدوري');
     }
   };
 
@@ -263,7 +265,7 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
       await toggleRecurringExpenseActive(tenantId, id);
       await loadRecurringData();
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء تحديث الحالة');
+      showToast(err.message || 'حدث خطأ أثناء تحديث الحالة');
     }
   };
 
@@ -274,13 +276,13 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
       await loadRecurringData();
       showToast('تم حذف البند من المتتبع الدوري.');
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء الحذف');
+      showToast(err.message || 'حدث خطأ أثناء الحذف');
     }
   };
 
   const handlePayRecurringItem = async (item: DueRecurringExpenseStatus) => {
     if (isLocked) {
-      alert('لا يمكن ترحيل سداد في شهر مالي معتمد ومقفل رقابياً.');
+      showToast('لا يمكن ترحيل سداد في شهر مالي مقفل للمراجعة فقط.');
       return;
     }
     setPayingItemId(item.id);
@@ -294,10 +296,10 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
         userEmail: profile.email || 'system',
       });
 
-      showToast(`تم سداد "${res.title}" بقيمة ${res.amount} ج.م وترحيله للخزينة بنجاح! 💸✅`);
+      showToast(`تم سداد "${res.title}" بقيمة ${res.amount} ج.م بنجاح.`);
       await Promise.all([loadData(), loadRecurringData()]);
     } catch (err: any) {
-      alert(err.message || 'حدث خطأ أثناء سداد البند');
+      showToast(err.message || 'حدث خطأ أثناء سداد البند');
     } finally {
       setPayingItemId(null);
     }
@@ -351,19 +353,31 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
           <div>
             <h2 className="text-lg font-black text-amber-900 dark:text-amber-300 flex items-center gap-2">
               <Building className="w-5 h-5 text-amber-600" />
-              <span>دفتر التكاليف والمصروفات الإدارية الموحدة</span>
+              <span>{isCraft ? 'مصاريف الورشة' : 'دفتر التكاليف والمصروفات الإدارية الموحدة'}</span>
             </h2>
             <p className="text-xs text-stone-500 dark:text-stone-400">
-              إدارة الإيجار، المرافق، وتتبع الالتزامات الدورية مع تنبيهات السيولة الذكية
+              {isCraft
+                ? 'سجّل الإيجار والكهرباء وأي مصروف شهري بسهولة'
+                : 'إدارة الإيجار، المرافق، وتتبع الالتزامات الدورية مع تنبيهات السيولة الذكية'}
             </p>
           </div>
         </div>
 
         {/* Action Toast Feedback */}
         {toastNotice && (
-          <div className="mt-3 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{toastNotice}</span>
+          <div className="mt-3 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center justify-between gap-2 animate-in fade-in">
+            <div className="flex items-center gap-2 min-w-0">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{toastNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setToastNotice(null)}
+              className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer shrink-0"
+              title="إغلاق"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
@@ -379,7 +393,7 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
             }`}
           >
             <Building className="w-3.5 h-3.5" />
-            <span>المصروفات الفعلية المسجلة 📋</span>
+            <span>{isCraft ? 'مصاريف الشهر' : 'المصروفات الفعلية المسجلة'}</span>
           </button>
           <button
             type="button"
@@ -391,9 +405,9 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
             }`}
           >
             <Repeat className="w-3.5 h-3.5" />
-            <span>متتبع المصروفات الدورية والتنبيهات 🔁🔔</span>
+            <span>{isCraft ? 'مصاريف ثابتة متكررة' : 'متتبع المصروفات الدورية والتنبيهات'}</span>
             {recurringSummary.urgentCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black animate-pulse">
+              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black">
                 {recurringSummary.urgentCount}
               </span>
             )}
@@ -417,28 +431,32 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
                 />
               </div>
               <div className="text-left font-mono">
-                <span className="text-xs text-amber-200 block">إجمالي تكاليف الشهر الإدارية:</span>
+                <span className="text-xs text-amber-200 block">
+                  {isCraft ? 'إجمالي مصاريف الشهر:' : 'إجمالي تكاليف الشهر الإدارية:'}
+                </span>
                 <span className="text-2xl font-black">
                   {totalMonthExpenses.toLocaleString('ar-EG')} {profile.currencySymbol}
                 </span>
               </div>
             </div>
 
-            {/* Suggested per-piece allocation notice */}
-            <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 text-stone-600 dark:text-stone-300">
-                <TrendingDown className="w-4 h-4 text-amber-600" />
-                <span>نصيب القطعة المقترح بحاسبة الإنتاج (معدل 25 قطعة/شهر):</span>
+            {/* Suggested per-piece allocation notice (Accounting Mode only) */}
+            {!isCraft && (
+              <div className="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-stone-600 dark:text-stone-300">
+                  <TrendingDown className="w-4 h-4 text-amber-600" />
+                  <span>نصيب القطعة المقترح بحاسبة الإنتاج (معدل 25 قطعة/شهر):</span>
+                </div>
+                <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
+                  ~ {suggestedSharePerPiece} {profile.currencySymbol} / قطعة
+                </span>
               </div>
-              <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
-                ~ {suggestedSharePerPiece} {profile.currencySymbol} / قطعة
-              </span>
-            </div>
+            )}
 
             {/* Locked Month Notice */}
             {isLocked && (
               <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
-                <span>🔒 تنبيه رقابي: هذا الشهر المالي معتمد ومقفل رقابياً - السجلات للقراءة والمراجعة فقط ولا يمكن إضافة أو حذف مصروفات.</span>
+                <span>هذا الشهر مقفل للمراجعة فقط ولا يمكن إضافة أو حذف مصروفات فيه.</span>
               </div>
             )}
 
@@ -447,16 +465,18 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
                   <Plus className="w-3.5 h-3.5" />
-                  <span>تسجيل مصروف إداري جديد للشهر المختار:</span>
+                  <span>{isCraft ? 'تسجيل مصروف جديد:' : 'تسجيل مصروف إداري جديد للشهر المختار:'}</span>
                 </h3>
-                <button
-                  type="button"
-                  onClick={() => setIsRatesModalOpen(true)}
-                  className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <Coins className="w-3.5 h-3.5" />
-                  <span>أسعار الصرف اليومية</span>
-                </button>
+                {!isCraft && (
+                  <button
+                    type="button"
+                    onClick={() => setIsRatesModalOpen(true)}
+                    className="text-[11px] font-bold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Coins className="w-3.5 h-3.5" />
+                    <span>أسعار الصرف اليومية</span>
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -486,28 +506,32 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
               </div>
 
               {/* Currency selection & Amount row */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-[11px] font-bold text-stone-500 mb-1">العملة:</label>
-                  <select
-                    value={currency}
-                    onChange={(e) => {
-                      const c = e.target.value;
-                      setCurrency(c);
-                      setExchangeRate(c === baseCurrency ? 1.0 : (dailyRates[c] || 1.0));
-                    }}
-                    className="w-full px-2.5 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none"
-                  >
-                    {SUPPORTED_CURRENCIES.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.code} - {c.nameAr} ({c.symbol})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className={`grid grid-cols-1 ${isCraft ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-2`}>
+                {!isCraft && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-stone-500 mb-1">العملة:</label>
+                    <select
+                      value={currency}
+                      onChange={(e) => {
+                        const c = e.target.value;
+                        setCurrency(c);
+                        setExchangeRate(c === baseCurrency ? 1.0 : (dailyRates[c] || 1.0));
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs font-bold outline-none"
+                    >
+                      {SUPPORTED_CURRENCIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.code} - {c.nameAr} ({c.symbol})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div>
-                  <label className="block text-[11px] font-bold text-stone-500 mb-1">المبلغ:</label>
+                  <label className="block text-[11px] font-bold text-stone-500 mb-1">
+                    المبلغ ({baseCurrency}):
+                  </label>
                   <NumberInput
                     min={0}
                     step={1}
@@ -518,7 +542,7 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
                 </div>
 
                 <div>
-                  {currency !== baseCurrency ? (
+                  {!isCraft && currency !== baseCurrency ? (
                     <>
                       <label className="block text-[11px] font-bold text-amber-700 dark:text-amber-400 mb-1">سعر الصرف:</label>
                       <NumberInput
@@ -555,7 +579,7 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
                 selectedChannel={paymentChannel}
                 onChannelChange={setPaymentChannel}
                 disbursedAmount={currency === baseCurrency ? amount : Math.round(amount * (Number(exchangeRate) || 1) * 100) / 100}
-                label="من أي خزينة أو عهدة تم الصرف؟ *"
+                label={isCraft ? 'هتدفع المصروف منين؟ *' : 'من أي خزينة أو عهدة تم الصرف؟ *'}
               />
 
               <button
@@ -563,7 +587,11 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
                 disabled={isLocked}
                 className="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:bg-stone-400 disabled:cursor-not-allowed transition cursor-pointer"
               >
-                {isLocked ? 'الشهر المالي مقفل رقابياً (للقراءة فقط)' : 'إضافة المصروف للدورة المالية'}
+                {isLocked
+                  ? 'الشهر مقفل للمراجعة فقط'
+                  : isCraft
+                  ? 'تسجيل المصروف'
+                  : 'إضافة المصروف للدورة المالية'}
               </button>
             </form>
 
@@ -635,23 +663,20 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
           <div className="space-y-4">
             {/* Proactive 3-Day Alert Banner */}
             {recurringSummary.urgentCount > 0 ? (
-              <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-rose-900 via-rose-800 to-amber-900 text-white shadow-lg border border-rose-500/50 animate-pulse">
+              <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-rose-900 via-rose-800 to-amber-900 text-white shadow-md border border-rose-500/40">
                 <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-xl bg-white/20 text-rose-200 shrink-0">
-                    <BellRing className="w-5 h-5 animate-bounce" />
+                  <div className="p-2 rounded-xl bg-white/15 text-rose-100 shrink-0">
+                    <BellRing className="w-5 h-5" />
                   </div>
                   <div className="flex-1">
                     <h4 className="font-black text-sm text-rose-100 flex items-center gap-2">
-                      <span>⚠️ تنبيه استباقي للسيولة ومواعيد الاستحقاق (أقل من 3 أيام)</span>
+                      <span>{isCraft ? 'مصاريف ثابتة ميعادها قرب (أقل من 3 أيام)' : 'تنبيه مواعيد الاستحقاق (أقل من 3 أيام)'}</span>
                     </h4>
                     <p className="text-xs text-rose-100/90 mt-1 leading-relaxed">
-                      لديك <span className="font-black underline">{recurringSummary.urgentCount}</span> التزامات دورية مستحقة اليوم أو خلال الـ 3 أيام القادمة بإجمالي مطلوب تدبيره:
+                      لديك <span className="font-black underline">{recurringSummary.urgentCount}</span> مصاريف مستحقة اليوم أو خلال الـ 3 أيام القادمة بإجمالي:
                       <span className="font-mono font-black text-amber-300 text-sm mr-1">
                         {recurringSummary.totalUrgentAmount.toLocaleString('ar-EG')} {baseCurrency}
                       </span>
-                    </p>
-                    <p className="text-[11px] text-rose-200/80 mt-1">
-                      💡 يرجى التأكد من توفر رصيد كافٍ بالخزينة لتفادي تعطل خدمات المشغل أو فرض غرامات تأخير.
                     </p>
                   </div>
                 </div>
@@ -856,7 +881,7 @@ export const AdminExpensesModal: React.FC<AdminExpensesModalProps> = ({
                             item.isPaidThisMonth
                               ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300'
                               : isUrgent
-                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300 animate-pulse'
+                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-300'
                               : 'bg-amber-100/70 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
                           }`}>
                             {getCategoryIcon(item.category)}

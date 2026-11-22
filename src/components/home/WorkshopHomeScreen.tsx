@@ -15,6 +15,11 @@ import {
 } from '../../types/uiLayoutConfig';
 import { useExperienceMode } from '../../types/experienceMode';
 import {
+  deduplicateMaterialsByName,
+  readLocalMaterialStockMap,
+  resolveMaterialStockValues,
+} from '../../lib/materialStockUtils';
+import {
   Layers,
   ShoppingBag,
   Truck,
@@ -191,6 +196,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const uiLayout = useUiLayoutConfig();
   const artisanHomeCfg = uiLayout.artisan.home;
   const {
+    isCraft,
     getLabel: getModeLabel,
     isVisible: isModeVisible,
   } = useExperienceMode('artisan', profile);
@@ -202,8 +208,28 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     nav_work_orders_receive: 'wo_receive_voucher',
     nav_work_orders: 'wo_page_title',
     modal_inv_audit: 'inv_audit_voucher',
+    modal_inv_materials: 'inv_materials_btn',
     nav_treasuries: 'fin_treasury_title',
     nav_reports: 'rep_page_title',
+    nav_fixed_assets: 'exp_fixed_assets',
+    modal_exchange_rates: 'exp_exchange_rates',
+    modal_admin_costs: 'exp_admin_btn',
+    nav_purchases: 'pur_list_btn',
+    nav_hr: 'wf_hr_btn',
+  };
+
+  const getCardDisplayLabel = (card: UiHomeCardConfig): string => {
+    if (!isCraft) return card.label;
+    switch (card.id) {
+      case 'treasuries':
+        return 'درج الورشة والفلوس';
+      case 'reports':
+        return 'خلاصة شغلك ومكسبك';
+      case 'work_orders':
+        return 'شغل الورشة والإنتاج';
+      default:
+        return card.label;
+    }
   };
 
   // Active sub-screen card id (null = main operational cards grid)
@@ -391,14 +417,17 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           .filter((ord) => (ord.createdAt || 0) >= startOfMonth && ord.status !== 'cancelled')
           .reduce((sum, ord) => sum + (ord.finalTotal || ord.totalAmount || ord.subtotal || 0), 0);
 
-        const matsCount = (rawData || []).length;
-        const alerts = (rawData || []).filter(
-          (m) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
-        ).length;
-        const invTotal = (rawData || []).reduce(
-          (sum, m) => sum + ((Number(m.currentStock) || 0) * (Number(m.costPerUnit) || 0)),
-          0
-        );
+        const localStockMap = readLocalMaterialStockMap(workshopId);
+        const uniqueRawMaterials = deduplicateMaterialsByName(rawData || [], localStockMap);
+        const matsCount = uniqueRawMaterials.length;
+        const alerts = uniqueRawMaterials.filter((m) => {
+          if (m.isActive === false) return false;
+          return resolveMaterialStockValues(m, localStockMap).isLowStock;
+        }).length;
+        const invTotal = uniqueRawMaterials.reduce((sum, m) => {
+          const resolved = resolveMaterialStockValues(m, localStockMap);
+          return sum + resolved.currentStock * (Number(m.costPerUnit) || 0);
+        }, 0);
 
         const prodsCount = (prodsData || []).length;
         const prodCostSum = (prodsData || []).reduce((sum: number, p: any) => {
@@ -417,7 +446,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         const purchasesSum = (supplierInvs || []).reduce((sum, s) => sum + (Number(s.paidAmount) || 0), 0);
 
         if (isMounted) {
-          setRawMaterialsList(rawData || []);
+          setRawMaterialsList(uniqueRawMaterials);
           setProductsList(prodsData || []);
           setOrdersList(ordersData || []);
           setWorkOrdersList(dexieWo || []);
@@ -520,10 +549,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   }, [workOrdersList, todayStartTs]);
 
   const lowStockMaterialsCount = useMemo(() => {
-    return rawMaterialsList.filter(
-      (m) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
-    ).length;
-  }, [rawMaterialsList]);
+    const localStockMap = readLocalMaterialStockMap(workshopId);
+    return rawMaterialsList.filter((m) => {
+      if (m.isActive === false) return false;
+      return resolveMaterialStockValues(m, localStockMap).isLowStock;
+    }).length;
+  }, [rawMaterialsList, workshopId]);
 
   // Smart Daily Tasks generated from real workshop data
   const dailyTasks = useMemo(() => {
@@ -537,16 +568,20 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       onAction?: () => void;
     }> = [];
 
-    // 1. تنبيه بنواقص الخامات التي وصلت لحد الطلب الأدنى أو تحته
-    const depleting = rawMaterialsList.filter(
-      (m) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
-    );
-    depleting.slice(0, 3).forEach((m) => {
+    // 1. تنبيه بنواقص الخامات المجرودة فعلياً والتي وصلت لحد الطلب الأدنى أو تحته
+    const localStockMap = readLocalMaterialStockMap(workshopId);
+    const depleting = rawMaterialsList
+      .map((m) => ({
+        material: m,
+        stock: resolveMaterialStockValues(m, localStockMap),
+      }))
+      .filter(({ material, stock }) => material.isActive !== false && stock.isLowStock);
+    depleting.slice(0, 3).forEach(({ material: m, stock }) => {
       list.push({
         id: `task_mat_${m.id}`,
         type: 'stock',
         title: `الخامة "${m.materialName}" قربت تخلص.. محتاجين نطلب منها`,
-        detail: `الرصيد المتبقي: ${m.currentStock} ${m.unit || 'وحدة'} (حد الأمان: ${m.minAlertThreshold || 5})`,
+        detail: `الرصيد المتبقي: ${stock.currentStock} ${m.unit || 'وحدة'} (حد الأمان: ${stock.minThreshold})`,
         urgency: 'high',
         actionLabel: 'طلب توريد خامة',
         onAction: () => onOpenSupplierInvoice(),
@@ -777,9 +812,38 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     }
   };
 
+  const getVisibleItemsForCard = (card: UiHomeCardConfig, applyWorkforceTab = false) => {
+    const hasSubGroups =
+      card.id === 'workforce' &&
+      (card.items || []).some((it) => it.visible !== false && Boolean(it.subGroup));
+
+    return (card.items || []).filter((it) => {
+      if (it.visible === false) return false;
+      const modeKey = ARTISAN_ACTION_MODE_MAP[it.actionKey];
+      if (modeKey && !isModeVisible(modeKey)) return false;
+
+      if (!isAdminUser) {
+        if (it.actionKey === 'nav_calculator' && !flags.craftCalculatorEnabled) return false;
+        if (it.actionKey === 'nav_suppliers_market' && !flags.suppliersMarketplaceEnabled) return false;
+        if (
+          (it.actionKey === 'open_artisan_store_products' || it.actionKey === 'open_artisan_store_orders') &&
+          !flags.artisanStorefrontEnabled
+        ) {
+          return false;
+        }
+      }
+      if (applyWorkforceTab && hasSubGroups && it.subGroup) {
+        return it.subGroup === workforceTab;
+      }
+      return true;
+    });
+  };
+
   const visibleArtisanCards = useMemo<UiHomeCardConfig[]>(() => {
     return (artisanHomeCfg.cards || []).filter((card) => {
       if (card.visible === false) return false;
+      // إخفاء بطاقة الحسابات المحاسبية الثقيلة في الوضع الحرفي (وتبقى متاحة بالكامل في الوضع المحاسبي)
+      if (card.id === 'accounts' && !isModeVisible('card_accounts')) return false;
       if (isAdminUser) return true;
       if (card.id === 'ai_helpers' && !flags.aiAssistantsEnabled) return false;
       if (
@@ -806,34 +870,22 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       }
       return true;
     });
-  }, [artisanHomeCfg.cards, isAdminUser, flags]);
+  }, [artisanHomeCfg.cards, isAdminUser, flags, isModeVisible]);
 
   const activeDynamicCard = useMemo(() => {
     if (!activeSubSection) return null;
     return visibleArtisanCards.find((c) => c.id === activeSubSection) || null;
   }, [activeSubSection, visibleArtisanCards]);
 
+  const activeCardHasWorkforceSubGroups = useMemo(() => {
+    if (!activeDynamicCard || activeDynamicCard.id !== 'workforce') return false;
+    return (activeDynamicCard.items || []).some((it) => it.visible !== false && Boolean(it.subGroup));
+  }, [activeDynamicCard]);
+
   const activeCardVisibleItems = useMemo(() => {
     if (!activeDynamicCard) return [];
-    const base = (activeDynamicCard.items || []).filter((it) => {
-      if (it.visible === false) return false;
-      if (!isAdminUser) {
-        if (it.actionKey === 'nav_calculator' && !flags.craftCalculatorEnabled) return false;
-        if (it.actionKey === 'nav_suppliers_market' && !flags.suppliersMarketplaceEnabled) return false;
-        if (
-          (it.actionKey === 'open_artisan_store_products' || it.actionKey === 'open_artisan_store_orders') &&
-          !flags.artisanStorefrontEnabled
-        ) {
-          return false;
-        }
-      }
-      if (activeDynamicCard.id === 'workforce' && it.subGroup) {
-        return it.subGroup === workforceTab;
-      }
-      return true;
-    });
-    return base;
-  }, [activeDynamicCard, isAdminUser, flags, workforceTab]);
+    return getVisibleItemsForCard(activeDynamicCard, true);
+  }, [activeDynamicCard, isAdminUser, flags, workforceTab, isModeVisible]);
 
   const gridClassName = useMemo(() => {
     const mob = artisanHomeCfg.columnsMobile === 2 ? 'grid-cols-2' : 'grid-cols-3';
@@ -897,7 +949,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               <div>
                 <span className="text-[10px] text-[#475569] dark:text-[#CBD5E1] font-bold block">{tr('section_management')}</span>
                 <h2 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                  {activeDynamicCard.label}
+                  {getCardDisplayLabel(activeDynamicCard)}
                 </h2>
               </div>
             </div>
@@ -913,8 +965,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
             </button>
           </div>
 
-          {/* Workforce Tabs Switcher (صناع بالقطعة vs موظفون ورواتب) */}
-          {activeDynamicCard.id === 'workforce' && (
+          {/* Workforce Tabs Switcher (يظهر فقط لو فيه تبويبات مخصصة) */}
+          {activeCardHasWorkforceSubGroups && (
             <div className="flex items-center gap-2 bg-[#E9E2D4] dark:bg-[#132040] p-1.5 rounded-2xl w-full max-w-xl mx-auto border border-[#D4CCBC] dark:border-[#22355E]">
               <button
                 type="button"
@@ -996,7 +1048,8 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
               const isWideShape = artisanHomeCfg.cardShape === 'wide';
               const isCompactShape = artisanHomeCfg.cardShape === 'compact';
               const iconRadiusClass = artisanHomeCfg.iconShape === 'circle' ? 'rounded-full' : 'rounded-2xl';
-              const visibleItemsCount = card.items.filter((it) => it.visible !== false).length;
+              const visibleItems = getVisibleItemsForCard(card, false);
+              const visibleItemsCount = visibleItems.length;
 
               return (
                 <button
@@ -1008,7 +1061,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                       return;
                     }
                     if (visibleItemsCount === 1) {
-                      const onlyItem = card.items.find((it) => it.visible !== false);
+                      const onlyItem = visibleItems[0];
                       if (onlyItem) {
                         executeArtisanAction(onlyItem.actionKey);
                         return;
@@ -1033,7 +1086,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
                   </div>
                   <div className="min-w-0">
                     <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] tracking-tight block leading-tight">
-                      {card.label}
+                      {getCardDisplayLabel(card)}
                     </span>
                     {isWideShape && card.subtitle && (
                       <span className="text-[10px] text-[#64748B] dark:text-[#94A3B8] font-bold block mt-0.5 line-clamp-1">

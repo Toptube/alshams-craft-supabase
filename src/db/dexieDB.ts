@@ -228,6 +228,7 @@ export const tenantStorage = {
     item.costPerGram = item.unit === 'كيلو' ? unitCost / 1000 : unitCost;
     item.supplierName = supplierName || item.supplierName;
     item.lastPurchaseDate = new Date().toISOString().split('T')[0];
+    (item as any).warehouseTracked = true;
     await db.rawMaterials.put(item);
 
     await db.inventoryTransactions.add({
@@ -262,6 +263,7 @@ export const tenantStorage = {
     }
 
     item.currentStock = Math.max(0, Number((item.currentStock - quantity).toFixed(3)));
+    (item as any).warehouseTracked = true;
     await db.rawMaterials.put(item);
 
     await db.inventoryTransactions.add({
@@ -293,6 +295,7 @@ export const tenantStorage = {
     }
     const diff = Number((newActualStock - item.currentStock).toFixed(3));
     item.currentStock = Number(newActualStock.toFixed(3));
+    (item as any).warehouseTracked = newActualStock > 0 || (item as any).warehouseTracked === true;
     await db.rawMaterials.put(item);
 
     await db.inventoryTransactions.add({
@@ -356,9 +359,16 @@ export const tenantStorage = {
   async saveRawMaterial(material: RawMaterialItem, options?: { skipCloudQueue?: boolean }): Promise<void> {
     const safeCostPerUnit = Number(material.costPerUnit) || 0;
     const safeStock = Number(material.currentStock) || 0;
-    const safeThreshold = Number(material.minAlertThreshold ?? material.reorderLevel ?? 5);
+    // Never fabricate a fake default threshold of 5 for unstocked catalog items!
+    const rawThreshold = material.minAlertThreshold ?? material.reorderLevel;
+    const safeThreshold =
+      rawThreshold !== undefined && rawThreshold !== null && Number.isFinite(Number(rawThreshold))
+        ? Math.max(0, Number(rawThreshold))
+        : 0;
     const safeName = String(material.materialName || 'خامة').trim() || 'خامة';
     const tenantId = material.tenantId || material.workshopId || 'default';
+    const trackedFlag =
+      (material as any).warehouseTracked === true || safeStock > 0;
 
     const cleanMaterial: RawMaterialItem = {
       ...material,
@@ -370,9 +380,10 @@ export const tenantStorage = {
       costPerUnit: Number.isFinite(safeCostPerUnit) ? safeCostPerUnit : 0,
       costPerGram: (material.unit || 'كيلو') === 'كيلو' ? safeCostPerUnit / 1000 : safeCostPerUnit,
       isActive: material.isActive !== false,
-      minAlertThreshold: Number.isFinite(safeThreshold) ? safeThreshold : 5,
-      reorderLevel: Number.isFinite(safeThreshold) ? safeThreshold : 5,
-    };
+      minAlertThreshold: trackedFlag ? safeThreshold : 0,
+      reorderLevel: trackedFlag ? safeThreshold : 0,
+      ...(trackedFlag ? { warehouseTracked: true } : {}),
+    } as any;
 
     await db.rawMaterials.put(cleanMaterial);
     try {

@@ -30,6 +30,12 @@ import {
 } from 'lucide-react';
 import { NumberInput } from '../ui/NumberInput';
 import { StockLevelProgressBar } from '../materials/StockLevelProgressBar';
+import { useExperienceMode } from '../../types/experienceMode';
+import {
+  deduplicateMaterialsByName,
+  readLocalMaterialStockMap,
+  resolveMaterialStockValues,
+} from '../../lib/materialStockUtils';
 
 interface MaterialsInventoryModalProps {
   isOpen: boolean;
@@ -44,6 +50,7 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   profile,
   onOpenPurchaseForMaterial,
 }) => {
+  const { isCraft } = useExperienceMode('artisan', profile);
   const workshopId = profile?.tenantId || profile?.workshopId || profile?.id || '';
   const currencySymbol = profile?.currencySymbol || 'ج.م';
 
@@ -52,6 +59,7 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('all');
+  const [stockViewFilter, setStockViewFilter] = useState<'stocked' | 'low' | 'all'>('stocked');
   const [notice, setNotice] = useState<{ text: string; isError?: boolean } | null>(null);
 
   // Add / Edit Modal State
@@ -60,7 +68,7 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
   const [formName, setFormName] = useState('');
   const [formCategory, setFormCategory] = useState('خيوط');
   const [formQuantity, setFormQuantity] = useState(10);
-  const [formMinThreshold, setFormMinThreshold] = useState(5);
+  const [formMinThreshold, setFormMinThreshold] = useState(0);
   const [formCostPrice, setFormCostPrice] = useState(150);
   const [formUnit, setFormUnit] = useState('كيلو');
   const [saving, setSaving] = useState(false);
@@ -83,58 +91,78 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
 
       setUnits(unts);
 
-      // Merge Supabase materials with local stock data
+      const localStockMap = readLocalMaterialStockMap(workshopId);
       const dexieMap = new Map<string, any>();
       dexieMats.forEach((m) => {
         if (m.id) dexieMap.set(m.id, m);
-        if (m.materialName) dexieMap.set(m.materialName.trim(), m);
+        if (m.materialName) dexieMap.set(m.materialName.trim().toLowerCase(), m);
       });
 
-      const mergedList: any[] = [];
-      const seenNames = new Set<string>();
+      const rawCombined: any[] = [];
 
-      // 1. From Supabase
+      // 1. From Supabase (NEVER fabricate quantity=10 or minThreshold=5!)
       (sbMats.data || []).forEach((sm) => {
         const safeName = (sm.name || '').trim();
         if (!safeName) return;
-        const local = dexieMap.get(sm.id) || dexieMap.get(safeName);
+        const local = dexieMap.get(sm.id) || dexieMap.get(safeName.toLowerCase());
         const unitObj = unts.find((u) => u.id === sm.unit_id);
         const unitName = unitObj?.name || local?.unit || 'كيلو';
+        const resolved = resolveMaterialStockValues(
+          {
+            id: sm.id,
+            currentStock: local?.currentStock ?? (sm as any).current_stock ?? 0,
+            minAlertThreshold: local?.minAlertThreshold ?? (sm as any).min_limit ?? 0,
+            warehouseTracked: local?.warehouseTracked,
+          },
+          localStockMap
+        );
 
-        seenNames.add(safeName.toLowerCase());
-        mergedList.push({
+        rawCombined.push({
           id: sm.id,
           name: safeName,
+          materialName: safeName,
           category: local?.category || sm.market_name || (sm.kind === 'extra' ? 'إكسسوارات' : 'خيوط'),
-          quantity: local?.currentStock !== undefined ? local.currentStock : 10,
-          minThreshold: local?.minAlertThreshold !== undefined ? local.minAlertThreshold : 5,
-          costPrice: sm.purchase_price || local?.costPerUnit || 0,
+          quantity: resolved.currentStock,
+          currentStock: resolved.currentStock,
+          minThreshold: resolved.minThreshold,
+          minAlertThreshold: resolved.minThreshold,
+          warehouseTracked: resolved.isTracked,
+          isLowStock: resolved.isLowStock,
+          costPrice: Number(sm.purchase_price || local?.costPerUnit || 0),
           unit: unitName,
           unitId: sm.unit_id,
           source: 'supabase',
         });
       });
 
-      // 2. Add remaining local items if not yet synced
+      // 2. Remaining local Dexie items
       dexieMats.forEach((dm) => {
         const safeName = (dm.materialName || '').trim();
-        const norm = safeName.toLowerCase();
-        if (norm && !seenNames.has(norm)) {
-          seenNames.add(norm);
-          mergedList.push({
-            id: dm.id,
-            name: safeName,
-            category: dm.category || 'خيوط',
-            quantity: dm.currentStock || 0,
-            minThreshold: dm.minAlertThreshold || 5,
-            costPrice: dm.costPerUnit || 0,
-            unit: dm.unit || 'كيلو',
-            source: 'dexie',
-          });
-        }
+        if (!safeName) return;
+        const resolved = resolveMaterialStockValues(dm, localStockMap);
+        rawCombined.push({
+          id: dm.id,
+          name: safeName,
+          materialName: safeName,
+          category: dm.category || 'خيوط',
+          quantity: resolved.currentStock,
+          currentStock: resolved.currentStock,
+          minThreshold: resolved.minThreshold,
+          minAlertThreshold: resolved.minThreshold,
+          warehouseTracked: resolved.isTracked,
+          isLowStock: resolved.isLowStock,
+          costPrice: Number(dm.costPerUnit || 0),
+          unit: dm.unit || 'كيلو',
+          source: 'dexie',
+        });
       });
 
+      const mergedList = deduplicateMaterialsByName(rawCombined, localStockMap);
       setMaterials(mergedList);
+      const hasStocked = mergedList.some((m) => m.warehouseTracked || Number(m.quantity) > 0);
+      if (!hasStocked) {
+        setStockViewFilter('all');
+      }
     } catch (err: any) {
       console.warn('Load materials error:', err);
     } finally {
@@ -302,16 +330,29 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
     }
   };
 
+  const stockedCount = useMemo(
+    () => materials.filter((m) => m.warehouseTracked || Number(m.quantity) > 0).length,
+    [materials]
+  );
+
+  const lowStockCount = useMemo(
+    () => materials.filter((m) => Boolean(m.isLowStock)).length,
+    [materials]
+  );
+
   const filteredMaterials = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     return materials.filter((m) => {
+      const isTracked = m.warehouseTracked || Number(m.quantity) > 0;
+      if (stockViewFilter === 'stocked' && !isTracked) return false;
+      if (stockViewFilter === 'low' && !m.isLowStock) return false;
       const matchCat = selectedCategoryFilter === 'all' || m.category === selectedCategoryFilter;
       const matName = String(m.name || '').toLowerCase();
       const matCat = String(m.category || '').toLowerCase();
       const matchSearch = !q || matName.includes(q) || matCat.includes(q);
       return matchCat && matchSearch;
     });
-  }, [materials, selectedCategoryFilter, searchQuery]);
+  }, [materials, selectedCategoryFilter, searchQuery, stockViewFilter]);
 
   if (!isOpen) return null;
 
@@ -325,32 +366,32 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
               <Layers size={22} />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                <span>مخزن الخامات (Materials Inventory)</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20">
-                  {materials.length} خامة مسجلة
-                </span>
+              <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-stone-100">
+                {isCraft ? 'جرد أرصدة الخامات' : 'مخزن الخامات وأرصدة الأصول'}
               </h2>
               <p className="text-xs text-stone-500 dark:text-stone-400">
-                إدارة كاملة لجدول الخامات: الاسم، التصنيف، الكمية، حد الطلب الأدنى، سعر التكلفة، ووحدة القياس
+                <span className="font-mono tabular-nums font-bold">{stockedCount}</span> خامة لها رصيد بالمخزن
+                {' · '}
+                <span className="font-mono tabular-nums">{materials.length}</span> إجمالي خاماتك
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={handleOpenAdd}
-              className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
             >
-              <Plus size={16} />
-              <span>إضافة خامة جديدة</span>
+              <Plus size={15} />
+              <span>خامة جديدة</span>
             </button>
 
             <button
               type="button"
               onClick={onClose}
               className="w-9 h-9 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 flex items-center justify-center transition cursor-pointer"
+              aria-label="إغلاق"
             >
               <X size={20} />
             </button>
@@ -359,36 +400,84 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
 
         {/* Notice alert */}
         {notice && (
-          <div className={`mx-4 mt-3 p-3 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
+          <div className={`mx-4 mt-3 p-3 rounded-2xl border text-xs font-bold flex items-center justify-between gap-2 ${
             notice.isError
               ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
               : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
           }`}>
-            <CheckCircle size={16} />
-            <span>{notice.text}</span>
+            <div className="flex items-center gap-2">
+              <CheckCircle size={16} />
+              <span>{notice.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              className="p-1 rounded-lg hover:bg-black/10 cursor-pointer"
+              aria-label="إغلاق الرسالة"
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
 
-        {/* Search & Category Filter Toolbar */}
-        <div className="p-4 border-b border-stone-200 dark:border-stone-800 flex flex-wrap items-center justify-between gap-3 bg-stone-50/50 dark:bg-stone-900/50">
-          <div className="relative flex-1 min-w-[200px] max-w-md">
-            <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-stone-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث في الخامات بالاسم أو التصنيف..."
-              className="w-full pr-9 pl-3 py-2 text-xs rounded-xl bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 focus:outline-none focus:ring-2 focus:ring-amber-500/40 text-stone-900 dark:text-stone-100"
-            />
+        {/* Search & Stock View Filter Toolbar */}
+        <div className="p-4 border-b border-stone-200 dark:border-stone-800 space-y-2.5 bg-stone-50/50 dark:bg-stone-900/50">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-stone-200/70 dark:bg-stone-800">
+              <button
+                type="button"
+                onClick={() => setStockViewFilter('stocked')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                  stockViewFilter === 'stocked'
+                    ? 'bg-white dark:bg-stone-900 text-amber-700 dark:text-amber-300 shadow-xs'
+                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                المتوفر بالمخزن ({stockedCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockViewFilter('low')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                  stockViewFilter === 'low'
+                    ? 'bg-white dark:bg-stone-900 text-rose-700 dark:text-rose-300 shadow-xs'
+                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                النواقص ({lowStockCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockViewFilter('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                  stockViewFilter === 'all'
+                    ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-xs'
+                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                }`}
+              >
+                كل خاماتي ({materials.length})
+              </button>
+            </div>
+
+            <div className="relative flex-1 min-w-[180px] max-w-sm">
+              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ابحث بالاسم أو التصنيف..."
+                className="w-full pr-9 pl-3 py-2 text-xs rounded-xl bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 focus:outline-none focus:ring-2 focus:ring-amber-500/40 text-stone-900 dark:text-stone-100"
+              />
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 max-w-full">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 max-w-full">
             <button
               type="button"
               onClick={() => setSelectedCategoryFilter('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 cursor-pointer ${
                 selectedCategoryFilter === 'all'
-                  ? 'bg-amber-600 text-white shadow-xs'
+                  ? 'bg-amber-600 text-white'
                   : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:bg-stone-100'
               }`}
             >
@@ -399,9 +488,9 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategoryFilter(cat)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 cursor-pointer ${
                   selectedCategoryFilter === cat
-                    ? 'bg-amber-600 text-white shadow-xs'
+                    ? 'bg-amber-600 text-white'
                     : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:bg-stone-100'
                 }`}
               >
@@ -446,43 +535,53 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
                 </thead>
                 <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
                   {filteredMaterials.map((item) => {
-                    const isLow = Number(item.quantity) <= Number(item.minThreshold);
+                    const isTracked = item.warehouseTracked || Number(item.quantity) > 0;
+                    const isLow = Boolean(item.isLowStock);
                     return (
                       <tr key={item.id} className="hover:bg-amber-50/40 dark:hover:bg-amber-950/20 transition-colors">
-                        <td className="py-3 px-3 font-black text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-amber-500" />
-                          <span>{item.name}</span>
+                        <td className="py-3 px-3 font-black text-stone-900 dark:text-stone-100">
+                          {item.name}
                         </td>
-                        <td className="py-3 px-3 text-stone-600 dark:text-stone-300">
-                          <span className="px-2 py-0.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-[11px] font-bold">
-                            {item.category}
-                          </span>
+                        <td className="py-3 px-3 text-stone-500 dark:text-stone-400 text-[11px]">
+                          {item.category}
                         </td>
                         <td className="py-3 px-3">
-                          <div className="min-w-[160px] space-y-1.5">
+                          <div className="min-w-[150px] space-y-1.5">
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <span className={`font-black text-xs ${isLow ? 'text-rose-600 dark:text-rose-400' : 'text-stone-900 dark:text-stone-100'}`}>
+                              <span
+                                className={`font-mono tabular-nums font-black text-xs ${
+                                  isLow
+                                    ? 'text-rose-600 dark:text-rose-400'
+                                    : isTracked
+                                    ? 'text-stone-900 dark:text-stone-100'
+                                    : 'text-stone-400'
+                                }`}
+                              >
                                 {item.quantity} {item.unit}
                               </span>
-                              {isLow && (
+                              {!isTracked ? (
+                                <span className="text-[10px] font-medium text-stone-400">
+                                  بدون رصيد بعد
+                                </span>
+                              ) : isLow ? (
                                 <>
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-black text-rose-700 bg-rose-100 dark:bg-rose-950/80 border border-rose-300 dark:border-rose-800 px-1.5 py-0.5 rounded-md animate-pulse">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400">
                                     <AlertTriangle size={11} />
-                                    <span>⚠️ يلزم الشراء</span>
+                                    <span>قربت تخلص</span>
                                   </span>
                                   {onOpenPurchaseForMaterial && (
                                     <button
                                       type="button"
                                       onClick={() => onOpenPurchaseForMaterial(item)}
-                                      className="px-2 py-0.5 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black transition active:scale-95 cursor-pointer whitespace-nowrap flex items-center gap-1"
-                                      title="طلب شراء وتوريد فوري"
+                                      className="px-2 py-0.5 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold transition cursor-pointer whitespace-nowrap flex items-center gap-1"
+                                      title="طلب شراء وتوريد"
                                     >
                                       <PackagePlus size={11} />
-                                      <span>طلب شراء 🛒</span>
+                                      <span>شراء</span>
                                     </button>
                                   )}
                                 </>
-                              )}
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={() => {
@@ -490,24 +589,26 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
                                   setAdjustNewStock(item.quantity);
                                 }}
                                 className="p-1 rounded-md text-stone-400 hover:text-amber-600 transition cursor-pointer"
-                                title="تسوية رصيد المخزون"
+                                title={isTracked ? 'تعديل الرصيد' : 'تسجيل رصيد بداية'}
                               >
                                 <SlidersHorizontal size={13} />
                               </button>
                             </div>
-                            <StockLevelProgressBar
-                              currentStock={Number(item.quantity) || 0}
-                              minThreshold={Number(item.minThreshold) || 1}
-                              unitName={item.unit}
-                              size="sm"
-                              showLabels={false}
-                            />
+                            {isTracked && Number(item.minThreshold) > 0 && (
+                              <StockLevelProgressBar
+                                currentStock={Number(item.quantity) || 0}
+                                minThreshold={Number(item.minThreshold) || 1}
+                                unitName={item.unit}
+                                size="sm"
+                                showLabels={false}
+                              />
+                            )}
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-stone-600 dark:text-stone-400 font-mono">
-                          {item.minThreshold} {item.unit}
+                        <td className="py-3 px-3 text-stone-500 dark:text-stone-400 font-mono tabular-nums">
+                          {Number(item.minThreshold) > 0 ? `${item.minThreshold} ${item.unit}` : '—'}
                         </td>
-                        <td className="py-3 px-3 font-bold text-emerald-700 dark:text-emerald-400 font-mono">
+                        <td className="py-3 px-3 font-bold text-emerald-700 dark:text-emerald-400 font-mono tabular-nums">
                           {Number(item.costPrice).toLocaleString('ar-EG')} {currencySymbol}
                         </td>
                         <td className="py-3 px-3 text-stone-600 dark:text-stone-300">
@@ -544,11 +645,11 @@ export const MaterialsInventoryModal: React.FC<MaterialsInventoryModalProps> = (
 
         {/* Footer Summary */}
         <footer className="p-3.5 border-t border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-850 flex flex-wrap items-center justify-between text-xs text-stone-600 dark:text-stone-300 gap-2">
-          <div className="flex items-center gap-4">
-            <span>إجمالي الأصناف: <strong>{filteredMaterials.length}</strong></span>
-            <span>النواقص: <strong className="text-rose-600">{filteredMaterials.filter((m) => Number(m.quantity) <= Number(m.minThreshold)).length}</strong></span>
+          <div className="flex flex-wrap items-center gap-4">
+            <span>المعروض: <strong className="font-mono tabular-nums">{filteredMaterials.length}</strong></span>
+            <span>النواقص الفعلية: <strong className="font-mono tabular-nums text-rose-600">{lowStockCount}</strong></span>
             <span>
-              إجمالي قيمة المخزون التقديرية: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">
+              قيمة المخزون: <strong className="text-emerald-600 dark:text-emerald-400 font-mono tabular-nums">
                 {Math.round(filteredMaterials.reduce((acc, m) => acc + (Number(m.quantity) * Number(m.costPrice)), 0)).toLocaleString('ar-EG')} {currencySymbol}
               </strong>
             </span>

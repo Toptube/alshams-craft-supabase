@@ -492,15 +492,13 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
       {
         id: 'materials',
         label: 'خاماتي',
-        subtitle: 'كل خاماتك بتقسيمتها ومنظومة الخامات',
+        subtitle: 'أسماء وأسعار خاماتك والدليل الموحد',
         iconKey: 'Layers',
         colorPreset: 'amber',
         visible: true,
         items: [
-          { id: 'mat_list', actionKey: 'nav_materials', label: 'خاماتي (كل الخامات + إضافة جديد)', iconKey: 'Layers', visible: true },
-          { id: 'mat_unified', actionKey: 'nav_unified_materials', label: 'منظومة الخامات الموحدة (الذكية)', iconKey: 'Sparkles', visible: true },
-          { id: 'mat_prices', actionKey: 'nav_materials', label: 'أسعار الشراء ووحدات القياس', iconKey: 'Tag', visible: true },
-          { id: 'mat_alerts', actionKey: 'nav_materials', label: 'المخزن والجرد والتنبيهات', iconKey: 'AlertTriangle', visible: true },
+          { id: 'mat_list', actionKey: 'nav_materials', label: 'خاماتي (الأسماء والأسعار والوحدات)', iconKey: 'Layers', visible: true },
+          { id: 'mat_unified', actionKey: 'nav_unified_materials', label: 'دليل الخامات الموحد (إضافة خامات جديدة)', iconKey: 'Sparkles', visible: true },
         ],
       },
       {
@@ -511,8 +509,8 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
         colorPreset: 'orange',
         visible: true,
         items: [
-          { id: 'prod_calc', actionKey: 'nav_calculator', label: 'حاسبة تكاليف المنتج الشاملة', iconKey: 'Calculator', visible: true },
-          { id: 'prod_inv', actionKey: 'modal_inv_products', label: 'المنتجات الجاهزة بالمخزن', iconKey: 'PackagePlus', visible: true },
+          { id: 'prod_calc', actionKey: 'nav_calculator', label: 'حاسبة تكاليف المنتج', iconKey: 'Calculator', visible: true },
+          { id: 'prod_inv', actionKey: 'modal_inv_products', label: 'المنتجات الجاهزة للبيع', iconKey: 'PackagePlus', visible: true },
           { id: 'prod_arch', actionKey: 'nav_archive', label: 'أرشيف المشغولات والتصاميم', iconKey: 'FolderArchive', visible: true },
         ],
       },
@@ -533,15 +531,13 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
       {
         id: 'purchases',
         label: 'المشتريات',
-        subtitle: 'فواتير وتوريد الخامات',
+        subtitle: 'فواتير شراء وتوريد الخامات',
         iconKey: 'PackagePlus',
         colorPreset: 'rose',
         visible: true,
         items: [
-          { id: 'pur_new', actionKey: 'modal_supplier_invoice', label: 'تسجيل فاتورة شراء خامات', iconKey: 'PlusCircle', visible: true },
-          { id: 'pur_list', actionKey: 'nav_purchases', label: 'سجل المشتريات وتوريد الخامات', iconKey: 'Truck', visible: true },
-          { id: 'pur_order', actionKey: 'modal_supplier_invoice', label: 'أمر شراء جديد للمورد', iconKey: 'Receipt', visible: true },
-          { id: 'pur_audit', actionKey: 'modal_inv_audit', label: 'إذن استلام وفحص الخامات', iconKey: 'ClipboardCheck', visible: true },
+          { id: 'pur_new', actionKey: 'modal_supplier_invoice', label: 'تسجيل فاتورة شراء جديدة', iconKey: 'PlusCircle', visible: true },
+          { id: 'pur_list', actionKey: 'nav_purchases', label: 'فواتير المشتريات السابقة', iconKey: 'Truck', visible: true },
         ],
       },
       {
@@ -552,24 +548,21 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
         colorPreset: 'blue',
         visible: true,
         items: [
-          { id: 'sup_mkt', actionKey: 'nav_suppliers_market', label: 'سوق موردين الشمساوية (شراء الخامات)', iconKey: 'ShoppingBag', visible: true },
+          { id: 'sup_mkt', actionKey: 'nav_suppliers_market', label: 'سوق موردين الشمساوية', iconKey: 'ShoppingBag', visible: true },
+          { id: 'sup_dir', actionKey: 'nav_suppliers', label: 'مورديني وكشف حسابهم', iconKey: 'Truck', visible: true },
           { id: 'sup_add', actionKey: 'modal_create_supplier', label: 'إضافة مورد جديد', iconKey: 'UserPlus', visible: true },
-          { id: 'sup_dir', actionKey: 'nav_suppliers', label: 'دليل وبيانات الموردين', iconKey: 'Truck', visible: true },
-          { id: 'sup_stmt', actionKey: 'nav_suppliers', label: 'كشف حساب ومدفوعات الموردين', iconKey: 'FileText', visible: true },
         ],
       },
       {
         id: 'inventory',
         label: 'المخازن',
-        subtitle: 'أرصدة وحركات وجرد',
+        subtitle: 'جرد أرصدة الخامات وحركة المخزن',
         iconKey: 'Boxes',
         colorPreset: 'indigo',
         visible: true,
         items: [
-          { id: 'inv_mat', actionKey: 'modal_inv_materials', label: 'أرصدة خامات الورشة', iconKey: 'Layers', visible: true },
-          { id: 'inv_prod', actionKey: 'modal_inv_products', label: 'مخزن المنتج التام', iconKey: 'ShoppingBag', visible: true },
-          { id: 'inv_tr', actionKey: 'modal_inv_audit', label: 'إذن الصرف والاستلام والتحويل', iconKey: 'ArrowLeftRight', visible: true },
-          { id: 'inv_log', actionKey: 'modal_inv_audit', label: 'دفتر حركة المخزن والتسويات', iconKey: 'History', visible: true },
+          { id: 'inv_mat', actionKey: 'modal_inv_materials', label: 'جرد أرصدة الخامات', iconKey: 'Layers', visible: true },
+          { id: 'inv_tr', actionKey: 'modal_inv_audit', label: 'حركة المخزن والجرد والتسوية', iconKey: 'ArrowLeftRight', visible: true },
         ],
       },
       {
@@ -580,24 +573,22 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
         colorPreset: 'cyan',
         visible: true,
         items: [
-          { id: 'wo_new', actionKey: 'nav_work_orders_create', label: 'أمر تشغيل وتصنيع جديد', iconKey: 'PlusCircle', visible: true },
-          { id: 'wo_issue', actionKey: 'nav_work_orders_issue', label: 'إذن صرف خامات للتصنيع', iconKey: 'Boxes', visible: true },
-          { id: 'wo_rec', actionKey: 'nav_work_orders_receive', label: 'إذن استلام وتوريد منتج تام', iconKey: 'PackageCheck', visible: true },
-          { id: 'wo_list', actionKey: 'nav_work_orders', label: 'سجل ومتابعة أوامر التشغيل', iconKey: 'Hammer', visible: true },
+          { id: 'wo_new', actionKey: 'nav_work_orders_create', label: 'طلب شغل وتصنيع جديد', iconKey: 'PlusCircle', visible: true },
+          { id: 'wo_issue', actionKey: 'nav_work_orders_issue', label: 'سحب خامات للتصنيع', iconKey: 'Boxes', visible: true },
+          { id: 'wo_rec', actionKey: 'nav_work_orders_receive', label: 'استلام وتقفيل منتج جاهز', iconKey: 'PackageCheck', visible: true },
+          { id: 'wo_list', actionKey: 'nav_work_orders', label: 'متابعة أوامر التشغيل', iconKey: 'Hammer', visible: true },
         ],
       },
       {
         id: 'sales',
         label: 'المبيعات',
-        subtitle: 'الفواتير والتحصيل والمرتجع',
+        subtitle: 'تسجيل البيع والفواتير والمرتجع',
         iconKey: 'ShoppingCart',
         colorPreset: 'teal',
         visible: true,
         items: [
-          { id: 'sal_new', actionKey: 'nav_sales_new', label: 'تسجيل بيع / فاتورة جديدة', iconKey: 'PlusCircle', visible: true },
-          { id: 'sal_inv', actionKey: 'nav_invoices', label: 'سجل فواتير المبيعات', iconKey: 'Receipt', visible: true },
-          { id: 'sal_pay', actionKey: 'nav_sales', label: 'المدفوعات (كاش / إنستاباي / آجل)', iconKey: 'Wallet', visible: true },
-          { id: 'sal_ret', actionKey: 'nav_invoices_returns', label: 'مرتجعات المبيعات', iconKey: 'RotateCcw', visible: true },
+          { id: 'sal_new', actionKey: 'nav_sales', label: 'تسجيل بيع ومدفوعات الورشة', iconKey: 'PlusCircle', visible: true },
+          { id: 'sal_inv', actionKey: 'nav_invoices', label: 'فواتير البيع والمرتجعات', iconKey: 'Receipt', visible: true },
         ],
       },
       {
@@ -608,57 +599,44 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
         colorPreset: 'emerald',
         visible: true,
         items: [
-          { id: 'cus_list', actionKey: 'nav_customers', label: 'عملائي', iconKey: 'Users', visible: true },
+          { id: 'cus_list', actionKey: 'nav_customers', label: 'عملائي وكشف حسابهم', iconKey: 'Users', visible: true },
           { id: 'cus_add', actionKey: 'modal_new_client', label: 'إضافة عميل جديد', iconKey: 'UserPlus', visible: true },
-          { id: 'cus_stmt', actionKey: 'nav_sales', label: 'كشف حساب العملاء والمستحقات', iconKey: 'FileText', visible: true },
         ],
       },
       {
         id: 'workforce',
-        label: 'فريق العمل والحرفيين',
-        subtitle: 'الصناع بالقطعة والموظفون',
+        label: 'فريق العمل',
+        subtitle: 'الصناع والموظفون والأجور',
         iconKey: 'Users2',
         colorPreset: 'violet',
         visible: true,
         items: [
-          { id: 'wf_art_list', actionKey: 'nav_hr', label: 'سجل صناع الورشة وتخصصاتهم', iconKey: 'Users', visible: true, subGroup: 'artisans' },
-          { id: 'wf_art_piece', actionKey: 'nav_hr', label: 'حساب أجر القطعة ومستحقات الإنتاج', iconKey: 'Award', visible: true, subGroup: 'artisans' },
-          { id: 'wf_art_pay', actionKey: 'nav_hr', label: 'تسوية وصرف مستحقات حرفي', iconKey: 'Wallet', visible: true, subGroup: 'artisans' },
-          { id: 'wf_art_wo', actionKey: 'nav_work_orders', label: 'تكليف ومتابعة إنجاز المشغولات', iconKey: 'Hammer', visible: true, subGroup: 'artisans' },
-          { id: 'wf_emp_add', actionKey: 'modal_new_employee', label: 'إضافة موظف / صانع جديد', iconKey: 'UserPlus', visible: true, subGroup: 'employees' },
-          { id: 'wf_emp_sal', actionKey: 'nav_hr', label: 'مسير الرواتب والأجور الشهرية', iconKey: 'Wallet', visible: true, subGroup: 'employees' },
-          { id: 'wf_emp_adv', actionKey: 'nav_hr', label: 'السلف والدفعات النقدية المقدمة', iconKey: 'DollarSign', visible: true, subGroup: 'employees' },
-          { id: 'wf_emp_att', actionKey: 'nav_hr', label: 'سجل الحضور والانضباط', iconKey: 'ClipboardCheck', visible: true, subGroup: 'employees' },
+          { id: 'wf_art_list', actionKey: 'nav_hr', label: 'الصنايعية والموظفين والأجور', iconKey: 'Users', visible: true },
+          { id: 'wf_emp_add', actionKey: 'modal_new_employee', label: 'إضافة صانع / موظف جديد', iconKey: 'UserPlus', visible: true },
         ],
       },
       {
         id: 'expenses',
         label: 'المصروفات',
-        subtitle: 'الإيجار والكهرباء والأصول',
+        subtitle: 'الإيجار والكهرباء والفواتير',
         iconKey: 'DollarSign',
         colorPreset: 'red',
         visible: true,
         items: [
-          { id: 'exp_add', actionKey: 'modal_admin_costs', label: 'تسجيل مصروف مع تحديد مصدر الصرف', iconKey: 'PlusCircle', visible: true },
-          { id: 'exp_rent', actionKey: 'modal_admin_costs', label: 'بنود المصروفات والإيجار والفواتير', iconKey: 'DollarSign', visible: true },
-          { id: 'exp_fx', actionKey: 'modal_exchange_rates', label: 'أسعار الصرف اليومية للعملات', iconKey: 'Coins', visible: true },
+          { id: 'exp_add', actionKey: 'modal_admin_costs', label: 'مصاريف الورشة (إيجار / كهرباء / فواتير)', iconKey: 'DollarSign', visible: true },
           { id: 'exp_ast', actionKey: 'nav_fixed_assets', label: 'الأصول الثابتة وإهلاك المعدات', iconKey: 'Building', visible: true },
-          { id: 'exp_rep', actionKey: 'nav_reports', label: 'تحليل وتوزيع المصروفات', iconKey: 'BarChart3', visible: true },
+          { id: 'exp_fx', actionKey: 'modal_exchange_rates', label: 'أسعار الصرف اليومية للعملات', iconKey: 'Coins', visible: true },
         ],
       },
       {
         id: 'treasuries',
-        label: 'الخزائن والعهد',
-        subtitle: 'كاش وإنستاباي ومحافظ',
+        label: 'الخزائن والفلوس',
+        subtitle: 'درج الورشة والمحافظ والبنك',
         iconKey: 'Wallet',
         colorPreset: 'lime',
         visible: true,
-        items: [
-          { id: 'tr_cash', actionKey: 'nav_treasuries', label: 'الخزينة النقدية الرئيسية (الكاش)', iconKey: 'Wallet', visible: true },
-          { id: 'tr_bank', actionKey: 'nav_treasuries', label: 'إنستاباي والبنك والمحافظ الإلكترونية', iconKey: 'Coins', visible: true },
-          { id: 'tr_custody', actionKey: 'nav_treasuries', label: 'إدارة العهد المالية المغلقة ومتابعة تسويتها', iconKey: 'Lock', visible: true },
-          { id: 'tr_move', actionKey: 'nav_treasuries', label: 'تحويل نقدي بين الخزائن والعهد', iconKey: 'ArrowLeftRight', visible: true },
-        ],
+        directActionKey: 'nav_treasuries',
+        items: [],
       },
       {
         id: 'accounts',
@@ -667,24 +645,18 @@ export const DEFAULT_ARTISAN_UI_LAYOUT: RoleUiLayoutConfig = {
         iconKey: 'Scale',
         colorPreset: 'sky',
         visible: true,
-        items: [
-          { id: 'acc_jrn', actionKey: 'nav_accounts', label: 'دفتر اليومية وسجل الحركات الحية', iconKey: 'Receipt', visible: true },
-          { id: 'acc_pnl', actionKey: 'nav_accounts', label: 'صافي الأرباح والخسائر للورشة', iconKey: 'TrendingUp', visible: true },
-          { id: 'acc_due', actionKey: 'nav_accounts', label: 'كشف مستحقات الورشة والالتزامات', iconKey: 'Scale', visible: true },
-        ],
+        directActionKey: 'nav_accounts',
+        items: [],
       },
       {
         id: 'reports',
         label: 'التقارير',
-        subtitle: 'تحليلات المبيعات والسيولة',
+        subtitle: 'خلاصة شغلك ومكسبك',
         iconKey: 'BarChart3',
         colorPreset: 'purple',
         visible: true,
-        items: [
-          { id: 'rep_sal', actionKey: 'nav_reports', label: 'تقارير المبيعات والأرباح', iconKey: 'BarChart3', visible: true },
-          { id: 'rep_inv', actionKey: 'nav_reports', label: 'تقرير المخزون وحركة الخامات', iconKey: 'TrendingUp', visible: true },
-          { id: 'rep_liq', actionKey: 'nav_reports', label: 'تقرير السيولة الحية والتدفقات النقدية', iconKey: 'Lock', visible: true },
-        ],
+        directActionKey: 'nav_reports',
+        items: [],
       },
       {
         id: 'ai_helpers',
@@ -1003,6 +975,70 @@ function mergeRoleLayout(raw: Partial<RoleUiLayoutConfig> | undefined, fallback:
         }))
       : fallback.home.cards.map((c) => ({ ...c, items: c.items.map((i) => ({ ...i })) }));
 
+  // Automatic deduplication of legacy redundant buttons saved in older cached layouts
+  const LEGACY_DUPLICATE_ITEM_IDS = new Set([
+    'mat_prices',
+    'mat_alerts',
+    'pur_order',
+    'pur_audit',
+    'sup_stmt',
+    'inv_prod',
+    'inv_log',
+    'sal_pay',
+    'sal_ret',
+    'cus_stmt',
+    'wf_art_piece',
+    'wf_art_pay',
+    'wf_art_wo',
+    'wf_emp_sal',
+    'wf_emp_adv',
+    'wf_emp_att',
+    'exp_rent',
+    'exp_rep',
+    'tr_cash',
+    'tr_bank',
+    'tr_custody',
+    'tr_move',
+    'acc_jrn',
+    'acc_pnl',
+    'acc_due',
+    'rep_sal',
+    'rep_inv',
+    'rep_liq',
+  ]);
+
+  const normalizeActionGroup = (ak: string): string => {
+    if (ak === 'nav_sales_new') return 'nav_sales';
+    if (ak === 'nav_invoices_returns') return 'nav_invoices';
+    return ak;
+  };
+
+  for (const card of safeCards) {
+    const defCard = fallback.home.cards.find((d) => d.id === card.id);
+    if (defCard?.directActionKey && defCard.items.length === 0) {
+      // Single-screen cards (treasuries / accounts / reports / executive_brief) open directly in 1 click
+      card.directActionKey = defCard.directActionKey;
+      card.items = [];
+      continue;
+    }
+
+    const seenActions = new Set<string>();
+    const cleanedItems: UiActionButtonConfig[] = [];
+    for (const it of card.items || []) {
+      if (LEGACY_DUPLICATE_ITEM_IDS.has(it.id)) continue;
+      const canonicalAction = normalizeActionGroup(it.actionKey);
+      if (canonicalAction && seenActions.has(canonicalAction)) continue;
+      if (canonicalAction) seenActions.add(canonicalAction);
+      cleanedItems.push({
+        ...it,
+        actionKey: canonicalAction || it.actionKey,
+        // Drop legacy workforce subGroup tabs now that workforce has 2 crisp unique buttons
+        subGroup: card.id === 'workforce' ? undefined : it.subGroup,
+      });
+    }
+    card.items = cleanedItems;
+  }
+
   // Forward-compat: inject brand-new default cards AND brand-new default items inside existing cards
   const existingCardIds = new Set(safeCards.map((c) => c.id));
   for (const defCard of fallback.home.cards) {
@@ -1012,8 +1048,9 @@ function mergeRoleLayout(raw: Partial<RoleUiLayoutConfig> | undefined, fallback:
       const targetCard = safeCards.find((c) => c.id === defCard.id);
       if (targetCard) {
         const existingItemIds = new Set(targetCard.items.map((it) => it.id));
+        const existingActions = new Set(targetCard.items.map((it) => normalizeActionGroup(it.actionKey)));
         const missingItems = defCard.items
-          .filter((it) => !existingItemIds.has(it.id))
+          .filter((it) => !existingItemIds.has(it.id) && !existingActions.has(normalizeActionGroup(it.actionKey)))
           .map((it) => ({ ...it }));
         if (missingItems.length > 0) {
           targetCard.items = [...missingItems, ...targetCard.items];

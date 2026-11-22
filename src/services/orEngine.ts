@@ -20,6 +20,11 @@
 
 import { db } from '../db/dexieDB';
 import { supabase } from '../lib/supabase';
+import {
+  deduplicateMaterialsByName,
+  readLocalMaterialStockMap,
+  resolveMaterialStockValues,
+} from '../lib/materialStockUtils';
 import type {
   CustomerRecord,
   InvoiceRecord,
@@ -508,23 +513,40 @@ function analyzeMaterialsEOQ(
     });
   });
 
-  const criticalMaterials = materials
-    .filter((m) => m.isActive !== false)
+  const localStockMap = readLocalMaterialStockMap(tenantId);
+  const uniqueMaterials = deduplicateMaterialsByName(materials, localStockMap);
+
+  const criticalMaterials = uniqueMaterials
     .map((m) => {
-      const current = Number(m.currentStock || 0);
-      const minThreshold = Math.max(1, Number(m.reorderLevel || m.minAlertThreshold || 2));
-      const observed30dUsage = pulledByMat.get(m.id) || minThreshold * 2.2;
+      const resolved = resolveMaterialStockValues(m, localStockMap);
+      const current = resolved.currentStock;
+      const pulled = pulledByMat.get(m.id) || 0;
+      // Ignore catalog materials that have never been stocked or used in work orders
+      if (!resolved.isTracked && pulled <= 0) {
+        return { m, current, rop: 0, eoq: 0, daysLeft: 999, isLow: false };
+      }
+      const minThreshold = resolved.minThreshold;
+      const observed30dUsage = pulled > 0 ? pulled : minThreshold > 0 ? minThreshold * 2 : 0;
+      if (observed30dUsage <= 0 && minThreshold <= 0) {
+        return { m, current, rop: 0, eoq: 0, daysLeft: 999, isLow: false };
+      }
       const dailyUsage = Math.max(0.15, observed30dUsage / 30);
       const leadTimeDays = 4;
       const safetyStock = Math.ceil(dailyUsage * 2);
-      const rop = Math.ceil(dailyUsage * leadTimeDays + safetyStock);
-      // EOQ = sqrt(2 * D_annual * OrderCost / HoldingCost)
+      const rop = Math.max(minThreshold, Math.ceil(dailyUsage * leadTimeDays + safetyStock));
       const annualDemand = dailyUsage * 300;
-      const orderCost = 60; // تكلفة شحن/مشوار توريد تقديرية
+      const orderCost = 60;
       const holdingCost = Math.max(2, Number(m.costPerUnit || 50) * 0.18);
-      const eoq = Math.max(minThreshold, Math.round(Math.sqrt((2 * annualDemand * orderCost) / holdingCost)));
+      const eoq = Math.max(Math.max(1, minThreshold), Math.round(Math.sqrt((2 * annualDemand * orderCost) / holdingCost)));
       const daysLeft = Math.floor(current / dailyUsage);
-      return { m, current, rop, eoq, daysLeft, isLow: current <= Math.max(rop, minThreshold) };
+      return {
+        m,
+        current,
+        rop,
+        eoq,
+        daysLeft,
+        isLow: resolved.isLowStock || (pulled > 0 && current <= rop),
+      };
     })
     .filter((x) => x.isLow)
     .sort((a, b) => a.daysLeft - b.daysLeft);
