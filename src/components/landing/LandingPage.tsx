@@ -262,25 +262,47 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Hidden Ambient Anthem Audio Controller */}
       {!isPreview && <AlShamsAudioPlayer ref={audioPlayerRef} />}
 
-      {/* 1. Clean Three-Zone Top Bar Contract */}
+      {/* 1. Clean Mobile-Safe Top Bar: Menu (3 lines) + Logo | Desktop Links | Start Free + Day/Night Toggle */}
       <header
         style={{
           backgroundColor: theme.pageBg,
           borderColor: theme.borderColor,
         }}
-        className="sticky top-0 z-40 border-b backdrop-blur-md bg-opacity-95"
+        className="sticky top-0 z-40 w-full max-w-full overflow-x-clip border-b backdrop-blur-md bg-opacity-95"
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-6">
-          {/* Zone 1: Clean Brand Wordmark */}
-          <a
-            href="#top"
-            className="flex items-center gap-2.5 whitespace-nowrap shrink-0 focus-visible:outline-none"
-          >
-            <AlShamsBrandLogo className="h-9 w-auto" isDark={theme.isDarkTheme} />
-          </a>
+        <div className="w-full max-w-7xl mx-auto px-2.5 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
+          {/* Zone 1 (Start / First in RTL): 3-Line Side Menu + Compact Brand Logo */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
+            <button
+              type="button"
+              onClick={() => setIsSystemsDrawerOpen(true)}
+              aria-label="القائمة الجانبية واستكشاف الأنظمة"
+              title="القائمة الجانبية والأنظمة"
+              style={{
+                backgroundColor: theme.softSurfaceBg,
+                borderColor: theme.borderColor,
+                color: theme.inkColor,
+              }}
+              className={`w-9 h-9 sm:w-10 sm:h-10 ${theme.buttonRadius} border flex items-center justify-center shrink-0 hover:opacity-85 transition cursor-pointer`}
+            >
+              <Menu className="w-5 h-5" />
+            </button>
 
-          {/* Zone 2: Concise Single-Line Navigation Links */}
-          <nav className="hidden lg:flex items-center gap-7 text-sm font-bold" style={{ color: theme.mutedColor }}>
+            <a
+              href="#top"
+              className="flex items-center min-w-0 shrink overflow-hidden focus-visible:outline-none"
+            >
+              <AlShamsBrandLogo
+                maxWidth={112}
+                maxHeight={30}
+                className="h-7 sm:h-9 w-auto max-w-[104px] sm:max-w-[148px] object-contain"
+                isDark={theme.isDarkTheme}
+              />
+            </a>
+          </div>
+
+          {/* Zone 2: Concise Single-Line Navigation Links (Desktop Only) */}
+          <nav className="hidden lg:flex items-center gap-6 text-sm font-bold shrink-0" style={{ color: theme.mutedColor }}>
             <button
               type="button"
               onClick={() => setIsSystemsDrawerOpen(true)}
@@ -314,39 +336,33 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </button>
           </nav>
 
-          {/* Zone 3: Single Primary Action + Mobile Drawer */}
-          <div className="flex items-center gap-2 shrink-0">
-            {onToggleTheme && (
-              <button
-                type="button"
-                onClick={onToggleTheme}
-                aria-label="تبديل المظهر"
-                style={{ backgroundColor: theme.softSurfaceBg, borderColor: theme.borderColor, color: theme.inkColor }}
-                className={`w-9 h-9 ${theme.buttonRadius} border flex items-center justify-center cursor-pointer`}
-              >
-                {theme.isDarkTheme ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setIsSystemsDrawerOpen(true)}
-              aria-label="قائمة الأنظمة"
-              style={{ backgroundColor: theme.softSurfaceBg, borderColor: theme.borderColor, color: theme.inkColor }}
-              className={`lg:hidden px-3 h-9 ${theme.buttonRadius} border text-xs font-black inline-flex items-center gap-1.5 cursor-pointer`}
-            >
-              <Menu className="w-4 h-4" />
-              <span>الأنظمة</span>
-            </button>
-
+          {/* Zone 3 (End in RTL): "ابدأ مجاناً" + Day/Night Toggle Side-by-Side (Always Visible) */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={onOpenRegister}
               style={{ backgroundColor: theme.accentBg, color: theme.accentInk }}
-              className={`px-4 sm:px-5 h-10 ${theme.buttonRadius} text-xs sm:text-sm font-black whitespace-nowrap shrink-0 hover:opacity-90 transition cursor-pointer`}
+              className={`px-3 sm:px-5 h-9 sm:h-10 ${theme.buttonRadius} text-[11px] sm:text-sm font-black whitespace-nowrap shrink-0 hover:opacity-90 transition cursor-pointer shadow-xs`}
             >
               ابدأ مجاناً
             </button>
+
+            {onToggleTheme && (
+              <button
+                type="button"
+                onClick={onToggleTheme}
+                aria-label={theme.isDarkTheme ? 'التبديل للوضع النهاري' : 'التبديل للوضع الليلي'}
+                title={theme.isDarkTheme ? 'الوضع النهاري' : 'الوضع الليلي'}
+                style={{
+                  backgroundColor: theme.softSurfaceBg,
+                  borderColor: theme.borderColor,
+                  color: theme.inkColor,
+                }}
+                className={`w-9 h-9 sm:w-10 sm:h-10 ${theme.buttonRadius} border flex items-center justify-center shrink-0 hover:opacity-85 transition cursor-pointer`}
+              >
+                {theme.isDarkTheme ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -737,7 +753,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   قطع وموردون حقيقيون يعملون على المنظومة الآن
                 </h2>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {flags.artisanMarketplaceEnabled && onOpenMarketplace && (
                   <button
                     type="button"
@@ -895,8 +911,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         className="border-t py-8 px-4 sm:px-6"
       >
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <AlShamsBrandLogo className="h-8 w-auto" isDark={theme.isDarkTheme} />
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
+            <AlShamsBrandLogo maxWidth={112} maxHeight={28} className="h-7 w-auto object-contain" isDark={theme.isDarkTheme} />
             <span className="text-xs font-bold" style={{ color: theme.mutedColor }}>
               © {new Date().getFullYear()} منظومة الشمساوية · جميع الحقوق محفوظة
             </span>

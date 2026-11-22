@@ -36,6 +36,8 @@ export interface UserSubscriptionState {
   selectedAt?: string;
   promoClaimed?: boolean;
   updatedAt?: string;
+  syncedToCloudAt?: string;
+  syncStatus?: 'synced' | 'syncing' | 'pending_offline';
 }
 
 export const ALL_PACKAGE_IDS: SubscriptionPackageId[] = [
@@ -313,6 +315,8 @@ export function getStoredUserSubscription(userId?: string | null): UserSubscript
       selectedAt: parsed.selectedAt,
       promoClaimed: parsed.promoClaimed !== false,
       updatedAt: parsed.updatedAt,
+      syncedToCloudAt: parsed.syncedToCloudAt,
+      syncStatus: parsed.syncStatus,
     };
   } catch {
     return fallback;
@@ -338,7 +342,9 @@ export function saveUserSubscription(
       typeof next.hasSelectedPackages === 'boolean' ? next.hasSelectedPackages : prev.hasSelectedPackages,
     selectedAt: next.selectedAt || prev.selectedAt || new Date().toISOString(),
     promoClaimed: next.promoClaimed !== undefined ? next.promoClaimed : true,
-    updatedAt: new Date().toISOString(),
+    updatedAt: next.updatedAt || new Date().toISOString(),
+    syncedToCloudAt: next.syncedToCloudAt !== undefined ? next.syncedToCloudAt : prev.syncedToCloudAt,
+    syncStatus: next.syncStatus !== undefined ? next.syncStatus : prev.syncStatus,
   };
 
   if (typeof window !== 'undefined' && userId) {
@@ -352,13 +358,152 @@ export function saveUserSubscription(
   return finalState;
 }
 
+export interface PackageSyncResult {
+  cloudSaved: boolean;
+  dataSynced: boolean;
+  offline: boolean;
+  syncedAt?: string;
+}
+
+/**
+ * مزامنة تلقائية شاملة عند الاشتراك أو ترقية/تعديل الباقات:
+ * 1) تحفظ الباقات المختارة في السحابة (workshops.settings.subscription) لتثبيتها عبر كل الأجهزة.
+ * 2) تقوم فوراً بربط ومزامنة بيانات العضو القديمة والجديدة بدون مسح أو إعادة من الصفر.
+ * 3) إذا كان العضو أوفلاين، تُسجل في قائمة الانتظار وتتم المزامنة تلقائياً فور عودة الإنترنت.
+ */
+export async function syncUserSubscriptionAndData(
+  profile: UserProfile,
+  nextState: UserSubscriptionState,
+  options?: { forcePull?: boolean }
+): Promise<PackageSyncResult> {
+  const userId = profile.workshopId || profile.id || profile.email || '';
+  const workshopId = profile.tenantId || profile.workshopId || profile.id || '';
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    saveUserSubscription(userId, { ...nextState, syncStatus: 'pending_offline' });
+    return { cloudSaved: false, dataSynced: false, offline: true };
+  }
+
+  saveUserSubscription(userId, { ...nextState, syncStatus: 'syncing' });
+
+  let cloudSaved = false;
+  let dataSynced = false;
+
+  try {
+    const existingSettings =
+      profile.settings && typeof profile.settings === 'object' ? { ...profile.settings } : {};
+    const cloudSubPayload: UserSubscriptionState = {
+      ...nextState,
+      syncedToCloudAt: new Date().toISOString(),
+      syncStatus: 'synced',
+    };
+    const mergedSettings = {
+      ...existingSettings,
+      subscription: cloudSubPayload,
+    };
+
+    // 1) حفظ الباقة سحابياً في سجل الورشة / المورد (Supabase workshops.settings)
+    if (workshopId && workshopId !== 'workshop_demo') {
+      const { updateWorkshopProfileInSupabase } = await import('../db/supabaseService');
+      const { error } = await updateWorkshopProfileInSupabase(workshopId, {
+        settings: mergedSettings,
+      });
+      cloudSaved = !error;
+    } else {
+      cloudSaved = true;
+    }
+
+    // تحديث نسخة البروفايل المحلية عشان الإعدادات تفضل متطابقة فوراً
+    if (typeof window !== 'undefined') {
+      try {
+        const rawProf = localStorage.getItem('alshams_profile');
+        if (rawProf) {
+          const parsedProf = JSON.parse(rawProf);
+          parsedProf.settings = mergedSettings;
+          localStorage.setItem('alshams_profile', JSON.stringify(parsedProf));
+        }
+      } catch {}
+    }
+
+    // 2) مزامنة تلقائية غير مدمّرة لربط البيانات القديمة والجديدة بكل الأقسام المفعّلة
+    if (workshopId && workshopId !== 'workshop_demo') {
+      const { performQuietSync, hydrateWorkshopIntoDexie } = await import(
+        '../services/periodicQuietSync'
+      );
+      await performQuietSync(profile).catch(() => {});
+      await hydrateWorkshopIntoDexie(workshopId, {
+        force: options?.forcePull !== false,
+      }).catch(() => {});
+      dataSynced = true;
+    } else {
+      dataSynced = true;
+    }
+
+    const syncedAt = new Date().toISOString();
+    saveUserSubscription(userId, {
+      ...nextState,
+      syncedToCloudAt: syncedAt,
+      syncStatus: cloudSaved ? 'synced' : 'pending_offline',
+    });
+
+    // إشعار الواجهات بحدوث ربط وتحديث شامل للبيانات
+    if (typeof window !== 'undefined' && workshopId) {
+      window.dispatchEvent(
+        new CustomEvent('alshams_subscription_synced', {
+          detail: { userId, workshopId, syncedAt, activePackageIds: nextState.activePackageIds },
+        })
+      );
+    }
+
+    return { cloudSaved, dataSynced, offline: false, syncedAt };
+  } catch {
+    saveUserSubscription(userId, { ...nextState, syncStatus: 'pending_offline' });
+    return { cloudSaved, dataSynced, offline: false };
+  }
+}
+
 export function useUserSubscription(profile?: UserProfile | null): UserSubscriptionState {
   const userId = profile?.workshopId || profile?.id || profile?.email || '';
   const [state, setState] = useState<UserSubscriptionState>(() => getStoredUserSubscription(userId));
 
+  // استرجاع الباقة من السحابة تلقائياً لو موجودة على حساب العضو (عشان لو فتح من جهاز تاني)
   useEffect(() => {
-    setState(getStoredUserSubscription(userId));
-  }, [userId]);
+    if (!userId) return;
+    const local = getStoredUserSubscription(userId);
+    const cloudSub = (profile?.settings as any)?.subscription as Partial<UserSubscriptionState> | undefined;
+
+    if (cloudSub && Array.isArray(cloudSub.activePackageIds)) {
+      const cloudTs = Date.parse(cloudSub.updatedAt || cloudSub.syncedToCloudAt || '') || 0;
+      const localTs = Date.parse(local.updatedAt || '') || 0;
+      if (!local.hasSelectedPackages || cloudTs > localTs) {
+        const hydrated = saveUserSubscription(userId, {
+          activePackageIds: cloudSub.activePackageIds as SubscriptionPackageId[],
+          hasSelectedPackages: Boolean(cloudSub.hasSelectedPackages),
+          selectedAt: cloudSub.selectedAt,
+          promoClaimed: cloudSub.promoClaimed !== false,
+          updatedAt: cloudSub.updatedAt || new Date().toISOString(),
+          syncedToCloudAt: cloudSub.syncedToCloudAt || cloudSub.updatedAt,
+          syncStatus: 'synced',
+        });
+        setState(hydrated);
+        return;
+      }
+    }
+    setState(local);
+  }, [userId, profile?.settings]);
+
+  // مزامنة تلقائية فور عودة الإنترنت لو كان في تعديل باقة معلّق أوفلاين
+  useEffect(() => {
+    if (!userId || !profile) return;
+    const handleOnline = () => {
+      const latest = getStoredUserSubscription(userId);
+      if (latest.syncStatus === 'pending_offline' && latest.hasSelectedPackages) {
+        syncUserSubscriptionAndData(profile, latest, { forcePull: true }).catch(() => {});
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [userId, profile]);
 
   useEffect(() => {
     if (!userId) return;

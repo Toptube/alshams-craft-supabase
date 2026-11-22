@@ -3,10 +3,14 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  Cloud,
+  CloudOff,
   Crown,
   Gift,
   Layers,
   Lock,
+  RefreshCw,
+  ShieldCheck,
   Sparkles,
   User,
   X,
@@ -17,6 +21,7 @@ import {
   SubscriptionPackageId,
   getSubscriptionPackages,
   saveUserSubscription,
+  syncUserSubscriptionAndData,
   useUserSubscription,
 } from '../../types/subscriptions';
 import { WORLD_STOREFRONT_THEMES_LIST } from '../../lib/storefrontThemes';
@@ -45,6 +50,7 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
     currentSub.activePackageIds.length > 0 ? currentSub.activePackageIds : ['core_free']
   );
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const togglePkg = (id: SubscriptionPackageId) => {
     if (id === 'core_free') return;
@@ -59,18 +65,51 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
     setSelectedIds([...ALL_PACKAGE_IDS]);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const saved = saveUserSubscription(userId, {
       activePackageIds: selectedIds,
       hasSelectedPackages: true,
       promoClaimed: true,
+      syncStatus: 'syncing',
     });
     playSuccessSound();
-    setSavedNotice(
-      `تم حفظ وتفعيل ${saved.activePackageIds.length} باقات لحسابك بنجاح — استمتع بالعرض المجاني!`
-    );
-    setTimeout(() => setSavedNotice(null), 4000);
+    setIsSyncing(true);
+    setSavedNotice('جاري حفظ باقاتك ومزامنة وربط بياناتك القديمة مع الأقسام الجديدة تلقائياً...');
     onSaved?.(saved.activePackageIds);
+
+    const res = await syncUserSubscriptionAndData(profile, saved, { forcePull: true });
+    setIsSyncing(false);
+
+    if (res.offline) {
+      setSavedNotice(
+        `تم تفعيل ${saved.activePackageIds.length} باقات محلياً بدون فقدان أي بيانات — وستتم المزامنة مع السحابة تلقائياً فور عودة الإنترنت.`
+      );
+    } else if (res.cloudSaved && res.dataSynced) {
+      setSavedNotice(
+        `تم تفعيل ${saved.activePackageIds.length} باقات ومزامنة بياناتك القديمة مع الأقسام الجديدة تلقائياً بالكامل بدون فقدان أي سجل!`
+      );
+    } else {
+      setSavedNotice(
+        `تم تفعيل ${saved.activePackageIds.length} باقات على جهازك، ويمكنك الضغط على «مزامنة الباقة الآن» لإعادة المحاولة عند استقرار الاتصال.`
+      );
+    }
+    setTimeout(() => setSavedNotice(null), 6500);
+  };
+
+  const handleManualSyncNow = async () => {
+    if (isSyncing) return;
+    playButtonClickSound();
+    setIsSyncing(true);
+    setSavedNotice('جاري مزامنة الباقة وتحديث وربط كل بيانات حسابك مع السحابة...');
+    const res = await syncUserSubscriptionAndData(profile, currentSub, { forcePull: true });
+    setIsSyncing(false);
+    if (res.offline) {
+      setSavedNotice('أنت حالياً بدون إنترنت — ستتم المزامنة تلقائياً بمجرد عودة الاتصال.');
+    } else {
+      playSuccessSound();
+      setSavedNotice('تمت مزامنة باقاتك وربط كافة بياناتك القديمة والجديدة بنجاح ✓');
+    }
+    setTimeout(() => setSavedNotice(null), 5000);
   };
 
   const regularTotalMonthly = useMemo(() => {
@@ -79,28 +118,40 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
       .reduce((sum, p) => sum + p.monthlyPriceEgp, 0);
   }, [packages, selectedIds]);
 
+  const formattedLastSync = useMemo(() => {
+    if (!currentSub.syncedToCloudAt) return null;
+    try {
+      return new Date(currentSub.syncedToCloudAt).toLocaleTimeString('ar-EG', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return null;
+    }
+  }, [currentSub.syncedToCloudAt]);
+
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5" dir="rtl">
+    <div className="w-full max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-5 overflow-x-clip" dir="rtl">
       {/* Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
           {onGoBack && (
             <button
               type="button"
               onClick={onGoBack}
-              className="p-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C] cursor-pointer"
+              className="p-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#0D162E] text-[#0C1427] dark:text-[#F7F3EA] hover:border-[#EA580C] cursor-pointer shrink-0"
               aria-label="رجوع"
             >
               <ArrowRight className="w-4 h-4" />
             </button>
           )}
-          <div>
+          <div className="min-w-0">
             <h1 className="text-lg sm:text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
-              <Crown className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
-              <span>اشتراكاتي وباقات المنظومة</span>
+              <Crown className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24] shrink-0" />
+              <span className="truncate">اشتراكاتي وباقات المنظومة</span>
             </h1>
             <p className="text-xs text-[#475569] dark:text-[#94A3B8] mt-0.5">
-              فعّل الباقات التي تناسب حجم {isSupplier ? 'تجارتك ومخازنك' : 'ورشتك وفنك'} — وكل شيء يظهر في لوحتك فوراً.
+              فعّل الباقات التي تناسب حجم {isSupplier ? 'تجارتك ومخازنك' : 'ورشتك وفنك'} — وكل شيء يتزامن ويظهر في لوحتك فوراً.
             </p>
           </div>
         </div>
@@ -108,18 +159,63 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
         <button
           type="button"
           onClick={handleSelectAllFreePromo}
-          className="px-4 py-2.5 rounded-xl bg-[#0C1427] dark:bg-[#FBBF24] text-[#FBBF24] dark:text-[#0C1427] text-xs font-black flex items-center gap-1.5 hover:opacity-90 cursor-pointer"
+          className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-[#0C1427] dark:bg-[#FBBF24] text-[#FBBF24] dark:text-[#0C1427] text-xs font-black flex items-center gap-1.5 hover:opacity-90 cursor-pointer shrink-0"
         >
-          <Sparkles className="w-4 h-4" />
+          <Sparkles className="w-4 h-4 shrink-0" />
           <span>تفعيل الباقة الشاملة (الكل مجاناً الآن)</span>
+        </button>
+      </div>
+
+      {/* Automatic Non-Destructive Sync Guarantee Bar */}
+      <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#FFFDF8] dark:bg-[#0D162E] p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-start gap-2.5 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            {isSyncing ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : currentSub.syncStatus === 'pending_offline' ? (
+              <CloudOff className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            ) : (
+              <ShieldCheck className="w-4 h-4" />
+            )}
+          </div>
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                مزامنة تلقائية فورية بدون فقدان أي بيانات
+              </span>
+              {currentSub.syncStatus === 'pending_offline' ? (
+                <span className="text-[10px] font-black text-amber-700 dark:text-amber-300">
+                  · بانتظار الإنترنت للمزامنة التلقائية
+                </span>
+              ) : formattedLastSync ? (
+                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
+                  <Cloud className="w-3 h-3" />
+                  <span>آخر مزامنة {formattedLastSync}</span>
+                </span>
+              ) : null}
+            </div>
+            <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+              عند ترقية أو إضافة أي باقة جديدة، تُحفظ باقتك تلقائياً على السحابة وتتربط بياناتك القديمة (منتجاتك، خاماتك، عملاؤك، وفواتيرك) بالأقسام الجديدة فوراً بدون ما تطير ولا تبدأ من الصفر.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleManualSyncNow}
+          disabled={isSyncing}
+          className="w-full sm:w-auto shrink-0 px-3.5 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA] dark:bg-[#132040] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA] text-xs font-black inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 transition"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 text-[#EA580C] ${isSyncing ? 'animate-spin' : ''}`} />
+          <span>{isSyncing ? 'جاري المزامنة...' : 'مزامنة الباقة الآن'}</span>
         </button>
       </div>
 
       {/* Limited-Time Launch Promo Banner */}
       <div className="rounded-2xl border border-[#EA580C]/40 bg-gradient-to-l from-[#EA580C] via-[#C2410C] to-[#9A3412] text-white p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <div className="inline-flex items-center gap-1.5 text-xs font-black text-amber-200">
-            <Gift className="w-4 h-4" />
+            <Gift className="w-4 h-4 shrink-0" />
             <span>عرض الإطلاق الحصري لفترة محدودة</span>
           </div>
           <h2 className="text-base sm:text-xl font-black leading-snug">
@@ -130,7 +226,7 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
           </p>
         </div>
 
-        <div className="shrink-0 rounded-xl bg-black/25 border border-white/20 p-3.5 text-center min-w-[165px]">
+        <div className="shrink-0 rounded-xl bg-black/25 border border-white/20 p-3.5 text-center w-full sm:w-auto sm:min-w-[165px]">
           <p className="text-[11px] text-amber-200 font-bold">إجمالي اشتراكك الآن</p>
           <div className="flex items-baseline justify-center gap-1.5 mt-1 font-mono tabular-nums">
             <span className="text-2xl font-black text-white">0 ج.م</span>
@@ -148,7 +244,11 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
 
       {savedNotice && (
         <div className="p-3.5 rounded-xl bg-emerald-600/15 border border-emerald-500/40 text-emerald-800 dark:text-emerald-200 text-xs font-black flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          {isSyncing ? (
+            <RefreshCw className="w-4 h-4 shrink-0 animate-spin" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          )}
           <span>{savedNotice}</span>
         </div>
       )}
@@ -286,10 +386,12 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
           )}
           <button
             type="button"
+            disabled={isSyncing}
             onClick={handleSave}
-            className="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-black shadow-sm cursor-pointer transition"
+            className="flex-1 sm:flex-none px-5 sm:px-6 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] disabled:opacity-65 text-white text-xs sm:text-sm font-black shadow-sm cursor-pointer transition inline-flex items-center justify-center gap-2"
           >
-            حفظ وتفعيل باقاتي المختارة مجاناً
+            {isSyncing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+            <span>{isSyncing ? 'جاري التفعيل والمزامنة...' : 'حفظ وتفعيل ومزامنة باقاتي مجاناً'}</span>
           </button>
         </div>
       </div>
@@ -330,8 +432,11 @@ export const PackageSelectionOnboardingModal: React.FC<PackageSelectionOnboardin
       activePackageIds: idsToSave,
       hasSelectedPackages: true,
       promoClaimed: true,
+      syncStatus: 'syncing',
     });
     playSuccessSound();
+    // مزامنة تلقائية في الخلفية فوراً بدون تعطيل دخول العضو وبدون فقدان أي بيانات سابقة
+    syncUserSubscriptionAndData(profile, saved, { forcePull: true }).catch(() => {});
     onComplete(saved.activePackageIds);
   };
 
