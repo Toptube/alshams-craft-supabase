@@ -24,7 +24,10 @@ import {
   Sparkles,
   Save,
   Star,
+  Video,
 } from 'lucide-react';
+import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
+import { isValidHttpVideoUrl } from '../../lib/catalogStatus';
 
 interface ArtisanProductEditorModalProps {
   product: SavedProductRecord;
@@ -70,6 +73,7 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
       : []
   );
   const [imageUrlInput, setImageUrlInput] = useState('');
+  const [videoUrl, setVideoUrl] = useState<string>(product.videoUrl || '');
   const [uploadingImg, setUploadingImg] = useState(false);
   const [imgLimitNotice, setImgLimitNotice] = useState('');
 
@@ -265,6 +269,7 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
         isCustomOrderAvailable,
         imageUrl: primaryImage,
         galleryUrls: galleryUrls.slice(0, Math.max(0, maxAllowedImages - 1)),
+        videoUrl: videoUrl.trim() || undefined,
         availableColors: colors,
         sizeVariants: normalizedVariants,
         availableSizes:
@@ -768,6 +773,34 @@ export const ArtisanProductEditorModal: React.FC<ArtisanProductEditorModalProps>
                   إضافة رابط
                 </button>
               </div>
+            )}
+          </div>
+
+          {/* 5. Lightweight Product Video Link */}
+          <div className="p-4 rounded-2xl bg-[#F2ECE1] dark:bg-[#132040]/70 border border-[#D4CCBC] dark:border-[#22355E] space-y-2.5">
+            <div className="flex items-center gap-1.5">
+              <Video className="w-4 h-4 text-[#EA580C]" />
+              <h4 className="font-black text-[#C2410C] dark:text-[#FBBF24]">
+                رابط فيديو للمنتج (اختياري — خفيف على قاعدة البيانات)
+              </h4>
+            </div>
+            <p className="text-[11px] font-bold text-[#475569] dark:text-[#94A3B8]">
+              يوتيوب، تيك توك، إنستجرام ريلز أو فيسبوك — يظهر كصورة مصغرة خفيفة ويفتح المشغل عند الضغط فقط.
+            </p>
+            <input
+              type="url"
+              dir="ltr"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              placeholder="https://www.youtube.com/watch?v=... أو رابط ريلز / تيك توك"
+              className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-mono text-right"
+            />
+            {isValidHttpVideoUrl(videoUrl) && (
+              <ProductVideoThumbnail
+                videoUrl={videoUrl}
+                fallbackImage={primaryImage}
+                title={productName || product.productName}
+              />
             )}
           </div>
         </div>

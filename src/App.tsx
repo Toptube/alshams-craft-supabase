@@ -2814,6 +2814,7 @@ export const App: React.FC = () => {
 
         {activeView === 'calculator' && (
           <ProductionCalculator
+            key={calculatorInitialRecord?.id ? `calc_${calculatorInitialRecord.id}` : 'calc_fresh'}
             profile={profile}
             initialRecord={calculatorInitialRecord}
             onOpenWhatsAppShare={handleOpenWhatsAppShare}

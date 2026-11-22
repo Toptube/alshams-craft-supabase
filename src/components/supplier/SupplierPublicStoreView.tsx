@@ -31,6 +31,7 @@ import {
 import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
 import { playButtonClickSound, playErrorSound, playSuccessSound } from '../../lib/sounds';
 import { resolveStorefrontTheme, StorefrontThemeId } from '../../lib/storefrontThemes';
+import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
 
 interface SupplierPublicStoreViewProps {
   slug: string;
@@ -757,8 +758,18 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 <div>
                   <div
                     style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
-                    className={`w-full ${themeSpec.imageFrameClass} overflow-hidden border-b`}
+                    className={`relative w-full ${themeSpec.imageFrameClass} overflow-hidden border-b`}
                   >
+                    {it.videoUrl && (
+                      <div className="absolute bottom-2 right-2 z-10">
+                        <ProductVideoThumbnail
+                          videoUrl={it.videoUrl}
+                          fallbackImage={it.images?.[0]}
+                          title={it.name}
+                          compact
+                        />
+                      </div>
+                    )}
                     <img
                       src={it.images?.[0] || '/alshams_falcon_emblem.png'}
                       alt={it.name}

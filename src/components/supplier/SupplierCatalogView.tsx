@@ -31,7 +31,10 @@ import {
   Radio,
   CheckSquare,
   Square,
+  Video,
 } from 'lucide-react';
+import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
+import { isValidHttpVideoUrl } from '../../lib/catalogStatus';
 
 import { compressImageFile, MAX_ITEM_IMAGES } from '../../utils/imageCompressor';
 import { useUiLayoutConfig } from '../../types/uiLayoutConfig';
@@ -94,6 +97,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   const [inStore, setInStore] = useState(true);
   const [inMarket, setInMarket] = useState(true);
   const [images, setImages] = useState<string[]>([]);
+  const [videoUrl, setVideoUrl] = useState('');
   const [variants, setVariants] = useState<SupplierCatalogVariant[]>([]);
   const [tierPricing, setTierPricing] = useState<SupplierPriceTier[]>([]);
   const [unifiedCode, setUnifiedCode] = useState('');
@@ -158,6 +162,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setInStore(true);
     setInMarket(false);
     setImages([]);
+    setVideoUrl('');
     setVariants([]);
     setTierPricing([]);
     setUnifiedCode('');
@@ -184,6 +189,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setInStore(item.inStore);
     setInMarket(Boolean(item.inMarket));
     setImages(Array.isArray(item.images) ? item.images.slice(0, maxAllowedImages) : []);
+    setVideoUrl(item.videoUrl || '');
     setVariants(Array.isArray(item.variants) ? item.variants : []);
     setTierPricing(Array.isArray(item.tierPricing) ? item.tierPricing : []);
     setUnifiedCode(item.unifiedCode || '');
@@ -261,6 +267,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
       inMarket: targetInMarket,
       reSubmitForApproval: targetInMarket && shouldReSubmit,
       images: images.slice(0, maxAllowedImages),
+      videoUrl: videoUrl.trim(),
       variants: variants.filter((v) => v.colorOrSize.trim()),
       tierPricing: tierPricing
         .filter((t) => Number(t.minQty) > 0 && Number(t.unitPrice) > 0)
@@ -1177,6 +1184,34 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+
+              {/* Lightweight Video Link */}
+              <div className="space-y-2 p-3 rounded-2xl bg-[#EFE9DC]/65 dark:bg-[#132040]/60 border border-[#D4CCBC] dark:border-[#22355E]">
+                <div className="flex items-center gap-1.5">
+                  <Video className="w-4 h-4 text-[#EA580C]" />
+                  <span className="font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                    رابط فيديو للخامة (اختياري — خفيف على قاعدة البيانات)
+                  </span>
+                </div>
+                <p className="text-[10px] font-bold text-[#475569] dark:text-[#94A3B8]">
+                  يوتيوب، تيك توك، إنستجرام ريلز أو فيسبوك — يظهر كصورة مصغرة خفيفة ويفتح المشغل عند الضغط فقط.
+                </p>
+                <input
+                  type="url"
+                  dir="ltr"
+                  value={videoUrl}
+                  onChange={(e) => setVideoUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=... أو رابط ريلز / تيك توك"
+                  className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#0D162E] text-xs font-mono text-right"
+                />
+                {isValidHttpVideoUrl(videoUrl) && (
+                  <ProductVideoThumbnail
+                    videoUrl={videoUrl}
+                    fallbackImage={images[0]}
+                    title={name || 'فيديو الخامة'}
+                  />
                 )}
               </div>
 

@@ -159,6 +159,7 @@ export interface SupplierCatalogItem {
   unit: string;
   description?: string;
   images: string[];
+  videoUrl?: string;
   variants: SupplierCatalogVariant[];
   tierPricing?: SupplierPriceTier[];
   stockQty: number;

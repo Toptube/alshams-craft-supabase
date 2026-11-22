@@ -7732,7 +7732,12 @@ app.post('/api/suppliers/catalog', requireAuth, async (req: AuthenticatedRequest
     brand_code: String(b.brandCode ?? b.brand_code ?? 'B000').trim() || 'B000',
     sku_code: String(b.skuCode ?? b.sku_code ?? '').trim(),
     unit_chain: String(b.unitChain ?? b.unit_chain ?? '').trim(),
-    bridge_values: b.bridgeValues ?? b.bridge_values ?? {},
+    bridge_values: {
+      ...(b.bridgeValues ?? b.bridge_values ?? {}),
+      ...(typeof (b.videoUrl ?? b.video_url) === 'string'
+        ? { __videoUrl: String(b.videoUrl ?? b.video_url).trim() }
+        : {}),
+    },
     created_at: nowIso,
     updated_at: nowIso,
   };
@@ -7880,7 +7885,13 @@ app.put('/api/suppliers/catalog/:id', requireAuth, async (req: AuthenticatedRequ
     brand_code: b.brandCode !== undefined ? String(b.brandCode || 'B000') : prev.brand_code || 'B000',
     sku_code: b.skuCode !== undefined ? String(b.skuCode || '') : prev.sku_code || '',
     unit_chain: b.unitChain !== undefined ? String(b.unitChain || '') : prev.unit_chain || '',
-    bridge_values: b.bridgeValues ?? prev.bridge_values ?? {},
+    bridge_values: {
+      ...(prev.bridge_values ?? {}),
+      ...(b.bridgeValues ?? b.bridge_values ?? {}),
+      ...(b.videoUrl !== undefined || b.video_url !== undefined
+        ? { __videoUrl: String(b.videoUrl ?? b.video_url ?? '').trim() }
+        : {}),
+    },
     updated_at: nowIso,
   };
 

@@ -1105,6 +1105,9 @@ export interface SavedProductRecord {
   availableColors?: string[];
   availableSizes?: string[];
   galleryUrls?: string[];
+  videoUrl?: string; // رابط فيديو خفيف للمنتج (يوتيوب/تيك توك/ريلز) يُعرض كصورة مصغرة ويشتغل عند الضغط فقط
+  directCatalogEntry?: boolean; // تم إضافته مباشرة من الكتالوج أو المتجر بدون حاسبة التكاليف (يظهر أصفر حتى يتم تسعيره)
+  isCosted?: boolean; // تم حساب تكلفته فعلياً داخل حاسبة التكاليف
   sizeVariants?: Array<{
     id: string;
     label: string;

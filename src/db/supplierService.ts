@@ -360,6 +360,12 @@ export function mapDbCatalogItem(r: any): SupplierCatalogItem {
     skuCode: r.sku_code || r.skuCode || '',
     unitChain: r.unit_chain || r.unitChain || '',
     bridgeValues: r.bridge_values || r.bridgeValues || undefined,
+    videoUrl:
+      r.video_url ||
+      r.videoUrl ||
+      r.bridge_values?.__videoUrl ||
+      r.bridgeValues?.__videoUrl ||
+      '',
     createdAt: r.created_at || r.createdAt,
     updatedAt: r.updated_at || r.updatedAt,
   };

@@ -43,6 +43,8 @@ import {
   Square,
   Send,
   Radio,
+  Plus,
+  Calculator,
 } from 'lucide-react';
 import {
   addToCart,
@@ -72,6 +74,9 @@ import { ArtisanStorefrontBuilderPanel } from './ArtisanStorefrontBuilderPanel';
 import { PublicStorefrontView } from './PublicStorefrontView';
 import { ThemePreviewDecisionBar } from './StorefrontThemeStudio';
 import { StorefrontThemeId, normalizeStorefrontThemeId } from '../../lib/storefrontThemes';
+import { DirectCatalogProductModal } from '../catalog/DirectCatalogProductModal';
+import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
+import { getProductCatalogStatus } from '../../lib/catalogStatus';
 
 interface TreasuryAccountOption {
   id: string;
@@ -124,6 +129,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
   const [prodSearch, setProdSearch] = useState('');
   const [prodVisibilityFilter, setProdVisibilityFilter] = useState<'all' | 'visible' | 'hidden'>('all');
   const [editingProduct, setEditingProduct] = useState<SavedProductRecord | null>(null);
+  const [isDirectAddOpen, setIsDirectAddOpen] = useState(false);
   const [selectedMarketIds, setSelectedMarketIds] = useState<Set<string>>(new Set());
   const [exportingToMarket, setExportingToMarket] = useState(false);
   const [pendingAdminBanner, setPendingAdminBanner] = useState<string | null>(null);
@@ -1108,6 +1114,16 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             {/* Currency Switcher & Search Toolbar */}
             <div className="p-3 rounded-2xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex flex-col lg:flex-row lg:items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setIsDirectAddOpen(true)}
+                  className="h-9 px-3.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 shadow-sm cursor-pointer shrink-0 transition active:scale-95"
+                  title="إضافة منتج مباشر لمتجرك فوراً"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>منتج مباشر</span>
+                </button>
+
                 <div className="relative flex-1 min-w-[180px]">
                   <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-[#475569]" />
                   <input
@@ -1233,8 +1249,16 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                   لا توجد منتجات في متجرك حالياً
                 </h4>
                 <p className="text-xs text-[#334155] dark:text-[#CBD5E1] max-w-md mx-auto">
-                  صدّر منتجاتك المعتمدة من الكتالوج إلى متجرك لتظهر هنا وتتمكن من تعديلها أو تصديرها لسوق الشمساوية.
+                  أضف أول منتج مباشر الآن وابدأ البيع ومشاركة رابط متجرك فوراً، أو استورد المنتج لاحقاً في حاسبة التكاليف.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setIsDirectAddOpen(true)}
+                  className="mx-auto px-5 py-2.5 rounded-2xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center gap-1.5 shadow-md cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>منتج مباشر</span>
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -1255,11 +1279,12 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                     p.inMarket && !isApprovedInMarket && p.marketStatus !== 'rejected'
                   );
                   const isRejectedInMarket = Boolean(p.inMarket && p.marketStatus === 'rejected');
+                  const catalogStatus = getProductCatalogStatus(p);
 
                   return (
                     <div
                       key={p.id}
-                      className={`rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border p-3 flex flex-col justify-between transition shadow-sm ${
+                      className={`rounded-2xl bg-[#F7F3EA] dark:bg-[#060B18] border p-3 flex flex-col justify-between transition shadow-sm ${catalogStatus.borderAccentClass} ${
                         isChecked
                           ? 'border-[#EA580C] ring-2 ring-[#EA580C]/40'
                           : isVisible
@@ -1309,6 +1334,17 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                             </span>
                           ) : null}
 
+                          {p.videoUrl && (
+                            <div className="absolute bottom-2 right-2 z-10">
+                              <ProductVideoThumbnail
+                                videoUrl={p.videoUrl}
+                                fallbackImage={p.imageUrl}
+                                title={p.productName}
+                                compact
+                              />
+                            </div>
+                          )}
+
                           <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-lg bg-[#0C1427]/85 text-amber-300 font-mono text-xs font-black tabular-nums">
                             {pricing.hasDiscount && (
                               <span className="line-through opacity-60 text-[10px] ml-1.5">
@@ -1335,6 +1371,41 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                               {p.storeDescription}
                             </p>
                           )}
+                        </div>
+
+                        {/* 3-Color Costing & Store Status Strip */}
+                        <div className="mb-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (catalogStatus.color === 'red') {
+                                handleToggleProductVisibility(p);
+                              } else if (catalogStatus.color === 'yellow') {
+                                onOpenCalculatorForRecord?.(p);
+                              }
+                            }}
+                            title={catalogStatus.actionHint}
+                            className={`w-full px-2.5 py-1.5 rounded-xl border flex items-center justify-between gap-2 text-[11px] font-black transition ${
+                              catalogStatus.color !== 'green' ? 'cursor-pointer' : 'cursor-default'
+                            } ${catalogStatus.badgeClass}`}
+                          >
+                            <span className="flex items-center gap-1.5 truncate">
+                              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${catalogStatus.dotClass}`} />
+                              <span className="truncate">
+                                {catalogStatus.color === 'red'
+                                  ? 'أحمر: مخفي — اضغط للعرض بالمتجر'
+                                  : catalogStatus.color === 'yellow'
+                                  ? 'أصفر: بدون حاسبة تكاليف'
+                                  : 'أخضر: مسعّر ومعروض بالمتجر ✓'}
+                              </span>
+                            </span>
+                            {catalogStatus.color === 'yellow' && (
+                              <span className="inline-flex items-center gap-1 text-[10px] underline shrink-0">
+                                <Calculator className="w-3 h-3" />
+                                <span>احسب التكلفة</span>
+                              </span>
+                            )}
+                          </button>
                         </div>
 
                         {/* Marketplace Status Lamp Strip */}
@@ -2133,6 +2204,23 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             </div>
           </div>
         )}
+
+        {/* Direct Add Product Modal ("+ منتج مباشر") */}
+        <DirectCatalogProductModal
+          isOpen={isDirectAddOpen}
+          onClose={() => setIsDirectAddOpen(false)}
+          profile={profile}
+          defaultPublishToStore={true}
+          onSaved={(newRecord) => {
+            setProducts((prev) => [newRecord, ...prev.filter((x) => x.id !== newRecord.id)]);
+            playSuccessSound();
+            showNotice(
+              newRecord.inStore
+                ? `🟡 تم إضافة "${newRecord.productName}" وعرضه بمتجرك فوراً! اضغط على الشارة الصفراء لحساب تكلفته لاحقاً.`
+                : `🔴 تم حفظ "${newRecord.productName}" في الكتالوج فقط.`
+            );
+          }}
+        />
       </div>
     </div>
   );

@@ -42,6 +42,8 @@ export interface CloudMarketplaceProduct {
   imageUrl?: string;
   gallery_urls?: string[];
   galleryUrls?: string[];
+  video_url?: string;
+  videoUrl?: string;
   store_description?: string;
   storeDescription?: string;
   available_colors?: string[];
@@ -128,6 +130,9 @@ export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
   const galleryUrls: string[] = Array.isArray(galleryRaw)
     ? galleryRaw.filter((u: any) => typeof u === 'string' && u.trim())
     : [];
+  const videoUrl: string = String(
+    row.video_url || row.videoUrl || ext.video_url || ext.videoUrl || ''
+  ).trim();
 
   const variantsRaw = row.size_variants ?? row.sizeVariants ?? ext.size_variants ?? ext.sizeVariants;
   const sizeVariants: ProductSizeVariant[] = Array.isArray(variantsRaw)
@@ -195,6 +200,8 @@ export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
     imageUrl: row.image_url || row.imageUrl || '/alshams_falcon_emblem.png',
     gallery_urls: galleryUrls,
     galleryUrls: galleryUrls,
+    video_url: videoUrl || undefined,
+    videoUrl: videoUrl || undefined,
     store_description: row.store_description || row.storeDescription || '',
     storeDescription: row.store_description || row.storeDescription || '',
     available_colors: Array.isArray(row.available_colors) ? row.available_colors : Array.isArray(row.availableColors) ? row.availableColors : [],
@@ -261,10 +268,19 @@ export async function publishProductToMarketplace(
 
   const artisanExt = {
     gallery_urls: Array.isArray(product.galleryUrls) ? product.galleryUrls.slice(0, 7) : [],
+    video_url: product.videoUrl?.trim() || '',
     size_variants: normalizedSizeVariants,
     source_currency: sourceCurr,
     product_discount: product.productDiscount || undefined,
     is_custom_order_available: Boolean(product.isCustomOrderAvailable),
+    direct_catalog_entry: Boolean(product.directCatalogEntry),
+    is_costed: Boolean(
+      product.isCosted ||
+        (!product.directCatalogEntry &&
+          (Number(product.costPrice || 0) > 0 ||
+            Number(product.output?.unifiedBreakdown?.totalUnitCost || 0) > 0 ||
+            Number(product.output?.totalDirectMaterialsCost || 0) + Number(product.output?.laborWage || 0) > 0))
+    ),
     hiddenInStore: product.inStore === false || product.isPublishedInStore === false,
   };
 

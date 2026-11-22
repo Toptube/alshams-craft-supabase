@@ -26,6 +26,7 @@ import { tenantStorage } from '../../db/dexieDB';
 import { flushProductSync } from '../../db/productsCloud';
 import { markProductDirty, isPending } from '../../db/productSyncQueue';
 import { publishProductToMarketplace } from '../../db/marketplaceCloud';
+import { isProductCosted } from '../../lib/catalogStatus';
 import { supabase } from '../../lib/supabase';
 import {
   MAIN_SECTIONS,
@@ -800,6 +801,9 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
     if (initialRecord.imageUrl) {
       setProductImageUrl(initialRecord.imageUrl);
     }
+    if (initialRecord.storeDescription && !(initialRecord.input as any)?.notes) {
+      setPersonalNotes(initialRecord.storeDescription);
+    }
     // For fresh Falcon exports, keep existingRecordId null so saving creates a clean new record
     if (isFalconExport) {
       setExistingRecordId(null);
@@ -807,6 +811,11 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       setTimeout(() => setDraftRestoredNotice(''), 6500);
     } else if (initialRecord.id) {
       setExistingRecordId(initialRecord.id);
+      if (!isProductCosted(initialRecord)) {
+        setDraftRestoredNotice(
+          '🟡 تم استيراد المنتج من الكتالوج/المتجر بكامل بياناته وصوره — أكمل حساب التكلفة واضغط «حفظ» ليُسجل بالأرشيف ويتحول تلقائياً للون الأخضر 🟢!'
+        );
+      }
     }
   }, [initialRecord]);
 
@@ -1737,6 +1746,7 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
       const selectedCraft = SUB_CRAFTS_REGISTRY.find((c) => c.id === selectedCraftId);
 
       const savedRecord: SavedProductRecord = {
+        ...initialRecord,
         id: recordId,
         tenantId,
         workshopId: tenantId,
@@ -1755,12 +1765,23 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
         wholesaleMarginDiscountPercent,
         input: calculationInput,
         output,
-        imageUrl: productImageUrl,
+        imageUrl: productImageUrl || initialRecord?.imageUrl || '',
+        galleryUrls: initialRecord?.galleryUrls,
+        videoUrl: initialRecord?.videoUrl,
+        storeDescription: initialRecord?.storeDescription || personalNotes || '',
+        availableColors: initialRecord?.availableColors,
+        availableSizes: initialRecord?.availableSizes,
+        sizeVariants: initialRecord?.sizeVariants,
+        productDiscount: initialRecord?.productDiscount,
+        isCustomOrderAvailable: initialRecord?.isCustomOrderAvailable,
+        sourceCurrency: initialRecord?.sourceCurrency || profile.currency || 'EGP',
         isCatalogVisible: initialRecord?.isCatalogVisible ?? false,
         inStore: initialRecord?.inStore ?? false,
         isPublishedInStore: initialRecord?.isPublishedInStore ?? false,
         inMarket: initialRecord?.inMarket ?? false,
         marketStatus: initialRecord?.marketStatus ?? 'none',
+        directCatalogEntry: false,
+        isCosted: true,
         storePrice: initialRecord?.storePrice || retailPrice,
         currentStock: initialRecord?.currentStock ?? 0,
         isActive: true,
@@ -1770,8 +1791,12 @@ export const ProductionCalculator: React.FC<ProductionCalculatorProps> = ({
 
       // Mutates / overwrites existing record via Dexie instead of duplicating
       await tenantStorage.mutateProduct(savedRecord);
+      window.dispatchEvent(new CustomEvent('alshams_products_changed'));
       setExistingRecordId(recordId);
       pendingNewIdRef.current = null;
+      if (savedRecord.inStore) {
+        publishProductToMarketplace(savedRecord, profile).catch(() => {});
+      }
       let cloudSynced = false;
       try {
         const primaryName = basicMaterials.find((m) => m.id === cordTypeId)?.materialName;

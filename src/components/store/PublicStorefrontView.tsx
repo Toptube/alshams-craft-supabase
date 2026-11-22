@@ -35,6 +35,7 @@ import {
   User,
 } from 'lucide-react';
 import { MemberPersonalProfileView } from '../profile/MemberPersonalProfileView';
+import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
 import { buildProductLandingUrl } from '../../lib/appRoutes';
 import {
   fetchPublicStorefrontBySlug,
@@ -1741,6 +1742,16 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           style={!wishlistIds.has(p.id) ? { color: themeSpec.mutedColor } : undefined}
                         />
                       </button>
+                      {(p.video_url || p.videoUrl) && (
+                        <div className="absolute bottom-2 right-2 z-10">
+                          <ProductVideoThumbnail
+                            videoUrl={p.video_url || p.videoUrl}
+                            fallbackImage={p.image_url}
+                            title={p.product_name}
+                            compact
+                          />
+                        </div>
+                      )}
                       <img
                         src={p.image_url || '/alshams_falcon_emblem.png'}
                         alt={p.product_name}
@@ -2072,6 +2083,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       </button>
                     ))}
                   </div>
+                )}
+                {(selectedProduct.video_url || selectedProduct.videoUrl) && (
+                  <ProductVideoThumbnail
+                    videoUrl={selectedProduct.video_url || selectedProduct.videoUrl}
+                    fallbackImage={modalActiveImage || selectedProduct.image_url}
+                    title={selectedProduct.product_name}
+                  />
                 )}
               </div>
 
