@@ -92,6 +92,9 @@ import {
   pickLocalizedText,
   resolveBilingualLogo,
   PublicLocaleCode,
+  localizeCraftTerm,
+  localizeSizeLabel,
+  localizeColorLabel,
 } from '../../lib/publicLocale';
 import { PublicLocaleCurrencyBar } from '../common/PublicLocaleCurrencyBar';
 
@@ -1426,7 +1429,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           {pickProductField(item, 'name')}
                         </p>
                         <p style={{ color: themeSpec.mutedColor }} className="text-[10px] truncate">
-                          {item.craft_name || item.category}
+                          {localizeCraftTerm(item.craft_name || item.category, locale)}
                         </p>
                       </div>
                     </button>
@@ -1784,6 +1787,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
               {categories.map((c) => {
                 const isSelected = selectedCategory === c.id;
+                const displayCatName =
+                  c.id === 'all' ? t('all_categories') : localizeCraftTerm(c.name, locale);
                 if (themeSpec.categoryLayout === 'circular_medallions') {
                   return (
                     <button
@@ -1800,13 +1805,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         }
                         className="w-11 h-11 rounded-full border-2 flex items-center justify-center text-xs font-black shadow-xs group-hover:scale-105 transition"
                       >
-                        {c.name.slice(0, 2)}
+                        {displayCatName.slice(0, 2)}
                       </span>
                       <span
                         style={{ color: isSelected ? themeSpec.accentText : themeSpec.mutedColor }}
                         className="text-[10px] font-black whitespace-nowrap max-w-[74px] truncate"
                       >
-                        {c.name}
+                        {displayCatName}
                       </span>
                     </button>
                   );
@@ -1836,7 +1841,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                         : 'border hover:opacity-90'
                     }`}
                   >
-                    {c.name}
+                    {displayCatName}
                   </button>
                 );
               })}
@@ -2320,7 +2325,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           isCompact3Col ? 'text-[9px] sm:text-xs' : 'text-[10px] sm:text-xs'
                         } font-medium truncate`}
                       >
-                        {p.craft_name || p.category} · {p.current_stock > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
+                        {localizeCraftTerm(p.craft_name || p.category, locale)} ·{' '}
+                        {p.current_stock > 0
+                          ? t('in_stock')
+                          : isRtl
+                          ? 'تنفيذ بالطلب'
+                          : 'Made to order'}
                       </p>
 
                       <h3
@@ -2354,7 +2364,16 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                             isCompact3Col ? 'hidden sm:block text-[11px]' : 'text-[10px] sm:text-[11px]'
                           } truncate`}
                         >
-                          الألوان: {p.available_colors!.slice(0, 3).join('، ')}
+                          {isRtl ? 'الألوان: ' : 'Colors: '}
+                          {p.available_colors!
+                            .slice(0, 3)
+                            .map((c) =>
+                              localizeColorLabel(c, locale, {
+                                [locale]: p.translations?.[locale]?.colors?.[c],
+                                en: p.translations?.en?.colors?.[c],
+                              })
+                            )
+                            .join(isRtl ? '، ' : ', ')}
                         </p>
                       )}
                     </div>
@@ -2644,7 +2663,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
               <div className={`space-y-3 ${isRtl ? 'pl-8 sm:pl-0' : 'pr-8 sm:pr-0'}`}>
                 <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
-                  {selectedProduct.craft_name || selectedProduct.category} ·{' '}
+                  {localizeCraftTerm(selectedProduct.craft_name || selectedProduct.category, locale)} ·{' '}
                   {selectedProduct.current_stock > 0
                     ? t('in_stock')
                     : isRtl
@@ -2734,22 +2753,28 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             <div className="space-y-4 pt-4 border-t border-[#D4CCBC] dark:border-[#22355E]">
               {selectedProduct.available_colors && selectedProduct.available_colors.length > 0 && (
                 <div className="space-y-2">
-                  <label className="text-xs font-bold block">اللون</label>
+                  <label className="text-xs font-bold block">{isRtl ? 'اللون' : 'Color'}</label>
                   <div className="flex flex-wrap gap-2">
-                    {selectedProduct.available_colors.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setSelectedColor(c)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                          selectedColor === c
-                            ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                            : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
-                        }`}
-                      >
-                        {c}
-                      </button>
-                    ))}
+                    {selectedProduct.available_colors.map((c) => {
+                      const displayColor = localizeColorLabel(c, locale, {
+                        [locale]: selectedProduct.translations?.[locale]?.colors?.[c],
+                        en: selectedProduct.translations?.en?.colors?.[c],
+                      });
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setSelectedColor(c)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                            selectedColor === c
+                              ? 'bg-[#EA580C] text-white border-[#EA580C]'
+                              : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
+                          }`}
+                        >
+                          {displayColor}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2757,12 +2782,29 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               {((selectedProduct.size_variants && selectedProduct.size_variants.length > 0) ||
                 (selectedProduct.available_sizes && selectedProduct.available_sizes.length > 0)) && (
                 <div className="space-y-2">
-                  <label className="text-xs font-bold block">اختر مقاسك المفضل</label>
+                  <label className="text-xs font-bold block">
+                    {isRtl ? 'اختر مقاسك المفضل' : 'Select Size'}
+                  </label>
                   <div className="flex flex-wrap gap-2">
                     {(selectedProduct.size_variants && selectedProduct.size_variants.length > 0
                       ? selectedProduct.size_variants.map((v) => v.label)
                       : selectedProduct.available_sizes || []
                     ).map((s) => {
+                      const matchedVar = selectedProduct.size_variants?.find((v) => v.label === s);
+                      const displaySize = localizeSizeLabel(
+                        s,
+                        locale,
+                        {
+                          ...(matchedVar?.translations || {}),
+                          ...(selectedProduct.translations?.[locale]?.sizes?.[s]
+                            ? { [locale]: selectedProduct.translations?.[locale]?.sizes?.[s] }
+                            : {}),
+                          ...(selectedProduct.translations?.en?.sizes?.[s]
+                            ? { en: selectedProduct.translations?.en?.sizes?.[s] }
+                            : {}),
+                        },
+                        matchedVar?.labelEn
+                      );
                       const varPrice = resolveProductOfferPricing(selectedProduct, s, customerCurrency, true);
                       return (
                         <button
@@ -2775,10 +2817,10 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                               : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
                           }`}
                         >
-                          <span>{s}</span>
+                          <span>{displaySize}</span>
                           {selectedProduct.size_variants && selectedProduct.size_variants.length > 0 && (
                             <span className="font-mono tabular-nums opacity-90 text-[11px]">
-                              ({varPrice.finalPrice.toLocaleString('ar-EG')} {varPrice.displaySymbol})
+                              ({varPrice.finalPrice.toLocaleString(isRtl ? 'ar-EG' : 'en-US')} {varPrice.displaySymbol})
                             </span>
                           )}
                         </button>
@@ -2789,7 +2831,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               )}
 
               <div className="flex items-center justify-between gap-4">
-                <span className="text-xs font-bold">الكمية</span>
+                <span className="text-xs font-bold">{isRtl ? 'الكمية' : 'Quantity'}</span>
                 <div className="flex items-center gap-3 bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] px-3 py-1.5 rounded-xl">
                   <button
                     type="button"

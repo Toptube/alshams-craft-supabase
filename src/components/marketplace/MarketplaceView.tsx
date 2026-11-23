@@ -48,6 +48,9 @@ import {
   usePublicLocale,
   pickLocalizedText,
   PublicLocaleCode,
+  localizeCraftTerm,
+  localizeSizeLabel,
+  localizeColorLabel,
 } from '../../lib/publicLocale';
 import { PublicLocaleCurrencyBar } from '../common/PublicLocaleCurrencyBar';
 import {
@@ -734,22 +737,24 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   };
 
   const sectionButtonLabel = useMemo(() => {
-    if (selectedMainSections.length === 0) return 'القسم: الكل';
+    if (selectedMainSections.length === 0) return isRtl ? 'القسم: الكل' : 'Section: All';
     if (selectedMainSections.length === 1) {
       const sec = MAIN_SECTIONS.find((s) => s.id === selectedMainSections[0]);
-      return `القسم: ${sec?.nameAr || '1'}`;
+      const label = sec ? localizeCraftTerm(sec.id, locale) || localizeCraftTerm(sec.nameAr, locale) : '1';
+      return isRtl ? `القسم: ${sec?.nameAr || '1'}` : `Section: ${label}`;
     }
-    return `الأقسام (${selectedMainSections.length})`;
-  }, [selectedMainSections]);
+    return isRtl ? `الأقسام (${selectedMainSections.length})` : `Sections (${selectedMainSections.length})`;
+  }, [selectedMainSections, isRtl, locale]);
 
   const craftButtonLabel = useMemo(() => {
-    if (selectedSubCrafts.length === 0) return 'التخصص: الكل';
+    if (selectedSubCrafts.length === 0) return isRtl ? 'التخصص: الكل' : 'Craft: All';
     if (selectedSubCrafts.length === 1) {
       const c = SUB_CRAFTS_REGISTRY.find((sc) => sc.id === selectedSubCrafts[0]);
-      return `التخصص: ${c?.nameAr || '1'}`;
+      const label = c ? localizeCraftTerm(c.id, locale) || localizeCraftTerm(c.nameAr, locale) : '1';
+      return isRtl ? `التخصص: ${c?.nameAr || '1'}` : `Craft: ${label}`;
     }
-    return `التخصصات (${selectedSubCrafts.length})`;
-  }, [selectedSubCrafts]);
+    return isRtl ? `التخصصات (${selectedSubCrafts.length})` : `Crafts (${selectedSubCrafts.length})`;
+  }, [selectedSubCrafts, isRtl, locale]);
 
   const scrollToCatalog = () => {
     catalogSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -842,7 +847,8 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
           <div className="p-2.5 sm:p-4 space-y-1.5 sm:space-y-2">
             <div className="flex items-center justify-between gap-1.5 text-[10px] sm:text-xs text-[#475569] dark:text-[#94A3B8]">
               <span className="truncate font-medium">
-                {p.craftName || p.category} · {hasStock ? 'متوفر' : 'بالطلب'}
+                {localizeCraftTerm(p.craftName || String(p.category || ''), locale)} ·{' '}
+                {hasStock ? t('in_stock') : isRtl ? 'بالطلب' : 'Made to order'}
               </span>
               <span className="flex items-center gap-0.5 sm:gap-1 font-mono tabular-nums text-[#0C1427] dark:text-[#F7F3EA] font-bold shrink-0">
                 <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
@@ -1408,7 +1414,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                             : 'bg-[#F7F3EA] dark:bg-[#0D162E] text-[#334155] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C]/60'
                         }`}
                       >
-                        {cat.nameAr}
+                        {cat.id === 'all' ? t('all_categories') : localizeCraftTerm(cat.nameAr, locale)}
                       </button>
                     );
                   })}
@@ -1448,7 +1454,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54]'
                     }`}
                   >
-                    <span>الكل (كافة الأقسام)</span>
+                    <span>{isRtl ? 'الكل (كافة الأقسام)' : 'All Sections'}</span>
                     {selectedMainSections.length === 0 && <Check className="w-3.5 h-3.5" />}
                   </button>
 
@@ -1459,13 +1465,15 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         key={sec.id}
                         type="button"
                         onClick={() => toggleMainSection(sec.id)}
-                        className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer text-right ${
+                        className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer ${isRtl ? 'text-right' : 'text-left'} ${
                           isChecked
                             ? 'bg-[#EA580C]/10 text-[#C2410C] dark:text-[#FBBF24]'
                             : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54]'
                         }`}
                       >
-                        <span className="truncate">{sec.nameAr}</span>
+                        <span className="truncate">
+                          {isRtl ? sec.nameAr : localizeCraftTerm(sec.id, locale)}
+                        </span>
                         <span
                           className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
                             isChecked
@@ -1513,7 +1521,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54]'
                     }`}
                   >
-                    <span>الكل ({availableSubCrafts.length} تخصص)</span>
+                    <span>
+                      {isRtl
+                        ? `الكل (${availableSubCrafts.length} تخصص)`
+                        : `All (${availableSubCrafts.length} crafts)`}
+                    </span>
                     {selectedSubCrafts.length === 0 && <Check className="w-3.5 h-3.5" />}
                   </button>
 
@@ -1524,13 +1536,15 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         key={craft.id}
                         type="button"
                         onClick={() => toggleSubCraft(craft.id)}
-                        className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer text-right ${
+                        className={`w-full px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-between gap-2 transition cursor-pointer ${isRtl ? 'text-right' : 'text-left'} ${
                           isChecked
                             ? 'bg-[#EA580C]/10 text-[#C2410C] dark:text-[#FBBF24]'
                             : 'text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54]'
                         }`}
                       >
-                        <span className="truncate">{craft.nameAr}</span>
+                        <span className="truncate">
+                          {isRtl ? craft.nameAr : localizeCraftTerm(craft.id, locale)}
+                        </span>
                         <span
                           className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
                             isChecked
@@ -1764,7 +1778,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 <div className="space-y-4 text-xs leading-relaxed flex flex-col justify-between">
                   <div className={`space-y-3 ${isRtl ? 'pl-8 md:pl-0' : 'pr-8 md:pr-0'}`}>
                     <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
-                      {selectedProductDetails.craftName || selectedProductDetails.category} ·{' '}
+                      {localizeCraftTerm(
+                        selectedProductDetails.craftName || String(selectedProductDetails.category || ''),
+                        locale
+                      )}{' '}
+                      ·{' '}
                       {(selectedProductDetails.currentStock || 0) > 0
                         ? t('in_stock')
                         : isRtl
@@ -1864,7 +1882,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                       selectedProductDetails.availableColors.length > 0 && (
                         <div className="space-y-1.5 pt-1">
                           <label className="block font-bold text-[#0C1427] dark:text-[#F7F3EA]">
-                            الألوان المتاحة
+                            {isRtl ? 'الألوان المتاحة' : 'Available Colors'}
                           </label>
                           <div className="flex flex-wrap gap-1.5">
                             {selectedProductDetails.availableColors.map((color) => (
@@ -1878,7 +1896,10 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                                     : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
                                 }`}
                               >
-                                {color}
+                                {localizeColorLabel(color, locale, {
+                                  [locale]: selectedProductDetails.translations?.[locale]?.colors?.[color],
+                                  en: selectedProductDetails.translations?.en?.colors?.[color],
+                                })}
                               </button>
                             ))}
                           </div>
@@ -1888,10 +1909,25 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     {hasSizesList && (
                       <div className="space-y-1.5 pt-1">
                         <label className="block font-bold text-[#0C1427] dark:text-[#F7F3EA]">
-                          اختر مقاسك المفضل
+                          {isRtl ? 'اختر مقاسك المفضل' : 'Select Size'}
                         </label>
                         <div className="flex flex-wrap gap-1.5">
                           {sizeLabels.map((size) => {
+                            const matchedVar = selectedProductDetails.sizeVariants?.find((v) => v.label === size);
+                            const displaySize = localizeSizeLabel(
+                              size,
+                              locale,
+                              {
+                                ...(matchedVar?.translations || {}),
+                                ...(selectedProductDetails.translations?.[locale]?.sizes?.[size]
+                                  ? { [locale]: selectedProductDetails.translations?.[locale]?.sizes?.[size] }
+                                  : {}),
+                                ...(selectedProductDetails.translations?.en?.sizes?.[size]
+                                  ? { en: selectedProductDetails.translations?.en?.sizes?.[size] }
+                                  : {}),
+                              },
+                              matchedVar?.labelEn
+                            );
                             const varPricing = resolveProductOfferPricing(
                               selectedProductDetails,
                               size,
@@ -1909,11 +1945,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                                     : 'bg-[#E9E2D4] dark:bg-[#132040] text-[#0C1427] dark:text-[#F7F3EA] border-[#D4CCBC] dark:border-[#22355E]'
                                 }`}
                               >
-                                <span>{size}</span>
+                                <span>{displaySize}</span>
                                 {selectedProductDetails.sizeVariants &&
                                   selectedProductDetails.sizeVariants.length > 0 && (
                                     <span className="font-mono tabular-nums opacity-90 text-[11px]">
-                                      ({varPricing.finalPrice.toLocaleString('ar-EG')} {varPricing.displaySymbol})
+                                      ({varPricing.finalPrice.toLocaleString(isRtl ? 'ar-EG' : 'en-US')} {varPricing.displaySymbol})
                                     </span>
                                   )}
                               </button>
@@ -1925,7 +1961,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
                     <div className="pt-1">
                       <label className="block font-bold text-[#334155] dark:text-[#CBD5E1] mb-1">
-                        ملاحظات على الطلب (اختياري)
+                        {isRtl ? 'ملاحظات على الطلب (اختياري)' : 'Order Notes (optional)'}
                       </label>
                       <input
                         type="text"

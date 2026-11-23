@@ -10,6 +10,8 @@ import { supabase } from '../lib/supabase';
 export interface ProductSizeVariant {
   id: string;
   label: string;
+  labelEn?: string;
+  translations?: Partial<Record<string, string>>;
   price: number; // Price in product's sourceCurrency
   egpPrice?: number; // Auto-normalized EGP price for central marketplace
 }

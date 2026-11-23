@@ -1111,6 +1111,8 @@ export interface SavedProductRecord {
   sizeVariants?: Array<{
     id: string;
     label: string;
+    labelEn?: string;
+    translations?: Partial<Record<string, string>>;
     price: number;
     egpPrice?: number;
   }>;
@@ -1135,7 +1137,18 @@ export interface SavedProductRecord {
   isCustomOrderAvailable?: boolean;
   decorCategory?: string;
   sortOrder?: number;
-  translations?: Partial<Record<string, { name?: string; description?: string }>>;
+  translations?: Partial<
+    Record<
+      string,
+      {
+        name?: string;
+        description?: string;
+        category?: string;
+        sizes?: Record<string, string>;
+        colors?: Record<string, string>;
+      }
+    >
+  >;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;

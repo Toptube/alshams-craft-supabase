@@ -75,7 +75,18 @@ export interface CloudMarketplaceProduct {
   status: 'pending_approval' | 'approved' | 'rejected';
   rejection_reason?: string | null;
   rejectionReason?: string | null;
-  translations?: Partial<Record<string, { name?: string; description?: string }>>;
+  translations?: Partial<
+    Record<
+      string,
+      {
+        name?: string;
+        description?: string;
+        category?: string;
+        sizes?: Record<string, string>;
+        colors?: Record<string, string>;
+      }
+    >
+  >;
   created_at?: string | number;
   updated_at?: string | number;
 }
@@ -265,6 +276,10 @@ export async function publishProductToMarketplace(
         .map((v, i) => ({
           id: v.id || `sz_${i}_${Date.now()}`,
           label: v.label.trim(),
+          ...(v.labelEn?.trim() ? { labelEn: v.labelEn.trim() } : {}),
+          ...(v.translations && Object.keys(v.translations).length > 0
+            ? { translations: v.translations }
+            : {}),
           price: Number(v.price) || rawStorePrice,
           egpPrice: toEgpAmount(Number(v.price) || rawStorePrice, sourceCurr),
         }))

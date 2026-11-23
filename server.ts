@@ -7201,7 +7201,17 @@ app.get('/api/public/product/:id', async (req: Request, res: Response) => {
         galleryUrls,
         availableColors: Array.isArray(p.available_colors || p.availableColors) ? (p.available_colors || p.availableColors) : [],
         availableSizes: Array.isArray(p.available_sizes || p.availableSizes) ? (p.available_sizes || p.availableSizes) : [],
-        sizeVariants: Array.isArray(p.size_variants || p.sizeVariants) ? (p.size_variants || p.sizeVariants) : [],
+        sizeVariants: Array.isArray(
+          p.size_variants ||
+            p.sizeVariants ||
+            (p.dimensions && typeof p.dimensions === 'object'
+              ? (p.dimensions as any).__artisanExt?.size_variants
+              : undefined)
+        )
+          ? p.size_variants ||
+            p.sizeVariants ||
+            (p.dimensions as any).__artisanExt?.size_variants
+          : [],
         currentStock: Number(p.current_stock ?? p.currentStock ?? 1),
         isCustomOrderAvailable: Boolean(p.is_custom_order_available ?? p.isCustomOrderAvailable),
         workshopId: ws?.id || p.workshop_id || p.workshopId || '',

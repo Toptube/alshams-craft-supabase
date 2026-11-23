@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './supabase';
+import { authedFetch } from './apiClient';
+export {
+  localizeCraftTerm,
+  localizeSizeLabel,
+  localizeColorLabel,
+  suggestEnglishCraftOrTerm,
+} from './craftLocalization';
 
 export type PublicLocaleCode = 'ar' | 'en' | 'fr' | 'de' | 'es' | 'it' | 'tr' | 'nl';
 
@@ -191,22 +198,27 @@ export async function translateFieldsWithAI(
   }
 
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    let res: Response;
     try {
-      const { data } = await supabase.auth.getSession();
-      if (data?.session?.access_token) {
-        headers['Authorization'] = `Bearer ${data.session.access_token}`;
-      }
-      if (data?.session?.user?.email) {
-        headers['x-user-email'] = data.session.user.email;
-      }
-    } catch {}
-
-    const res = await fetch('/api/translate', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ fields: nonEmpty, targetLang, sourceLang }),
-    });
+      const extraHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.user?.email) {
+          extraHeaders['x-user-email'] = data.session.user.email;
+        }
+      } catch {}
+      res = await authedFetch('/api/translate', {
+        method: 'POST',
+        headers: extraHeaders,
+        body: JSON.stringify({ fields: nonEmpty, targetLang, sourceLang }),
+      });
+    } catch {
+      res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: nonEmpty, targetLang, sourceLang }),
+      });
+    }
     const json = await res.json().catch(() => ({}));
     if (res.ok && json?.success && json?.translations) {
       return { success: true, translations: json.translations };

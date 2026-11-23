@@ -20,6 +20,9 @@ import {
   pickLocalizedText,
   resolveBilingualLogo,
   PublicLocaleCode,
+  localizeCraftTerm,
+  localizeSizeLabel,
+  localizeColorLabel,
 } from '../../lib/publicLocale';
 import {
   convertBetweenCurrencies,
@@ -38,12 +41,26 @@ interface PublicProductData {
   currencySymbol: string;
   sourceCurrency?: string;
   description: string;
-  translations?: Record<string, { name?: string; description?: string }>;
+  translations?: Record<
+    string,
+    {
+      name?: string;
+      description?: string;
+      sizes?: Record<string, string>;
+      colors?: Record<string, string>;
+    }
+  >;
   imageUrl: string;
   galleryUrls: string[];
   availableColors: string[];
   availableSizes: string[];
-  sizeVariants: Array<{ label: string; price?: number; originalPrice?: number }>;
+  sizeVariants: Array<{
+    label: string;
+    labelEn?: string;
+    translations?: Partial<Record<string, string>>;
+    price?: number;
+    originalPrice?: number;
+  }>;
   currentStock: number;
   isCustomOrderAvailable: boolean;
   workshopId: string;
@@ -465,7 +482,7 @@ export const PublicProductLandingView: React.FC<PublicProductLandingViewProps> =
             <div className="space-y-2">
               <div className="flex items-center flex-wrap gap-2 text-xs font-black">
                 <span className="px-2.5 py-1 rounded-lg bg-[#EA580C]/10 text-[#EA580C] dark:text-[#FBBF24]">
-                  {product.craftName || (isRtl ? 'مشغولات يدوية' : 'Handmade Craft')}
+                  {localizeCraftTerm(product.craftName, locale) || (isRtl ? 'مشغولات يدوية' : 'Handmade Craft')}
                 </span>
                 <span
                   className={`px-2.5 py-1 rounded-lg ${
@@ -519,7 +536,12 @@ export const PublicProductLandingView: React.FC<PublicProductLandingViewProps> =
               <div className="space-y-2">
                 <div className="text-xs font-black text-[#475569] dark:text-[#94A3B8]">
                   {isRtl ? 'اللون المختار:' : 'Selected Color:'}{' '}
-                  <span className="text-[#0C1427] dark:text-[#F7F3EA]">{selectedColor}</span>
+                  <span className="text-[#0C1427] dark:text-[#F7F3EA]">
+                    {localizeColorLabel(selectedColor, locale, {
+                      [locale]: product.translations?.[locale]?.colors?.[selectedColor],
+                      en: product.translations?.en?.colors?.[selectedColor],
+                    })}
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {product.availableColors.map((col) => (
@@ -533,7 +555,10 @@ export const PublicProductLandingView: React.FC<PublicProductLandingViewProps> =
                           : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E]'
                       }`}
                     >
-                      {col}
+                      {localizeColorLabel(col, locale, {
+                        [locale]: product.translations?.[locale]?.colors?.[col],
+                        en: product.translations?.en?.colors?.[col],
+                      })}
                     </button>
                   ))}
                 </div>
@@ -545,23 +570,58 @@ export const PublicProductLandingView: React.FC<PublicProductLandingViewProps> =
               <div className="space-y-2">
                 <div className="text-xs font-black text-[#475569] dark:text-[#94A3B8]">
                   {isRtl ? 'المقاس / الحجم:' : 'Size:'}{' '}
-                  <span className="text-[#0C1427] dark:text-[#F7F3EA]">{selectedSize}</span>
+                  <span className="text-[#0C1427] dark:text-[#F7F3EA]">
+                    {(() => {
+                      const matched = product.sizeVariants?.find((v) => v.label === selectedSize);
+                      return localizeSizeLabel(
+                        selectedSize,
+                        locale,
+                        {
+                          ...(matched?.translations || {}),
+                          ...(product.translations?.[locale]?.sizes?.[selectedSize]
+                            ? { [locale]: product.translations?.[locale]?.sizes?.[selectedSize] }
+                            : {}),
+                          ...(product.translations?.en?.sizes?.[selectedSize]
+                            ? { en: product.translations?.en?.sizes?.[selectedSize] }
+                            : {}),
+                        },
+                        matched?.labelEn
+                      );
+                    })()}
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {sizeList.map((sz) => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => setSelectedSize(sz)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-colors ${
-                        selectedSize === sz
-                          ? 'bg-[#0C1427] dark:bg-[#F7F3EA] text-white dark:text-[#0C1427] border-[#0C1427]'
-                          : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E]'
-                      }`}
-                    >
-                      {sz}
-                    </button>
-                  ))}
+                  {sizeList.map((sz) => {
+                    const matched = product.sizeVariants?.find((v) => v.label === sz);
+                    const displaySz = localizeSizeLabel(
+                      sz,
+                      locale,
+                      {
+                        ...(matched?.translations || {}),
+                        ...(product.translations?.[locale]?.sizes?.[sz]
+                          ? { [locale]: product.translations?.[locale]?.sizes?.[sz] }
+                          : {}),
+                        ...(product.translations?.en?.sizes?.[sz]
+                          ? { en: product.translations?.en?.sizes?.[sz] }
+                          : {}),
+                      },
+                      matched?.labelEn
+                    );
+                    return (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setSelectedSize(sz)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-colors ${
+                          selectedSize === sz
+                            ? 'bg-[#0C1427] dark:bg-[#F7F3EA] text-white dark:text-[#0C1427] border-[#0C1427]'
+                            : 'bg-white dark:bg-[#132040] border-[#D4CCBC] dark:border-[#22355E]'
+                        }`}
+                      >
+                        {displaySz}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}

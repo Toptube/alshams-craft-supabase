@@ -916,9 +916,21 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         >
           <div className="flex flex-wrap items-center gap-2">
             {[
-              { id: 'catalog' as const, label: `كتالوج الخامات (${items.length})`, icon: Boxes },
-              { id: 'price_table' as const, label: 'جدول الأسعار والشرائح', icon: Table2 },
-              { id: 'reviews' as const, label: `تقييمات الورش (${reviews.length})`, icon: Star },
+              {
+                id: 'catalog' as const,
+                label: locale === 'ar' ? `كتالوج الخامات (${items.length})` : `Supplies Catalog (${items.length})`,
+                icon: Boxes,
+              },
+              {
+                id: 'price_table' as const,
+                label: locale === 'ar' ? 'جدول الأسعار والشرائح' : 'Pricing & Bulk Tiers',
+                icon: Table2,
+              },
+              {
+                id: 'reviews' as const,
+                label: locale === 'ar' ? `تقييمات الورش (${reviews.length})` : `Workshop Reviews (${reviews.length})`,
+                icon: Star,
+              },
             ].map((tabItem) => {
               const IconComp = tabItem.icon;
               const isSelected = activeTab === tabItem.id;
@@ -950,7 +962,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="بحث في أصناف المورد..."
+              placeholder={locale === 'ar' ? 'بحث في أصناف المورد...' : 'Search supplier items...'}
               style={{
                 backgroundColor: themeSpec.softBg,
                 borderColor: themeSpec.borderColor,
@@ -968,7 +980,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 style={catalogFilter === 'all' ? accentBtnStyle : softBtnStyle}
                 className={`px-3 py-1.5 ${themeSpec.buttonRadiusClass} border text-[11px] font-black cursor-pointer`}
               >
-                كافة الخامات ({orderedItems.length})
+                {locale === 'ar' ? `كافة الخامات (${orderedItems.length})` : `All Supplies (${orderedItems.length})`}
               </button>
               {specialOfferItems.length > 0 && (
                 <button
@@ -977,7 +989,9 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   style={catalogFilter === 'offers' ? accentBtnStyle : softBtnStyle}
                   className={`px-3 py-1.5 ${themeSpec.buttonRadiusClass} border text-[11px] font-black cursor-pointer`}
                 >
-                  🔥 العروض الخاصة ({specialOfferItems.length})
+                  {locale === 'ar'
+                    ? `🔥 العروض الخاصة (${specialOfferItems.length})`
+                    : `🔥 Special Offers (${specialOfferItems.length})`}
                 </button>
               )}
               {bestSellerItems.length > 0 && (
@@ -987,7 +1001,9 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   style={catalogFilter === 'bestsellers' ? accentBtnStyle : softBtnStyle}
                   className={`px-3 py-1.5 ${themeSpec.buttonRadiusClass} border text-[11px] font-black cursor-pointer`}
                 >
-                  ⭐ الأكثر طلباً ({bestSellerItems.length})
+                  {locale === 'ar'
+                    ? `⭐ الأكثر طلباً (${bestSellerItems.length})`
+                    : `⭐ Best Sellers (${bestSellerItems.length})`}
                 </button>
               )}
             </div>
