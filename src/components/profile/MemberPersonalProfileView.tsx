@@ -23,6 +23,7 @@ import {
   User,
   Video,
   X,
+  Globe,
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import {
@@ -64,6 +65,15 @@ import { archiveReplacedImage } from '../../services/imageRollbackService';
 import { ImageRollbackBar } from '../common/ImageRollbackBar';
 import { ArtisanSkillAssessment } from '../auth/ArtisanSkillAssessment';
 import { EmbeddedSocialMediaCard } from '../common/EmbeddedSocialMediaCard';
+import {
+  usePublicLocale,
+  pickLocalizedText,
+  resolveBilingualLogo,
+  PublicLocaleCode,
+} from '../../lib/publicLocale';
+import { PublicLocaleCurrencyBar } from '../common/PublicLocaleCurrencyBar';
+import { MultilingualContentStudio } from '../common/MultilingualContentStudio';
+import { MemberProfileTranslationFields } from '../../types/memberProfile';
 
 interface MemberPersonalProfileViewProps {
   targetMemberId: string;
@@ -128,6 +138,13 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   );
   const [savingProfile, setSavingProfile] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [showLangStudio, setShowLangStudio] = useState(false);
+  const [brandLogoEnDraft, setBrandLogoEnDraft] = useState<string>('');
+  const [defaultLangDraft, setDefaultLangDraft] = useState<PublicLocaleCode>('ar');
+  const [enabledLangsDraft, setEnabledLangsDraft] = useState<PublicLocaleCode[]>(['ar', 'en']);
+  const [translationsDraft, setTranslationsDraft] = useState<
+    Partial<Record<PublicLocaleCode, MemberProfileTranslationFields>>
+  >({});
 
   // Showcase Post Composer & Editor
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -208,6 +225,14 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       setSkillLevelDraft(p.skillLevel || 'intermediate');
       setAssessmentScoreDraft(p.assessmentScore);
       setVisibilityDraft(normalizeVisibilityMatrix(p.visibility));
+      setBrandLogoEnDraft(p.brandLogoEn || '');
+      setDefaultLangDraft((p.defaultLanguage as PublicLocaleCode) || 'ar');
+      setEnabledLangsDraft(
+        Array.isArray(p.enabledLanguages) && p.enabledLanguages.length > 0
+          ? (p.enabledLanguages as PublicLocaleCode[])
+          : ['ar', 'en']
+      );
+      setTranslationsDraft(p.translations || {});
     };
 
     // 1. Instant paint from cache if available (0ms perceived lag)
@@ -311,6 +336,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
     setSaveFeedback(null);
     const res = await saveMemberPersonalProfile({
       personalAvatar: personalAvatarDraft,
+      brandLogoEn: brandLogoEnDraft || null,
       bioHeadline: bioHeadlineDraft.trim(),
       storyText: storyDraft.trim(),
       phone: phoneDraft.trim(),
@@ -319,6 +345,9 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
       visibility: visibilityDraft,
       skillLevel: rawProfile?.accountRole !== 'supplier' ? skillLevelDraft : undefined,
       assessmentScore: rawProfile?.accountRole !== 'supplier' ? assessmentScoreDraft : undefined,
+      defaultLanguage: defaultLangDraft,
+      enabledLanguages: enabledLangsDraft,
+      translations: translationsDraft,
     });
     setSavingProfile(false);
     if (res.success && res.profile) {
@@ -577,6 +606,33 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   };
 
   const isEditMode = isOwner && previewAs === 'owner';
+  const { locale, setLocale, dir, t } = usePublicLocale(
+    effectiveProfile?.enabledLanguages,
+    effectiveProfile?.defaultLanguage || 'ar'
+  );
+  const pickProfileField = (
+    base: string | undefined | null,
+    field: keyof MemberProfileTranslationFields
+  ): string => {
+    const tr = isEditMode ? translationsDraft : effectiveProfile?.translations;
+    if (!tr) return (base || '').trim();
+    const map: Partial<Record<PublicLocaleCode, string | undefined>> = {};
+    (Object.keys(tr) as PublicLocaleCode[]).forEach((k) => {
+      map[k] = tr[k]?.[field];
+    });
+    return pickLocalizedText(base, map, locale);
+  };
+  const displayProfileName = pickProfileField(effectiveProfile?.displayName, 'displayName');
+  const displayProfileBrand = pickProfileField(effectiveProfile?.brandName, 'brandName');
+  const displayProfileHeadline = pickProfileField(effectiveProfile?.bioHeadline, 'bioHeadline');
+  const resolvedProfileBrandLogo = effectiveProfile
+    ? resolveBilingualLogo(
+        effectiveProfile.brandLogo,
+        effectiveProfile.brandLogo,
+        isEditMode ? brandLogoEnDraft || effectiveProfile.brandLogoEn : effectiveProfile.brandLogoEn,
+        locale
+      )
+    : '';
   const postsCount = rawProfile?.showcasePosts?.length || 0;
   const atLimit = postsCount >= MAX_SHOWCASE_POSTS;
   const isExpertTrainer = canLevelPublishLessons(
@@ -589,7 +645,10 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
   const rawTrainerCount = rawProfile?.trainerPosts?.length || 0;
 
   const contentNode = (
-    <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5 text-right" dir="rtl">
+    <div
+      className={`max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-5 ${dir === 'rtl' ? 'text-right' : 'text-left'}`}
+      dir={dir}
+    >
       {/* Top Action Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#D4CCBC] dark:border-[#22355E]">
         <div className="flex items-center gap-2">
@@ -600,7 +659,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
             >
               <ArrowRight className="w-4 h-4 text-[#EA580C]" />
-              <span>رجوع</span>
+              <span>{locale === 'ar' ? 'رجوع' : t('back_to_app')}</span>
             </button>
           )}
           {onGoHome && (
@@ -610,24 +669,36 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               className="min-h-[40px] px-3 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
             >
               <Home className="w-4 h-4 text-[#EA580C]" />
-              <span>الرئيسية</span>
+              <span>{locale === 'ar' ? 'الرئيسية' : t('back_to_app')}</span>
             </button>
           )}
           <h1 className="text-sm sm:text-base font-black text-[#0C1427] dark:text-[#F7F3EA]">
-            {isOwner ? 'صفحتي الشخصية ومعرض الأعمال' : 'الملف الشخصي في مجتمع الشمساوية'}
+            {locale === 'ar'
+              ? isOwner
+                ? 'صفحتي الشخصية ومعرض الأعمال'
+                : 'الملف الشخصي في مجتمع الشمساوية'
+              : t('personal_profile')}
           </h1>
         </div>
 
-        {mode === 'modal' && onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="إغلاق"
-            className="w-9 h-9 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer hover:border-[#EA580C]"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <PublicLocaleCurrencyBar
+            locale={locale}
+            onChangeLocale={setLocale}
+            enabledLanguages={isEditMode ? enabledLangsDraft : effectiveProfile?.enabledLanguages}
+            compact
+          />
+          {mode === 'modal' && onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="إغلاق"
+              className="w-9 h-9 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] flex items-center justify-center cursor-pointer hover:border-[#EA580C]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -700,26 +771,26 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   {effectiveProfile.personalAvatar ? (
                     <img
                       src={effectiveProfile.personalAvatar}
-                      alt={effectiveProfile.displayName}
+                      alt={displayProfileName}
                       className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border-2 border-[#EA580C]/70 bg-[#EFE9DC] dark:bg-[#132040]"
                     />
-                  ) : effectiveProfile.brandLogo ? (
+                  ) : resolvedProfileBrandLogo ? (
                     <img
-                      src={effectiveProfile.brandLogo}
-                      alt={effectiveProfile.brandName}
+                      src={resolvedProfileBrandLogo}
+                      alt={displayProfileBrand}
                       className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-contain p-1.5 border border-[#D4CCBC] dark:border-[#22355E] bg-[#EFE9DC] dark:bg-[#132040]"
                     />
                   ) : (
-                    <ArtisanAvatar artistName={effectiveProfile.displayName} size="lg" />
+                    <ArtisanAvatar artistName={displayProfileName} size="lg" />
                   )}
 
-                  {effectiveProfile.brandLogo &&
+                  {resolvedProfileBrandLogo &&
                     effectiveProfile.personalAvatar &&
-                    effectiveProfile.brandLogo !== effectiveProfile.personalAvatar && (
+                    resolvedProfileBrandLogo !== effectiveProfile.personalAvatar && (
                       <img
-                        src={effectiveProfile.brandLogo}
-                        alt={effectiveProfile.brandName}
-                        title={`شعار: ${effectiveProfile.brandName}`}
+                        src={resolvedProfileBrandLogo}
+                        alt={displayProfileBrand}
+                        title={displayProfileBrand}
                         className="w-9 h-9 rounded-xl object-contain bg-[#F7F3EA] dark:bg-[#060B18] border border-[#D4CCBC] dark:border-[#22355E] p-0.5 absolute -bottom-2 -left-2 shadow-sm"
                       />
                     )}
@@ -731,11 +802,13 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                       {effectiveProfile.accountRole === 'superadmin'
                         ? 'إدارة المنظومة · كبير العيلة'
                         : effectiveProfile.accountRole === 'supplier'
-                        ? 'مورد خامات معتمد'
-                        : getSkillLevelMeta(
+                        ? t('verified_supplier')
+                        : locale === 'ar'
+                        ? getSkillLevelMeta(
                             effectiveProfile.skillLevel || (effectiveProfile.trainerVerified ? 'expert_trainer' : 'intermediate'),
                             (effectiveProfile as any).gender || currentUserProfile?.gender
-                          ).displayTitle}
+                          ).displayTitle
+                        : t('verified_artisan')}
                     </span>
                     {canLevelPublishLessons(
                       effectiveProfile.skillLevel,
@@ -754,13 +827,13 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   </div>
 
                   <h2 className="text-xl sm:text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-tight">
-                    {effectiveProfile.displayName}
+                    {displayProfileName}
                   </h2>
 
-                  {effectiveProfile.brandName && (
+                  {displayProfileBrand && (
                     <p className="text-xs sm:text-sm font-bold text-[#475569] dark:text-[#CBD5E1]">
-                      {effectiveProfile.brandName}
-                      {effectiveProfile.bioHeadline ? ` — ${effectiveProfile.bioHeadline}` : ''}
+                      {displayProfileBrand}
+                      {displayProfileHeadline ? ` — ${displayProfileHeadline}` : ''}
                     </p>
                   )}
 
@@ -790,9 +863,11 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   >
                     <Store className="w-4 h-4" />
                     <span>
-                      {effectiveProfile.accountRole === 'supplier'
-                        ? 'زيارة متجر المورد وكتالوج الخامات'
-                        : 'زيارة المتجر الإلكتروني'}
+                      {locale === 'ar'
+                        ? effectiveProfile.accountRole === 'supplier'
+                          ? 'زيارة متجر المورد وكتالوج الخامات'
+                          : 'زيارة المتجر الإلكتروني'
+                        : t('visit_store')}
                     </span>
                   </button>
                 </div>
@@ -987,6 +1062,69 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
                   </div>
                 </div>
 
+                {/* Multilingual Profile & English Brand Logo Studio */}
+                <div className="space-y-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowLangStudio((v) => !v)}
+                    className="w-full px-3.5 py-2.5 rounded-2xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center justify-between cursor-pointer transition"
+                  >
+                    <span className="flex items-center gap-2 text-[#0C1427] dark:text-[#F7F3EA]">
+                      <Globe className="w-4 h-4 text-[#EA580C]" />
+                      <span>اللغات والترجمة الفورية والشعار الإنجليزي لصفحتك الشخصية</span>
+                    </span>
+                    <span className="text-[11px] text-[#C2410C] dark:text-[#FBBF24]">
+                      {showLangStudio ? 'إخفاء ▲' : 'فتح الإعدادات ▼'}
+                    </span>
+                  </button>
+
+                  {showLangStudio && (
+                    <MultilingualContentStudio
+                      title="لغات وترجمات الصفحة الشخصية والشعار الإنجليزي"
+                      enabledLanguages={enabledLangsDraft}
+                      onChangeEnabledLanguages={setEnabledLangsDraft}
+                      defaultLanguage={defaultLangDraft}
+                      onChangeDefaultLanguage={setDefaultLangDraft}
+                      showCurrencies={false}
+                      showBilingualLogos={true}
+                      logoArUrl={personalAvatarDraft || rawProfile.brandLogo || ''}
+                      logoEnUrl={brandLogoEnDraft}
+                      onChangeLogoEn={setBrandLogoEnDraft}
+                      fields={[
+                        {
+                          key: 'displayName',
+                          labelAr: 'الاسم الشخصي',
+                          sourceArabicValue: rawProfile.displayName || '',
+                          placeholderEn: 'Your name in this language',
+                        },
+                        {
+                          key: 'brandName',
+                          labelAr: 'اسم البراند / الورشة',
+                          sourceArabicValue: rawProfile.brandName || '',
+                          placeholderEn: 'Brand name in this language',
+                        },
+                        {
+                          key: 'bioHeadline',
+                          labelAr: 'السطر التعريفي المختصر',
+                          sourceArabicValue: bioHeadlineDraft || '',
+                          placeholderEn: 'Short bio headline',
+                        },
+                        {
+                          key: 'storyText',
+                          labelAr: 'القصة والنبذة التعريفية',
+                          sourceArabicValue: storyDraft || '',
+                          multiline: true,
+                          placeholderEn: 'Your craft story',
+                        },
+                      ]}
+                      translations={translationsDraft as any}
+                      onChangeTranslations={(next) =>
+                        setTranslationsDraft(next as Partial<Record<PublicLocaleCode, MemberProfileTranslationFields>>)
+                      }
+                    />
+                  )}
+                </div>
+
                 <div className="flex justify-end">
                   <button
                     type="button"
@@ -1008,13 +1146,15 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               <h3 className="text-xs font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4" />
                 <span>
-                  {effectiveProfile.accountRole === 'supplier'
-                    ? 'نبذة عن المورد وخبرته في الخامات'
-                    : 'قصة الفنان ورحلة الإبداع'}
+                  {locale === 'ar'
+                    ? effectiveProfile.accountRole === 'supplier'
+                      ? 'نبذة عن المورد وخبرته في الخامات'
+                      : 'قصة الفنان ورحلة الإبداع'
+                    : t('about_story')}
                 </span>
               </h3>
               <p className="text-sm leading-relaxed text-[#0C1427] dark:text-[#F7F3EA] whitespace-pre-wrap">
-                {effectiveProfile.storyText}
+                {pickProfileField(effectiveProfile.storyText, 'storyText')}
               </p>
             </section>
           )}
@@ -1025,7 +1165,7 @@ export const MemberPersonalProfileView: React.FC<MemberPersonalProfileViewProps>
               <div>
                 <h3 className="text-base font-black text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-2">
                   <ImageIcon className="w-4 h-4 text-[#EA580C]" />
-                  <span>معرض الأعمال والمنشورات المميزة</span>
+                  <span>{locale === 'ar' ? 'معرض الأعمال والمنشورات المميزة' : t('showcase_works')}</span>
                 </h3>
                 <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] mt-0.5">
                   صور وقصص أعمال مميزة مضغوطة تلقائياً ومتزامنة مع واجهة المتجر العام

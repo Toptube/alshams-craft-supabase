@@ -220,7 +220,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     profile.defaultWholesaleDiscountPercent ?? 25
   );
   const [enableDailySalesReminder, setEnableDailySalesReminder] = useState<boolean>(
-    profile.enableDailySalesReminder ?? true
+    profile.enableDailySalesReminder ?? false
   );
   const [dailySalesReminderMode, setDailySalesReminderMode] = useState<'closing_offset' | 'fixed_time'>(
     profile.dailySalesReminderMode || 'closing_offset'
@@ -329,7 +329,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     setLogoUrl(resolvedLogo === '/alshams_falcon_emblem.png' ? '' : resolvedLogo);
     setStoreSlug(profile.storeSlug || profile.store_slug || '');
     setDefaultWholesaleDiscountPercent(profile.defaultWholesaleDiscountPercent ?? 25);
-    setEnableDailySalesReminder(profile.enableDailySalesReminder ?? true);
+    setEnableDailySalesReminder(profile.enableDailySalesReminder ?? false);
     setDailySalesReminderMode(profile.dailySalesReminderMode || 'closing_offset');
     setDailySalesReminderTime(profile.dailySalesReminderTime || '20:00');
     setWorkshopClosingHour(profile.workshopClosingHour || '21:00');

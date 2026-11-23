@@ -28,6 +28,7 @@ import {
   Image as ImageIcon,
   Phone,
   Loader2,
+  Globe,
 } from 'lucide-react';
 import { SavedProductRecord, UserProfile } from '../../types';
 import {
@@ -70,6 +71,12 @@ import { StorePromoBannerDisplay } from './StorePromoBannerDisplay';
 import { ArtisanProductEditorModal } from './ArtisanProductEditorModal';
 import { PublicStorefrontView } from './PublicStorefrontView';
 import { SupplierPublicStoreView } from '../supplier/SupplierPublicStoreView';
+import { MultilingualContentStudio } from '../common/MultilingualContentStudio';
+import {
+  PUBLIC_LANGUAGES,
+  PublicLocaleCode,
+  translateFieldsWithAI,
+} from '../../lib/publicLocale';
 
 export interface LiveStorefrontStudioPageProps {
   profile: UserProfile;
@@ -143,6 +150,7 @@ export const LiveStorefrontStudioPage: React.FC<LiveStorefrontStudioPageProps> =
   const [copiedLink, setCopiedLink] = useState(false);
   const [itemFilter, setItemFilter] = useState<'all' | 'active' | 'hidden'>('all');
   const [editingHeroInline, setEditingHeroInline] = useState(false);
+  const [showLangStudio, setShowLangStudio] = useState(false);
 
   // Artisan state
   const [artisanConfig, setArtisanConfig] = useState<ArtisanStoreConfig>(() =>
@@ -762,40 +770,58 @@ export const LiveStorefrontStudioPage: React.FC<LiveStorefrontStudioPageProps> =
                 </span>
               </div>
 
-              {/* Columns switcher */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-bold text-[#64748B] dark:text-[#94A3B8]">
-                  أعمدة العرض:
-                </span>
-                <div className="inline-flex items-center p-0.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
-                  {([1, 2, 3] as const).map((cols) => (
-                    <button
-                      key={cols}
-                      type="button"
-                      onClick={() => {
-                        playButtonClickSound();
-                        setLayoutCols(cols);
-                        if (isSupplier) {
-                          setSupplierConfig((prev) => ({ ...prev, layoutCols: cols }));
-                        }
-                        setHasUnsavedChanges(true);
-                      }}
-                      className={`px-2 py-1 rounded-lg text-[11px] font-black flex items-center gap-1 transition cursor-pointer ${
-                        layoutCols === cols
-                          ? 'bg-[#EA580C] text-white'
-                          : 'text-[#334155] dark:text-[#CBD5E1]'
-                      }`}
-                    >
-                      {cols === 1 ? (
-                        <LayoutList className="w-3 h-3" />
-                      ) : cols === 2 ? (
-                        <Columns2 className="w-3 h-3" />
-                      ) : (
-                        <Grid3x3 className="w-3 h-3" />
-                      )}
-                      <span>×{cols}</span>
-                    </button>
-                  ))}
+              {/* Columns switcher + Multilingual Studio toggle */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    playButtonClickSound();
+                    setShowLangStudio((v) => !v);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-black flex items-center gap-1.5 transition cursor-pointer ${
+                    showLangStudio
+                      ? 'bg-[#0C1427] text-[#FBBF24] border-[#EA580C] dark:bg-[#EA580C] dark:text-white'
+                      : 'bg-[#FFEDD5] dark:bg-[#132040] text-[#9A3412] dark:text-[#FBBF24] border-[#EA580C]/45 hover:border-[#EA580C]'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>اللغات والعملات والشعار ثنائي اللغة</span>
+                </button>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-[#64748B] dark:text-[#94A3B8]">
+                    أعمدة العرض:
+                  </span>
+                  <div className="inline-flex items-center p-0.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E]">
+                    {([1, 2, 3] as const).map((cols) => (
+                      <button
+                        key={cols}
+                        type="button"
+                        onClick={() => {
+                          playButtonClickSound();
+                          setLayoutCols(cols);
+                          if (isSupplier) {
+                            setSupplierConfig((prev) => ({ ...prev, layoutCols: cols }));
+                          }
+                          setHasUnsavedChanges(true);
+                        }}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-black flex items-center gap-1 transition cursor-pointer ${
+                          layoutCols === cols
+                            ? 'bg-[#EA580C] text-white'
+                            : 'text-[#334155] dark:text-[#CBD5E1]'
+                        }`}
+                      >
+                        {cols === 1 ? (
+                          <LayoutList className="w-3 h-3" />
+                        ) : cols === 2 ? (
+                          <Columns2 className="w-3 h-3" />
+                        ) : (
+                          <Grid3x3 className="w-3 h-3" />
+                        )}
+                        <span>×{cols}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -827,6 +853,129 @@ export const LiveStorefrontStudioPage: React.FC<LiveStorefrontStudioPageProps> =
               })}
             </div>
           </section>
+
+          {/* Multilingual, Currencies & Bilingual Logos Studio Panel */}
+          {showLangStudio && (
+            <MultilingualContentStudio
+              title="إعدادات اللغات والعملات والشعار ثنائي اللغة لمتجرك"
+              subtitle="يتحول متجرك وشعارك وأسعارك تلقائياً حسب لغة وعملة كل عميل حول العالم"
+              enabledLanguages={
+                (isSupplier ? supplierConfig.enabledLanguages : artisanConfig.enabledLanguages) || ['ar', 'en']
+              }
+              onChangeEnabledLanguages={(langs) => {
+                if (isSupplier) {
+                  setSupplierConfig((prev) => ({ ...prev, enabledLanguages: langs }));
+                } else {
+                  setArtisanConfig((prev) => ({ ...prev, enabledLanguages: langs }));
+                }
+                setHasUnsavedChanges(true);
+              }}
+              defaultLanguage={
+                (isSupplier ? supplierConfig.defaultLanguage : artisanConfig.defaultLanguage) || 'ar'
+              }
+              onChangeDefaultLanguage={(lang) => {
+                if (isSupplier) {
+                  setSupplierConfig((prev) => ({ ...prev, defaultLanguage: lang }));
+                } else {
+                  setArtisanConfig((prev) => ({ ...prev, defaultLanguage: lang }));
+                }
+                setHasUnsavedChanges(true);
+              }}
+              showCurrencies={true}
+              enabledCurrencies={
+                (isSupplier ? supplierConfig.acceptedCurrencies : artisanConfig.enabledCurrencies) || [
+                  'EGP',
+                  'USD',
+                  'EUR',
+                  'SAR',
+                  'AED',
+                ]
+              }
+              onChangeEnabledCurrencies={(currs) => {
+                if (isSupplier) {
+                  setSupplierConfig((prev) => ({ ...prev, acceptedCurrencies: currs }));
+                } else {
+                  setArtisanConfig((prev) => ({ ...prev, enabledCurrencies: currs }));
+                }
+                setHasUnsavedChanges(true);
+              }}
+              showBilingualLogos={true}
+              defaultLogoUrl={storeLogo}
+              logoArUrl={isSupplier ? supplierConfig.logoArUrl || '' : artisanConfig.logoArUrl || ''}
+              logoEnUrl={isSupplier ? supplierConfig.logoEnUrl || '' : artisanConfig.logoEnUrl || ''}
+              onChangeLogoAr={(url) => {
+                if (isSupplier) {
+                  setSupplierConfig((prev) => ({ ...prev, logoArUrl: url }));
+                } else {
+                  setArtisanConfig((prev) => ({ ...prev, logoArUrl: url }));
+                }
+                setHasUnsavedChanges(true);
+              }}
+              onChangeLogoEn={(url) => {
+                if (isSupplier) {
+                  setSupplierConfig((prev) => ({ ...prev, logoEnUrl: url }));
+                } else {
+                  setArtisanConfig((prev) => ({ ...prev, logoEnUrl: url }));
+                }
+                setHasUnsavedChanges(true);
+              }}
+              fields={
+                isSupplier
+                  ? [
+                      { key: 'brandName', labelAr: 'اسم متجر المورد', sourceArabicValue: storeName },
+                      {
+                        key: 'tagline',
+                        labelAr: 'جملة الترحيب',
+                        sourceArabicValue: supplierConfig.tagline || '',
+                      },
+                      {
+                        key: 'description',
+                        labelAr: 'وصف المتجر والتوريد',
+                        sourceArabicValue: supplierConfig.description || '',
+                        multiline: true,
+                      },
+                      {
+                        key: 'promoBannerText',
+                        labelAr: 'نص الشريط الترويجي',
+                        sourceArabicValue: supplierConfig.promoBanner?.text || '',
+                      },
+                    ]
+                  : [
+                      { key: 'brandName', labelAr: 'اسم المتجر / العلامة', sourceArabicValue: storeName },
+                      {
+                        key: 'welcomeMessage',
+                        labelAr: 'رسالة الترحيب بالعملاء',
+                        sourceArabicValue: artisanConfig.welcomeMessage || '',
+                      },
+                      {
+                        key: 'artistStory',
+                        labelAr: 'قصة الورشة والحرفة',
+                        sourceArabicValue: artisanConfig.artistStory || '',
+                        multiline: true,
+                      },
+                      {
+                        key: 'craftBadge',
+                        labelAr: 'شارة الحرفة الأصيلة',
+                        sourceArabicValue: artisanConfig.craftBadge || '',
+                      },
+                      {
+                        key: 'promoBannerText',
+                        labelAr: 'نص الشريط الترويجي',
+                        sourceArabicValue: artisanConfig.promoBanner?.text || '',
+                      },
+                    ]
+              }
+              translations={((isSupplier ? supplierConfig.translations : artisanConfig.translations) || {}) as any}
+              onChangeTranslations={(nextTrans) => {
+                if (isSupplier) {
+                  setSupplierConfig((prev) => ({ ...prev, translations: nextTrans as any }));
+                } else {
+                  setArtisanConfig((prev) => ({ ...prev, translations: nextTrans as any }));
+                }
+                setHasUnsavedChanges(true);
+              }}
+            />
+          )}
 
           {loading ? (
             <div className="py-16 flex flex-col items-center justify-center gap-3 text-[#64748B] dark:text-[#94A3B8]">
@@ -1554,6 +1703,35 @@ const SupplierQuickItemEditorModal: React.FC<SupplierQuickItemEditorModalProps> 
   const [discountValue, setDiscountValue] = useState(Number(item.discountValue || 0));
   const [images, setImages] = useState<string[]>(Array.isArray(item.images) ? item.images : []);
   const [uploading, setUploading] = useState(false);
+  const [translations, setTranslations] = useState<
+    Partial<Record<string, { name?: string; description?: string }>>
+  >(item.translations || {});
+  const [activeTransLang, setActiveTransLang] = useState<PublicLocaleCode>('en');
+  const [translating, setTranslating] = useState(false);
+
+  const handleAiTranslateItem = async () => {
+    if (!name.trim() && !description.trim()) return;
+    setTranslating(true);
+    try {
+      const res = await translateFieldsWithAI(
+        { name: name.trim(), description: description.trim() },
+        activeTransLang,
+        'ar'
+      );
+      if (res.success && res.translations) {
+        setTranslations((prev) => ({
+          ...prev,
+          [activeTransLang]: {
+            ...(prev[activeTransLang] || {}),
+            name: res.translations?.name || prev[activeTransLang]?.name || '',
+            description: res.translations?.description || prev[activeTransLang]?.description || '',
+          },
+        }));
+      }
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   const handleUploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1583,6 +1761,7 @@ const SupplierQuickItemEditorModal: React.FC<SupplierQuickItemEditorModalProps> 
       discountType,
       discountValue: discountType === 'none' ? 0 : Math.max(0, Number(discountValue) || 0),
       images,
+      translations: Object.keys(translations).length > 0 ? translations : undefined,
     });
   };
 
@@ -1730,6 +1909,67 @@ const SupplierQuickItemEditorModal: React.FC<SupplierQuickItemEditorModalProps> 
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="w-full px-3 py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+            />
+          </div>
+
+          {/* Multilingual item translations */}
+          <div className="p-3 rounded-2xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-2.5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-xs font-black flex items-center gap-1.5 text-[#0C1427] dark:text-[#F7F3EA]">
+                <Globe className="w-3.5 h-3.5 text-[#EA580C]" />
+                <span>ترجمة الصنف للغات العالمية</span>
+              </span>
+              <button
+                type="button"
+                disabled={translating || (!name.trim() && !description.trim())}
+                onClick={handleAiTranslateItem}
+                className="px-2.5 py-1 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] disabled:opacity-50 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
+              >
+                {translating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                <span>ترجمة تلقائية</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
+              {PUBLIC_LANGUAGES.filter((l) => l.code !== 'ar').map((lang) => (
+                <button
+                  key={lang.code}
+                  type="button"
+                  onClick={() => setActiveTransLang(lang.code)}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black whitespace-nowrap cursor-pointer border ${
+                    activeTransLang === lang.code
+                      ? 'bg-[#0C1427] text-[#FBBF24] border-[#0C1427] dark:bg-[#EA580C] dark:text-white dark:border-[#EA580C]'
+                      : 'bg-white dark:bg-[#0D162E] text-[#334155] dark:text-[#CBD5E1] border-[#D4CCBC] dark:border-[#22355E]'
+                  }`}
+                >
+                  {lang.flag} {lang.shortCode}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              dir="ltr"
+              value={translations[activeTransLang]?.name || ''}
+              onChange={(e) =>
+                setTranslations((prev) => ({
+                  ...prev,
+                  [activeTransLang]: { ...(prev[activeTransLang] || {}), name: e.target.value },
+                }))
+              }
+              placeholder={`Item name (${activeTransLang.toUpperCase()})`}
+              className="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
+            />
+            <textarea
+              rows={2}
+              dir="ltr"
+              value={translations[activeTransLang]?.description || ''}
+              onChange={(e) =>
+                setTranslations((prev) => ({
+                  ...prev,
+                  [activeTransLang]: { ...(prev[activeTransLang] || {}), description: e.target.value },
+                }))
+              }
+              placeholder={`Item description (${activeTransLang.toUpperCase()})`}
+              className="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold"
             />
           </div>
         </div>

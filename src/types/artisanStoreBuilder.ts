@@ -4,6 +4,7 @@ import {
   MARKET_THEME_PRESETS,
 } from './marketplaceBuilder';
 import { convertBetweenCurrencies, getCurrencyInfo, toEgpAmount } from '../lib/currency';
+import { PublicLocaleCode } from '../lib/publicLocale';
 import { supabase } from '../lib/supabase';
 
 export interface ProductSizeVariant {
@@ -115,9 +116,27 @@ export const DEFAULT_STOREFRONT_SECTION_ORDER: StorefrontSectionId[] = [
   'contact_footer',
 ];
 
+export interface ArtisanStoreTranslationFields {
+  brandName?: string;
+  welcomeMessage?: string;
+  artistStory?: string;
+  craftBadge?: string;
+  workingHours?: string;
+  productionTurnaround?: string;
+  customOrderBadgeText?: string;
+  promoBannerText?: string;
+  portfolioTitle?: string;
+}
+
 export interface ArtisanStoreConfig {
   themePreset: MarketThemePresetId;
   storeCurrency: string;
+  defaultLanguage?: PublicLocaleCode;
+  enabledLanguages?: PublicLocaleCode[];
+  enabledCurrencies?: string[];
+  logoArUrl?: string;
+  logoEnUrl?: string;
+  translations?: Partial<Record<PublicLocaleCode, ArtisanStoreTranslationFields>>;
   coverUrl: string;
   showCover: boolean;
   showBrandTitle: boolean;
@@ -227,6 +246,12 @@ export const DEFAULT_ARTISAN_STORE_CONFIG: ArtisanStoreConfig = {
   portfolioItems: [],
   sectionOrder: [...DEFAULT_STOREFRONT_SECTION_ORDER],
   hiddenSections: [],
+  defaultLanguage: 'ar',
+  enabledLanguages: ['ar', 'en'],
+  enabledCurrencies: ['EGP', 'USD', 'EUR', 'SAR', 'AED'],
+  logoArUrl: '',
+  logoEnUrl: '',
+  translations: {},
 };
 
 export function normalizeArtisanStoreConfig(
@@ -297,6 +322,18 @@ export function normalizeArtisanStoreConfig(
     portfolioItems: Array.isArray(raw.portfolioItems) ? raw.portfolioItems : [],
     sectionOrder: mergedOrder,
     hiddenSections,
+    defaultLanguage: raw.defaultLanguage || 'ar',
+    enabledLanguages:
+      Array.isArray(raw.enabledLanguages) && raw.enabledLanguages.length > 0
+        ? raw.enabledLanguages
+        : ['ar', 'en'],
+    enabledCurrencies:
+      Array.isArray(raw.enabledCurrencies) && raw.enabledCurrencies.length > 0
+        ? raw.enabledCurrencies
+        : ['EGP', 'USD', 'EUR', 'SAR', 'AED'],
+    logoArUrl: typeof raw.logoArUrl === 'string' ? raw.logoArUrl : '',
+    logoEnUrl: typeof raw.logoEnUrl === 'string' ? raw.logoEnUrl : '',
+    translations: raw.translations && typeof raw.translations === 'object' ? raw.translations : {},
   };
 }
 

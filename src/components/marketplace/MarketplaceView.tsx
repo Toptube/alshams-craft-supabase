@@ -45,6 +45,12 @@ import {
   removeWishlistItem,
 } from '../../services/wishlistService';
 import {
+  usePublicLocale,
+  pickLocalizedText,
+  PublicLocaleCode,
+} from '../../lib/publicLocale';
+import { PublicLocaleCurrencyBar } from '../common/PublicLocaleCurrencyBar';
+import {
   ShoppingBag,
   Store,
   Star,
@@ -155,6 +161,19 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   onNavigateToSuppliersMarket,
 }) => {
   const isSuperAdmin = useMemo(() => isUserAdmin(profile), [profile]);
+  const { locale, setLocale, dir, t } = usePublicLocale();
+  const pickMarketProductField = (
+    p: MarketplaceProductRecord,
+    field: 'name' | 'description'
+  ): string => {
+    const base = field === 'name' ? p.productName : p.storeDescription;
+    if (!p.translations) return (base || '').trim();
+    const map: Partial<Record<PublicLocaleCode, string | undefined>> = {};
+    (Object.keys(p.translations) as PublicLocaleCode[]).forEach((k) => {
+      map[k] = p.translations?.[k]?.[field];
+    });
+    return pickLocalizedText(base, map, locale);
+  };
 
   const [builderConfig, setBuilderConfig] = useState<MarketplaceBuilderConfig>(() => getStoredMarketBuilderConfig());
   const [isDarkTheme, setIsDarkTheme] = useState<boolean>(() =>
@@ -408,6 +427,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             isPublishedInStore: true,
             isMarketplaceApproved: true,
             marketStatus: 'approved',
+            translations: cp.translations,
             imageUrl: cp.image_url || cp.imageUrl || '/alshams_falcon_emblem.png',
             galleryUrls: Array.isArray(cp.galleryUrls) ? cp.galleryUrls : Array.isArray(cp.gallery_urls) ? cp.gallery_urls : [],
             sizeVariants: Array.isArray(cp.sizeVariants) ? cp.sizeVariants : Array.isArray(cp.size_variants) ? cp.size_variants : [],
@@ -824,12 +844,12 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             </div>
 
             <h3 className="font-bold text-xs sm:text-base text-[#0C1427] dark:text-[#F7F3EA] line-clamp-2 leading-snug group-hover:text-[#C2410C] dark:group-hover:text-[#FBBF24] transition-colors">
-              {p.productName}
+              {pickMarketProductField(p, 'name')}
             </h3>
 
             {p.storeDescription && (
               <p className="text-[11px] sm:text-xs text-[#334155] dark:text-[#CBD5E1] line-clamp-1">
-                {p.storeDescription}
+                {pickMarketProductField(p, 'description')}
               </p>
             )}
 
@@ -871,7 +891,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             className="w-full py-2 px-2.5 sm:py-2.5 sm:px-4 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 transition active:scale-95 cursor-pointer"
           >
             <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-            <span className="truncate">أضف للسلة</span>
+            <span className="truncate">{t('add_to_cart')}</span>
           </button>
         </div>
       </article>
@@ -1004,7 +1024,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     <div
       style={containerStyle}
       className="min-h-screen bg-[#F2ECE1] text-[#0C1427] dark:bg-[#060B18] dark:text-[#F7F3EA] font-sans pb-16 w-full max-w-full overflow-x-clip transition-colors duration-200"
-      dir="rtl"
+      dir={dir}
     >
       {/* Floating feedback toast for coupon copies & cart actions */}
       {feedback && (
@@ -1027,11 +1047,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             type="button"
             onClick={resetAllFilters}
             className="flex items-center gap-2 sm:gap-2.5 cursor-pointer text-right min-w-0 shrink-0 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EA580C] rounded-xl"
-            title="سوق الشمساوية"
+            title={t('central_market_title')}
           >
             <AlShamsBrandIcon size="sm" />
             <span className="text-sm sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA] whitespace-nowrap">
-              سوق الشمساوية
+              {locale === 'ar' ? 'سوق الشمساوية' : t('central_market_title')}
             </span>
           </button>
 
@@ -1041,7 +1061,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث عن مشغولة يدوية، ديكور، أو حرفة..."
+              placeholder={t('search_products')}
               className="w-full h-10 pr-10 pl-14 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] placeholder-[#475569] dark:placeholder-[#94A3B8] text-sm font-medium outline-none focus:border-[#EA580C] dark:focus:border-[#FBBF24] transition-colors"
             />
             <Search className="w-4 h-4 text-[#475569] dark:text-[#94A3B8] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -1051,13 +1071,20 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 onClick={() => setSearchQuery('')}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[#C2410C] dark:text-[#FBBF24] font-bold cursor-pointer"
               >
-                مسح
+                ×
               </button>
             )}
           </div>
 
           {/* Zone 3: Concise Actions */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <PublicLocaleCurrencyBar
+              locale={locale}
+              onChangeLocale={setLocale}
+              currency={customerCurrency}
+              onChangeCurrency={(c) => setCustomerCurrency(saveStoredCustomerDisplayCurrency(c))}
+              compact
+            />
             <button
               type="button"
               onClick={() => {
@@ -1069,20 +1096,20 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 }
               }}
               className="px-2.5 sm:px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] border border-[#D4CCBC] dark:border-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] font-black text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
-              title={profile && profile.id ? 'الرجوع للرئيسية' : 'الرئيسية — سوق الشمساوية'}
+              title={profile && profile.id ? t('back_to_app') : t('central_market_title')}
             >
               <ArrowRight className="w-3.5 h-3.5 text-[#EA580C] dark:text-[#FBBF24]" />
               <Home className="w-3.5 h-3.5 hidden sm:inline text-[#C2410C] dark:text-[#FBBF24]" />
-              <span>الرئيسية</span>
+              <span className="hidden sm:inline">{locale === 'ar' ? 'الرئيسية' : t('back_to_app')}</span>
             </button>
             {onNavigateToSuppliersMarket && (
               <button
                 type="button"
                 onClick={onNavigateToSuppliersMarket}
                 className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 border border-emerald-600/35 text-emerald-800 dark:text-emerald-300 font-black text-xs transition cursor-pointer whitespace-nowrap shrink-0"
-                title="سوق موردين الشمساوية للخامات"
+                title={t('suppliers_market_title')}
               >
-                <span>سوق الموردين</span>
+                <span>{locale === 'ar' ? 'سوق الموردين' : t('suppliers_market_title')}</span>
               </button>
             )}
             {customerUser ? (
@@ -1091,17 +1118,17 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 <span className="font-bold truncate max-w-[110px]">{customerUser.name}</span>
                 <span className="text-[#475569] dark:text-[#94A3B8]" aria-hidden="true">·</span>
                 <span className="font-mono tabular-nums text-[#C2410C] dark:text-[#FBBF24] font-bold">
-                  {customerUser.loyaltyPoints} نقطة
+                  {customerUser.loyaltyPoints}
                 </span>
               </div>
             ) : (
               <button
                 type="button"
                 onClick={() => setIsCustomerAuthOpen(true)}
-                className="px-3 py-2 rounded-xl text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                className="px-2.5 sm:px-3 py-2 rounded-xl text-[#0C1427] dark:text-[#F7F3EA] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] text-xs font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0"
               >
                 <User className="w-4 h-4 text-[#C2410C] dark:text-[#FBBF24]" />
-                <span className="hidden sm:inline">حسابي</span>
+                <span className="hidden sm:inline">{locale === 'ar' ? 'حسابي' : 'Account'}</span>
               </button>
             )}
 
@@ -1109,11 +1136,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               <button
                 type="button"
                 onClick={onOpenStoreModal}
-                className="px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] font-bold text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+                className="px-2.5 sm:px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] font-bold text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
                 title="إدارة الكتالوج والمتجر"
               >
                 <Store className="w-3.5 h-3.5 text-[#C2410C] dark:text-[#FBBF24]" />
-                <span className="hidden lg:inline">متجري</span>
+                <span className="hidden lg:inline">{locale === 'ar' ? 'متجري' : 'My Store'}</span>
               </button>
             )}
 
@@ -1121,10 +1148,10 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
               type="button"
               onClick={() => setIsWishlistOpen(true)}
               className="relative px-2.5 sm:px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] hover:bg-[#E9E2D4] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] font-bold text-xs flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
-              title="قائمة المفضلة"
+              title={t('wishlist')}
             >
               <Heart className={`w-4 h-4 ${wishlistItems.length > 0 ? 'fill-rose-500 text-rose-500' : 'text-[#C2410C] dark:text-[#FBBF24]'}`} />
-              <span className="hidden md:inline">المفضلة</span>
+              <span className="hidden md:inline">{t('wishlist')}</span>
               {wishlistItems.length > 0 && (
                 <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[10px] font-black flex items-center justify-center">
                   {wishlistItems.length}
@@ -1135,11 +1162,11 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className="relative px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center gap-2 transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
-              title="فتح سلة المشتريات"
+              className="relative px-3.5 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white font-bold text-xs flex items-center gap-2 transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+              title={t('cart')}
             >
               <ShoppingBag className="w-4 h-4" />
-              <span>السلة</span>
+              <span>{t('cart')}</span>
               {cartItemsCount > 0 && (
                 <span className="min-w-5 h-5 px-1.5 rounded-full bg-[#0C1427] text-[#FBBF24] font-mono tabular-nums text-[11px] font-black flex items-center justify-center">
                   {cartItemsCount}

@@ -87,6 +87,13 @@ import {
 } from '../../lib/currency';
 import { ContactBubbleDock, ArtisanFooterContacts } from './ContactBubbleDock';
 import { StorePromoBannerDisplay } from './StorePromoBannerDisplay';
+import {
+  usePublicLocale,
+  pickLocalizedText,
+  resolveBilingualLogo,
+  PublicLocaleCode,
+} from '../../lib/publicLocale';
+import { PublicLocaleCurrencyBar } from '../common/PublicLocaleCurrencyBar';
 
 interface PublicStorefrontViewProps {
   slug: string;
@@ -682,6 +689,34 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   // Promo banner countdown is self-managed inside <StorePromoBannerDisplay />
 
   const effectiveConfig = localConfigOverride || artisanConfig;
+  const { locale, setLocale, dir, t } = usePublicLocale(
+    effectiveConfig.enabledLanguages,
+    effectiveConfig.defaultLanguage || 'ar'
+  );
+  const pickConfigField = (
+    base: string | undefined | null,
+    field: 'brandName' | 'welcomeMessage' | 'artistStory' | 'craftBadge' | 'promoBannerText' | 'portfolioTitle'
+  ): string => {
+    const tr = effectiveConfig.translations;
+    if (!tr) return (base || '').trim();
+    const map: Partial<Record<PublicLocaleCode, string | undefined>> = {};
+    (Object.keys(tr) as PublicLocaleCode[]).forEach((k) => {
+      map[k] = tr[k]?.[field];
+    });
+    return pickLocalizedText(base, map, locale);
+  };
+  const pickProductField = (
+    p: CloudMarketplaceProduct,
+    field: 'name' | 'description'
+  ): string => {
+    const base = field === 'name' ? p.product_name : p.store_description;
+    if (!p.translations) return (base || '').trim();
+    const map: Partial<Record<PublicLocaleCode, string | undefined>> = {};
+    (Object.keys(p.translations) as PublicLocaleCode[]).forEach((k) => {
+      map[k] = p.translations?.[k]?.[field];
+    });
+    return pickLocalizedText(base, map, locale);
+  };
   const themeSpec = useMemo(
     () => resolveStorefrontTheme(previewThemeOverride || effectiveConfig.themePreset),
     [previewThemeOverride, effectiveConfig.themePreset]
@@ -769,17 +804,33 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   const workshop = storeData?.workshop;
   const memberProfile = (workshop as any)?.memberProfile || null;
   const rawArtisanStory = (artisanConfig.artistStory || '').trim();
-  const resolvedArtistStory =
+  const resolvedArtistStory = pickConfigField(
     (rawArtisanStory && rawArtisanStory !== DEFAULT_ARTISAN_STORY
       ? rawArtisanStory
       : '') ||
-    memberProfile?.storyText ||
-    rawArtisanStory ||
-    '';
+      memberProfile?.storyText ||
+      rawArtisanStory ||
+      '',
+    'artistStory'
+  );
   const profileShowcasePosts: any[] = Array.isArray(memberProfile?.showcasePosts)
     ? memberProfile.showcasePosts
     : [];
-  const brandName = workshop?.brandName || 'ورشة الشمساوية';
+  const brandName = pickConfigField(workshop?.brandName || 'ورشة الشمساوية', 'brandName');
+  const displayWelcomeMessage = pickConfigField(effectiveConfig.welcomeMessage, 'welcomeMessage');
+  const displayCraftBadge = pickConfigField(effectiveConfig.craftBadge, 'craftBadge');
+  const storeLogoUrl = resolveBilingualLogo(
+    (workshop as any)?.logo_url || workshop?.logoUrl || '/default-store-icon.png',
+    effectiveConfig.logoArUrl,
+    effectiveConfig.logoEnUrl,
+    locale
+  );
+  const localizedPromoBanner = useMemo(() => {
+    const pb = artisanConfig.promoBanner;
+    if (!pb) return pb;
+    const translated = pickConfigField(pb.text, 'promoBannerText');
+    return translated && translated !== pb.text ? { ...pb, text: translated } : pb;
+  }, [artisanConfig.promoBanner, effectiveConfig.translations, locale]);
   const artistName = workshop?.artistName || 'فنان الشمساوية';
   const phone = workshop?.phoneNumber || OFFICIAL_SUPPORT_PHONE;
   const whatsappNumber = useMemo(() => {
@@ -894,7 +945,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
     <div
       style={pageStyle}
       className="min-h-screen w-full max-w-full overflow-x-clip font-sans transition-colors duration-300"
-      dir="rtl"
+      dir={dir}
     >
       {/* Toast Notification */}
       {addedToast && (
@@ -916,7 +967,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               className={`w-10 h-10 ${themeSpec.buttonRadiusClass} border flex items-center justify-center overflow-hidden p-0.5 shrink-0`}
             >
               <img
-                src={(workshop as any)?.logo_url || workshop?.logoUrl || '/default-store-icon.png'}
+                src={storeLogoUrl}
                 alt={brandName}
                 className="w-full h-full object-cover rounded-lg"
                 onError={(e) => {
@@ -971,8 +1022,17 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             )}
           </nav>
 
-          {/* Zone 3: Share & Cart Actions (plus Owner Preview Close or Home/Market button) */}
+          {/* Zone 3: Language/Currency, Share & Cart Actions */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <PublicLocaleCurrencyBar
+              locale={locale}
+              onChangeLocale={setLocale}
+              enabledLanguages={effectiveConfig.enabledLanguages}
+              currency={customerCurrency}
+              onChangeCurrency={(c) => setCustomerCurrency(saveStoredCustomerDisplayCurrency(c))}
+              enabledCurrencies={effectiveConfig.enabledCurrencies}
+              compact
+            />
             {isOwnerPreview && onClosePreview ? (
               <button
                 type="button"
@@ -997,11 +1057,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                     onClick={targetHandler}
                     style={softBtnStyle}
                     className={`px-2.5 sm:px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black transition flex items-center gap-1 cursor-pointer whitespace-nowrap`}
-                    title={hasLoggedSession ? 'الرجوع للرئيسية' : 'العودة لسوق الشمساوية'}
+                    title={hasLoggedSession ? t('back_to_app') : t('back_to_market')}
                   >
                     <Home className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
                     <span className="hidden sm:inline">
-                      {hasLoggedSession ? 'الرئيسية' : 'سوق الشمساوية'}
+                      {hasLoggedSession ? t('back_to_app') : t('back_to_market')}
                     </span>
                   </button>
                 );
@@ -1013,14 +1073,14 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               onClick={handleShareStore}
               style={softBtnStyle}
               className={`px-2.5 sm:px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap`}
-              title="مشاركة رابط المتجر"
+              title={t('share')}
             >
               {copiedLink ? (
                 <Check className="w-4 h-4 text-emerald-500" />
               ) : (
                 <Share2 className="w-4 h-4" style={{ color: themeSpec.accentText }} />
               )}
-              <span className="hidden sm:inline">{copiedLink ? 'تم النسخ' : 'مشاركة'}</span>
+              <span className="hidden sm:inline">{copiedLink ? t('copied') : t('share')}</span>
             </button>
 
             <button
@@ -1028,13 +1088,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               onClick={() => setIsWishlistOpen(true)}
               style={softBtnStyle}
               className={`relative px-2.5 sm:px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap`}
-              title="قائمة المفضلة"
+              title={t('wishlist')}
             >
               <Heart
                 className={`w-4 h-4 ${wishlistItems.length > 0 ? 'fill-rose-500 text-rose-500' : ''}`}
                 style={wishlistItems.length === 0 ? { color: themeSpec.accentText } : undefined}
               />
-              <span className="hidden md:inline">المفضلة</span>
+              <span className="hidden md:inline">{t('wishlist')}</span>
               {wishlistItems.length > 0 && (
                 <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[10px] font-black flex items-center justify-center">
                   {wishlistItems.length}
@@ -1047,10 +1107,10 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               onClick={() => setIsCartOpen(true)}
               style={accentBtnStyle}
               className={`relative px-3 sm:px-4 py-2 ${themeSpec.buttonRadiusClass} font-black text-xs transition hover:opacity-90 flex items-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 whitespace-nowrap`}
-              title="سلة المشتريات"
+              title={t('cart')}
             >
               <ShoppingBag className="w-4 h-4" />
-              <span className="hidden xs:inline sm:inline">السلة</span>
+              <span className="hidden xs:inline sm:inline">{t('cart')}</span>
               {cartItemsCount > 0 && (
                 <span
                   style={{ backgroundColor: themeSpec.badgeBg, color: themeSpec.badgeInk }}
@@ -1066,7 +1126,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
       {/* Artisan Store Promotional Banner (Static / Animated Marquee / Slide / Vertical + Clickable Coupons) */}
       <StorePromoBannerDisplay
-        banner={artisanConfig.promoBanner}
+        banner={localizedPromoBanner}
         currencySymbol={getCurrencyInfo(customerCurrency).symbol}
         coupons={artisanConfig.coupons}
         onSelectCouponCode={(code) => {
@@ -1151,8 +1211,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               <div className="space-y-3">
                 {effectiveConfig.showArtistSubtitle && (
                   <p style={{ color: themeSpec.accentText }} className="text-xs font-black">
-                    بأنامل الفنان: {artistName} · {workshop?.country || 'مصر'}
-                    {effectiveConfig.showCraftBadge && effectiveConfig.craftBadge ? ` · ${effectiveConfig.craftBadge}` : ''}
+                    {locale === 'ar' ? `بأنامل الفنان: ${artistName}` : artistName} · {workshop?.country || 'مصر'}
+                    {effectiveConfig.showCraftBadge && displayCraftBadge ? ` · ${displayCraftBadge}` : ''}
                   </p>
                 )}
                 {effectiveConfig.showBrandTitle && (
@@ -1160,9 +1220,9 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                     {brandName}
                   </h2>
                 )}
-                {effectiveConfig.showWelcomeMessage && effectiveConfig.welcomeMessage && (
+                {effectiveConfig.showWelcomeMessage && displayWelcomeMessage && (
                   <p style={{ color: themeSpec.mutedColor }} className="text-xs sm:text-sm font-bold leading-relaxed">
-                    {effectiveConfig.welcomeMessage}
+                    {displayWelcomeMessage}
                   </p>
                 )}
                 {effectiveConfig.showArtistStory && resolvedArtistStory && (
@@ -1701,7 +1761,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="ابحث داخل المتجر..."
+                placeholder={t('search_products')}
                 style={{
                   backgroundColor: themeSpec.surfaceBg,
                   borderColor: themeSpec.borderColor,
@@ -2263,7 +2323,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                             : 'text-sm sm:text-lg'
                         } line-clamp-2 leading-snug transition-colors`}
                       >
-                        {p.product_name}
+                        {pickProductField(p, 'name')}
                       </h3>
 
                       {p.store_description && (
@@ -2273,7 +2333,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                             isCompact3Col ? 'hidden sm:block text-xs' : 'text-[11px] sm:text-xs'
                           } line-clamp-1`}
                         >
-                          {p.store_description}
+                          {pickProductField(p, 'description')}
                         </p>
                       )}
 

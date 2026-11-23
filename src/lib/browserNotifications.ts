@@ -5,7 +5,8 @@
  */
 
 import { tenantStorage } from '../db/dexieDB';
-import { UserProfile } from '../types';
+import { UserProfile, isUserAdmin } from '../types';
+import { getStoredUserSubscription, isModuleUnlockedBySubscription } from '../types/subscriptions';
 import { playUrgentNotificationSound, playAlertSound } from './sounds';
 
 const NOTIFIED_CACHE_KEY = 'alshams_browser_notified_ids';
@@ -124,66 +125,91 @@ export async function checkAndTriggerProactiveBrowserNotifications(
 
   if (!tenantId) return;
 
+  const isAdmin = isUserAdmin(profile || undefined);
+  const subRole: 'artisan' | 'supplier' =
+    (profile as any)?.accountRole === 'supplier' ? 'supplier' : 'artisan';
+  const userSub = getStoredUserSubscription(profile?.ownerUid || profile?.id || tenantId);
+  const canInventoryAlerts = isModuleUnlockedBySubscription(
+    subRole === 'supplier' ? 'supplier_warehouse_erp' : 'inventory_materials',
+    userSub,
+    subRole,
+    isAdmin
+  );
+  const canSalesOrderAlerts = isModuleUnlockedBySubscription(
+    subRole === 'supplier' ? 'supplier_orders' : 'sales',
+    userSub,
+    subRole,
+    isAdmin
+  );
+
+  if (!canInventoryAlerts && !canSalesOrderAlerts) {
+    return;
+  }
+
   const notifiedIds = getNotifiedIds();
   const now = Date.now();
   const twoDaysMs = 48 * 60 * 60 * 1000;
 
   try {
-    // 1. فحص انخفاض مخزون الخامات
-    const materials = await tenantStorage.getRawMaterials(tenantId).catch(() => []);
-    for (const mat of materials) {
-      if (mat.isActive === false) continue;
-      const threshold = mat.minAlertThreshold ?? 5;
-      const currentStock = mat.currentStock ?? 0;
+    // 1. فحص انخفاض مخزون الخامات (فقط للمشتركين في باقة المخازن)
+    if (canInventoryAlerts) {
+      const materials = await tenantStorage.getRawMaterials(tenantId).catch(() => []);
+      for (const mat of materials) {
+        if (mat.isActive === false) continue;
+        const threshold = mat.minAlertThreshold ?? 5;
+        const currentStock = mat.currentStock ?? 0;
 
-      if (currentStock <= threshold) {
-        const notifKey = `mat_stock_${mat.id}_${Math.floor(now / (4 * 3600 * 1000))}`; // مرة كل 4 ساعات
-        if (!notifiedIds.has(notifKey)) {
-          markIdAsNotified(notifKey);
-          playUrgentNotificationSound();
-          const materialDisplayName = mat.materialName || (mat as any).name || 'خامة';
-          sendBrowserNotification(`⚠️ تنبيه انخفاض المخزون: ${materialDisplayName}`, {
-            body: `الرصيد المتبقي: ${currentStock} ${mat.unit || 'وحدة'} فقط (حد الأمان: ${threshold}). يرجى إصدار أمر توريد.`,
-            tag: `stock_${mat.id}`,
-            playSound: false, // تم تشغيله أعلاه بنغمة عاجلة
-          });
-          break; // إشعار واحد في الدورة الواحدة لتجنب الإزعاج
+        if (currentStock <= threshold) {
+          const notifKey = `mat_stock_${mat.id}_${Math.floor(now / (4 * 3600 * 1000))}`; // مرة كل 4 ساعات
+          if (!notifiedIds.has(notifKey)) {
+            markIdAsNotified(notifKey);
+            playUrgentNotificationSound();
+            const materialDisplayName = mat.materialName || (mat as any).name || 'خامة';
+            sendBrowserNotification(`⚠️ تنبيه انخفاض المخزون: ${materialDisplayName}`, {
+              body: `الرصيد المتبقي: ${currentStock} ${mat.unit || 'وحدة'} فقط (حد الأمان: ${threshold}). يرجى إصدار أمر توريد.`,
+              tag: `stock_${mat.id}`,
+              playSound: false, // تم تشغيله أعلاه بنغمة عاجلة
+            });
+            break; // إشعار واحد في الدورة الواحدة لتجنب الإزعاج
+          }
         }
       }
     }
 
-    // 2. فحص مواعيد استحقاق أوامر التشغيل والطلبيات
-    const orders = await tenantStorage.getOrders(tenantId).catch(() => []);
-    for (const order of orders) {
-      if (order.status === 'cancelled' || order.status === 'delivered') continue;
+    // 2. فحص مواعيد استحقاق أوامر التشغيل والطلبيات (فقط للمشتركين في باقة المبيعات/الطلبيات)
+    if (canSalesOrderAlerts) {
+      const orders = await tenantStorage.getOrders(tenantId).catch(() => []);
+      for (const order of orders) {
+        if (order.status === 'cancelled' || order.status === 'delivered') continue;
 
-      const deliveryDate = order.deliveryDate ? new Date(order.deliveryDate).getTime() : null;
-      if (deliveryDate) {
-        const diffMs = deliveryDate - now;
+        const deliveryDate = order.deliveryDate ? new Date(order.deliveryDate).getTime() : null;
+        if (deliveryDate) {
+          const diffMs = deliveryDate - now;
 
-        // إذا كان الموعد اليوم أو غداً أو متأخراً (أقل من 48 ساعة)
-        if (diffMs <= twoDaysMs) {
-          const isOverdue = diffMs < 0;
-          const notifKey = `order_due_${order.id}_${Math.floor(now / (6 * 3600 * 1000))}`; // مرة كل 6 ساعات
+          // إذا كان الموعد اليوم أو غداً أو متأخراً (أقل من 48 ساعة)
+          if (diffMs <= twoDaysMs) {
+            const isOverdue = diffMs < 0;
+            const notifKey = `order_due_${order.id}_${Math.floor(now / (6 * 3600 * 1000))}`; // مرة كل 6 ساعات
 
-          if (!notifiedIds.has(notifKey)) {
-            markIdAsNotified(notifKey);
-            playUrgentNotificationSound();
+            if (!notifiedIds.has(notifKey)) {
+              markIdAsNotified(notifKey);
+              playUrgentNotificationSound();
 
-            const title = isOverdue
-              ? `🚨 تأخر موعد تسليم طلبية: ${order.customerName || 'عميل'}`
-              : `⏳ اقتراب موعد استحقاق أمر تشغيل: ${order.customerName || 'عميل'}`;
+              const title = isOverdue
+                ? `🚨 تأخر موعد تسليم طلبية: ${order.customerName || 'عميل'}`
+                : `⏳ اقتراب موعد استحقاق أمر تشغيل: ${order.customerName || 'عميل'}`;
 
-            const body = isOverdue
-              ? `الطلبية رقم #${(order as any).invoiceNumber || order.id?.slice(-4)} تأخرت عن موعدها المحدد!`
-              : `الطلبية رقم #${(order as any).invoiceNumber || order.id?.slice(-4)} موعد تسليمها خلال ساعات معدودة.`;
+              const body = isOverdue
+                ? `الطلبية رقم #${(order as any).invoiceNumber || order.id?.slice(-4)} تأخرت عن موعدها المحدد!`
+                : `الطلبية رقم #${(order as any).invoiceNumber || order.id?.slice(-4)} موعد تسليمها خلال ساعات معدودة.`;
 
-            sendBrowserNotification(title, {
-              body,
-              tag: `order_${order.id}`,
-              playSound: false,
-            });
-            break;
+              sendBrowserNotification(title, {
+                body,
+                tag: `order_${order.id}`,
+                playSound: false,
+              });
+              break;
+            }
           }
         }
       }

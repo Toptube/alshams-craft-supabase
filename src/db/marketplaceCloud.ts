@@ -75,6 +75,7 @@ export interface CloudMarketplaceProduct {
   status: 'pending_approval' | 'approved' | 'rejected';
   rejection_reason?: string | null;
   rejectionReason?: string | null;
+  translations?: Partial<Record<string, { name?: string; description?: string }>>;
   created_at?: string | number;
   updated_at?: string | number;
 }
@@ -221,6 +222,12 @@ export function normalizeCloudProduct(row: any): CloudMarketplaceProduct {
     status: row.status || 'pending_approval',
     rejection_reason: row.rejection_reason || row.rejectionReason || null,
     rejectionReason: row.rejection_reason || row.rejectionReason || null,
+    translations:
+      row.translations && typeof row.translations === 'object'
+        ? row.translations
+        : ext.translations && typeof ext.translations === 'object'
+        ? ext.translations
+        : undefined,
     created_at: row.created_at || row.createdAt || Date.now(),
     updated_at: row.updated_at || row.updatedAt || Date.now(),
   };
@@ -282,6 +289,7 @@ export async function publishProductToMarketplace(
             Number(product.output?.totalDirectMaterialsCost || 0) + Number(product.output?.laborWage || 0) > 0))
     ),
     hiddenInStore: product.inStore === false || product.isPublishedInStore === false,
+    translations: product.translations || undefined,
   };
 
   const safeCloudRow: Partial<CloudMarketplaceProduct> = {

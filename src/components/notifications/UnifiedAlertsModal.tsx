@@ -36,6 +36,7 @@ import {
   Store,
   Megaphone,
   GraduationCap,
+  Trash2,
 } from 'lucide-react';
 
 export interface UnifiedAlertsModalProps {
@@ -393,6 +394,13 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
   const handleMarkAllRead = async () => {
     playButtonClickSound();
     await tenantStorage.markAllNotificationsAsRead(effectiveWorkshopId);
+    playSuccessSound();
+    onRefreshNotifications();
+  };
+
+  const handleClearAllNotifications = async () => {
+    playButtonClickSound();
+    await tenantStorage.clearAllNotifications(effectiveWorkshopId);
     playSuccessSound();
     onRefreshNotifications();
   };
@@ -758,16 +766,28 @@ export const UnifiedAlertsModal: React.FC<UnifiedAlertsModalProps> = ({
                 </button>
               </div>
 
-              {unreadNotifTotal > 0 && (
-                <button
-                  type="button"
-                  onClick={handleMarkAllRead}
-                  className="px-3 py-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5 cursor-pointer transition"
-                >
-                  <CheckCheck className="w-3.5 h-3.5" />
-                  <span>تحديد الكل كمقروء</span>
-                </button>
-              )}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {unreadNotifTotal > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleMarkAllRead}
+                    className="px-3 py-1.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black text-[#C2410C] dark:text-[#FBBF24] flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    <span>تحديد الكل كمقروء</span>
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearAllNotifications}
+                    className="px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 hover:border-rose-500 text-xs font-black text-rose-700 dark:text-rose-300 flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>تصفير الكل</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Expert / Trainer New Lesson Broadcast Alerts */}

@@ -155,6 +155,7 @@ export async function fetchMemberPersonalProfile(
 
 export async function saveMemberPersonalProfile(payload: {
   personalAvatar?: string | null;
+  brandLogoEn?: string | null;
   bioHeadline?: string;
   storyText?: string;
   familyNickname?: string;
@@ -164,6 +165,9 @@ export async function saveMemberPersonalProfile(payload: {
   visibility?: ProfileVisibilityMatrix;
   skillLevel?: ArtisanSkillLevel;
   assessmentScore?: number;
+  defaultLanguage?: string;
+  enabledLanguages?: string[];
+  translations?: Record<string, any>;
 }): Promise<{
   success: boolean;
   profile?: MemberPersonalProfile;

@@ -44,6 +44,19 @@ import {
 } from '../../types/suppliersMarketBuilder';
 import { MARKET_THEME_PRESETS } from '../../types/marketplaceBuilder';
 import { playSuccessSound, playButtonClickSound, playErrorSound } from '../../lib/sounds';
+import {
+  usePublicLocale,
+  pickLocalizedText,
+  resolveBilingualLogo,
+  PublicLocaleCode,
+} from '../../lib/publicLocale';
+import { PublicLocaleCurrencyBar } from '../common/PublicLocaleCurrencyBar';
+import {
+  convertBetweenCurrencies,
+  getCurrencyInfo,
+  getStoredCustomerDisplayCurrency,
+  saveStoredCustomerDisplayCurrency,
+} from '../../lib/currency';
 
 interface SuppliersMarketViewProps {
   profile?: UserProfile | null;
@@ -111,6 +124,46 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
   const [orderNotes, setOrderNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ text: string; isError?: boolean } | null>(null);
+  const { locale, setLocale, dir, t } = usePublicLocale();
+  const [displayCurrency, setDisplayCurrency] = useState<string>(() =>
+    getStoredCustomerDisplayCurrency()
+  );
+
+  useEffect(() => {
+    const onCurr = (e: any) => {
+      if (e?.detail) setDisplayCurrency(String(e.detail));
+      else setDisplayCurrency(getStoredCustomerDisplayCurrency());
+    };
+    window.addEventListener('alshams_customer_currency_updated', onCurr);
+    return () => window.removeEventListener('alshams_customer_currency_updated', onCurr);
+  }, []);
+
+  const displayCurrencyInfo = getCurrencyInfo(displayCurrency);
+  const fmtMarketMoney = (amount: number, sourceCurrency?: string): string => {
+    const converted = convertBetweenCurrencies(
+      Number(amount || 0),
+      sourceCurrency || 'EGP',
+      displayCurrency || 'EGP'
+    );
+    return `${converted.toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-US')} ${displayCurrencyInfo.symbol}`;
+  };
+  const pickSupplierBrand = (sup: SupplierProfile): string => {
+    const tr = sup.storeConfig?.translations;
+    if (!tr) return sup.brandName;
+    const map: Partial<Record<PublicLocaleCode, string | undefined>> = {};
+    (Object.keys(tr) as PublicLocaleCode[]).forEach((k) => {
+      map[k] = tr[k]?.brandName;
+    });
+    return pickLocalizedText(sup.brandName, map, locale);
+  };
+  const pickMarketItemName = (it: SupplierCatalogItem): string => {
+    if (!it.translations) return it.name;
+    const map: Partial<Record<PublicLocaleCode, string | undefined>> = {};
+    (Object.keys(it.translations) as PublicLocaleCode[]).forEach((k) => {
+      map[k] = it.translations?.[k]?.name;
+    });
+    return pickLocalizedText(it.name, map, locale);
+  };
 
   const hasAuthSession = Boolean(profile && profile.id);
 
@@ -402,7 +455,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] pb-20" dir="rtl">
+    <div className="min-h-screen bg-[#F2ECE1] dark:bg-[#060B18] text-[#0C1427] dark:text-[#F7F3EA] pb-20" dir={dir}>
       {toast && (
         <div
           className={`fixed bottom-5 left-4 right-4 sm:left-6 sm:right-auto sm:max-w-md z-50 px-4 py-3 rounded-2xl text-xs font-black shadow-2xl flex items-center justify-between gap-2 border ${
@@ -441,20 +494,33 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
               className="px-3 py-2 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black flex items-center gap-1.5 cursor-pointer"
             >
               <ArrowRight className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
-              <span>{hasAuthSession ? 'رجوع' : 'سوق الشمساوية'}</span>
+              <span>{hasAuthSession ? t('back_to_app') : t('back_to_market')}</span>
             </button>
             <div>
               <h1 className="text-base sm:text-xl font-black flex items-center gap-2">
                 <Boxes className="w-5 h-5 text-[#EA580C] dark:text-[#FBBF24]" />
-                <span>{marketCfg.heroTitle || 'سوق موردين الشمساوية للخامات (B2B)'}</span>
+                <span>
+                  {locale === 'ar'
+                    ? marketCfg.heroTitle || 'سوق موردين الشمساوية للخامات (B2B)'
+                    : t('suppliers_market_title')}
+                </span>
               </h1>
               <p className="text-[11px] text-[#475569] dark:text-[#94A3B8] font-medium hidden sm:block">
-                {marketCfg.heroSubtitle || 'مصانع وتجار خامات الهاند ميد المعتمدون — تسعير قطاعي وجملة تلقائي ومباشر لورشتك'}
+                {locale === 'ar'
+                  ? marketCfg.heroSubtitle || 'مصانع وتجار خامات الهاند ميد المعتمدون — تسعير قطاعي وجملة تلقائي ومباشر لورشتك'
+                  : t('suppliers_market_sub')}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <PublicLocaleCurrencyBar
+              locale={locale}
+              onChangeLocale={setLocale}
+              currency={displayCurrency}
+              onChangeCurrency={(c) => setDisplayCurrency(saveStoredCustomerDisplayCurrency(c))}
+              compact
+            />
             {marketCfg.b2bPolicy?.whatsappSupportEnabled && marketCfg.b2bPolicy?.whatsappSupportPhone && (
               <a
                 href={`https://wa.me/${marketCfg.b2bPolicy.whatsappSupportPhone.replace(/\D/g, '')}`}
@@ -462,7 +528,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                 rel="noopener noreferrer"
                 className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black hidden sm:flex items-center gap-1.5"
               >
-                <span>{marketCfg.b2bPolicy.whatsappSupportLabel || 'دعم التوريد'}</span>
+                <span>{marketCfg.b2bPolicy.whatsappSupportLabel || t('contact_us')}</span>
               </a>
             )}
             {hasAuthSession && onNavigateToMyOrders && (
@@ -492,7 +558,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
               style={{ backgroundColor: activeThemeMeta.accentBg || '#EA580C' }}
             >
               <ShoppingCart className="w-4 h-4" />
-              <span>سلة التوريد</span>
+              <span>{locale === 'ar' ? 'سلة التوريد' : t('cart')}</span>
               {cart.length > 0 && (
                 <span className="min-w-5 h-5 px-1 rounded-full bg-[#0C1427] text-[#FBBF24] font-mono tabular-nums text-[11px] flex items-center justify-center">
                   {cart.length}
@@ -541,7 +607,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="ابحث باسم المورد، نوع الخيط/الخرز/الريزن، أو المحافظة..."
+                placeholder={t('search_supplies')}
                 className="w-full h-10 pr-10 pl-8 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] text-xs font-bold outline-none focus:border-[#EA580C]"
               />
               {searchQuery && (
@@ -726,13 +792,18 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0">
                           <img
-                            src={supplier.logoUrl || '/alshams_falcon_emblem.png'}
-                            alt={supplier.brandName}
+                            src={resolveBilingualLogo(
+                              supplier.logoUrl,
+                              supplier.storeConfig?.logoArUrl,
+                              supplier.storeConfig?.logoEnUrl,
+                              locale
+                            )}
+                            alt={pickSupplierBrand(supplier)}
                             className="w-12 h-12 rounded-xl object-contain bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] p-1 shrink-0"
                           />
                           <div className="min-w-0">
                             <h2 className="text-sm font-black truncate flex items-center gap-1.5">
-                              <span>{supplier.brandName}</span>
+                              <span>{pickSupplierBrand(supplier)}</span>
                               {marketCfg.featuredSupplierIds?.includes(supplier.id) && (
                                 <span className="text-[10px] font-black text-[#EA580C] dark:text-[#FBBF24] shrink-0">
                                   ★ مميز
@@ -750,25 +821,25 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                               >
                                 <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
                                 <span className="font-mono tabular-nums">{(entry.ratingAvg ?? 5).toFixed(1)}</span>
-                                <span>· {(entry.reviewsCount ?? 0) > 0 ? `${entry.reviewsCount} تقييم ورشة` : 'قيّم المورد'}</span>
+                                <span>· {(entry.reviewsCount ?? 0) > 0 ? `${entry.reviewsCount}` : '★'}</span>
                               </button>
                             )}
                           </div>
                         </div>
                         <span className="font-mono tabular-nums text-[11px] font-black text-[#C2410C] dark:text-[#FBBF24] shrink-0">
-                          {items.length} صنف
+                          {items.length} {t('products_count')}
                         </span>
                       </div>
 
                       {/* Specialization Summary */}
                       <div className="p-2.5 rounded-xl bg-[#EFE9DC]/75 dark:bg-[#132040]/80 border border-[#D4CCBC]/70 dark:border-[#22355E] space-y-1 text-[11px]">
                         <div className="font-bold text-[#334155] dark:text-[#CBD5E1]">
-                          <span className="text-[#475569] dark:text-[#94A3B8]">التخصص: </span>
+                          <span className="text-[#475569] dark:text-[#94A3B8]">{locale === 'ar' ? 'التخصص: ' : 'Specialty: '}</span>
                           {secNames.length > 0 ? secNames.join('، ') : 'خامات هاند ميد'}
                         </div>
                         {supplier.suppliedMaterials.length > 0 && (
                           <p className="text-[#475569] dark:text-[#94A3B8] line-clamp-2">
-                            أبرز الخامات: {supplier.suppliedMaterials.slice(0, 4).join('، ')}
+                            {locale === 'ar' ? 'أبرز الخامات: ' : 'Materials: '}{supplier.suppliedMaterials.slice(0, 4).join('، ')}
                           </p>
                         )}
                       </div>
@@ -777,22 +848,22 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                       <div className="grid grid-cols-2 gap-2 text-center font-mono tabular-nums">
                         <div className="p-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040]">
                           <span className="block text-[10px] font-sans text-[#475569] dark:text-[#94A3B8]">
-                            يبدأ القطاعي من
+                            {t('retail_price')}
                           </span>
                           <span className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
                             {entry.minRetailPrice > 0
-                              ? `${entry.minRetailPrice.toLocaleString('ar-EG')} ${supplier.currencySymbol}`
+                              ? fmtMarketMoney(entry.minRetailPrice, supplier.currency)
                               : '—'}
                           </span>
                         </div>
                         <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
                           <span className="block text-[10px] font-sans text-emerald-800 dark:text-emerald-300">
-                            سعر الجملة يبدأ من
+                            {t('wholesale_price')}
                           </span>
                           <span className="text-xs font-black text-emerald-700 dark:text-emerald-300">
                             {entry.minWholesalePrice > 0
-                              ? `${entry.minWholesalePrice.toLocaleString('ar-EG')} ${supplier.currencySymbol}`
-                              : 'بالطلب'}
+                              ? fmtMarketMoney(entry.minWholesalePrice, supplier.currency)
+                              : '—'}
                           </span>
                         </div>
                       </div>
@@ -805,7 +876,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                         className="flex-1 py-2 px-3 rounded-xl bg-[#0C1427] hover:bg-[#1E293B] dark:bg-[#1A2B54] text-[#F7F3EA] text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <Table2 className="w-3.5 h-3.5 text-[#FBBF24]" />
-                        <span>الأسعار والتقييمات</span>
+                        <span>{locale === 'ar' ? 'الأسعار والتقييمات' : t('view_details')}</span>
                       </button>
 
                       <button
@@ -817,7 +888,7 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                         className="py-2 px-3 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1 cursor-pointer"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
-                        <span>المتجر</span>
+                        <span>{locale === 'ar' ? 'المتجر' : t('open_store')}</span>
                       </button>
                     </div>
                   </article>
@@ -871,11 +942,11 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                       <tr key={`${supplier.id}_${item.id}`} className="hover:bg-[#EFE9DC]/40 dark:hover:bg-[#132040]/40">
                         <td className="p-3">
                           <div className="font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                            {idx === 0 && <span className="text-emerald-600 dark:text-emerald-400 ml-1">★ الأفضل سعراً</span>}
-                            {item.name}
+                            {idx === 0 && <span className="text-emerald-600 dark:text-emerald-400 ml-1">★</span>}
+                            {pickMarketItemName(item)}
                           </div>
                           <div className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
-                            {supplier.brandName} · {supplier.governorate || supplier.country}
+                            {pickSupplierBrand(supplier)} · {supplier.governorate || supplier.country}
                           </div>
                         </td>
                         <td className="p-3 font-mono tabular-nums">
@@ -886,11 +957,11 @@ export const SuppliersMarketView: React.FC<SuppliersMarketViewProps> = ({
                           <span className="block text-[10px] text-[#475569]">({reviewsCount})</span>
                         </td>
                         <td className="p-3 font-mono tabular-nums font-bold">
-                          {item.retailPrice.toLocaleString('ar-EG')} {supplier.currencySymbol} / {item.unit}
+                          {fmtMarketMoney(item.retailPrice, supplier.currency)} / {item.unit}
                         </td>
                         <td className="p-3 font-mono tabular-nums font-black text-emerald-700 dark:text-emerald-400">
                           {item.wholesalePrice > 0
-                            ? `${item.wholesalePrice.toLocaleString('ar-EG')} ${supplier.currencySymbol} (≥${item.minWholesaleQty})`
+                            ? `${fmtMarketMoney(item.wholesalePrice, supplier.currency)} (≥${item.minWholesaleQty})`
                             : '—'}
                         </td>
                         <td className="p-3 text-[11px] font-mono tabular-nums">

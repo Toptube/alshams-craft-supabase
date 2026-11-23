@@ -441,7 +441,7 @@ export function mapWorkshopRowToUserProfile(rawRow: any, userEmail?: string): Us
     ratingStars: row.rating_stars || row.ratingStars || 5,
     socials: row.settings?.socials || undefined,
     defaultWholesaleDiscountPercent: row.settings?.defaultWholesaleDiscountPercent ?? 25,
-    enableDailySalesReminder: row.settings?.enableDailySalesReminder ?? true,
+    enableDailySalesReminder: row.settings?.enableDailySalesReminder ?? false,
     dailySalesReminderMode: row.settings?.dailySalesReminderMode ?? 'closing_offset',
     dailySalesReminderTime: row.settings?.dailySalesReminderTime ?? '20:00',
     workshopClosingHour: row.settings?.workshopClosingHour ?? '21:00',

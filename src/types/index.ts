@@ -1135,6 +1135,7 @@ export interface SavedProductRecord {
   isCustomOrderAvailable?: boolean;
   decorCategory?: string;
   sortOrder?: number;
+  translations?: Partial<Record<string, { name?: string; description?: string }>>;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;

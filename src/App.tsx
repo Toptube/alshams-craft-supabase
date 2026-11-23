@@ -935,7 +935,13 @@ export const App: React.FC = () => {
       window.removeEventListener('alshams_new_order_received', handleNewOrder);
       window.removeEventListener('online', handleOnlineReconnect);
     };
-  }, [profile?.tenantId, profile?.workshopId, profile?.id, loadSearchCacheAndNotifications]);
+  }, [
+    profile?.tenantId,
+    profile?.workshopId,
+    profile?.id,
+    userSubscription.activePackageIds.join(','),
+    loadSearchCacheAndNotifications,
+  ]);
 
   // آلية المزامنة الدورية الهادئة في الخلفية ومزامنة الكتالوج والمتجر (مؤجلة 1.8 ثانية لتجنب الضغط اللحظي عند الفتح)
   useEffect(() => {

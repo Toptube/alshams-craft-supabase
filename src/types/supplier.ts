@@ -2,6 +2,7 @@ import { MainSectionId } from '../registry/craftsRegistry';
 import { UserProfile, Gender } from './index';
 import { ArtisanStorePromoBanner, ProductDiscountConfig, StorefrontSectionId } from './artisanStoreBuilder';
 import { MarketCouponConfig } from './marketplaceBuilder';
+import { PublicLocaleCode } from '../lib/publicLocale';
 
 export type SupplierBusinessType = 'online' | 'shop' | 'factory';
 export type SupplierPricingMode = 'retail' | 'wholesale' | 'both';
@@ -56,6 +57,22 @@ export interface SupplierStoreConfig {
   sectionOrder?: StorefrontSectionId[];
   hiddenSections?: StorefrontSectionId[];
   layoutCols?: 1 | 2 | 3;
+  defaultLanguage?: PublicLocaleCode;
+  enabledLanguages?: PublicLocaleCode[];
+  logoArUrl?: string;
+  logoEnUrl?: string;
+  translations?: Partial<
+    Record<
+      PublicLocaleCode,
+      {
+        brandName?: string;
+        tagline?: string;
+        description?: string;
+        shippingNote?: string;
+        promoBannerText?: string;
+      }
+    >
+  >;
   acceptedCurrencies?: string[];
   showWholesalePricesPublicly?: boolean;
 }
@@ -203,6 +220,7 @@ export interface SupplierCatalogItem {
   skuCode?: string;
   unitChain?: string;
   bridgeValues?: Record<string, any>;
+  translations?: Partial<Record<PublicLocaleCode, { name?: string; description?: string }>>;
   createdAt?: string;
   updatedAt?: string;
 }

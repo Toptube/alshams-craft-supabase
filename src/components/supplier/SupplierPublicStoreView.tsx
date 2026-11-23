@@ -39,6 +39,19 @@ import { ProductMediaCarousel } from '../common/ProductMediaCarousel';
 import { StorePromoBannerDisplay } from '../store/StorePromoBannerDisplay';
 import { isLimitedOfferCurrentlyActive } from '../../types/artisanStoreBuilder';
 import { MarketCouponConfig } from '../../types/marketplaceBuilder';
+import {
+  usePublicLocale,
+  pickLocalizedText,
+  resolveBilingualLogo,
+  PublicLocaleCode,
+} from '../../lib/publicLocale';
+import { PublicLocaleCurrencyBar } from '../common/PublicLocaleCurrencyBar';
+import {
+  convertBetweenCurrencies,
+  getCurrencyInfo,
+  getStoredCustomerDisplayCurrency,
+  saveStoredCustomerDisplayCurrency,
+} from '../../lib/currency';
 
 interface SupplierPublicStoreViewProps {
   slug: string;
@@ -183,6 +196,18 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<MarketCouponConfig | null>(null);
   const [couponErr, setCouponErr] = useState('');
+  const [displayCurrency, setDisplayCurrency] = useState<string>(() =>
+    getStoredCustomerDisplayCurrency()
+  );
+
+  useEffect(() => {
+    const onCurr = (e: any) => {
+      if (e?.detail) setDisplayCurrency(String(e.detail));
+      else setDisplayCurrency(getStoredCustomerDisplayCurrency());
+    };
+    window.addEventListener('alshams_customer_currency_updated', onCurr);
+    return () => window.removeEventListener('alshams_customer_currency_updated', onCurr);
+  }, []);
 
   const hasAuthSession = Boolean(profile && profile.id);
 
@@ -510,6 +535,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
     () => resolveStorefrontTheme(previewThemeOverride || effectiveSupplier?.storeConfig?.themePreset),
     [previewThemeOverride, effectiveSupplier?.storeConfig?.themePreset]
   );
+  const { locale, setLocale, dir, t } = usePublicLocale(
+    effectiveSupplier?.storeConfig?.enabledLanguages,
+    effectiveSupplier?.storeConfig?.defaultLanguage || 'ar'
+  );
   const isCenteredHero =
     themeSpec.heroLayout === 'centered_maison' ||
     themeSpec.heroLayout === 'noir_spotlight' ||
@@ -566,6 +595,55 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
   }
 
   const activeSupplier = effectiveSupplier;
+  const pickSupplierField = (
+    base: string | undefined | null,
+    field: 'brandName' | 'tagline' | 'description' | 'promoBannerText'
+  ): string => {
+    const tr = activeSupplier.storeConfig?.translations;
+    if (!tr) return (base || '').trim();
+    const map: Partial<Record<PublicLocaleCode, string | undefined>> = {};
+    (Object.keys(tr) as PublicLocaleCode[]).forEach((k) => {
+      map[k] = tr[k]?.[field];
+    });
+    return pickLocalizedText(base, map, locale);
+  };
+  const pickItemField = (it: SupplierCatalogItem, field: 'name' | 'description'): string => {
+    const base = field === 'name' ? it.name : it.description;
+    if (!it.translations) return (base || '').trim();
+    const map: Partial<Record<PublicLocaleCode, string | undefined>> = {};
+    (Object.keys(it.translations) as PublicLocaleCode[]).forEach((k) => {
+      map[k] = it.translations?.[k]?.[field];
+    });
+    return pickLocalizedText(base, map, locale);
+  };
+  const sourceCurrencyCode = activeSupplier.currency || 'EGP';
+  const activeCurrencyInfo = getCurrencyInfo(displayCurrency || sourceCurrencyCode);
+  const fmtMoney = (amount: number): string => {
+    const converted = convertBetweenCurrencies(
+      Number(amount || 0),
+      sourceCurrencyCode,
+      displayCurrency || sourceCurrencyCode
+    );
+    return `${converted.toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-US')} ${activeCurrencyInfo.symbol}`;
+  };
+  const displayBrandName = pickSupplierField(activeSupplier.brandName, 'brandName');
+  const displayTagline = pickSupplierField(activeSupplier.storeConfig?.tagline, 'tagline');
+  const displayDescription = pickSupplierField(
+    memberProfile?.storyText || activeSupplier.storeConfig?.description,
+    'description'
+  );
+  const supplierLogoSrc = resolveBilingualLogo(
+    activeSupplier.logoUrl,
+    activeSupplier.storeConfig?.logoArUrl,
+    activeSupplier.storeConfig?.logoEnUrl,
+    locale
+  );
+  const localizedBanner = activeSupplier.storeConfig?.promoBanner
+    ? {
+        ...activeSupplier.storeConfig.promoBanner,
+        text: pickSupplierField(activeSupplier.storeConfig.promoBanner.text, 'promoBannerText'),
+      }
+    : undefined;
   const sectionNames = (activeSupplier.supplySections || [])
     .map((id) => SUPPLIER_SUPPLY_SECTIONS.find((s) => s.id === id)?.titleAr)
     .filter(Boolean);
@@ -589,7 +667,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
     <div
       style={{ backgroundColor: themeSpec.pageBg, color: themeSpec.inkColor }}
       className="min-h-screen pb-20 transition-colors duration-300"
-      dir="rtl"
+      dir={dir}
     >
       {toast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl bg-emerald-700 text-white text-xs font-black shadow-xl">
@@ -616,11 +694,11 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               className={`px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0`}
             >
               <ArrowRight className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
-              <span>{isOwnerPreview ? 'عودة للوحة المتجر' : hasAuthSession ? 'رجوع' : 'سوق الموردين'}</span>
+              <span>{isOwnerPreview ? 'عودة للوحة المتجر' : hasAuthSession ? t('back_to_app') : t('back_to_market')}</span>
             </button>
             <img
-              src={activeSupplier.logoUrl || '/alshams_falcon_emblem.png'}
-              alt={activeSupplier.brandName}
+              src={supplierLogoSrc}
+              alt={displayBrandName}
               style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
               className={`w-10 h-10 ${themeSpec.buttonRadiusClass} border object-contain p-0.5 shrink-0`}
             />
@@ -629,7 +707,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 style={{ color: themeSpec.inkColor }}
                 className={`text-sm sm:text-base ${themeSpec.titleWeightClass} truncate flex items-center gap-2`}
               >
-                <span>{activeSupplier.brandName}</span>
+                <span>{displayBrandName}</span>
                 <span
                   style={{ color: themeSpec.accentText }}
                   className="inline-flex items-center gap-0.5 text-[11px] font-mono tabular-nums"
@@ -645,15 +723,25 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <PublicLocaleCurrencyBar
+              locale={locale}
+              onChangeLocale={setLocale}
+              enabledLanguages={activeSupplier.storeConfig?.enabledLanguages}
+              currency={displayCurrency}
+              onChangeCurrency={(c) => setDisplayCurrency(saveStoredCustomerDisplayCurrency(c))}
+              enabledCurrencies={activeSupplier.storeConfig?.acceptedCurrencies}
+              compact
+            />
+
             <button
               type="button"
               onClick={() => setIsProfileModalOpen(true)}
               style={softBtnStyle}
-              className={`px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black flex items-center gap-1.5 cursor-pointer`}
+              className={`px-2.5 sm:px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black flex items-center gap-1.5 cursor-pointer`}
             >
               <User className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
-              <span className="hidden sm:inline">الصفحة الشخصية</span>
+              <span className="hidden sm:inline">{t('personal_profile')}</span>
             </button>
 
             <button
@@ -664,24 +752,24 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 setTimeout(() => setCopied(false), 2500);
               }}
               style={softBtnStyle}
-              className={`px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-bold flex items-center gap-1 cursor-pointer`}
+              className={`px-2.5 sm:px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-bold flex items-center gap-1 cursor-pointer`}
             >
               {copied ? (
                 <Check className="w-3.5 h-3.5 text-emerald-500" />
               ) : (
                 <Share2 className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
               )}
-              <span className="hidden sm:inline">{copied ? 'تم النسخ' : 'مشاركة'}</span>
+              <span className="hidden sm:inline">{copied ? t('copied') : t('share')}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
               style={accentBtnStyle}
-              className={`px-3.5 py-2 ${themeSpec.buttonRadiusClass} text-xs font-black flex items-center gap-1.5 cursor-pointer hover:opacity-90`}
+              className={`px-3 sm:px-3.5 py-2 ${themeSpec.buttonRadiusClass} text-xs font-black flex items-center gap-1.5 cursor-pointer hover:opacity-90`}
             >
               <ShoppingCart className="w-4 h-4" />
-              <span>السلة</span>
+              <span>{t('cart')}</span>
               {cart.length > 0 && (
                 <span
                   style={{ backgroundColor: themeSpec.badgeBg, color: themeSpec.badgeInk }}
@@ -697,8 +785,8 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
 
       {/* Supplier Animated/Static Promotional Banner + Active Coupons */}
       <StorePromoBannerDisplay
-        banner={activeSupplier.storeConfig?.promoBanner}
-        currencySymbol={activeSupplier.currencySymbol}
+        banner={localizedBanner}
+        currencySymbol={activeCurrencyInfo.symbol}
         coupons={storeCoupons}
         onSelectCouponCode={(code) => {
           navigator.clipboard?.writeText(code).catch(() => {});
@@ -780,33 +868,33 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
             style={{ color: themeSpec.accentText }}
             className="text-[11px] font-black tracking-wider"
           >
-            {themeSpec.architectureTagAr} · متجر توريد خامات معتمد
+            {locale === 'ar' ? `${themeSpec.architectureTagAr} · متجر توريد خامات معتمد` : t('verified_supplier')}
           </span>
           <h2
             style={{ color: themeSpec.inkColor }}
             className={`text-2xl sm:text-3xl ${themeSpec.titleWeightClass} leading-tight`}
           >
-            {activeSupplier.brandName}
+            {displayBrandName}
           </h2>
-          {activeSupplier.storeConfig?.tagline && (
+          {displayTagline && (
             <p
               style={{ color: themeSpec.accentText }}
               className="text-xs sm:text-sm font-black max-w-2xl"
             >
-              {activeSupplier.storeConfig.tagline}
+              {displayTagline}
             </p>
           )}
-          {(memberProfile?.storyText || activeSupplier.storeConfig?.description) && (
+          {displayDescription && (
             <p
               style={{ color: themeSpec.mutedColor }}
               className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap max-w-3xl"
             >
-              {memberProfile?.storyText || activeSupplier.storeConfig?.description}
+              {displayDescription}
             </p>
           )}
           {activeSupplier.storeConfig?.shippingNote && (
             <p style={{ color: themeSpec.inkColor }} className="text-[11px] font-bold opacity-85">
-              الشحن والتسليم: {activeSupplier.storeConfig.shippingNote}
+              {locale === 'ar' ? 'الشحن والتسليم:' : 'Shipping:'} {activeSupplier.storeConfig.shippingNote}
             </p>
           )}
         </div>
@@ -1004,20 +1092,20 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                     style={{ borderColor: themeSpec.borderColor }}
                     className="border-t"
                   >
-                    <td className="p-3 font-black">{it.name}</td>
+                    <td className="p-3 font-black">{pickItemField(it, 'name')}</td>
                     <td className="p-3">{it.unit}</td>
                     <td
                       style={{ color: themeSpec.priceColor }}
                       className="p-3 font-mono tabular-nums font-bold"
                     >
-                      {it.retailPrice.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                      {fmtMoney(it.retailPrice)}
                     </td>
                     <td
                       style={{ color: themeSpec.accentText }}
                       className="p-3 font-mono tabular-nums font-black"
                     >
                       {it.wholesalePrice > 0
-                        ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${activeSupplier.currencySymbol} (≥${it.minWholesaleQty})`
+                        ? `${fmtMoney(it.wholesalePrice)} (≥${it.minWholesaleQty})`
                         : '—'}
                     </td>
                     <td
@@ -1247,10 +1335,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
 
                   <div className={`flex-1 flex flex-col justify-between min-w-0 ${isArch ? 'text-center' : ''}`}>
                     <div onClick={() => setSelectedItem(it)} className="p-4 space-y-2 cursor-pointer">
-                      <h3 className={`text-sm ${themeSpec.titleWeightClass}`}>{it.name}</h3>
+                      <h3 className={`text-sm ${themeSpec.titleWeightClass}`}>{pickItemField(it, 'name')}</h3>
                       {it.description && (
                         <p style={{ color: themeSpec.mutedColor }} className="text-[11px] line-clamp-2">
-                          {it.description}
+                          {pickItemField(it, 'description')}
                         </p>
                       )}
                       <div className="grid grid-cols-2 gap-2 font-mono tabular-nums text-xs pt-1">
@@ -1259,15 +1347,15 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                           className={`p-2 ${themeSpec.buttonRadiusClass} border`}
                         >
                           <span style={{ color: themeSpec.mutedColor }} className="block text-[10px] font-sans">
-                            القطاعي
+                            {t('retail_price')}
                           </span>
                           <div className="flex items-baseline gap-1 flex-wrap">
                             <span style={{ color: themeSpec.priceColor }} className="font-black">
-                              {offerMeta.finalRetail.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                              {fmtMoney(offerMeta.finalRetail)}
                             </span>
                             {offerMeta.hasDiscount && (
                               <span style={{ color: themeSpec.mutedColor }} className="text-[10px] line-through opacity-70">
-                                {offerMeta.originalRetail.toLocaleString('ar-EG')}
+                                {fmtMoney(offerMeta.originalRetail)}
                               </span>
                             )}
                           </div>
@@ -1280,11 +1368,11 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                           className={`p-2 ${themeSpec.buttonRadiusClass} border`}
                         >
                           <span style={{ color: themeSpec.accentText }} className="block text-[10px] font-sans font-bold">
-                            جملة (×{it.minWholesaleQty})
+                            {t('wholesale_price')} (×{it.minWholesaleQty})
                           </span>
                           <span style={{ color: themeSpec.accentText }} className="font-black">
                             {it.wholesalePrice > 0
-                              ? `${it.wholesalePrice.toLocaleString('ar-EG')} ${activeSupplier.currencySymbol}`
+                              ? fmtMoney(it.wholesalePrice)
                               : '—'}
                           </span>
                         </div>
@@ -1299,7 +1387,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                           {offerMeta.couponRequiredCode && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[9px] font-black font-mono">
                               <Tag className="w-2.5 h-2.5" />
-                              بكود: {offerMeta.couponRequiredCode}
+                              {offerMeta.couponRequiredCode}
                             </span>
                           )}
                         </div>
@@ -1315,7 +1403,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                         } text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-90 transition`}
                       >
                         <Plus className="w-4 h-4" />
-                        <span>إضافة للسلة</span>
+                        <span>{t('add_to_cart')}</span>
                       </button>
                     </div>
                   </div>

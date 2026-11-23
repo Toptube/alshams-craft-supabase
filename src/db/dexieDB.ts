@@ -23,7 +23,12 @@ import {
   FixedAsset,
   PaymentReminder,
   WorkOrderRecord,
+  isUserAdmin,
 } from '../types';
+import {
+  getStoredUserSubscription,
+  isModuleUnlockedBySubscription,
+} from '../types/subscriptions';
 
 export interface AIKnowledgeItem {
   id: string;
@@ -1403,6 +1408,12 @@ export const tenantStorage = {
     this.broadcastNotificationsUpdated();
   },
 
+  async clearAllNotifications(tenantId: string): Promise<void> {
+    if (!tenantId) return;
+    await db.notifications.where('tenantId').equals(tenantId).delete();
+    this.broadcastNotificationsUpdated();
+  },
+
   async updateOrderStatus(tenantId: string, orderId: string, newStatus: any): Promise<void> {
     const order = await db.orders.get(orderId);
     if (order && order.tenantId === tenantId) {
@@ -1429,207 +1440,280 @@ export const tenantStorage = {
   async generateProactiveNotifications(tenantId: string, profile?: UserProfile): Promise<void> {
     try {
       const now = Date.now();
-      const existingNotifs = await db.notifications.where('tenantId').equals(tenantId).toArray();
-      const existingTitles = new Set(existingNotifs.map((n) => n.title));
-      const dismissedMap = this.getDismissedNotificationSignatures(tenantId);
+      const currentProf = profile || (await this.getProfile(tenantId));
+      const isAdmin = isUserAdmin(currentProf);
+      const subRole: 'artisan' | 'supplier' =
+        (currentProf as any)?.accountRole === 'supplier' ? 'supplier' : 'artisan';
+      const userSub = getStoredUserSubscription(
+        currentProf?.ownerUid || currentProf?.id || tenantId
+      );
 
-      // 1. Automatic Stock Depletion Alerts (فقط للخامات المفعّل لها رصيد مخزني فعلي في «المخزن والجرد» — وليس خامات كتالوج «خاماتي»)
-      const materials = await this.getRawMaterials(tenantId);
-      const activeMatMap = new Map(materials.map((m) => [m.id, m]));
-      let localStockMap: Record<
-        string,
-        { currentStock?: number; minAlertThreshold?: number; warehouseTracked?: boolean }
-      > = {};
-      try {
-        if (typeof window !== 'undefined') {
-          const rawStock = localStorage.getItem('alshams_mat_stock_' + tenantId);
-          if (rawStock) localStockMap = JSON.parse(rawStock);
-        }
-      } catch {}
+      // تحديد الإشعارات المسموح بها بدقة حسب باقات اشتراك المستخدم الحالية فقط
+      const canInventoryAlerts = isModuleUnlockedBySubscription(
+        subRole === 'supplier' ? 'supplier_warehouse_erp' : 'inventory_materials',
+        userSub,
+        subRole,
+        isAdmin
+      );
+      const canSalesOrderAlerts = isModuleUnlockedBySubscription(
+        subRole === 'supplier' ? 'supplier_orders' : 'sales',
+        userSub,
+        subRole,
+        isAdmin
+      );
+      const canFinanceAlerts = isModuleUnlockedBySubscription(
+        subRole === 'supplier' ? 'supplier_finance' : 'treasuries',
+        userSub,
+        subRole,
+        isAdmin
+      );
 
       let notificationsMutated = false;
 
-      // Clean up any stale/false stock_depletion notifications for deleted or untracked catalog materials
-      for (const notif of existingNotifs) {
-        if (notif.type !== 'stock_depletion') continue;
-        const relId = notif.relatedItemId || notif.id.replace(/^notif_stock_/, '');
-        const mat = activeMatMap.get(relId);
-        const stEntry = localStockMap[relId];
-        const isTracked = Boolean(
-          stEntry?.warehouseTracked === true || (mat as any)?.warehouseTracked === true
-        );
-        const th = stEntry
-          ? Number(stEntry.minAlertThreshold) || 0
-          : Number(mat?.minAlertThreshold ?? mat?.reorderLevel ?? 0);
-        const cur = stEntry ? Number(stEntry.currentStock) || 0 : Number(mat?.currentStock) || 0;
+      // تطهير لمرة واحدة لأي إشعارات قديمة عالقة (مثل تذكيرات إغلاق الورشة القديمة قبل ربط الاشتراكات)
+      const purgeFlagKey = `alshams_notif_sub_purge_v2_${tenantId}`;
+      try {
+        if (typeof localStorage !== 'undefined' && !localStorage.getItem(purgeFlagKey)) {
+          const allOld = await db.notifications.where('tenantId').equals(tenantId).toArray();
+          for (const oldN of allOld) {
+            if (
+              oldN.type === 'daily_sales_reminder' ||
+              oldN.type === 'milestone_sales' ||
+              oldN.type === 'stock_depletion' ||
+              oldN.type === 'upcoming_delivery' ||
+              oldN.type === 'upcoming_deposit' ||
+              oldN.type === 'overdue_deposit'
+            ) {
+              await db.notifications.delete(oldN.id);
+              notificationsMutated = true;
+            }
+          }
+          localStorage.setItem(purgeFlagKey, String(now));
+        }
+      } catch {}
 
-        if (!mat || mat.isActive === false || !isTracked || th <= 0 || cur > th) {
+      const existingNotifs = await db.notifications.where('tenantId').equals(tenantId).toArray();
+
+      // حذف فوري لأي إشعار يخص باقة غير مشترك بها المستخدم حالياً
+      const filteredExisting: NotificationItem[] = [];
+      for (const notif of existingNotifs) {
+        const shouldPurge =
+          (notif.type === 'stock_depletion' && !canInventoryAlerts) ||
+          ((notif.type === 'upcoming_delivery' || notif.type === 'milestone_sales') && !canSalesOrderAlerts) ||
+          ((notif.type === 'upcoming_deposit' || notif.type === 'overdue_deposit') && !canFinanceAlerts) ||
+          (notif.type === 'daily_sales_reminder' &&
+            (!canSalesOrderAlerts || !canFinanceAlerts || currentProf?.enableDailySalesReminder !== true));
+
+        if (shouldPurge) {
           await db.notifications.delete(notif.id);
           notificationsMutated = true;
+        } else {
+          filteredExisting.push(notif);
         }
       }
 
-      for (const mat of materials) {
-        if (mat.isActive === false) continue;
-        const stEntry = localStockMap[mat.id];
-        const isWarehouseTracked = Boolean(
-          stEntry?.warehouseTracked === true || (mat as any)?.warehouseTracked === true
-        );
-        // لا تنبيهات لخامات كتالوج «خاماتي» التي لم يدخل لها رصيد مخزني فعلي بعد
-        if (!isWarehouseTracked) continue;
+      const existingTitles = new Set(filteredExisting.map((n) => n.title));
+      const dismissedMap = this.getDismissedNotificationSignatures(tenantId);
 
-        const threshold = stEntry
-          ? Number(stEntry.minAlertThreshold) || 0
-          : Number(mat.minAlertThreshold ?? mat.reorderLevel ?? 0);
-        if (threshold <= 0) continue;
-
-        const currentStock = stEntry ? Number(stEntry.currentStock) || 0 : Number(mat.currentStock) || 0;
-        const isDepleted = currentStock <= threshold;
-        const alertId = 'notif_stock_' + mat.id;
-        const existingStockAlert = existingNotifs.find(
-          (n) => n.type === 'stock_depletion' && (n.relatedItemId === mat.id || n.id === alertId)
-        );
-
-        if (isDepleted) {
-          const shortage = Number((threshold - currentStock).toFixed(2));
-          const title = `⚠️ تنبيه حد الطلب الأدنى: خامة "${mat.materialName}"`;
-          const message =
-            currentStock <= 0
-              ? `نفدت خامة "${mat.materialName}" بالكامل من المخزن (الرصيد: 0 ${mat.unit})! حد الطلب الأدنى المحدد هو (${threshold} ${mat.unit}). يرجى إصدار أمر شراء وتوريد عاجل لمنع توقف الإنتاج.`
-              : `انخفض رصيد الخامة "${mat.materialName}" إلى (${currentStock} ${mat.unit}) وهو أقل من أو يساوي حد الطلب الأدنى المحدد (${threshold} ${mat.unit}) بنقص (${shortage} ${mat.unit}). يرجى المبادرة بإصدار أمر توريد عاجل.`;
-
-          const sig = `${title}::${message}`;
-          if (dismissedMap[alertId] === sig) {
-            continue;
+      // 1. Automatic Stock Depletion Alerts (فقط إذا كانت باقة المخازن مفعلة)
+      if (canInventoryAlerts) {
+        const materials = await this.getRawMaterials(tenantId);
+        const activeMatMap = new Map(materials.map((m) => [m.id, m]));
+        let localStockMap: Record<
+          string,
+          { currentStock?: number; minAlertThreshold?: number; warehouseTracked?: boolean }
+        > = {};
+        try {
+          if (typeof window !== 'undefined') {
+            const rawStock = localStorage.getItem('alshams_mat_stock_' + tenantId);
+            if (rawStock) localStockMap = JSON.parse(rawStock);
           }
+        } catch {}
 
-          if (!existingStockAlert) {
-            await db.notifications.put({
-              id: alertId,
-              tenantId,
-              type: 'stock_depletion',
-              title,
-              message,
-              isRead: false,
-              relatedItemId: mat.id,
-              createdAt: now,
-            });
+        for (const notif of filteredExisting) {
+          if (notif.type !== 'stock_depletion') continue;
+          const relId = notif.relatedItemId || notif.id.replace(/^notif_stock_/, '');
+          const mat = activeMatMap.get(relId);
+          const stEntry = localStockMap[relId];
+          const isTracked = Boolean(
+            stEntry?.warehouseTracked === true || (mat as any)?.warehouseTracked === true
+          );
+          const th = stEntry
+            ? Number(stEntry.minAlertThreshold) || 0
+            : Number(mat?.minAlertThreshold ?? mat?.reorderLevel ?? 0);
+          const cur = stEntry ? Number(stEntry.currentStock) || 0 : Number(mat?.currentStock) || 0;
+
+          if (!mat || mat.isActive === false || !isTracked || th <= 0 || cur > th) {
+            await db.notifications.delete(notif.id);
             notificationsMutated = true;
-          } else {
-            const contentChanged = existingStockAlert.message !== message;
-            await db.notifications.put({
-              ...existingStockAlert,
-              title,
-              message,
-              isRead: contentChanged ? false : existingStockAlert.isRead,
-              createdAt: contentChanged ? now : existingStockAlert.createdAt,
-            });
-            if (contentChanged) notificationsMutated = true;
-          }
-        } else if (existingStockAlert) {
-          await db.notifications.delete(existingStockAlert.id);
-          notificationsMutated = true;
-        }
-      }
-
-      if (notificationsMutated) {
-        this.broadcastNotificationsUpdated();
-      }
-
-      // 2. Upcoming Deliveries & 2-Day Reminders
-      const orders = await this.getOrders(tenantId);
-      for (const ord of orders) {
-        if (ord.deliveryDate && ord.status !== 'delivered') {
-          const targetTime = new Date(ord.deliveryDate).getTime();
-          const diffDays = Math.ceil((targetTime - now) / 86400000);
-
-          if (diffDays >= 0 && diffDays <= 2) {
-            const title = `⏰ موعد تسليم قريب: طلبية ${ord.customerName}`;
-            if (!existingTitles.has(title)) {
-              await db.notifications.put({
-                id: 'notif_deliv_' + ord.id,
-                tenantId,
-                type: 'upcoming_delivery',
-                title,
-                message: `متبقي ${diffDays === 0 ? 'اليوم فقط' : diffDays + ' يوم'} على موعد تسليم طلبية "${ord.productName || 'المكرمية'}" للعميل ${ord.customerName}.`,
-                isRead: false,
-                relatedOrderId: ord.id,
-                createdAt: now,
-              });
-            }
-          } else if (diffDays < 0) {
-            const title = `🚨 تأخير موعد تسليم: طلبية ${ord.customerName}`;
-            if (!existingTitles.has(title)) {
-              await db.notifications.put({
-                id: 'notif_overdue_' + ord.id,
-                tenantId,
-                type: 'upcoming_delivery',
-                title,
-                message: `تجاوزت الطلبية موعد التسليم المحدد (${ord.deliveryDate}). يرجى متابعة الشحن والتسليم.`,
-                isRead: false,
-                relatedOrderId: ord.id,
-                createdAt: now,
-              });
-            }
           }
         }
 
-        // 3. Tri-Phase Deposit Reminders
-        if (ord.depositPhases) {
-          const phases = [
-            { num: 1, amount: ord.depositPhases.phase1Amount, date: ord.depositPhases.phase1Date, paid: ord.depositPhases.phase1Paid },
-            { num: 2, amount: ord.depositPhases.phase2Amount, date: ord.depositPhases.phase2Date, paid: ord.depositPhases.phase2Paid },
-            { num: 3, amount: ord.depositPhases.phase3Amount, date: ord.depositPhases.phase3Date, paid: ord.depositPhases.phase3Paid },
-          ];
+        for (const mat of materials) {
+          if (mat.isActive === false) continue;
+          const stEntry = localStockMap[mat.id];
+          const isWarehouseTracked = Boolean(
+            stEntry?.warehouseTracked === true || (mat as any)?.warehouseTracked === true
+          );
+          if (!isWarehouseTracked) continue;
 
-          for (const ph of phases) {
-            if (ph.amount > 0 && !ph.paid && ph.date) {
-              const targetTime = new Date(ph.date).getTime();
-              const diffDays = Math.ceil((targetTime - now) / 86400000);
+          const threshold = stEntry
+            ? Number(stEntry.minAlertThreshold) || 0
+            : Number(mat.minAlertThreshold ?? mat.reorderLevel ?? 0);
+          if (threshold <= 0) continue;
 
-              if (diffDays <= 2) {
-                const title = `💰 استحقاق دفعة (${ph.num}): عميل ${ord.customerName}`;
-                if (!existingTitles.has(title)) {
-                  await db.notifications.put({
-                    id: 'notif_phase_' + ord.id + '_' + ph.num,
-                    tenantId,
-                    type: 'upcoming_deposit',
-                    title,
-                    message: `موعد تحصيل الدفعة رقم (${ph.num}) بقيمة ${ph.amount} جنيه للعميل ${ord.customerName} مستحقة بتاريخ ${ph.date}.`,
-                    isRead: false,
-                    relatedOrderId: ord.id,
-                    createdAt: now,
-                  });
+          const currentStock = stEntry ? Number(stEntry.currentStock) || 0 : Number(mat.currentStock) || 0;
+          const isDepleted = currentStock <= threshold;
+          const alertId = 'notif_stock_' + mat.id;
+          const existingStockAlert = filteredExisting.find(
+            (n) => n.type === 'stock_depletion' && (n.relatedItemId === mat.id || n.id === alertId)
+          );
+
+          if (isDepleted) {
+            const shortage = Number((threshold - currentStock).toFixed(2));
+            const title = `⚠️ تنبيه حد الطلب الأدنى: خامة "${mat.materialName}"`;
+            const message =
+              currentStock <= 0
+                ? `نفدت خامة "${mat.materialName}" بالكامل من المخزن (الرصيد: 0 ${mat.unit})! حد الطلب الأدنى المحدد هو (${threshold} ${mat.unit}). يرجى إصدار أمر شراء وتوريد عاجل لمنع توقف الإنتاج.`
+                : `انخفض رصيد الخامة "${mat.materialName}" إلى (${currentStock} ${mat.unit}) وهو أقل من أو يساوي حد الطلب الأدنى المحدد (${threshold} ${mat.unit}) بنقص (${shortage} ${mat.unit}). يرجى المبادرة بإصدار أمر توريد عاجل.`;
+
+            const sig = `${title}::${message}`;
+            if (dismissedMap[alertId] === sig) {
+              continue;
+            }
+
+            if (!existingStockAlert) {
+              await db.notifications.put({
+                id: alertId,
+                tenantId,
+                type: 'stock_depletion',
+                title,
+                message,
+                isRead: false,
+                relatedItemId: mat.id,
+                createdAt: now,
+              });
+              notificationsMutated = true;
+            } else {
+              const contentChanged = existingStockAlert.message !== message;
+              await db.notifications.put({
+                ...existingStockAlert,
+                title,
+                message,
+                isRead: contentChanged ? false : existingStockAlert.isRead,
+                createdAt: contentChanged ? now : existingStockAlert.createdAt,
+              });
+              if (contentChanged) notificationsMutated = true;
+            }
+          } else if (existingStockAlert) {
+            await db.notifications.delete(existingStockAlert.id);
+            notificationsMutated = true;
+          }
+        }
+      }
+
+      // 2 & 3 & 4. Upcoming Deliveries, Deposit Reminders, and Milestones (فقط إذا كانت باقة المبيعات/المالية مفعلة)
+      if (canSalesOrderAlerts || canFinanceAlerts) {
+        const orders = await this.getOrders(tenantId);
+        for (const ord of orders) {
+          if (canSalesOrderAlerts && ord.deliveryDate && ord.status !== 'delivered') {
+            const targetTime = new Date(ord.deliveryDate).getTime();
+            const diffDays = Math.ceil((targetTime - now) / 86400000);
+
+            if (diffDays >= 0 && diffDays <= 2) {
+              const title = `⏰ موعد تسليم قريب: طلبية ${ord.customerName}`;
+              if (!existingTitles.has(title)) {
+                await db.notifications.put({
+                  id: 'notif_deliv_' + ord.id,
+                  tenantId,
+                  type: 'upcoming_delivery',
+                  title,
+                  message: `متبقي ${diffDays === 0 ? 'اليوم فقط' : diffDays + ' يوم'} على موعد تسليم طلبية "${ord.productName || 'المنتج'}" للعميل ${ord.customerName}.`,
+                  isRead: false,
+                  relatedOrderId: ord.id,
+                  createdAt: now,
+                });
+                notificationsMutated = true;
+              }
+            } else if (diffDays < 0) {
+              const title = `🚨 تأخير موعد تسليم: طلبية ${ord.customerName}`;
+              if (!existingTitles.has(title)) {
+                await db.notifications.put({
+                  id: 'notif_overdue_' + ord.id,
+                  tenantId,
+                  type: 'upcoming_delivery',
+                  title,
+                  message: `تجاوزت الطلبية موعد التسليم المحدد (${ord.deliveryDate}). يرجى متابعة الشحن والتسليم.`,
+                  isRead: false,
+                  relatedOrderId: ord.id,
+                  createdAt: now,
+                });
+                notificationsMutated = true;
+              }
+            }
+          }
+
+          if (canFinanceAlerts && ord.depositPhases) {
+            const phases = [
+              { num: 1, amount: ord.depositPhases.phase1Amount, date: ord.depositPhases.phase1Date, paid: ord.depositPhases.phase1Paid },
+              { num: 2, amount: ord.depositPhases.phase2Amount, date: ord.depositPhases.phase2Date, paid: ord.depositPhases.phase2Paid },
+              { num: 3, amount: ord.depositPhases.phase3Amount, date: ord.depositPhases.phase3Date, paid: ord.depositPhases.phase3Paid },
+            ];
+
+            for (const ph of phases) {
+              if (ph.amount > 0 && !ph.paid && ph.date) {
+                const targetTime = new Date(ph.date).getTime();
+                const diffDays = Math.ceil((targetTime - now) / 86400000);
+
+                if (diffDays <= 2) {
+                  const title = `💰 استحقاق دفعة (${ph.num}): عميل ${ord.customerName}`;
+                  if (!existingTitles.has(title)) {
+                    await db.notifications.put({
+                      id: 'notif_phase_' + ord.id + '_' + ph.num,
+                      tenantId,
+                      type: 'upcoming_deposit',
+                      title,
+                      message: `موعد تحصيل الدفعة رقم (${ph.num}) بقيمة ${ph.amount} جنيه للعميل ${ord.customerName} مستحقة بتاريخ ${ph.date}.`,
+                      isRead: false,
+                      relatedOrderId: ord.id,
+                      createdAt: now,
+                    });
+                    notificationsMutated = true;
+                  }
                 }
               }
             }
           }
         }
-      }
 
-      // 4. Peak Performance Milestones (أكبر نسبة مبيعات يومياً)
-      const totalPaidOrders = orders.filter((o) => (o.amountPaid || o.paidAmount || 0) > 0);
-      if (totalPaidOrders.length >= 3) {
-        const title = `🏆 إنجاز ورشة: نشاط مبيعات متميز اليوم!`;
-        if (!existingTitles.has(title)) {
-          await db.notifications.put({
-            id: 'notif_milestone_' + Math.floor(now / 86400000),
-            tenantId,
-            type: 'milestone_sales',
-            title,
-            message: `تهانينا! حققت الورشة أعلى وتيرة تسجيل طلبيات ومبيعات اليوم. استمر في التميز والإبداع!`,
-            isRead: false,
-            createdAt: now,
-          });
+        if (canSalesOrderAlerts) {
+          const totalPaidOrders = orders.filter((o) => (o.amountPaid || o.paidAmount || 0) > 0);
+          if (totalPaidOrders.length >= 3) {
+            const title = `🏆 إنجاز ورشة: نشاط مبيعات متميز اليوم!`;
+            if (!existingTitles.has(title)) {
+              await db.notifications.put({
+                id: 'notif_milestone_' + Math.floor(now / 86400000),
+                tenantId,
+                type: 'milestone_sales',
+                title,
+                message: `تهانينا! حققت الورشة أعلى وتيرة تسجيل طلبيات ومبيعات اليوم. استمر في التميز والإبداع!`,
+                isRead: false,
+                createdAt: now,
+              });
+              notificationsMutated = true;
+            }
+          }
         }
       }
 
-      // 5. Daily Sales Review Reminder (تنبيه تذكيري يومي لمراجعة مبيعات اليوم قبل إغلاق النظام)
-      const currentProf = profile || (await this.getProfile(tenantId));
-      const reminderEnabled = currentProf?.enableDailySalesReminder !== false;
+      // 5. Daily Sales Review Reminder — فقط للمشتركين في باقة المبيعات + الخزينة، وعند التفعيل الاختياري الصريح من الإعدادات
+      const reminderEnabled =
+        canSalesOrderAlerts &&
+        canFinanceAlerts &&
+        currentProf?.enableDailySalesReminder === true;
       const todayStr = new Date().toISOString().split('T')[0];
       const dailyNotifId = `notif_daily_sales_${tenantId}_${todayStr}`;
-      const existingDailyNotif = existingNotifs.find(
+      const existingDailyNotif = filteredExisting.find(
         (n) => n.id === dailyNotifId || (n.type === 'daily_sales_reminder' && n.id.includes(todayStr))
       );
 
@@ -1640,11 +1724,11 @@ export const tenantStorage = {
 
         let title = '📊 تذكير يومي: مراجعة مبيعات اليوم قبل الإغلاق';
         let message =
-          'تذكير ودّي لصاحب الورشة: يُرجى مراجعة وتدقيق مبيعات وحركات اليوم وتسجيل الدفعات النقدية قبل إغلاق النظام لضمان دقة الحسابات والأرصدة.';
+          'تذكير ودّي: يُرجى مراجعة وتدقيق مبيعات وحركات اليوم وتسجيل الدفعات النقدية قبل الإغلاق لضمان دقة الأرصدة.';
 
         if (mode === 'closing_offset') {
           title = `📊 تذكير قبل إغلاق الورشة (المحدد ${closingHour})`;
-          message = `تذكير قبل ساعة من إغلاق الورشة (${closingHour}): يُرجى تدقيق مبيعات اليوم، مراجعة فواتير العملاء، ومطابقة حركة الخزينة قبل إغلاق النظام.`;
+          message = `تذكير قبل ساعة من موعد الإغلاق (${closingHour}): يُرجى تدقيق مبيعات اليوم، مراجعة فواتير العملاء، ومطابقة حركة الخزينة.`;
         } else {
           title = `📊 تذكير مجدول (${fixedTime}): مراجعة مبيعات اليوم`;
           message = `تذكير يومي مجدول في تمام الساعة ${fixedTime}: يُرجى مراجعة مبيعات اليوم وتسجيل المقبوضات وتحديث حركة المخزون.`;
@@ -1662,91 +1746,92 @@ export const tenantStorage = {
               isRead: false,
               createdAt: now,
             });
+            notificationsMutated = true;
           }
-        } else {
-          // Keep message in sync with any updated reminder settings
+        } else if (existingDailyNotif.title !== title || existingDailyNotif.message !== message) {
           await db.notifications.put({
             ...existingDailyNotif,
             title,
             message,
           });
+          notificationsMutated = true;
         }
-      } else {
-        // If disabled from profile settings, clear any daily sales reminder
-        if (existingDailyNotif) {
-          await db.notifications.delete(existingDailyNotif.id);
-        }
+      } else if (existingDailyNotif) {
+        await db.notifications.delete(existingDailyNotif.id);
+        notificationsMutated = true;
       }
 
-      // 6. Custody & Pending Financial Commitment Payment Reminders (تذكير دفع للعهد أو الالتزامات المالية المعلقة)
-      const reminders = await this.getPaymentReminders(tenantId);
-      for (const rem of reminders) {
-        if (rem.status === 'pending' && rem.dueDate) {
-          const targetTime = new Date(rem.dueDate).getTime();
-          const diffDays = Math.ceil((targetTime - now) / 86400000);
-          const alertThresholdDays = Number(rem.reminderDaysBefore ?? 2);
-          const alertId = `notif_rem_${rem.id}`;
-          const existingRemNotif = existingNotifs.find((n) => n.id === alertId);
+      // 6. Custody & Pending Financial Commitment Payment Reminders (فقط للمشتركين في باقة المالية والخزينة)
+      if (canFinanceAlerts) {
+        const reminders = await this.getPaymentReminders(tenantId);
+        for (const rem of reminders) {
+          if (rem.status === 'pending' && rem.dueDate) {
+            const targetTime = new Date(rem.dueDate).getTime();
+            const diffDays = Math.ceil((targetTime - now) / 86400000);
+            const alertThresholdDays = Number(rem.reminderDaysBefore ?? 2);
+            const alertId = `notif_rem_${rem.id}`;
+            const existingRemNotif = filteredExisting.find((n) => n.id === alertId);
 
-          if (diffDays < 0) {
-            // Overdue commitment
-            const daysOverdue = Math.abs(diffDays);
-            const title = `🚨 تأخر استحقاق التزام مالي: ${rem.title}`;
-            const message = `تأخر سداد/تسوية ${rem.targetType === 'custody' ? 'العهدة' : 'الالتزام'} "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) المستحق بتاريخ ${rem.dueDate} بمقدار ${daysOverdue} يوم. يرجى المتابعة وسداد المبلغ فوراً.`;
-            if (dismissedMap[alertId] !== `${title}::${message}`) {
-              await db.notifications.put({
-                id: alertId,
-                tenantId,
-                type: 'overdue_deposit',
-                title,
-                message,
-                isRead: false,
-                relatedItemId: rem.id,
-                createdAt: now,
-              });
-            }
-          } else if (diffDays <= alertThresholdDays) {
-            // Due today or approaching within alert window
-            const title = diffDays === 0
-              ? `⚠️ استحقاق اليوم: ${rem.title}`
-              : `⏰ اقتراب موعد سداد التزام: ${rem.title}`;
-            const message = diffDays === 0
-              ? `موعد سداد أو تسوية "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) مستحق اليوم! يرجى إتمام الإجراء وإثباته في الخزينة.`
-              : `متبقي ${diffDays} يوم على موعد استحقاق "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) المحدد بتاريخ ${rem.dueDate}.`;
-
-            if (!existingRemNotif) {
+            if (diffDays < 0) {
+              const daysOverdue = Math.abs(diffDays);
+              const title = `🚨 تأخر استحقاق التزام مالي: ${rem.title}`;
+              const message = `تأخر سداد/تسوية ${rem.targetType === 'custody' ? 'العهدة' : 'الالتزام'} "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) المستحق بتاريخ ${rem.dueDate} بمقدار ${daysOverdue} يوم. يرجى المتابعة وسداد المبلغ فوراً.`;
               if (dismissedMap[alertId] !== `${title}::${message}`) {
                 await db.notifications.put({
                   id: alertId,
                   tenantId,
-                  type: 'upcoming_deposit',
+                  type: 'overdue_deposit',
                   title,
                   message,
                   isRead: false,
                   relatedItemId: rem.id,
                   createdAt: now,
                 });
+                notificationsMutated = true;
               }
-            } else {
-              // Update message if days changed
-              await db.notifications.put({
-                ...existingRemNotif,
-                title,
-                message,
-              });
+            } else if (diffDays <= alertThresholdDays) {
+              const title = diffDays === 0
+                ? `⚠️ استحقاق اليوم: ${rem.title}`
+                : `⏰ اقتراب موعد سداد التزام: ${rem.title}`;
+              const message = diffDays === 0
+                ? `موعد سداد أو تسوية "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) مستحق اليوم! يرجى إتمام الإجراء وإثباته في الخزينة.`
+                : `متبقي ${diffDays} يوم على موعد استحقاق "${rem.title}" بمبلغ (${Number(rem.amount || 0).toLocaleString()} ج.م) المحدد بتاريخ ${rem.dueDate}.`;
+
+              if (!existingRemNotif) {
+                if (dismissedMap[alertId] !== `${title}::${message}`) {
+                  await db.notifications.put({
+                    id: alertId,
+                    tenantId,
+                    type: 'upcoming_deposit',
+                    title,
+                    message,
+                    isRead: false,
+                    relatedItemId: rem.id,
+                    createdAt: now,
+                  });
+                  notificationsMutated = true;
+                }
+              } else {
+                await db.notifications.put({
+                  ...existingRemNotif,
+                  title,
+                  message,
+                });
+              }
+            } else if (existingRemNotif) {
+              await db.notifications.delete(alertId);
+              notificationsMutated = true;
             }
-          } else if (existingRemNotif) {
-            // If date was updated and is no longer in threshold window
+          } else if (rem.status === 'settled' || rem.status === 'cancelled') {
+            const alertId = `notif_rem_${rem.id}`;
             await db.notifications.delete(alertId);
           }
-        } else if (rem.status === 'settled' || rem.status === 'cancelled') {
-          const alertId = `notif_rem_${rem.id}`;
-          await db.notifications.delete(alertId);
         }
       }
 
-      // Broadcast update to React UI in real-time
-      this.broadcastNotificationsUpdated();
+      if (notificationsMutated) {
+        this.broadcastNotificationsUpdated();
+      }
     } catch (err) {
       console.error('Notification generator error:', err);
     }

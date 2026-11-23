@@ -40,6 +40,7 @@ import {
   runFullApiHealthAudit,
 } from './server/googleSearchService.js';
 import { synthesizePersonaSpeech } from './server/neuralTtsService.js';
+import { translateFieldsBatch } from './server/translationService.js';
 import { registerSupplierErpRoutes } from './server/supplierErpRoutes.js';
 import {
   loadUnifiedMaterialsState,
@@ -5165,6 +5166,24 @@ const handleGoogleSearchRoute = async (req: AuthenticatedRequest, res: Response)
 app.post('/api/ai/search', requireAuth, handleGoogleSearchRoute);
 app.post('/api/search/google', requireAuth, handleGoogleSearchRoute);
 
+app.post('/api/translate', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { fields, targetLang, sourceLang } = req.body || {};
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+      res.status(400).json({ success: false, error: 'حقول الترجمة مطلوبة' });
+      return;
+    }
+    const result = await translateFieldsBatch(
+      fields,
+      typeof targetLang === 'string' ? targetLang : 'en',
+      typeof sourceLang === 'string' ? sourceLang : 'ar'
+    );
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'تعذرت الترجمة' });
+  }
+});
+
 app.get('/api/ai/status', (_req: Request, res: Response) => {
   res.json(getAgentSecretStatus());
 });
@@ -8907,6 +8926,9 @@ async function buildResolvedMemberProfileForViewer(
 
   const resolvedId = canonical?.memberId || mp.memberId;
   const artisanMeta = getMemberArtisanMeta(resolvedId, mp?.visibility);
+  const i18nMeta = (mp?.visibility as any)?.__i18n && typeof (mp?.visibility as any).__i18n === 'object'
+    ? (mp?.visibility as any).__i18n
+    : {};
   const unifiedPhoto = mp?.personalAvatar || canonical?.brandLogo || mp?.brandLogo || null;
   const base = {
     memberId: resolvedId,
@@ -8922,6 +8944,12 @@ async function buildResolvedMemberProfileForViewer(
         : canonical?.gender || 'female',
     personalAvatar: unifiedPhoto,
     brandLogo: unifiedPhoto,
+    brandLogoEn: i18nMeta.brandLogoEn || undefined,
+    defaultLanguage: i18nMeta.defaultLanguage || 'ar',
+    enabledLanguages: Array.isArray(i18nMeta.enabledLanguages) && i18nMeta.enabledLanguages.length > 0
+      ? i18nMeta.enabledLanguages
+      : ['ar', 'en'],
+    translations: i18nMeta.translations && typeof i18nMeta.translations === 'object' ? i18nMeta.translations : undefined,
     bioHeadline: mp?.bioHeadline || '',
     storyText: mp?.storyText !== undefined && mp?.storyText !== '' ? mp.storyText : (canonical?.legacyStory || ''),
     phone: mp?.phone || canonical?.phone || '',
@@ -9076,9 +9104,22 @@ app.put('/api/member-profile', requireAuth, async (req: AuthenticatedRequest, re
     } as any;
     writeArtisanGrowthStore(growthStore);
 
+    const existingI18n =
+      (existingMp?.visibility as any)?.__i18n && typeof (existingMp?.visibility as any).__i18n === 'object'
+        ? (existingMp?.visibility as any).__i18n
+        : {};
+    const nextI18n = {
+      ...existingI18n,
+      ...(body.brandLogoEn !== undefined ? { brandLogoEn: body.brandLogoEn || null } : {}),
+      ...(body.defaultLanguage !== undefined ? { defaultLanguage: body.defaultLanguage } : {}),
+      ...(Array.isArray(body.enabledLanguages) ? { enabledLanguages: body.enabledLanguages } : {}),
+      ...(body.translations !== undefined ? { translations: body.translations } : {}),
+    };
+
     const visibilityWithMeta: any = {
       ...nextVisibility,
       __artisanMeta: growthStore.memberMeta[memberId],
+      __i18n: nextI18n,
     };
 
     const record = {

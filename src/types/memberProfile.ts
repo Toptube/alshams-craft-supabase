@@ -1,4 +1,5 @@
 import { ArtisanSkillLevel, TrainerEmbeddedPost } from './artisanGrowth';
+import { PublicLocaleCode } from '../lib/publicLocale';
 
 export type AudienceRole = 'artisans' | 'suppliers' | 'customers';
 export type MemberAccountRole = 'artisan' | 'supplier' | 'superadmin';
@@ -29,6 +30,13 @@ export interface ShowcasePostItem {
   updatedAt?: string;
 }
 
+export interface MemberProfileTranslationFields {
+  displayName?: string;
+  brandName?: string;
+  bioHeadline?: string;
+  storyText?: string;
+}
+
 export interface MemberPersonalProfile {
   memberId: string;
   ownerUid?: string;
@@ -40,6 +48,10 @@ export interface MemberPersonalProfile {
   gender?: 'male' | 'female';
   personalAvatar?: string | null;
   brandLogo?: string | null;
+  brandLogoEn?: string | null;
+  defaultLanguage?: PublicLocaleCode;
+  enabledLanguages?: PublicLocaleCode[];
+  translations?: Partial<Record<PublicLocaleCode, MemberProfileTranslationFields>>;
   bioHeadline?: string;
   storyText?: string;
   phone?: string;
