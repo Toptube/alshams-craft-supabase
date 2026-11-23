@@ -89,6 +89,8 @@ export const ADMIN_SYSTEM_ACTIONS_ARTISAN: AdminControllableSystemAction[] = [
   { actionKey: 'top_nav_quick_add', label: 'زرار الإضافة السريعة (+) أعلى الشاشة', description: 'قائمة (+) المختصرة لبيع/خامة/حاسبة/عميل' },
   { actionKey: 'quick_direct_product', label: 'زرار «إضافة منتج مباشر سريع»', description: 'إضافة منتج مباشر بالصور والألوان للكتالوج والمتجر' },
   { actionKey: 'widget_home_summary', label: 'صندوق «ملخص الورشة» المالي والمخزني', description: 'أرصدة الخزائن والخامات والرسوم البيانية أسفل الشاشة الرئيسية' },
+  { actionKey: 'open_shamousa', label: 'المساعدة الذكية «شموسة» العائمة ☀️', description: 'تفعيل شموسة داخل هذه الباقة (تعمل بذكاء على قد باقات المشترك فقط — ممنوعة في الباقة الأساسية)' },
+  { actionKey: 'nav_ai_agent', label: 'المستشار الهندسي «صقر الشمساوية» AI 🦅', description: 'تفعيل صقر AI بشكل مستقل داخل هذه الباقة (ممنوع في الباقة الأساسية)' },
 ];
 
 export const ADMIN_SYSTEM_ACTIONS_SUPPLIER: AdminControllableSystemAction[] = [
@@ -96,6 +98,8 @@ export const ADMIN_SYSTEM_ACTIONS_SUPPLIER: AdminControllableSystemAction[] = [
   { actionKey: 'top_nav_store', label: 'زرار «متجري» وأدوات رابط المتجر و QR', description: 'إظهار متجري أعلى الشاشة وأزرار معاينة ورابط المتجر' },
   { actionKey: 'top_nav_quick_add', label: 'زرار الإضافة السريعة (+) أعلى الشاشة', description: 'قائمة (+) المختصرة في الشريط العلوي' },
   { actionKey: 'widget_home_summary', label: 'صناديق ملخص السيولة والمخزون', description: 'مؤشرات الأرصدة والمخزون والمبيعات في الرئيسية' },
+  { actionKey: 'open_shamousa', label: 'المساعدة الذكية «شموسة» العائمة ☀️', description: 'تفعيل شموسة للمورد داخل هذه الباقة (تعمل على قد باقاته فقط — ممنوعة في الباقة الأساسية)' },
+  { actionKey: 'nav_ai_agent', label: 'المستشار الهندسي «صقر الشمساوية» AI 🦅', description: 'تفعيل صقر AI للمورد بشكل مستقل داخل هذه الباقة (ممنوع في الباقة الأساسية)' },
 ];
 
 /**
@@ -147,7 +151,7 @@ export const ACTION_KEY_TO_MODULES_ARTISAN: Record<string, string[]> = {
   nav_accounts: ['accounts'],
   nav_reports: ['reports'],
   nav_ai_agent: ['ai_agent'],
-  open_shamousa: ['ai_agent'],
+  open_shamousa: ['shamousa'],
 };
 
 export const ACTION_KEY_TO_MODULES_SUPPLIER: Record<string, string[]> = {
@@ -170,7 +174,7 @@ export const ACTION_KEY_TO_MODULES_SUPPLIER: Record<string, string[]> = {
   sup_warehouse_erp: ['supplier_warehouse_erp'],
   sup_hr_terminal: ['supplier_hr_terminal'],
   nav_ai_agent: ['ai_agent'],
-  open_shamousa: ['ai_agent'],
+  open_shamousa: ['shamousa'],
 };
 
 export function getDefaultSubscriptionPackages(): SubscriptionPackageDefinition[] {
@@ -543,12 +547,22 @@ export function getSubscriptionPackages(includeDisabled = false): SubscriptionPa
     const ov = adminCfg.packages?.[def.id];
     if (!ov) return def;
 
-    const nextActionsArtisan = Array.isArray(ov.allowedActionsArtisan)
+    const rawActionsArtisan = Array.isArray(ov.allowedActionsArtisan)
       ? ov.allowedActionsArtisan
       : def.allowedActionsArtisan;
-    const nextActionsSupplier = Array.isArray(ov.allowedActionsSupplier)
+    const rawActionsSupplier = Array.isArray(ov.allowedActionsSupplier)
       ? ov.allowedActionsSupplier
       : def.allowedActionsSupplier;
+
+    // قاعدة ثابتة: الباقة الأساسية (core_free) لا تشمل أبداً شموسة أو صقر
+    const nextActionsArtisan =
+      def.id === 'core_free'
+        ? rawActionsArtisan.filter((a) => a !== 'open_shamousa' && a !== 'nav_ai_agent')
+        : rawActionsArtisan;
+    const nextActionsSupplier =
+      def.id === 'core_free'
+        ? rawActionsSupplier.filter((a) => a !== 'open_shamousa' && a !== 'nav_ai_agent')
+        : rawActionsSupplier;
 
     const derivedArtisanMods = Array.isArray(ov.allowedActionsArtisan)
       ? Array.from(
@@ -918,6 +932,416 @@ export function isModuleUnlockedBySubscription(
     if (derived.includes(moduleId)) return true;
   }
   return false;
+}
+
+export function isShamousaUnlockedBySubscription(
+  sub: UserSubscriptionState,
+  role: 'artisan' | 'supplier',
+  isAdmin = false
+): boolean {
+  return isActionUnlockedBySubscription('open_shamousa', sub, role, isAdmin);
+}
+
+export function isSakrUnlockedBySubscription(
+  sub: UserSubscriptionState,
+  role: 'artisan' | 'supplier',
+  isAdmin = false
+): boolean {
+  return isActionUnlockedBySubscription('nav_ai_agent', sub, role, isAdmin);
+}
+
+export interface UserSubscriptionCapabilities {
+  isFullAccess: boolean;
+  role: 'artisan' | 'supplier';
+  activePackages: SubscriptionPackageDefinition[];
+  lockedPackages: SubscriptionPackageDefinition[];
+  activePackageTitles: string[];
+  allowedActions: Set<string>;
+  allowedModules: Set<string>;
+  canStorefront: boolean;
+  canCatalog: boolean;
+  canOrders: boolean;
+  canFinance: boolean;
+  canInventory: boolean;
+  canProduction: boolean;
+  canSalesCrm: boolean;
+  canHr: boolean;
+  canExecutiveBrief: boolean;
+  canGuides: boolean;
+  canShamousa: boolean;
+  canSakr: boolean;
+  findUnlockingPackagesForActions: (actionKeys: string[]) => SubscriptionPackageDefinition[];
+}
+
+export function buildUserSubscriptionCapabilities(
+  sub: UserSubscriptionState,
+  role: 'artisan' | 'supplier',
+  isAdmin = false
+): UserSubscriptionCapabilities {
+  const allPackages = getSubscriptionPackages();
+  const isFullAccess = isAdmin || !sub.hasSelectedPackages;
+  const activeIdSet = new Set<SubscriptionPackageId>(
+    isFullAccess ? allPackages.map((p) => p.id) : ['core_free', ...sub.activePackageIds]
+  );
+
+  const activePackages = allPackages.filter((p) => activeIdSet.has(p.id));
+  const lockedPackages = allPackages.filter((p) => !activeIdSet.has(p.id));
+  const activePackageTitles = activePackages.map((p) =>
+    role === 'supplier' && p.supplierTitleAr ? p.supplierTitleAr : p.titleAr
+  );
+
+  const allowedActions = new Set<string>(['open_settings', 'nav_my_subscriptions']);
+  const allowedModules = new Set<string>(['home', 'my_subscriptions', 'settings']);
+
+  for (const pkg of activePackages) {
+    const acts = role === 'supplier' ? pkg.allowedActionsSupplier : pkg.allowedActionsArtisan;
+    const mods = role === 'supplier' ? pkg.includedModulesSupplier : pkg.includedModulesArtisan;
+    acts.forEach((a) => allowedActions.add(a));
+    mods.forEach((m) => allowedModules.add(m));
+    deriveModulesFromActions(acts, role).forEach((m) => allowedModules.add(m));
+  }
+
+  const hasAny = (keys: string[]) => isFullAccess || keys.some((k) => allowedActions.has(k));
+
+  const findUnlockingPackagesForActions = (actionKeys: string[]): SubscriptionPackageDefinition[] => {
+    return allPackages.filter((pkg) => {
+      if (pkg.id === 'core_free') return false;
+      const acts = role === 'supplier' ? pkg.allowedActionsSupplier : pkg.allowedActionsArtisan;
+      return actionKeys.some((k) => acts.includes(k));
+    });
+  };
+
+  return {
+    isFullAccess,
+    role,
+    activePackages,
+    lockedPackages,
+    activePackageTitles,
+    allowedActions,
+    allowedModules,
+    canStorefront: hasAny([
+      'open_artisan_store_products',
+      'top_nav_store',
+      'sup_storefront',
+      'nav_marketplace',
+      'sup_market',
+    ]),
+    canCatalog: hasAny(['nav_catalog', 'quick_direct_product', 'sup_catalog']),
+    canOrders: hasAny(['open_artisan_store_orders', 'sup_orders']),
+    canFinance: hasAny([
+      'nav_treasuries',
+      'nav_accounts',
+      'modal_admin_costs',
+      'nav_fixed_assets',
+      'modal_exchange_rates',
+      'nav_reports',
+      'sup_finance',
+      'sup_erp_hub',
+    ]),
+    canInventory: hasAny([
+      'nav_materials',
+      'modal_new_material',
+      'modal_inv_materials',
+      'modal_inv_audit',
+      'modal_inv_products',
+      'nav_purchases',
+      'modal_supplier_invoice',
+      'nav_suppliers',
+      'modal_create_supplier',
+      'nav_suppliers_market',
+      'nav_unified_materials',
+      'sup_warehouse_erp',
+      'sup_unified_materials',
+    ]),
+    canProduction: hasAny([
+      'nav_calculator',
+      'nav_archive',
+      'nav_work_orders',
+      'nav_work_orders_create',
+      'nav_work_orders_issue',
+      'nav_work_orders_receive',
+    ]),
+    canSalesCrm: hasAny([
+      'nav_sales',
+      'nav_sales_new',
+      'nav_invoices',
+      'nav_invoices_returns',
+      'nav_customers',
+      'modal_new_client',
+      'sup_customers',
+      'sup_pos',
+    ]),
+    canHr: hasAny(['nav_hr', 'modal_new_employee', 'sup_hr_terminal']),
+    canExecutiveBrief: hasAny(['open_executive_brief', 'sup_executive_brief']),
+    canGuides: hasAny([
+      'open_guide_start',
+      'open_guide_daily',
+      'sup_guide_start',
+      'sup_guide_daily',
+    ]),
+    canShamousa: hasAny(['open_shamousa']),
+    canSakr: hasAny(['nav_ai_agent']),
+    findUnlockingPackagesForActions,
+  };
+}
+
+function normalizeArabicForScopeGuard(raw: string): string {
+  return String(raw || '')
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/[ىي]/g, 'ي')
+    .trim();
+}
+
+export interface LockedQueryGuardResult {
+  blocked: boolean;
+  domainLabel: string;
+  reply: string;
+  suggestedPackages: string[];
+  actionLink: { label: string; view: 'my_subscriptions' };
+}
+
+/**
+ * حارس ذكي يعمل أوفلاين وأونلاين: يفحص سؤال المستخدم ضد باقاته المفعّلة حالياً
+ * (مع قراءة فورية لأي تعديلات قام بها السوبر أدمن في شاشة إدارة الباقات).
+ */
+export function detectLockedSubscriptionQuery(
+  userText: string,
+  sub: UserSubscriptionState,
+  role: 'artisan' | 'supplier',
+  isAdmin = false,
+  firstName = 'صديقي'
+): LockedQueryGuardResult | null {
+  const caps = buildUserSubscriptionCapabilities(sub, role, isAdmin);
+  if (caps.isFullAccess) return null;
+
+  const norm = normalizeArabicForScopeGuard(userText);
+  if (!norm || norm.length < 2) return null;
+
+  // لا نمنع الأسئلة العامة عن الباقات أو الاشتراكات نفسها
+  if (/(الباقات|اشتراك|اشتراكاتي|الاسعار الشهريه|ترقيه|باقتي|مشترك في ايه|مفتوحلي ايه)/.test(norm)) {
+    return null;
+  }
+
+  const rules: Array<{
+    unlocked: boolean;
+    domainLabel: string;
+    actionKeys: string[];
+    pattern: RegExp;
+  }> = [
+    {
+      unlocked: caps.canExecutiveBrief,
+      domainLabel: 'بطاقة «هلخصهالك» والملخص المالي والمخزني الشامل',
+      actionKeys: role === 'supplier' ? ['sup_executive_brief'] : ['open_executive_brief'],
+      pattern: /(هلخصهالك|الملخص التنفيذي|ملخص الورشه|ملخص شامل|الموقف المالي كله)/,
+    },
+    {
+      unlocked: caps.canFinance,
+      domainLabel: 'الخزائن والسيولة والحسابات والمصروفات',
+      actionKeys:
+        role === 'supplier'
+          ? ['sup_finance', 'sup_erp_hub']
+          : ['nav_treasuries', 'nav_accounts', 'modal_admin_costs', 'nav_reports'],
+      pattern:
+        /(معايا كام|معانا كام|في الخزن|الخزينه|الخزنه|السيوله|الفلوس اللي مع|رصيد الخز|لينا كام بره|علينا كام|المصروفات|مصاريفي|ميزان المراجعه|الدفتر المالي|ارباحي|التقارير الماليه|الاصول الثابته|اسعار الصرف|عهده|عهدة|توريدات الفروع)/,
+    },
+    {
+      unlocked: caps.canInventory,
+      domainLabel: 'المخازن وجرد الخامات والمشتريات والموردين',
+      actionKeys:
+        role === 'supplier'
+          ? ['sup_warehouse_erp', 'sup_unified_materials']
+          : ['nav_materials', 'modal_inv_materials', 'nav_purchases', 'nav_suppliers', 'nav_unified_materials'],
+      pattern:
+        /(مخزني|المخزن فيه|خاماتي|رصيد الخام|نواقص الخام|خامات ناقصه|جرد المخزن|كارت الصنف|المشتريات|فاتوره شراء|الموردين|مورديني|سوق الموردين|الخامات الموحده|المصانع)/,
+    },
+    {
+      unlocked: caps.canProduction,
+      domainLabel: 'حاسبة التكاليف والتصنيع وأوامر التشغيل',
+      actionKeys: ['nav_calculator', 'nav_work_orders', 'nav_archive'],
+      pattern:
+        /(اوامر التشغيل|امر تشغيل|امر شغل|حاسبه التكاليف|تسعير قطعه|عايز اسعر|الهالك|المصنعيه|صرف خامات للتصنيع|استلام منتج تام|ارشيف المشغولات)/,
+    },
+    {
+      unlocked: caps.canHr,
+      domainLabel: 'شؤون العاملين والحرفيين والرواتب وتثبيت الأجهزة',
+      actionKeys: role === 'supplier' ? ['sup_hr_terminal'] : ['nav_hr', 'modal_new_employee'],
+      pattern: /(الموظفين|العمال|الحرفيين|الرواتب|المرتبات|السلف|الحضور والانصراف|تثبيت الاجهزه|شؤون العاملين)/,
+    },
+    {
+      unlocked: caps.canSalesCrm,
+      domainLabel: role === 'supplier' ? 'كاشير نقاط البيع (POS) والعملاء' : 'المبيعات والفواتير وكشوف حساب العملاء',
+      actionKeys:
+        role === 'supplier'
+          ? ['sup_pos', 'sup_customers']
+          : ['nav_sales', 'nav_invoices', 'nav_customers'],
+      pattern:
+        /(كاشير|نقاط البيع|pos|الورديه|فواتير المبيعات|سجل الفواتير|مرتجعات المبيعات|كشف حساب العميل|كشف حساب العملاء|عملائي الآجل|مديونيه العملاء)/,
+    },
+    {
+      unlocked: caps.canStorefront || caps.canCatalog || caps.canOrders,
+      domainLabel: 'المتجر الإلكتروني والكتالوج وأوردرات المتجر',
+      actionKeys:
+        role === 'supplier'
+          ? ['sup_storefront', 'sup_catalog', 'sup_orders']
+          : ['open_artisan_store_products', 'nav_catalog', 'open_artisan_store_orders'],
+      pattern: /(متجري|الكتالوج|اوردراتي|منتج مباشر|كوبون|اكواد خصم|سوق الشمساويه)/,
+    },
+    {
+      unlocked: caps.canSakr,
+      domainLabel: 'المستشار الهندسي «صقر الشمساوية» AI',
+      actionKeys: ['nav_ai_agent'],
+      pattern: /(حوليني لصقر|عايز صقر|افتحي صقر|استشاره صقر|دراسه سوق من صقر)/,
+    },
+  ];
+
+  for (const rule of rules) {
+    if (rule.unlocked) continue;
+    if (rule.pattern.test(norm)) {
+      const unlockingPkgs = caps.findUnlockingPackagesForActions(rule.actionKeys);
+      const pkgNames = unlockingPkgs.map((p) => {
+        const title = role === 'supplier' && p.supplierTitleAr ? p.supplierTitleAr : p.titleAr;
+        return p.promoFreeLimitedTime ? `«${title}» (مجانية حالياً لفترة محدودة)` : `«${title}»`;
+      });
+      const currentList = caps.activePackageTitles.map((t) => `«${t}»`).join(' + ');
+      const unlockLine =
+        pkgNames.length > 0
+          ? `عشان أقدر أفتح لك الجزء ده وأجاوبك بأرقامه الحية، تقدر تفعّل ${pkgNames.join(' أو ')} من صفحة «اشتراكاتي» بضغطة واحدة.`
+          : 'تقدر تراجع الباقات المتاحة وتفعّل الباقة المناسبة من صفحة «اشتراكاتي».';
+
+      return {
+        blocked: true,
+        domainLabel: rule.domainLabel,
+        suggestedPackages: pkgNames,
+        reply:
+          `يا **${firstName}** ☀️ قسم **${rule.domainLabel}** مش مفتوح حالياً في الباقات اللي إنت مشترك فيها دلوقتي.\n` +
+          `• **باقاتك المفعّلة حالياً:** ${currentList}.\n` +
+          `• ${unlockLine}\n` +
+          `وأنا تحت أمرك في أي حاجة تخص الأقسام المفتوحة عندك دلوقتي!`,
+        actionLink: { label: 'فتح صفحة اشتراكاتي وترقية الباقة 👑', view: 'my_subscriptions' },
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * يبني سياق الاشتراك الحي والملزم لإرساله لـ شموسة وصقر (سحابياً ومحلياً)
+ * يتحدّث تلقائياً فور أي تعديل يقوم به السوبر أدمن في شاشة «إدارة الباقات والصلاحيات».
+ */
+export function buildAiSubscriptionPromptContext(
+  sub: UserSubscriptionState,
+  role: 'artisan' | 'supplier',
+  isAdmin = false
+): {
+  promptText: string;
+  scopeFlags: {
+    isFullAccess: boolean;
+    canStorefront: boolean;
+    canCatalog: boolean;
+    canOrders: boolean;
+    canFinance: boolean;
+    canInventory: boolean;
+    canProduction: boolean;
+    canSalesCrm: boolean;
+    canHr: boolean;
+    canExecutiveBrief: boolean;
+    canGuides: boolean;
+    canShamousa: boolean;
+    canSakr: boolean;
+    activePackageTitles: string[];
+  };
+} {
+  const caps = buildUserSubscriptionCapabilities(sub, role, isAdmin);
+  const allPackages = getSubscriptionPackages();
+
+  const scopeFlags = {
+    isFullAccess: caps.isFullAccess,
+    canStorefront: caps.canStorefront,
+    canCatalog: caps.canCatalog,
+    canOrders: caps.canOrders,
+    canFinance: caps.canFinance,
+    canInventory: caps.canInventory,
+    canProduction: caps.canProduction,
+    canSalesCrm: caps.canSalesCrm,
+    canHr: caps.canHr,
+    canExecutiveBrief: caps.canExecutiveBrief,
+    canGuides: caps.canGuides,
+    canShamousa: caps.canShamousa,
+    canSakr: caps.canSakr,
+    activePackageTitles: caps.activePackageTitles,
+  };
+
+  const packagesDirectory = allPackages
+    .map((p) => {
+      const title = role === 'supplier' && p.supplierTitleAr ? p.supplierTitleAr : p.titleAr;
+      const status = caps.activePackages.some((ap) => ap.id === p.id) ? '✅ مشترك ومفعّلة الآن' : '🔒 غير مشترك فيها';
+      const priceNote = p.isAlwaysFree
+        ? 'مجانية للأبد'
+        : p.promoFreeLimitedTime
+        ? `مجانية لفترة محدودة (السعر الأصلي ${p.monthlyPriceEgp} ج.م/شهر)`
+        : `${p.monthlyPriceEgp} ج.م/شهر`;
+      return `  • ${title} [${status}] (${priceNote})`;
+    })
+    .join('\n');
+
+  if (caps.isFullAccess) {
+    return {
+      scopeFlags,
+      promptText: [
+        '[نطاق اشتراكات الحساب الحي — محدّث من إعدادات السوبر أدمن]',
+        '- حالة الاشتراك: كل الباقات مفتوحة لهذا الحساب.',
+        '- خريطة باقات المنظومة الحالية:',
+        packagesDirectory,
+      ].join('\n'),
+    };
+  }
+
+  const unlockedDomains: string[] = ['الصفحة الشخصية ومعرض الأعمال', 'مجتمع عيلة الشمساوية', 'الإعدادات واشتراكاتي'];
+  const lockedDomains: string[] = [];
+
+  if (caps.canStorefront || caps.canCatalog || caps.canOrders) {
+    unlockedDomains.push('المتجر الإلكتروني والكتالوج وأوردرات المتجر');
+  } else {
+    lockedDomains.push('المتجر الإلكتروني والكتالوج وأوردرات المتجر');
+  }
+  if (caps.canFinance) unlockedDomains.push('الخزائن والسيولة والحسابات والمصروفات والتقارير');
+  else lockedDomains.push('الخزائن والسيولة والفلوس والحسابات والمصروفات والتقارير المالية');
+
+  if (caps.canInventory) unlockedDomains.push('المخازن والخامات والجرد والمشتريات والموردين');
+  else lockedDomains.push('المخازن والخامات والنواقص والجرد والمشتريات والموردين');
+
+  if (caps.canProduction) unlockedDomains.push('حاسبة التكاليف والتسعير وأوامر التشغيل والأرشيف');
+  else lockedDomains.push('حاسبة التكاليف وأوامر التشغيل والتصنيع والأرشيف');
+
+  if (caps.canSalesCrm) unlockedDomains.push(role === 'supplier' ? 'كاشير POS والعملاء' : 'المبيعات والفواتير وكشوف حساب العملاء');
+  else lockedDomains.push(role === 'supplier' ? 'كاشير POS والعملاء' : 'المبيعات والفواتير وكشوف حساب العملاء');
+
+  if (caps.canHr) unlockedDomains.push('شؤون العاملين والرواتب وتثبيت الأجهزة');
+  else lockedDomains.push('شؤون العاملين والرواتب وتثبيت الأجهزة');
+
+  if (caps.canExecutiveBrief) unlockedDomains.push('بطاقة «هلخصهالك» والملخص الشامل');
+  else lockedDomains.push('بطاقة «هلخصهالك» والملخص المالي والمخزني الشامل');
+
+  if (caps.canSakr) unlockedDomains.push('المستشار الهندسي صقر AI');
+  else lockedDomains.push('المستشار الهندسي صقر AI (ممنوع اقتراح التحويل لصقر)');
+
+  const promptText = [
+    '🚨 [قانون حدود الاشتراك الصارم — خط أحمر لا يُتجاوز أبداً — محدّث تلقائياً من السوبر أدمن]:',
+    `- باقات المستخدم المفعّلة الآن فقط: ${caps.activePackageTitles.join(' + ')}.`,
+    `- الأقسام المفتوحة له والمسموح لك مساعدته فيها فقط: ${unlockedDomains.join('، ')}.`,
+    `- الأقسام المقفولة عليه الآن (ممنوع تماماً عرض أي أرقام أو ملخصات أو تقارير عنها): ${lockedDomains.join('، ')}.`,
+    '- تعليمات إلزامية:',
+    '  1. جاوبي المستخدم على قد الأقسام المفتوحة في باقاته الحالية وبس، وما تفتحييش سيرة خزينة أو مخزن أو أوامر تشغيل أو ملخص هلخصهالك لو مش مفتوحة له.',
+    '  2. لو سأل المستخدم عن أي قسم مقفول (زي: معايا كام في الخزنة؟ مخزني فيه إيه؟ مصاريفي كام؟ أوامر الشغل؟)، اعتذري بلطف باللهجة المصرية وقولي له صراحة: إن القسم ده مش مفتوح في باقاته الحالية، واذكري له اسم الباقة المناسبة من القائمة التالية عشان يفعلها من صفحة «اشتراكاتي».',
+    '- خريطة باقات المنظومة الحية (محدثة تلقائياً من لوحة السوبر أدمن):',
+    packagesDirectory,
+  ].join('\n');
+
+  return { promptText, scopeFlags };
 }
 
 export function shouldPromptExistingUserForPackages(

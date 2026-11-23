@@ -602,16 +602,28 @@ export class GeminiAIProvider {
     const isSupplierRole = (workshopContext as any)?.accountRole === 'supplier';
     const safeBrandName = (workshopContext as any)?.brandName || (isSupplierRole ? 'متجر المورد' : 'الورشة');
 
+    const subScope = (workshopContext as any)?.subscriptionScope;
+    const isFullSub = !subScope || subScope.isFullAccess !== false || superAdmin;
+    const subPromptBlock = (workshopContext as any)?.subscriptionPromptContext
+      ? `\n\n${(workshopContext as any).subscriptionPromptContext}\n`
+      : '';
+
     const liveLiquidity = Number(workshopContext?.liveLiquidity || 0);
     const lowMaterialsCount = Number(workshopContext?.lowMaterialsCount || 0);
     const openWorkOrdersCount = Number(workshopContext?.openWorkOrdersCount || 0);
     const pendingOrdersCount = Number(workshopContext?.pendingOrdersCount || 0);
     const hourlyRate = Number(workshopContext?.hourlyRate) || 35;
-    const workshopMetricsText = `\n- حالة الحساب وأرقامه الحية الآن: السيولة النقدية المتاحة: ${liveLiquidity.toLocaleString('ar-EG')} ${safeCurrency} | الخامات الناقصة: ${lowMaterialsCount} | أوامر التشغيل المفتوحة: ${openWorkOrdersCount} | الطلبيات المعلقة: ${pendingOrdersCount}.`;
+    const metricParts: string[] = [];
+    if (isFullSub || subScope?.canFinance) metricParts.push(`السيولة النقدية المتاحة: ${liveLiquidity.toLocaleString('ar-EG')} ${safeCurrency}`);
+    if (isFullSub || subScope?.canInventory) metricParts.push(`الخامات الناقصة: ${lowMaterialsCount}`);
+    if (isFullSub || subScope?.canProduction) metricParts.push(`أوامر التشغيل المفتوحة: ${openWorkOrdersCount}`);
+    if (isFullSub || subScope?.canOrders || subScope?.canStorefront || subScope?.canSalesCrm) metricParts.push(`الطلبيات المعلقة: ${pendingOrdersCount}`);
+    const workshopMetricsText =
+      metricParts.length > 0 ? `\n- حالة الحساب وأرقامه الحية المتاحة ضمن باقات المشترك: ${metricParts.join(' | ')}.` : '';
 
     const memoryPrompt = await buildGlobalMemoryPrompt('falcon');
     const systemInstruction = `أنت "صقر الشمساوية" 🦅 — الخبير الهندسي والاستشاري الأول لحرفيي وصناع وموردي الخامات في منظومة الشمساوية التابعة لشركة الشمس كرافت.
-أنت تتحدث الآن مع: "${firstName}" (نوع الحساب: ${isSupplierRole ? `مورد وتاجر خامات — ${safeBrandName}` : `ورشة وفنان حرفي — ${safeBrandName}`}). نادي المستخدم باسمه "${firstName}" باحترام وودّ، واحترم خصوصية وعزل بيانات حسابه تماماً ولا تخلط أي بيانات لورش أو موردين آخرين.
+أنت تتحدث الآن مع: "${firstName}" (نوع الحساب: ${isSupplierRole ? `مورد وتاجر خامات — ${safeBrandName}` : `ورشة وفنان حرفي — ${safeBrandName}`}). نادي المستخدم باسمه "${firstName}" باحترام وودّ، واحترم خصوصية وعزل بيانات حسابه تماماً ولا تخلط أي بيانات لورش أو موردين آخرين.${subPromptBlock}
 
 قواعد الخطاب والهوية المهنية الصارمة:
 1. منع الديباجات التعريفية التلقائية:

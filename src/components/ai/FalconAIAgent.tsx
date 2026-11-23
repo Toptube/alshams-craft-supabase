@@ -9,6 +9,12 @@ import { useInstantVoiceDictation } from '../../hooks/useInstantVoiceDictation';
 import { usePersonaSpeech } from '../../hooks/usePersonaSpeech';
 import { useLiveConnectionStatus } from '../../hooks/useLiveConnectionStatus';
 import {
+  useUserSubscription,
+  buildAiSubscriptionPromptContext,
+  detectLockedSubscriptionQuery,
+} from '../../types/subscriptions';
+import { isUserAdmin } from '../../types';
+import {
   Sparkles,
   Camera,
   Send,
@@ -164,6 +170,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [useGoogleSearch, setUseGoogleSearch] = useState(false);
   const falconConn = useLiveConnectionStatus(useGoogleSearch, true);
+  const userSub = useUserSubscription(profile);
+  const isAdminAccount = isUserAdmin(profile);
 
   // Modern Chat UX additions: Auto-expanding, Instant Voice, Free TTS, Attachments, Saved sessions & Menu
   const [pendingAttachment, setPendingAttachment] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
@@ -610,6 +618,31 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
     };
 
     setMessages((prev) => [...prev, userMsg]);
+
+    // فحص فوري لحدود باقات المشترك قبل الإرسال لصقر (أوفلاين وأونلاين)
+    const subRole: 'artisan' | 'supplier' = isSupplierAccount ? 'supplier' : 'artisan';
+    if (textToSend && !att) {
+      const lockedHit = detectLockedSubscriptionQuery(
+        textToSend,
+        userSub,
+        subRole,
+        isAdminAccount,
+        firstName
+      );
+      if (lockedHit) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: 'falcon_locked_' + Date.now(),
+            sender: 'falcon',
+            text: lockedHit.reply,
+            timestamp: Date.now(),
+          },
+        ]);
+        return;
+      }
+    }
+
     setIsSending(true);
     if (att) {
       setIsAnalyzingImage(true);
@@ -623,6 +656,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           role: m.sender === 'user' ? 'user' : 'model',
           content: m.text,
         }));
+
+      const subPromptInfo = buildAiSubscriptionPromptContext(userSub, subRole, isAdminAccount);
 
       const payload: any = {
         message: textToSend || (att ? 'يرجى فحص وتحليل صورة المشغولة هندسياً بدقة، وتحديد أبعادها ومستلزمات إنتاجها والتكلفة وسعر البيع العادل جملة وقطاعي في السوق المصري.' : `استفسار حول: ${chip}`),
@@ -642,6 +677,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
           lowMaterialsCount: 0,
           openWorkOrdersCount: 0,
           pendingOrdersCount: 0,
+          subscriptionPromptContext: subPromptInfo.promptText,
+          subscriptionScope: subPromptInfo.scopeFlags,
         },
         userEmail: profile.email || '',
       };

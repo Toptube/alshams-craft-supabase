@@ -169,7 +169,11 @@ export const AdminPackagesManagerPage: React.FC<AdminPackagesManagerPageProps> =
     setHasUnsavedChanges(true);
   };
 
+  const isAiAction = (actionKey: string) =>
+    actionKey === 'open_shamousa' || actionKey === 'nav_ai_agent';
+
   const toggleActionInSelectedPackage = (actionKey: string) => {
+    if (selectedPkg.id === 'core_free' && isAiAction(actionKey)) return;
     playButtonClickSound();
     updatePackage(selectedPkg.id, (pkg) => {
       const current = pkg[actionField] || [];
@@ -180,15 +184,19 @@ export const AdminPackagesManagerPage: React.FC<AdminPackagesManagerPageProps> =
   };
 
   const toggleAllCardItemsInSelectedPackage = (cardActionKeys: string[]) => {
-    if (cardActionKeys.length === 0) return;
+    const eligibleKeys =
+      selectedPkg.id === 'core_free'
+        ? cardActionKeys.filter((k) => !isAiAction(k))
+        : cardActionKeys;
+    if (eligibleKeys.length === 0) return;
     playButtonClickSound();
     updatePackage(selectedPkg.id, (pkg) => {
       const current = new Set(pkg[actionField] || []);
-      const allSelected = cardActionKeys.every((k) => current.has(k));
+      const allSelected = eligibleKeys.every((k) => current.has(k));
       if (allSelected) {
-        cardActionKeys.forEach((k) => current.delete(k));
+        eligibleKeys.forEach((k) => current.delete(k));
       } else {
-        cardActionKeys.forEach((k) => current.add(k));
+        eligibleKeys.forEach((k) => current.add(k));
       }
       return { ...pkg, [actionField]: Array.from(current) };
     });
@@ -199,6 +207,7 @@ export const AdminPackagesManagerPage: React.FC<AdminPackagesManagerPageProps> =
     targetPkgId: SubscriptionPackageId
   ) => {
     if (!targetPkgId || targetPkgId === selectedPkg.id) return;
+    if (targetPkgId === 'core_free' && isAiAction(actionKey)) return;
     playSuccessSound();
     setPackages((prev) =>
       prev.map((pkg) => {
@@ -639,7 +648,7 @@ export const AdminPackagesManagerPage: React.FC<AdminPackagesManagerPageProps> =
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-[#EA580C] dark:text-[#FBBF24]" />
                 <h3 className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                  أزرار الشريط العلوي والإضافة السريعة وملخص الشاشة
+                  أزرار الشريط العلوي والمساعدين الذكيين (شموسة / صقر مستقلين)
                 </h3>
               </div>
               <button
@@ -649,7 +658,9 @@ export const AdminPackagesManagerPage: React.FC<AdminPackagesManagerPageProps> =
                 }
                 className="text-[11px] font-black text-[#C2410C] dark:text-[#FBBF24] hover:underline cursor-pointer"
               >
-                {systemActions.every((a) => selectedActions.includes(a.actionKey))
+                {systemActions
+                  .filter((a) => !(selectedPkg.id === 'core_free' && isAiAction(a.actionKey)))
+                  .every((a) => selectedActions.includes(a.actionKey))
                   ? 'إلغاء الكل'
                   : 'تحديد الكل'}
               </button>
@@ -657,27 +668,42 @@ export const AdminPackagesManagerPage: React.FC<AdminPackagesManagerPageProps> =
 
             <div className="p-3 divide-y divide-[#D4CCBC]/60 dark:divide-[#1E2E52]">
               {systemActions.map((act) => {
-                const checked = selectedActions.includes(act.actionKey);
+                const lockedOnCore = selectedPkg.id === 'core_free' && isAiAction(act.actionKey);
+                const checked = !lockedOnCore && selectedActions.includes(act.actionKey);
                 const otherPkgs = actionOtherPackagesMap[act.actionKey] || [];
                 return (
                   <div
                     key={act.actionKey}
-                    className="py-2.5 first:pt-1 last:pb-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                    className={`py-2.5 first:pt-1 last:pb-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                      lockedOnCore ? 'opacity-60' : ''
+                    }`}
                   >
                     <button
                       type="button"
+                      disabled={lockedOnCore}
                       onClick={() => toggleActionInSelectedPackage(act.actionKey)}
-                      className="flex items-start gap-2.5 text-right cursor-pointer min-w-0 flex-1"
+                      className={`flex items-start gap-2.5 text-right min-w-0 flex-1 ${
+                        lockedOnCore ? 'cursor-not-allowed' : 'cursor-pointer'
+                      }`}
                     >
-                      {checked ? (
+                      {lockedOnCore ? (
+                        <Lock className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                      ) : checked ? (
                         <CheckSquare className="w-4 h-4 text-[#EA580C] shrink-0 mt-0.5" />
                       ) : (
                         <Square className="w-4 h-4 text-[#64748B] shrink-0 mt-0.5" />
                       )}
                       <div className="min-w-0">
-                        <p className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                          {act.label}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                            {act.label}
+                          </p>
+                          {lockedOnCore && (
+                            <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-300">
+                              ممنوع في الباقة الأساسية
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[11px] text-[#475569] dark:text-[#94A3B8]">
                           {act.description}
                         </p>
@@ -705,7 +731,11 @@ export const AdminPackagesManagerPage: React.FC<AdminPackagesManagerPageProps> =
                         >
                           <option value="">نقل لباقة أخرى...</option>
                           {packages
-                            .filter((p) => p.id !== selectedPkg.id)
+                            .filter(
+                              (p) =>
+                                p.id !== selectedPkg.id &&
+                                !(p.id === 'core_free' && isAiAction(act.actionKey))
+                            )
                             .map((p) => (
                               <option key={p.id} value={p.id}>
                                 {audience === 'supplier' && p.supplierTitleAr

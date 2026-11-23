@@ -269,6 +269,8 @@ import { PackageSelectionOnboardingModal } from './components/subscriptions/MySu
 import {
   useUserSubscription,
   shouldPromptExistingUserForPackages,
+  isShamousaUnlockedBySubscription,
+  isSakrUnlockedBySubscription,
 } from './types/subscriptions';
 const SupplierHomeScreen = lazy(() =>
   import('./components/supplier/SupplierHomeScreen').then((m) => ({
@@ -3087,7 +3089,11 @@ export const App: React.FC = () => {
               onExportStructuredToCalculator={handleExportStructuredToCalculator}
               onNavigateHome={goHome}
             />
-          ) : (
+          ) : isSakrUnlockedBySubscription(
+              userSubscription,
+              (profile as any)?.accountRole === 'supplier' ? 'supplier' : 'artisan',
+              false
+            ) ? (
             <FalconAIAgent
               profile={profile}
               currentCategory={currentCategory}
@@ -3096,6 +3102,32 @@ export const App: React.FC = () => {
               onTransferNotesToCalculator={handleTransferNotesToCalculator}
               onExportStructuredToCalculator={handleExportStructuredToCalculator}
             />
+          ) : (
+            <div className="max-w-xl mx-auto my-8 p-6 rounded-2xl bg-[#FFFDF8] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-center space-y-4" dir="rtl">
+              <div className="text-3xl">🦅</div>
+              <h2 className="text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                المستشار الهندسي «صقر الشمساوية» غير مفعّل في باقاتك الحالية
+              </h2>
+              <p className="text-xs sm:text-sm text-[#475569] dark:text-[#94A3B8] leading-relaxed">
+                يمكنك تفعيل باقة المساعدين الذكيين (أو أي باقة تشمل صقر) من صفحة «اشتراكاتي» بضغطة واحدة — مجاناً حالياً لفترة محدودة.
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => navigateTo('my_subscriptions')}
+                  className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-black cursor-pointer"
+                >
+                  فتح صفحة اشتراكاتي 👑
+                </button>
+                <button
+                  type="button"
+                  onClick={goHome}
+                  className="px-4 py-2.5 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] text-xs sm:text-sm font-bold text-[#0C1427] dark:text-[#F7F3EA] cursor-pointer"
+                >
+                  الرئيسية
+                </button>
+              </div>
+            </div>
           )
         )}
 
@@ -3442,11 +3474,17 @@ export const App: React.FC = () => {
           )}
       </main>
 
-      {/* Unified Floating Shamousa Assistant (Chat + Daily Check-in + Tasks + Results + OR 360) */}
+      {/* Unified Floating Shamousa Assistant — Strictly gated by Subscription (never appears in core_free) */}
       {profile &&
         activeView !== 'ai_agent' &&
         activeView !== 'family' &&
-        (isUserAdmin(profile) || featureFlags.aiAssistantsEnabled) && (
+        (isUserAdmin(profile) ||
+          (featureFlags.aiAssistantsEnabled &&
+            isShamousaUnlockedBySubscription(
+              userSubscription,
+              (profile as any)?.accountRole === 'supplier' ? 'supplier' : 'artisan',
+              false
+            ))) && (
           <Suspense fallback={null}>
             <ShamousaChatWidget
               profile={profile}
@@ -3469,6 +3507,8 @@ export const App: React.FC = () => {
                   navigateTo('customers');
                 } else if (target === 'calculator') {
                   navigateTo('calculator');
+                } else if (target === 'my_subscriptions') {
+                  navigateTo('my_subscriptions');
                 } else {
                   navigateTo(target as any);
                 }

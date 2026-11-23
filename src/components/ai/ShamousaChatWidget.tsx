@@ -82,6 +82,13 @@ import {
 import { useInstantVoiceDictation } from '../../hooks/useInstantVoiceDictation';
 import { usePersonaSpeech } from '../../hooks/usePersonaSpeech';
 import { useLiveConnectionStatus } from '../../hooks/useLiveConnectionStatus';
+import {
+  useUserSubscription,
+  buildUserSubscriptionCapabilities,
+  detectLockedSubscriptionQuery,
+  buildAiSubscriptionPromptContext,
+  isModuleUnlockedBySubscription,
+} from '../../types/subscriptions';
 
 export interface ShamousaActionLink {
   label: string;
@@ -599,13 +606,42 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const isSuperAdminAccount =
     /hmb\.top\.tu[bp]e/i.test(String(profile.email || '').trim());
 
-  const welcomeMessage = isSupplierAccount
-    ? isCraftMode
-      ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هكلّمك بلغة المحل السهلة من غير تعقيد دائن ومدين، وهتابع معاك الفلوس والمخازن والبيع فوراً. ولو حابب أدوّرلك في السوق أونلاين اضغط على **صورتي جنب خانة الكتابة عشان تنوّر أخضر 🟢**.`
-      : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل التفاصيل الرسمية: **${getModeLabel('sup_finance_title')}**، دفتر الأستاذ، تسويات الفروع، وتقييم المخزون. ولو حابب تفتحلي البحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`
-    : isCraftMode
-    ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هكلمك بلغة الورشة السهلة من غير كلام المحاسبين المعقّد، وهساعدك في التسعير، **${getModeLabel('wo_page_title')}**، بواقي الخامات، و**${getModeLabel('rep_page_title')}**. وللبحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`
-    : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل المسميات والأذونات المحاسبية الكاملة (**${getModeLabel('wo_issue_voucher')}**، **${getModeLabel('rep_trial_balance')}**، المدين والدائن، والرسوم المتقدمة). وللبحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`;
+  const userSub = useUserSubscription(profile);
+  const subRole: 'artisan' | 'supplier' = isSupplierAccount ? 'supplier' : 'artisan';
+  const subCaps = useMemo(
+    () => buildUserSubscriptionCapabilities(userSub, subRole, isSuperAdminAccount),
+    [userSub, subRole, isSuperAdminAccount]
+  );
+
+  const isViewUnlocked = (view?: string): boolean => {
+    if (!view || view === 'home' || view === 'my_subscriptions' || view === 'personal_profile' || view === 'settings') {
+      return true;
+    }
+    return isModuleUnlockedBySubscription(view, userSub, subRole, isSuperAdminAccount);
+  };
+
+  const welcomeMessage = useMemo(() => {
+    if (!subCaps.isFullAccess) {
+      const unlockedList: string[] = [];
+      if (subCaps.canStorefront || subCaps.canCatalog) unlockedList.push('متجرك والكتالوج');
+      if (subCaps.canOrders) unlockedList.push('أوردراتك');
+      if (subCaps.canProduction) unlockedList.push('التسعير والتصنيع');
+      if (subCaps.canInventory) unlockedList.push('المخزون والخامات');
+      if (subCaps.canFinance) unlockedList.push('الخزائن والحسابات');
+      if (subCaps.canSalesCrm) unlockedList.push(isSupplierAccount ? 'الكاشير والعملاء' : 'المبيعات والعملاء');
+      if (subCaps.canHr) unlockedList.push('فريق العمل');
+      unlockedList.push('صفحتك الشخصية والعيلة');
+      const scopeSummary = unlockedList.join('، ');
+      return `أهلاً بيك يا **${firstName}**! ☀️\nأنا **شموسة** — معاك على قد باقاتك المفعّلة دلوقتي (${subCaps.activePackageTitles.join(' + ')}).\nأقدر أساعدك فوراً في: **${scopeSummary}**. ولو احتجت تفتح أي قسم تاني في أي وقت، هقولك اسم الباقة المناسبة من «اشتراكاتي»!`;
+    }
+    return isSupplierAccount
+      ? isCraftMode
+        ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هكلّمك بلغة المحل السهلة من غير تعقيد دائن ومدين، وهتابع معاك الفلوس والمخازن والبيع فوراً. ولو حابب أدوّرلك في السوق أونلاين اضغط على **صورتي جنب خانة الكتابة عشان تنوّر أخضر 🟢**.`
+        : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت بوابة الموردين (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل التفاصيل الرسمية: **${getModeLabel('sup_finance_title')}**، دفتر الأستاذ، تسويات الفروع، وتقييم المخزون. ولو حابب تفتحلي البحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`
+      : isCraftMode
+      ? `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع الحرفي البسيط**).\nأنا **شموسة** — هكلمك بلغة الورشة السهلة من غير كلام المحاسبين المعقّد، وهساعدك في التسعير، **${getModeLabel('wo_page_title')}**، بواقي الخامات، و**${getModeLabel('rep_page_title')}**. وللبحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`
+      : `أهلاً بيك يا **${firstName}**! ☀️ نوّرت الشمساوية (**الوضع المحاسبي المتقدم**).\nأنا **شموسة** — جاهزة معاك بكل المسميات والأذونات المحاسبية الكاملة (**${getModeLabel('wo_issue_voucher')}**، **${getModeLabel('rep_trial_balance')}**، المدين والدائن، والرسوم المتقدمة). وللبحث المباشر على الإنترنت اضغط على **صورتي جنب خانة الكتابة 🟢**.`;
+  }, [subCaps, firstName, isSupplierAccount, isCraftMode, getModeLabel]);
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'daily' | 'tasks_agenda' | 'results' | 'or360'>('chat');
@@ -994,61 +1030,85 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     } catch {}
   };
 
-  // Load real workshop data to generate smart daily tasks
+  // Load real workshop data to generate smart daily tasks (strictly scoped to user's active subscription)
   const loadDailyTasks = async () => {
     if (!workshopId) return;
     try {
       const tasks: ShamousaDailyTask[] = [];
 
-      // 1. Raw materials low stock
-      const rawMaterials = await tenantStorage.getRawMaterials(workshopId).catch(() => []);
-      const depleting = rawMaterials.filter(
-        (m: any) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
-      );
-      depleting.slice(0, 2).forEach((mat: any) => {
-        tasks.push({
-          id: `task_mat_${mat.id}`,
-          title: `الخامة "${mat.materialName}" قربت تخلص`,
-          detail: `المتبقي في المخزن ${mat.currentStock || 0} ${mat.unit || 'وحدة'} فقط (حد الأمان: ${mat.minAlertThreshold || 5}). محتاجين نطلب منها توريد.`,
-          urgency: 'high',
-          actionLabel: 'طلب توريد خامات 🚚',
-          view: 'suppliers',
+      // 1. Raw materials low stock (فقط لو باقة المخازن والخامات مفعّلة)
+      if (subCaps.canInventory) {
+        const rawMaterials = await tenantStorage.getRawMaterials(workshopId).catch(() => []);
+        const depleting = rawMaterials.filter(
+          (m: any) => (m.currentStock || 0) <= (m.minAlertThreshold || 5) && m.isActive !== false
+        );
+        depleting.slice(0, 2).forEach((mat: any) => {
+          tasks.push({
+            id: `task_mat_${mat.id}`,
+            title: `الخامة "${mat.materialName}" قربت تخلص`,
+            detail: `المتبقي في المخزن ${mat.currentStock || 0} ${mat.unit || 'وحدة'} فقط (حد الأمان: ${mat.minAlertThreshold || 5}). محتاجين نطلب منها توريد.`,
+            urgency: 'high',
+            actionLabel: 'فتح مخزن الخامات 🧶',
+            view: isSupplierAccount ? 'supplier_warehouse_erp' : 'materials',
+          });
         });
-      });
+      }
 
-      // 2. Open work orders
-      const [dexieWo, fsWo] = await Promise.all([
-        tenantStorage.getWorkOrders(workshopId).catch(() => []),
-        getWorkOrdersFromSupabase(workshopId).catch(() => []),
-      ]);
-      const woMap = new Map<string, any>();
-      for (const w of fsWo || []) woMap.set(w.id, w);
-      for (const w of dexieWo || []) woMap.set(w.id, w);
-      const workOrders = Array.from(woMap.values());
-      const openOrders = workOrders.filter(
-        (wo: any) => wo.status !== 'completed' && wo.status !== 'delivered' && wo.status !== 'cancelled'
-      );
-      openOrders.slice(0, 2).forEach((wo: any) => {
-        tasks.push({
-          id: `task_wo_${wo.id || wo.orderNumber}`,
-          title: `أمر تشغيل مفتوح: ${wo.productName || wo.orderNumber || 'مشغولة حرفية'}`,
-          detail: `الكمية: ${wo.quantity || 1} · الحرفي المسؤول: ${wo.assignedArtisanName || 'قيد التعيين'} · متابعة الإنجاز والتشطيب.`,
-          urgency: 'normal',
-          actionLabel: 'سجل أوامر التشغيل 🔨',
-          view: 'work_orders',
+      // 2. Open work orders (فقط لو باقة التصنيع وأوامر التشغيل مفعّلة)
+      if (subCaps.canProduction && !isSupplierAccount) {
+        const [dexieWo, fsWo] = await Promise.all([
+          tenantStorage.getWorkOrders(workshopId).catch(() => []),
+          getWorkOrdersFromSupabase(workshopId).catch(() => []),
+        ]);
+        const woMap = new Map<string, any>();
+        for (const w of fsWo || []) woMap.set(w.id, w);
+        for (const w of dexieWo || []) woMap.set(w.id, w);
+        const workOrders = Array.from(woMap.values());
+        const openOrders = workOrders.filter(
+          (wo: any) => wo.status !== 'completed' && wo.status !== 'delivered' && wo.status !== 'cancelled'
+        );
+        openOrders.slice(0, 2).forEach((wo: any) => {
+          tasks.push({
+            id: `task_wo_${wo.id || wo.orderNumber}`,
+            title: `أمر تشغيل مفتوح: ${wo.productName || wo.orderNumber || 'مشغولة حرفية'}`,
+            detail: `الكمية: ${wo.quantity || 1} · الحرفي المسؤول: ${wo.assignedArtisanName || 'قيد التعيين'} · متابعة الإنجاز والتشطيب.`,
+            urgency: 'normal',
+            actionLabel: 'سجل أوامر التشغيل 🔨',
+            view: 'work_orders',
+          });
         });
-      });
+      }
 
-      // Routine task
+      // Routine task tailored to active packages (بدون أي تسريب للخزائن لو مش مشترك فيها)
       if (tasks.length === 0) {
-        tasks.push({
-          id: 'task_routine_check',
-          title: 'مطابقة حركة الخزائن وجرد اليوم',
-          detail: 'تأكد من تسجيل فواتير اليوم ومطابقة رصيد النقدية في الخزينة الرئيسية لضمان دقة الأرباح.',
-          urgency: 'normal',
-          actionLabel: 'فتح الخزائن 💰',
-          view: 'treasuries',
-        });
+        if (subCaps.canFinance) {
+          tasks.push({
+            id: 'task_routine_check',
+            title: 'مطابقة حركة الخزائن وجرد اليوم',
+            detail: 'تأكد من تسجيل فواتير اليوم ومطابقة رصيد النقدية في الخزينة الرئيسية لضمان دقة الأرباح.',
+            urgency: 'normal',
+            actionLabel: 'فتح الخزائن 💰',
+            view: isSupplierAccount ? 'supplier_finance' : 'treasuries',
+          });
+        } else if (subCaps.canStorefront || subCaps.canCatalog) {
+          tasks.push({
+            id: 'task_routine_store',
+            title: 'متابعة منتجات المتجر وأوردرات اليوم',
+            detail: 'راجع صور وأسعار منتجاتك في المتجر والكتالوج وتابع أي أوردرات جديدة من عملائك.',
+            urgency: 'normal',
+            actionLabel: 'فتح متجري 🏪',
+            view: isSupplierAccount ? 'supplier_store' : 'store',
+          });
+        } else {
+          tasks.push({
+            id: 'task_routine_profile',
+            title: 'تحديث صفحتك الشخصية ومعرض أعمالك',
+            detail: 'أضف أحدث صور أعمالك أو مشاركاتك لتقوية حضورك أمام العملاء وعيلة الشمساوية.',
+            urgency: 'normal',
+            actionLabel: 'فتح صفحتي الشخصية 👤',
+            view: 'personal_profile',
+          });
+        }
       }
 
       setDailyTasks(tasks);
@@ -1067,7 +1127,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     };
     window.addEventListener('alshams_agenda_updated', handleAgendaSync);
     return () => window.removeEventListener('alshams_agenda_updated', handleAgendaSync);
-  }, [workshopId, agendaStorageKey]);
+  }, [workshopId, agendaStorageKey, subCaps.canInventory, subCaps.canProduction, subCaps.canFinance, subCaps.canStorefront]);
 
   // Count of pending tasks & upcoming appointments (excluding dismissed)
   const visibleDailyTasks = useMemo(
@@ -1277,9 +1337,13 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       }
     };
 
-    checkStoreOrdersDelivery();
-    checkLowMaterialsStock();
-  }, [profile.tenantId, profile.workshopId, profile.id]);
+    if (subCaps.canOrders || subCaps.canStorefront) {
+      checkStoreOrdersDelivery();
+    }
+    if (subCaps.canInventory) {
+      checkLowMaterialsStock();
+    }
+  }, [profile.tenantId, profile.workshopId, profile.id, subCaps.canOrders, subCaps.canStorefront, subCaps.canInventory]);
 
   useEffect(() => {
     if (isOpen) {
@@ -1323,61 +1387,125 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     const currency = profile.currencySymbol || 'ج.م';
     const fmt = (n: number) => Math.round(n || 0).toLocaleString('ar-EG');
 
-    // Level 1 & Level 2 Guided Menus (توضيح بدون إحراج + اختيارات بأزرار واضحة)
-    if (intentKey === 'root_ambiguous') {
+    const buildLockedIntentReply = (domainLabel: string, actionKeys: string[]): Omit<ShamousaMessage, 'id' | 'role'> => {
+      const pkgs = subCaps.findUnlockingPackagesForActions(actionKeys).map((p) => {
+        const title = isSupplierAccount && p.supplierTitleAr ? p.supplierTitleAr : p.titleAr;
+        return p.promoFreeLimitedTime ? `«${title}» (مجانية حالياً لفترة محدودة)` : `«${title}»`;
+      });
       return {
-        content: `حاضر يا **${firstName}** ☀️ تقصد إيه بالظبط من دول عشان أجيب لك الأرقام المظبوطة؟ اختار من الأزرار دي:`,
-        disambiguationChoices: [
-          { id: 'c_wh_menu', label: 'ملخص المخزن 📦', intentKey: 'wh_menu' },
-          { id: 'c_tr_menu', label: 'ملخص الخزنة والفلوس 💰', intentKey: 'tr_menu' },
-          { id: 'c_full', label: 'الخلاصة كلها في (هلخصهالك) 📋', intentKey: 'full_brief' },
-        ],
+        content:
+          `يا **${firstName}** ☀️ قسم **${domainLabel}** مش مفتوح حالياً في باقاتك المفعّلة (${subCaps.activePackageTitles.join(' + ')}).\n` +
+          (pkgs.length > 0
+            ? `تقدر تفعّل ${pkgs.join(' أو ')} من صفحة «اشتراكاتي» بضغطة واحدة عشان أجيبهولك فوراً!`
+            : `تقدر تفعّل الباقة المناسبة من صفحة «اشتراكاتي» عشان أفتح لك الملخص ده.`),
+        actionLink: { label: 'فتح صفحة اشتراكاتي 👑', view: 'my_subscriptions' },
+      };
+    };
+
+    // فحص الصلاحيات الصارم لكل نية قبل قراءة أي أرقام
+    if (
+      (intentKey === 'tr_menu' || intentKey === 'tr_cash' || intentKey === 'tr_receivables' || intentKey === 'tr_payables') &&
+      !subCaps.canFinance
+    ) {
+      return buildLockedIntentReply('الخزائن والسيولة والحسابات', ['nav_treasuries', 'nav_accounts']);
+    }
+    if ((intentKey === 'sup_tr_menu' || intentKey === 'sup_cash' || intentKey === 'sup_receivables' || intentKey === 'sup_payables') && !subCaps.canFinance) {
+      return buildLockedIntentReply('خزائن الفروع والحسابات المالية للمورد', ['sup_finance', 'sup_erp_hub']);
+    }
+    if ((intentKey === 'wh_menu' || intentKey === 'wh_materials') && !subCaps.canInventory) {
+      return buildLockedIntentReply('مخزن الخامات والجرد', ['nav_materials', 'modal_inv_materials']);
+    }
+    if (intentKey === 'sup_stock' && !subCaps.canInventory) {
+      return buildLockedIntentReply('مخزون الفروع وكارت الصنف', ['sup_warehouse_erp']);
+    }
+    if (intentKey === 'wh_products' && !subCaps.canCatalog && !subCaps.canInventory) {
+      return buildLockedIntentReply('مخزن المنتجات والكتالوج', ['nav_catalog', 'modal_inv_products']);
+    }
+    if ((intentKey === 'full_brief' || intentKey === 'sup_full_brief') && !subCaps.canExecutiveBrief) {
+      return buildLockedIntentReply(
+        'ملخص «هلخصهالك» الشامل',
+        isSupplierAccount ? ['sup_executive_brief'] : ['open_executive_brief']
+      );
+    }
+
+    // Level 1 & Level 2 Guided Menus — مفلترة على قد باقات المشترك فقط!
+    if (intentKey === 'root_ambiguous') {
+      const choices: DisambiguationChoice[] = [];
+      if (subCaps.canInventory) choices.push({ id: 'c_wh_menu', label: 'ملخص المخزن 📦', intentKey: 'wh_menu' });
+      if (subCaps.canFinance) choices.push({ id: 'c_tr_menu', label: 'ملخص الخزنة والفلوس 💰', intentKey: 'tr_menu' });
+      if (subCaps.canExecutiveBrief) choices.push({ id: 'c_full', label: 'الخلاصة كلها في (هلخصهالك) 📋', intentKey: 'full_brief' });
+      if (choices.length === 0) {
+        const chips: SmartActionChip[] = [];
+        if (subCaps.canStorefront) chips.push({ id: 'chip_st', label: 'فتح متجري 🏪', view: 'store' });
+        if (subCaps.canCatalog) chips.push({ id: 'chip_ct', label: 'فتح الكتالوج 📖', view: 'catalog' });
+        if (subCaps.canOrders) chips.push({ id: 'chip_od', label: 'فتح أوردراتي 🛍️', view: 'my_orders' });
+        chips.push({ id: 'chip_subs', label: 'إدارة اشتراكاتي 👑', view: 'my_subscriptions' });
+        return {
+          content: `يا **${firstName}** ☀️ باقاتك الحالية (${subCaps.activePackageTitles.join(' + ')}) مش شاملة تقارير الخزينة أو المخازن لسه. أقدر أساعدك في الأقسام المفتوحة عندك دلوقتي أو تقدر ترقّي باقتك من «اشتراكاتي» مجاناً لفترة محدودة:`,
+          actionChips: chips,
+        };
+      }
+      return {
+        content: `حاضر يا **${firstName}** ☀️ تقصد إيه بالظبط من الأقسام المفتوحة عندك عشان أجيب لك الأرقام المظبوطة؟ اختار من الأزرار دي:`,
+        disambiguationChoices: choices,
       };
     }
 
     if (intentKey === 'wh_menu') {
+      const choices: DisambiguationChoice[] = [];
+      if (subCaps.canInventory) choices.push({ id: 'c_wh_mat', label: 'مخزن الخامات 🧶', intentKey: 'wh_materials' });
+      if (subCaps.canCatalog || subCaps.canInventory) choices.push({ id: 'c_wh_prod', label: 'مخزن المنتجات النهائية 🛍️', intentKey: 'wh_products' });
+      if (subCaps.canExecutiveBrief) choices.push({ id: 'c_wh_full', label: 'الاثنين في هلخصهالك 📋', intentKey: 'full_brief' });
       return {
         content: `من عيوني يا **${firstName}** 📦 تحب أراجع لك أي مخزن فيهم؟`,
-        disambiguationChoices: [
-          { id: 'c_wh_mat', label: 'مخزن الخامات 🧶', intentKey: 'wh_materials' },
-          { id: 'c_wh_prod', label: 'مخزن المنتجات النهائية 🛍️', intentKey: 'wh_products' },
-          { id: 'c_wh_full', label: 'الاثنين في هلخصهالك 📋', intentKey: 'full_brief' },
-        ],
+        disambiguationChoices: choices,
       };
     }
 
     if (intentKey === 'tr_menu') {
+      const choices: DisambiguationChoice[] = [
+        { id: 'c_tr_cash', label: 'معانا كام وفين (السيولة) 💵', intentKey: 'tr_cash' },
+        { id: 'c_tr_rec', label: 'لينا كام بره وعند مين 📥', intentKey: 'tr_receivables' },
+        { id: 'c_tr_pay', label: 'علينا كام ولمين (للموردين) 📤', intentKey: 'tr_payables' },
+      ];
+      if (subCaps.canExecutiveBrief) {
+        choices.push({ id: 'c_tr_full', label: 'الموقف المالي كله 📋', intentKey: 'full_brief' });
+      }
       return {
         content: `أهلاً بيك يا **${firstName}** 💰 عاوز تعرف إيه بالظبط في الفلوس والحسابات؟`,
-        disambiguationChoices: [
-          { id: 'c_tr_cash', label: 'معانا كام وفين (السيولة) 💵', intentKey: 'tr_cash' },
-          { id: 'c_tr_rec', label: 'لينا كام بره وعند مين 📥', intentKey: 'tr_receivables' },
-          { id: 'c_tr_pay', label: 'علينا كام ولمين (للموردين) 📤', intentKey: 'tr_payables' },
-          { id: 'c_tr_full', label: 'الموقف المالي كله 📋', intentKey: 'full_brief' },
-        ],
+        disambiguationChoices: choices,
       };
     }
 
     if (intentKey === 'sup_root_ambiguous') {
+      const choices: DisambiguationChoice[] = [];
+      if (subCaps.canFinance) choices.push({ id: 'c_sup_tr', label: 'ملخص خزائن الفروع والكاشير 💰', intentKey: 'sup_tr_menu' });
+      if (subCaps.canInventory) choices.push({ id: 'c_sup_wh', label: 'ملخص مخزون الفروع وكارت الصنف 🏭', intentKey: 'sup_stock' });
+      if (subCaps.canExecutiveBrief) choices.push({ id: 'c_sup_full', label: 'الخلاصة كلها في (هلخصهالك للموردين) 📋', intentKey: 'sup_full_brief' });
+      if (choices.length === 0) {
+        return {
+          content: `يا **${firstName}** ☀️ باقاتك الحالية (${subCaps.activePackageTitles.join(' + ')}) مش شاملة تقارير خزائن الفروع أو المخازن لسه. أقدر أساعدك في الأقسام المفتوحة عندك أو تقدر تفعّل الباقة المناسبة من «اشتراكاتي»!`,
+          actionLink: { label: 'فتح صفحة اشتراكاتي 👑', view: 'my_subscriptions' },
+        };
+      }
       return {
         content: `تحت أمرك يا **${firstName}** ☀️ تقصد تراجع إيه في فروع المورد دلوقتي؟`,
-        disambiguationChoices: [
-          { id: 'c_sup_tr', label: 'ملخص خزائن الفروع والكاشير 💰', intentKey: 'sup_tr_menu' },
-          { id: 'c_sup_wh', label: 'ملخص مخزون الفروع وكارت الصنف 🏭', intentKey: 'sup_stock' },
-          { id: 'c_sup_full', label: 'الخلاصة كلها في (هلخصهالك للموردين) 📋', intentKey: 'sup_full_brief' },
-        ],
+        disambiguationChoices: choices,
       };
     }
 
     if (intentKey === 'sup_tr_menu') {
+      const choices: DisambiguationChoice[] = [
+        { id: 'c_sup_cash', label: 'معانا كام في الفروع والمالك 💵', intentKey: 'sup_cash' },
+        { id: 'c_sup_rec', label: 'لينا كام عند الورش والعملاء 📥', intentKey: 'sup_receivables' },
+        { id: 'c_sup_pay', label: 'علينا كام للمصانع 📤', intentKey: 'sup_payables' },
+      ];
+      if (subCaps.canExecutiveBrief) {
+        choices.push({ id: 'c_sup_tr_full', label: 'الخلاصة كلها في هلخصهالك 📋', intentKey: 'sup_full_brief' });
+      }
       return {
         content: `اختار التفاصيل المالية اللي تحب تراجعها يا **${firstName}** 💰:`,
-        disambiguationChoices: [
-          { id: 'c_sup_cash', label: 'معانا كام في الفروع والمالك 💵', intentKey: 'sup_cash' },
-          { id: 'c_sup_rec', label: 'لينا كام عند الورش والعملاء 📥', intentKey: 'sup_receivables' },
-          { id: 'c_sup_pay', label: 'علينا كام للمصانع 📤', intentKey: 'sup_payables' },
-          { id: 'c_sup_tr_full', label: 'الخلاصة كلها في هلخصهالك 📋', intentKey: 'sup_full_brief' },
-        ],
+        disambiguationChoices: choices,
       };
     }
 
@@ -1751,9 +1879,64 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
     setIsLoading(true);
 
+    // 0.25 فحص فوري لنطاق الباقات والاشتراكات (يعمل أوفلاين وأونلاين قبل أي ملخص أو شات بوت أو AI!)
+    if (message && !currentAttachment) {
+      const normSubAsk = message
+        .toLowerCase()
+        .replace(/[أإآٱ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/[ىي]/g, 'ي');
+      if (/(مشترك في ايه|باقاتي ايه|مفتوحلي ايه|ايه الباقات اللي عندي|اشتراكاتي ايه)/.test(normSubAsk)) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_sub_info_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content:
+              `يا **${firstName}** ☀️ باقاتك المفعّلة حالياً هي:\n` +
+              subCaps.activePackageTitles.map((t) => `• ✅ **${t}**`).join('\n') +
+              (subCaps.lockedPackages.length > 0
+                ? `\n\nوتقدر تضيف أي باقة تانية في أي وقت من صفحة «اشتراكاتي» (وباقات الإطلاق مجانية حالياً لفترة محدودة!).`
+                : `\n\nكل باقات المنظومة مفتوحة معاك بالكامل! 🎉`),
+            actionLink: { label: 'فتح صفحة اشتراكاتي 👑', view: 'my_subscriptions' },
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
+      const lockedHit = detectLockedSubscriptionQuery(
+        message,
+        userSub,
+        subRole,
+        isSuperAdminAccount,
+        firstName
+      );
+      if (lockedHit) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a_locked_${Date.now()}`,
+            role: 'assistant',
+            isLocalChatbot: true,
+            content: lockedHit.reply,
+            actionLink: lockedHit.actionLink,
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+    }
+
     if (preIntent) {
       try {
         const directReply = await resolveDisambiguationIntent(preIntent);
+        const safeChips = directReply.actionChips?.filter((c) => isViewUnlocked(c.view));
+        const safeLink =
+          directReply.actionLink && isViewUnlocked(directReply.actionLink.view)
+            ? directReply.actionLink
+            : undefined;
         setMessages((prev) => [
           ...prev,
           {
@@ -1761,6 +1944,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
             role: 'assistant',
             isLocalChatbot: true,
             ...directReply,
+            actionLink: safeLink,
+            actionChips: safeChips && safeChips.length > 0 ? safeChips : undefined,
           },
         ]);
         return;
@@ -1795,8 +1980,33 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           }).catch(() => {});
         }
         if (localRes.handled && localRes.reply) {
+          // لو الرد المحلي بيوجه لصفحة مقفولة في باقة المشترك، امنع التسريب وأرشده لباقتها!
+          if (localRes.actionLink?.view && !isViewUnlocked(localRes.actionLink.view)) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `a_sub_gate_${Date.now()}`,
+                role: 'assistant',
+                isLocalChatbot: true,
+                content:
+                  `يا **${firstName}** ☀️ الجزء ده مرتبط بقسم مش مفعّل حالياً في باقاتك (${subCaps.activePackageTitles.join(' + ')}).\n` +
+                  `تقدر تفتح «اشتراكاتي» وتفعّل الباقة المناسبة بضغطة واحدة (مجاناً لفترة محدودة)، وساعتها هتابع معاك كل تفاصيلها أول بأول!`,
+                actionLink: { label: 'فتح صفحة اشتراكاتي 👑', view: 'my_subscriptions' },
+              },
+            ]);
+            setIsLoading(false);
+            return;
+          }
+
+          const safeLocalOptions = localRes.options?.filter(
+            (opt) =>
+              (!opt.view || isViewUnlocked(opt.view)) &&
+              (!opt.triggerFalcon || subCaps.canSakr)
+          );
           const replyChips = detectKeywordActionChips(message, isSupplierAccount, experienceMode).filter(
-            (c) => !localRes.actionLink || c.view !== localRes.actionLink.view
+            (c) =>
+              isViewUnlocked(c.view) &&
+              (!localRes.actionLink || c.view !== localRes.actionLink.view)
           );
           setMessages((prev) => [
             ...prev,
@@ -1807,8 +2017,8 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               content: localRes.reply,
               actionLink: localRes.actionLink,
               actionChips: replyChips.length > 0 ? replyChips : undefined,
-              chatbotOptions: localRes.options,
-              handoffToFalcon: localRes.handoffToFalcon,
+              chatbotOptions: safeLocalOptions && safeLocalOptions.length > 0 ? safeLocalOptions : undefined,
+              handoffToFalcon: subCaps.canSakr ? localRes.handoffToFalcon : false,
             },
           ]);
           setIsLoading(false);
@@ -1822,25 +2032,27 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
     try {
       let currentTreasury = 0;
       let treasuriesList: any[] = [];
-      try {
-        const { data: supaTreasuries } = await getTreasuryBalancesFromSupabase(workshopId);
-        if (supaTreasuries && supaTreasuries.length > 0) {
-          treasuriesList = supaTreasuries;
-          currentTreasury = supaTreasuries.reduce((sum: number, t: any) => sum + (Number(t.balance) || 0), 0);
-        } else {
+      if (subCaps.canFinance) {
+        try {
+          const { data: supaTreasuries } = await getTreasuryBalancesFromSupabase(workshopId);
+          if (supaTreasuries && supaTreasuries.length > 0) {
+            treasuriesList = supaTreasuries;
+            currentTreasury = supaTreasuries.reduce((sum: number, t: any) => sum + (Number(t.balance) || 0), 0);
+          } else {
+            const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
+            currentTreasury = (safe.mainSafe || 0) + (safe.subSafe || 0);
+            treasuriesList = [
+              { name: 'الخزينة الرئيسية', balance: safe.mainSafe || 0, kind: 'خزينة' },
+              { name: 'الخزينة الفرعية/العهد', balance: safe.subSafe || 0, kind: 'عهدة' },
+            ];
+          }
+        } catch {
           const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
           currentTreasury = (safe.mainSafe || 0) + (safe.subSafe || 0);
-          treasuriesList = [
-            { name: 'الخزينة الرئيسية', balance: safe.mainSafe || 0, kind: 'خزينة' },
-            { name: 'الخزينة الفرعية/العهد', balance: safe.subSafe || 0, kind: 'عهدة' },
-          ];
         }
-      } catch {
-        const safe = await tenantStorage.getSafeBalances(workshopId).catch(() => ({ mainSafe: 0, subSafe: 0 }));
-        currentTreasury = (safe.mainSafe || 0) + (safe.subSafe || 0);
       }
 
-      // جمع سياق الورشة الفعلي المباشر: الخامات الناقصة، أوامر التشغيل، الطلبيات، وملخص هلخصهالك
+      // جمع سياق الورشة الفعلي المباشر حصرياً للأقسام المفتوحة في باقة المشترك فقط!
       let lowMaterialsList: string[] = [];
       let openWorkOrdersList: string[] = [];
       let pendingOrdersCount = 0;
@@ -1849,61 +2061,87 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
       try {
         if (isSupplierAccount) {
-          supplierErpOverviewData = await fetchSupplierErpOverview().catch(() => null);
-          if (supplierErpOverviewData?.kpis) {
-            currentTreasury = Number(supplierErpOverviewData.kpis.totalCashOnHand ?? currentTreasury);
+          if (subCaps.canFinance || subCaps.canInventory) {
+            supplierErpOverviewData = await fetchSupplierErpOverview().catch(() => null);
+            if (subCaps.canFinance && supplierErpOverviewData?.kpis) {
+              currentTreasury = Number(supplierErpOverviewData.kpis.totalCashOnHand ?? currentTreasury);
+            }
           }
         } else {
           const [mats, wOrders, ords, fullBrief] = await Promise.all([
-            tenantStorage.getRawMaterials(workshopId).catch(() => []),
-            tenantStorage.getWorkOrders(workshopId).catch(() => []),
-            tenantStorage.getOrders(workshopId).catch(() => []),
-            buildArtisanExecutiveBrief(workshopId, profile.currencySymbol || 'ج.م').catch(() => null),
+            subCaps.canInventory ? tenantStorage.getRawMaterials(workshopId).catch(() => []) : Promise.resolve([]),
+            subCaps.canProduction ? tenantStorage.getWorkOrders(workshopId).catch(() => []) : Promise.resolve([]),
+            subCaps.canOrders || subCaps.canStorefront || subCaps.canSalesCrm
+              ? tenantStorage.getOrders(workshopId).catch(() => [])
+              : Promise.resolve([]),
+            subCaps.canExecutiveBrief
+              ? buildArtisanExecutiveBrief(workshopId, profile.currencySymbol || 'ج.م').catch(() => null)
+              : Promise.resolve(null),
           ]);
 
-          if (fullBrief) {
+          if (fullBrief && subCaps.canExecutiveBrief) {
             executiveBriefPayload = {
-              cashTotal: fullBrief.financial.liquidity.cashTotal,
-              instapayBankTotal: fullBrief.financial.liquidity.instapayBankTotal,
-              walletsCustodyTotal: fullBrief.financial.liquidity.walletsCustodyTotal,
-              receivablesTotal: fullBrief.financial.receivablesTotal,
-              debtors: fullBrief.financial.debtors.slice(0, 8),
-              payablesTotal: fullBrief.financial.payablesTotal,
-              creditors: fullBrief.financial.creditors.slice(0, 8),
-              netWorkingPosition: fullBrief.financial.netWorkingPosition,
-              materialsTotalValue: fullBrief.warehouse.materialsTotalValue,
-              materialsCount: fullBrief.warehouse.materialsCount,
-              fastMovingMaterials: fullBrief.warehouse.fastMovingMaterials,
-              slowMovingMaterials: fullBrief.warehouse.slowMovingMaterials,
-              productsCount: fullBrief.warehouse.productsCount,
-              productsCostValue: fullBrief.warehouse.productsCostValue,
-              productsRetailValue: fullBrief.warehouse.productsRetailValue,
-              bestSellingProducts: fullBrief.warehouse.bestSellingProducts,
-              slowestProducts: fullBrief.warehouse.slowestProducts,
+              ...(subCaps.canFinance
+                ? {
+                    cashTotal: fullBrief.financial.liquidity.cashTotal,
+                    instapayBankTotal: fullBrief.financial.liquidity.instapayBankTotal,
+                    walletsCustodyTotal: fullBrief.financial.liquidity.walletsCustodyTotal,
+                    receivablesTotal: fullBrief.financial.receivablesTotal,
+                    debtors: fullBrief.financial.debtors.slice(0, 8),
+                    payablesTotal: fullBrief.financial.payablesTotal,
+                    creditors: fullBrief.financial.creditors.slice(0, 8),
+                    netWorkingPosition: fullBrief.financial.netWorkingPosition,
+                  }
+                : {}),
+              ...(subCaps.canInventory
+                ? {
+                    materialsTotalValue: fullBrief.warehouse.materialsTotalValue,
+                    materialsCount: fullBrief.warehouse.materialsCount,
+                    fastMovingMaterials: fullBrief.warehouse.fastMovingMaterials,
+                    slowMovingMaterials: fullBrief.warehouse.slowMovingMaterials,
+                  }
+                : {}),
+              ...(subCaps.canCatalog || subCaps.canInventory
+                ? {
+                    productsCount: fullBrief.warehouse.productsCount,
+                    productsCostValue: fullBrief.warehouse.productsCostValue,
+                    productsRetailValue: fullBrief.warehouse.productsRetailValue,
+                    bestSellingProducts: fullBrief.warehouse.bestSellingProducts,
+                    slowestProducts: fullBrief.warehouse.slowestProducts,
+                  }
+                : {}),
             };
           }
 
-          const lowMats = (mats || []).filter(
-            (m) => (Number(m.currentStock) || 0) <= (Number(m.minAlertThreshold) || 5)
-          );
-          lowMaterialsList = lowMats.map(
-            (m) => `${m.materialName} (الرصيد: ${m.currentStock} ${m.unit || 'وحدة'} - حد الأمان: ${m.minAlertThreshold || 5})`
-          );
+          if (subCaps.canInventory) {
+            const lowMats = (mats || []).filter(
+              (m) => (Number(m.currentStock) || 0) <= (Number(m.minAlertThreshold) || 5)
+            );
+            lowMaterialsList = lowMats.map(
+              (m) => `${m.materialName} (الرصيد: ${m.currentStock} ${m.unit || 'وحدة'} - حد الأمان: ${m.minAlertThreshold || 5})`
+            );
+          }
 
-          const openOrders = (wOrders || []).filter(
-            (w) => w.status === 'open' || w.status === 'in_progress'
-          );
-          openWorkOrdersList = openOrders.map(
-            (w) => `#${w.orderNumber}: "${w.productName}" (${w.status === 'in_progress' ? 'قيد التصنيع' : 'بانتظار الصرف'} - الصانع: ${w.assignedEmployeeName || 'حرفي'})`
-          );
+          if (subCaps.canProduction) {
+            const openOrders = (wOrders || []).filter(
+              (w) => w.status === 'open' || w.status === 'in_progress'
+            );
+            openWorkOrdersList = openOrders.map(
+              (w) => `#${w.orderNumber}: "${w.productName}" (${w.status === 'in_progress' ? 'قيد التصنيع' : 'بانتظار الصرف'} - الصانع: ${w.assignedEmployeeName || 'حرفي'})`
+            );
+          }
 
-          pendingOrdersCount = (ords || []).filter(
-            (o) => o.status !== 'delivered' && o.status !== 'completed' && o.status !== 'cancelled'
-          ).length;
+          if (subCaps.canOrders || subCaps.canStorefront || subCaps.canSalesCrm) {
+            pendingOrdersCount = (ords || []).filter(
+              (o) => o.status !== 'delivered' && o.status !== 'completed' && o.status !== 'cancelled'
+            ).length;
+          }
         }
       } catch (ctxErr) {
         console.warn('Live context fetch warning:', ctxErr);
       }
+
+      const subPromptInfo = buildAiSubscriptionPromptContext(userSub, subRole, isSuperAdminAccount);
 
       const res = await authedFetch('/api/shamousa/chat', {
         method: 'POST',
@@ -1929,7 +2167,11 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               isSupplierAccount ? 'supplier' : 'artisan',
               experienceModeConfig
             ),
-            shamousaOrLearningContext: buildShamousaMemoryPromptContext(workshopId),
+            subscriptionPromptContext: subPromptInfo.promptText,
+            subscriptionScope: subPromptInfo.scopeFlags,
+            shamousaOrLearningContext: subCaps.isFullAccess || subCaps.canInventory || subCaps.canFinance
+              ? buildShamousaMemoryPromptContext(workshopId)
+              : '',
             ...(sendOptions?.explainPayload
               ? {
                   explainItemContext: {
@@ -1942,13 +2184,10 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   },
                 }
               : {}),
-            treasuryBalance: currentTreasury,
-            treasuriesDetail: treasuriesList,
-            lowMaterialsCount: lowMaterialsList.length,
-            lowMaterialsList,
-            openWorkOrdersCount: openWorkOrdersList.length,
-            openWorkOrdersList,
-            pendingOrdersCount,
+            ...(subCaps.canFinance ? { treasuryBalance: currentTreasury, treasuriesDetail: treasuriesList } : {}),
+            ...(subCaps.canInventory ? { lowMaterialsCount: lowMaterialsList.length, lowMaterialsList } : {}),
+            ...(subCaps.canProduction ? { openWorkOrdersCount: openWorkOrdersList.length, openWorkOrdersList } : {}),
+            ...(subCaps.canOrders || subCaps.canStorefront || subCaps.canSalesCrm ? { pendingOrdersCount } : {}),
             ...(executiveBriefPayload ? { executiveBrief: executiveBriefPayload } : {}),
             ...(supplierErpOverviewData ? { supplierErpOverview: supplierErpOverviewData } : {}),
           },
@@ -1965,11 +2204,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
       const isInternalData = /هلخصهالك|خزن|خزينة|خزينه|سيول|سيولة|رصيد|عهدة|عهده|فلوس|خامات|مخزن|أوردر|اوردر|طلب|مبيعات|عميل|عملاء|مورد|موردين|موظف|عمال|دفاتر|حسابات|صفحتي|عيلة|شرائح/i.test(message + ' ' + (data.reply || ''));
       const isFalconExplicitlyRequested = /صقر|تحليل صوره|تحليل صورة|حلل الصورة|دراسة سوق|دراسة السوق|المنافسين/i.test(message);
-      const shouldHandoff = !isInternalData && (Boolean(data.handoffToFalcon) || isFalconExplicitlyRequested);
+      const shouldHandoff = subCaps.canSakr && !isInternalData && (Boolean(data.handoffToFalcon) || isFalconExplicitlyRequested);
 
-      const dynamicLink = data.actionLink || detectNavigationIntent(message, isSupplierAccount);
+      const rawLink = data.actionLink || detectNavigationIntent(message, isSupplierAccount);
+      const dynamicLink = rawLink && isViewUnlocked(rawLink.view) ? rawLink : undefined;
       const replyChips = detectKeywordActionChips(message, isSupplierAccount, experienceMode).filter(
-        (c) => !dynamicLink || c.view !== dynamicLink.view
+        (c) => isViewUnlocked(c.view) && (!dynamicLink || c.view !== dynamicLink.view)
       );
 
       setMessages((prev) => [
@@ -2205,11 +2445,13 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               />
             </button>
 
-            {/* 3 Raised 3D Buttons: مهام / نتائج / بحوث */}
+            {/* Raised 3D Buttons: مهام / نتائج / بحوث — تظهر فقط على قد باقات المشترك */}
             <div className="flex items-center justify-center gap-1.5 sm:gap-3 flex-1 min-w-0">
               {renderRaisedSilverBtn('tasks_agenda', aiCfg.shamousaBtnTasks, totalPendingBadge)}
-              {renderRaisedSilverBtn('results', aiCfg.shamousaBtnResults)}
-              {renderRaisedSilverBtn('or360', aiCfg.shamousaBtnOR)}
+              {(subCaps.isFullAccess || subCaps.canFinance || subCaps.canSalesCrm || subCaps.canExecutiveBrief) &&
+                renderRaisedSilverBtn('results', aiCfg.shamousaBtnResults)}
+              {(subCaps.isFullAccess || subCaps.canInventory || subCaps.canProduction || subCaps.canFinance) &&
+                renderRaisedSilverBtn('or360', aiCfg.shamousaBtnOR)}
             </div>
 
             {/* Free Speaker Toggle (Always Visible, Default ON) + Clean Close Button */}

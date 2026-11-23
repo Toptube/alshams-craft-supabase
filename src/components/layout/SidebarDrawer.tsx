@@ -21,7 +21,11 @@ import {
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { useFeatureFlags } from '../../types/featureFlags';
 import { getUiIcon, useUiLayoutConfig } from '../../types/uiLayoutConfig';
-import { useUserSubscription, isModuleUnlockedBySubscription } from '../../types/subscriptions';
+import {
+  useUserSubscription,
+  isModuleUnlockedBySubscription,
+  isSakrUnlockedBySubscription,
+} from '../../types/subscriptions';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -480,11 +484,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
           <div className="h-px bg-[#D4CCBC] dark:bg-[#22355E] my-1" />
 
-          {/* المساعد الذكي */}
+          {/* المستشار الذكي (صقر) — مستقل عن شموسة */}
           {(isAdmin ||
             (flags.aiAssistantsEnabled &&
-              isModuleUnlockedBySubscription(
-                'ai_agent',
+              isSakrUnlockedBySubscription(
                 userSub,
                 isSupplier ? 'supplier' : 'artisan',
                 isAdmin

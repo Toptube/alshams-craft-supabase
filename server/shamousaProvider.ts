@@ -41,6 +41,22 @@ export interface ShamousaContext {
   clientContext?: {
     experienceMode?: 'craft' | 'accounting';
     experienceModePromptContext?: string;
+    subscriptionPromptContext?: string;
+    subscriptionScope?: {
+      isFullAccess?: boolean;
+      canStorefront?: boolean;
+      canCatalog?: boolean;
+      canOrders?: boolean;
+      canFinance?: boolean;
+      canInventory?: boolean;
+      canProduction?: boolean;
+      canSalesCrm?: boolean;
+      canHr?: boolean;
+      canExecutiveBrief?: boolean;
+      canGuides?: boolean;
+      canSakr?: boolean;
+      activePackageTitles?: string[];
+    };
     shamousaOrLearningContext?: string;
     explainItemContext?: {
       id?: string;
@@ -600,8 +616,20 @@ function buildShamousaSystemPrompt(ctx: ShamousaContext, metrics: ShamousaLiveMe
     ? `\n\n${ctx.clientContext.experienceModePromptContext}\n`
     : `\n\n[وضع التشغيل النشط الآن]: ${activeMode === 'accounting' ? 'الوضع المحاسبي المتقدم (استخدمي المصطلحات المحاسبية الرسمية مثل إذن الصرف، إذن التوريد، مدين ودائن، وميزان المراجعة)' : 'الوضع الحرفي البسيط (استخدمي لغة الورشة والتجارة البسيطة بدون تعقيد دائن ومدين)'}.\n`;
 
+  const subScope = ctx.clientContext?.subscriptionScope;
+  const isFullSub = !subScope || subScope.isFullAccess !== false || Boolean(ctx.isSuperAdmin);
+  const canFin = isFullSub || Boolean(subScope?.canFinance);
+  const canInv = isFullSub || Boolean(subScope?.canInventory);
+  const canProd = isFullSub || Boolean(subScope?.canProduction);
+  const canOrd = isFullSub || Boolean(subScope?.canOrders || subScope?.canStorefront || subScope?.canSalesCrm);
+  const canBrief = isFullSub || Boolean(subScope?.canExecutiveBrief);
+
+  const subPromptBlock = ctx.clientContext?.subscriptionPromptContext
+    ? `\n\n${ctx.clientContext.subscriptionPromptContext}\n`
+    : '';
+
   return `أنتِ "شموسة" ☀️ — مديرة الأعمال والعمليات وحسابات الخزائن والمهام اليومية في منظومة الشمساوية (${workshopName})، وتخدمين الآن حساباً مستقلاً من نوع (${isSupplierRole ? 'مورد وتاجر خامات متعدد الفروع B2B/B2C' : 'ورشة وفنان حرفي'}).
-المستخدم الذي يتحدث معك الآن اسمه: "${firstName}" (نادي المستخدم باسمه "${firstName}" بلطف واحترام في الردود؛ ولو غير معروف: "يا فنان" للورش، "يا أستاذ" للموردين).${modePromptBlock}
+المستخدم الذي يتحدث معك الآن اسمه: "${firstName}" (نادي المستخدم باسمه "${firstName}" بلطف واحترام في الردود؛ ولو غير معروف: "يا فنان" للورش، "يا أستاذ" للموردين).${subPromptBlock}${modePromptBlock}
 
 شخصيتك وأسلوب كلامك المعتمد (تحديث دليل شموسة الإصدار 1):
 - بنت بلد ذكية، خفيفة الدم من غير سخافة، راقية وبتحترم الناس. بتتكلمي عامية مصرية سليمة وسهلة ومحببة. ما بتتريقيش على حد ولا بتستخدمي ألفاظ جارحة.
@@ -679,8 +707,8 @@ function buildShamousaSystemPrompt(ctx: ShamousaContext, metrics: ShamousaLiveMe
      • كل ورشة تملك ثوابت معايرة محلية (كثافة، انكماش، تغطية، أرقام تصبن) قابلة للتعديل والحفظ محلياً في المتصفح.
      • استخدمي أدوات [list_craft_equations] و [calculate_craft_estimate] دائماً عند سؤال العضو عن معادلة ورشة محددة أو تكلفة وتسعير عينة جديدة!
 
-بيانات الحساب الحية والفعلية لحظة بلحظة (Live Ground Truth):
-${isSupplierRole && supErp ? `1. ملخص فروع وخزائن المورد الحي (${workshopName}):
+بيانات الحساب الحية والفعلية المتاحة ضمن باقات المشترك الآن (Live Ground Truth):
+${canFin ? (isSupplierRole && supErp ? `1. ملخص فروع وخزائن المورد الحي (${workshopName}):
    - عدد الفروع النشطة: ${supErp.branchesCount} فرع.
    - معانا كام (الخزائن الكلية): ${metrics.liquidity.toLocaleString('ar-EG')} ج.م (خزينة المالك المعتمدة: ${supErp.ownerMainTreasury.toLocaleString('ar-EG')} ج.م | خزائن الفروع قبل التوريد: ${supErp.branchesTreasury.toLocaleString('ar-EG')} ج.م).
    - توريدات الفروع المعلقة بانتظار تأكيد الاستلام: ${supErp.pendingTransfersCount} توريد.
@@ -692,22 +720,22 @@ ${isSupplierRole && supErp ? `1. ملخص فروع وخزائن المورد ا�
 ${metrics.treasuriesDesc || 'لا توجد تفاصيل إضافية مسجلة.'}` : `1. السيولة النقدية والخزائن:
    - إجمالي السيولة الفعلية المتوفرة حالياً: ${metrics.liquidity.toLocaleString('ar-EG')} ج.م.
    - تفاصيل الخزن والعهد المسجلة:
-${metrics.treasuriesDesc || 'الخزينة النقدية الرئيسية متوفرة ومسجلة في دفاتر الورشة.'}`}
+${metrics.treasuriesDesc || 'الخزينة النقدية الرئيسية متوفرة ومسجلة في دفاتر الورشة.'}`) : `1. الخزائن والمالية: 🔒 غير مفعّلة في باقات المستخدم الحالية (ممنوع كشف أو تخمين أي أرصدة مالية).`}
 
-2. المخزون والنواقص:
+${canInv ? `2. المخزون والنواقص:
    - الخامات / الأصناف الناقصة (تحت حد الأمان): ${metrics.lowMaterialsCount}.
-${metrics.lowMaterialsDesc ? `   - تفاصيل النواقص:\n${metrics.lowMaterialsDesc}` : '   - كافة الأصناف حالياً فوق حد الأمان.'}
+${metrics.lowMaterialsDesc ? `   - تفاصيل النواقص:\n${metrics.lowMaterialsDesc}` : '   - كافة الأصناف حالياً فوق حد الأمان.'}` : `2. المخزون والخامات: 🔒 غير مفعّلة في باقات المستخدم الحالية.`}
 
-${!isSupplierRole ? `3. أوامر التشغيل وخط الإنتاج:
+${!isSupplierRole ? `${canProd ? `3. أوامر التشغيل وخط الإنتاج:
    - أوامر التشغيل المفتوحة وقيد التصنيع: ${metrics.openWorkOrdersCount} أمر تشغيل.
-${metrics.openWorkOrdersDesc ? `   - تفاصيل أوامر التشغيل النشطة:\n${metrics.openWorkOrdersDesc}` : '   - لا توجد أوامر تشغيل مفتوحة حالياً.'}
+${metrics.openWorkOrdersDesc ? `   - تفاصيل أوامر التشغيل النشطة:\n${metrics.openWorkOrdersDesc}` : '   - لا توجد أوامر تشغيل مفتوحة حالياً.'}` : `3. أوامر التشغيل والتصنيع: 🔒 غير مفعّلة في باقات المستخدم الحالية.`}
 
-4. المبيعات والطلبيات:
-   - عدد الطلبيات المعلقة قيد التنفيذ: ${metrics.pendingOrdersCount} طلبية.` : ''}
+${canOrd ? `4. الطلبيات والأوردرات:
+   - عدد الطلبيات المعلقة قيد التنفيذ: ${metrics.pendingOrdersCount} طلبية.` : `4. الطلبيات والمبيعات: 🔒 غير مفعّلة في باقات المستخدم الحالية.`}` : ''}
 
 ${(() => {
   const eb = ctx.clientContext?.executiveBrief;
-  if (!eb || isSupplierRole) return '';
+  if (!eb || isSupplierRole || !canBrief) return '';
   const debtorsLines = Array.isArray(eb.debtors) && eb.debtors.length > 0
     ? eb.debtors.slice(0, 6).map((d) =>
         `  • ليك عند ${d.name}: ${Number(d.totalOwed).toLocaleString('ar-EG')} ج.م${d.isOverdue ? ` (⚠️ متأخر بـ ${d.daysOverdue} يوم — انصحه بالمطالبة أو إرسال تذكير لطيف بالواتساب من هلخصهالك وعدم التعامل آجل معه مجدداً حتى يصفي القديم)` : ''}`
