@@ -25,7 +25,7 @@ import {
 } from '../../types/uiLayoutConfig';
 import {
   useUserSubscription,
-  isModuleUnlockedBySubscription,
+  isActionUnlockedBySubscription,
 } from '../../types/subscriptions';
 import { useExperienceMode } from '../../types/experienceMode';
 import {
@@ -312,29 +312,25 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
     sup_finance: 'sup_finance_title',
   };
 
-  const SUPPLIER_CARD_SUB_MODULE_MAP: Record<string, string[]> = {
-    catalog: ['supplier_catalog'],
-    store: ['supplier_store'],
-    orders: ['supplier_orders'],
-    customers: ['supplier_customers'],
-    finance: ['supplier_finance'],
-    erp_hub: ['supplier_erp_hub'],
-    pos_cashier: ['supplier_pos'],
-    warehouse_erp: ['supplier_warehouse_erp'],
-    hr_terminal: ['supplier_hr_terminal'],
-    suppliers_market: ['suppliers_market'],
-  };
+  const canAccessSupplierStoreTools =
+    isAdminUser || isActionUnlockedBySubscription('top_nav_store', userSub, 'supplier', isAdminUser);
+  const showSupplierSummaryWidgets =
+    isAdminUser || isActionUnlockedBySubscription('widget_home_summary', userSub, 'supplier', isAdminUser);
 
   const visibleCards = useMemo(() => {
     return homeCfg.cards.filter((card) => {
       if (!card.visible) return false;
       if (!isAdminUser) {
-        const mappedMods = SUPPLIER_CARD_SUB_MODULE_MAP[card.id];
-        if (
-          mappedMods &&
-          !mappedMods.some((m) => isModuleUnlockedBySubscription(m, userSub, 'supplier', isAdminUser))
-        ) {
-          return false;
+        const hasItems = Array.isArray(card.items) && card.items.length > 0;
+        if (hasItems) {
+          const unlocked = card.items.filter(
+            (b) => b.visible !== false && isActionUnlockedBySubscription(b.actionKey, userSub, 'supplier', isAdminUser)
+          );
+          if (unlocked.length === 0) return false;
+        } else if (card.directActionKey) {
+          if (!isActionUnlockedBySubscription(card.directActionKey, userSub, 'supplier', isAdminUser)) {
+            return false;
+          }
         }
       }
       if (!showErpModules && ['erp_hub', 'pos_cashier', 'warehouse_erp', 'hr_terminal'].includes(card.id)) {
@@ -401,36 +397,38 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {onPreviewPublicStore && (
+        {canAccessSupplierStoreTools && (
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {onPreviewPublicStore && (
+              <button
+                type="button"
+                onClick={() => onPreviewPublicStore(slug)}
+                className="px-3.5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition shadow-sm"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>معاينة متجري للجمهور</span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => onPreviewPublicStore(slug)}
-              className="px-3.5 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black flex items-center gap-1.5 cursor-pointer transition shadow-sm"
+              onClick={handleCopyStoreUrl}
+              className="px-3.5 py-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-1.5 cursor-pointer transition"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>معاينة متجري للجمهور</span>
+              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-[#EA580C]" />}
+              <span>{copiedLink ? 'تم نسخ رابط المتجر' : 'نسخ رابط متجرك'}</span>
             </button>
-          )}
 
-          <button
-            type="button"
-            onClick={handleCopyStoreUrl}
-            className="px-3.5 py-2 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-bold text-[#0C1427] dark:text-[#F7F3EA] flex items-center gap-1.5 cursor-pointer transition"
-          >
-            {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-[#EA580C]" />}
-            <span>{copiedLink ? 'تم نسخ رابط المتجر' : 'نسخ رابط متجرك'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onOpenStorefrontModal}
-            className="px-3.5 py-2 rounded-xl bg-[#0C1427] dark:bg-[#1A2B54] hover:opacity-95 text-white border border-[#22355E] text-xs font-black flex items-center gap-1.5 cursor-pointer transition shadow-sm"
-          >
-            <QrCode className="w-3.5 h-3.5 text-[#FBBF24]" />
-            <span>إعدادات المتجر و QR</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={onOpenStorefrontModal}
+              className="px-3.5 py-2 rounded-xl bg-[#0C1427] dark:bg-[#1A2B54] hover:opacity-95 text-white border border-[#22355E] text-xs font-black flex items-center gap-1.5 cursor-pointer transition shadow-sm"
+            >
+              <QrCode className="w-3.5 h-3.5 text-[#FBBF24]" />
+              <span>إعدادات المتجر و QR</span>
+            </button>
+          </div>
+        )}
       </section>
 
       {/* Sub-Card View (when a supplier card contains moved/custom internal buttons) */}
@@ -462,7 +460,11 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {activeSubCard.items
-              .filter((b) => b.visible)
+              .filter(
+                (b) =>
+                  b.visible &&
+                  isActionUnlockedBySubscription(b.actionKey, userSub, 'supplier', isAdminUser)
+              )
               .map((btn) => {
                 const BtnIcon = getUiIcon(btn.iconKey);
                 return (
@@ -605,7 +607,7 @@ export const SupplierHomeScreen: React.FC<SupplierHomeScreenProps> = ({
       )}
 
       {/* Financial & Operational Summaries BELOW Cards (No charts on Home) */}
-      {showErpModules && erpOverview && (
+      {showSupplierSummaryWidgets && showErpModules && erpOverview && (
         <section className="rounded-2xl bg-[#0C1427] text-[#F7F3EA] border border-[#22355E] p-4 flex flex-wrap items-center justify-between gap-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 flex-1 text-xs">
             <div>

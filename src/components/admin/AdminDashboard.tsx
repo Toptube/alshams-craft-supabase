@@ -93,6 +93,9 @@ const AdminFeatureVisibilityPage = lazy(() =>
 const AdminUiLayoutStudioPage = lazy(() =>
   import('./AdminUiLayoutStudioPage').then((m) => ({ default: m.AdminUiLayoutStudioPage }))
 );
+const AdminPackagesManagerPage = lazy(() =>
+  import('./AdminPackagesManagerPage').then((m) => ({ default: m.AdminPackagesManagerPage }))
+);
 const AdminSuppliersPage = lazy(() =>
   import('./AdminSuppliersPage').then((m) => ({ default: m.AdminSuppliersPage }))
 );
@@ -129,6 +132,11 @@ import {
   getStoredUiLayoutConfig,
   saveStoredUiLayoutConfig,
 } from '../../types/uiLayoutConfig';
+import {
+  PlatformPackagesAdminConfig,
+  getStoredSubscriptionPackagesConfig,
+  saveStoredSubscriptionPackagesConfig,
+} from '../../types/subscriptions';
 import {
   SuppliersMarketBuilderConfig,
   getStoredSuppliersMarketBuilderConfig,
@@ -1354,6 +1362,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         landingCms: getStoredLandingCmsConfig(),
         featureFlags: getStoredFeatureFlags(),
         uiLayoutConfig: getStoredUiLayoutConfig(),
+        subscriptionPackagesConfig: getStoredSubscriptionPackagesConfig(),
       };
       const res = await savePlatformSettingsCloud(payload, profile.email);
       if (!res.success) {
@@ -1382,6 +1391,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
         landingCms: getStoredLandingCmsConfig(),
         featureFlags: getStoredFeatureFlags(),
         uiLayoutConfig: getStoredUiLayoutConfig(),
+        subscriptionPackagesConfig: getStoredSubscriptionPackagesConfig(),
       };
       const res = await savePlatformSettingsCloud(payload, profile.email);
       if (!res.success) {
@@ -2548,6 +2558,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                 landingCms: getStoredLandingCmsConfig(),
                 featureFlags: getStoredFeatureFlags(),
                 uiLayoutConfig: getStoredUiLayoutConfig(),
+                subscriptionPackagesConfig: getStoredSubscriptionPackagesConfig(),
               },
               profile.email
             ).catch(() => {});
@@ -2706,6 +2717,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   landingCms: nextCms,
                   featureFlags: getStoredFeatureFlags(),
                   uiLayoutConfig: getStoredUiLayoutConfig(),
+                  subscriptionPackagesConfig: getStoredSubscriptionPackagesConfig(),
                 },
                 profile.email
               );
@@ -2745,6 +2757,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   landingCms: nextCms,
                   featureFlags: nextFlags,
                   uiLayoutConfig: getStoredUiLayoutConfig(),
+                  subscriptionPackagesConfig: getStoredSubscriptionPackagesConfig(),
                 },
                 profile.email
               );
@@ -2785,6 +2798,7 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
                   landingCms: getStoredLandingCmsConfig(),
                   featureFlags: getStoredFeatureFlags(),
                   uiLayoutConfig: nextLayout,
+                  subscriptionPackagesConfig: getStoredSubscriptionPackagesConfig(),
                 },
                 profile.email
               );
@@ -2801,6 +2815,49 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
               );
             } catch (err: any) {
               showError(err?.message || 'حدث خطأ أثناء نشر هندسة الواجهات.');
+              throw err;
+            } finally {
+              setSavingMarketSettings(false);
+            }
+          }}
+        />
+      )}
+
+      {currentPage === 'packages_manager' && (
+        <AdminPackagesManagerPage
+          onBack={() => handleNavigatePage('home')}
+          onOpenUiLayoutStudio={() => handleNavigatePage('ui_layout_studio')}
+          saving={savingMarketSettings}
+          onSaveToCloud={async (nextPkgCfg: PlatformPackagesAdminConfig) => {
+            setSavingMarketSettings(true);
+            try {
+              saveStoredSubscriptionPackagesConfig(nextPkgCfg);
+              const res = await savePlatformSettingsCloud(
+                {
+                  ...shippingConfig,
+                  centralShippingPrivacy,
+                  marketBuilder: getStoredMarketBuilderConfig(),
+                  suppliersMarketBuilder: getStoredSuppliersMarketBuilderConfig(),
+                  landingCms: getStoredLandingCmsConfig(),
+                  featureFlags: getStoredFeatureFlags(),
+                  uiLayoutConfig: getStoredUiLayoutConfig(),
+                  subscriptionPackagesConfig: nextPkgCfg,
+                },
+                profile.email
+              );
+              if (!res.success) {
+                const msg = res.error || 'تعذر نشر إعدادات الباقات والصلاحيات على السيرفر.';
+                showError(msg);
+                throw new Error(msg);
+              }
+              playSuccessSound();
+              showSuccess(
+                res.cloudSynced
+                  ? 'تم حفظ ونشر الباقات والصلاحيات فوراً لجميع الفنانين والموردين ✅'
+                  : 'تم حفظ الباقات محلياً وعلى السيرفر.'
+              );
+            } catch (err: any) {
+              showError(err?.message || 'حدث خطأ أثناء حفظ الباقات.');
               throw err;
             } finally {
               setSavingMarketSettings(false);

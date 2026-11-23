@@ -32,6 +32,7 @@ import {
   Rocket,
   CloudUpload,
   Radar,
+  Crown,
 } from 'lucide-react';
 import {
   AdminPageId,
@@ -230,6 +231,13 @@ export const AdminHomeView: React.FC<AdminHomeViewProps> = ({
       icon: <Eye className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-700 dark:text-emerald-300" />,
       circleClass: 'bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300/60 dark:border-emerald-700/60',
       onClick: () => onNavigatePage('feature_visibility'),
+    },
+    {
+      id: 'packages_manager',
+      label: 'إدارة الباقات والصلاحيات 👑',
+      icon: <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-[#C2410C] dark:text-[#FBBF24]" />,
+      circleClass: 'bg-amber-100 dark:bg-amber-950/60 border-amber-300/60 dark:border-amber-700/60',
+      onClick: () => onNavigatePage('packages_manager'),
     },
     {
       id: 'ui_layout_studio',

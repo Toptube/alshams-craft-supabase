@@ -20,6 +20,7 @@ export type AdminPageId =
   | 'landing_cms'
   | 'feature_visibility'
   | 'ui_layout_studio'
+  | 'packages_manager'
   | 'unified_materials'
   | 'experts_trainers'
   | 'growth_hub'
@@ -70,6 +71,7 @@ export function mapExecutiveTabToPage(tab?: ExecutiveTab): { page: AdminPageId; 
     case 'landing_cms':
     case 'feature_visibility':
     case 'ui_layout_studio':
+    case 'packages_manager':
     case 'unified_materials':
     case 'experts_trainers':
     case 'growth_hub':

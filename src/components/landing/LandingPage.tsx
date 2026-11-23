@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
+  AlShamsBrandIcon,
   AlShamsBrandLogo,
   AlShamsFalconEmblem,
 } from '../brand/BrandAssets';
@@ -20,7 +21,7 @@ import { LanguageSwitcher } from '../layout/LanguageSwitcher';
 import { useTranslation } from '../../lib/i18n';
 import { resolveWorldLandingTheme } from '../../lib/landingThemes';
 import { WORLD_STOREFRONT_THEMES_LIST } from '../../lib/storefrontThemes';
-import { getSubscriptionPackages } from '../../types/subscriptions';
+import { useSubscriptionPackagesConfig } from '../../types/subscriptions';
 import {
   ArrowLeft,
   ArrowRight,
@@ -124,7 +125,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
 
   const storefrontThemesCount = WORLD_STOREFRONT_THEMES_LIST.length;
-  const subscriptionPackages = getSubscriptionPackages();
+  const subscriptionPackages = useSubscriptionPackagesConfig();
 
   useEffect(() => {
     if (previewCmsOverride) return;
@@ -259,10 +260,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       className="min-h-screen w-full max-w-full overflow-x-clip font-sans transition-colors duration-300"
       dir={isRTL ? 'rtl' : 'ltr'}
     >
-      {/* Hidden Ambient Anthem Audio Controller */}
-      {!isPreview && <AlShamsAudioPlayer ref={audioPlayerRef} />}
-
-      {/* 1. Clean Mobile-Safe Top Bar: Menu (3 lines) + Logo | Desktop Links | Start Free + Day/Night Toggle */}
+      {/* 1. Clean Single-Row Top Bar: 3-Line Menu + Crisp Brand | Desktop Nav | Start Free + Day/Night + Audio */}
       <header
         style={{
           backgroundColor: theme.pageBg,
@@ -270,9 +268,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         }}
         className="sticky top-0 z-40 w-full max-w-full overflow-x-clip border-b backdrop-blur-md bg-opacity-95"
       >
-        <div className="w-full max-w-7xl mx-auto px-2.5 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
-          {/* Zone 1 (Start / First in RTL): 3-Line Side Menu + Compact Brand Logo */}
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
+        <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4 min-w-0">
+          {/* Zone 1 (Start / First in RTL): 3-Line Side Menu + Crisp Brand Mark */}
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink">
             <button
               type="button"
               onClick={() => setIsSystemsDrawerOpen(true)}
@@ -290,14 +288,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             <a
               href="#top"
-              className="flex items-center min-w-0 shrink overflow-hidden focus-visible:outline-none"
+              className="flex items-center gap-2 min-w-0 shrink focus-visible:outline-none"
             >
-              <AlShamsBrandLogo
-                maxWidth={112}
-                maxHeight={30}
-                className="h-7 sm:h-9 w-auto max-w-[104px] sm:max-w-[148px] object-contain"
+              <AlShamsBrandIcon
+                size="sm"
                 isDark={theme.isDarkTheme}
+                className="w-8 h-8 sm:w-9 sm:h-9 shrink-0"
               />
+              <div className="min-w-0 leading-tight">
+                <span
+                  style={{ color: theme.inkColor }}
+                  className="block text-sm sm:text-base font-black tracking-tight truncate"
+                >
+                  الشمساوية
+                </span>
+                <span
+                  style={{ color: theme.mutedColor }}
+                  className="hidden sm:block text-[10px] font-bold truncate"
+                >
+                  منظومة الورش والموردين
+                </span>
+              </div>
             </a>
           </div>
 
@@ -336,13 +347,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </button>
           </nav>
 
-          {/* Zone 3 (End in RTL): "ابدأ مجاناً" + Day/Night Toggle Side-by-Side (Always Visible) */}
+          {/* Zone 3 (End in RTL): "ابدأ مجاناً" + Day/Night Toggle + Clean Audio Icon */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={onOpenRegister}
               style={{ backgroundColor: theme.accentBg, color: theme.accentInk }}
-              className={`px-3 sm:px-5 h-9 sm:h-10 ${theme.buttonRadius} text-[11px] sm:text-sm font-black whitespace-nowrap shrink-0 hover:opacity-90 transition cursor-pointer shadow-xs`}
+              className={`px-3 sm:px-5 h-9 sm:h-10 ${theme.buttonRadius} text-xs sm:text-sm font-black whitespace-nowrap shrink-0 hover:opacity-90 transition cursor-pointer shadow-xs`}
             >
               ابدأ مجاناً
             </button>
@@ -362,6 +373,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               >
                 {theme.isDarkTheme ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
+            )}
+
+            {!isPreview && (
+              <AlShamsAudioPlayer
+                ref={audioPlayerRef}
+                variant="header_icon"
+                buttonRadiusClass={theme.buttonRadius}
+                buttonStyle={{
+                  backgroundColor: theme.softSurfaceBg,
+                  borderColor: theme.borderColor,
+                  color: theme.inkColor,
+                }}
+              />
             )}
           </div>
         </div>

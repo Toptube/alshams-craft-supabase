@@ -481,7 +481,14 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           <div className="h-px bg-[#D4CCBC] dark:bg-[#22355E] my-1" />
 
           {/* المساعد الذكي */}
-          {(isAdmin || flags.aiAssistantsEnabled) && (
+          {(isAdmin ||
+            (flags.aiAssistantsEnabled &&
+              isModuleUnlockedBySubscription(
+                'ai_agent',
+                userSub,
+                isSupplier ? 'supplier' : 'artisan',
+                isAdmin
+              ))) && (
             <button
               type="button"
               onClick={() => {
@@ -530,7 +537,14 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
 
           {/* مجتمع عيلة الشمساويه في نهاية القائمة */}
-          {(isAdmin || flags.familyCommunityEnabled) && (
+          {(isAdmin ||
+            (flags.familyCommunityEnabled &&
+              isModuleUnlockedBySubscription(
+                'family',
+                userSub,
+                isSupplier ? 'supplier' : 'artisan',
+                isAdmin
+              ))) && (
             <button
               type="button"
               onClick={() => {
@@ -561,21 +575,28 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
           <PWAInstallButton variant="card" />
         </div>
 
-        {/* شريط الأدوات السفلي المدمج: 5 أيقونات فقط لعدم ازدحام القائمة */}
+        {/* شريط الأدوات السفلي المدمج */}
         <div className="p-3 border-t border-[#D4CCBC] dark:border-[#22355E] bg-[#E9E2D4] dark:bg-[#0D162E]">
           <div className="flex items-center justify-between gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                onOpenUserGuide();
-                onClose();
-              }}
-              title="دليل الورشة"
-              aria-label="دليل الورشة"
-              className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA] hover:text-[#EA580C] dark:hover:text-[#FBBF24] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
-            >
-              <BookOpen className="w-4 h-4" />
-            </button>
+            {isModuleUnlockedBySubscription(
+              'guide_start',
+              userSub,
+              isSupplier ? 'supplier' : 'artisan',
+              isAdmin
+            ) && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenUserGuide();
+                  onClose();
+                }}
+                title="دليل الورشة"
+                aria-label="دليل الورشة"
+                className="flex-1 min-h-[40px] py-2 rounded-xl bg-[#F7F3EA] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[#0C1427] dark:text-[#F7F3EA] hover:text-[#EA580C] dark:hover:text-[#FBBF24] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+              >
+                <BookOpen className="w-4 h-4" />
+              </button>
+            )}
 
             <button
               type="button"

@@ -118,18 +118,23 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
       loadCatalogData();
       updateCount();
     };
+    const handleOpenQuickDirect = () => {
+      setIsDirectAddOpen(true);
+    };
     updateCount();
     window.addEventListener('alshams:products-dirty', updateCount);
     window.addEventListener('alshams:products-sync-status', updateCount);
     window.addEventListener('alshams:offline-queue-changed', updateCount);
     window.addEventListener(PRODUCTS_PULLED_EVENT, handleRemoteRefresh);
     window.addEventListener('alshams_products_changed', handleRemoteRefresh);
+    window.addEventListener('alshams_open_quick_direct_product', handleOpenQuickDirect);
     return () => {
       window.removeEventListener('alshams:products-dirty', updateCount);
       window.removeEventListener('alshams:products-sync-status', updateCount);
       window.removeEventListener('alshams:offline-queue-changed', updateCount);
       window.removeEventListener(PRODUCTS_PULLED_EVENT, handleRemoteRefresh);
       window.removeEventListener('alshams_products_changed', handleRemoteRefresh);
+      window.removeEventListener('alshams_open_quick_direct_product', handleOpenQuickDirect);
     };
   }, [profile.id, profile.workshopId, profile.tenantId]);
 

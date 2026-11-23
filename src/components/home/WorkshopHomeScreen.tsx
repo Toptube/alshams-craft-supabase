@@ -15,7 +15,7 @@ import {
 } from '../../types/uiLayoutConfig';
 import {
   useUserSubscription,
-  isModuleUnlockedBySubscription,
+  isActionUnlockedBySubscription,
 } from '../../types/subscriptions';
 import { useExperienceMode } from '../../types/experienceMode';
 import {
@@ -713,6 +713,12 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       case 'nav_catalog':
         onNavigateToCatalog('catalog');
         return;
+      case 'quick_direct_product':
+        onNavigateToCatalog('catalog');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('alshams_open_quick_direct_product'));
+        }, 180);
+        return;
       case 'open_artisan_store_products':
         if (onOpenArtisanStore) onOpenArtisanStore('products');
         else onNavigateToCatalog('store');
@@ -836,6 +842,9 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
       if (modeKey && !isModeVisible(modeKey)) return false;
 
       if (!isAdminUser) {
+        if (!isActionUnlockedBySubscription(it.actionKey, userSub, 'artisan', isAdminUser)) {
+          return false;
+        }
         if (it.actionKey === 'nav_calculator' && !flags.craftCalculatorEnabled) return false;
         if (it.actionKey === 'nav_suppliers_market' && !flags.suppliersMarketplaceEnabled) return false;
         if (
@@ -852,40 +861,30 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     });
   };
 
-  const ARTISAN_CARD_SUB_MODULE_MAP: Record<string, string[]> = {
-    my_platform: ['store', 'catalog', 'marketplace'],
-    catalog: ['catalog'],
-    inventory: ['materials', 'inventory_materials', 'finished_products'],
-    pricing: ['calculator', 'archive'],
-    purchases: ['purchases', 'suppliers'],
-    suppliers: ['suppliers'],
-    work_orders: ['work_orders'],
-    customers: ['customers', 'sales', 'invoices'],
-    workforce: ['hr'],
-    treasuries: ['treasuries'],
-    expenses: ['expenses', 'treasuries'],
-    accounts: ['accounts', 'reports'],
-    ai_helpers: ['ai_agent'],
-  };
-
   const visibleArtisanCards = useMemo<UiHomeCardConfig[]>(() => {
     return (artisanHomeCfg.cards || []).filter((card) => {
       if (card.visible === false) return false;
       // إخفاء بطاقة الحسابات المحاسبية الثقيلة في الوضع الحرفي (وتبقى متاحة بالكامل في الوضع المحاسبي)
       if (card.id === 'accounts' && !isModeVisible('card_accounts')) return false;
       if (isAdminUser) return true;
-      const mappedMods = ARTISAN_CARD_SUB_MODULE_MAP[card.id];
-      if (
-        mappedMods &&
-        !mappedMods.some((m) => isModuleUnlockedBySubscription(m, userSub, 'artisan', isAdminUser))
-      ) {
-        return false;
+
+      // فحص صارم زراً بزراً: أي بطاقة داخلها أزرار لا تظهر إلا لو فيه زر واحد على الأقل مفعّل في باقة العضو
+      const hasConfiguredItems = Array.isArray(card.items) && card.items.length > 0;
+      if (hasConfiguredItems) {
+        const unlockedItems = getVisibleItemsForCard(card, false);
+        if (unlockedItems.length === 0) return false;
+      } else if (card.directActionKey) {
+        if (!isActionUnlockedBySubscription(card.directActionKey, userSub, 'artisan', isAdminUser)) {
+          return false;
+        }
       }
+
       if (card.id === 'ai_helpers' && !flags.aiAssistantsEnabled) return false;
       if (
         card.id === 'my_platform' &&
         !flags.artisanStorefrontEnabled &&
-        !flags.artisanMarketplaceEnabled
+        !flags.artisanMarketplaceEnabled &&
+        !isActionUnlockedBySubscription('nav_personal_profile', userSub, 'artisan', isAdminUser)
       ) {
         return false;
       }
@@ -908,6 +907,91 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
     });
   }, [artisanHomeCfg.cards, isAdminUser, flags, userSub, isModeVisible]);
 
+  // عندما يكون العضو مشترك في باقة واحدة أو باقتين فقط (مثلاً الأساسية أو الأساسية + المتجر)،
+  // نعرض أزراره المفعّلة مباشرة في الواجهة بدون بطاقات تغليف زائدة لسهولة الوصول الفوري!
+  const flatDirectActions = useMemo(() => {
+    if (isAdminUser || !userSub.hasSelectedPackages) return null;
+    if (visibleArtisanCards.length > 3) return null;
+
+    const list: Array<{
+      id: string;
+      actionKey: string;
+      label: string;
+      iconKey: string;
+      colorPreset: string;
+      subtitle?: string;
+    }> = [];
+    const seen = new Set<string>();
+
+    for (const card of visibleArtisanCards) {
+      const items = getVisibleItemsForCard(card, false);
+      if (items.length === 0 && card.directActionKey) {
+        if (!seen.has(card.directActionKey)) {
+          seen.add(card.directActionKey);
+          list.push({
+            id: card.id,
+            actionKey: card.directActionKey,
+            label: getCardDisplayLabel(card),
+            iconKey: card.iconKey,
+            colorPreset: card.colorPreset,
+            subtitle: card.subtitle,
+          });
+        }
+      } else {
+        for (const it of items) {
+          if (!seen.has(it.actionKey)) {
+            seen.add(it.actionKey);
+            list.push({
+              id: it.id,
+              actionKey: it.actionKey,
+              label: it.label,
+              iconKey: it.iconKey,
+              colorPreset: card.colorPreset,
+            });
+          }
+        }
+      }
+    }
+
+    // إضافة زر "إضافة منتج مباشر سريع" مباشرة عند تفعيل باقة المتجر/الكتالوج
+    if (
+      isActionUnlockedBySubscription('quick_direct_product', userSub, 'artisan', isAdminUser) &&
+      !seen.has('quick_direct_product')
+    ) {
+      seen.add('quick_direct_product');
+      list.push({
+        id: 'quick_direct_product_btn',
+        actionKey: 'quick_direct_product',
+        label: 'إضافة منتج مباشر سريع',
+        iconKey: 'PlusCircle',
+        colorPreset: 'orange_strong',
+        subtitle: 'بالصور والألوان والقسم للمتجر',
+      });
+    }
+
+    // إضافة زر "مجتمع عيلة الشمساوية" لو مفعّل ومش مضاف بالفعل
+    if (
+      flags.familyCommunityEnabled &&
+      isActionUnlockedBySubscription('nav_family', userSub, 'artisan', isAdminUser) &&
+      !seen.has('nav_family')
+    ) {
+      seen.add('nav_family');
+      list.push({
+        id: 'flat_family_btn',
+        actionKey: 'nav_family',
+        label: 'مجتمع عيلة الشمساوية',
+        iconKey: 'Users',
+        colorPreset: 'emerald',
+        subtitle: 'تواصل وشارك أعمالك مع العيلة',
+      });
+    }
+
+    return list.length > 0 && list.length <= 8 ? list : null;
+  }, [isAdminUser, userSub, visibleArtisanCards, flags, isModeVisible]);
+
+  const showHomeSummaryWidget =
+    isAdminUser || isActionUnlockedBySubscription('widget_home_summary', userSub, 'artisan', isAdminUser);
+
   const activeDynamicCard = useMemo(() => {
     if (!activeSubSection) return null;
     return visibleArtisanCards.find((c) => c.id === activeSubSection) || null;
@@ -921,7 +1005,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
   const activeCardVisibleItems = useMemo(() => {
     if (!activeDynamicCard) return [];
     return getVisibleItemsForCard(activeDynamicCard, true);
-  }, [activeDynamicCard, isAdminUser, flags, workforceTab, isModeVisible]);
+  }, [activeDynamicCard, isAdminUser, flags, workforceTab, isModeVisible, userSub]);
 
   const gridClassName = useMemo(() => {
     const mob = artisanHomeCfg.columnsMobile === 2 ? 'grid-cols-2' : 'grid-cols-3';
@@ -1076,68 +1160,120 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         </div>
       ) : (
         <>
-          {/* 2. شبكة البطاقات التشغيلية الديناميكية (تُضبط من هندسة الواجهات) */}
-          <div className={gridClassName}>
-            {visibleArtisanCards.map((card) => {
-              const Icon = getUiIcon(card.iconKey);
-              const preset = getUiColorPreset(card.colorPreset);
-              const isWideShape = artisanHomeCfg.cardShape === 'wide';
-              const isCompactShape = artisanHomeCfg.cardShape === 'compact';
-              const iconRadiusClass = artisanHomeCfg.iconShape === 'circle' ? 'rounded-full' : 'rounded-2xl';
-              const visibleItems = getVisibleItemsForCard(card, false);
-              const visibleItemsCount = visibleItems.length;
+          {/* 2. شبكة البطاقات أو الأزرار المباشرة حسب باقات العضو المفعّلة */}
+          {flatDirectActions ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3.5">
+                {flatDirectActions.map((act) => {
+                  const ActIcon = getUiIcon(act.iconKey);
+                  const preset = getUiColorPreset(act.colorPreset);
+                  return (
+                    <button
+                      key={act.id}
+                      type="button"
+                      onClick={() => executeArtisanAction(act.actionKey)}
+                      className="rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#F7F3EA] to-[#EFE9DC] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] hover:shadow-md transition-all duration-200 cursor-pointer group p-4 sm:p-5 flex flex-col items-center justify-center text-center gap-2 min-h-[104px] sm:min-h-[120px]"
+                    >
+                      <div
+                        className={`w-11 h-11 rounded-2xl ${preset.bgColor} ${preset.color} border ${preset.borderColor} flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform shrink-0`}
+                      >
+                        <ActIcon className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] block leading-snug">
+                          {act.label}
+                        </span>
+                        {act.subtitle && (
+                          <span className="text-[10px] text-[#64748B] dark:text-[#94A3B8] font-bold block mt-0.5 line-clamp-1">
+                            {act.subtitle}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
 
-              return (
+              {/* شريط هادئ للتوسع وترقية الباقات مجاناً عند الرغبة */}
+              <div className="rounded-2xl border border-[#D4CCBC] dark:border-[#22355E] bg-[#F7F3EA]/80 dark:bg-[#0D162E]/80 px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="text-xs text-[#475569] dark:text-[#CBD5E1] font-bold">
+                  يظهر لك فقط أدوات باقاتك المفعّلة حالياً ({userSub.activePackageIds.length} باقات). يمكنك إضافة أي باقة أخرى مجاناً لفترة محدودة.
+                </div>
                 <button
-                  key={card.id}
                   type="button"
-                  onClick={() => {
-                    if (visibleItemsCount === 0 && card.directActionKey) {
-                      executeArtisanAction(card.directActionKey);
-                      return;
-                    }
-                    if (visibleItemsCount === 1) {
-                      const onlyItem = visibleItems[0];
-                      if (onlyItem) {
-                        executeArtisanAction(onlyItem.actionKey);
+                  onClick={() =>
+                    window.dispatchEvent(new CustomEvent('alshams_open_view', { detail: { view: 'my_subscriptions' } }))
+                  }
+                  className="px-3.5 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black cursor-pointer transition shrink-0"
+                >
+                  إدارة اشتراكاتي وباقاتي
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className={gridClassName}>
+              {visibleArtisanCards.map((card) => {
+                const visibleItems = getVisibleItemsForCard(card, false);
+                const visibleItemsCount = visibleItems.length;
+                // إذا كان بداخل البطاقة زر واحد فقط مفعّل، نظهر ذلك الزر مباشرة باسمه وأيقونته بدون تغليف زائد
+                const singleUnlockedItem = visibleItemsCount === 1 ? visibleItems[0] : null;
+                const Icon = getUiIcon(singleUnlockedItem ? singleUnlockedItem.iconKey : card.iconKey);
+                const displayTitle = singleUnlockedItem ? singleUnlockedItem.label : getCardDisplayLabel(card);
+                const preset = getUiColorPreset(card.colorPreset);
+                const isWideShape = artisanHomeCfg.cardShape === 'wide';
+                const isCompactShape = artisanHomeCfg.cardShape === 'compact';
+                const iconRadiusClass = artisanHomeCfg.iconShape === 'circle' ? 'rounded-full' : 'rounded-2xl';
+
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => {
+                      if (visibleItemsCount === 0 && card.directActionKey) {
+                        executeArtisanAction(card.directActionKey);
                         return;
                       }
-                    }
-                    setActiveSubSection(card.id);
-                  }}
-                  className={`rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#F7F3EA] to-[#EFE9DC] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] hover:shadow-md transition-all duration-200 cursor-pointer group ${
-                    isWideShape
-                      ? 'p-3 sm:p-4 flex items-center gap-2.5 text-right min-h-[78px] sm:min-h-[88px]'
-                      : isCompactShape
-                      ? 'p-2 sm:p-3 flex flex-col items-center justify-center text-center gap-1 min-h-[70px] sm:min-h-[82px]'
-                      : 'p-2.5 sm:p-4 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 min-h-[82px] sm:min-h-[100px]'
-                  }`}
-                >
-                  <div
-                    className={`${
-                      isCompactShape ? 'w-8 h-8 sm:w-9 sm:h-9' : 'w-9 h-9 sm:w-11 sm:h-11'
-                    } ${iconRadiusClass} ${preset.bgColor} ${preset.color} border ${preset.borderColor} flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform shrink-0`}
+                      if (singleUnlockedItem) {
+                        executeArtisanAction(singleUnlockedItem.actionKey);
+                        return;
+                      }
+                      setActiveSubSection(card.id);
+                    }}
+                    className={`rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#F7F3EA] to-[#EFE9DC] dark:from-[#0D162E] dark:to-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] dark:hover:border-[#EA580C] hover:shadow-md transition-all duration-200 cursor-pointer group ${
+                      isWideShape
+                        ? 'p-3 sm:p-4 flex items-center gap-2.5 text-right min-h-[78px] sm:min-h-[88px]'
+                        : isCompactShape
+                        ? 'p-2 sm:p-3 flex flex-col items-center justify-center text-center gap-1 min-h-[70px] sm:min-h-[82px]'
+                        : 'p-2.5 sm:p-4 flex flex-col items-center justify-center text-center gap-1.5 sm:gap-2 min-h-[82px] sm:min-h-[100px]'
+                    }`}
                   >
-                    <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] tracking-tight block leading-tight">
-                      {getCardDisplayLabel(card)}
-                    </span>
-                    {isWideShape && card.subtitle && (
-                      <span className="text-[10px] text-[#64748B] dark:text-[#94A3B8] font-bold block mt-0.5 line-clamp-1">
-                        {card.subtitle}
+                    <div
+                      className={`${
+                        isCompactShape ? 'w-8 h-8 sm:w-9 sm:h-9' : 'w-9 h-9 sm:w-11 sm:h-11'
+                      } ${iconRadiusClass} ${preset.bgColor} ${preset.color} border ${preset.borderColor} flex items-center justify-center shadow-2xs group-hover:scale-105 transition-transform shrink-0`}
+                    >
+                      <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs sm:text-sm font-black text-[#0C1427] dark:text-[#F7F3EA] tracking-tight block leading-tight">
+                        {displayTitle}
                       </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                      {isWideShape && !singleUnlockedItem && card.subtitle && (
+                        <span className="text-[10px] text-[#64748B] dark:text-[#94A3B8] font-bold block mt-0.5 line-clamp-1">
+                          {card.subtitle}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
 
-      {/* 4. Enhanced Workshop Financial & Inventory Summary Widget with Visual Charts */}
+      {/* 4. Enhanced Workshop Financial & Inventory Summary Widget (يظهر فقط مع باقات المخازن أو المالية) */}
+      {showHomeSummaryWidget && (
       <div className="p-4 sm:p-5 rounded-3xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#D4CCBC] dark:border-[#22355E] pb-3">
           <div className="flex items-center gap-2">
@@ -1549,6 +1685,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
           />
         </Suspense>
       </div>
+      )}
 
       {/* ========================================================= */}
       {/* MODAL: شاشة تعريفية وتحليلية موسعة بالمصروفات والمنتجات والمخزون */}

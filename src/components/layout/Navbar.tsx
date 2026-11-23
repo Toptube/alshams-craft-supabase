@@ -24,6 +24,7 @@ import { AlShamsBrandIcon, AlShamsBrandLogo } from '../brand/BrandAssets';
 import { PWAInstallButton } from '../pwa/PWAInstallButton';
 import { useFeatureFlags } from '../../types/featureFlags';
 import { useUiLayoutConfig } from '../../types/uiLayoutConfig';
+import { useUserSubscription, isActionUnlockedBySubscription } from '../../types/subscriptions';
 
 export type AdminBellSectionId = 'notif_messages' | 'notif_workshops' | 'notif_store' | 'notif_system';
 
@@ -91,7 +92,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const flags = useFeatureFlags();
   const uiLayout = useUiLayoutConfig();
+  const userSub = useUserSubscription(profile);
   const isSupplierAccount = (profile as any)?.accountRole === 'supplier';
+  const subRole: 'artisan' | 'supplier' = isSupplierAccount ? 'supplier' : 'artisan';
   const navLayout = isSupplierAccount ? uiLayout.supplier.navbar : uiLayout.artisan.navbar;
   const isCompactNav = isSuperAdminMode || navLayout.density === 'compact';
 
@@ -114,9 +117,30 @@ export const Navbar: React.FC<NavbarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isAdminBellOpen, isQuickAddOpen]);
 
+  const canQuickSales =
+    Boolean(onNavigateToSales) &&
+    isActionUnlockedBySubscription(isSupplierAccount ? 'sup_pos' : 'nav_sales', userSub, subRole, isSuperAdminMode);
+  const canQuickMaterial =
+    Boolean(onOpenNewMaterialModal) &&
+    !isSupplierAccount &&
+    isActionUnlockedBySubscription('modal_new_material', userSub, subRole, isSuperAdminMode);
+  const canQuickCalculator =
+    Boolean(onNavigateToCalculator) &&
+    !isSupplierAccount &&
+    isActionUnlockedBySubscription('nav_calculator', userSub, subRole, isSuperAdminMode);
+  const canQuickClient =
+    Boolean(onOpenNewClientModal) &&
+    isActionUnlockedBySubscription(
+      isSupplierAccount ? 'sup_customers' : 'modal_new_client',
+      userSub,
+      subRole,
+      isSuperAdminMode
+    );
+
   const showQuickAddButton =
     !isSuperAdminMode &&
-    Boolean(onNavigateToSales || onOpenNewMaterialModal || onNavigateToCalculator || onOpenNewClientModal);
+    isActionUnlockedBySubscription('top_nav_quick_add', userSub, subRole, isSuperAdminMode) &&
+    (canQuickSales || canQuickMaterial || canQuickCalculator || canQuickClient);
 
   const workshopLogo = (profile as any)?.logo_url || profile?.logoUrl || profile?.logoBase64 || '';
 
@@ -184,12 +208,23 @@ export const Navbar: React.FC<NavbarProps> = ({
   const showStoreButton =
     (isSuperAdminMode || storeNavCfg?.visible !== false) &&
     Boolean(onOpenArtisanStore || onNavigateToCatalog) &&
-    (isSuperAdminMode || (isSupplierAccount ? flags.supplierPortalEnabled : flags.artisanStorefrontEnabled));
+    (isSuperAdminMode || (isSupplierAccount ? flags.supplierPortalEnabled : flags.artisanStorefrontEnabled)) &&
+    isActionUnlockedBySubscription('top_nav_store', userSub, subRole, isSuperAdminMode);
   const showFamilyButton =
     (isSuperAdminMode || familyNavCfg?.visible !== false) &&
     Boolean(onNavigateToFamily) &&
-    (isSuperAdminMode || flags.familyCommunityEnabled);
-  const showBriefButton = !isSuperAdminMode && briefNavCfg?.visible === true && Boolean(onNavigateToExecutiveBrief);
+    (isSuperAdminMode || flags.familyCommunityEnabled) &&
+    isActionUnlockedBySubscription('top_nav_family', userSub, subRole, isSuperAdminMode);
+  const showBriefButton =
+    !isSuperAdminMode &&
+    briefNavCfg?.visible === true &&
+    Boolean(onNavigateToExecutiveBrief) &&
+    isActionUnlockedBySubscription(
+      isSupplierAccount ? 'sup_executive_brief' : 'open_executive_brief',
+      userSub,
+      subRole,
+      isSuperAdminMode
+    );
   const showProfileButton = !isSuperAdminMode && profileNavCfg?.visible === true && Boolean(onOpenPersonalProfile);
 
   const middleItemsOrdered = navLayout.items.filter((i) =>
@@ -403,7 +438,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 </div>
 
-                {onNavigateToSales && (
+                {canQuickSales && onNavigateToSales && (
                   <button
                     type="button"
                     onClick={() => {
@@ -422,7 +457,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 )}
 
-                {onOpenNewMaterialModal && !isSupplierAccount && (
+                {canQuickMaterial && onOpenNewMaterialModal && (
                   <button
                     type="button"
                     onClick={() => {
@@ -441,7 +476,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 )}
 
-                {onNavigateToCalculator && !isSupplierAccount && (
+                {canQuickCalculator && onNavigateToCalculator && (
                   <button
                     type="button"
                     onClick={() => {
@@ -460,7 +495,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 )}
 
-                {onOpenNewClientModal && (
+                {canQuickClient && onOpenNewClientModal && (
                   <button
                     type="button"
                     onClick={() => {

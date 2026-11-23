@@ -19,9 +19,9 @@ import { UserProfile } from '../../types';
 import {
   ALL_PACKAGE_IDS,
   SubscriptionPackageId,
-  getSubscriptionPackages,
   saveUserSubscription,
   syncUserSubscriptionAndData,
+  useSubscriptionPackagesConfig,
   useUserSubscription,
 } from '../../types/subscriptions';
 import { WORLD_STOREFRONT_THEMES_LIST } from '../../lib/storefrontThemes';
@@ -43,7 +43,7 @@ export const MySubscriptionsPage: React.FC<MySubscriptionsPageProps> = ({
   const userId = profile.workshopId || profile.id || profile.email || '';
   const isSupplier = (profile as any)?.accountRole === 'supplier';
   const currentSub = useUserSubscription(profile);
-  const packages = useMemo(() => getSubscriptionPackages(), []);
+  const packages = useSubscriptionPackagesConfig();
   const themesCount = WORLD_STOREFRONT_THEMES_LIST.length;
 
   const [selectedIds, setSelectedIds] = useState<SubscriptionPackageId[]>(() =>
@@ -412,7 +412,7 @@ export const PackageSelectionOnboardingModal: React.FC<PackageSelectionOnboardin
 }) => {
   const userId = profile.workshopId || profile.id || profile.email || '';
   const isSupplier = (profile as any)?.accountRole === 'supplier';
-  const packages = useMemo(() => getSubscriptionPackages(), []);
+  const packages = useSubscriptionPackagesConfig();
   const themesCount = WORLD_STOREFRONT_THEMES_LIST.length;
 
   const [selectedIds, setSelectedIds] = useState<SubscriptionPackageId[]>([...ALL_PACKAGE_IDS]);

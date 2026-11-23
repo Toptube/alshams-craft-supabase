@@ -12,10 +12,13 @@ export interface AlShamsAudioPlayerHandle {
 interface AlShamsAudioPlayerProps {
   className?: string;
   autoPlayOnMount?: boolean;
+  variant?: 'pill' | 'header_icon';
+  buttonStyle?: React.CSSProperties;
+  buttonRadiusClass?: string;
 }
 
 export const AlShamsAudioPlayer = forwardRef<AlShamsAudioPlayerHandle, AlShamsAudioPlayerProps>(
-  ({ className = '' }, ref) => {
+  ({ className = '', variant = 'pill', buttonStyle, buttonRadiusClass = 'rounded-xl' }, ref) => {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
 
@@ -96,11 +99,34 @@ export const AlShamsAudioPlayer = forwardRef<AlShamsAudioPlayerHandle, AlShamsAu
       };
     }, []);
 
+    if (variant === 'header_icon') {
+      return (
+        <div className={`inline-flex items-center shrink-0 ${className}`}>
+          <audio ref={audioRef} src={anthemUrl} preload="none" />
+          <button
+            type="button"
+            onClick={togglePlay}
+            style={buttonStyle}
+            className={`w-9 h-9 sm:w-10 sm:h-10 ${buttonRadiusClass} border flex items-center justify-center shrink-0 hover:opacity-85 transition cursor-pointer select-none active:scale-95 ${
+              isPlaying ? 'ring-2 ring-amber-400/50' : ''
+            }`}
+            title={isPlaying ? 'إيقاف نشيد الشمساوية' : 'تشغيل نشيد الشمساوية'}
+            aria-label={isPlaying ? 'إيقاف النشيد' : 'تشغيل النشيد'}
+          >
+            {isPlaying ? (
+              <Pause className="w-4 h-4 text-amber-500 fill-current" />
+            ) : (
+              <Volume2 className="w-4 h-4" />
+            )}
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div className={`relative inline-flex items-center ${className}`} dir="rtl">
-        <audio ref={audioRef} src={anthemUrl} preload="auto" />
+        <audio ref={audioRef} src={anthemUrl} preload="none" />
 
-        {/* زر دائري خفيف ومدمج يجمع التحكم بالسماعة والتشغيل بدون حشو شريط التنقل */}
         <button
           type="button"
           onClick={togglePlay}
@@ -118,9 +144,7 @@ export const AlShamsAudioPlayer = forwardRef<AlShamsAudioPlayerHandle, AlShamsAu
           ) : (
             <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current text-stone-700 dark:text-stone-300 ml-0.5" />
           )}
-          <span className="hidden xl:inline text-[11px] font-black">
-            {isPlaying ? 'النشيد' : 'النشيد'}
-          </span>
+          <span className="hidden xl:inline text-[11px] font-black">النشيد</span>
         </button>
       </div>
     );

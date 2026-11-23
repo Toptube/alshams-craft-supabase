@@ -9,6 +9,7 @@ import { saveStoredSuppliersMarketBuilderConfig } from '../types/suppliersMarket
 import { saveStoredLandingCmsConfig } from '../types/landingCms';
 import { saveStoredFeatureFlags } from '../types/featureFlags';
 import { saveStoredUiLayoutConfig } from '../types/uiLayoutConfig';
+import { saveStoredSubscriptionPackagesConfig } from '../types/subscriptions';
 
 const CART_STORAGE_KEY = 'alshams_marketplace_cart';
 const CUSTOMER_STORAGE_KEY = 'alshams_customer_session';
@@ -334,6 +335,9 @@ export async function syncPlatformSettingsFromCloud(force = false): Promise<Gove
       }
       if (cloudSettings.uiLayoutConfig) {
         saveStoredUiLayoutConfig(cloudSettings.uiLayoutConfig);
+      }
+      if (cloudSettings.subscriptionPackagesConfig) {
+        saveStoredSubscriptionPackagesConfig(cloudSettings.subscriptionPackagesConfig);
       }
       lastPlatformSyncedCfg = mergedCfg;
       lastPlatformSyncedAt = Date.now();
