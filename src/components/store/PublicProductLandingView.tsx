@@ -390,7 +390,6 @@ export const PublicProductLandingView: React.FC<PublicProductLandingViewProps> =
               enabledLanguages={allowedLanguages}
               currency={activeCurrencyMeta.code}
               onChangeCurrency={handleChangeCurrency}
-              enabledCurrencies={product.enabledCurrencies}
               compact
             />
             {product.storeSlug && (

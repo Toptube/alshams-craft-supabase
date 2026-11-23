@@ -25,6 +25,12 @@ import {
   getStoredQuickLanguages,
   setStoredQuickLanguages,
 } from '../../lib/i18n';
+import {
+  SUPPORTED_CURRENCIES,
+  getStoredCustomerDisplayCurrency,
+  saveStoredCustomerDisplayCurrency,
+} from '../../lib/currency';
+import { setStoredPublicLocale, isValidPublicLocale } from '../../lib/publicLocale';
 import { useExperienceMode } from '../../types/experienceMode';
 import {
   X,
@@ -157,14 +163,16 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   } = useExperienceMode(isSupplier ? 'supplier' : 'artisan', profile);
   const [activeTab, setActiveTab] = useState<'profile' | 'language' | 'reminders' | 'export_data' | 'factory_reset'>('profile');
 
-  // Language settings state
+  // Language & display currency settings state
   const [selectedAppLang, setSelectedAppLang] = useState<LanguageCode>(getStoredLanguage());
   const [quickSwitchLangs, setQuickSwitchLangs] = useState<LanguageCode[]>(getStoredQuickLanguages());
+  const [preferredCurrency, setPreferredCurrency] = useState<string>(getStoredCustomerDisplayCurrency());
 
   useEffect(() => {
     if (isOpen) {
       setSelectedAppLang(getStoredLanguage());
       setQuickSwitchLangs(getStoredQuickLanguages());
+      setPreferredCurrency(getStoredCustomerDisplayCurrency());
     }
   }, [isOpen]);
 
@@ -987,7 +995,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             }`}
           >
             <Globe className="w-3.5 h-3.5" />
-            <span>اللغة</span>
+            <span>اللغة والعملة</span>
           </button>
           {!isSupplier && (
             <button
@@ -2311,13 +2319,53 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Save Language Button */}
+            {/* Section 3: Preferred Browsing Currency (Consolidated in Profile Settings) */}
+            <div className="p-4 rounded-2xl bg-stone-50 dark:bg-stone-850 border border-stone-200 dark:border-stone-800 space-y-3">
+              <div>
+                <span className="text-xs font-black text-stone-900 dark:text-stone-100 block">
+                  عملة عرض الأسعار المفضلة عند التصفح والشراء:
+                </span>
+                <p className="text-[11px] text-stone-500 mt-0.5">
+                  في الطبيعي تظهر الأسعار بعملة بلدك تلقائياً، ويمكنك اختيار أي عملة مفضلة لتصفح المتاجر والسوق بها.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {SUPPORTED_CURRENCIES.map((curr) => {
+                  const isSelected = preferredCurrency === curr.code;
+                  return (
+                    <button
+                      key={curr.code}
+                      type="button"
+                      onClick={() => setPreferredCurrency(curr.code)}
+                      className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center justify-between cursor-pointer ${
+                        isSelected
+                          ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 font-black'
+                          : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-300'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span>{curr.flag}</span>
+                        <span className="truncate">{curr.nameAr}</span>
+                      </span>
+                      <span className="font-mono text-[10px] opacity-80 shrink-0">{curr.code}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Save Language & Currency Button */}
             <div className="pt-3 border-t border-stone-200 dark:border-stone-800 flex justify-end">
               <button
                 type="button"
                 onClick={() => {
                   setStoredLanguage(selectedAppLang);
                   setStoredQuickLanguages(quickSwitchLangs);
+                  if (isValidPublicLocale(selectedAppLang)) {
+                    setStoredPublicLocale(selectedAppLang);
+                  }
+                  saveStoredCustomerDisplayCurrency(preferredCurrency);
                   playSuccessSound();
                   setSuccessNotice(true);
                   setTimeout(() => setSuccessNotice(false), 3000);
@@ -2325,7 +2373,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
                 className="px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-md transition cursor-pointer flex items-center gap-2"
               >
                 <Check className="w-4 h-4" />
-                <span>حفظ وتطبيق إعدادات اللغة</span>
+                <span>حفظ وتطبيق إعدادات اللغة والعملة</span>
               </button>
             </div>
           </div>

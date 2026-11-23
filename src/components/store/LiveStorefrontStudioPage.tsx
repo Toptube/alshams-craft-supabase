@@ -785,7 +785,7 @@ export const LiveStorefrontStudioPage: React.FC<LiveStorefrontStudioPageProps> =
                   }`}
                 >
                   <Globe className="w-3.5 h-3.5" />
-                  <span>اللغات والعملات والشعار ثنائي اللغة</span>
+                  <span>اللغات والشعار</span>
                 </button>
 
                 <div className="flex items-center gap-1.5">
@@ -854,11 +854,11 @@ export const LiveStorefrontStudioPage: React.FC<LiveStorefrontStudioPageProps> =
             </div>
           </section>
 
-          {/* Multilingual, Currencies & Bilingual Logos Studio Panel */}
+          {/* Multilingual & Bilingual Logo Studio Panel */}
           {showLangStudio && (
             <MultilingualContentStudio
-              title="إعدادات اللغات والعملات والشعار ثنائي اللغة لمتجرك"
-              subtitle="يتحول متجرك وشعارك وأسعارك تلقائياً حسب لغة وعملة كل عميل حول العالم"
+              title="إعدادات اللغات والشعار ثنائي اللغة لمتجرك"
+              subtitle="أسعارك تُعرض تلقائياً بعملة بلدك وتتحول لعملة الزائر الدولي أوتوماتيكياً — تحكّم هنا في اللغات والشعار العربي/الإنجليزي"
               enabledLanguages={
                 (isSupplier ? supplierConfig.enabledLanguages : artisanConfig.enabledLanguages) || ['ar', 'en']
               }
@@ -881,24 +881,7 @@ export const LiveStorefrontStudioPage: React.FC<LiveStorefrontStudioPageProps> =
                 }
                 setHasUnsavedChanges(true);
               }}
-              showCurrencies={true}
-              enabledCurrencies={
-                (isSupplier ? supplierConfig.acceptedCurrencies : artisanConfig.enabledCurrencies) || [
-                  'EGP',
-                  'USD',
-                  'EUR',
-                  'SAR',
-                  'AED',
-                ]
-              }
-              onChangeEnabledCurrencies={(currs) => {
-                if (isSupplier) {
-                  setSupplierConfig((prev) => ({ ...prev, acceptedCurrencies: currs }));
-                } else {
-                  setArtisanConfig((prev) => ({ ...prev, enabledCurrencies: currs }));
-                }
-                setHasUnsavedChanges(true);
-              }}
+              showCurrencies={false}
               showBilingualLogos={true}
               defaultLogoUrl={storeLogo}
               logoArUrl={isSupplier ? supplierConfig.logoArUrl || '' : artisanConfig.logoArUrl || ''}

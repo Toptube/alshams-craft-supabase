@@ -258,14 +258,14 @@ export const ContactBubbleDock: React.FC<ContactBubbleDockProps> = ({
         onClick={() => setOpen((prev) => !prev)}
         whileTap={shouldReduceMotion ? undefined : { scale: 0.94 }}
         style={{ backgroundColor: open ? '#0C1427' : accentHex }}
-        className="px-4 py-2.5 rounded-2xl text-white font-black text-xs shadow-xl border border-white/25 flex items-center gap-2 cursor-pointer"
+        className="px-3 py-2 sm:px-4 sm:py-2.5 rounded-2xl text-white font-black text-[11px] sm:text-xs shadow-lg border border-white/25 flex items-center gap-1.5 sm:gap-2 cursor-pointer"
         aria-expanded={open}
         aria-label={social?.bubbleLabel || 'تواصل معي'}
       >
         {open ? (
-          <X className="w-4 h-4 text-[#FBBF24] shrink-0" />
+          <X className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#FBBF24] shrink-0" />
         ) : (
-          <MessageCircle className="w-4 h-4 shrink-0" />
+          <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
         )}
         <span>{open ? 'إغلاق' : social?.bubbleLabel || 'تواصل معي'}</span>
       </motion.button>

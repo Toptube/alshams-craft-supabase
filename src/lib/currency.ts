@@ -215,7 +215,8 @@ export function fromEgpAmount(
 }
 
 /**
- * Converts seamlessly between any two supported currencies via EGP.
+ * Converts seamlessly between any two supported currencies via EGP,
+ * silently applying the protection buffer whenever currency differs from seller's local currency.
  */
 export function convertBetweenCurrencies(
   amount: number,
@@ -223,18 +224,51 @@ export function convertBetweenCurrencies(
   toCurrency = 'EGP',
   includeSilentFxBuffer = true
 ): number {
+  const numeric = Number(amount) || 0;
+  if (numeric <= 0) return 0;
   const fromMeta = getCurrencyInfo(fromCurrency);
   const toMeta = getCurrencyInfo(toCurrency);
-  if (fromMeta.code === toMeta.code) return Number(amount) || 0;
-  const egp = toEgpAmount(amount, fromMeta.code);
+  if (fromMeta.code === toMeta.code) return numeric;
+  const egp = toEgpAmount(numeric, fromMeta.code);
+  if (toMeta.code === 'EGP') {
+    const bufferPct = includeSilentFxBuffer ? getSilentFxBufferPercent() : 0;
+    const multiplier = 1 + Math.max(0, bufferPct) / 100;
+    const converted = egp * multiplier;
+    return converted >= 100 ? Math.round(converted) : Math.round(converted * 100) / 100;
+  }
   return fromEgpAmount(egp, toMeta.code, includeSilentFxBuffer);
+}
+
+/**
+ * Automatically detects the visitor's local currency from browser timezone/locale
+ * when they have not manually selected a currency yet.
+ */
+export function detectVisitorDefaultCurrency(): string {
+  try {
+    if (typeof window === 'undefined') return 'EGP';
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const lang = (navigator.language || '').toLowerCase();
+
+    if (tz === 'Africa/Cairo' || lang.includes('-eg')) return 'EGP';
+    if (tz === 'Asia/Riyadh' || lang.includes('-sa')) return 'SAR';
+    if (tz === 'Asia/Dubai' || lang.includes('-ae')) return 'AED';
+    if (tz === 'Asia/Kuwait' || lang.includes('-kw')) return 'KWD';
+    if (tz === 'Asia/Qatar' || lang.includes('-qa')) return 'QAR';
+    if (tz === 'Europe/London' || lang.includes('-gb')) return 'GBP';
+    if (tz === 'Europe/Istanbul' || lang.startsWith('tr')) return 'TRY';
+    if (tz.startsWith('Europe/')) return 'EUR';
+    if (tz.startsWith('America/') || lang.includes('-us')) return 'USD';
+    if (lang.startsWith('ar')) return 'EGP';
+  } catch {}
+  return 'EGP';
 }
 
 export function getStoredCustomerDisplayCurrency(): string {
   try {
     if (typeof window === 'undefined') return 'EGP';
     const raw = localStorage.getItem(CUSTOMER_DISPLAY_CURRENCY_KEY);
-    return raw ? getCurrencyInfo(raw).code : 'EGP';
+    if (raw) return getCurrencyInfo(raw).code;
+    return detectVisitorDefaultCurrency();
   } catch {
     return 'EGP';
   }

@@ -35,11 +35,43 @@ export function getPublicLanguageMeta(code?: string | null): PublicLanguageMeta 
   return PUBLIC_LANGUAGES.find((l) => l.code === code) || PUBLIC_LANGUAGES[0];
 }
 
+export function detectVisitorDefaultLocale(fallback: PublicLocaleCode = 'ar'): PublicLocaleCode {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const navLang = (navigator.language || '').toLowerCase();
+    const primary = navLang.split('-')[0];
+
+    // Egypt & Arab region default to Arabic
+    if (
+      primary === 'ar' ||
+      tz === 'Africa/Cairo' ||
+      tz === 'Asia/Riyadh' ||
+      tz === 'Asia/Dubai' ||
+      tz === 'Asia/Kuwait' ||
+      tz === 'Asia/Qatar' ||
+      tz === 'Asia/Amman' ||
+      tz === 'Africa/Casablanca' ||
+      tz === 'Africa/Tunis'
+    ) {
+      return 'ar';
+    }
+    if (isValidPublicLocale(primary)) {
+      return primary;
+    }
+    if (tz.startsWith('Europe/') || tz.startsWith('America/') || tz.startsWith('Australia/')) {
+      return 'en';
+    }
+  } catch {}
+  return fallback;
+}
+
 export function getStoredPublicLocale(fallback: PublicLocaleCode = 'ar'): PublicLocaleCode {
   if (typeof window === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(PUBLIC_LOCALE_STORAGE_KEY);
     if (isValidPublicLocale(raw)) return raw;
+    return detectVisitorDefaultLocale(fallback);
   } catch {}
   return fallback;
 }

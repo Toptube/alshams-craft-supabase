@@ -951,7 +951,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   return (
     <div
       style={pageStyle}
-      className="min-h-screen w-full max-w-full overflow-x-clip font-sans transition-colors duration-300"
+      className="min-h-screen w-full max-w-full overflow-x-clip pb-20 font-sans transition-colors duration-300"
       dir={dir}
     >
       {/* Toast Notification */}
@@ -966,12 +966,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
         style={headerStyle}
         className="sticky top-0 z-30 backdrop-blur-md border-b transition-colors duration-300"
       >
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-8">
+        <div className="max-w-7xl mx-auto px-2.5 sm:px-6 py-2 sm:py-3 flex items-center justify-between gap-2 sm:gap-6">
           {/* Zone 1: Workshop Brand */}
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 overflow-hidden">
             <div
               style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
-              className={`w-10 h-10 ${themeSpec.buttonRadiusClass} border flex items-center justify-center overflow-hidden p-0.5 shrink-0`}
+              className={`w-9 h-9 sm:w-10 sm:h-10 ${themeSpec.buttonRadiusClass} border flex items-center justify-center overflow-hidden p-0.5 shrink-0`}
             >
               <img
                 src={storeLogoUrl}
@@ -982,10 +982,10 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 }}
               />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1
                 style={{ color: themeSpec.inkColor }}
-                className={`${themeSpec.titleWeightClass} text-base sm:text-lg truncate`}
+                className={`${themeSpec.titleWeightClass} text-sm sm:text-lg truncate`}
               >
                 {brandName}
               </h1>
@@ -1029,27 +1029,28 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
             )}
           </nav>
 
-          {/* Zone 3: Language/Currency, Share & Cart Actions */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Zone 3: Minimal Language/Currency Icons, Share, Wishlist & Cart */}
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
             <PublicLocaleCurrencyBar
               locale={locale}
               onChangeLocale={setLocale}
               enabledLanguages={effectiveConfig.enabledLanguages}
               currency={customerCurrency}
               onChangeCurrency={(c) => setCustomerCurrency(saveStoredCustomerDisplayCurrency(c))}
-              enabledCurrencies={effectiveConfig.enabledCurrencies}
               compact
             />
-            {isOwnerPreview && onClosePreview ? (
-              <button
-                type="button"
-                onClick={onClosePreview}
-                style={softBtnStyle}
-                className={`px-2.5 sm:px-3.5 py-2 ${themeSpec.buttonRadiusClass} border text-[11px] sm:text-xs font-black transition flex items-center gap-1 cursor-pointer whitespace-nowrap shadow-xs active:scale-95`}
-              >
-                <ArrowRight className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
-                <span>عودة لمتجري</span>
-              </button>
+            {isOwnerPreview ? (
+              onClosePreview ? (
+                <button
+                  type="button"
+                  onClick={onClosePreview}
+                  style={softBtnStyle}
+                  className={`hidden sm:inline-flex px-3 h-9 ${themeSpec.buttonRadiusClass} border text-xs font-black transition items-center gap-1 cursor-pointer whitespace-nowrap shadow-xs active:scale-95`}
+                >
+                  <ArrowRight className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
+                  <span>عودة لمتجري</span>
+                </button>
+              ) : null
             ) : (
               (() => {
                 const hasLoggedSession =
@@ -1063,7 +1064,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                     type="button"
                     onClick={targetHandler}
                     style={softBtnStyle}
-                    className={`px-2.5 sm:px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-black transition flex items-center gap-1 cursor-pointer whitespace-nowrap`}
+                    className={`w-8 h-8 sm:w-auto sm:h-9 sm:px-3 ${themeSpec.buttonRadiusClass} border text-xs font-black transition flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap shrink-0`}
                     title={hasLoggedSession ? t('back_to_app') : t('back_to_market')}
                   >
                     <Home className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
@@ -1079,13 +1080,13 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               type="button"
               onClick={handleShareStore}
               style={softBtnStyle}
-              className={`px-2.5 sm:px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap`}
+              className={`w-8 h-8 sm:w-auto sm:h-9 sm:px-3 ${themeSpec.buttonRadiusClass} border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0`}
               title={t('share')}
             >
               {copiedLink ? (
-                <Check className="w-4 h-4 text-emerald-500" />
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
               ) : (
-                <Share2 className="w-4 h-4" style={{ color: themeSpec.accentText }} />
+                <Share2 className="w-3.5 h-3.5" style={{ color: themeSpec.accentText }} />
               )}
               <span className="hidden sm:inline">{copiedLink ? t('copied') : t('share')}</span>
             </button>
@@ -1094,16 +1095,16 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               type="button"
               onClick={() => setIsWishlistOpen(true)}
               style={softBtnStyle}
-              className={`relative px-2.5 sm:px-3 py-2 ${themeSpec.buttonRadiusClass} border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap`}
+              className={`relative w-8 h-8 sm:w-auto sm:h-9 sm:px-3 ${themeSpec.buttonRadiusClass} border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0`}
               title={t('wishlist')}
             >
               <Heart
-                className={`w-4 h-4 ${wishlistItems.length > 0 ? 'fill-rose-500 text-rose-500' : ''}`}
+                className={`w-3.5 h-3.5 ${wishlistItems.length > 0 ? 'fill-rose-500 text-rose-500' : ''}`}
                 style={wishlistItems.length === 0 ? { color: themeSpec.accentText } : undefined}
               />
               <span className="hidden md:inline">{t('wishlist')}</span>
               {wishlistItems.length > 0 && (
-                <span className="min-w-4.5 h-4.5 px-1 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[10px] font-black flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 sm:static min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white font-mono tabular-nums text-[9px] sm:text-[10px] font-black flex items-center justify-center">
                   {wishlistItems.length}
                 </span>
               )}
@@ -1113,15 +1114,15 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               type="button"
               onClick={() => setIsCartOpen(true)}
               style={accentBtnStyle}
-              className={`relative px-3 sm:px-4 py-2 ${themeSpec.buttonRadiusClass} font-black text-xs transition hover:opacity-90 flex items-center gap-1.5 sm:gap-2 cursor-pointer active:scale-95 whitespace-nowrap`}
+              className={`relative w-8 h-8 sm:w-auto sm:h-9 sm:px-3.5 ${themeSpec.buttonRadiusClass} font-black text-xs transition hover:opacity-90 flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 whitespace-nowrap shrink-0`}
               title={t('cart')}
             >
-              <ShoppingBag className="w-4 h-4" />
-              <span className="hidden xs:inline sm:inline">{t('cart')}</span>
+              <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">{t('cart')}</span>
               {cartItemsCount > 0 && (
                 <span
                   style={{ backgroundColor: themeSpec.badgeBg, color: themeSpec.badgeInk }}
-                  className="min-w-5 h-5 px-1.5 rounded-full font-mono tabular-nums text-[11px] font-black flex items-center justify-center"
+                  className="absolute -top-1 -right-1 sm:static min-w-4 h-4 sm:min-w-5 sm:h-5 px-1 rounded-full font-mono tabular-nums text-[9px] sm:text-[11px] font-black flex items-center justify-center"
                 >
                   {cartItemsCount}
                 </span>
