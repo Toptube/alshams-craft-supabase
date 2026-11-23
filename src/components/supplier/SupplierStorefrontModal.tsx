@@ -38,6 +38,7 @@ import {
   Pause,
   Play,
   Package,
+  Globe,
 } from 'lucide-react';
 
 import { StorefrontThemeGrid, ThemePreviewDecisionBar } from '../store/StorefrontThemeStudio';
@@ -48,6 +49,8 @@ import {
   WORLD_STOREFRONT_THEMES_LIST,
   normalizeStorefrontThemeId,
 } from '../../lib/storefrontThemes';
+import { MultilingualContentStudio } from '../common/MultilingualContentStudio';
+import { PublicLocaleCode } from '../../lib/publicLocale';
 
 interface SupplierStorefrontModalProps {
   isOpen: boolean;
@@ -104,7 +107,7 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
   const currencySymbol = profile.currencySymbol || 'ج.م';
   const currencyCode = profile.currency || 'EGP';
 
-  const [tab, setTab] = useState<'appearance' | 'promotions' | 'order' | 'qr'>('appearance');
+  const [tab, setTab] = useState<'appearance' | 'promotions' | 'languages' | 'order' | 'qr'>('appearance');
   const [brandName, setBrandName] = useState(profile.brandName || '');
   const [storeSlug, setStoreSlug] = useState(profile.storeSlug || profile.store_slug || '');
   const [phone, setPhone] = useState(profile.phoneNumber || '');
@@ -128,6 +131,17 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
   const [showWholesalePricesPublicly, setShowWholesalePricesPublicly] = useState(
     initialCfg.showWholesalePricesPublicly !== false
   );
+  const [enabledLanguages, setEnabledLanguages] = useState<PublicLocaleCode[]>(
+    (initialCfg.enabledLanguages as PublicLocaleCode[]) || ['ar', 'en']
+  );
+  const [defaultLanguage, setDefaultLanguage] = useState<PublicLocaleCode>(
+    (initialCfg.defaultLanguage as PublicLocaleCode) || 'ar'
+  );
+  const [logoArUrl, setLogoArUrl] = useState<string>(initialCfg.logoArUrl || '');
+  const [logoEnUrl, setLogoEnUrl] = useState<string>(initialCfg.logoEnUrl || '');
+  const [translations, setTranslations] = useState<
+    Partial<Record<PublicLocaleCode, Record<string, string | undefined>>>
+  >((initialCfg.translations as any) || {});
 
   // Animated Banner State
   const [promoBanner, setPromoBanner] = useState<ArtisanStorePromoBanner>({
@@ -252,6 +266,7 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
     }));
 
   const buildCurrentConfig = (themeOverride?: StorefrontThemeId): SupplierStoreConfig => ({
+    ...initialCfg,
     tagline: tagline.trim(),
     description: description.trim(),
     themePreset: themeOverride || themePreset,
@@ -265,6 +280,11 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
     richCoupons,
     promoBanner,
     productOrderIds,
+    enabledLanguages,
+    defaultLanguage,
+    logoArUrl,
+    logoEnUrl,
+    translations: translations as any,
   });
 
   const handleSave = async (themeOverride?: StorefrontThemeId): Promise<boolean> => {
@@ -464,12 +484,13 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
           </button>
         </div>
 
-        {/* Visible 4-Button Control Grid */}
+        {/* Visible Settings Control Grid */}
         <div className="p-3 bg-[#E9E2D4]/70 dark:bg-[#060B18] border-b border-[#D4CCBC] dark:border-[#22355E]">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             {[
-              { id: 'appearance' as const, label: `الهوية والسمات (${WORLD_STOREFRONT_THEMES_LIST.length})`, icon: Palette },
+              { id: 'appearance' as const, label: `السمات (${WORLD_STOREFRONT_THEMES_LIST.length})`, icon: Palette },
               { id: 'promotions' as const, label: 'البانر والأكواد', icon: Megaphone },
+              { id: 'languages' as const, label: 'اللغات والشعار', icon: Globe },
               { id: 'order' as const, label: `ترتيب الخامات (${catalogItems.length})`, icon: GripVertical },
               { id: 'qr' as const, label: 'الرابط و QR', icon: QrCode },
             ].map((t) => {
@@ -637,6 +658,43 @@ export const SupplierStorefrontModal: React.FC<SupplierStorefrontModalProps> = (
                 <span>إظهار أسعار الجملة علناً لزوار المتجر</span>
               </label>
             </div>
+          )}
+
+          {tab === 'languages' && (
+            <MultilingualContentStudio
+              title="اللغات والشعار ثنائي اللغة لمتجرك"
+              subtitle="أسعارك تُعرض تلقائياً بعملة بلدك وتتحول لعملة الزائر الدولي أوتوماتيكياً — تحكّم هنا في اللغات والشعار العربي/الإنجليزي"
+              enabledLanguages={enabledLanguages}
+              onChangeEnabledLanguages={setEnabledLanguages}
+              defaultLanguage={defaultLanguage}
+              onChangeDefaultLanguage={setDefaultLanguage}
+              showCurrencies={false}
+              showBilingualLogos={true}
+              defaultLogoUrl={
+                (profile as any)?.logo_url || profile.logoUrl || profile.logoBase64 || '/alshams_falcon_emblem.png'
+              }
+              logoArUrl={logoArUrl}
+              logoEnUrl={logoEnUrl}
+              onChangeLogoAr={setLogoArUrl}
+              onChangeLogoEn={setLogoEnUrl}
+              fields={[
+                { key: 'brandName', labelAr: 'اسم متجر المورد', sourceArabicValue: brandName },
+                { key: 'tagline', labelAr: 'جملة الترحيب', sourceArabicValue: tagline },
+                {
+                  key: 'description',
+                  labelAr: 'وصف المتجر والتوريد',
+                  sourceArabicValue: description,
+                  multiline: true,
+                },
+                {
+                  key: 'promoBannerText',
+                  labelAr: 'نص الشريط الترويجي',
+                  sourceArabicValue: promoBanner?.text || '',
+                },
+              ]}
+              translations={translations}
+              onChangeTranslations={setTranslations}
+            />
           )}
 
           {tab === 'promotions' && (

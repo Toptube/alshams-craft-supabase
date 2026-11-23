@@ -48,6 +48,7 @@ import {
   GripVertical,
   ArrowUp,
   ArrowDown,
+  Globe,
 } from 'lucide-react';
 import {
   addToCart,
@@ -84,6 +85,7 @@ import {
 import { DirectCatalogProductPage } from '../catalog/DirectCatalogProductModal';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
 import { getStoreProductStatus } from '../../lib/catalogStatus';
+import { MultilingualContentStudio } from '../common/MultilingualContentStudio';
 
 interface TreasuryAccountOption {
   id: string;
@@ -91,7 +93,7 @@ interface TreasuryAccountOption {
   balance: number;
 }
 
-export type BuilderTabId = 'products' | 'appearance' | 'promotions' | 'orders' | 'qr';
+export type BuilderTabId = 'products' | 'appearance' | 'promotions' | 'languages' | 'orders' | 'qr';
 
 interface ArtisanStorefrontModalProps {
   isOpen: boolean;
@@ -1078,7 +1080,7 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
         {/* Visible Store Control Button Grid (All 4 Tools Immediately Visible — Zero Hidden Horizontal Tabs!) */}
         {!isOrdersOnlyPage && (
           <div className="p-3 sm:p-4 bg-[#E9E2D4]/70 dark:bg-[#060B18] border-b border-[#D4CCBC] dark:border-[#22355E]">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
               {[
                 {
                   id: 'products' as BuilderTabId,
@@ -1088,15 +1090,21 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
                 },
                 {
                   id: 'appearance' as BuilderTabId,
-                  label: 'المظهر والسمات والهوية',
-                  meta: `${WORLD_STOREFRONT_THEMES_LIST.length} سمة معمارية`,
+                  label: 'المظهر والسمات',
+                  meta: `${WORLD_STOREFRONT_THEMES_LIST.length} سمة`,
                   icon: Palette,
                 },
                 {
                   id: 'promotions' as BuilderTabId,
-                  label: 'البانر وأكواد الخصم',
+                  label: 'البانر والخصم',
                   meta: `${storeConfig.coupons.length} كوبون`,
                   icon: Megaphone,
+                },
+                {
+                  id: 'languages' as BuilderTabId,
+                  label: 'اللغات والشعار',
+                  meta: `${(storeConfig.enabledLanguages || ['ar', 'en']).length} لغة`,
+                  icon: Globe,
                 },
                 {
                   id: 'qr' as BuilderTabId,
@@ -1716,6 +1724,91 @@ export const ArtisanStorefrontModal: React.FC<ArtisanStorefrontModalProps> = ({
             }}
             onSaveCloud={handleSaveStoreConfigCloud}
           />
+        )}
+
+        {/* TAB 3.5: Languages & Bilingual Logo Studio (inside Store Settings gear) */}
+        {activeTab === 'languages' && (
+          <div className="p-4 sm:p-5 flex-1 overflow-y-auto space-y-4">
+            <MultilingualContentStudio
+              title="اللغات والشعار ثنائي اللغة لمتجرك"
+              subtitle="أسعارك تُعرض تلقائياً بعملة بلدك وتتحول لعملة الزائر الدولي أوتوماتيكياً — تحكّم هنا في اللغات والشعار العربي/الإنجليزي"
+              enabledLanguages={storeConfig.enabledLanguages || ['ar', 'en']}
+              onChangeEnabledLanguages={(langs) => {
+                const next = { ...storeConfig, enabledLanguages: langs };
+                setStoreConfig(next);
+                saveStoredArtisanStoreConfig(tenantId, next);
+              }}
+              defaultLanguage={storeConfig.defaultLanguage || 'ar'}
+              onChangeDefaultLanguage={(lang) => {
+                const next = { ...storeConfig, defaultLanguage: lang };
+                setStoreConfig(next);
+                saveStoredArtisanStoreConfig(tenantId, next);
+              }}
+              showCurrencies={false}
+              showBilingualLogos={true}
+              defaultLogoUrl={
+                (profile as any)?.logo_url || profile.logoUrl || profile.logoBase64 || '/alshams_falcon_emblem.png'
+              }
+              logoArUrl={storeConfig.logoArUrl || ''}
+              logoEnUrl={storeConfig.logoEnUrl || ''}
+              onChangeLogoAr={(url) => {
+                const next = { ...storeConfig, logoArUrl: url };
+                setStoreConfig(next);
+                saveStoredArtisanStoreConfig(tenantId, next);
+              }}
+              onChangeLogoEn={(url) => {
+                const next = { ...storeConfig, logoEnUrl: url };
+                setStoreConfig(next);
+                saveStoredArtisanStoreConfig(tenantId, next);
+              }}
+              fields={[
+                {
+                  key: 'brandName',
+                  labelAr: 'اسم المتجر / العلامة',
+                  sourceArabicValue: profile.brandName || profile.artistName || '',
+                },
+                {
+                  key: 'welcomeMessage',
+                  labelAr: 'رسالة الترحيب بالعملاء',
+                  sourceArabicValue: storeConfig.welcomeMessage || '',
+                },
+                {
+                  key: 'artistStory',
+                  labelAr: 'قصة الورشة والحرفة',
+                  sourceArabicValue: storeConfig.artistStory || '',
+                  multiline: true,
+                },
+                {
+                  key: 'craftBadge',
+                  labelAr: 'شارة الحرفة الأصيلة',
+                  sourceArabicValue: storeConfig.craftBadge || '',
+                },
+                {
+                  key: 'promoBannerText',
+                  labelAr: 'نص الشريط الترويجي',
+                  sourceArabicValue: storeConfig.promoBanner?.text || '',
+                },
+              ]}
+              translations={(storeConfig.translations || {}) as any}
+              onChangeTranslations={(nextTrans) => {
+                const next = { ...storeConfig, translations: nextTrans as any };
+                setStoreConfig(next);
+                saveStoredArtisanStoreConfig(tenantId, next);
+              }}
+            />
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={savingConfig}
+                onClick={() => handleSaveStoreConfigCloud(storeConfig)}
+                className="px-5 py-2.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{savingConfig ? 'جاري الحفظ...' : 'حفظ إعدادات اللغات والشعار'}</span>
+              </button>
+            </div>
+          </div>
         )}
 
         {/* TAB 4: أوردراتي — Unified Multi-Source Orders & 5-Stage Fulfillment Lifecycle */}

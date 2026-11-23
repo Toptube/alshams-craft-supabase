@@ -31,6 +31,7 @@ export type StorefrontCategoryLayout =
 export interface StorefrontThemeSpec {
   id: StorefrontThemeId;
   nameAr: string;
+  shortNameAr: string;
   englishSignature: string;
   architectureTagAr: string;
   taglineAr: string;
@@ -75,6 +76,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   arch_boutique: {
     id: 'arch_boutique',
     nameAr: 'أقواس البوتيك الملكي',
+    shortNameAr: 'الملكي',
     englishSignature: 'Arch & Medallion Boutique',
     architectureTagAr: 'إطارات مقوّسة + أيقونات دائرية',
     taglineAr: 'صور منتجات داخل أقواس معمارية أنيقة وتصنيفات دائرية بروح البوتيكات الباريسية والعربية الفاخرة',
@@ -111,6 +113,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   bento_studio: {
     id: 'bento_studio',
     nameAr: 'بنتو التفاعلي الحديث',
+    shortNameAr: 'بنتو',
     englishSignature: 'Interactive Bento Studio',
     architectureTagAr: 'شبكة بنتو + بطاقة رئيسية عريضة',
     taglineAr: 'تخطيط بنتو عالمي يقسم الواجهة لبطاقات ذكية تفاعلية مع إبراز أول منتج في عرض بانورامي واسع',
@@ -147,6 +150,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   cinema_lookbook: {
     id: 'cinema_lookbook',
     nameAr: 'لوك بوك العرض الجانبي',
+    shortNameAr: 'سينمائي',
     englishSignature: 'Cinematic Side-Lookbook',
     architectureTagAr: 'شريط عرض أفقي + بطاقات جانبية',
     taglineAr: 'معرض سينمائي داكن يبدأ بشريط تقليب أفقي لأبرز القطع، وتحته بطاقات جانبية (صورة على اليمين والتفاصيل على اليسار)',
@@ -183,6 +187,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   pop_atelier: {
     id: 'pop_atelier',
     nameAr: 'ستوديو البولارويد الحر',
+    shortNameAr: 'بولارويد',
     englishSignature: 'Polaroid Kinetic Studio',
     architectureTagAr: 'إطارات بولارويد + شريط متحرك + ظلال هندسية',
     taglineAr: 'تصميم تفاعلي مبهج بظلال هندسية جريئة، إطارات بولارويد فنية للصور، وشريط إعلاني متحرك يخطف العين',
@@ -221,6 +226,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   shams_sand: {
     id: 'shams_sand',
     nameAr: 'الأتيليه الدافئ',
+    shortNameAr: 'دافئ',
     englishSignature: 'Atelier Editorial',
     architectureTagAr: 'كلاسيكي متوازن',
     taglineAr: 'رملي دافئ ونحاسي فني مستوحى من الأتيليهات الحرفية العالمية',
@@ -257,6 +263,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   royal_navy: {
     id: 'royal_navy',
     nameAr: 'القصر الكحلي والذهب',
+    shortNameAr: 'كحلي',
     englishSignature: 'Maison Royale',
     architectureTagAr: 'إطار ملكي متمركز',
     taglineAr: 'فخامة كلاسيكية بعمق كحلي ملكي ولمسات ذهب عتيق راقية',
@@ -293,6 +300,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   emerald_linen: {
     id: 'emerald_linen',
     nameAr: 'الحديقة النباتية',
+    shortNameAr: 'زمردي',
     englishSignature: 'Botanical Craft',
     architectureTagAr: 'انحناءات ناعمة هادئة',
     taglineAr: 'كتان طبيعي مريح مع أخضر زمردي نقي بروح المتاجر الإسكندنافية',
@@ -329,6 +337,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   rose_clay: {
     id: 'rose_clay',
     nameAr: 'الجاليري الأندلسي',
+    shortNameAr: 'أندلسي',
     englishSignature: 'Terracotta Gallery',
     architectureTagAr: 'مجلة فنية بإطارات طويلة',
     taglineAr: 'أسلوب مجلات التصميم العالمية بحواف معمارية حادة وصور طولية فنية',
@@ -365,6 +374,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   midnight_gallery: {
     id: 'midnight_gallery',
     nameAr: 'الجاليري الأسود الفاخر',
+    shortNameAr: 'ليلي',
     englishSignature: 'Noir Studio',
     architectureTagAr: 'إضاءة متحفية داكنة',
     taglineAr: 'خلفية سوداء متحفية تسلط الضوء بالكامل على تفاصيل وألوان منتجاتك',
@@ -401,6 +411,7 @@ export const WORLD_STOREFRONT_THEMES: Record<StorefrontThemeId, StorefrontThemeS
   clean_alabaster: {
     id: 'clean_alabaster',
     nameAr: 'المينيمال السويسري',
+    shortNameAr: 'سويسري',
     englishSignature: 'Swiss Minimal',
     architectureTagAr: 'شبكة سويسرية نقية',
     taglineAr: 'بياض معماري ناصع وتباين أسود حاد بأسلوب المتاجر العالمية الحديثة',
