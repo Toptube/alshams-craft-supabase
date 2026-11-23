@@ -61,6 +61,7 @@ export interface NavbarProps {
   onSelectThemeMode?: (mode: ThemeMode) => void;
   onNavigateToMarketplace?: () => void;
   onOpenArtisanStore?: () => void;
+  onOpenLiveStoreStudio?: () => void;
   onNavigateToFamily?: () => void;
   onNavigateToExecutiveBrief?: () => void;
   onOpenPersonalProfile?: () => void;
@@ -85,6 +86,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenNewClientModal,
   onNavigateToCatalog,
   onOpenArtisanStore,
+  onOpenLiveStoreStudio,
   onNavigateToFamily,
   onNavigateToExecutiveBrief,
   onOpenPersonalProfile,
@@ -207,7 +209,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const showStoreButton =
     (isSuperAdminMode || storeNavCfg?.visible !== false) &&
-    Boolean(onOpenArtisanStore || onNavigateToCatalog) &&
+    Boolean(onOpenLiveStoreStudio || onOpenArtisanStore || onNavigateToCatalog) &&
     (isSuperAdminMode || (isSupplierAccount ? flags.supplierPortalEnabled : flags.artisanStorefrontEnabled)) &&
     isActionUnlockedBySubscription('top_nav_store', userSub, subRole, isSuperAdminMode);
   const showFamilyButton =
@@ -241,18 +243,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           key={id}
           type="button"
           onClick={() => {
-            if (onOpenArtisanStore) {
+            if (onOpenLiveStoreStudio) {
+              onOpenLiveStoreStudio();
+            } else if (onOpenArtisanStore) {
               onOpenArtisanStore();
             } else if (onNavigateToCatalog) {
               onNavigateToCatalog('store');
             }
           }}
-          title={isSupplierAccount ? 'لوحة تحكم متجر المورد والمعاينة العامة' : 'متجري الخاص وطلبات الزبائن'}
+          title="فتح متجرك المباشر للتعديل بالسحب والإفلات والمعاينة للعملاء"
           className={`${
             isCompactNav
               ? 'h-7 sm:h-8 px-1.5 sm:px-2.5 text-[10px] sm:text-[11px] gap-1'
               : 'h-7 sm:h-8 px-1.5 sm:px-3 text-[10px] sm:text-xs gap-1'
-          } rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white border border-[#FDBA74]/50 font-black flex items-center transition cursor-pointer shadow-sm whitespace-nowrap shrink-0`}
+          } rounded-xl bg-gradient-to-r from-[#C2410C] via-[#EA580C] to-[#D97706] hover:from-[#9A3412] hover:to-[#EA580C] text-white border ${
+            activeView === 'my_store_studio' ? 'border-[#FBBF24] ring-2 ring-[#FBBF24]/50' : 'border-[#FDBA74]/50'
+          } font-black flex items-center transition cursor-pointer shadow-sm whitespace-nowrap shrink-0`}
         >
           <Store className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-100 shrink-0" />
           <span>{label || 'متجري'}</span>

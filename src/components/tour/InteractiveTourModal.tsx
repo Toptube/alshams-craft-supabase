@@ -266,7 +266,7 @@ export const InteractiveTourModal: React.FC<InteractiveTourModalProps> = ({
               💡 الدليل التفاعلي والجولة متاحان دائماً
             </span>
             <span className="text-[11px] text-stone-500 block">
-              تقدر تفتح الدليل أو تعيد الجولة من القائمة الجانبية أو تسأل شموسة العائمة في أي وقت.
+              تقدر تفتح الدليل أو تعيد الجولة من القائمة الجانبية أو تسأل شموسة مديرة أعمالك في أي وقت.
             </span>
           </div>
         </div>

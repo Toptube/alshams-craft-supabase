@@ -89,7 +89,7 @@ export const ADMIN_SYSTEM_ACTIONS_ARTISAN: AdminControllableSystemAction[] = [
   { actionKey: 'top_nav_quick_add', label: 'زرار الإضافة السريعة (+) أعلى الشاشة', description: 'قائمة (+) المختصرة لبيع/خامة/حاسبة/عميل' },
   { actionKey: 'quick_direct_product', label: 'زرار «إضافة منتج مباشر سريع»', description: 'إضافة منتج مباشر بالصور والألوان للكتالوج والمتجر' },
   { actionKey: 'widget_home_summary', label: 'صندوق «ملخص الورشة» المالي والمخزني', description: 'أرصدة الخزائن والخامات والرسوم البيانية أسفل الشاشة الرئيسية' },
-  { actionKey: 'open_shamousa', label: 'المساعدة الذكية «شموسة» العائمة ☀️', description: 'تفعيل شموسة داخل هذه الباقة (تعمل بذكاء على قد باقات المشترك فقط — ممنوعة في الباقة الأساسية)' },
+  { actionKey: 'open_shamousa', label: '«شموسة» مديرة أعمالك ☀️', description: 'تفعيل شموسة مديرة أعمالك داخل هذه الباقة (تعمل بذكاء على قد باقات المشترك فقط — ممنوعة في الباقة الأساسية)' },
   { actionKey: 'nav_ai_agent', label: 'المستشار الهندسي «صقر الشمساوية» AI 🦅', description: 'تفعيل صقر AI بشكل مستقل داخل هذه الباقة (ممنوع في الباقة الأساسية)' },
 ];
 
@@ -98,7 +98,7 @@ export const ADMIN_SYSTEM_ACTIONS_SUPPLIER: AdminControllableSystemAction[] = [
   { actionKey: 'top_nav_store', label: 'زرار «متجري» وأدوات رابط المتجر و QR', description: 'إظهار متجري أعلى الشاشة وأزرار معاينة ورابط المتجر' },
   { actionKey: 'top_nav_quick_add', label: 'زرار الإضافة السريعة (+) أعلى الشاشة', description: 'قائمة (+) المختصرة في الشريط العلوي' },
   { actionKey: 'widget_home_summary', label: 'صناديق ملخص السيولة والمخزون', description: 'مؤشرات الأرصدة والمخزون والمبيعات في الرئيسية' },
-  { actionKey: 'open_shamousa', label: 'المساعدة الذكية «شموسة» العائمة ☀️', description: 'تفعيل شموسة للمورد داخل هذه الباقة (تعمل على قد باقاته فقط — ممنوعة في الباقة الأساسية)' },
+  { actionKey: 'open_shamousa', label: '«شموسة» مديرة أعمالك ☀️', description: 'تفعيل شموسة مديرة أعمالك للمورد داخل هذه الباقة (تعمل على قد باقاته فقط — ممنوعة في الباقة الأساسية)' },
   { actionKey: 'nav_ai_agent', label: 'المستشار الهندسي «صقر الشمساوية» AI 🦅', description: 'تفعيل صقر AI للمورد بشكل مستقل داخل هذه الباقة (ممنوع في الباقة الأساسية)' },
 ];
 

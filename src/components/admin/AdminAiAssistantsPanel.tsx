@@ -56,7 +56,7 @@ export const AdminAiAssistantsPanel: React.FC<AdminAiAssistantsPanelProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <label className="space-y-1 block">
             <span className="text-[11px] font-black text-[#334155] dark:text-[#CBD5E1]">
-              الاسم أسفل الأيقونة العائمة
+              الاسم أسفل أيقونة شموسة مديرة أعمالك
             </span>
             <input
               type="text"

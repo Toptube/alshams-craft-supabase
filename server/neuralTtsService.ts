@@ -212,40 +212,55 @@ async function synthesizeWithGeminiTts(
 
     const t0 = Date.now();
     try {
+      const plainFallbackPart = {
+        text:
+          persona === 'shamousa'
+            ? `اقرئي الكلام ده بصوت أنثوي مصري قاهري طبيعي دافئ ومرح ولذيذ جداً:\n${text}`
+            : `اقرأ الكلام ده بصوت رجولي مصري عميق راقي فيه فخامة وعزة ووقار بالعامية المصرية:\n${text}`,
+      };
       const partPayload: any = model.supportsMetadata
         ? {
             text,
             speechMetadata: { style },
           }
-        : {
-            text:
-              persona === 'shamousa'
-                ? `اقرئي الكلام ده بصوت أنثوي مصري قاهري طبيعي دافئ ومرح ولذيذ جداً:\n${text}`
-                : `اقرأ الكلام ده بصوت رجولي مصري عميق راقي فيه فخامة وعزة ووقار بالعامية المصرية:\n${text}`,
-          };
+        : plainFallbackPart;
 
-      const response: any = await Promise.race([
-        ai.models.generateContent({
-          model: model.id,
-          contents: [
-            {
-              role: 'user',
-              parts: [partPayload],
-            },
-          ],
-          config: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName },
+      const runTtsCall = (payloadPart: any) =>
+        Promise.race([
+          ai.models.generateContent({
+            model: model.id,
+            contents: [
+              {
+                role: 'user',
+                parts: [payloadPart],
+              },
+            ],
+            config: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName },
+                },
               },
             },
-          },
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('GEMINI_TTS_TIMEOUT')), 14000)
-        ),
-      ]);
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('GEMINI_TTS_TIMEOUT')), 16000)
+          ),
+        ]);
+
+      let response: any;
+      try {
+        response = await runTtsCall(partPayload);
+      } catch (metaErr: any) {
+        const metaStatus = Number(metaErr?.status || metaErr?.code || 0);
+        const metaMsg = String(metaErr?.message || metaErr || '');
+        if (model.supportsMetadata && (metaStatus === 400 || /INVALID_ARGUMENT|speechMetadata/i.test(metaMsg))) {
+          response = await runTtsCall(plainFallbackPart);
+        } else {
+          throw metaErr;
+        }
+      }
 
       const parts = response?.candidates?.[0]?.content?.parts || [];
       const audioPart = parts.find((p: any) => p?.inlineData?.data);
@@ -282,7 +297,7 @@ async function synthesizeWithGeminiTts(
       if (status === 429 || /RESOURCE_EXHAUSTED|quota|429/i.test(msg)) {
         // ONLY cool down THIS exact (key, model) pair — NEVER block the other Gemini models on this key!
         const isDailyOrPlanZero = /limit:\s*0|PerDay|daily/i.test(msg);
-        const cooldownMs = isDailyOrPlanZero ? 8 * 60 * 1000 : 25 * 1000;
+        const cooldownMs = isDailyOrPlanZero ? 5 * 60 * 1000 : 18 * 1000;
         modelKeyCooldownUntil.set(`${keyTag}:${model.id}`, Date.now() + cooldownMs);
         continue;
       }

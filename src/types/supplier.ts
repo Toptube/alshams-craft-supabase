@@ -1,6 +1,6 @@
 import { MainSectionId } from '../registry/craftsRegistry';
 import { UserProfile, Gender } from './index';
-import { ArtisanStorePromoBanner, ProductDiscountConfig } from './artisanStoreBuilder';
+import { ArtisanStorePromoBanner, ProductDiscountConfig, StorefrontSectionId } from './artisanStoreBuilder';
 import { MarketCouponConfig } from './marketplaceBuilder';
 
 export type SupplierBusinessType = 'online' | 'shop' | 'factory';
@@ -53,6 +53,9 @@ export interface SupplierStoreConfig {
   richCoupons?: MarketCouponConfig[];
   promoBanner?: ArtisanStorePromoBanner;
   productOrderIds?: string[];
+  sectionOrder?: StorefrontSectionId[];
+  hiddenSections?: StorefrontSectionId[];
+  layoutCols?: 1 | 2 | 3;
   acceptedCurrencies?: string[];
   showWholesalePricesPublicly?: boolean;
 }

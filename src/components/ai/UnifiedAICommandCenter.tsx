@@ -54,6 +54,7 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
   onNavigateHome,
 }) => {
   const [activeAIAgent, setActiveAIAgent] = useState<'falcon' | 'shamousa'>('falcon');
+  const [falconFullscreen, setFalconFullscreen] = useState<boolean>(true);
 
   // Shamousa Independent Console State
   const [shamousaMessages, setShamousaMessages] = useState<
@@ -427,7 +428,10 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
         {/* Card 1: Falcon AI */}
         <button
           type="button"
-          onClick={() => setActiveAIAgent('falcon')}
+          onClick={() => {
+            setActiveAIAgent('falcon');
+            setFalconFullscreen(true);
+          }}
           className={`p-5 rounded-3xl border-2 transition-all text-right cursor-pointer shadow-sm relative overflow-hidden group ${
             activeAIAgent === 'falcon'
               ? 'bg-gradient-to-br from-amber-600 via-amber-700 to-amber-800 text-white border-amber-400 ring-4 ring-amber-500/20 scale-[1.01]'
@@ -499,7 +503,21 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
 
       {/* 3. Main Agent View Content */}
       {activeAIAgent === 'falcon' ? (
-        <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 p-4 sm:p-6 shadow-sm">
+        <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 p-4 sm:p-6 shadow-sm space-y-3">
+          {!falconFullscreen && (
+            <div className="flex items-center justify-between gap-2 pb-2 border-b border-stone-200 dark:border-stone-800">
+              <span className="text-xs font-black text-stone-700 dark:text-stone-300">
+                مستشار صقر الشمساوية AI 🦅
+              </span>
+              <button
+                type="button"
+                onClick={() => setFalconFullscreen(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition cursor-pointer shadow-xs"
+              >
+                فتح صقر ملء الشاشة 🦅
+              </button>
+            </div>
+          )}
           <FalconAIAgent
             profile={profile}
             currentCategory={currentCategory as CraftCategory}
@@ -507,6 +525,8 @@ export const UnifiedAICommandCenter: React.FC<UnifiedAICommandCenterProps> = ({
             onApplyEstimatedLaborWage={onApplyEstimatedLaborWage || (() => {})}
             onTransferNotesToCalculator={onTransferNotesToCalculator || (() => {})}
             onExportStructuredToCalculator={onExportStructuredToCalculator}
+            isFullscreen={falconFullscreen}
+            onClose={() => setFalconFullscreen(false)}
           />
         </div>
       ) : (

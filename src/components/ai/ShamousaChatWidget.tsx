@@ -2199,7 +2199,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
       if (typeof data.remaining === 'number') setRemaining(data.remaining);
       if (useGoogleSearch || Boolean(sendOptions?.forceSearch)) {
-        shamousaConn.reportSearchOutcome(Boolean(data.searchUsed));
+        shamousaConn.reportSearchOutcome(!data.searchFailed);
       }
 
       const isInternalData = /هلخصهالك|خزن|خزينة|خزينه|سيول|سيولة|رصيد|عهدة|عهده|فلوس|خامات|مخزن|أوردر|اوردر|طلب|مبيعات|عميل|عملاء|مورد|موردين|موظف|عمال|دفاتر|حسابات|صفحتي|عيلة|شرائح/i.test(message + ' ' + (data.reply || ''));

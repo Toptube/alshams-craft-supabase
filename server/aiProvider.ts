@@ -349,7 +349,7 @@ export class GeminiAIProvider {
         const model = uniqueModels[mIdx];
         const isLastModel = mIdx === uniqueModels.length - 1;
         const maxAttempts = isLastModel && rolesToTry.length === 1 ? 2 : 1;
-        const perAttemptTimeout = isLastModel ? (opts.timeoutMs || 18000) : Math.min(opts.timeoutMs || 12000, 11000);
+        const perAttemptTimeout = isLastModel ? (opts.timeoutMs || 22000) : Math.min(opts.timeoutMs || 16000, 16000);
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           let timeoutId: any;
@@ -741,7 +741,7 @@ export class GeminiAIProvider {
                     tools: [{ googleSearch: {} }],
                   },
                 },
-                { label: 'falcon-google-search', timeoutMs: 10_000, role: 'falcon_chat' }
+                { label: 'falcon-google-search', timeoutMs: 18_000, role: 'falcon_chat' }
               );
               searchUsed = true;
               geminiSearchDone = true;
@@ -798,7 +798,7 @@ export class GeminiAIProvider {
             }
             response = await this.generate(
               { contents: enrichedContents, config: { systemInstruction } },
-              { label: 'falcon-chat-web-grounded', timeoutMs: 14_000, role: 'falcon_chat' }
+              { label: 'falcon-chat-web-grounded', timeoutMs: 18_000, role: 'falcon_chat' }
             );
           }
         } else {
@@ -806,7 +806,7 @@ export class GeminiAIProvider {
             { contents, config: { systemInstruction } },
             {
               label: hasImages ? 'falcon-vision' : 'falcon-chat',
-              timeoutMs: hasImages ? 20_000 : 14_000,
+              timeoutMs: hasImages ? 24_000 : 18_000,
               role: activeGeminiRole,
             }
           );

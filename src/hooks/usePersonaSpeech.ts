@@ -9,7 +9,7 @@ interface UsePersonaSpeechResult {
   isSupported: boolean;
   toggleEnabled: () => void;
   unlock: () => void;
-  speak: (rawText: string) => void;
+  speak: (rawText: string, forceSpeak?: boolean) => void;
   stop: () => void;
 }
 
@@ -238,9 +238,10 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
   const playAudioPayload = useCallback(
     async (
       payload: { arrayBuffer: ArrayBuffer; contentType: string },
-      currentRun: number
+      currentRun: number,
+      forceSpeak = false
     ): Promise<void> => {
-      if (runIdRef.current !== currentRun || !enabledRef.current) return;
+      if (runIdRef.current !== currentRun || (!enabledRef.current && !forceSpeak)) return;
 
       // Method A (Best on Mobile & Desktop): Web Audio API (with safe resume timeout so suspended mobile AudioContext falls through cleanly!)
       const ctx = getOrCreateAudioContext();
@@ -256,7 +257,7 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
             // Clone ArrayBuffer because decodeAudioData detaches it
             const copy = payload.arrayBuffer.slice(0);
             const audioBuffer = await ctx.decodeAudioData(copy);
-            if (runIdRef.current !== currentRun || !enabledRef.current) return;
+            if (runIdRef.current !== currentRun || (!enabledRef.current && !forceSpeak)) return;
 
             await new Promise<void>((resolve) => {
               const source = ctx.createBufferSource();
@@ -279,7 +280,7 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
       }
 
       // Method B: HTMLAudioElement backup
-      if (runIdRef.current !== currentRun || !enabledRef.current) return;
+      if (runIdRef.current !== currentRun || (!enabledRef.current && !forceSpeak)) return;
       if (!fallbackAudioElRef.current) {
         fallbackAudioElRef.current = new Audio();
       }
@@ -290,7 +291,7 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
       activeBlobUrlRef.current = blobUrl;
 
       await new Promise<void>((resolve) => {
-        if (runIdRef.current !== currentRun || !enabledRef.current) {
+        if (runIdRef.current !== currentRun || (!enabledRef.current && !forceSpeak)) {
           resolve();
           return;
         }
@@ -309,8 +310,8 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
   );
 
   const speak = useCallback(
-    (rawText: string) => {
-      if (!enabledRef.current) return;
+    (rawText: string, forceSpeak = false) => {
+      if (!enabledRef.current && !forceSpeak) return;
       const cleaned = sanitizeTextForSpeech(rawText);
       if (!cleaned) return;
 
@@ -349,13 +350,13 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
       void (async () => {
         // Sequential pacing (no burst parallel requests!) keeps free Gemini TTS quota smooth & continuous
         for (let i = 0; i < chunks.length; i++) {
-          if (runIdRef.current !== currentRun || !enabledRef.current) break;
+          if (runIdRef.current !== currentRun || (!enabledRef.current && !forceSpeak)) break;
 
           const payload = await fetchNeuralChunkBuffer(chunks[i], abortController.signal);
-          if (runIdRef.current !== currentRun || !enabledRef.current) break;
+          if (runIdRef.current !== currentRun || (!enabledRef.current && !forceSpeak)) break;
 
           if (!payload) continue;
-          await playAudioPayload(payload, currentRun);
+          await playAudioPayload(payload, currentRun, forceSpeak);
         }
 
         revokeBlobUrl();
@@ -368,19 +369,17 @@ export function usePersonaSpeech(persona: SpeechPersona): UsePersonaSpeechResult
   );
 
   const toggleEnabled = useCallback(() => {
-    setIsEnabled((prev) => {
-      const next = !prev;
-      enabledRef.current = next;
-      try {
-        window.localStorage.setItem(storageKey, next ? '1' : '0');
-      } catch {}
-      if (!next) {
-        stop();
-      } else {
-        unlock();
-      }
-      return next;
-    });
+    const next = !enabledRef.current;
+    enabledRef.current = next;
+    setIsEnabled(next);
+    try {
+      window.localStorage.setItem(storageKey, next ? '1' : '0');
+    } catch {}
+    if (!next) {
+      stop();
+    } else {
+      unlock();
+    }
   }, [stop, storageKey, unlock]);
 
   useEffect(() => {

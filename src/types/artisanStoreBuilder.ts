@@ -100,6 +100,21 @@ export interface ArtisanBundleDealConfig {
   label: string;
 }
 
+export type StorefrontSectionId =
+  | 'promo_banner'
+  | 'hero_header'
+  | 'products_grid'
+  | 'portfolio_gallery'
+  | 'contact_footer';
+
+export const DEFAULT_STOREFRONT_SECTION_ORDER: StorefrontSectionId[] = [
+  'promo_banner',
+  'hero_header',
+  'products_grid',
+  'portfolio_gallery',
+  'contact_footer',
+];
+
 export interface ArtisanStoreConfig {
   themePreset: MarketThemePresetId;
   storeCurrency: string;
@@ -129,6 +144,8 @@ export interface ArtisanStoreConfig {
   showPortfolioGallery: boolean;
   portfolioTitle: string;
   portfolioItems: ArtisanPortfolioGalleryItem[];
+  sectionOrder?: StorefrontSectionId[];
+  hiddenSections?: StorefrontSectionId[];
   updatedAt?: string;
 }
 
@@ -208,6 +225,8 @@ export const DEFAULT_ARTISAN_STORE_CONFIG: ArtisanStoreConfig = {
   showPortfolioGallery: false,
   portfolioTitle: 'معرض أعمالنا السابقة ولمسات التنفيذ (قبل وبعد)',
   portfolioItems: [],
+  sectionOrder: [...DEFAULT_STOREFRONT_SECTION_ORDER],
+  hiddenSections: [],
 };
 
 export function normalizeArtisanStoreConfig(
@@ -221,6 +240,8 @@ export function normalizeArtisanStoreConfig(
       socialLinks: { ...DEFAULT_ARTISAN_STORE_CONFIG.socialLinks },
       coupons: [],
       portfolioItems: [],
+      sectionOrder: [...DEFAULT_STOREFRONT_SECTION_ORDER],
+      hiddenSections: [],
     };
   }
   const validPreset =
@@ -234,6 +255,22 @@ export function normalizeArtisanStoreConfig(
     raw.socialLinks?.displayMode === 'both'
       ? raw.socialLinks.displayMode
       : 'both';
+
+  const validSectionSet = new Set<StorefrontSectionId>(DEFAULT_STOREFRONT_SECTION_ORDER);
+  const rawOrder = Array.isArray(raw.sectionOrder)
+    ? raw.sectionOrder.filter((s): s is StorefrontSectionId => validSectionSet.has(s as StorefrontSectionId))
+    : [];
+  const mergedOrder: StorefrontSectionId[] = [
+    ...Array.from(new Set(rawOrder)),
+    ...DEFAULT_STOREFRONT_SECTION_ORDER.filter((s) => !rawOrder.includes(s)),
+  ];
+  const hiddenSections: StorefrontSectionId[] = Array.isArray(raw.hiddenSections)
+    ? Array.from(
+        new Set(
+          raw.hiddenSections.filter((s): s is StorefrontSectionId => validSectionSet.has(s as StorefrontSectionId))
+        )
+      )
+    : [];
 
   return {
     ...DEFAULT_ARTISAN_STORE_CONFIG,
@@ -258,6 +295,8 @@ export function normalizeArtisanStoreConfig(
     },
     coupons: Array.isArray(raw.coupons) ? raw.coupons : [],
     portfolioItems: Array.isArray(raw.portfolioItems) ? raw.portfolioItems : [],
+    sectionOrder: mergedOrder,
+    hiddenSections,
   };
 }
 

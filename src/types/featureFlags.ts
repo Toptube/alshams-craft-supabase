@@ -101,7 +101,7 @@ export const FEATURE_FLAG_ITEMS: FeatureFlagMetaItem[] = [
     key: 'aiAssistantsEnabled',
     group: 'workshop_core',
     title: 'المساعدات الذكية (شموسة وصقر AI)',
-    description: 'إظهار أو إخفاء أيقونة شموسة العائمة ومستشار صقر الشمساوية داخل الحسابات.',
+    description: 'إظهار أو إخفاء أيقونة شموسة مديرة أعمالك ومستشار صقر الشمساوية داخل الحسابات.',
   },
   {
     key: 'craftCalculatorEnabled',

@@ -47,14 +47,13 @@ export const ACTIVE_FANAR_MODELS = ['Fanar'] as const;
 const GEMINI_KEY_CIRCUIT_TTL_MS = 5 * 60 * 1000;
 const geminiInvalidKeyCircuit = new Map<string, { until: number; reason: string }>();
 
-// Separate circuit breaker ONLY for Gemini's built-in Google Search tool:
-// Uses a fast 60-second cooldown so Google Search ALWAYS resumes as #1 primary immediately once RPM refreshes,
-// while automatically failing over to Groq browser_search (#2 backup) without ever going down!
-const GEMINI_SEARCH_COOLDOWN_MS = 60 * 1000;
-const GROQ_SEARCH_COOLDOWN_MS = 60 * 1000;
+// Fast 20s/25s cooldowns so Google Search #1 & Groq #2 recover swiftly while Tier 3 free keyless search keeps service uninterrupted
+const GEMINI_SEARCH_COOLDOWN_MS = 20 * 1000;
+const GROQ_SEARCH_COOLDOWN_MS = 25 * 1000;
 let geminiSearchCooldownUntil = 0;
 let groqSearchCooldownUntil = 0;
 let groqSearchKeyCursor = 0;
+let geminiKeyRoundRobin = 0;
 
 export function isGeminiSearchCircuitOpen(): boolean {
   return Date.now() < geminiSearchCooldownUntil;
@@ -65,7 +64,7 @@ export function tripGeminiSearchCircuit(err?: any): void {
   const status = Number(err?.status || err?.code || 0);
   if (status === 429 || /RESOURCE_EXHAUSTED|quota|429/i.test(msg)) {
     geminiSearchCooldownUntil = Date.now() + GEMINI_SEARCH_COOLDOWN_MS;
-    console.warn('[Search Circuit] Google Search hit 429 -> failing over to Groq browser_search for 60s, then resuming Google Search #1.');
+    console.warn('[Search Circuit] Google Search hit 429 -> failing over to Groq browser_search for 20s, then resuming Google Search #1.');
   }
 }
 
@@ -77,7 +76,7 @@ export function getLiveSearchHealthStatus(): {
   googleSearchReady: boolean;
   groqSearchReady: boolean;
   liveSearchAvailable: boolean;
-  primaryEngine: 'google_search' | 'groq_search' | 'offline';
+  primaryEngine: 'google_search' | 'groq_search' | 'web_search' | 'offline';
 } {
   const geminiKey = resolveAgentGeminiKey('search');
   const googleSearchReady = Boolean(
@@ -85,11 +84,18 @@ export function getLiveSearchHealthStatus(): {
   );
   const groqKeys = getGroqApiKeys();
   const groqSearchReady = groqKeys.length > 0 && !isGroqSearchCircuitOpen();
-  const liveSearchAvailable = googleSearchReady || groqSearchReady;
+  const fanarReady = Boolean(getFanarApiKey());
+  // Tier 3 (free keyless DuckDuckGo/Google News RSS + any AI synthesizer) stays live even during a 20s Tier 1/2 RPM cooldown
+  const anySynthesisReady = Boolean(
+    (geminiKey && !isGeminiKeyCircuitOpen(geminiKey)) || groqKeys.length > 0 || fanarReady
+  );
+  const liveSearchAvailable = googleSearchReady || groqSearchReady || anySynthesisReady;
   const primaryEngine = googleSearchReady
     ? 'google_search'
     : groqSearchReady
     ? 'groq_search'
+    : anySynthesisReady
+    ? 'web_search'
     : 'offline';
   return {
     googleSearchReady,
@@ -221,12 +227,18 @@ export function formatAiErrorReason(reason?: string): string {
 function pickFirstHealthyGeminiKey(candidates: Array<string | undefined>): string {
   const cleaned = Array.from(new Set(candidates.map((c) => cleanSecretValue(c)).filter(Boolean)));
   if (cleaned.length === 0) return '';
-  const healthy = cleaned.find((k) => !isGeminiKeyCircuitOpen(k));
-  return healthy || cleaned[0];
+  const healthyList = cleaned.filter((k) => !isGeminiKeyCircuitOpen(k));
+  if (healthyList.length > 1) {
+    // Spread traffic evenly across healthy keys to drastically reduce 429 RPM drops
+    const idx = geminiKeyRoundRobin % healthyList.length;
+    geminiKeyRoundRobin = (geminiKeyRoundRobin + 1) % 100000;
+    return healthyList[idx];
+  }
+  return healthyList[0] || cleaned[0];
 }
 
 export function resolveAgentGeminiKey(agent: AIAgentRole): string {
-  // Strictly use user's own free custom Gemini keys (completely ignores platform-managed GEMINI_API_KEY)
+  // Prioritize user's custom Gemini keys and fall back cleanly to platform GEMINI_API_KEY so service never drops
   if (agent === 'falcon_chat') {
     return pickFirstHealthyGeminiKey([
       process.env.GEMINI_API_KEY_FALCON_CHAT,
@@ -235,6 +247,7 @@ export function resolveAgentGeminiKey(agent: AIAgentRole): string {
       process.env.FALCON_GEMINI_API_KEY,
       process.env.GEMINI_API_KEY_FALCON_VISION,
       process.env.GEMINI_API_KEY_SHAMOUSA,
+      process.env.GEMINI_API_KEY,
     ]);
   }
   if (agent === 'falcon_vision') {
@@ -245,6 +258,7 @@ export function resolveAgentGeminiKey(agent: AIAgentRole): string {
       process.env.FALCON_GEMINI_API_KEY,
       process.env.GEMINI_API_KEY_FALCON_CHAT,
       process.env.GEMINI_API_KEY_SHAMOUSA,
+      process.env.GEMINI_API_KEY,
     ]);
   }
   if (agent === 'falcon') {
@@ -254,6 +268,7 @@ export function resolveAgentGeminiKey(agent: AIAgentRole): string {
       process.env.FALCON_GEMINI_API_KEY,
       process.env.GEMINI_API_KEY_FALCON_VISION,
       process.env.GEMINI_API_KEY_SHAMOUSA,
+      process.env.GEMINI_API_KEY,
     ]);
   }
   if (agent === 'shamousa') {
@@ -263,6 +278,7 @@ export function resolveAgentGeminiKey(agent: AIAgentRole): string {
       process.env.GEMINI_API_KEY_FALCON_CHAT,
       process.env.GEMINI_API_KEY_FALCON_VISION,
       process.env.GEMINI_API_KEY_FALCON,
+      process.env.GEMINI_API_KEY,
     ]);
   }
   return pickFirstHealthyGeminiKey([
@@ -270,6 +286,7 @@ export function resolveAgentGeminiKey(agent: AIAgentRole): string {
     process.env.GEMINI_API_KEY_FALCON_VISION,
     process.env.GEMINI_API_KEY_FALCON,
     process.env.GEMINI_API_KEY_SHAMOUSA,
+    process.env.GEMINI_API_KEY,
   ]);
 }
 
@@ -657,9 +674,9 @@ export async function executeGroqBrowserSearch(
 
   let attemptsDone = 0;
   for (const { apiKey, model } of pairs) {
-    if (attemptsDone >= 2) break;
+    if (attemptsDone >= 4) break;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 11000);
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
@@ -906,7 +923,7 @@ export async function performGoogleSearch(
               })
               .finally(() => clearTimeout(timer)),
             new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new Error(`timeout on ${model}`)), 9000);
+              timer = setTimeout(() => reject(new Error(`timeout on ${model}`)), 16000);
             }),
           ]);
 

@@ -312,6 +312,11 @@ const SupplierPublicStoreView = lazy(() =>
     default: m.SupplierPublicStoreView,
   }))
 );
+const LiveStorefrontStudioPage = lazy(() =>
+  import('./components/store/LiveStorefrontStudioPage').then((m) => ({
+    default: m.LiveStorefrontStudioPage,
+  }))
+);
 const SupplierErpHubView = lazy(() =>
   import('./components/supplier/SupplierErpHubView').then((m) => ({
     default: m.SupplierErpHubView,
@@ -417,6 +422,7 @@ export type ActiveView =
   | 'inventory_audit'
   | 'finished_products'
   | 'my_store'
+  | 'my_store_studio'
   | 'my_orders'
   | 'my_subscriptions';
 
@@ -482,6 +488,7 @@ const VIEW_TITLES: Record<ActiveView, string> = {
   inventory_audit: 'حركة المخزن والجرد',
   finished_products: 'مخزن المنتجات الجاهزة',
   my_store: 'لوحة تحكم متجري',
+  my_store_studio: 'متجري المباشر (استوديو التعديل والمعاينة)',
   my_orders: 'أوردراتي والطلبات',
   my_subscriptions: 'اشتراكاتي وباقات المنظومة',
 };
@@ -2566,6 +2573,7 @@ export const App: React.FC = () => {
         onNavigateToCatalog={handleNavigateToCatalog}
         onNavigateToMarketplace={() => navigateTo('marketplace')}
         onOpenArtisanStore={() => handleOpenArtisanStore('products')}
+        onOpenLiveStoreStudio={() => navigateTo('my_store_studio')}
         onNavigateToFamily={() => {
           if (window.location.hash !== '#/family') {
             window.location.hash = '#/family';
@@ -2638,7 +2646,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Global Sub-Page Bar: زر الرجوع للصفحة السابقة بجوار الخروج للصفحة الرئيسية */}
-      {activeView !== 'home' && (
+      {activeView !== 'home' && activeView !== 'my_store_studio' && (
         <aside aria-label="شريط التنقل السريع" className="sticky top-0 z-30 w-full max-w-full bg-[#F7F3EA]/95 dark:bg-[#0D162E]/95 backdrop-blur-md border-b border-[#D4CCBC] dark:border-[#22355E] px-2.5 sm:px-6 py-2 sm:py-2.5 shadow-xs flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* زر الرجوع للصفحة السابقة */}
@@ -2917,6 +2925,21 @@ export const App: React.FC = () => {
           />
         )}
 
+        {activeView === 'my_store_studio' && (
+          <LiveStorefrontStudioPage
+            profile={profile}
+            onClose={goHome}
+            onOpenStoreSettings={() => handleOpenArtisanStore('products')}
+            onOpenAddProduct={() =>
+              navigateTo(
+                (profile as any)?.accountRole === 'supplier' ? 'supplier_catalog' : 'catalog'
+              )
+            }
+            onNavigateToMarket={() => navigateTo('marketplace')}
+            onNavigateToSuppliersMarket={() => navigateTo('suppliers_market')}
+          />
+        )}
+
         {activeView === 'my_orders' && (
           <ArtisanStorefrontModal
             isOpen={true}
@@ -3101,6 +3124,8 @@ export const App: React.FC = () => {
               onApplyEstimatedLaborWage={handleApplyEstimatedLaborWage}
               onTransferNotesToCalculator={handleTransferNotesToCalculator}
               onExportStructuredToCalculator={handleExportStructuredToCalculator}
+              isFullscreen={true}
+              onClose={goHome}
             />
           ) : (
             <div className="max-w-xl mx-auto my-8 p-6 rounded-2xl bg-[#FFFDF8] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-center space-y-4" dir="rtl">
@@ -3478,6 +3503,7 @@ export const App: React.FC = () => {
       {profile &&
         activeView !== 'ai_agent' &&
         activeView !== 'family' &&
+        activeView !== 'my_store_studio' &&
         (isUserAdmin(profile) ||
           (featureFlags.aiAssistantsEnabled &&
             isShamousaUnlockedBySubscription(

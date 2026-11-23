@@ -302,7 +302,7 @@ export const ARTISAN_ACTION_CATALOG: UiActionCatalogEntry[] = [
   { actionKey: 'nav_accounts', defaultLabel: 'الدفتر المالي والحسابات والأرباح', defaultIcon: 'Scale', audience: 'artisan', description: 'الحسابات واليوميات' },
   { actionKey: 'nav_reports', defaultLabel: 'التقارير والتحليلات المالية', defaultIcon: 'BarChart3', audience: 'artisan', description: 'التقارير المالية' },
   { actionKey: 'nav_ai_agent', defaultLabel: 'استشارة صقر الشمساوية AI', defaultIcon: 'Sparkles', audience: 'artisan', description: 'المستشار الذكي صقر' },
-  { actionKey: 'open_shamousa', defaultLabel: 'محادثة شموسة مديرة الأعمال', defaultIcon: 'Sparkles', audience: 'artisan', description: 'فتح نافذة شموسة العائمة' },
+  { actionKey: 'open_shamousa', defaultLabel: 'شموسة مديرة أعمالك', defaultIcon: 'Sparkles', audience: 'artisan', description: 'فتح محادثة شموسة مديرة أعمالك' },
   { actionKey: 'nav_family', defaultLabel: 'مجتمع عيلة الشمساوية', defaultIcon: 'Users', audience: 'artisan', description: 'منتدى وشات العيلة' },
 ];
 

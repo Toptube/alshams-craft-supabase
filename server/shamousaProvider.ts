@@ -421,7 +421,7 @@ async function callGeminiChatForShamousa(
     const modelName = modelsToTry[mIdx];
     const isLastModel = mIdx === modelsToTry.length - 1;
     const maxAttempts = isLastModel ? 2 : 1;
-    const perAttemptTimeout = isLastModel ? 16000 : 10000;
+    const perAttemptTimeout = isLastModel ? 22000 : 16000;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       let timeoutId: any;
@@ -534,8 +534,32 @@ async function callGeminiChatForShamousa(
           throw err;
         }
 
-        // If hybrid search+tools failed with 400, ground with real live web search!
+        // If hybrid search+tools failed with 400, first retry pure native Gemini Google Search before falling back to web RSS
         if (enableSearch && !isTransient503 && !isQuota429) {
+          try {
+            const pureSearchRes = await Promise.race([
+              ai.models.generateContent({
+                model: modelName,
+                contents: baseContents,
+                config: {
+                  systemInstruction,
+                  tools: [{ googleSearch: {} }],
+                },
+              }),
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('pure_search_timeout')), 16000)),
+            ]);
+            const pureMeta = extractGroundingMetadata(pureSearchRes);
+            const pureTxt = stripRawSearchCitations(pureSearchRes?.text?.trim() || '');
+            if (pureTxt) {
+              return {
+                reply: pureTxt,
+                sources: pureMeta.sources.slice(0, 6),
+                searchUsed: true,
+                searchEntryPoint: pureMeta.searchEntryPoint,
+              };
+            }
+          } catch {}
+
           try {
             const liveWebSources = await getFallbackWebSources();
             const enrichedContents = [...baseContents];

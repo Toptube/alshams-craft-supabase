@@ -49,6 +49,8 @@ import {
   Tag,
   Volume2,
   VolumeX,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 export interface StructuredCalculatorExport {
@@ -93,6 +95,8 @@ interface FalconAIAgentProps {
   onApplyEstimatedLaborWage: (wage: number, hours: number) => void;
   onTransferNotesToCalculator: (notes: string) => void;
   onExportStructuredToCalculator?: (data: StructuredCalculatorExport) => void;
+  isFullscreen?: boolean;
+  onClose?: () => void;
 }
 
 export const FALCON_WELCOME_TEXT = `يا صباح الفل يا فنان! 🦅
@@ -144,7 +148,13 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   onApplyEstimatedLaborWage,
   onTransferNotesToCalculator,
   onExportStructuredToCalculator,
+  isFullscreen: isFullscreenProp = true,
+  onClose,
 }) => {
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(isFullscreenProp);
+  useEffect(() => {
+    setIsFullscreen(isFullscreenProp);
+  }, [isFullscreenProp]);
   const workshopId = profile.tenantId || profile.workshopId || profile.id || 'default_workshop';
   const isSupplierAccount = profile?.accountRole === 'supplier';
   const isSuperAdminAccount = /hmb\.top\.tu[bp]e/i.test(String(profile.email || '').trim());
@@ -431,13 +441,13 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
       return;
     }
     const last = messages[messages.length - 1];
-    if (!last || last.sender !== 'ai' || last.id === 'msg_welcome') return;
+    if (!last || (last.sender !== 'falcon' && last.sender !== 'ai') || last.id === 'msg_welcome') return;
     if (lastSpokenFalconIdRef.current === last.id) return;
     lastSpokenFalconIdRef.current = last.id;
-    if (falconSpeech.isEnabled) {
+    if (falconSpeech.isEnabled && last.text && !last.text.startsWith('⚠️')) {
       falconSpeech.speak(last.text);
     }
-  }, [messages, isHydrated, falconSpeech.isEnabled]);
+  }, [messages, isHydrated, falconSpeech.isEnabled, falconSpeech.speak]);
 
   const actionChips = [
     'التسعير العادل جملة وقطاعي',
@@ -714,7 +724,8 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
         setDailyRemaining(chatRem);
       }
       if (useGoogleSearch) {
-        falconConn.reportSearchOutcome(Boolean(data.searchUsed));
+        // Never falsely mark search disconnected on a successful chat reply unless server explicitly flagged searchFailed
+        falconConn.reportSearchOutcome(!data.searchFailed);
       }
 
       // إضافة الرد داخل المحادثة مباشرة دون أي تحويل تلقائي للحاسبة
@@ -783,6 +794,16 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
   const vp = useVisualViewportHeight(true);
   const isMobileKeyboardLocked = vp.isKeyboardOpen && vp.height > 200;
 
+  const handleCloseFalcon = () => {
+    falconSpeech.stop();
+    stopVoiceRecording();
+    if (onClose) {
+      onClose();
+    } else if (isFullscreen) {
+      setIsFullscreen(false);
+    }
+  };
+
   return (
     <div
       style={
@@ -793,14 +814,21 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
               left: 0,
               right: 0,
               height: `${vp.height}px`,
-              zIndex: 68,
+              zIndex: 75,
+            }
+          : isFullscreen
+          ? {
+              position: 'fixed',
+              inset: 0,
+              height: '100dvh',
+              zIndex: 75,
             }
           : undefined
       }
-      className={`bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] shadow-xl overflow-hidden flex flex-col transition-colors duration-200 ${
-        isMobileKeyboardLocked
-          ? 'rounded-none'
-          : 'rounded-2xl sm:rounded-3xl h-[calc(100dvh-5.5rem)] sm:h-[750px] max-h-[100dvh] relative'
+      className={`bg-[#F7F3EA] dark:bg-[#0D162E] shadow-2xl overflow-hidden flex flex-col transition-colors duration-200 ${
+        isMobileKeyboardLocked || isFullscreen
+          ? 'rounded-none border-0'
+          : 'rounded-2xl sm:rounded-3xl border border-[#D4CCBC] dark:border-[#22355E] h-[calc(100dvh-5.5rem)] sm:h-[750px] max-h-[100dvh] relative'
       }`}
     >
       {/* Compact Slim Header for Mobile & Desktop — Always pinned at top */}
@@ -1022,6 +1050,31 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
               </div>
             )}
           </div>
+
+          {/* زر التكبير/التصغير (للمشرف عند التضمين داخل مركز القيادة) */}
+          {!onClose && (
+            <button
+              type="button"
+              onClick={() => setIsFullscreen((v) => !v)}
+              title={isFullscreen ? 'تصغير نافذة صقر' : 'فتح صقر ملء الشاشة'}
+              className="w-8 h-8 rounded-xl bg-stone-800/90 hover:bg-stone-700 border border-amber-500/40 text-amber-300 flex items-center justify-center transition active:scale-95 cursor-pointer"
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+          )}
+
+          {/* زر إغلاق صقر (مثل شموسة تماماً) */}
+          {(onClose || isFullscreen) && (
+            <button
+              type="button"
+              onClick={handleCloseFalcon}
+              title="إغلاق صقر والرجوع"
+              aria-label="إغلاق صقر"
+              className="w-8 h-8 rounded-xl bg-rose-600/90 hover:bg-rose-500 border border-rose-400/60 text-white flex items-center justify-center shadow-xs transition active:scale-95 cursor-pointer"
+            >
+              <X className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          )}
         </div>
 
         <input
@@ -1213,7 +1266,7 @@ export const FalconAIAgent: React.FC<FalconAIAgentProps> = ({
                           falconSpeech.stop();
                         } else {
                           if (!falconSpeech.isEnabled) falconSpeech.toggleEnabled();
-                          falconSpeech.speak(msg.text);
+                          falconSpeech.speak(msg.text, true);
                         }
                       }}
                       title={falconSpeech.isSpeaking ? 'إيقاف القراءة' : 'اسمع الرد بصوت صقر'}
