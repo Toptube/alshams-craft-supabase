@@ -81,6 +81,8 @@ import {
 interface WorkshopCatalogProps {
   profile: UserProfile;
   initialTab?: 'catalog' | 'store';
+  initialOpenDirectAdd?: boolean;
+  onConsumeInitialDirectAdd?: () => void;
   onSelectRecordToLoad: (record: SavedProductRecord) => void;
   onOpenWhatsAppShare: (record: SavedProductRecord) => void;
   onOpenMarketplace?: () => void;
@@ -89,6 +91,8 @@ interface WorkshopCatalogProps {
 
 export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   profile,
+  initialOpenDirectAdd = false,
+  onConsumeInitialDirectAdd,
   onSelectRecordToLoad,
   onOpenWhatsAppShare,
   onOpenMarketplace,
@@ -106,8 +110,15 @@ export const WorkshopCatalog: React.FC<WorkshopCatalogProps> = ({
   const [notice, setNotice] = useState<string>('');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
-  const [isDirectAddOpen, setIsDirectAddOpen] = useState<boolean>(false);
+  const [isDirectAddOpen, setIsDirectAddOpen] = useState<boolean>(() => Boolean(initialOpenDirectAdd));
   const [statusColorFilter, setStatusColorFilter] = useState<'all' | CatalogStatusColor>('all');
+
+  useEffect(() => {
+    if (initialOpenDirectAdd) {
+      setIsDirectAddOpen(true);
+      onConsumeInitialDirectAdd?.();
+    }
+  }, [initialOpenDirectAdd, onConsumeInitialDirectAdd]);
 
   useEffect(() => {
     const wid = profile.tenantId || profile.workshopId || profile.id || '';

@@ -10078,9 +10078,61 @@ app.put('/api/admin/growth-config', requireAuth, async (req: AuthenticatedReques
 // ==================== كشف الأبعاد الطبيعية للفيديو (طولي 9:16 / عرضي 16:9 / مربع 1:1) مجاناً بدون مفاتيح ====================
 const videoMetaCache = new Map<string, { expiresAt: number; payload: any }>();
 
+// SSRF-proof map of opaque stream tokens -> validated video CDN URLs (TTL 45 min)
+const resolvedVideoStreamMap = new Map<
+  string,
+  { url: string; headers?: Record<string, string>; expiresAt: number }
+>();
+
+const ALLOWED_STREAM_CDN_HOSTS = [
+  'tiktok.com',
+  'tiktokcdn.com',
+  'tiktokcdn-us.com',
+  'tiktokcdn-eu.com',
+  'tiktokcdn-in.com',
+  'tiktokv.com',
+  'tiktokw.us',
+  'ttwstatic.com',
+  'muscdn.com',
+  'akamaized.net',
+  'tikwm.com',
+  'byteoversea.com',
+  'ibytedtos.com',
+  'fbcdn.net',
+  'fbsbx.com',
+  'cdninstagram.com',
+];
+
+function registerResolvedVideoStream(
+  rawStreamUrl: string,
+  headers?: Record<string, string>
+): string | undefined {
+  try {
+    const parsed = new URL(rawStreamUrl);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined;
+    const host = parsed.hostname.toLowerCase();
+    const ok = ALLOWED_STREAM_CDN_HOSTS.some((h) => host === h || host.endsWith('.' + h));
+    if (!ok) return undefined;
+    if (resolvedVideoStreamMap.size > 400) {
+      const oldest = resolvedVideoStreamMap.keys().next().value;
+      if (oldest) resolvedVideoStreamMap.delete(oldest);
+    }
+    const token = crypto.randomBytes(16).toString('hex');
+    resolvedVideoStreamMap.set(token, {
+      url: parsed.toString(),
+      headers,
+      expiresAt: Date.now() + 45 * 60 * 1000,
+    });
+    return `/api/utils/video-stream?t=${token}`;
+  } catch {
+    return undefined;
+  }
+}
+
 app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
   try {
     const rawUrl = String(req.query?.url || '').trim();
+    const forceRefresh = String(req.query?.refresh || '') === '1';
     if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
       return res.status(400).json({ success: false, error: 'رابط غير صالح' });
     }
@@ -10097,9 +10149,10 @@ app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
     }
     const ALLOWED_VIDEO_HOSTS = [
       'youtube.com', 'm.youtube.com', 'youtu.be',
-      'tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
+      'tiktok.com', 'm.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
       'vimeo.com', 'player.vimeo.com',
-      'instagram.com', 'facebook.com', 'm.facebook.com', 'fb.watch',
+      'instagram.com',
+      'facebook.com', 'm.facebook.com', 'mbasic.facebook.com', 'web.facebook.com', 'fb.watch', 'fb.com',
       'dailymotion.com', 'dai.ly',
     ];
     const isAllowedHost = ALLOWED_VIDEO_HOSTS.some((h) => parsedHost === h || parsedHost.endsWith('.' + h));
@@ -10108,7 +10161,7 @@ app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
     }
 
     const cacheKey = rawUrl.toLowerCase();
-    const cached = videoMetaCache.get(cacheKey);
+    const cached = !forceRefresh ? videoMetaCache.get(cacheKey) : undefined;
     if (cached && cached.expiresAt > Date.now()) {
       return res.json(cached.payload);
     }
@@ -10126,7 +10179,8 @@ app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
         const firstKey = videoMetaCache.keys().next().value;
         if (firstKey) videoMetaCache.delete(firstKey);
       }
-      videoMetaCache.set(cacheKey, { expiresAt: Date.now() + 6 * 60 * 60 * 1000, payload });
+      const ttlMs = payload?.streamUrl ? 30 * 60 * 1000 : 6 * 60 * 60 * 1000;
+      videoMetaCache.set(cacheKey, { expiresAt: Date.now() + ttlMs, payload });
       return res.json(payload);
     };
 
@@ -10309,9 +10363,12 @@ app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
       return current;
     };
 
-    // 3. TikTok (full URLs + mobile short links vm.tiktok.com / vt.tiktok.com / /t/ + keyless oEmbed)
+    // 3. TikTok (full /video/ID, /photo/ID + short mobile links vm.tiktok.com / vt.tiktok.com / /t/)
+    // Resolves direct playable MP4 stream (or photo slideshow) so it plays cleanly in native HTML5 <video>
+    // with ZERO TikTok "Player error", ZERO < > related-video arrows, and ZERO "Watch on TikTok" walls.
     if (lower.includes('tiktok.com')) {
       const resolvedUrl = await resolveAllowedRedirectUrl(rawUrl);
+      const isPhotoPost = /\/photo\/\d+/i.test(resolvedUrl) || /\/photo\/\d+/i.test(rawUrl);
       let videoId =
         resolvedUrl.match(/\/(?:video|photo)\/(\d+)/i)?.[1] ||
         rawUrl.match(/\/(?:video|photo)\/(\d+)/i)?.[1] ||
@@ -10320,49 +10377,152 @@ app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
       let thumbnailUrl = '';
       let width = 1080;
       let height = 1920;
+      let directPlayUrl = '';
+      let directPlayHeaders: Record<string, string> | undefined;
+      let slideshowImages: string[] = [];
 
-      // Keyless official TikTok oEmbed (returns title, thumbnail, dimensions, and canonical embed ID)
+      // Priority A: Fast direct TikTok page __UNIVERSAL_DATA_FOR_REHYDRATION__ (<1s, zero third-party dependency)
       try {
-        const oeRes = await fetch(
-          `https://www.tiktok.com/oembed?url=${encodeURIComponent(resolvedUrl)}`,
-          {
-            signal: AbortSignal.timeout(4500),
-            headers: {
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            },
-          }
-        );
-        if (oeRes.ok) {
-          const oj: any = await oeRes.json().catch(() => null);
-          if (oj) {
-            title = String(oj.title || '');
-            thumbnailUrl = String(oj.thumbnail_url || '');
-            if (!videoId && oj.embed_product_id) {
-              videoId = String(oj.embed_product_id);
-            }
-            if (!videoId && typeof oj.html === 'string') {
-              const fromHtml = oj.html.match(/data-video-id="(\d+)"/i) || oj.html.match(/\/video\/(\d+)/i);
-              if (fromHtml?.[1]) videoId = fromHtml[1];
-            }
-            if (Number(oj.thumbnail_width) > 0 && Number(oj.thumbnail_height) > 0) {
-              width = Number(oj.thumbnail_width);
-              height = Number(oj.thumbnail_height);
+        const pageRes = await fetch(resolvedUrl, {
+          signal: AbortSignal.timeout(5500),
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+          },
+        });
+        if (pageRes.ok) {
+          const setCookies =
+            typeof pageRes.headers.getSetCookie === 'function'
+              ? pageRes.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ')
+              : (pageRes.headers.get('set-cookie') || '')
+                  .split(',')
+                  .map((c) => c.split(';')[0].trim())
+                  .filter(Boolean)
+                  .join('; ');
+          const html = await pageRes.text();
+          const uniMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+          if (uniMatch?.[1]) {
+            const uni = JSON.parse(uniMatch[1]);
+            const item = uni?.__DEFAULT_SCOPE__?.['webapp.video-detail']?.itemInfo?.itemStruct;
+            if (item) {
+              if (!videoId && item.id) videoId = String(item.id);
+              if (!title && item.desc) title = String(item.desc);
+              if (!thumbnailUrl && (item.video?.cover || item.video?.originCover)) {
+                thumbnailUrl = String(item.video.cover || item.video.originCover);
+              }
+              if (Number(item.video?.width) > 0 && Number(item.video?.height) > 0) {
+                width = Number(item.video.width);
+                height = Number(item.video.height);
+              }
+              const imgPost = item.imagePost?.images;
+              if (Array.isArray(imgPost) && imgPost.length > 0) {
+                slideshowImages = imgPost
+                  .map((im: any) => im?.imageURL?.urlList?.[0])
+                  .filter((u: any) => typeof u === 'string' && /^https?:\/\//i.test(u))
+                  .slice(0, 12);
+              } else {
+                const pAddr = item.video?.playAddr || item.video?.downloadAddr || '';
+                if (typeof pAddr === 'string' && /^https?:\/\//i.test(pAddr)) {
+                  directPlayUrl = pAddr;
+                  directPlayHeaders = {
+                    Referer: 'https://www.tiktok.com/',
+                    ...(setCookies ? { Cookie: setCookies } : {}),
+                  };
+                }
+              }
             }
           }
         }
       } catch {}
 
+      // Priority B: TikWM keyless fallback (only if direct TikTok page didn't expose stream/images)
+      if (!directPlayUrl && slideshowImages.length === 0) {
+        try {
+          const twRes = await fetch(
+            `https://www.tikwm.com/api/?url=${encodeURIComponent(resolvedUrl)}`,
+            {
+              signal: AbortSignal.timeout(7000),
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                Accept: 'application/json',
+              },
+            }
+          );
+          if (twRes.ok) {
+            const twJson: any = await twRes.json().catch(() => null);
+            const d = twJson?.data;
+            if (twJson?.code === 0 && d) {
+              if (!videoId && d.id) videoId = String(d.id);
+              if (!title && typeof d.title === 'string') title = d.title;
+              if (!thumbnailUrl && typeof (d.cover || d.origin_cover) === 'string') {
+                thumbnailUrl = String(d.cover || d.origin_cover);
+              }
+              if (Array.isArray(d.images) && d.images.length > 0) {
+                slideshowImages = d.images
+                  .filter((u: any) => typeof u === 'string' && /^https?:\/\//i.test(u))
+                  .slice(0, 12);
+              } else if (typeof d.play === 'string' && /^https?:\/\//i.test(d.play)) {
+                directPlayUrl = d.play;
+              }
+              if (Number(d.width) > 0 && Number(d.height) > 0) {
+                width = Number(d.width);
+                height = Number(d.height);
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Priority C: Keyless official TikTok oEmbed (fills title/thumbnail/videoId if still missing)
+      if (!videoId || !thumbnailUrl || !title) {
+        try {
+          const oeRes = await fetch(
+            `https://www.tiktok.com/oembed?url=${encodeURIComponent(resolvedUrl)}`,
+            {
+              signal: AbortSignal.timeout(4500),
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+              },
+            }
+          );
+          if (oeRes.ok) {
+            const oj: any = await oeRes.json().catch(() => null);
+            if (oj) {
+              if (!title && oj.title) title = String(oj.title);
+              if (!thumbnailUrl && oj.thumbnail_url) thumbnailUrl = String(oj.thumbnail_url);
+              if (!videoId && oj.embed_product_id) videoId = String(oj.embed_product_id);
+              if (!videoId && typeof oj.html === 'string') {
+                const fromHtml = oj.html.match(/data-video-id="(\d+)"/i) || oj.html.match(/\/video\/(\d+)/i);
+                if (fromHtml?.[1]) videoId = fromHtml[1];
+              }
+              if (Number(oj.thumbnail_width) > 0 && Number(oj.thumbnail_height) > 0) {
+                width = Number(oj.thumbnail_width);
+                height = Number(oj.thumbnail_height);
+              }
+            }
+          }
+        } catch {}
+      }
+
+      const streamUrl = directPlayUrl ? registerResolvedVideoStream(directPlayUrl, directPlayHeaders) : undefined;
       const cls = classify(width, height);
-      const embedUrl = videoId
-        ? `https://www.tiktok.com/player/v1/${videoId}?music_info=1&description=1&rel=0`
-        : '';
+      // Single-video strict fallback embed URL (no related videos, no description/music clutter)
+      const embedUrl =
+        videoId && !isPhotoPost && slideshowImages.length === 0
+          ? `https://www.tiktok.com/player/v1/${videoId}?controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&autoplay=0&music_info=0&description=0&rel=0&native_context_menu=0&closed_caption=0`
+          : '';
 
       return saveAndReturn({
         success: true,
         platform: 'tiktok',
         resolvedUrl,
         videoId: videoId || undefined,
+        streamUrl,
+        slideshowImages: slideshowImages.length > 0 ? slideshowImages : undefined,
+        mediaType: slideshowImages.length > 0 ? 'photo_slideshow' : 'video',
         embedUrl: embedUrl || undefined,
         thumbnailUrl: thumbnailUrl || undefined,
         title,
@@ -10370,34 +10530,130 @@ app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
         width,
         height,
         aspectRatio: cls.aspectRatio,
-        source: videoId ? 'tiktok_resolved' : 'tiktok_fallback',
+        source: streamUrl
+          ? 'tiktok_native_stream'
+          : slideshowImages.length > 0
+            ? 'tiktok_slideshow'
+            : videoId
+              ? 'tiktok_resolved'
+              : 'tiktok_fallback',
       });
     }
 
-    // 4. Facebook (fb.watch, /share/r/, /share/v/, /reel/, /videos/, m.facebook.com -> canonical plugin embed)
+    // 4. Facebook (fb.watch, /share/r/, /share/v/, /reel/, /videos/, m.facebook.com)
+    // Resolves canonical clean URL (strips tracking params that break plugins/video.php),
+    // extracts direct native MP4 stream when publicly exposed, plus og:image thumbnail.
     if (lower.includes('facebook.com') || lower.includes('fb.watch') || lower.includes('fb.com')) {
       const resolvedUrl = await resolveAllowedRedirectUrl(rawUrl);
-      const cleanCanonical = resolvedUrl.replace(/^https?:\/\/(?:m|mbasic|web)\.facebook\.com/i, 'https://www.facebook.com');
+      const stripFbTracking = (u: string): string => {
+        try {
+          const parsed = new URL(
+            u.replace(/^https?:\/\/(?:m|mbasic|web)\.facebook\.com/i, 'https://www.facebook.com')
+          );
+          for (const noisy of ['mibextid', 'rdid', 'share_url', 'sfnsn', 'fs', 's', 'ref', 'extid', 'vh']) {
+            parsed.searchParams.delete(noisy);
+          }
+          return parsed.toString();
+        } catch {
+          return u.replace(/^https?:\/\/(?:m|mbasic|web)\.facebook\.com/i, 'https://www.facebook.com');
+        }
+      };
+
+      let cleanCanonical = stripFbTracking(resolvedUrl);
+      let directPlayUrl = '';
+      let thumbnailUrl = '';
+      let title = '';
+      let width = 0;
+      let height = 0;
+
+      // Attempt to extract canonical og:url, thumbnail, title, and direct public MP4 from Facebook page HTML
+      try {
+        const fbRes = await fetch(cleanCanonical, {
+          signal: AbortSignal.timeout(5500),
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+          },
+        });
+        if (fbRes.ok) {
+          const html = await fbRes.text();
+          const decodeJsonStr = (raw: string): string => {
+            try {
+              return JSON.parse('"' + raw.replace(/"/g, '\\"') + '"');
+            } catch {
+              return raw.replace(/\\\//g, '/').replace(/&amp;/g, '&');
+            }
+          };
+          const ogUrlMatch = html.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i);
+          if (ogUrlMatch?.[1] && /facebook\.com\/(?:reel|[^/]+\/videos|watch)/i.test(ogUrlMatch[1])) {
+            cleanCanonical = stripFbTracking(ogUrlMatch[1].replace(/&amp;/g, '&'));
+          }
+          const ogImgMatch =
+            html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+            html.match(/"preferred_thumbnail"[\s\S]{0,220}?"uri"\s*:\s*"([^"]+)"/);
+          if (ogImgMatch?.[1]) {
+            thumbnailUrl = decodeJsonStr(ogImgMatch[1]).replace(/&amp;/g, '&');
+          }
+          const ogTitleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+          if (ogTitleMatch?.[1]) {
+            title = ogTitleMatch[1].replace(/&amp;/g, '&').replace(/&#039;/g, "'").trim();
+          }
+          const wMatch = html.match(/<meta[^>]+property=["']og:video:width["'][^>]+content=["'](\d+)["']/i);
+          const hMatch = html.match(/<meta[^>]+property=["']og:video:height["'][^>]+content=["'](\d+)["']/i);
+          if (wMatch?.[1] && hMatch?.[1]) {
+            width = Number(wMatch[1]);
+            height = Number(hMatch[1]);
+          }
+          const hdMatch = html.match(/"(?:browser_native_hd_url|hd_src|playable_url_quality_hd)"\s*:\s*"([^"]+)"/);
+          const sdMatch = html.match(/"(?:browser_native_sd_url|sd_src|playable_url)"\s*:\s*"([^"]+)"/);
+          const ogVidMatch = html.match(/<meta[^>]+property=["']og:video(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i);
+          const candidate = hdMatch?.[1]
+            ? decodeJsonStr(hdMatch[1])
+            : sdMatch?.[1]
+              ? decodeJsonStr(sdMatch[1])
+              : ogVidMatch?.[1]
+                ? ogVidMatch[1].replace(/&amp;/g, '&')
+                : '';
+          if (candidate && /^https?:\/\//i.test(candidate)) {
+            directPlayUrl = candidate;
+          }
+        }
+      } catch {}
+
       const isReel = /\/reel\/|\/share\/r\//i.test(cleanCanonical) || /\/reel\/|\/share\/r\//i.test(rawUrl);
       const isVideo =
+        Boolean(directPlayUrl) ||
         isReel ||
         /\/videos\/|\/watch\/?\?v=|fb\.watch|\/share\/v\/|story_fbid/i.test(cleanCanonical) ||
         /\/videos\/|\/watch\/?\?v=|fb\.watch|\/share\/v\//i.test(rawUrl);
 
+      const streamUrl = directPlayUrl ? registerResolvedVideoStream(directPlayUrl) : undefined;
+      const finalW = width > 0 ? width : isReel ? 1080 : 1280;
+      const finalH = height > 0 ? height : isReel ? 1920 : 720;
+      const cls = classify(finalW, finalH);
+
       const embedUrl = isVideo
-        ? `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(cleanCanonical)}&show_text=false&t=0`
+        ? `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(cleanCanonical)}&show_text=false&autoplay=false&t=0&width=${isReel ? 360 : 560}`
         : `https://www.facebook.com/plugins/post.php?href=${encodeURIComponent(cleanCanonical)}&show_text=true&width=500`;
 
       return saveAndReturn({
         success: true,
         platform: 'facebook',
         resolvedUrl: cleanCanonical,
+        streamUrl,
+        thumbnailUrl: thumbnailUrl || undefined,
+        title: title || undefined,
         embedUrl,
-        orientation: isReel ? 'portrait' : 'landscape',
-        width: isReel ? 1080 : 1280,
-        height: isReel ? 1920 : 720,
-        aspectRatio: isReel ? 9 / 16 : 16 / 9,
-        source: 'facebook_resolved',
+        orientation: cls.orientation,
+        width: finalW,
+        height: finalH,
+        aspectRatio: cls.aspectRatio,
+        source: streamUrl ? 'facebook_native_stream' : 'facebook_resolved',
       });
     }
 
@@ -10429,6 +10685,74 @@ app.get('/api/utils/video-meta', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'تعذر فحص أبعاد الفيديو' });
+  }
+});
+
+// SSRF-proof Range-supporting native video stream proxy (serves ONLY opaque server-minted tokens from /api/utils/video-meta)
+app.get('/api/utils/video-stream', async (req: Request, res: Response) => {
+  try {
+    const token = String(req.query.t || '').trim();
+    if (!token || token.length > 64) {
+      return res.status(400).end();
+    }
+    const entry = resolvedVideoStreamMap.get(token);
+    if (!entry || entry.expiresAt < Date.now()) {
+      if (entry) resolvedVideoStreamMap.delete(token);
+      return res.status(404).end();
+    }
+
+    const upstreamHeaders: Record<string, string> = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      Accept: '*/*',
+      ...(entry.headers || {}),
+    };
+    if (typeof req.headers.range === 'string' && req.headers.range.startsWith('bytes=')) {
+      upstreamHeaders.Range = req.headers.range;
+    }
+
+    const upstream = await fetch(entry.url, {
+      headers: upstreamHeaders,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!upstream.ok && upstream.status !== 206) {
+      return res.status(upstream.status === 403 || upstream.status === 404 ? 410 : 502).end();
+    }
+
+    const contentType = upstream.headers.get('content-type') || 'video/mp4';
+    res.status(upstream.status);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Accept-Ranges', upstream.headers.get('accept-ranges') || 'bytes');
+    res.setHeader('Cache-Control', 'private, max-age=1800');
+    const contentLength = upstream.headers.get('content-length');
+    if (contentLength) res.setHeader('Content-Length', contentLength);
+    const contentRange = upstream.headers.get('content-range');
+    if (contentRange) res.setHeader('Content-Range', contentRange);
+
+    if (!upstream.body) {
+      return res.end();
+    }
+
+    const reader = upstream.body.getReader();
+    req.on('close', () => {
+      reader.cancel().catch(() => {});
+    });
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        if (!res.write(Buffer.from(value))) {
+          await new Promise<void>((resolve) => res.once('drain', resolve));
+        }
+      }
+    }
+    res.end();
+  } catch {
+    if (!res.headersSent) res.status(502).end();
+    else res.end();
   }
 });
 

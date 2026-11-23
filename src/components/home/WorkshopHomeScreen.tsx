@@ -123,7 +123,7 @@ export interface WorkshopHomeScreenProps {
   // Navigation to full screens
   onNavigateToCalculator: () => void;
   onNavigateToArchive: () => void;
-  onNavigateToCatalog: (tab?: 'catalog' | 'store') => void;
+  onNavigateToCatalog: (tab?: 'catalog' | 'store' | 'direct_product') => void;
   onOpenArtisanStore?: (tab?: 'products' | 'appearance' | 'promotions' | 'orders' | 'qr') => void;
   onOpenPersonalProfile?: () => void;
   onNavigateToAIAgent: () => void;
@@ -714,10 +714,7 @@ export const WorkshopHomeScreen: React.FC<WorkshopHomeScreenProps> = ({
         onNavigateToCatalog('catalog');
         return;
       case 'quick_direct_product':
-        onNavigateToCatalog('catalog');
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('alshams_open_quick_direct_product'));
-        }, 180);
+        onNavigateToCatalog('direct_product');
         return;
       case 'open_artisan_store_products':
         if (onOpenArtisanStore) onOpenArtisanStore('products');

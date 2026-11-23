@@ -475,18 +475,24 @@ export function parseSocialEmbedUrl(
 
   // 2. Facebook (videos, reel, watch, share/r, share/v, fb.watch, m.facebook.com, posts)
   if (platform === 'facebook') {
-    const cleanFbUrl = normalizedUrl.replace(
+    let cleanFbUrl = normalizedUrl.replace(
       /^https?:\/\/(?:m|mbasic|web)\.facebook\.com/i,
       'https://www.facebook.com'
     );
-    const isShortShare = /fb\.watch|facebook\.com\/share\//i.test(cleanFbUrl);
+    try {
+      const fbParsed = new URL(cleanFbUrl);
+      for (const noisy of ['mibextid', 'rdid', 'share_url', 'sfnsn', 'fs', 's', 'ref', 'extid', 'vh']) {
+        fbParsed.searchParams.delete(noisy);
+      }
+      cleanFbUrl = fbParsed.toString();
+    } catch {}
     const isReel = /\/reel\/|\/share\/r\//i.test(cleanFbUrl);
     const isVideo =
       isReel ||
       /\/videos\/|fb\.watch|\/watch\/?\?v=|\/share\/v\/|story_fbid/i.test(cleanFbUrl);
     const encoded = encodeURIComponent(cleanFbUrl);
     const embedUrl = isVideo
-      ? `https://www.facebook.com/plugins/video.php?href=${encoded}&show_text=false&t=0`
+      ? `https://www.facebook.com/plugins/video.php?href=${encoded}&show_text=false&autoplay=false&t=0&width=${isReel ? 360 : 560}`
       : `https://www.facebook.com/plugins/post.php?href=${encoded}&show_text=true&width=500`;
     return {
       platform: 'facebook',
@@ -494,7 +500,7 @@ export function parseSocialEmbedUrl(
       embedUrl,
       isVertical: isReel,
       isEmbeddable: true,
-      needsResolve: isShortShare,
+      needsResolve: true,
     };
   }
 
@@ -516,19 +522,23 @@ export function parseSocialEmbedUrl(
   }
 
   // 4. TikTok (full /video/ID, /photo/ID, and short mobile links vm.tiktok.com / vt.tiktok.com / /t/)
+  // Always marks needsResolve: true so server resolves native MP4 stream (or slideshow) first
   if (platform === 'tiktok') {
     const ttMatch = normalizedUrl.match(/\/(?:video|photo)\/(\d+)/i);
+    const isPhoto = /\/photo\/\d+/i.test(normalizedUrl);
     if (ttMatch) {
       return {
         platform: 'tiktok',
         originalUrl: normalizedUrl,
-        embedUrl: `https://www.tiktok.com/player/v1/${ttMatch[1]}?music_info=1&description=1&rel=0`,
+        embedUrl: isPhoto
+          ? ''
+          : `https://www.tiktok.com/player/v1/${ttMatch[1]}?controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&autoplay=0&music_info=0&description=0&rel=0&native_context_menu=0&closed_caption=0`,
         isVertical: true,
-        isEmbeddable: true,
-        needsResolve: false,
+        isEmbeddable: !isPhoto,
+        needsResolve: true,
       };
     }
-    // Mobile short link — requires server-side redirect/oEmbed resolution before mounting iframe
+    // Mobile short link — requires server-side redirect/stream resolution before mounting player
     return {
       platform: 'tiktok',
       originalUrl: normalizedUrl,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Maximize2,
   X,
@@ -11,6 +11,7 @@ import {
   MessageSquare,
   ExternalLink,
   Loader2,
+  RotateCcw,
 } from 'lucide-react';
 import {
   LessonLayoutBlockConfig,
@@ -28,12 +29,17 @@ interface DetectedVideoMeta {
   orientation: 'portrait' | 'landscape' | 'square';
   aspectRatio: number;
   embedUrl?: string;
+  streamUrl?: string;
+  slideshowImages?: string[];
+  mediaType?: 'video' | 'photo_slideshow';
   resolvedUrl?: string;
   thumbnailUrl?: string;
   title?: string;
+  fetchedAt?: number;
 }
 
 const videoMetaClientCache = new Map<string, DetectedVideoMeta>();
+const STREAM_CLIENT_TTL_MS = 25 * 60 * 1000;
 
 interface EmbeddedSocialMediaCardProps {
   title?: string;
@@ -77,6 +83,11 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [playerActivated, setPlayerActivated] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const [streamFailed, setStreamFailed] = useState(false);
+  const [streamRetriedOnce, setStreamRetriedOnce] = useState(false);
+  const [iframeKey, setIframeKey] = useState(0);
+  const [slideshowIndex, setSlideshowIndex] = useState(0);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [layoutBlocks, setLayoutBlocks] = useState<LessonLayoutBlockConfig[]>(() =>
     layoutBlocksOverride || getEffectiveLessonLayoutBlocks()
   );
@@ -86,11 +97,20 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
 
   const [detectedMeta, setDetectedMeta] = useState<DetectedVideoMeta | null>(() => {
     const key = (parsed.originalUrl || '').toLowerCase();
-    return videoMetaClientCache.get(key) || null;
+    const cached = videoMetaClientCache.get(key);
+    if (!cached) return null;
+    if (cached.streamUrl && cached.fetchedAt && Date.now() - cached.fetchedAt > STREAM_CLIENT_TTL_MS) {
+      videoMetaClientCache.delete(key);
+      return null;
+    }
+    return cached;
   });
 
   useEffect(() => {
     setIframeLoaded(false);
+    setStreamFailed(false);
+    setStreamRetriedOnce(false);
+    setSlideshowIndex(0);
   }, [url]);
 
   useEffect(() => {
@@ -104,17 +124,79 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
     return () => window.removeEventListener('alshams_growth_config_updated', syncLayout);
   }, [layoutBlocksOverride]);
 
-  // Resolve short TikTok/Facebook URLs + detect true aspect ratio & thumbnail via /api/utils/video-meta
+  const fetchVideoMeta = useCallback(
+    async (forceRefresh = false): Promise<DetectedVideoMeta | null> => {
+      const target = parsed.originalUrl;
+      if (!target || !/^https?:\/\//i.test(target)) return null;
+      const cacheKey = target.toLowerCase();
+
+      if (!forceRefresh) {
+        const cached = videoMetaClientCache.get(cacheKey);
+        if (cached) {
+          const expired =
+            Boolean(cached.streamUrl) &&
+            Boolean(cached.fetchedAt) &&
+            Date.now() - (cached.fetchedAt || 0) > STREAM_CLIENT_TTL_MS;
+          if (!expired) {
+            setDetectedMeta(cached);
+            return cached;
+          }
+          videoMetaClientCache.delete(cacheKey);
+        }
+      } else {
+        videoMetaClientCache.delete(cacheKey);
+      }
+
+      setResolving(true);
+      try {
+        const res = await fetch(
+          `/api/utils/video-meta?url=${encodeURIComponent(target)}${forceRefresh ? '&refresh=1' : ''}`
+        );
+        const data = res.ok ? await res.json() : null;
+        if (!data?.success) return null;
+        const orient =
+          data.orientation === 'portrait' || data.orientation === 'square' || data.orientation === 'landscape'
+            ? data.orientation
+            : parsed.isVertical
+              ? 'portrait'
+              : 'landscape';
+        const ratio =
+          typeof data.aspectRatio === 'number' && data.aspectRatio > 0.25 && data.aspectRatio < 4
+            ? data.aspectRatio
+            : orient === 'portrait'
+              ? 9 / 16
+              : orient === 'square'
+                ? 1
+                : 16 / 9;
+        const next: DetectedVideoMeta = {
+          orientation: orient,
+          aspectRatio: ratio,
+          embedUrl: typeof data.embedUrl === 'string' && data.embedUrl ? data.embedUrl : undefined,
+          streamUrl: typeof data.streamUrl === 'string' && data.streamUrl ? data.streamUrl : undefined,
+          slideshowImages: Array.isArray(data.slideshowImages) ? data.slideshowImages : undefined,
+          mediaType: data.mediaType === 'photo_slideshow' ? 'photo_slideshow' : 'video',
+          resolvedUrl: typeof data.resolvedUrl === 'string' && data.resolvedUrl ? data.resolvedUrl : undefined,
+          thumbnailUrl: typeof data.thumbnailUrl === 'string' && data.thumbnailUrl ? data.thumbnailUrl : undefined,
+          title: typeof data.title === 'string' && data.title ? data.title : undefined,
+          fetchedAt: Date.now(),
+        };
+        videoMetaClientCache.set(cacheKey, next);
+        setDetectedMeta(next);
+        setStreamFailed(false);
+        return next;
+      } catch {
+        return null;
+      } finally {
+        setResolving(false);
+      }
+    },
+    [parsed.originalUrl, parsed.isVertical]
+  );
+
+  // Resolve TikTok/Facebook native streams & detect true aspect ratio + thumbnail via /api/utils/video-meta
   useEffect(() => {
     const target = parsed.originalUrl;
     if (!target || !/^https?:\/\//i.test(target)) return;
-
-    const cacheKey = target.toLowerCase();
-    const cached = videoMetaClientCache.get(cacheKey);
-    if (cached) {
-      setDetectedMeta(cached);
-      return;
-    }
 
     const mustResolve =
       Boolean(parsed.needsResolve) ||
@@ -126,6 +208,7 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
     }
 
     if (!mustResolve && parsed.isVertical) {
+      const cacheKey = target.toLowerCase();
       const immediate: DetectedVideoMeta = { orientation: 'portrait', aspectRatio: 9 / 16 };
       videoMetaClientCache.set(cacheKey, immediate);
       setDetectedMeta(immediate);
@@ -133,48 +216,43 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
     }
 
     let cancelled = false;
-    setResolving(true);
-    fetch(`/api/utils/video-meta?url=${encodeURIComponent(target)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled || !data?.success) return;
-        const orient =
-          data.orientation === 'portrait' || data.orientation === 'square' || data.orientation === 'landscape'
-            ? data.orientation
-            : parsed.isVertical
-            ? 'portrait'
-            : 'landscape';
-        const ratio =
-          typeof data.aspectRatio === 'number' && data.aspectRatio > 0.25 && data.aspectRatio < 4
-            ? data.aspectRatio
-            : orient === 'portrait'
-            ? 9 / 16
-            : orient === 'square'
-            ? 1
-            : 16 / 9;
-        const next: DetectedVideoMeta = {
-          orientation: orient,
-          aspectRatio: ratio,
-          embedUrl: typeof data.embedUrl === 'string' && data.embedUrl ? data.embedUrl : undefined,
-          resolvedUrl: typeof data.resolvedUrl === 'string' && data.resolvedUrl ? data.resolvedUrl : undefined,
-          thumbnailUrl: typeof data.thumbnailUrl === 'string' && data.thumbnailUrl ? data.thumbnailUrl : undefined,
-          title: typeof data.title === 'string' && data.title ? data.title : undefined,
-        };
-        videoMetaClientCache.set(cacheKey, next);
-        setDetectedMeta(next);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setResolving(false);
-      });
-
+    fetchVideoMeta(false).then(() => {
+      if (cancelled) return;
+    });
     return () => {
       cancelled = true;
     };
-  }, [parsed.originalUrl, parsed.isVertical, parsed.needsResolve, parsed.platform, videoOrientation]);
+  }, [parsed.originalUrl, parsed.isVertical, parsed.needsResolve, parsed.platform, videoOrientation, fetchVideoMeta]);
 
+  const effectiveStreamUrl = !streamFailed ? detectedMeta?.streamUrl || '' : '';
+  const slideshowImages = detectedMeta?.slideshowImages || [];
+  const hasSlideshow = slideshowImages.length > 0;
   const effectiveEmbedUrl = detectedMeta?.embedUrl || parsed.embedUrl || '';
   const effectiveOpenUrl = detectedMeta?.resolvedUrl || parsed.originalUrl;
+  const isNativeStreamPlatform = parsed.platform === 'tiktok' || parsed.platform === 'facebook';
+  const hasPlayableTarget = Boolean(effectiveStreamUrl || hasSlideshow || effectiveEmbedUrl);
+
+  const handleReloadPlayer = async () => {
+    playButtonClickSound();
+    setIframeLoaded(false);
+    setStreamFailed(false);
+    setStreamRetriedOnce(false);
+    if (isNativeStreamPlatform) {
+      await fetchVideoMeta(true);
+    }
+    setIframeKey((k) => k + 1);
+  };
+
+  const handleNativeStreamError = async () => {
+    if (!streamRetriedOnce && isNativeStreamPlatform) {
+      setStreamRetriedOnce(true);
+      const refreshed = await fetchVideoMeta(true);
+      if (refreshed?.streamUrl) {
+        return;
+      }
+    }
+    setStreamFailed(true);
+  };
 
   const effectiveOrientation: 'portrait' | 'landscape' | 'square' = useMemo(() => {
     if (videoOrientation && videoOrientation !== 'auto') return videoOrientation;
@@ -252,17 +330,21 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
     : isSquare
       ? 'mx-auto w-full max-w-[460px]'
       : parsed.platform === 'facebook' || parsed.platform === 'instagram'
-        ? 'w-full min-h-[380px] sm:min-h-[440px]'
+        ? 'w-full min-h-[340px] sm:min-h-[420px]'
         : 'w-full';
 
   const frameInlineStyle: React.CSSProperties | undefined =
-    (parsed.platform === 'facebook' || parsed.platform === 'instagram') && !isPortrait && !isSquare
+    !effectiveStreamUrl &&
+    (parsed.platform === 'facebook' || parsed.platform === 'instagram') &&
+    !isPortrait &&
+    !isSquare
       ? undefined
       : { aspectRatio: String(effectiveAspectRatio) };
 
-  // Lightweight preview thumbnail (YouTube auto-thumb or TikTok oEmbed thumb) so profile scrolls at 60fps
+  // Lightweight preview thumbnail (YouTube auto-thumb, TikTok cover, or Facebook og:image) so profile scrolls at 60fps
   const previewThumb = useMemo(() => {
     if (detectedMeta?.thumbnailUrl) return detectedMeta.thumbnailUrl;
+    if (slideshowImages[0]) return slideshowImages[0];
     if (parsed.platform === 'youtube') {
       const m =
         parsed.originalUrl.match(/(?:v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/) ||
@@ -270,7 +352,137 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
       if (m?.[1]) return `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`;
     }
     return '';
-  }, [detectedMeta?.thumbnailUrl, parsed.platform, parsed.originalUrl]);
+  }, [detectedMeta?.thumbnailUrl, slideshowImages, parsed.platform, parsed.originalUrl]);
+
+  const renderActiveMediaContent = (inCinema = false) => {
+    // 1. Wait for TikTok/Facebook resolution BEFORE mounting any iframe so native HTML5 <video> always wins
+    if (resolving && isNativeStreamPlatform && !effectiveStreamUrl && !hasSlideshow) {
+      return (
+        <div
+          className={`${inCinema ? 'w-full h-full' : frameBoxClass} flex flex-col items-center justify-center gap-2 text-[#CBD5E1] py-16`}
+          style={inCinema ? undefined : frameInlineStyle}
+        >
+          <Loader2 className="w-7 h-7 text-[#FBBF24] animate-spin" />
+          <span className="text-xs font-bold">جاري تجهيز الفيديو من {meta.label}...</span>
+        </div>
+      );
+    }
+
+    // 2. Native HTML5 <video> player (TikTok & Facebook direct stream — ZERO Player error, ZERO < > arrows, ZERO external nag!)
+    if (effectiveStreamUrl) {
+      return (
+        <div
+          className={`${inCinema ? 'w-full h-full' : frameBoxClass} relative bg-black flex items-center justify-center`}
+          style={inCinema ? undefined : frameInlineStyle}
+        >
+          <video
+            ref={inCinema ? undefined : videoRef}
+            key={`${effectiveStreamUrl}_${iframeKey}`}
+            src={effectiveStreamUrl}
+            poster={previewThumb || undefined}
+            controls
+            autoPlay
+            playsInline
+            preload="metadata"
+            controlsList="nodownload"
+            onError={handleNativeStreamError}
+            className="w-full h-full object-contain bg-black"
+          />
+        </div>
+      );
+    }
+
+    // 3. TikTok Photo Slideshow (single-post photos only — zero TikTok error screen or related-video arrows)
+    if (hasSlideshow) {
+      const safeSlideIdx = Math.min(slideshowIndex, slideshowImages.length - 1);
+      return (
+        <div
+          className={`${inCinema ? 'w-full h-full' : frameBoxClass} relative bg-black flex flex-col items-center justify-center overflow-hidden`}
+          style={inCinema ? undefined : frameInlineStyle}
+        >
+          <img
+            src={slideshowImages[safeSlideIdx]}
+            alt={title || detectedMeta?.title || meta.label}
+            referrerPolicy="no-referrer"
+            className="w-full h-full object-contain bg-black"
+          />
+          {slideshowImages.length > 1 && (
+            <div className="absolute bottom-3 inset-x-0 flex items-center justify-center gap-1.5 z-10 px-3">
+              {slideshowImages.map((_, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setSlideshowIndex(idx)}
+                  aria-label={`صورة ${idx + 1}`}
+                  className={`h-2 rounded-full transition-all cursor-pointer ${
+                    idx === safeSlideIdx ? 'w-6 bg-[#FBBF24]' : 'w-2 bg-white/55 hover:bg-white/80'
+                  }`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 4. Clean single-video fallback iframe (YouTube, Vimeo, Dailymotion, Instagram, or FB/TikTok fallback if stream unavailable)
+    if (!effectiveEmbedUrl) {
+      return (
+        <div
+          className={`${inCinema ? 'w-full h-full' : frameBoxClass} flex flex-col items-center justify-center gap-3 text-center p-6 text-[#CBD5E1]`}
+          style={{ minHeight: '220px' }}
+        >
+          <p className="text-xs font-bold leading-relaxed max-w-xs">
+            تعذر تحميل المشغل المباشر لهذا الرابط من {meta.label} — يمكنك إعادة المحاولة أو فتحه مباشرة.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={handleReloadPlayer}
+              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-black inline-flex items-center gap-1.5 cursor-pointer transition"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>إعادة التحميل</span>
+            </button>
+            <a
+              href={effectiveOpenUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center gap-1.5 transition"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>فتح الفيديو الآن</span>
+            </a>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        {!iframeLoaded && !inCinema && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[#CBD5E1] pointer-events-none z-10">
+            <Loader2 className="w-6 h-6 text-[#FBBF24] animate-spin" />
+            <span className="text-xs font-bold">جاري تشغيل المشغل...</span>
+          </div>
+        )}
+
+        <div className={inCinema ? 'w-full h-full' : frameBoxClass} style={inCinema ? undefined : frameInlineStyle}>
+          <iframe
+            key={`${effectiveEmbedUrl}_${iframeKey}`}
+            src={effectiveEmbedUrl}
+            title={title || detectedMeta?.title || meta.label}
+            onLoad={() => setIframeLoaded(true)}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+            allowFullScreen
+            loading="lazy"
+            referrerPolicy="strict-origin-when-cross-origin"
+            className="w-full h-full border-0 bg-[#060B18]"
+          />
+        </div>
+      </>
+    );
+  };
 
   const renderBlock = (blockId: LessonLayoutBlockConfig['id']) => {
     switch (blockId) {
@@ -307,7 +519,18 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
                 </span>
               )}
 
-              {effectiveEmbedUrl && (
+              {playerActivated && (
+                <button
+                  type="button"
+                  onClick={handleReloadPlayer}
+                  title="إعادة تحميل الفيديو داخل المنظومة"
+                  className="p-1.5 rounded-lg bg-[#E9E2D4] hover:bg-[#DDD4C2] dark:bg-[#1A2B54] dark:hover:bg-[#22355E] text-[#0C1427] dark:text-[#F7F3EA] cursor-pointer transition"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {hasPlayableTarget && (
                 <button
                   type="button"
                   onClick={() => {
@@ -382,6 +605,7 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
                   <img
                     src={previewThumb}
                     alt={title || meta.label}
+                    referrerPolicy="no-referrer"
                     loading="lazy"
                     className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-300"
                   />
@@ -405,54 +629,8 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
                   </span>
                 </div>
               </div>
-            ) : resolving && !effectiveEmbedUrl ? (
-              <div
-                className={`${frameBoxClass} flex flex-col items-center justify-center gap-2 text-[#CBD5E1] py-16`}
-                style={frameInlineStyle}
-              >
-                <Loader2 className="w-7 h-7 text-[#FBBF24] animate-spin" />
-                <span className="text-xs font-bold">جاري استدعاء الفيديو من {meta.label}...</span>
-              </div>
-            ) : !effectiveEmbedUrl ? (
-              <div
-                className={`${frameBoxClass} flex flex-col items-center justify-center gap-3 text-center p-6 text-[#CBD5E1]`}
-                style={{ minHeight: '220px' }}
-              >
-                <p className="text-xs font-bold leading-relaxed max-w-xs">
-                  هذا الرابط من {meta.label} مختصر أو مقيد العرض داخل المتصفح — يمكنك فتحه مباشرة في التطبيق الأصلي.
-                </p>
-                <a
-                  href={effectiveOpenUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-black inline-flex items-center gap-1.5 transition"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>فتح الفيديو الآن</span>
-                </a>
-              </div>
             ) : (
-              <>
-                {!iframeLoaded && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[#CBD5E1] pointer-events-none z-10">
-                    <Loader2 className="w-6 h-6 text-[#FBBF24] animate-spin" />
-                    <span className="text-xs font-bold">جاري تشغيل المشغل...</span>
-                  </div>
-                )}
-
-                <div className={frameBoxClass} style={frameInlineStyle}>
-                  <iframe
-                    src={effectiveEmbedUrl}
-                    title={title || detectedMeta?.title || meta.label}
-                    onLoad={() => setIframeLoaded(true)}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-                    allowFullScreen
-                    loading="lazy"
-                    referrerPolicy="strict-origin-when-cross-origin"
-                    className="w-full h-full border-0 bg-[#060B18]"
-                  />
-                </div>
-              </>
+              renderActiveMediaContent(false)
             )}
           </div>
         );
@@ -558,14 +736,7 @@ export const EmbeddedSocialMediaCard: React.FC<EmbeddedSocialMediaCardProps> = (
               }
               style={{ aspectRatio: String(effectiveAspectRatio) }}
             >
-              <iframe
-                src={effectiveEmbedUrl}
-                title={title || detectedMeta?.title || meta.label}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-                allowFullScreen
-                referrerPolicy="strict-origin-when-cross-origin"
-                className="w-full h-full border-0"
-              />
+              {renderActiveMediaContent(true)}
             </div>
           </div>
         </div>

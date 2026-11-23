@@ -17,6 +17,9 @@ import {
   Layers,
   FolderPlus,
   Check,
+  Globe,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import type { SavedProductRecord, UserProfile, CraftCategory } from '../../types';
 import {
@@ -38,6 +41,8 @@ import {
   DEFAULT_PRODUCT_OFFER,
   ProductOfferEditorSection,
 } from '../store/ProductOfferEditorSection';
+import { MultilingualContentStudio } from '../common/MultilingualContentStudio';
+import { PublicLocaleCode, translateFieldsWithAI } from '../../lib/publicLocale';
 
 interface DirectCatalogProductPageProps {
   isOpen?: boolean;
@@ -197,6 +202,55 @@ export const DirectCatalogProductPage: React.FC<DirectCatalogProductPageProps> =
     const cfg = getStoredArtisanStoreConfig(tenantId);
     return (cfg.coupons || []).filter((c) => c.active && c.code).map((c) => c.code);
   }, [tenantId]);
+
+  // Multilingual product translations (English & additional enabled storefront languages)
+  const [enabledLanguages, setEnabledLanguages] = useState<PublicLocaleCode[]>(() => {
+    const cfg = getStoredArtisanStoreConfig(tenantId);
+    const langs =
+      Array.isArray(cfg.enabledLanguages) && cfg.enabledLanguages.length > 0
+        ? cfg.enabledLanguages
+        : (['ar', 'en'] as PublicLocaleCode[]);
+    return langs.includes('en') ? langs : [...langs, 'en'];
+  });
+  const [translations, setTranslations] = useState<
+    Partial<Record<PublicLocaleCode, Record<string, string | undefined>>>
+  >({});
+  const [showTranslationsStudio, setShowTranslationsStudio] = useState(false);
+  const [isQuickTranslatingEn, setIsQuickTranslatingEn] = useState(false);
+
+  const handleQuickTranslateToEnglish = async () => {
+    const srcName = productName.trim();
+    const srcDesc = storeDescription.trim();
+    if (!srcName && !srcDesc) {
+      setErrorMsg('اكتب اسم المنتج بالعربية أولاً ليتم ترجمته للإنجليزية.');
+      return;
+    }
+    setErrorMsg(null);
+    setIsQuickTranslatingEn(true);
+    try {
+      const payload: Record<string, string> = {};
+      if (srcName) payload.name = srcName;
+      if (srcDesc) payload.description = srcDesc;
+      const result = await translateFieldsWithAI(payload, 'en');
+      const translated = result.success ? result.translations : undefined;
+      if (translated && Object.keys(translated).length > 0) {
+        setTranslations((prev) => ({
+          ...prev,
+          en: {
+            ...(prev.en || {}),
+            ...(translated.name ? { name: translated.name } : {}),
+            ...(translated.description ? { description: translated.description } : {}),
+          },
+        }));
+      } else {
+        setErrorMsg('تعذرت الترجمة التلقائية حالياً، يمكنك كتابة الاسم الإنجليزي يدوياً.');
+      }
+    } catch {
+      setErrorMsg('تعذرت الترجمة التلقائية حالياً، يمكنك كتابة الاسم الإنجليزي يدوياً.');
+    } finally {
+      setIsQuickTranslatingEn(false);
+    }
+  };
 
   // Sizes linked to Prices (المقاسات المرتبطة بالأسعار)
   const [sizeVariants, setSizeVariants] = useState<ProductSizeVariant[]>([]);
@@ -422,6 +476,21 @@ export const DirectCatalogProductPage: React.FC<DirectCatalogProductPageProps> =
         currentStock: Math.max(0, Number(currentStock || 0)),
         isCustomOrderAvailable,
         sourceCurrency: currencyCode,
+        translations: (() => {
+          const cleaned: Record<string, { name?: string; description?: string }> = {};
+          for (const [langCode, fieldsObj] of Object.entries(translations || {})) {
+            if (langCode === 'ar' || !fieldsObj) continue;
+            const n = (fieldsObj.name || '').trim();
+            const d = (fieldsObj.description || '').trim();
+            if (n || d) {
+              cleaned[langCode] = {
+                ...(n ? { name: n } : {}),
+                ...(d ? { description: d } : {}),
+              };
+            }
+          }
+          return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+        })(),
         productDiscount:
           productDiscount.enabled || productDiscount.isBestSeller ? productDiscount : undefined,
         isActive: true,
@@ -614,17 +683,54 @@ export const DirectCatalogProductPage: React.FC<DirectCatalogProductPageProps> =
             ٢. اسم المنتج والتسعير الأساسي
           </h3>
 
-          <div className="space-y-1.5">
-            <label className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
-              اسم المنتج *
-            </label>
-            <input
-              type="text"
-              value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              placeholder="مثال: جدارية مكرمية بوهيمية بالخرز الخشبي"
-              className="w-full h-11 px-3.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-sm font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C]"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-black text-[#0C1427] dark:text-[#F7F3EA]">
+                اسم المنتج (بالعربية) *
+              </label>
+              <input
+                type="text"
+                value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                placeholder="مثال: جدارية مكرمية بوهيمية بالخرز الخشبي"
+                className="w-full h-11 px-3.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-sm font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C]"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <label className="flex items-center gap-1 text-xs font-black text-[#475569] dark:text-[#94A3B8]">
+                  <Globe className="w-3.5 h-3.5 text-[#EA580C]" />
+                  <span>اسم المنتج بالإنجليزية (اختياري)</span>
+                </label>
+                <button
+                  type="button"
+                  disabled={isQuickTranslatingEn || (!productName.trim() && !storeDescription.trim())}
+                  onClick={handleQuickTranslateToEnglish}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#EA580C]/12 hover:bg-[#EA580C]/20 border border-[#EA580C]/35 text-[10px] font-black text-[#C2410C] dark:text-[#FBBF24] disabled:opacity-45 cursor-pointer transition"
+                >
+                  {isQuickTranslatingEn ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3 h-3" />
+                  )}
+                  <span>{isQuickTranslatingEn ? 'جاري الترجمة...' : 'ترجمة تلقائية EN'}</span>
+                </button>
+              </div>
+              <input
+                type="text"
+                dir="ltr"
+                value={translations?.en?.name || ''}
+                onChange={(e) =>
+                  setTranslations((prev) => ({
+                    ...prev,
+                    en: { ...(prev.en || {}), name: e.target.value },
+                  }))
+                }
+                placeholder="e.g., Boho Macrame Wall Hanging with Wooden Beads"
+                className="w-full h-11 px-3.5 rounded-xl bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] text-sm font-bold text-[#0C1427] dark:text-[#F7F3EA] outline-none focus:border-[#EA580C]"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -984,6 +1090,55 @@ export const DirectCatalogProductPage: React.FC<DirectCatalogProductPageProps> =
             />
             <span>متاح للتنفيذ الخاص بألوان ومقاسات حسب طلب العميل</span>
           </label>
+
+          {/* Compact Collapsible Multilingual Studio (English description + any extra languages) */}
+          <div className="pt-2 border-t border-[#D4CCBC]/60 dark:border-[#22355E]">
+            <button
+              type="button"
+              onClick={() => setShowTranslationsStudio((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-[#EFE9DC]/70 dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-xs font-black text-[#0C1427] dark:text-[#F7F3EA] cursor-pointer transition"
+            >
+              <span className="inline-flex items-center gap-2 min-w-0">
+                <Globe className="w-4 h-4 text-[#EA580C] shrink-0" />
+                <span className="truncate">ترجمة الوصف والاسم للإنجليزية ولغات أخرى (اختياري)</span>
+              </span>
+              {showTranslationsStudio ? (
+                <ChevronUp className="w-4 h-4 text-[#EA580C] shrink-0" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-[#64748B] shrink-0" />
+              )}
+            </button>
+
+            {showTranslationsStudio && (
+              <div className="mt-3">
+                <MultilingualContentStudio
+                  title="ترجمة المنتج لعملائك بالخارج"
+                  subtitle="ترجم اسم ووصف المنتج للإنجليزية أو لأي لغة بضغطة واحدة"
+                  enabledLanguages={enabledLanguages}
+                  onChangeEnabledLanguages={setEnabledLanguages}
+                  showCurrencies={false}
+                  showBilingualLogos={false}
+                  fields={[
+                    {
+                      key: 'name',
+                      labelAr: 'اسم المنتج',
+                      sourceArabicValue: productName,
+                      placeholderEn: 'Product name in English...',
+                    },
+                    {
+                      key: 'description',
+                      labelAr: 'وصف المنتج للعملاء',
+                      sourceArabicValue: storeDescription,
+                      multiline: true,
+                      placeholderEn: 'Product description, materials, and care instructions...',
+                    },
+                  ]}
+                  translations={translations}
+                  onChangeTranslations={setTranslations}
+                />
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Action Buttons */}

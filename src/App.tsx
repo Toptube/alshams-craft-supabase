@@ -622,6 +622,7 @@ export const App: React.FC = () => {
     }
     return 'catalog';
   });
+  const [openDirectProductOnCatalogEnter, setOpenDirectProductOnCatalogEnter] = useState<boolean>(false);
   const [workOrdersInitialStage, setWorkOrdersInitialStage] = useState<'create' | 'issue' | 'receive' | undefined>(undefined);
   const [purchaseInitialMaterial, setPurchaseInitialMaterial] = useState<{
     materialId: string;
@@ -1708,12 +1709,20 @@ export const App: React.FC = () => {
   );
 
   const handleNavigateToCatalog = useCallback(
-    (tab?: 'catalog' | 'store') => {
+    (tab?: 'catalog' | 'store' | 'direct_product') => {
       if (tab === 'store') {
+        setOpenDirectProductOnCatalogEnter(false);
         setArtisanStoreInitialTab('products');
         navigateTo('my_store');
         return;
       }
+      if (tab === 'direct_product') {
+        setOpenDirectProductOnCatalogEnter(true);
+        setCatalogInitialTab('catalog');
+        navigateTo('catalog');
+        return;
+      }
+      setOpenDirectProductOnCatalogEnter(false);
       setCatalogInitialTab('catalog');
       navigateTo('catalog');
     },
@@ -2905,6 +2914,8 @@ export const App: React.FC = () => {
           <WorkshopCatalog
             profile={profile}
             initialTab="catalog"
+            initialOpenDirectAdd={openDirectProductOnCatalogEnter}
+            onConsumeInitialDirectAdd={() => setOpenDirectProductOnCatalogEnter(false)}
             onSelectRecordToLoad={handleSelectRecordToLoad}
             onOpenWhatsAppShare={handleOpenWhatsAppShare}
             onOpenMyStore={() => handleOpenArtisanStore('products')}
