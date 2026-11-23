@@ -327,10 +327,17 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
         (catalogFilter === 'bestsellers' && bestSet.has(i.id));
       if (!matchFilter) return false;
       if (!q) return true;
+      const transText = i.translations
+        ? Object.values(i.translations)
+            .map((tr: any) => `${tr?.name || ''} ${tr?.description || ''}`)
+            .join(' ')
+            .toLowerCase()
+        : '';
       return (
         i.name.toLowerCase().includes(q) ||
         (i.description || '').toLowerCase().includes(q) ||
-        i.unit.toLowerCase().includes(q)
+        i.unit.toLowerCase().includes(q) ||
+        transText.includes(q)
       );
     });
   }, [orderedItems, searchQuery, catalogFilter, specialOfferItems, bestSellerItems]);
@@ -535,7 +542,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
     () => resolveStorefrontTheme(previewThemeOverride || effectiveSupplier?.storeConfig?.themePreset),
     [previewThemeOverride, effectiveSupplier?.storeConfig?.themePreset]
   );
-  const { locale, setLocale, dir, t } = usePublicLocale(
+  const { locale, setLocale, dir, isRtl, t } = usePublicLocale(
     effectiveSupplier?.storeConfig?.enabledLanguages,
     effectiveSupplier?.storeConfig?.defaultLanguage || 'ar'
   );
@@ -1180,17 +1187,17 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                                   {meta.badgeText}
                                 </span>
                               )}
-                              <img src={it.images?.[0] || '/alshams_falcon_emblem.png'} alt={it.name} className="w-full h-full object-cover" />
+                              <img src={it.images?.[0] || '/alshams_falcon_emblem.png'} alt={pickItemField(it, 'name')} className="w-full h-full object-cover" />
                             </div>
                             <div className="p-2 space-y-0.5">
-                              <p className="text-[11px] font-black truncate">{it.name}</p>
+                              <p className="text-[11px] font-black truncate">{pickItemField(it, 'name')}</p>
                               <div className="flex items-baseline gap-1 font-mono text-xs">
                                 <span className="font-black" style={{ color: themeSpec.priceColor }}>
-                                  {meta.finalRetail.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                                  {fmtMoney(meta.finalRetail)}
                                 </span>
                                 {meta.hasDiscount && (
                                   <span className="text-[10px] line-through opacity-65">
-                                    {meta.originalRetail.toLocaleString('ar-EG')}
+                                    {fmtMoney(meta.originalRetail)}
                                   </span>
                                 )}
                               </div>
@@ -1207,7 +1214,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                     <div className="flex items-center justify-between gap-2">
                       <h3 className="text-xs sm:text-sm font-black flex items-center gap-1.5">
                         <Star className="w-4 h-4 text-amber-500 fill-amber-400" />
-                        <span>الأكثر طلباً من الورش</span>
+                        <span>{isRtl ? 'الأكثر طلباً من الورش' : t('best_seller')}</span>
                       </h3>
                       <button
                         type="button"
@@ -1215,7 +1222,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                         style={{ color: themeSpec.accentText }}
                         className="text-[11px] font-black hover:underline cursor-pointer"
                       >
-                        عرض الكل ←
+                        {isRtl ? 'عرض الكل ←' : 'View All →'}
                       </button>
                     </div>
                     <div className="flex items-stretch gap-2.5 overflow-x-auto pb-1 scrollbar-none">
@@ -1227,23 +1234,23 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                             type="button"
                             onClick={() => setSelectedItem(it)}
                             style={{ backgroundColor: themeSpec.softBg, borderColor: themeSpec.borderColor }}
-                            className="w-36 sm:w-44 shrink-0 rounded-xl border overflow-hidden text-right cursor-pointer flex flex-col"
+                            className={`w-36 sm:w-44 shrink-0 rounded-xl border overflow-hidden ${isRtl ? 'text-right' : 'text-left'} cursor-pointer flex flex-col`}
                           >
                             <div className="relative h-24 w-full overflow-hidden">
                               <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded-md bg-amber-400 text-slate-950 text-[9px] font-black">
-                                ⭐ الأكثر طلباً
+                                ⭐ {t('best_seller')}
                               </span>
-                              <img src={it.images?.[0] || '/alshams_falcon_emblem.png'} alt={it.name} className="w-full h-full object-cover" />
+                              <img src={it.images?.[0] || '/alshams_falcon_emblem.png'} alt={pickItemField(it, 'name')} className="w-full h-full object-cover" />
                             </div>
                             <div className="p-2 space-y-0.5">
-                              <p className="text-[11px] font-black truncate">{it.name}</p>
+                              <p className="text-[11px] font-black truncate">{pickItemField(it, 'name')}</p>
                               <div className="flex items-baseline gap-1 font-mono text-xs">
                                 <span className="font-black" style={{ color: themeSpec.priceColor }}>
-                                  {meta.finalRetail.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                                  {fmtMoney(meta.finalRetail)}
                                 </span>
                                 {meta.hasDiscount && (
                                   <span className="text-[10px] line-through opacity-65">
-                                    {meta.originalRetail.toLocaleString('ar-EG')}
+                                    {fmtMoney(meta.originalRetail)}
                                   </span>
                                 )}
                               </div>
@@ -1426,7 +1433,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5"
             >
               <h2 className="text-sm sm:text-base font-black">
-                نبذة عن المورد ومعرض التوريدات المميزة
+                {isRtl ? 'نبذة عن المورد ومعرض التوريدات المميزة' : t('about_story')}
               </h2>
               <button
                 type="button"
@@ -1435,13 +1442,15 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                 className="text-xs font-black hover:underline inline-flex items-center gap-1 cursor-pointer"
               >
                 <User className="w-3.5 h-3.5" />
-                <span>عرض الصفحة الشخصية</span>
+                <span>{t('personal_profile')}</span>
               </button>
             </div>
 
-            {(memberProfile?.storyText || activeSupplier.storeConfig?.description) && (
+            {(displayDescription || memberProfile?.storyText || activeSupplier.storeConfig?.description) && (
               <p style={{ color: themeSpec.mutedColor }} className="text-xs sm:text-sm leading-relaxed">
-                {memberProfile?.storyText || activeSupplier.storeConfig?.description}
+                {locale !== 'ar' && displayDescription
+                  ? displayDescription
+                  : memberProfile?.storyText || displayDescription || activeSupplier.storeConfig?.description}
               </p>
             )}
 
@@ -1479,7 +1488,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
       {isCartOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex justify-end"
-          dir="rtl"
+          dir={dir}
           onClick={(e) => {
             if (e.target === e.currentTarget) setIsCartOpen(false);
           }}
@@ -1492,7 +1501,9 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               style={{ borderColor: themeSpec.borderColor }}
               className="p-4 border-b flex items-center justify-between"
             >
-              <h2 className="text-sm font-black">سلة المشتريات من {activeSupplier.brandName}</h2>
+              <h2 className="text-sm font-black">
+                {isRtl ? `سلة المشتريات من ${displayBrandName}` : `${t('cart')} — ${displayBrandName}`}
+              </h2>
               <button type="button" onClick={() => setIsCartOpen(false)} className="p-1.5 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
@@ -1507,7 +1518,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                     className={`p-3 ${themeSpec.buttonRadiusClass} space-y-1.5`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black">{line.item.name}</span>
+                      <span className="text-xs font-black">{pickItemField(line.item, 'name')}</span>
                       <button
                         type="button"
                         onClick={() => setCart((p) => p.filter((c) => c.item.id !== line.item.id))}
@@ -1518,10 +1529,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                     </div>
                     <div className="flex items-center justify-between text-xs font-mono">
                       <span>
-                        {pr.unitPrice} × {line.quantity} ({pr.isWholesale ? 'جملة' : 'قطاعي'})
+                        {fmtMoney(pr.unitPrice)} × {line.quantity} ({pr.isWholesale ? t('wholesale_price') : t('retail_price')})
                       </span>
                       <span className="font-black">
-                        {pr.lineTotal.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                        {fmtMoney(pr.lineTotal)}
                       </span>
                     </div>
                   </div>
@@ -1627,16 +1638,16 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
               >
                 {cartCouponDiscount > 0 && (
                   <div className="flex justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                    <span>خصم الكود ({appliedCoupon?.code}):</span>
+                    <span>{isRtl ? `خصم الكود (${appliedCoupon?.code}):` : `Coupon (${appliedCoupon?.code}):`}</span>
                     <span className="font-mono tabular-nums">
-                      -{cartCouponDiscount.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                      -{fmtMoney(cartCouponDiscount)}
                     </span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm font-black">
-                  <span>الإجمالي:</span>
+                  <span>{isRtl ? 'الإجمالي:' : 'Total:'}</span>
                   <span style={{ color: themeSpec.priceColor }} className="font-mono tabular-nums">
-                    {cartTotal.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                    {fmtMoney(cartTotal)}
                   </span>
                 </div>
                 <button
@@ -1656,6 +1667,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
 
       {selectedItem && (
         <div
+          dir={dir}
           className="fixed inset-0 z-[130] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
           onClick={() => setSelectedItem(null)}
         >
@@ -1668,7 +1680,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
             <ProductMediaCarousel
               images={selectedItem.images || []}
               videoUrl={selectedItem.videoUrl}
-              title={selectedItem.name}
+              title={pickItemField(selectedItem, 'name')}
               topRightOverlay={
                 <button
                   type="button"
@@ -1690,10 +1702,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
 
             <div className="p-4 sm:p-5 space-y-4">
               <div>
-                <h3 className={`text-lg ${themeSpec.titleWeightClass}`}>{selectedItem.name}</h3>
+                <h3 className={`text-lg ${themeSpec.titleWeightClass}`}>{pickItemField(selectedItem, 'name')}</h3>
                 {selectedItem.unit && (
                   <span style={{ color: themeSpec.mutedColor }} className="text-[11px] font-bold">
-                    الوحدة: {selectedItem.unit}
+                    {isRtl ? `الوحدة: ${selectedItem.unit}` : `Unit: ${selectedItem.unit}`}
                   </span>
                 )}
               </div>
@@ -1703,7 +1715,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   style={{ color: themeSpec.mutedColor }}
                   className="text-xs leading-relaxed whitespace-pre-line"
                 >
-                  {selectedItem.description}
+                  {pickItemField(selectedItem, 'description')}
                 </p>
               )}
 
@@ -1713,10 +1725,10 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   className={`p-3 ${themeSpec.buttonRadiusClass} border`}
                 >
                   <span style={{ color: themeSpec.mutedColor }} className="block text-[10px] font-sans">
-                    سعر القطاعي
+                    {t('retail_price')}
                   </span>
                   <span style={{ color: themeSpec.priceColor }} className="text-base font-black">
-                    {selectedItem.retailPrice.toLocaleString('ar-EG')} {activeSupplier.currencySymbol}
+                    {fmtMoney(selectedItem.retailPrice)}
                   </span>
                 </div>
                 <div
@@ -1727,11 +1739,11 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   className={`p-3 ${themeSpec.buttonRadiusClass} border`}
                 >
                   <span style={{ color: themeSpec.accentText }} className="block text-[10px] font-sans font-bold">
-                    سعر الجملة (×{selectedItem.minWholesaleQty})
+                    {t('wholesale_price')} (×{selectedItem.minWholesaleQty})
                   </span>
                   <span style={{ color: themeSpec.accentText }} className="text-base font-black">
                     {selectedItem.wholesalePrice > 0
-                      ? `${selectedItem.wholesalePrice.toLocaleString('ar-EG')} ${activeSupplier.currencySymbol}`
+                      ? fmtMoney(selectedItem.wholesalePrice)
                       : '—'}
                   </span>
                 </div>
@@ -1748,7 +1760,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   className={`flex-1 py-3 ${themeSpec.buttonRadiusClass} text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-90 transition`}
                 >
                   <Plus className="w-4 h-4" />
-                  <span>إضافة للسلة</span>
+                  <span>{t('add_to_cart')}</span>
                 </button>
                 <button
                   type="button"
@@ -1760,7 +1772,7 @@ export const SupplierPublicStoreView: React.FC<SupplierPublicStoreViewProps> = (
                   }}
                   className={`px-4 py-3 ${themeSpec.buttonRadiusClass} border text-xs font-bold cursor-pointer`}
                 >
-                  إغلاق
+                  {isRtl ? 'إغلاق' : 'Close'}
                 </button>
               </div>
             </div>

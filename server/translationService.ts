@@ -74,26 +74,35 @@ Rules:
 Input JSON:
 ${JSON.stringify(cleanFields, null, 2)}`;
 
-  // 1. Primary: Gemini 3.1 Flash Lite via @google/genai
+  // 1. Primary: Gemini via @google/genai with multi-model resilience
   const geminiKey = resolveTranslationGeminiKey();
   if (geminiKey) {
-    try {
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.25,
+    const ai = new GoogleGenAI({
+      apiKey: geminiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
         },
-      });
-      const text = response.text || '';
-      const parsed = extractJsonObject(text);
-      if (parsed && Object.keys(parsed).length > 0) {
-        return { success: true, translations: parsed };
+      },
+    });
+    const geminiModels = ['gemini-3.1-flash-lite', 'gemini-4-hydrogen'];
+    for (const modelName of geminiModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+          },
+        });
+        const text = response.text || '';
+        const parsed = extractJsonObject(text);
+        if (parsed && Object.keys(parsed).length > 0) {
+          return { success: true, translations: parsed };
+        }
+      } catch (err: any) {
+        console.warn(`[TranslationService] Gemini model ${modelName} failed:`, err?.message?.slice(0, 140));
       }
-    } catch (err: any) {
-      console.warn('[TranslationService] Gemini fallback triggered:', err?.message?.slice(0, 120));
     }
   }
 

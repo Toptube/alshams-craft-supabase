@@ -613,11 +613,18 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
 
     const list = storeData.products.filter((p) => {
       const q = searchQuery.toLowerCase().trim();
+      const transText = (p as any).translations
+        ? Object.values((p as any).translations)
+            .map((tr: any) => `${tr?.name || ''} ${tr?.description || ''}`)
+            .join(' ')
+            .toLowerCase()
+        : '';
       const matchSearch =
         !q ||
         (p.product_name || '').toLowerCase().includes(q) ||
         (p.store_description || '').toLowerCase().includes(q) ||
-        (p.craft_name || '').toLowerCase().includes(q);
+        (p.craft_name || '').toLowerCase().includes(q) ||
+        transText.includes(q);
 
       const matchCat =
         selectedCategory === 'all' ||
@@ -689,7 +696,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
   // Promo banner countdown is self-managed inside <StorePromoBannerDisplay />
 
   const effectiveConfig = localConfigOverride || artisanConfig;
-  const { locale, setLocale, dir, t } = usePublicLocale(
+  const { locale, setLocale, dir, isRtl, t } = usePublicLocale(
     effectiveConfig.enabledLanguages,
     effectiveConfig.defaultLanguage || 'ar'
   );
@@ -1162,11 +1169,11 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           <div className="max-w-7xl mx-auto flex items-center justify-center gap-6 text-[11px] sm:text-xs font-black whitespace-nowrap overflow-x-auto scrollbar-none">
             <span>★ {brandName}</span>
             <span>·</span>
-            <span>{effectiveConfig.craftBadge || 'صناعة يدوية أصلية 100%'}</span>
+            <span>{displayCraftBadge || (locale === 'ar' ? 'صناعة يدوية أصلية 100%' : '100% Authentic Handmade')}</span>
             <span>·</span>
-            <span>توصيل لكافة المحافظات</span>
+            <span>{locale === 'ar' ? 'توصيل لكافة المحافظات' : 'Nationwide & Worldwide Shipping'}</span>
             <span>·</span>
-            <span>{storeData?.products?.length || 0} قطعة فنية متاحة الآن ★</span>
+            <span>{storeData?.products?.length || 0} {locale === 'ar' ? 'قطعة فنية متاحة الآن' : 'Pieces Available'} ★</span>
           </div>
         </div>
       )}
@@ -1282,21 +1289,23 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 >
                   <img
                     src={filteredProducts[0].image_url || '/alshams_falcon_emblem.png'}
-                    alt={filteredProducts[0].product_name}
+                    alt={pickProductField(filteredProducts[0], 'name')}
                     referrerPolicy="no-referrer"
                     className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition duration-500"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
                   <div className="relative z-10 p-4 w-full flex items-end justify-between gap-2 text-white">
                     <div className="min-w-0">
-                      <span className="text-[10px] font-black text-amber-300 block">قطعة مختارة من المتجر</span>
-                      <span className="text-sm font-black truncate block">{filteredProducts[0].product_name}</span>
+                      <span className="text-[10px] font-black text-amber-300 block">
+                        {locale === 'ar' ? 'قطعة مختارة من المتجر' : 'Featured Piece'}
+                      </span>
+                      <span className="text-sm font-black truncate block">{pickProductField(filteredProducts[0], 'name')}</span>
                     </div>
                     <span
                       style={{ backgroundColor: themeSpec.accentBg, color: themeSpec.accentInk }}
                       className="px-3 py-1.5 rounded-xl text-xs font-black shrink-0"
                     >
-                      استعراض
+                      {t('view_details')}
                     </span>
                   </div>
                 </button>
@@ -1341,7 +1350,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 {effectiveConfig.showArtistSubtitle && (
                   <p style={{ color: themeSpec.accentText }} className="text-xs font-black tracking-wide">
                     {artistName} · {workshop?.country || 'مصر'}
-                    {effectiveConfig.showCraftBadge && effectiveConfig.craftBadge ? ` · ${effectiveConfig.craftBadge}` : ''}
+                    {effectiveConfig.showCraftBadge && displayCraftBadge ? ` · ${displayCraftBadge}` : ''}
                   </p>
                 )}
                 {effectiveConfig.showBrandTitle && (
@@ -1349,9 +1358,9 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                     {brandName}
                   </h2>
                 )}
-                {effectiveConfig.showWelcomeMessage && effectiveConfig.welcomeMessage && (
+                {effectiveConfig.showWelcomeMessage && displayWelcomeMessage && (
                   <p style={{ color: themeSpec.mutedColor }} className="text-xs sm:text-sm leading-relaxed">
-                    {effectiveConfig.welcomeMessage}
+                    {displayWelcomeMessage}
                   </p>
                 )}
               </div>
@@ -1399,7 +1408,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                       <div className="relative h-36 overflow-hidden" style={{ backgroundColor: themeSpec.softBg }}>
                         <img
                           src={item.image_url || '/alshams_falcon_emblem.png'}
-                          alt={item.product_name}
+                          alt={pickProductField(item, 'name')}
                           referrerPolicy="no-referrer"
                           className="w-full h-full object-cover group-hover:scale-110 transition duration-500"
                         />
@@ -1408,12 +1417,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                           style={{ backgroundColor: themeSpec.accentBg, color: themeSpec.accentInk }}
                           className="absolute bottom-2 left-2 px-2 py-0.5 rounded-lg text-[11px] font-mono font-black tabular-nums"
                         >
-                          {pr.finalPrice.toLocaleString('ar-EG')} {pr.displaySymbol}
+                          {pr.finalPrice.toLocaleString(locale === 'ar' ? 'ar-EG' : 'en-US')} {pr.displaySymbol}
                         </span>
                       </div>
                       <div className="p-2.5">
                         <p style={{ color: themeSpec.inkColor }} className="text-xs font-black truncate">
-                          {item.product_name}
+                          {pickProductField(item, 'name')}
                         </p>
                         <p style={{ color: themeSpec.mutedColor }} className="text-[10px] truncate">
                           {item.craft_name || item.category}
@@ -1460,7 +1469,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   className="w-16 h-16 rounded-full border-2 p-1 overflow-hidden shadow-sm"
                 >
                   <img
-                    src={(workshop as any)?.logo_url || workshop?.logoUrl || '/default-store-icon.png'}
+                    src={storeLogoUrl}
                     alt={brandName}
                     className="w-full h-full object-cover rounded-full"
                     onError={(e) => {
@@ -1475,8 +1484,8 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                   style={{ color: themeSpec.accentText }}
                   className="text-xs font-black tracking-wide"
                 >
-                  بأنامل الفنان: {artistName} · {workshop?.country || 'مصر'}
-                  {effectiveConfig.showCraftBadge && effectiveConfig.craftBadge ? ` · ${effectiveConfig.craftBadge}` : ''}
+                  {locale === 'ar' ? `بأنامل الفنان: ${artistName}` : artistName} · {workshop?.country || 'مصر'}
+                  {effectiveConfig.showCraftBadge && displayCraftBadge ? ` · ${displayCraftBadge}` : ''}
                 </p>
               )}
 
@@ -1499,12 +1508,12 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 <div className="w-16 h-0.5 rounded-full" style={{ backgroundColor: themeSpec.accentBg }} />
               )}
 
-              {effectiveConfig.showWelcomeMessage && effectiveConfig.welcomeMessage && (
+              {effectiveConfig.showWelcomeMessage && displayWelcomeMessage && (
                 <p
                   style={{ color: themeSpec.inkColor }}
                   className="text-xs sm:text-sm font-bold opacity-90 leading-relaxed"
                 >
-                  {effectiveConfig.welcomeMessage}
+                  {displayWelcomeMessage}
                 </p>
               )}
 
@@ -2465,7 +2474,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
           <section className="pt-4 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#D4CCBC] dark:border-[#22355E] pb-2.5">
               <h3 className="text-base sm:text-lg font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                {artisanConfig.portfolioTitle || 'معرض أعمالنا السابقة ولمسات التنفيذ'}
+                {pickConfigField(artisanConfig.portfolioTitle || t('portfolio_gallery'), 'portfolioTitle')}
               </h3>
               {workshop?.id && (
                 <button
@@ -2582,16 +2591,16 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
       {selectedProduct && selectedModalPricing && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#060B18]/75 backdrop-blur-sm"
-          dir="rtl"
+          dir={dir}
           onClick={(e) => {
             if (e.target === e.currentTarget) setSelectedProduct(null);
           }}
         >
-          <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5 shadow-2xl relative text-right text-[#0C1427] dark:text-[#F7F3EA]">
+          <div className={`bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5 shadow-2xl relative ${isRtl ? 'text-right' : 'text-left'} text-[#0C1427] dark:text-[#F7F3EA]`}>
             <button
               type="button"
               onClick={() => setSelectedProduct(null)}
-              className="absolute top-4 left-4 w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] flex items-center justify-center transition cursor-pointer z-10"
+              className={`absolute top-4 ${isRtl ? 'left-4' : 'right-4'} w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] flex items-center justify-center transition cursor-pointer z-10`}
             >
               <X className="w-4 h-4" />
             </button>
@@ -2600,7 +2609,7 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
               <ProductMediaCarousel
                 images={selectedModalGallery}
                 videoUrl={selectedProduct.video_url || selectedProduct.videoUrl}
-                title={selectedProduct.product_name}
+                title={pickProductField(selectedProduct, 'name')}
                 topRightOverlay={
                   selectedModalPricing.badgeText ? (
                     <span className="px-2.5 py-1 rounded-md bg-[#0C1427]/90 text-[#FBBF24] text-[11px] font-black shadow-xs">
@@ -2632,26 +2641,30 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 }
               />
 
-              <div className="space-y-3 pl-8 sm:pl-0">
+              <div className={`space-y-3 ${isRtl ? 'pl-8 sm:pl-0' : 'pr-8 sm:pr-0'}`}>
                 <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
                   {selectedProduct.craft_name || selectedProduct.category} ·{' '}
-                  {selectedProduct.current_stock > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
+                  {selectedProduct.current_stock > 0
+                    ? t('in_stock')
+                    : isRtl
+                    ? 'تنفيذ بالطلب'
+                    : 'Made to order'}
                 </p>
 
                 <h3 className="text-lg sm:text-xl font-black text-[#0C1427] dark:text-[#F7F3EA] leading-snug">
-                  {selectedProduct.product_name}
+                  {pickProductField(selectedProduct, 'name')}
                 </h3>
 
                 <div className="flex items-baseline gap-2 font-mono tabular-nums flex-wrap">
                   <span className="text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                    {selectedModalPricing.finalPrice.toLocaleString('ar-EG')}
+                    {selectedModalPricing.finalPrice.toLocaleString(isRtl ? 'ar-EG' : 'en-US')}
                   </span>
                   <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
                     {selectedModalPricing.displaySymbol}
                   </span>
                   {selectedModalPricing.hasDiscount && (
                     <span className="text-sm line-through text-[#64748B] dark:text-[#94A3B8]">
-                      {selectedModalPricing.originalPrice.toLocaleString('ar-EG')} {selectedModalPricing.displaySymbol}
+                      {selectedModalPricing.originalPrice.toLocaleString(isRtl ? 'ar-EG' : 'en-US')} {selectedModalPricing.displaySymbol}
                     </span>
                   )}
                 </div>
@@ -2659,19 +2672,20 @@ export const PublicStorefrontView: React.FC<PublicStorefrontViewProps> = ({
                 {selectedModalPricing.isFreeShipping && (
                   <p className="text-[11px] font-black text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
                     <Truck className="w-3.5 h-3.5" />
-                    <span>شحن مجاني على هذا المنتج</span>
+                    <span>{t('free_shipping')}</span>
                   </p>
                 )}
 
                 {selectedProduct.is_custom_order_available && (
                   <p className="text-[11px] font-bold text-[#C2410C] dark:text-[#FBBF24] bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] rounded-lg px-2.5 py-1.5 inline-flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                    <span>متاح للتنفيذ الخاص بألوان ومقاسات مخصصة</span>
+                    <span>{t('custom_orders_available')}</span>
                   </p>
                 )}
 
                 <p className="text-xs sm:text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
-                  {selectedProduct.store_description || 'مشغولة يدوية متقنة الصنع.'}
+                  {pickProductField(selectedProduct, 'description') ||
+                    (isRtl ? 'مشغولة يدوية متقنة الصنع.' : 'Handcrafted artisan piece.')}
                 </p>
 
                 {/* Direct Shareable Product Landing Page (/product/:id) */}

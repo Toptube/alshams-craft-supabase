@@ -7140,7 +7140,7 @@ async function findPublicProductById(productId: string): Promise<{ product: any;
       try {
         const { data } = await supabaseAdminClient
           .from('workshops')
-          .select('id, brand_name, artist_name, logo_url, logo_data, store_slug, phone_number, governorate, country')
+          .select('id, brand_name, artist_name, logo_url, logo_data, store_slug, phone_number, governorate, country, currency, currency_symbol, store_config')
           .eq('id', wid)
           .maybeSingle();
         if (data) ws = data;
@@ -7174,6 +7174,16 @@ app.get('/api/public/product/:id', async (req: Request, res: Response) => {
     const galleryUrls = Array.isArray(p.gallery_urls || p.galleryUrls)
       ? (p.gallery_urls || p.galleryUrls)
       : [];
+    const storeConfig = ws?.store_config || ws?.storeConfig || {};
+    const productTranslations =
+      p.translations ||
+      (p.dimensions && typeof p.dimensions === 'object' ? (p.dimensions as any).__artisanExt?.translations : undefined) ||
+      undefined;
+    const sourceCurrency =
+      p.source_currency ||
+      p.sourceCurrency ||
+      ws?.currency ||
+      'EGP';
 
     return res.json({
       success: true,
@@ -7183,8 +7193,10 @@ app.get('/api/public/product/:id', async (req: Request, res: Response) => {
         craftName: p.craft_name || p.craftName || p.category || 'مشغولات يدوية',
         price,
         originalPrice: originalPrice > price ? originalPrice : undefined,
-        currencySymbol: p.currency_symbol || 'ج.م',
+        currencySymbol: p.currency_symbol || ws?.currency_symbol || ws?.currencySymbol || 'ج.م',
+        sourceCurrency,
         description: p.store_description || p.storeDescription || p.description || 'مشغولة يدوية أصلية مصنوعة بعناية داخل ورش منظومة الشمساوية.',
+        translations: productTranslations,
         imageUrl,
         galleryUrls,
         availableColors: Array.isArray(p.available_colors || p.availableColors) ? (p.available_colors || p.availableColors) : [],
@@ -7196,6 +7208,12 @@ app.get('/api/public/product/:id', async (req: Request, res: Response) => {
         brandName,
         artistName,
         workshopLogo: ws?.logo_url || ws?.logoUrl || ws?.logo_data || '/brand_icon_light.png',
+        logoArUrl: storeConfig?.logoArUrl || '',
+        logoEnUrl: storeConfig?.logoEnUrl || '',
+        storeTranslations: storeConfig?.translations || undefined,
+        defaultLanguage: storeConfig?.defaultLanguage || 'ar',
+        enabledLanguages: Array.isArray(storeConfig?.enabledLanguages) ? storeConfig.enabledLanguages : undefined,
+        enabledCurrencies: Array.isArray(storeConfig?.enabledCurrencies) ? storeConfig.enabledCurrencies : undefined,
         workshopGovernorate: ws?.governorate || '',
         workshopPhone: ws?.phone_number || ws?.phoneNumber || ws?.phone || '',
         storeSlug,

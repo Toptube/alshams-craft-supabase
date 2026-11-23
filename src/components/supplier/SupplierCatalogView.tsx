@@ -40,6 +40,8 @@ import {
 } from 'lucide-react';
 import { ProductVideoThumbnail } from '../common/ProductVideoThumbnail';
 import { isValidHttpVideoUrl } from '../../lib/catalogStatus';
+import { MultilingualContentStudio } from '../common/MultilingualContentStudio';
+import { PublicLocaleCode } from '../../lib/publicLocale';
 
 import { compressImageFile, MAX_ITEM_IMAGES } from '../../utils/imageCompressor';
 import { useUiLayoutConfig } from '../../types/uiLayoutConfig';
@@ -122,6 +124,12 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
   const [brandCode, setBrandCode] = useState('');
   const [skuCode, setSkuCode] = useState('');
   const [unitChain, setUnitChain] = useState('');
+  const [itemTranslations, setItemTranslations] = useState<
+    Partial<Record<PublicLocaleCode, Record<string, string | undefined>>>
+  >({});
+  const [itemEnabledLanguages, setItemEnabledLanguages] = useState<PublicLocaleCode[]>(
+    () => ((profile.storeConfig as any)?.enabledLanguages as PublicLocaleCode[]) || ['ar', 'en']
+  );
   const [isUnifiedPickerOpen, setIsUnifiedPickerOpen] = useState(initialOpenUnifiedPicker);
 
   // Offer & New Stock Alert Modal
@@ -157,7 +165,12 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
       if (sectionFilter !== 'all' && item.sectionId !== sectionFilter) return false;
       if (onlyLowStock && Number(item.stockQty) > 5) return false;
       if (q) {
-        const hay = `${item.name} ${item.description || ''} ${item.unit} ${item.skuCode || ''} ${item.unifiedCode || ''}`.toLowerCase();
+        const transText = item.translations
+          ? Object.values(item.translations)
+              .map((tr: any) => `${tr?.name || ''} ${tr?.description || ''}`)
+              .join(' ')
+          : '';
+        const hay = `${item.name} ${item.description || ''} ${item.unit} ${item.skuCode || ''} ${item.unifiedCode || ''} ${transText}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -188,6 +201,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setBrandCode('');
     setSkuCode('');
     setUnitChain('');
+    setItemTranslations({});
     setFeedback(null);
     setIsModalOpen(true);
   };
@@ -225,6 +239,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
     setBrandCode(item.brandCode || '');
     setSkuCode(item.skuCode || '');
     setUnitChain(item.unitChain || '');
+    setItemTranslations((item.translations as any) || {});
     setFeedback(null);
     setIsModalOpen(true);
   };
@@ -318,6 +333,7 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
       skuCode: skuCode.trim() || undefined,
       unitChain: unitChain.trim() || undefined,
       sourceCurrency: profile.currency || 'EGP',
+      translations: Object.keys(itemTranslations || {}).length > 0 ? (itemTranslations as any) : undefined,
     });
     setSaving(false);
 
@@ -1044,6 +1060,31 @@ export const SupplierCatalogView: React.FC<SupplierCatalogViewProps> = ({
                   className="w-full px-3 py-2 rounded-xl border border-[#D4CCBC] dark:border-[#22355E] bg-white dark:bg-[#132040] font-bold outline-none"
                 />
               </div>
+
+              {/* Multilingual Translations & 1-Click AI Translation */}
+              <MultilingualContentStudio
+                title="ترجمة اسم ومواصفات الخامة للزوار الأجانب (اختياري)"
+                subtitle="ترجم الخامة للإنجليزية أو أي لغة بضغطة زر لتظهر بلغة الزائر داخل متجرك وسوق الموردين"
+                enabledLanguages={itemEnabledLanguages}
+                onChangeEnabledLanguages={setItemEnabledLanguages}
+                translations={itemTranslations}
+                onChangeTranslations={setItemTranslations}
+                fields={[
+                  {
+                    key: 'name',
+                    labelAr: 'اسم الخامة',
+                    sourceArabicValue: name,
+                    placeholderEn: 'e.g. 4mm Twisted Egyptian Cotton Macrame Cord',
+                  },
+                  {
+                    key: 'description',
+                    labelAr: 'وصف ومواصفات الخامة',
+                    sourceArabicValue: description,
+                    multiline: true,
+                    placeholderEn: '100% Egyptian cotton, 500g spool...',
+                  },
+                ]}
+              />
 
               {/* Variants */}
               <div className="space-y-2 p-3 rounded-2xl bg-[#EFE9DC]/60 dark:bg-[#132040]/50 border border-[#D4CCBC] dark:border-[#22355E]">

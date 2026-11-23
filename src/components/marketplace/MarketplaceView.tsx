@@ -161,7 +161,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   onNavigateToSuppliersMarket,
 }) => {
   const isSuperAdmin = useMemo(() => isUserAdmin(profile), [profile]);
-  const { locale, setLocale, dir, t } = usePublicLocale();
+  const { locale, setLocale, dir, isRtl, t } = usePublicLocale();
   const pickMarketProductField = (
     p: MarketplaceProductRecord,
     field: 'name' | 'description'
@@ -541,12 +541,19 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     const filtered = products.filter((p) => {
       // 1. Search Query (Super Admin can also search by brand/artist; shoppers search products & crafts)
       const q = searchQuery.toLowerCase().trim();
+      const transText = (p as any).translations
+        ? Object.values((p as any).translations)
+            .map((tr: any) => `${tr?.name || ''} ${tr?.description || ''}`)
+            .join(' ')
+            .toLowerCase()
+        : '';
       const matchSearch =
         !q ||
         p.productName.toLowerCase().includes(q) ||
         (p.storeDescription || '').toLowerCase().includes(q) ||
         (p.craftName || '').toLowerCase().includes(q) ||
         (p.category || '').toLowerCase().includes(q) ||
+        transText.includes(q) ||
         (isSuperAdmin &&
           ((p.brandName || '').toLowerCase().includes(q) ||
             (p.artistName || '').toLowerCase().includes(q)));
@@ -1679,17 +1686,17 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
         return (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-[#060B18]/75 backdrop-blur-sm"
-            dir="rtl"
+            dir={dir}
             onClick={(e) => {
               if (e.target === e.currentTarget) setSelectedProductDetails(null);
             }}
           >
-            <div className="bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto text-right shadow-2xl p-5 sm:p-6 space-y-6 text-[#0C1427] dark:text-[#F7F3EA] relative">
+            <div className={`bg-[#F7F3EA] dark:bg-[#0D162E] border border-[#D4CCBC] dark:border-[#22355E] rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto ${isRtl ? 'text-right' : 'text-left'} shadow-2xl p-5 sm:p-6 space-y-6 text-[#0C1427] dark:text-[#F7F3EA] relative`}>
               <button
                 type="button"
                 onClick={() => setSelectedProductDetails(null)}
-                className="w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center transition cursor-pointer absolute top-4 left-4 z-10"
-                title="إغلاق"
+                className={`w-9 h-9 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] hover:bg-[#DFD7C6] dark:hover:bg-[#1A2B54] text-[#0C1427] dark:text-[#F7F3EA] flex items-center justify-center transition cursor-pointer absolute top-4 ${isRtl ? 'left-4' : 'right-4'} z-10`}
+                title={isRtl ? 'إغلاق' : 'Close'}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1725,7 +1732,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     </button>
                     <img
                       src={modalActiveImage || selectedProductDetails.imageUrl || '/alshams_falcon_emblem.png'}
-                      alt={selectedProductDetails.productName}
+                      alt={pickMarketProductField(selectedProductDetails, 'name')}
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover"
                       onError={(e) => {
@@ -1755,26 +1762,30 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
                 {/* Contiguous Purchase Module */}
                 <div className="space-y-4 text-xs leading-relaxed flex flex-col justify-between">
-                  <div className="space-y-3 pl-8 md:pl-0">
+                  <div className={`space-y-3 ${isRtl ? 'pl-8 md:pl-0' : 'pr-8 md:pr-0'}`}>
                     <p className="text-xs font-bold text-[#C2410C] dark:text-[#FBBF24]">
                       {selectedProductDetails.craftName || selectedProductDetails.category} ·{' '}
-                      {(selectedProductDetails.currentStock || 0) > 0 ? 'متوفر' : 'تنفيذ بالطلب'}
+                      {(selectedProductDetails.currentStock || 0) > 0
+                        ? t('in_stock')
+                        : isRtl
+                        ? 'تنفيذ بالطلب'
+                        : 'Made to order'}
                     </p>
 
                     <h3 className="font-black text-xl text-[#0C1427] dark:text-[#F7F3EA] leading-snug">
-                      {selectedProductDetails.productName}
+                      {pickMarketProductField(selectedProductDetails, 'name')}
                     </h3>
 
                     <div className="flex items-baseline gap-2 font-mono tabular-nums pt-1 flex-wrap">
                       <span className="text-2xl font-black text-[#0C1427] dark:text-[#F7F3EA]">
-                        {modalPricing.finalPrice.toLocaleString('ar-EG')}
+                        {modalPricing.finalPrice.toLocaleString(isRtl ? 'ar-EG' : 'en-US')}
                       </span>
                       <span className="text-xs font-bold text-[#475569] dark:text-[#94A3B8]">
                         {modalPricing.displaySymbol}
                       </span>
                       {modalPricing.hasDiscount && (
                         <span className="text-sm line-through text-[#64748B] dark:text-[#94A3B8]">
-                          {modalPricing.originalPrice.toLocaleString('ar-EG')} {modalPricing.displaySymbol}
+                          {modalPricing.originalPrice.toLocaleString(isRtl ? 'ar-EG' : 'en-US')} {modalPricing.displaySymbol}
                         </span>
                       )}
                     </div>
@@ -1782,14 +1793,14 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     {modalPricing.isFreeShipping && (
                       <p className="text-[11px] font-black text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
                         <Truck className="w-3.5 h-3.5" />
-                        <span>شحن مجاني على هذا المنتج</span>
+                        <span>{t('free_shipping')}</span>
                       </p>
                     )}
 
                     {selectedProductDetails.isCustomOrderAvailable && (
                       <div className="py-1.5 px-2.5 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] inline-flex items-center gap-1.5 font-bold text-[#C2410C] dark:text-[#FBBF24]">
                         <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                        <span>متاح للتنفيذ الخاص بألوان ومقاسات مخصصة</span>
+                        <span>{t('custom_orders_available')}</span>
                       </div>
                     )}
 
@@ -1797,7 +1808,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     {(isSuperAdmin || builderConfig.showWorkshopAndArtistInDetails) && (
                       <div className="py-2 px-3 rounded-xl bg-[#E9E2D4] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] space-y-1">
                         <p className="font-bold text-[#C2410C] dark:text-[#FBBF24]">
-                          الورشة: {selectedProductDetails.brandName || 'الشمساوية'} · الفنان:{' '}
+                          {isRtl ? 'الورشة:' : 'Workshop:'} {selectedProductDetails.brandName || 'الشمساوية'} · {isRtl ? 'الفنان:' : 'Artisan:'}{' '}
                           {selectedProductDetails.artistName || 'فنان الشمساوية'}
                         </p>
                         {isSuperAdmin && selectedProductDetails.phoneNumber && (
@@ -1809,9 +1820,9 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                     )}
 
                     <p className="text-sm text-[#334155] dark:text-[#CBD5E1] leading-relaxed">
-                      {selectedProductDetails.storeDescription ||
+                      {pickMarketProductField(selectedProductDetails, 'description') ||
                         selectedProductDetails.input?.personalNotes ||
-                        'مشغولة يدوية مصنوعة بإتقان وجودة عالية.'}
+                        (isRtl ? 'مشغولة يدوية مصنوعة بإتقان وجودة عالية.' : 'Authentic handmade piece crafted with high quality.')}
                     </p>
 
                     {/* Direct Shareable Product Landing Link (/product/:id) */}
@@ -1826,7 +1837,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         className="px-2.5 py-1.5 rounded-xl bg-[#EFE9DC] dark:bg-[#132040] border border-[#D4CCBC] dark:border-[#22355E] hover:border-[#EA580C] text-[11px] font-black text-[#0C1427] dark:text-[#F7F3EA] inline-flex items-center gap-1.5 cursor-pointer"
                       >
                         <Copy className="w-3.5 h-3.5 text-[#EA580C]" />
-                        <span>نسخ رابط المنتج المباشر</span>
+                        <span>{isRtl ? 'نسخ رابط المنتج المباشر' : 'Copy Product Link'}</span>
                       </button>
                       <a
                         href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(buildProductLandingUrl(selectedProductDetails.id))}`}
@@ -1834,18 +1845,18 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                         rel="noopener noreferrer"
                         className="px-2.5 py-1.5 rounded-xl bg-[#1877F2]/10 hover:bg-[#1877F2]/20 text-[#1877F2] dark:text-sky-300 border border-[#1877F2]/30 text-[11px] font-black inline-flex items-center gap-1"
                       >
-                        <span>فيسبوك</span>
+                        <span>{isRtl ? 'فيسبوك' : 'Facebook'}</span>
                       </a>
                       <a
                         href={`https://wa.me/?text=${encodeURIComponent(
-                          `${selectedProductDetails.productName} — ${modalPricing.finalPrice.toLocaleString('ar-EG')} ${modalPricing.displaySymbol}\n${buildProductLandingUrl(selectedProductDetails.id)}`
+                          `${pickMarketProductField(selectedProductDetails, 'name')} — ${modalPricing.finalPrice.toLocaleString(isRtl ? 'ar-EG' : 'en-US')} ${modalPricing.displaySymbol}\n${buildProductLandingUrl(selectedProductDetails.id)}`
                         )}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="px-2.5 py-1.5 rounded-xl bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-300 border border-emerald-600/30 text-[11px] font-black inline-flex items-center gap-1"
                       >
                         <MessageCircle className="w-3 h-3" />
-                        <span>واتساب</span>
+                        <span>{isRtl ? 'واتساب' : 'WhatsApp'}</span>
                       </a>
                     </div>
 
