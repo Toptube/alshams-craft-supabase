@@ -5021,6 +5021,357 @@ app.delete('/api/admin/shamousa/unanswered/:id', requireAuth, (req: Authenticate
 });
 
 // -------------------------------------------------------------
+// Part E: المخزن المعرفي الدائم لشموسة (Supabase ai_global_memory + Backup)
+// + طابور الأسئلة المجردة من البيانات الشخصية + مسودات السوبر أدمن الاختيارية
+// -------------------------------------------------------------
+const SHAMOUSA_KB_MEMORY_TITLE = '__SHAMOUSA_KNOWLEDGE_STORE_V2__';
+const SHAMOUSA_KB_BACKUP_FILE = path.join(
+  path.dirname(SHAMOUSA_UNANSWERED_FILE),
+  'shamousa_knowledge_store_v2.json'
+);
+
+function stripServerQuestionPII(raw: string): string {
+  let out = String(raw || '').trim().slice(0, 600);
+  out = out.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[بريد محذوف]');
+  out = out.replace(/(https?:\/\/[^\s]+|www\.[^\s]+)/gi, '[رابط محذوف]');
+  out = out.replace(/(\+?\d[\d\s\-()]{7,}\d)/g, '[رقم محذوف]');
+  out = out.replace(/\b\d{6,}\b/g, '[رقم محذوف]');
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeServerArabicKey(raw: string): string {
+  return String(raw || '')
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/[^\u0600-\u06FFa-z0-9\s]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function detectServerSafetyKeywords(text: string): { isSensitive: boolean; matchedKeywords: string[] } {
+  const norm = normalizeServerArabicKey(text);
+  const keywords = [
+    'كيماويات',
+    'كيمياوي',
+    'صودا كاويه',
+    'صودا',
+    'ريزن',
+    'ايبوكسي',
+    'حراره',
+    'حريق',
+    'نار',
+    'كهرباء',
+    'كهربا',
+    'شمع',
+    'شموع',
+    'اطفال',
+    'طفل',
+    'رضيع',
+    'مذيب',
+    'تينر',
+    'احماض',
+    'سموم',
+  ];
+  const matched = keywords.filter((kw) => norm.includes(kw));
+  return { isSensitive: matched.length > 0, matchedKeywords: matched };
+}
+
+function createEmptyServerKnowledgeStore() {
+  const nowIso = new Date().toISOString();
+  return {
+    schemaVersion: 2,
+    currentVersion: 1,
+    updatedAt: nowIso,
+    entries: [] as any[],
+    unansweredQueue: [] as any[],
+    metrics: {
+      localAnsweredCount: 0,
+      aiAssistantUsedCount: 0,
+      updatedAt: nowIso,
+    },
+    snapshots: [] as any[],
+  };
+}
+
+async function readDurableKnowledgeStore(): Promise<any> {
+  try {
+    const { data, error } = await supabaseAdminClient
+      .from('ai_global_memory')
+      .select('id, metadata, updated_at')
+      .eq('agent_type', 'shamousa')
+      .eq('title', SHAMOUSA_KB_MEMORY_TITLE)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    if (!error && Array.isArray(data) && data.length > 0 && data[0]?.metadata && typeof data[0].metadata === 'object') {
+      return { ...createEmptyServerKnowledgeStore(), ...data[0].metadata };
+    }
+  } catch (err: any) {
+    console.warn('[Shamousa KB Supabase Read Fallback]:', err?.message);
+  }
+  try {
+    if (fs.existsSync(SHAMOUSA_KB_BACKUP_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(SHAMOUSA_KB_BACKUP_FILE, 'utf-8'));
+      if (parsed && typeof parsed === 'object') {
+        return { ...createEmptyServerKnowledgeStore(), ...parsed };
+      }
+    }
+  } catch {}
+  return createEmptyServerKnowledgeStore();
+}
+
+async function writeDurableKnowledgeStore(storePayload: any, scopedClient?: any): Promise<{ persistedInSupabase: boolean }> {
+  const sanitizedStore = {
+    ...createEmptyServerKnowledgeStore(),
+    ...(storePayload && typeof storePayload === 'object' ? storePayload : {}),
+    updatedAt: new Date().toISOString(),
+  };
+  // Always strip PII from queue items and never persist any user/account identifiers in global queue
+  if (Array.isArray(sanitizedStore.unansweredQueue)) {
+    sanitizedStore.unansweredQueue = sanitizedStore.unansweredQueue.slice(0, 500).map((q: any) => ({
+      id: String(q.id || `uq_${Date.now()}`),
+      sanitizedQuestion: stripServerQuestionPII(String(q.sanitizedQuestion || q.question || '')),
+      normalizedKey: normalizeServerArabicKey(String(q.sanitizedQuestion || q.question || '')),
+      repeatCount: Math.max(1, Number(q.repeatCount || 1)),
+      status: ['pending', 'answered', 'merged', 'ignored'].includes(q.status) ? q.status : 'pending',
+      firstAskedAt: String(q.firstAskedAt || new Date().toISOString()),
+      lastAskedAt: String(q.lastAskedAt || new Date().toISOString()),
+      linkedEntryId: q.linkedEntryId ? String(q.linkedEntryId) : undefined,
+      draftReply: q.draftReply ? String(q.draftReply) : undefined,
+      draftSource: q.draftSource ? String(q.draftSource) : undefined,
+      requiresSafetyReview: Boolean(q.requiresSafetyReview),
+      safetyKeywords: Array.isArray(q.safetyKeywords) ? q.safetyKeywords.map(String) : undefined,
+    }));
+  }
+
+  try {
+    writeJsonData(SHAMOUSA_KB_BACKUP_FILE, sanitizedStore);
+  } catch {}
+
+  let persistedInSupabase = false;
+  const dbClients = [supabaseAdminClient, scopedClient].filter(Boolean);
+  for (const client of dbClients) {
+    try {
+      const { data: existing } = await client
+        .from('ai_global_memory')
+        .select('id')
+        .eq('agent_type', 'shamousa')
+        .eq('title', SHAMOUSA_KB_MEMORY_TITLE)
+        .limit(1);
+
+      if (Array.isArray(existing) && existing.length > 0 && existing[0]?.id) {
+        const { error: updErr } = await client
+          .from('ai_global_memory')
+          .update({
+            rules: `المخزن المعرفي الدائم لشموسة — الإصدار v${sanitizedStore.currentVersion} (${(sanitizedStore.entries || []).length} إجابة، ${(sanitizedStore.unansweredQueue || []).length} سؤال بالطابور)`,
+            metadata: sanitizedStore,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing[0].id);
+        if (!updErr) {
+          persistedInSupabase = true;
+          break;
+        }
+      } else {
+        const { error: insErr } = await client.from('ai_global_memory').insert({
+          agent_type: 'shamousa',
+          title: SHAMOUSA_KB_MEMORY_TITLE,
+          rules: `المخزن المعرفي الدائم لشموسة — الإصدار v${sanitizedStore.currentVersion}`,
+          metadata: sanitizedStore,
+          is_active: true,
+        });
+        if (!insErr) {
+          persistedInSupabase = true;
+          break;
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Shamousa KB Supabase Write Warning]:', err?.message);
+    }
+  }
+  return { persistedInSupabase };
+}
+
+app.get('/api/shamousa/knowledge', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const email = req.userEmail || req.user?.email || '';
+    const superAdmin = isSuperAdmin(email);
+    const fullStore = await readDurableKnowledgeStore();
+    if (superAdmin) {
+      res.json({ ok: true, store: fullStore });
+      return;
+    }
+    // Non-admins ONLY receive approved global entries (never drafts, never unanswered queue, never admin snapshots)
+    res.json({
+      ok: true,
+      store: {
+        schemaVersion: fullStore.schemaVersion || 2,
+        currentVersion: fullStore.currentVersion || 1,
+        updatedAt: fullStore.updatedAt,
+        entries: Array.isArray(fullStore.entries)
+          ? fullStore.entries.filter((e: any) => e && e.status === 'approved')
+          : [],
+      },
+    });
+  } catch (err: any) {
+    console.warn('[Shamousa KB GET Warning]:', err?.message);
+    res.json({ ok: true, store: null });
+  }
+});
+
+app.post('/api/shamousa/knowledge/unanswered', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const rawQuestion = String(req.body?.question || '').trim();
+    const sanitized = stripServerQuestionPII(rawQuestion);
+    const normKey = normalizeServerArabicKey(sanitized);
+    if (!normKey || normKey.length < 2) {
+      res.status(400).json({ error: 'نص السؤال مطلوب' });
+      return;
+    }
+    const store = await readDurableKnowledgeStore();
+    const queue: any[] = Array.isArray(store.unansweredQueue) ? store.unansweredQueue : [];
+    const nowIso = new Date().toISOString();
+    const safety = detectServerSafetyKeywords(sanitized);
+    const existing = queue.find((q: any) => q.normalizedKey === normKey && q.status === 'pending');
+
+    if (existing) {
+      existing.repeatCount = (Number(existing.repeatCount) || 1) + 1;
+      existing.lastAskedAt = nowIso;
+    } else {
+      queue.unshift({
+        id: `uq_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        sanitizedQuestion: sanitized,
+        normalizedKey: normKey,
+        repeatCount: 1,
+        status: 'pending',
+        firstAskedAt: nowIso,
+        lastAskedAt: nowIso,
+        requiresSafetyReview: safety.isSensitive,
+        safetyKeywords: safety.matchedKeywords.length > 0 ? safety.matchedKeywords : undefined,
+      });
+    }
+    store.unansweredQueue = queue.slice(0, 500);
+    await writeDurableKnowledgeStore(store);
+    res.json({ ok: true, sanitizedQuestion: sanitized });
+  } catch (err: any) {
+    console.warn('[Shamousa KB Unanswered Warning]:', err?.message);
+    res.json({ ok: false });
+  }
+});
+
+app.post('/api/shamousa/knowledge/metrics-event', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const kind = req.body?.kind === 'ai' ? 'ai' : 'local';
+    const store = await readDurableKnowledgeStore();
+    const metrics = store.metrics || { localAnsweredCount: 0, aiAssistantUsedCount: 0, updatedAt: new Date().toISOString() };
+    if (kind === 'local') {
+      metrics.localAnsweredCount = (Number(metrics.localAnsweredCount) || 0) + 1;
+    } else {
+      metrics.aiAssistantUsedCount = (Number(metrics.aiAssistantUsedCount) || 0) + 1;
+    }
+    metrics.updatedAt = new Date().toISOString();
+    store.metrics = metrics;
+    await writeDurableKnowledgeStore(store);
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: false });
+  }
+});
+
+app.post('/api/admin/shamousa/knowledge/save', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'تعديل المخزن المعرفي متاح للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const incoming = req.body?.store;
+    if (!incoming || typeof incoming !== 'object') {
+      res.status(400).json({ error: 'بيانات المخزن المعرفي غير صالحة' });
+      return;
+    }
+    const { persistedInSupabase } = await writeDurableKnowledgeStore(incoming, req.scopedSupabase);
+    res.json({ ok: true, persistedInSupabase, updatedAt: new Date().toISOString() });
+  } catch (err: any) {
+    console.warn('[Shamousa KB Admin Save Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر حفظ المخزن المعرفي حالياً' });
+  }
+});
+
+app.post('/api/admin/shamousa/knowledge/draft', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const email = req.userEmail || req.user?.email || '';
+  if (!isSuperAdmin(email)) {
+    res.status(403).json({ error: 'تجهيز المسودات متاح للسوبر أدمن فقط' });
+    return;
+  }
+  try {
+    const rawQuestion = String(req.body?.question || '').trim();
+    const sanitizedQuestion = stripServerQuestionPII(rawQuestion);
+    if (!sanitizedQuestion || sanitizedQuestion.length < 3) {
+      res.status(400).json({ error: 'نص السؤال مطلوب لتجهيز المسودة' });
+      return;
+    }
+
+    const safety = detectServerSafetyKeywords(sanitizedQuestion);
+    const shamousaRunner: any =
+      (shamousaModule as any).handleShamousaChat ||
+      (shamousaModule as any).chatWithShamousa;
+
+    if (typeof shamousaRunner !== 'function') {
+      res.status(503).json({ error: 'مزود الذكاء الاصطناعي غير متاح حالياً' });
+      return;
+    }
+
+    // إرسال نص السؤال المجرّد فقط بدون أي بيانات حسابات أو أسماء أو خزائن أو سياق مستخدمين!
+    const draftPrompt =
+      `أجب كمستشار حرفي عملي باللهجة المصرية المبسطة في 4 إلى 6 سطور واضحة ومختصرة عن هذا السؤال العام فقط (بدون أسعار وبدون ادعاءات غير مؤكدة).` +
+      (safety.isSensitive
+        ? ` ملاحظة مهمة: السؤال يمس السلامة المهنية (${safety.matchedKeywords.join('، ')})، اذكر احتياطات السلامة بوضوح.`
+        : '') +
+      `\nالسؤال: ${sanitizedQuestion}`;
+
+    const result = await shamousaRunner(
+      draftPrompt,
+      [],
+      {
+        artistName: '',
+        workshopName: '',
+        treasuryBalance: 0,
+        workshopId: '',
+        isSuperAdmin: true,
+        useSearch: true,
+        accountRole: 'artisan',
+      }
+    );
+
+    const draftAnswer = (typeof result === 'string' ? result : result?.reply || '').trim();
+    const source =
+      Array.isArray(result?.sources) && result.sources.length > 0
+        ? `مسودة أونلاين (${result.sources.slice(0, 2).map((s: any) => s?.title || s?.uri || 'مصدر ويب').join(' | ')})`
+        : `مسودة أونلاين (${result?.provider || 'ai_provider'}) — بانتظار مراجعة واعتماد السوبر أدمن`;
+
+    res.json({
+      ok: true,
+      status: 'draft', // NEVER auto-published!
+      sanitizedQuestion,
+      draftAnswer,
+      source,
+      requiresSafetyReview: safety.isSensitive,
+      safetyKeywords: safety.matchedKeywords,
+      safetyWarningAr: safety.isSensitive
+        ? `⚠️ تحذير سلامة إلزامي (${safety.matchedKeywords.join('، ')}): يلزم مراجعة بشرية دقيقة من السوبر أدمن قبل الاعتماد.`
+        : '',
+    });
+  } catch (err: any) {
+    console.warn('[Shamousa KB Draft Error]:', err?.message);
+    res.status(500).json({ error: 'تعذر تجهيز المسودة أونلاين حالياً، يمكنك كتابة الإجابة يدوياً.' });
+  }
+});
+
+// -------------------------------------------------------------
 // Falcon AI Agent Endpoints (General Crafts, Vision, Pricing)
 // -------------------------------------------------------------
 const handleFalconChat = async (req: AuthenticatedRequest, res: Response) => {

@@ -46,6 +46,9 @@ export interface ShamousaCopyBlock {
   id: string;
   title: string;
   content: string;
+  templateId?: string;
+  tone?: 'formal' | 'friendly' | 'light';
+  productName?: string;
 }
 
 export interface ProductWizardPrefillDraft {

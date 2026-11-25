@@ -73,9 +73,18 @@ import { useInstantVoiceDictation } from '../../hooks/useInstantVoiceDictation';
 import { usePersonaSpeech } from '../../hooks/usePersonaSpeech';
 import { db } from '../../db/dexieDB';
 import {
-  buildProactiveTop3MarketingSuggestions,
-  type ProactiveMarketingSuggestion,
-} from '../../services/shamousaMarketingPricingEngine';
+  runAllThreeAnalyticBrainsOffline,
+  setAccountBrainDecision,
+  type AnalyticBrainRecommendation,
+  type AnalyticBrainType,
+  type RecommendationUserDecision,
+} from '../../services/shamousaAnalyticBrains';
+import {
+  recordBrainRecommendationFeedback,
+  buildWeeklyLearningSummary,
+  resetAccountLearning,
+  type WeeklyLearningSummaryResult,
+} from '../../services/shamousaSelfCheckAndLearning';
 
 export type ShamousaUnifiedPanelMode = 'daily' | 'results' | 'or360';
 type ORFilter = 'all' | ORRecommendationType;
@@ -282,7 +291,9 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
   const [showScheduleBar, setShowScheduleBar] = useState(false);
   const [memoryState, setMemoryState] = useState(() => loadShamousaOrMemory(tenantId));
   const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
-  const [proactiveTop3, setProactiveTop3] = useState<ProactiveMarketingSuggestion[]>([]);
+  const [brainTop3, setBrainTop3] = useState<AnalyticBrainRecommendation[]>([]);
+  const [weeklyLearning, setWeeklyLearning] = useState<WeeklyLearningSummaryResult | null>(null);
+  const [brainDecisionVersion, setBrainDecisionVersion] = useState(0);
   const userSub = useUserSubscription(profile);
   const isSuperAdmin = isUserAdmin(profile);
 
@@ -301,31 +312,68 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
           isAdmin: isSuperAdmin,
         };
         const canInv = hasFeature('inventory', profile.id, pkgOpts);
-        const [prods, mats, ords] = await Promise.all([
+        const [prods, mats, ords, wOrders] = await Promise.all([
           db.products.where('tenantId').equals(tenantId).toArray().catch(() => []),
           canInv ? db.rawMaterials.where('tenantId').equals(tenantId).toArray().catch(() => []) : Promise.resolve([]),
           db.orders.where('tenantId').equals(tenantId).toArray().catch(() => []),
+          db.workOrders.where('tenantId').equals(tenantId).toArray().catch(() => []),
         ]);
         if (cancelled) return;
-        const suggestions = buildProactiveTop3MarketingSuggestions({
+        const report = runAllThreeAnalyticBrainsOffline({
           accountId: profile.id,
           packageOptions: pkgOpts,
           isSupplier,
+          firstName,
           brandName: profile.brandName,
           products: prods,
           rawMaterials: mats,
           orders: ords,
+          workOrders: wOrders,
           currency: profile.currencySymbol || 'ج.م',
         });
-        setProactiveTop3(suggestions.slice(0, 3));
+        setBrainTop3(report.topThreeRecommendations.slice(0, 3));
+        setWeeklyLearning(
+          buildWeeklyLearningSummary({
+            accountId: profile.id,
+            packageOptions: pkgOpts,
+            orders: ords,
+            firstName,
+          })
+        );
       } catch {
-        if (!cancelled) setProactiveTop3([]);
+        if (!cancelled) setBrainTop3([]);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [mode, tenantId, profile.id, profile.brandName, profile.currencySymbol, isSupplier, userSub, isSuperAdmin]);
+  }, [
+    mode,
+    tenantId,
+    profile.id,
+    profile.brandName,
+    profile.currencySymbol,
+    firstName,
+    isSupplier,
+    userSub,
+    isSuperAdmin,
+    brainDecisionVersion,
+  ]);
+
+  const handleBrainDecision = (
+    recId: string,
+    brain: AnalyticBrainType,
+    decision: RecommendationUserDecision
+  ) => {
+    setAccountBrainDecision(profile.id, recId, decision);
+    recordBrainRecommendationFeedback(profile.id, { recId, brain, decision });
+    setBrainDecisionVersion((v) => v + 1);
+  };
+
+  const handleResetMyLearning = () => {
+    resetAccountLearning(profile.id);
+    setBrainDecisionVersion((v) => v + 1);
+  };
 
   const toggleExpandCard = (id: string) => {
     setExpandedCardIds((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -1051,61 +1099,141 @@ export const ShamousaUnifiedPanels: React.FC<ShamousaUnifiedPanelsProps> = ({
             )}
           </div>
 
-          {/* أهم 3 توصيات تسويقية وإنتاجية استباقية (مرتّبة بالأثر ومقيدة بباقات الحساب فقط) */}
-          {proactiveTop3.length > 0 && (
+          {/* العقول التحليلية الثلاثة (الاستراتيجي + الفني + التسويقي) — حد أقصى 3 توصيات بصيغة موحدة من 5 عناصر */}
+          {brainTop3.length > 0 && (
             <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3.5 sm:p-4 space-y-2.5 shadow-xs">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                   <h4 className="text-xs sm:text-sm font-black text-[#12244D] dark:text-[#F8FAFC]">
-                    أهم {proactiveTop3.length} توصيات تسويقية وإنتاجية لك اليوم
+                    أهم {brainTop3.length} توصيات من العقول التحليلية الثلاثة
                   </h4>
                 </div>
                 <span className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">
-                  أوفلاين من بيانات حسابك
+                  أوفلاين • حسب باقات حسابك
                 </span>
               </div>
-              <div className="grid grid-cols-1 gap-2">
-                {proactiveTop3.slice(0, 3).map((sug, idx) => (
+              <div className="grid grid-cols-1 gap-2.5">
+                {brainTop3.slice(0, 3).map((rec, idx) => (
                   <div
-                    key={sug.id}
-                    className="rounded-xl bg-white/80 dark:bg-[#142A5C]/80 border border-[#E5DAC6] dark:border-[#2A4588] p-2.5 flex items-start justify-between gap-2.5"
+                    key={rec.id}
+                    className="rounded-xl bg-white/85 dark:bg-[#142A5C]/85 border border-[#E5DAC6] dark:border-[#2A4588] p-3 space-y-1.5"
                   >
-                    <div className="min-w-0 space-y-0.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="w-5 h-5 rounded-md bg-amber-500 text-white text-[10px] font-black flex items-center justify-center shrink-0">
                           {idx + 1}
                         </span>
                         <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-100/80 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200">
-                          {sug.badgeAr}
+                          {rec.brainLabelAr}
                         </span>
                         <span className="text-xs font-black text-[#12244D] dark:text-[#F8FAFC]">
-                          {sug.titleAr}
+                          {rec.titleAr}
                         </span>
                       </div>
-                      <p className="text-[11px] text-[#475569] dark:text-[#CBD5E1] leading-relaxed">
-                        {sug.summaryAr}
-                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onAskShamousaAboutItem?.({
+                            id: rec.id,
+                            source: 'result',
+                            category: rec.brainLabelAr,
+                            title: rec.titleAr,
+                            detail: `${rec.problemAr}\n${rec.solutionAr}`,
+                            metricsSummary: rec.evidenceAr,
+                          })
+                        }
+                        className="shrink-0 px-2.5 py-1 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#091533] text-[10px] font-black transition cursor-pointer"
+                      >
+                        اسأل شموسة
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onAskShamousaAboutItem?.({
-                          id: sug.id,
-                          source: 'result',
-                          category: sug.badgeAr,
-                          title: sug.titleAr,
-                          detail: sug.summaryAr,
-                          metricsSummary: sug.queryText,
-                        })
-                      }
-                      className="shrink-0 px-2.5 py-1.5 rounded-lg bg-[#142A5C] hover:bg-[#1E3F8A] dark:bg-[#DCE4F0] dark:hover:bg-white text-white dark:text-[#091533] text-[10px] font-black transition cursor-pointer"
-                    >
-                      اسأل شموسة
-                    </button>
+                    <div className="text-[11px] text-[#334155] dark:text-[#CBD5E1] space-y-0.5 leading-relaxed">
+                      <p>
+                        <strong className="text-[#12244D] dark:text-white">المشكلة:</strong> {rec.problemAr}
+                      </p>
+                      <p>
+                        <strong className="text-[#12244D] dark:text-white">الدليل من أرقام حسابك:</strong> {rec.evidenceAr}
+                      </p>
+                      <p>
+                        <strong className="text-[#12244D] dark:text-white">الحل:</strong> {rec.solutionAr}
+                      </p>
+                      <p>
+                        <strong className="text-[#12244D] dark:text-white">الخطوة الجاية:</strong> {rec.nextStepAr}
+                      </p>
+                      <p>
+                        <strong className="text-[#12244D] dark:text-white">الأثر المتوقع:</strong> {rec.expectedImpactAr}
+                      </p>
+                      {rec.safetyWarningAr && (
+                        <p className="text-amber-800 dark:text-amber-300 font-bold">⚠️ {rec.safetyWarningAr}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleBrainDecision(rec.id, rec.brain, 'will_do')}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black cursor-pointer transition"
+                      >
+                        هنفّذ ✓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleBrainDecision(rec.id, rec.brain, 'snoozed')}
+                        className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-[10px] font-black cursor-pointer transition"
+                      >
+                        أجّل ⏳
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleBrainDecision(rec.id, rec.brain, 'not_suitable')}
+                        className="px-2.5 py-1 rounded-lg bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-black cursor-pointer transition"
+                      >
+                        مش مناسب ✕
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ملخص أسبوعي قصير: اللي اتعلمته منك + زرار صفّر تعلّمي (محلي للحساب فقط) */}
+          {weeklyLearning && (
+            <div className="rounded-2xl bg-[#FBF7F0] dark:bg-[#10224E] border border-[#D8CBB4] dark:border-[#284486] p-3.5 sm:p-4 space-y-2 shadow-xs">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h4 className="text-xs sm:text-sm font-black text-[#12244D] dark:text-[#F8FAFC]">
+                  🧠 اللي اتعلمته منك (خاص بحسابك فقط)
+                </h4>
+                <button
+                  type="button"
+                  onClick={handleResetMyLearning}
+                  className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-800 dark:text-rose-200 text-[10px] font-black inline-flex items-center gap-1 cursor-pointer transition"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>صفّر تعلّمي</span>
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-[#334155] dark:text-[#CBD5E1]">
+                <div className="rounded-xl bg-white/80 dark:bg-[#142A5C]/80 border border-[#E5DAC6] dark:border-[#2A4588] p-2">
+                  <div className="text-[10px] text-[#64748B] dark:text-[#94A3B8]">النبرة المفضلة</div>
+                  <div className="font-black text-[#12244D] dark:text-white">{weeklyLearning.preferredToneLabelAr}</div>
+                </div>
+                <div className="rounded-xl bg-white/80 dark:bg-[#142A5C]/80 border border-[#E5DAC6] dark:border-[#2A4588] p-2">
+                  <div className="text-[10px] text-[#64748B] dark:text-[#94A3B8]">طول الردود والنصوص</div>
+                  <div className="font-black text-[#12244D] dark:text-white">{weeklyLearning.lengthLabelAr}</div>
+                </div>
+                <div className="rounded-xl bg-white/80 dark:bg-[#142A5C]/80 border border-[#E5DAC6] dark:border-[#2A4588] p-2">
+                  <div className="text-[10px] text-[#64748B] dark:text-[#94A3B8]">تفاعلاتك المسجّلة</div>
+                  <div className="font-black text-[#12244D] dark:text-white">
+                    {weeklyLearning.feedbackCount} تقييم • {weeklyLearning.topBrainLabelAr}
+                  </div>
+                </div>
+              </div>
+              {weeklyLearning.evaluatedImpacts.length > 0 && (
+                <p className="text-[11px] text-[#142A5C] dark:text-[#E2E8F0] bg-white/70 dark:bg-[#142A5C]/60 rounded-xl px-2.5 py-1.5 border border-[#E5DAC6] dark:border-[#2A4588]">
+                  📈 {weeklyLearning.evaluatedImpacts[0].summaryAr}
+                </p>
+              )}
             </div>
           )}
 

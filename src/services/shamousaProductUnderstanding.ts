@@ -15,6 +15,11 @@ import {
 } from '../data/shamousaMarketingLibrary';
 import { getEffectiveMarketingLibrary } from './shamousaCustomLibrariesStore';
 import type { ImageQualityReport } from './shamousaImageQuality';
+import {
+  selectLearnedToneForAccount,
+  getAccountLengthPreference,
+  type LearnedToneStyle,
+} from './shamousaSelfCheckAndLearning';
 
 export interface ProductUnderstandingResult {
   rawText: string;
@@ -545,6 +550,9 @@ export interface LibraryCopyPackage {
     followUp: string;
     afterDelivery: string;
   };
+  selectedTone?: LearnedToneStyle;
+  usedExploration?: boolean;
+  preferredWhatsappOffer?: string;
 }
 
 /**
@@ -652,6 +660,36 @@ export function buildLibraryMarketingCopy(params: {
     afterDelivery: wa.afterDelivery,
   };
 
+  // تعلّم الأسلوب المحلي للحساب فقط (النبرة + الطول + حصة استكشاف 20%) — لا يمس المعادلات ولا الخصوصية ولا الباقات
+  let selectedTone: LearnedToneStyle = 'friendly';
+  let usedExploration = false;
+  let adaptedShortPost = shortPostSale;
+  try {
+    const tonePick = selectLearnedToneForAccount(params.accountId);
+    selectedTone = tonePick.tone;
+    usedExploration = tonePick.isExploration;
+    const lenPref = getAccountLengthPreference(params.accountId);
+
+    if (selectedTone === 'formal') {
+      adaptedShortPost = `توفّر لدينا «${params.productName}» مصنوعة يدوياً من ${vars['الخامة']} (${vars['ميزة']}).\nالسعر: ${vars['السعر']}. يسعدنا تواصلكم لتأكيد الطلب.`;
+    } else if (selectedTone === 'light') {
+      adaptedShortPost = `✨ ${params.productName} جاهزة تخطف العين! خامة ${vars['الخامة']} وشغل إيد رايق — السعر ${vars['السعر']}. ابعتلنا رسالة ونظبطلك طلبك فوراً 💬`;
+    }
+
+    if (lenPref === 'short' && adaptedShortPost.length > 165) {
+      adaptedShortPost = `${adaptedShortPost.slice(0, 160).trim()}…`;
+    }
+  } catch {
+    adaptedShortPost = shortPostSale;
+  }
+
+  const preferredWhatsappOffer =
+    selectedTone === 'formal'
+      ? whatsappStyles.offerFormal
+      : selectedTone === 'light'
+        ? whatsappStyles.offerFast
+        : whatsappStyles.offerFriendly;
+
   const photoTips = spec
     ? `${spec.photoTips}\n• نصيحة عامة: ${lib.general.generalPhotoTips}`
     : lib.general.generalPhotoTips;
@@ -669,7 +707,7 @@ export function buildLibraryMarketingCopy(params: {
     specialtyNameAr: spec ? spec.nameAr : 'مشغولات يدوية عامة',
     titles,
     hook,
-    shortPostSale,
+    shortPostSale: adaptedShortPost,
     giftOrSeasonPost,
     cta,
     engagementQuestion: engQuestion,
@@ -678,6 +716,9 @@ export function buildLibraryMarketingCopy(params: {
     bundles,
     hashtags,
     whatsappStyles,
+    selectedTone,
+    usedExploration,
+    preferredWhatsappOffer,
   };
 }
 

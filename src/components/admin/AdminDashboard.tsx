@@ -78,6 +78,9 @@ const AdminAppealsPage = lazy(() =>
 const AdminReportsPage = lazy(() =>
   import('./AdminReportsPage').then((m) => ({ default: m.AdminReportsPage }))
 );
+const AdminShamousaIssuesPage = lazy(() =>
+  import('./AdminShamousaIssuesPage').then((m) => ({ default: m.AdminShamousaIssuesPage }))
+);
 const AdminNotificationPages = lazy(() =>
   import('./AdminNotificationPages').then((m) => ({ default: m.AdminNotificationPages }))
 );
@@ -2906,6 +2909,17 @@ export const AdminDashboardContent: React.FC<AdminDashboardProps> = ({
           profile={profile}
           workshops={workshops}
           cloudProductsCount={cloudProductsForReview.length}
+          onBack={() => handleNavigatePage('home')}
+          onNotifySuccess={(msg) => {
+            playSuccessSound();
+            showSuccess(msg);
+          }}
+          onNotifyError={showError}
+        />
+      )}
+
+      {currentPage === 'shamousa_issues' && (
+        <AdminShamousaIssuesPage
           onBack={() => handleNavigatePage('home')}
           onNotifySuccess={(msg) => {
             playSuccessSound();

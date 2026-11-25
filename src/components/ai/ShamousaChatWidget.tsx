@@ -157,6 +157,30 @@ import {
   type MinimumPriceOfferState,
   type ShamousaOpenEventDetail,
 } from '../../services/shamousaMarketingAndDecision';
+import {
+  hydrateKnowledgeStoreFromServer,
+  searchKnowledgeStoreLocal,
+  enqueueUnansweredQuestionSanitized,
+  recordShamousaAnswerMetric,
+  sanitizeQuestionRemovePII,
+} from '../../services/shamousaKnowledgeStore';
+import {
+  diagnoseTechnicalProblemOffline,
+  runAllThreeAnalyticBrainsOffline,
+  formatAnalyticBrainsReply,
+  type AnalyticBrainType,
+} from '../../services/shamousaAnalyticBrains';
+import {
+  validateShamousaReplyBeforeSend,
+  recordCopyTextFeedback,
+  recordPublishedProductShare,
+  buildWeeklyLearningSummary,
+  resetAccountLearning,
+  COPY_FEEDBACK_REASON_LABELS,
+  type CopyFeedbackRating,
+  type CopyFeedbackReason,
+  type LearnedToneStyle,
+} from '../../services/shamousaSelfCheckAndLearning';
 
 export interface ShamousaActionLink {
   label: string;
@@ -699,6 +723,16 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       .catch(() => {
         // يعمل أوفلاين بالكامل من localStorage بدون أي تعطّل
       });
+    authedFetch('/api/shamousa/knowledge')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.store) {
+          hydrateKnowledgeStoreFromServer(d.store);
+        }
+      })
+      .catch(() => {
+        // المخزن المعرفي يعمل أوفلاين بالكامل حتى بدون اتصال
+      });
     return () => {
       cancelled = true;
     };
@@ -761,6 +795,17 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
   const adminReviewSessionRef = useRef<SuperAdminReviewSessionState>(INITIAL_ADMIN_REVIEW_SESSION);
   const sendLatestRef = useRef<((text: string, opts?: any) => Promise<void>) | null>(null);
   const [copiedBlockId, setCopiedBlockId] = useState<string | null>(null);
+  const [copyFeedbackByKey, setCopyFeedbackByKey] = useState<
+    Record<
+      string,
+      {
+        rating?: CopyFeedbackRating;
+        reason?: CopyFeedbackReason;
+        awaitingReason?: boolean;
+        published?: boolean;
+      }
+    >
+  >({});
   const customRulesLoadedRef = useRef(false);
 
   // تثبيت الهيدر العلوي بذكاء عند فتح كيبورد الموبايل (VisualViewport)
@@ -1950,6 +1995,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       return;
     }
     if (opt.queryText) {
+      if (opt.queryText.startsWith('__FORCE_AI__:')) {
+        const aiQ = opt.queryText.replace('__FORCE_AI__:', '').trim() || 'ساعديني في آخر استفسار';
+        setUseGoogleSearch(true);
+        await send(aiQ, { forceAI: true, forceSearch: true });
+        return;
+      }
       if (isSuperAdminAccount && opt.queryText.startsWith('__OPEN_ADMIN_LIB__:')) {
         const catId = opt.queryText.replace('__OPEN_ADMIN_LIB__:', '') as AdminLibraryCategoryId;
         setActiveAdminLibCategory(catId);
@@ -2565,6 +2616,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
       // (ط-2) البحث في مكتبة أساليب التسويق والمشاكل الفنية المضافة من السوبر أدمن
       const matchedCustomNote = !useGoogleSearch && !sendOptions?.forceAI ? matchCustomKnowledgeNote(message) : null;
       if (matchedCustomNote) {
+        recordShamousaAnswerMetric('local');
         setMessages((prev) => [
           ...prev,
           {
@@ -2580,6 +2632,195 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
         ]);
         setIsLoading(false);
         return;
+      }
+
+      // (ط-3) Part D: ملخص أسبوعي «اللي اتعلمته منك» + زر «صفّر تعلّمي» (محلي للحساب فقط)
+      if (!useGoogleSearch && !sendOptions?.forceAI) {
+        if (/(صفر تعلمي|صفّر تعلّمي|امسح تعلمي|اعاده ضبط تعلمي|تصفير التعلم)/.test(normIntent)) {
+          resetAccountLearning(accountIdForPkg);
+          recordShamousaAnswerMetric('local');
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_learn_reset_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: `✅ تمام يا ${firstName} ☀️ صفّرت تعلّم أسلوبك لحسابك ده بس ورجعنا للبداية المتوازنة — تقدر تقيّم أي نص جديد في أي وقت وأتعلم أسلوبك من أول وجديد!`,
+              chatbotOptions: [
+                { id: 'lr_opt_1', label: 'التحليل الشامل لحسابي 🧠', queryText: 'العقول التحليلية لحسابي' },
+                { id: 'lr_opt_2', label: 'جهّز منتج جديد ✨', queryText: 'منتج جديد' },
+                { id: 'lr_opt_3', label: 'اللي اتعلمته منك 📋', queryText: 'اللي اتعلمته منك' },
+              ],
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        if (/(اللي اتعلمته منك|ملخص تعلمي|اتعلمتي مني ايه|اسلوبي المفضل|تقييمات شموسه)/.test(normIntent)) {
+          const ords = workshopId
+            ? await db.orders.where('tenantId').equals(workshopId).toArray().catch(() => [])
+            : [];
+          const summary = buildWeeklyLearningSummary({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            orders: ords,
+            firstName,
+          });
+          recordShamousaAnswerMetric('local');
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_learn_sum_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: summary.shortSummaryAr,
+              chatbotOptions: [
+                { id: 'ls_opt_reset', label: 'صفّر تعلّمي 🔄', queryText: 'صفّر تعلّمي' },
+                { id: 'ls_opt_brains', label: 'التحليل الشامل لحسابي 🧠', queryText: 'العقول التحليلية لحسابي' },
+                { id: 'ls_opt_new', label: 'جهّز منتج جديد ✨', queryText: 'منتج جديد' },
+              ],
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // (ط-3) Part E: متابعة سؤال تشخيص فني أو فحص مكتبة المشاكل الفنية (ريزن، مكرمية، وأي حرفة مستقبلية)
+      if (!useGoogleSearch && !sendOptions?.forceAI) {
+        if (message.trim().startsWith('تشخيص ')) {
+          const tipMatch = message.match(/\(([^)]+)\)\s*$/);
+          const focusedTip = tipMatch?.[1]?.trim();
+          if (focusedTip) {
+            recordShamousaAnswerMetric('local');
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `a_tech_diag_follow_${Date.now()}`,
+                role: 'assistant',
+                isLocalChatbot: true,
+                content: `🔧 **التشخيص المحدد لحالتك يا ${firstName}:**\n${focusedTip}\n\nلو المشكلة لسه مستمرة قولي النتيجة بعد التجربة وهكمّل معاك خطوة بخطوة ☀️`,
+                chatbotOptions: [
+                  { id: 'td_f_1', label: 'التحليل الشامل لحسابي 🧠', queryText: 'العقول التحليلية لحسابي' },
+                  { id: 'td_f_2', label: 'خامات التخصص الموحدة 🧶', queryText: 'منظومة الخامات الموحدة' },
+                ],
+              },
+            ]);
+            setIsLoading(false);
+            return;
+          }
+        }
+
+        const techDiag = diagnoseTechnicalProblemOffline(message, firstName);
+        if (techDiag.matched && techDiag.reply) {
+          recordShamousaAnswerMetric('local');
+          authedFetch('/api/shamousa/knowledge/metrics-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'local' }),
+          }).catch(() => {});
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_tech_diag_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: techDiag.reply,
+              chatbotOptions: techDiag.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // (ط-4) Part E: العقول التحليلية الثلاثة أوفلاين (الاستراتيجي + الفني + التسويقي) مقيدة بباقات الحساب
+        const asksAnalyticBrains =
+          /(العقول التحليليه|التحليل الاستراتيجي|التحليل الفني|تحليل شامل لحسابي|حلل حسابي|محفظه منتجاتي|تحليل المخاطر|تركز الايراد|هالك الخامات)/.test(
+            normIntent
+          );
+        if (asksAnalyticBrains) {
+          const canInv = hasFeature('inventory', accountIdForPkg, pkgQueryOptions);
+          const [prods, mats, ords, wOrders] = await Promise.all([
+            workshopId ? db.products.where('tenantId').equals(workshopId).toArray().catch(() => []) : Promise.resolve([]),
+            canInv && workshopId
+              ? db.rawMaterials.where('tenantId').equals(workshopId).toArray().catch(() => [])
+              : Promise.resolve([]),
+            workshopId ? db.orders.where('tenantId').equals(workshopId).toArray().catch(() => []) : Promise.resolve([]),
+            workshopId ? db.workOrders.where('tenantId').equals(workshopId).toArray().catch(() => []) : Promise.resolve([]),
+          ]);
+          const focusBrain: AnalyticBrainType | undefined = /استراتيجي|محفظه|تركز/.test(normIntent)
+            ? 'strategic'
+            : /فني|هالك/.test(normIntent)
+            ? 'technical'
+            : undefined;
+          const report = runAllThreeAnalyticBrainsOffline({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            isSupplier: isSupplierAccount,
+            firstName,
+            brandName: profile.brandName,
+            currency: profile.currencySymbol || 'ج.م',
+            products: prods,
+            rawMaterials: mats,
+            orders: ords,
+            workOrders: wOrders,
+          });
+          const formatted = formatAnalyticBrainsReply(firstName, report, focusBrain);
+          recordShamousaAnswerMetric('local');
+          authedFetch('/api/shamousa/knowledge/metrics-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'local' }),
+          }).catch(() => {});
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_brains_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: formatted.reply,
+              chatbotOptions: formatted.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // (ط-5) Part E: المخزن المعرفي العام المعتمد (BM25 + Levenshtein + Trigram للأخطاء الإملائية)
+        const kbSearch = searchKnowledgeStoreLocal(message);
+        if (kbSearch.tier === 'confident' && kbSearch.bestMatch) {
+          const hit = kbSearch.bestMatch.entry;
+          recordShamousaAnswerMetric('local');
+          authedFetch('/api/shamousa/knowledge/metrics-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'local' }),
+          }).catch(() => {});
+          const safetyLine = hit.safetyWarningAr ? `\n\n${hit.safetyWarningAr}` : '';
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_kb_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: `☀️ **${hit.topic}:**\n${hit.reply}${safetyLine}`,
+              chatbotOptions:
+                hit.options && hit.options.length > 0
+                  ? hit.options.slice(0, 4).map((o) => ({
+                      id: o.id,
+                      label: o.label,
+                      queryText: o.queryText,
+                    }))
+                  : [
+                      { id: 'kb_opt_1', label: 'التحليل الشامل لحسابي 🧠', queryText: 'العقول التحليلية لحسابي' },
+                      { id: 'kb_opt_2', label: 'تقويم المواسم المصري 🗓️', queryText: 'إيه المواسم الجاية؟' },
+                    ],
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
       }
 
       // (ي) محرك فهم المنتج والمكتبة التسويقية (كلمة واحدة / تخصص / عامية / أخطاء إملائية / أفكار فيديو وتصوير وباقات وهاشتاجات)
@@ -3102,11 +3343,17 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                   id: `lib_titles_${Date.now()}`,
                   title: `🏷️ 3 عناوين متنوعة لـ ${prodLabel}`,
                   content: libPack.titles.map((t, i) => `${i + 1}) ${t}`).join('\n'),
+                  templateId: `titles_${spec.id}`,
+                  tone: libPack.selectedTone || 'friendly',
+                  productName: prodLabel,
                 },
                 {
                   id: `lib_post_${Date.now()}`,
                   title: `✍️ بوست جاهز للنشر (${spec.nameAr})`,
                   content: `${libPack.shortPostSale}\n\n${libPack.engagementQuestion}\n${libPack.hashtags.slice(0, 6).join(' ')}`,
+                  templateId: `post_${spec.id}`,
+                  tone: libPack.selectedTone || 'friendly',
+                  productName: prodLabel,
                 },
               ];
             }
@@ -3230,19 +3477,76 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
           conversationStateRef.current = localRes.nextState;
         }
         if (localRes.isUnanswered && message.trim().length >= 2) {
+          // 1) فحص عتبة الثقة الوسطى في المخزن المعرفي: عرض أقرب 3 مواضيع محتملة قبل التسجيل كغير مُجاب
+          const kbCandidates = searchKnowledgeStoreLocal(message);
+          if (kbCandidates.tier === 'candidates' && kbCandidates.topCandidates.length > 0) {
+            recordShamousaAnswerMetric('local');
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `a_kb_cand_${Date.now()}`,
+                role: 'assistant',
+                isLocalChatbot: true,
+                content: `يا ${firstName} ☀️ مش متأكدة 100% تقصد أي موضوع بالظبط — دي أقرب مواضيع لقيتها في مكتبتنا:`,
+                chatbotOptions: [
+                  ...kbCandidates.topCandidates.slice(0, 3).map((c, idx) => ({
+                    id: `kb_c_${idx}_${c.entry.id}`,
+                    label: `📌 ${c.entry.topic.slice(0, 34)}`,
+                    queryText: c.entry.topic,
+                  })),
+                  {
+                    id: `kb_c_ai_${Date.now()}`,
+                    label: 'أسأل المساعد الذكي (لو متاح) ✨',
+                    triggerAI: true,
+                  },
+                ],
+              },
+            ]);
+            setIsLoading(false);
+            return;
+          }
+
+          // 2) تسجيل السؤال مجرّداً تماماً من البيانات الشخصية (بريد/هاتف/رابط/حساب) في الطابور العام + نسخة خاصة للحساب
+          const sanitizedQ = sanitizeQuestionRemovePII(message.trim());
           try {
-            queueUnansweredQuestionForAdmin(message.trim());
+            enqueueUnansweredQuestionSanitized(message.trim(), accountIdForPkg);
+            queueUnansweredQuestionForAdmin(sanitizedQ);
           } catch {}
-          authedFetch('/api/shamousa/unanswered', {
+          authedFetch('/api/shamousa/knowledge/unanswered', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              question: message.trim(),
-              accountRole: isSupplierAccount ? 'supplier' : 'artisan',
-            }),
+            body: JSON.stringify({ question: sanitizedQ }),
           }).catch(() => {});
+
+          const nearestTopicOption = kbCandidates.topCandidates[0]?.entry.topic || 'العقول التحليلية لحسابي';
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_unans_3opt_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content:
+                `ما لقيتش إجابة مؤكدة. سجّلت سؤالك عشان نضيفه. تحب:\n` +
+                `1) أجرّب أقرب موضوع\n` +
+                `2) أسأل المساعد الذكي (لو متاح)\n` +
+                `3) أحوّلك للدعم`,
+              chatbotOptions: [
+                { id: 'unans_opt_1', label: '1) أجرّب أقرب موضوع 🔎', queryText: nearestTopicOption },
+                { id: 'unans_opt_2', label: '2) أسأل المساعد الذكي (لو متاح) ✨', triggerAI: true },
+                { id: 'unans_opt_3', label: '3) أحوّلك للدعم 🛟', queryText: 'التواصل مع الدعم الفني' },
+              ],
+            },
+          ]);
+          setIsLoading(false);
+          return;
         }
         if (localRes.handled && localRes.reply) {
+          recordShamousaAnswerMetric('local');
+          authedFetch('/api/shamousa/knowledge/metrics-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'local' }),
+          }).catch(() => {});
           // لو الرد المحلي بيوجه لصفحة مقفولة في باقة المشترك، نستخدم الرد الرباعي القياسي وبحد أقصى باقة واحدة
           if (localRes.actionLink?.view && !isViewUnlocked(localRes.actionLink.view)) {
             const viewToActionMap: Record<string, string[]> = {
@@ -3290,6 +3594,14 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               (!opt.view || isViewUnlocked(opt.view)) &&
               (!opt.triggerFalcon || subCaps.canSakr)
           );
+          const validatedLocal = validateShamousaReplyBeforeSend({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            replyText: localRes.reply,
+            options: safeLocalOptions,
+            realProductFactsText: message,
+            firstName,
+          });
           const replyChips = detectKeywordActionChips(message, isSupplierAccount, experienceMode).filter(
             (c) =>
               isViewUnlocked(c.view) &&
@@ -3301,10 +3613,13 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               id: `a_${Date.now()}`,
               role: 'assistant',
               isLocalChatbot: true,
-              content: localRes.reply,
+              content: validatedLocal.sanitizedReply,
               actionLink: localRes.actionLink,
               actionChips: replyChips.length > 0 ? replyChips : undefined,
-              chatbotOptions: safeLocalOptions && safeLocalOptions.length > 0 ? safeLocalOptions : undefined,
+              chatbotOptions:
+                validatedLocal.options && validatedLocal.options.length > 0
+                  ? (validatedLocal.options as ShamousaChatbotOption[])
+                  : undefined,
               handoffToFalcon: subCaps.canSakr ? localRes.handoffToFalcon : false,
             },
           ]);
@@ -3430,6 +3745,12 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
 
       const subPromptInfo = buildAiSubscriptionPromptContext(userSub, subRole, isSuperAdminAccount);
 
+      recordShamousaAnswerMetric('ai');
+      authedFetch('/api/shamousa/knowledge/metrics-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'ai' }),
+      }).catch(() => {});
       const res = await authedFetch('/api/shamousa/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3970,11 +4291,69 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                       {m.copyBlocks && m.copyBlocks.length > 0 && (
                         <div className="space-y-2 pr-2 pt-1 max-w-2xl">
                           {m.copyBlocks.map((block) => {
-                            const isCopied = copiedBlockId === `${m.id}_${block.id}`;
+                            const fbKey = `${m.id}_${block.id}`;
+                            const isCopied = copiedBlockId === fbKey;
+                            const fbState = copyFeedbackByKey[fbKey];
+                            const canTrackPublish =
+                              hasFeature('storefront', accountIdForPkg, pkgQueryOptions) ||
+                              hasFeature('sales_crm', accountIdForPkg, pkgQueryOptions);
+                            const handleRateCopy = (rating: CopyFeedbackRating) => {
+                              recordCopyTextFeedback(accountIdForPkg, {
+                                blockId: block.id,
+                                templateId: block.templateId || block.id,
+                                tone: (block.tone as LearnedToneStyle) || 'friendly',
+                                productName: block.productName,
+                                rating,
+                              });
+                              setCopyFeedbackByKey((prev) => ({
+                                ...prev,
+                                [fbKey]: {
+                                  ...prev[fbKey],
+                                  rating,
+                                  awaitingReason: rating === 'edited' || rating === 'not_suitable',
+                                },
+                              }));
+                            };
+                            const handleReasonChip = (reason: CopyFeedbackReason) => {
+                              recordCopyTextFeedback(accountIdForPkg, {
+                                blockId: block.id,
+                                templateId: block.templateId || block.id,
+                                tone: (block.tone as LearnedToneStyle) || 'friendly',
+                                productName: block.productName,
+                                rating: fbState?.rating || 'not_suitable',
+                                reason,
+                              });
+                              setCopyFeedbackByKey((prev) => ({
+                                ...prev,
+                                [fbKey]: {
+                                  ...prev[fbKey],
+                                  reason,
+                                  awaitingReason: false,
+                                },
+                              }));
+                            };
+                            const handleMarkPublished = async () => {
+                              const ords = workshopId
+                                ? await db.orders.where('tenantId').equals(workshopId).toArray().catch(() => [])
+                                : [];
+                              recordPublishedProductShare({
+                                accountId: accountIdForPkg,
+                                packageOptions: pkgQueryOptions,
+                                productName: block.productName || block.title,
+                                templateId: block.templateId || block.id,
+                                tone: (block.tone as LearnedToneStyle) || 'friendly',
+                                channel: 'published',
+                                orders: ords,
+                              });
+                              setCopyFeedbackByKey((prev) => ({
+                                ...prev,
+                                [fbKey]: { ...prev[fbKey], published: true },
+                              }));
+                            };
                             return (
                               <div
                                 key={block.id}
-                                className="rounded-xl bg-[#FBF7F0] dark:bg-[#0F214C] border border-[#D5C7B0] dark:border-[#2A4585] p-3 space-y-1.5 shadow-2xs"
+                                className="rounded-xl bg-[#FBF7F0] dark:bg-[#0F214C] border border-[#D5C7B0] dark:border-[#2A4585] p-3 space-y-2 shadow-2xs"
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="text-[11px] sm:text-xs font-black text-[#142A5C] dark:text-[#FBBF24]">
@@ -3982,7 +4361,7 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                                   </span>
                                   <button
                                     type="button"
-                                    onClick={() => handleCopyBlock(`${m.id}_${block.id}`, block.content)}
+                                    onClick={() => handleCopyBlock(fbKey, block.content)}
                                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#EAE0CE] hover:bg-[#142A5C] text-[#142A5C] hover:text-white dark:bg-[#1A3573] dark:text-[#E2E8F0] text-[10px] font-black transition cursor-pointer shrink-0"
                                   >
                                     {isCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
@@ -3992,6 +4371,79 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
                                 <div className="text-xs text-[#1C2434] dark:text-[#E2E8F0] whitespace-pre-wrap leading-relaxed">
                                   {renderText(block.content)}
                                 </div>
+                                {/* أزرار تقييم النص الجاهز وتعلّم الأسلوب المحلي للحساب */}
+                                <div className="pt-1.5 border-t border-[#E5DAC6] dark:border-[#243E7D] flex flex-wrap items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRateCopy('used')}
+                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-black transition cursor-pointer ${
+                                      fbState?.rating === 'used'
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-[#EFE6D5] hover:bg-emerald-600/20 text-[#142A5C] dark:bg-[#162E66] dark:text-[#CBD5E1]'
+                                    }`}
+                                  >
+                                    استخدمته ✓
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRateCopy('edited')}
+                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-black transition cursor-pointer ${
+                                      fbState?.rating === 'edited'
+                                        ? 'bg-amber-600 text-white'
+                                        : 'bg-[#EFE6D5] hover:bg-amber-500/20 text-[#142A5C] dark:bg-[#162E66] dark:text-[#CBD5E1]'
+                                    }`}
+                                  >
+                                    عدّلته ✏️
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRateCopy('not_suitable')}
+                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-black transition cursor-pointer ${
+                                      fbState?.rating === 'not_suitable'
+                                        ? 'bg-rose-600 text-white'
+                                        : 'bg-[#EFE6D5] hover:bg-rose-500/20 text-[#142A5C] dark:bg-[#162E66] dark:text-[#CBD5E1]'
+                                    }`}
+                                  >
+                                    مش مناسب ✕
+                                  </button>
+                                  {canTrackPublish && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleMarkPublished()}
+                                      className={`px-2 py-0.5 rounded-lg text-[10px] font-black transition cursor-pointer ${
+                                        fbState?.published
+                                          ? 'bg-indigo-600 text-white'
+                                          : 'bg-[#EAE0CE] hover:bg-indigo-600/20 text-[#142A5C] dark:bg-[#1A3573] dark:text-[#E2E8F0]'
+                                      }`}
+                                    >
+                                      {fbState?.published ? 'تم تسجيل النشر (متابعة 7 أيام) ✓' : 'نشرت / شاركت 📣'}
+                                    </button>
+                                  )}
+                                  {fbState?.reason && (
+                                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                                      • اتعلمت: ({COPY_FEEDBACK_REASON_LABELS[fbState.reason]})
+                                    </span>
+                                  )}
+                                </div>
+                                {fbState?.awaitingReason && (
+                                  <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                                    <span className="text-[10px] font-bold text-[#64748B] dark:text-[#94A3B8]">
+                                      السبب السريع:
+                                    </span>
+                                    {(
+                                      ['too_long', 'too_formal', 'too_expensive', 'not_my_style'] as CopyFeedbackReason[]
+                                    ).map((rk) => (
+                                      <button
+                                        key={rk}
+                                        type="button"
+                                        onClick={() => handleReasonChip(rk)}
+                                        className="px-2 py-0.5 rounded-md bg-white dark:bg-[#142A5C] border border-[#D4C6AD] dark:border-[#3555A1] hover:border-amber-500 text-[10px] font-bold text-[#142A5C] dark:text-[#E2E8F0] cursor-pointer transition"
+                                      >
+                                        {COPY_FEEDBACK_REASON_LABELS[rk]}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
