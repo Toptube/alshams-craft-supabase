@@ -511,6 +511,8 @@ export function diagnoseTechnicalProblemOffline(
     const qNorm = normalizeArabicKnowledgeText(rawQuery);
     if (!qNorm) return { matched: false, reply: '', options: [] };
 
+    const qTokens = new Set(qNorm.split(' ').filter((w) => w.length >= 2));
+
     let best: { entry: TechnicalProblemEntry; score: number } | null = null;
     for (const item of library) {
       let score = 0;
@@ -518,12 +520,25 @@ export function diagnoseTechnicalProblemOffline(
       const craftNorm = normalizeArabicKnowledgeText(item.craftNameAr);
 
       if (qNorm.includes(symNorm) || symNorm.includes(qNorm)) score += 10;
-      if (craftNorm && qNorm.includes(craftNorm)) score += 3;
+      if (craftNorm && qNorm.includes(craftNorm)) {
+        score += 3;
+      } else if (craftNorm) {
+        const craftTokens = craftNorm.split(' ').filter((w) => w.length >= 3);
+        if (craftTokens.some((ct) => qNorm.includes(ct))) score += 2;
+      }
 
       for (const kw of item.keywords) {
         const nkw = normalizeArabicKnowledgeText(kw);
-        if (nkw.length >= 3 && qNorm.includes(nkw)) {
+        if (nkw.length < 3) continue;
+        if (qNorm.includes(nkw)) {
           score += nkw.includes(' ') ? 7 : 4;
+        } else if (nkw.includes(' ')) {
+          const kwParts = nkw
+            .split(' ')
+            .filter((p) => p.length >= 3 && !['في', 'من', 'على', 'عن', 'بعد', 'قبل'].includes(p));
+          if (kwParts.length >= 2 && kwParts.every((p) => qTokens.has(p) || qNorm.includes(p))) {
+            score += 6;
+          }
         }
       }
 
@@ -804,6 +819,125 @@ export function runMarketingBrainOffline(
     // حماية
   }
   return recs;
+}
+
+export interface MarketingMethodMatchResult {
+  matched: boolean;
+  entry?: MarketingMethodEntry;
+  reply: string;
+  options: Array<{ id: string; label: string; queryText: string }>;
+}
+
+/**
+ * يطابق أسئلة أساليب التسويق أوفلاين من مكتبة أساليب التسويق القابلة للتوسيع بدون تعديل كود
+ */
+export function matchMarketingMethodOffline(
+  rawQuery: string,
+  isSupplier = false,
+  firstName = 'فنان',
+  library: MarketingMethodEntry[] = SHAMOUSA_MARKETING_METHODS_LIBRARY
+): MarketingMethodMatchResult {
+  try {
+    const qNorm = normalizeArabicKnowledgeText(rawQuery);
+    if (!qNorm) return { matched: false, reply: '', options: [] };
+
+    const eligible = library.filter(
+      (m) => m.suitableFor === 'both' || m.suitableFor === (isSupplier ? 'supplier' : 'artisan')
+    );
+    if (eligible.length === 0) return { matched: false, reply: '', options: [] };
+
+    // طلب عرض دليل أساليب التسويق عموماً
+    const asksOverview =
+      /(اساليب التسويق|طرق التسويق|افكار تسويق|مكتبه التسويق|ازاي اسوق|كيف اسوق|خطه تسويق)/.test(qNorm) &&
+      qNorm.length <= 55;
+    if (asksOverview) {
+      const topList = eligible.slice(0, 6);
+      const lines = [
+        `📣 **أهم أساليب التسويق العملية المناسبة لحسابك يا ${firstName} (${eligible.length} أسلوب جاهز في المكتبة):**`,
+        ...topList.map((m, idx) => `${idx + 1}. **${m.titleAr}** — ${m.whenToUseAr}`),
+        `\nاضغط على أي أسلوب تحت أو اكتب اسمه عشان أديك خطواته التطبيقية وجملته الجاهزة فوراً ☀️`,
+      ];
+      return {
+        matched: true,
+        reply: lines.join('\n'),
+        options: topList.slice(0, 3).map((m) => ({
+          id: `mm_ov_${m.id}`,
+          label: m.titleAr.slice(0, 32),
+          queryText: `أسلوب تسويق ${m.titleAr}`,
+        })),
+      };
+    }
+
+    // الكلمات العامة جداً التي لا تكفي وحدها للمطابقة إلا مع إشارة تسويقية أو كلمة أخرى
+    const genericWords = new Set(['موسم', 'مواسم', 'خصم', 'مقاس', 'واتساب', 'ديكور', 'راكد', 'باقه', 'مورد', 'تجميع']);
+    const hasMarketingSignal =
+      /(تسويق|اسلوب|طريقه بيع|مبيعات|عملاء|اعلان|بوست|عرض|باقه|جمله|شركات|بازار|معرض|ريلز|كواليس|تخصيص|حجز مسبق|تعاون|متابعه|مبتدئين|شرائح)/.test(
+        qNorm
+      );
+
+    let best: { entry: MarketingMethodEntry; score: number } | null = null;
+    for (const item of eligible) {
+      let score = 0;
+      const titleNorm = normalizeArabicKnowledgeText(item.titleAr);
+      if (qNorm.includes(titleNorm) || (qNorm.length >= 8 && titleNorm.includes(qNorm))) {
+        score += 12;
+      }
+
+      for (const kw of item.keywords) {
+        const nkw = normalizeArabicKnowledgeText(kw);
+        if (nkw.length < 3) continue;
+        if (qNorm.includes(nkw)) {
+          if (genericWords.has(nkw) && !hasMarketingSignal) {
+            score += 2;
+          } else {
+            score += nkw.includes(' ') ? 8 : 5;
+          }
+        }
+      }
+
+      const sim = trigramSimilarity(qNorm, item.titleAr);
+      if (sim >= 0.35) score += sim * 10;
+
+      if (score >= 5 && (!best || score > best.score)) {
+        best = { entry: item, score };
+      }
+    }
+
+    if (!best) return { matched: false, reply: '', options: [] };
+
+    const e = best.entry;
+    const otherMethods = eligible.filter((m) => m.id !== e.id).slice(0, 2);
+
+    const lines = [
+      `📣 **أسلوب تسويقي عملي يا ${firstName}: ${e.titleAr}**`,
+      `• **إمتى تستخدمه:** ${e.whenToUseAr}`,
+      `\n✅ **خطوات التطبيق:**`,
+      ...e.howToApplyStepsAr.map((s, i) => `${i + 1}. ${s}`),
+      `\n✍️ **جملة افتتاحية جاهزة:** «${e.exampleHookAr}»`,
+      `📊 **الأثر المتوقع:** ${e.expectedImpactNoteAr}`,
+    ];
+    if (e.requiresCosting) {
+      lines.push(
+        `\n💡 **تنبيه ربحية:** أي خصم أو شريحة كمية لازم تتحسب فوق حد الربح الأدنى (أو حدّد أقل سعر تقبل بيه الأول).`
+      );
+    }
+
+    return {
+      matched: true,
+      entry: e,
+      reply: lines.join('\n'),
+      options: [
+        { id: `mm_post_${e.id}`, label: 'اكتبلي بوستين للمتجر ✍️', queryText: 'اكتبيلي بوستين للمتجر' },
+        ...otherMethods.map((om) => ({
+          id: `mm_next_${om.id}`,
+          label: om.titleAr.slice(0, 30),
+          queryText: `أسلوب تسويق ${om.titleAr}`,
+        })),
+      ].slice(0, 3),
+    };
+  } catch {
+    return { matched: false, reply: '', options: [] };
+  }
 }
 
 // ============================================================================

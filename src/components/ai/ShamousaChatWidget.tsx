@@ -166,6 +166,7 @@ import {
 } from '../../services/shamousaKnowledgeStore';
 import {
   diagnoseTechnicalProblemOffline,
+  matchMarketingMethodOffline,
   runAllThreeAnalyticBrainsOffline,
   formatAnalyticBrainsReply,
   type AnalyticBrainType,
@@ -2728,6 +2729,37 @@ export const ShamousaChatWidget: React.FC<ShamousaChatWidgetProps> = ({
               isLocalChatbot: true,
               content: techDiag.reply,
               chatbotOptions: techDiag.options,
+            },
+          ]);
+          setIsLoading(false);
+          return;
+        }
+
+        // (ط-3.5) مكتبة أساليب التسويق (14 أسلوب عملي للحرفيين والموردين — أوفلاين بالكامل)
+        const mktMethod = matchMarketingMethodOffline(message, isSupplierAccount, firstName);
+        if (mktMethod.matched && mktMethod.reply) {
+          const validatedMkt = validateShamousaReplyBeforeSend({
+            accountId: accountIdForPkg,
+            packageOptions: pkgQueryOptions,
+            replyText: mktMethod.reply,
+            options: mktMethod.options,
+            realProductFactsText: message,
+            firstName,
+          });
+          recordShamousaAnswerMetric('local');
+          authedFetch('/api/shamousa/knowledge/metrics-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'local' }),
+          }).catch(() => {});
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a_mkt_method_${Date.now()}`,
+              role: 'assistant',
+              isLocalChatbot: true,
+              content: validatedMkt.sanitizedReply,
+              chatbotOptions: validatedMkt.options as ShamousaChatbotOption[],
             },
           ]);
           setIsLoading(false);

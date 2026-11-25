@@ -26,8 +26,11 @@ import {
   type TechnicalProblemEntry,
 } from '../src/data/shamousaTechnicalProblemsLibrary';
 import { SHAMOUSA_MARKETING_METHODS_LIBRARY } from '../src/data/shamousaMarketingMethodsLibrary';
+import { HANDMADE_MARKETING_LIBRARY } from '../src/data/shamousaMarketingLibrary';
+import { understandProductSentence } from '../src/services/shamousaProductUnderstanding';
 import {
   diagnoseTechnicalProblemOffline,
+  matchMarketingMethodOffline,
   suggestUnifiedMaterialAlternative,
   runAllThreeAnalyticBrainsOffline,
   setAccountBrainDecision,
@@ -300,41 +303,41 @@ async function run() {
 
   // Extensibility check: inject a brand-new problem into data array with ZERO engine code changes
   const dynamicEntry: TechnicalProblemEntry = {
-    id: 'tech_candle_sinkhole_test',
-    craftId: 'candles',
-    craftNameAr: 'الشموع',
-    symptomAr: 'فجوة وهبوط في منتصف الشمعة بعد التبريد',
-    keywords: ['فجوة في الشمعة', 'الشمعة هبطت من النص', 'تقعر الشمع'],
-    possibleCausesAr: ['صب الشمع وهو سخن زيادة', 'تبريد سريع في مكان بارد'],
+    id: 'tech_kintsugi_seam_test',
+    craftId: 'kintsugi_test',
+    craftNameAr: 'الكينتسوغي',
+    symptomAr: 'بهتان خط الذهب في ترميم الكينتسوغي بعد الجفاف',
+    keywords: ['بهتان خط الكينتسوغي', 'ذهب الكينتسوغي مطفي', 'ترميم كينتسوغي'],
+    possibleCausesAr: ['إضافة بودرة الميكا قبل مرحلة اللزوجة المناسبة للاصق', 'ضغط زائد بفرشاة خشنة'],
     diagnosticQuestions: [
       {
-        questionAr: 'نوع الشمع إيه؟',
+        questionAr: 'استخدمت بودرة ميكا ولا ورق ذهب؟',
         choices: [
           {
-            id: 'c_1',
-            labelAr: 'شمع صويا',
-            likelyCauseAr: 'انكماش حراري بعد الصب الساخن',
-            focusedTipAr: 'صبيه على درجة 55-60 مئوية.',
+            id: 'k_1',
+            labelAr: 'بودرة ميكا ذهبية',
+            likelyCauseAr: 'نثر البودرة واللاصق لسه سائل زيادة فغاصت جواه',
+            focusedTipAr: 'استنى لما اللاصق يبقى شبه لاصق (tacky) وانثر بفرشاة ناعمة جداً.',
           },
           {
-            id: 'c_2',
-            labelAr: 'شمع برافين',
-            likelyCauseAr: 'انكماش طبيعي للبرافين عند التبريد',
-            focusedTipAr: 'اعملي صبّة ثانية رفيعة بعد التبريد.',
+            id: 'k_2',
+            labelAr: 'ورق ذهب',
+            likelyCauseAr: 'عدم تثبيت الورق بطبقة حماية شفافة رفيعة',
+            focusedTipAr: 'امسح الزوائد بفرشاة ناعمة واثبت بطبقة ورنيش خفيفة.',
           },
         ],
       },
     ],
-    solutionStepsAr: ['تدفئة الوجه بهيت جن خفيف وإعادة ملء الفجوة بطبقة شمع رفيعة.'],
-    preventionAr: ['تدفئة البرطمان قبل الصب وضبط حرارة الصب.'],
-    safetyWarningAr: 'انتبهي من سخونة الشمع السائل واشتغلي بعيداً عن اللهب المباشر.',
+    solutionStepsAr: ['إعادة مسح الخط بفرشاة ناعمة وتجديد طبقة لاصق رفيعة مع نثر البودرة في لحظة اللزوجة.'],
+    preventionAr: ['اختبار توقيت الجفاف على عينة صغيرة قبل التذهيب النهائي.'],
+    safetyWarningAr: 'اشتغل في مكان جيد التهوية وارتدِ قفازات عند التعامل مع اللاصق.',
   };
-  const extendedDiag = diagnoseTechnicalProblemOffline('عندي فجوة في الشمعة بعد ما بردت', 'نور', [
+  const extendedDiag = diagnoseTechnicalProblemOffline('عندي بهتان خط الكينتسوغي بعد ما نشف', 'نور', [
     ...SHAMOUSA_TECHNICAL_PROBLEMS_LIBRARY,
     dynamicEntry,
   ]);
   assert.equal(extendedDiag.matched, true, 'New technical problem entry must work with ZERO engine changes');
-  assert.equal(extendedDiag.entry?.id, 'tech_candle_sinkhole_test');
+  assert.equal(extendedDiag.entry?.id, 'tech_kintsugi_seam_test');
   console.log('✅ Test 4 PASSED: Technical Problems Library (Resin + Macrame + Zero-Code Extensibility) verified.');
 
   // ---------------------------------------------------------------------------
@@ -473,6 +476,67 @@ async function run() {
     'Existing calculator equation untouched'
   );
   console.log('✅ Test 6 PASSED: Calculator equations untouched (runDraftCostCalculationViaExistingEngine verified).');
+
+  // ---------------------------------------------------------------------------
+  // 7) Full Populated Libraries Verification (35 Craft Specialties + 22 Technical Problems + 14 Marketing Methods)
+  // ---------------------------------------------------------------------------
+  assert(
+    HANDMADE_MARKETING_LIBRARY.specialties.length >= 35,
+    `Expected >= 35 craft specialties covering all 14 departments, got ${HANDMADE_MARKETING_LIBRARY.specialties.length}`
+  );
+  const batch4Samples: Array<[string, string]> = [
+    ['خياطة شنطة توت باج قماش كانفس', 'sewing_tailoring_bags'],
+    ['مج مجسم بالصلصال الحراري', 'polymer_clay'],
+    ['صينية جيسمونايت تيرازو', 'jesmonite_gypsum'],
+    ['لوحة خط عربي وتذهيب', 'fine_arts_calligraphy'],
+    ['طباعة سبليميشن على مج', 'craft_printing_sublimation'],
+    ['دفتر تجليد يدوي كرافت', 'paper_bookbinding_packaging'],
+    ['أباجورة مودرن هاندميد', 'metals_lighting_lamps'],
+    ['صينية موزاييك زجاج ملون', 'mosaic_glass_acrylic'],
+    ['سلة خوص وراتان للبيت', 'bamboo_palm_rattan'],
+    ['صندوق خشب ديكوباج عتيق', 'pyrography_decoupage'],
+  ];
+  for (const [sentence, expectedId] of batch4Samples) {
+    const u = understandProductSentence(sentence);
+    assert.equal(
+      u.specialty?.id,
+      expectedId,
+      `Expected Batch 4 sentence "${sentence}" -> "${expectedId}", got "${u.specialty?.id}"`
+    );
+  }
+
+  assert(
+    SHAMOUSA_TECHNICAL_PROBLEMS_LIBRARY.length >= 22,
+    `Expected >= 22 technical problems, got ${SHAMOUSA_TECHNICAL_PROBLEMS_LIBRARY.length}`
+  );
+  const candleDiag = diagnoseTechnicalProblemOffline('الشمعة بتعمل نفق وبتحفر في النص', 'مريم');
+  assert.equal(candleDiag.matched, true, 'Candle tunneling problem must match');
+  const soapDiag = diagnoseTechnicalProblemOffline('طلع بودرة بيضا ورماد الصودا على وش الصابون', 'مريم');
+  assert.equal(soapDiag.matched, true, 'Soap soda ash problem must match');
+  assert(soapDiag.reply.includes('تحذير السلامة'), 'Soap problem must include safety warning');
+  const laserDiag = diagnoseTechnicalProblemOffline('خشب قص الليزر بيطلع عليه سواد وحرق على الحواف', 'كريم');
+  assert.equal(laserDiag.matched, true, 'Laser scorch problem must match');
+  const vinylDiag = diagnoseTechnicalProblemOffline('فينيل التيشرت بيقشر بعد الغسيل', 'يوسف');
+  assert.equal(vinylDiag.matched, true, 'Heat transfer vinyl peeling must match');
+
+  assert(
+    SHAMOUSA_MARKETING_METHODS_LIBRARY.length >= 14,
+    `Expected >= 14 marketing methods, got ${SHAMOUSA_MARKETING_METHODS_LIBRARY.length}`
+  );
+  const mktOverview = matchMarketingMethodOffline('أساليب التسويق', false, 'سلمى');
+  assert.equal(mktOverview.matched, true, 'Overview of marketing methods must match');
+  const mktCorp = matchMarketingMethodOffline('عايز أعمل باقات هدايا شركات وكميات', false, 'سلمى');
+  assert.equal(mktCorp.matched, true, 'Corporate B2B gifts method must match');
+  assert.equal(mktCorp.entry?.id, 'method_corporate_b2b_gifts');
+  const mktPersonal = matchMarketingMethodOffline('أسلوب التسويق بالتخصيص بالاسم', false, 'سلمى');
+  assert.equal(mktPersonal.matched, true, 'Personalization method must match');
+  assert.equal(mktPersonal.entry?.id, 'method_personalization_name_date');
+  const mktSupplier = matchMarketingMethodOffline('عايز أعمل باقة مبتدئ للموردين', true, 'طارق');
+  assert.equal(mktSupplier.matched, true, 'Supplier starter kits method must match');
+  assert.equal(mktSupplier.entry?.id, 'method_supplier_starter_kits');
+  console.log(
+    `✅ Test 7 PASSED: Full libraries verified (${HANDMADE_MARKETING_LIBRARY.specialties.length} craft specialties across 14 depts, ${SHAMOUSA_TECHNICAL_PROBLEMS_LIBRARY.length} technical problems, ${SHAMOUSA_MARKETING_METHODS_LIBRARY.length} marketing methods).`
+  );
 
   console.log('\n🎉 ALL PART 6 (MESSAGE 6 OF 7) VERIFICATION TESTS PASSED 100%!');
 }

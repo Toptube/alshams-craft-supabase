@@ -20,9 +20,9 @@ async function main() {
   resetCustomLibrariesStoreForTest();
   console.log('=== اختبار الرسالة رقم 4 — الدفعة 3 + الموردين + دليل السوبر أدمن الشخصي ===\n');
 
-  // 1) التحقق من بنية الدفعة 3 الكاملة في نفس ملف المكتبة
-  assert.deepEqual(HANDMADE_MARKETING_LIBRARY.loadedBatches, [1, 2, 3]);
-  assert.equal(HANDMADE_MARKETING_LIBRARY.specialties.length, 16);
+  // 1) التحقق من بنية الدفعة 3 الكاملة في نفس ملف المكتبة (مع قبول الدفعات الإضافية مثل الدفعة 4)
+  assert.ok([1, 2, 3].every((b) => HANDMADE_MARKETING_LIBRARY.loadedBatches.includes(b)));
+  assert.ok(HANDMADE_MARKETING_LIBRARY.specialties.length >= 16);
 
   const batch3Ids = [
     'leather',

@@ -92,19 +92,19 @@ async function main() {
   const baseCountBeforeAdd = getEffectiveMarketingLibrary().specialties.length;
   const addSpecRes = parseAndSaveAdminLibraryEntry(
     'marketing_new_specialty',
-    '■■ فن الديكوباج اليدوي ■■\n' +
-      'كلمات دالة: ديكوباج، مناديل ديكوباج، تجديد صواني ديكوباج، ورنيش ديكوباج\n' +
-      'رائج: صواني ديكوباج، علب مناديل ديكوباج\n' +
-      'نقط بيع: ألوان فنية مبهجة، قطعة فريدة لتجديد الديكور\n' +
-      'باقات: صينية ديكوباج + 4 كوستر\n' +
-      'وسوم: #ديكوباج #تجديد_ديكور'
+    '■■ فن الكينتسوغي اليدوي ■■\n' +
+      'كلمات دالة: كينتسوغي، kintsugi، تذهيب شقوق، ترميم خزف بالذهب\n' +
+      'رائج: أطباق ديكور كينتسوغي، فازات كينتسوغي\n' +
+      'نقط بيع: خطوط ذهبية فنية مبهجة، قطعة فريدة لتجديد الديكور\n' +
+      'باقات: طبق كينتسوغي + قاعدة عرض خشبية\n' +
+      'وسوم: #كينتسوغي #تجديد_ديكور'
   );
   assert.equal(addSpecRes.ok, true);
   assert.equal(addSpecRes.addedCount, 1);
 
   // شموسة تتعرف عليه فوراً بدون تعديل أي كود!
-  const decoupageMatch = understandProductSentence('عايز أسوّق صينية ديكوباج يدوي للبيت');
-  assert.equal(decoupageMatch.specialty?.nameAr, 'فن الديكوباج اليدوي');
+  const kintsugiMatch = understandProductSentence('عايز أسوّق طبق كينتسوغي يدوي للبيت');
+  assert.equal(kintsugiMatch.specialty?.nameAr, 'فن الكينتسوغي اليدوي');
   assert.equal(getEffectiveMarketingLibrary().specialties.length, baseCountBeforeAdd + 1);
 
   // ب) تحديث تخصص موجود (إضافة كلمة دالة وباقة لـ مكرمية)

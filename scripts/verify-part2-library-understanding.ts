@@ -64,27 +64,27 @@ async function main() {
   // 2) اختبار التوسع التلقائي بدون تعديل كود (محاكاة إضافة دفعة 2)
   // ------------------------------------------------------------------
   const mockFutureSpecialty: CraftMarketingSpecialty = {
-    id: 'mock_origami_future',
-    nameAr: 'فن الأوريجامي والورق اليدوي',
+    id: 'mock_kintsugi_future',
+    nameAr: 'فن الكينتسوغي الياباني',
     batch: 9,
-    keywords: ['أوريجامي', 'طوي الورق', 'كروت ورقية يدوية', 'ورق مجسم'],
-    popularItems: ['كارت معايدة أوريجامي ثلاثي الأبعاد'],
-    typicalMaterials: ['ورق كرافت', 'ورق كانسون'],
-    sellingPoints: ['تفاصيل دقيقة وطي يدوي مبتكر'],
+    keywords: ['كينتسوغي', 'ترميم بالذهب', 'إصلاح خزف بالذهب', 'kintsugi'],
+    popularItems: ['طبق كينتسوغي مرمم بخطوط ذهبية'],
+    typicalMaterials: ['بودرة ميكا ذهبية', 'لاصق لاكر طبيعي'],
+    sellingPoints: ['تفاصيل فنية فريدة تحوّل الكسر لقيمة جمالية'],
     occasions: ['هدايا', 'رمضان'],
-    photoTips: 'صوّر الكارت مفتوح بزاوية مائلة لإظهار التجسيم.',
-    customerFaqs: [{ questionAr: 'ممكن كتابة إهداء؟', answerGuidanceAr: 'حسب طلب العميل' }],
-    videoIdeas: ['طي الورق بالتسريع'],
-    bundles: ['طقم 5 كروت معايدة'],
-    hashtags: ['#أوريجامي', '#كروت_يدوية'],
+    photoTips: 'صوّر خطوط الذهب بزاوية إضاءة جانبية لإبراز اللمعة.',
+    customerFaqs: [{ questionAr: 'هل مناسب للاستخدام الديكوري؟', answerGuidanceAr: 'حسب نوع اللاصق المستخدم في الورشة' }],
+    videoIdeas: ['تذهيب شق الطبق خطوة بخطوة'],
+    bundles: ['طقم طبقين ديكور كينتسوغي'],
+    hashtags: ['#كينتسوغي', '#فن_ياباني'],
   };
   const extendedLib: HandmadeMarketingLibraryData = {
     ...HANDMADE_MARKETING_LIBRARY,
     loadedBatches: [...HANDMADE_MARKETING_LIBRARY.loadedBatches, 9],
     specialties: [...HANDMADE_MARKETING_LIBRARY.specialties, mockFutureSpecialty],
   };
-  const extRes = understandProductSentence('عايز أسوّق كروت ورقية يدوية وأوريجامي هدية لرمضان', extendedLib);
-  assert.equal(extRes.specialty?.id, 'mock_origami_future');
+  const extRes = understandProductSentence('عايز أسوّق طبق كينتسوغي ترميم بالذهب هدية لرمضان', extendedLib);
+  assert.equal(extRes.specialty?.id, 'mock_kintsugi_future');
   assert.equal(extRes.matchedSeason?.id, 'ramadan');
   console.log('✅ [2] إضافة تخصص جديد (دفعة مستقبلية) يعمل تلقائياً في المحرك بدون أي تعديل كود.');
 
